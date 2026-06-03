@@ -1,0 +1,34 @@
+import type Database from 'better-sqlite3';
+import { SCHEMA_MIGRATIONS_DDL } from './schema.js';
+import * as m0001 from './migrations/0001_create_candidates.js';
+import * as m0002 from './migrations/0002_create_scoring_runs.js';
+import * as m0003 from './migrations/0003_create_portfolio.js';
+import * as m0004 from './migrations/0004_create_trademark.js';
+
+interface Migration {
+  name: string;
+  up: (db: Database.Database) => void;
+}
+
+const MIGRATIONS: Migration[] = [m0001, m0002, m0003, m0004];
+
+export function runMigrations(db: Database.Database): void {
+  db.exec(SCHEMA_MIGRATIONS_DDL);
+
+  const applied = new Set(
+    (db.prepare('SELECT migration_name FROM schema_migrations').all() as { migration_name: string }[]).map(
+      (r) => r.migration_name,
+    ),
+  );
+
+  const insert = db.prepare(
+    'INSERT INTO schema_migrations (migration_name) VALUES (?)',
+  );
+
+  for (const migration of MIGRATIONS) {
+    if (!applied.has(migration.name)) {
+      migration.up(db);
+      insert.run(migration.name);
+    }
+  }
+}
