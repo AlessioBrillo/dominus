@@ -1,0 +1,59 @@
+{
+  "name": "dominus",
+  "version": "0.1.0",
+  "description": "Decision-support engine for buying and reselling DNS domains on the aftermarket",
+  "private": false,
+  "license": "MIT",
+  "author": "AlessioBrillo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlessioBrillo/dominus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AlessioBrillo/dominus/issues"
+  },
+  "homepage": "https://github.com/AlessioBrillo/dominus#readme",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/ --ext .ts",
+    "lint:fix": "eslint src/ --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "clean": "rm -rf dist/ coverage/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "dns",
+    "domain",
+    "investment",
+    "domaining",
+    "scoring",
+    "aftermarket"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.16.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "nodemon": "^3.1.0",
+    "prettier": "^3.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
