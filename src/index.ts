@@ -4,6 +4,7 @@ import { getLogger } from './logger.js';
 import { openDatabase, runMigrations } from './db/index.js';
 import {
   CandidateRepository,
+  ScoringRepository,
   PortfolioRepository,
 } from './db/index.js';
 import { NodeDnsProvider } from './providers/dns/index.js';
@@ -22,6 +23,7 @@ import {
   TrademarkGateStage,
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
+import { PipelineRunService } from './app/index.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -36,10 +38,11 @@ const db = openDatabase(config.DATABASE_PATH);
 runMigrations(db);
 
 const candidateRepo = new CandidateRepository(db);
+const scoringRepo = new ScoringRepository(db);
 const portfolioRepo = new PortfolioRepository(db);
 
-const keywordProvider = new ManualKeywordProvider();
-const compsProvider = new ManualCompsProvider();
+const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
+const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
 const engine = new ScoringEngine(keywordProvider, compsProvider);
 
 const trademarkGate = new TrademarkGate(new UsptoCasesProvider(), new EuipoProvider());
@@ -52,6 +55,8 @@ const orchestrator = new PipelineOrchestrator(
   new TrademarkGateStage(trademarkGate),
 );
 
+const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
+
 const portfolioManager = new PortfolioManager(
   portfolioRepo,
   config.DROP_SCORE_THRESHOLD,
@@ -62,7 +67,7 @@ const app = express();
 app.use(express.json());
 app.use(createRequestLogger(logger));
 
-app.use('/api/candidates', createCandidatesRouter(orchestrator, candidateRepo));
+app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager));
 
 app.use(errorHandler);

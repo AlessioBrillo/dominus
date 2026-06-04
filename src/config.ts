@@ -15,6 +15,18 @@ const configSchema = z.object({
   SCORING_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
   DROP_RENEWAL_HORIZON_DAYS: z.coerce.number().int().min(1).default(60),
+  /**
+   * Optional path to a JSON file produced from Google Keyword Planner export.
+   * Format: array of { term, monthlySearchVolume, cpc, competition }.
+   * When absent, ManualKeywordProvider returns zero-volume for all terms.
+   */
+  KEYWORD_DATA_PATH: z.string().optional(),
+  /**
+   * Optional path to a CSV file of NameBio comparable sales.
+   * Columns: domain,price,date,venue
+   * When absent, ManualCompsProvider returns no comparables.
+   */
+  COMPS_DATA_PATH: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

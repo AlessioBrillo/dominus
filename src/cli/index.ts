@@ -1,13 +1,13 @@
 import { Command } from 'commander';
-import type { PipelineOrchestrator } from '../pipeline/orchestrator.js';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
+import type { PipelineRunService } from '../app/pipeline-run-service.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
 
 export function createCli(
-  orchestrator: PipelineOrchestrator,
+  runService: PipelineRunService,
   manager: PortfolioManager,
   engine: ScoringEngine,
 ): Command {
@@ -18,7 +18,7 @@ export function createCli(
     .description('Personal DNS domain investment decision-support tool')
     .version('0.1.0');
 
-  registerRunCommand(program, orchestrator);
+  registerRunCommand(program, runService);
   registerPortfolioCommand(program, manager);
   registerScoreCommand(program, engine);
 
