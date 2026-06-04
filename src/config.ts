@@ -31,10 +31,15 @@ const configSchema = z.object({
    * USPTO public trademark search base URL (no API key required).
    * Default: the official US tmsearch.uspto.gov JSON backend.
    */
+  /**
+   * USPTO tmsearch Elasticsearch backend endpoint.
+   * Accepts POST with an ES-style query body; fields: WM (word mark), ST (status),
+   * ON (owner name), SN (serial number), RN (registration number).
+   */
   USPTO_SEARCH_URL: z
     .string()
     .url()
-    .default('https://tmsearch.uspto.gov/search/search-information'),
+    .default('https://tmsearch.uspto.gov/tmsearch'),
   /**
    * EUIPO OAuth2 credentials (free registration at https://euipo.europa.eu/ohimportal/en/open-data).
    * When absent, EuipoProvider is treated as unavailable (graceful degrade).

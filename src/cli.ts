@@ -30,7 +30,15 @@ const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
 const engine = new ScoringEngine(keywordProvider, compsProvider);
 
-const trademarkGate = new TrademarkGate(new UsptoCasesProvider(), new EuipoProvider());
+const trademarkGate = new TrademarkGate(
+  new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+  new EuipoProvider({
+    clientId: config.EUIPO_CLIENT_ID,
+    clientSecret: config.EUIPO_CLIENT_SECRET,
+    authUrl: config.EUIPO_AUTH_URL,
+    apiUrl: config.EUIPO_API_URL,
+  }),
+);
 
 const orchestrator = new PipelineOrchestrator(
   new CandidateGenerationStage(),

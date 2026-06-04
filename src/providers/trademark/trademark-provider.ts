@@ -3,7 +3,7 @@ export interface TrademarkMatch {
   owner: string;
   status: string;
   source: string;
-  registrationNumber?: string;
+  registrationNumber?: string | undefined;
 }
 
 export interface TrademarkProvider {
