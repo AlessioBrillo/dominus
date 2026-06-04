@@ -1,19 +1,27 @@
 import { CandidateStatus } from '../../types/candidate.js';
-import { ProviderError } from '../../types/errors.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { Stage, StageResult } from '../stage.js';
 
-export class TrademarkGateStage implements Stage<DomainCandidate> {
+/**
+ * Principle 6 enforcement: no candidate reaches `recommended` without a
+ * confirmed trademark clearance. A provider error counts as "cannot clear" —
+ * the candidate is routed to `filtered` with status `Unscored`, never surfaced
+ * as a buy recommendation.
+ *
+ * Generic over T extends DomainCandidate so that ScoredCandidate (which carries
+ * `scoreResult`) passes through the gate unmodified except for `status`.
+ */
+export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
   readonly name = 'TrademarkGateStage';
 
   constructor(private readonly gate: TrademarkGate) {}
 
-  async process(candidates: DomainCandidate[]): Promise<StageResult<DomainCandidate>> {
+  async process(candidates: T[]): Promise<StageResult<T>> {
     const start = Date.now();
-    const passed: DomainCandidate[] = [];
-    const filtered: DomainCandidate[] = [];
+    const passed: T[] = [];
+    const filtered: T[] = [];
 
     for (const candidate of candidates) {
       try {
@@ -23,12 +31,9 @@ export class TrademarkGateStage implements Stage<DomainCandidate> {
         } else {
           passed.push(candidate);
         }
-      } catch (err: unknown) {
-        if (err instanceof ProviderError) {
-          passed.push({ ...candidate, status: CandidateStatus.Unscored });
-        } else {
-          filtered.push({ ...candidate, status: CandidateStatus.TrademarkBlocked });
-        }
+      } catch {
+        // Provider unavailable → cannot confirm TM clearance → must not recommend.
+        filtered.push({ ...candidate, status: CandidateStatus.Unscored });
       }
     }
 
