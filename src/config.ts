@@ -27,6 +27,33 @@ const configSchema = z.object({
    * When absent, ManualCompsProvider returns no comparables.
    */
   COMPS_DATA_PATH: z.string().optional(),
+  /**
+   * USPTO public trademark search base URL (no API key required).
+   * Default: the official US tmsearch.uspto.gov JSON backend.
+   */
+  USPTO_SEARCH_URL: z
+    .string()
+    .url()
+    .default('https://tmsearch.uspto.gov/search/search-information'),
+  /**
+   * EUIPO OAuth2 credentials (free registration at https://euipo.europa.eu/ohimportal/en/open-data).
+   * When absent, EuipoProvider is treated as unavailable (graceful degrade).
+   */
+  EUIPO_CLIENT_ID: z.string().optional(),
+  EUIPO_CLIENT_SECRET: z.string().optional(),
+  EUIPO_AUTH_URL: z
+    .string()
+    .url()
+    .default('https://euipo.europa.eu/oauth2/token'),
+  EUIPO_API_URL: z
+    .string()
+    .url()
+    .default('https://euipo.europa.eu/copla/trademark/data-capture/V1/trademarks'),
+  /**
+   * Number of days that a cached trademark result remains valid.
+   * Avoids re-hitting rate-limited free APIs on repeat pipeline runs.
+   */
+  TM_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
 });
 
 export type Config = z.infer<typeof configSchema>;
