@@ -27,12 +27,18 @@ export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
       try {
         const result = await this.gate.check(candidate.domain);
         if (result.verdict === GateVerdict.Blocked) {
+          // Confirmed trademark match — never recommend (Principle 6).
           filtered.push({ ...candidate, status: CandidateStatus.TrademarkBlocked });
+        } else if (result.verdict === GateVerdict.Unverified) {
+          // All trademark sources failed — cannot confirm clearance (Principle 6).
+          // Do NOT recommend even though no explicit match was found.
+          filtered.push({ ...candidate, status: CandidateStatus.Unscored });
         } else {
+          // GateVerdict.Clear (possibly partial) — trademark clearance confirmed.
           passed.push(candidate);
         }
       } catch {
-        // Provider unavailable → cannot confirm TM clearance → must not recommend.
+        // Unexpected error from gate.check() itself → conservative filter.
         filtered.push({ ...candidate, status: CandidateStatus.Unscored });
       }
     }
