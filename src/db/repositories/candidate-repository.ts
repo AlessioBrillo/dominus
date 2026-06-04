@@ -78,4 +78,38 @@ export class CandidateRepository {
       .all(runId) as CandidateRow[];
     return rows.map(rowToCandidate);
   }
+
+  /**
+   * Upsert a candidate by domain (the UNIQUE key). On conflict, updates every
+   * mutable field so that re-running the pipeline reflects the latest status.
+   * Returns the persisted candidate including the resolved `id`.
+   */
+  upsert(candidate: DomainCandidate): DomainCandidate {
+    const row = this.db
+      .prepare(
+        `INSERT INTO candidates
+           (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(domain) DO UPDATE SET
+           status          = excluded.status,
+           dns_status      = excluded.dns_status,
+           rdap_status     = excluded.rdap_status,
+           is_premium      = excluded.is_premium,
+           pipeline_run_id = excluded.pipeline_run_id,
+           updated_at      = datetime('now')
+         RETURNING id`,
+      )
+      .get(
+        candidate.domain,
+        candidate.tld,
+        candidate.source,
+        candidate.status,
+        candidate.dnsStatus ?? null,
+        candidate.rdapStatus ?? null,
+        candidate.isPremium ? 1 : 0,
+        candidate.pipelineRunId,
+      ) as { id: number };
+
+    return { ...candidate, id: row.id };
+  }
 }

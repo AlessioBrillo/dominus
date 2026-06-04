@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import type { PipelineOrchestrator } from '../../pipeline/orchestrator.js';
+import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 
 export function createCandidatesRouter(
-  orchestrator: PipelineOrchestrator,
+  runService: PipelineRunService,
   candidateRepo: CandidateRepository,
 ): Router {
   const router = Router();
@@ -25,7 +25,7 @@ export function createCandidatesRouter(
       closeoutDomains?: string[];
     };
 
-    orchestrator
+    runService
       .run({ keywords, brandableNames, closeoutDomains })
       .then((result) => {
         res.json({
@@ -33,6 +33,7 @@ export function createCandidatesRouter(
           recommended: result.recommended,
           stageSummary: result.stageSummary,
           totalDurationMs: result.totalDurationMs,
+          persistence: result.persistence,
         });
       })
       .catch((err: unknown) => next(err));

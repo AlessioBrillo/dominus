@@ -57,7 +57,8 @@ function makeMockEngine(): ScoringEngine {
 }
 
 describe('PipelineOrchestrator', () => {
-  it('runs all 5 stages in order and returns recommended candidates', async () => {
+  it('runs all 5 stages and returns recommended candidates when TM is clear', async () => {
+    // Arrange
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
@@ -66,13 +67,17 @@ describe('PipelineOrchestrator', () => {
       new TrademarkGateStage(makeMockGate()),
     );
 
+    // Act
     const result = await orchestrator.run({ brandableNames: ['nova.com', 'zenify.io'] });
+
+    // Assert
     expect(result.recommended).toHaveLength(2);
     expect(result.stageSummary).toHaveProperty('CandidateGenerationStage');
     expect(result.stageSummary).toHaveProperty('TrademarkGateStage');
   });
 
-  it('DNS-registered domains do not reach scoring stage', async () => {
+  it('DNS-registered domains do not reach the scoring stage', async () => {
+    // Arrange
     const dnsFiltered = makeMockDns(DomainStatus.Registered);
     const engine = makeMockEngine();
     const orchestrator = new PipelineOrchestrator(
@@ -83,11 +88,15 @@ describe('PipelineOrchestrator', () => {
       new TrademarkGateStage(makeMockGate()),
     );
 
+    // Act
     await orchestrator.run({ brandableNames: ['taken.com'] });
+
+    // Assert — DNS filtered it; scoring is never called
     expect(engine.score).not.toHaveBeenCalled();
   });
 
-  it('trademark-blocked domains do not reach scoring', async () => {
+  it('Principle 3+6: scoring runs before the trademark gate', async () => {
+    // Arrange — gate is blocked; we verify scoring was still called (correct order)
     const gate = makeMockGate(GateVerdict.Blocked);
     const engine = makeMockEngine();
     const orchestrator = new PipelineOrchestrator(
@@ -98,7 +107,76 @@ describe('PipelineOrchestrator', () => {
       new TrademarkGateStage(gate),
     );
 
-    await orchestrator.run({ brandableNames: ['nikestore.com'] });
-    expect(engine.score).not.toHaveBeenCalled();
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['nikestore.com'] });
+
+    // Assert — scoring was called (gate runs after); domain not recommended (blocked)
+    expect(engine.score).toHaveBeenCalled();
+    expect(result.recommended).toHaveLength(0);
+  });
+
+  it('TM-blocked candidates are not in recommended but appear in scored', async () => {
+    // Arrange
+    const gate = makeMockGate(GateVerdict.Blocked);
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(gate),
+    );
+
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['nikestore.com'] });
+
+    // Assert — not recommended but scored (score should be persisted)
+    expect(result.recommended).toHaveLength(0);
+    expect(result.scored).toHaveLength(1);
+    expect(result.scored[0]?.domain).toBe('nikestore.com');
+  });
+
+  it('Principle 6: TM provider error keeps the candidate out of recommended', async () => {
+    // Arrange — gate throws (provider unavailable)
+    const brokenGate: TrademarkGate = {
+      check: vi.fn().mockRejectedValue(new Error('TM API unavailable')),
+    } as unknown as TrademarkGate;
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(brokenGate),
+    );
+
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['unknowntm.com'] });
+
+    // Assert — cannot confirm clearance → not recommended
+    expect(result.recommended).toHaveLength(0);
+    expect(result.scored[0]?.status).toBe('unscored');
+  });
+
+  it('result.scored includes all candidates that went through the scoring engine', async () => {
+    // Arrange — one clear, one blocked
+    const gate = { check: vi.fn() } as unknown as TrademarkGate;
+    (gate.check as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ domain: 'nova.com', verdict: GateVerdict.Clear })
+      .mockResolvedValueOnce({ domain: 'nikestore.com', verdict: GateVerdict.Blocked });
+
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(gate),
+    );
+
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['nova.com', 'nikestore.com'] });
+
+    // Assert — both scored (for persistence), only the clear one recommended
+    expect(result.scored).toHaveLength(2);
+    expect(result.recommended).toHaveLength(1);
+    expect(result.recommended[0]?.domain).toBe('nova.com');
   });
 });
