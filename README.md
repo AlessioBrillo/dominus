@@ -88,11 +88,62 @@ The CSV is header-driven (column order is free; unknown columns ignored):
 `age`, `backlinks`, and `wayback` feed the **expiry signal** of the scoring engine. Rows
 with a missing/invalid domain are skipped, so one bad line never aborts an import.
 
+## Portfolio re-score and outcomes
+
+The portfolio's drop verdicts only make sense when each entry has a fresh score. The
+rescore command re-runs the scoring engine and the trademark gate against every owned
+domain, writes the new calibrated 0-100 score and suggested list price, and refreshes
+the verdicts:
+
+```bash
+# Re-score the whole portfolio
+node dist/cli.js portfolio rescore
+
+# Same, but only print the summary line (no per-domain table)
+node dist/cli.js portfolio rescore --quiet
+```
+
+DNS and RDAP stages are intentionally skipped: an owned domain is already registered,
+so DNS would just drop it. The trademark gate is rerun because new marks may have been
+registered after acquisition; keyword/comps data may have drifted and the engine's
+weights will be tuned over time.
+
+Recorded outcomes are the data the engine will eventually be retrained against:
+
+```bash
+# Record a sale
+node dist/cli.js outcome record --domain alpha.com --type sold --occurred-at 2026-04-15 \
+  --sale-price 1500 --venue sedo --days-listed 240
+
+# Record a drop
+node dist/cli.js outcome record --domain beta.io --type dropped --occurred-at 2026-06-01
+
+# List every recorded outcome
+node dist/cli.js outcome list
+
+# List a single domain's history
+node dist/cli.js outcome list --domain alpha.com
+
+# Aggregate stats for a domain
+node dist/cli.js outcome stats --domain alpha.com
+```
+
+The REST equivalents:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/portfolio/rescore` | Re-score the whole portfolio |
+| `GET`  | `/api/portfolio/:domain/outcomes` | List outcomes for a domain |
+| `POST` | `/api/portfolio/:domain/outcomes` | Record a new outcome |
+| `GET`  | `/api/portfolio/:domain/outcomes/stats` | Aggregate counts and realised revenue |
+| `GET`  | `/api/candidates?runId=<id>` | List candidates for a pipeline run |
+
 ## Project Status
 
 MVP implemented and running end-to-end (CLI + API, SQLite persistence): five-stage
-pipeline, heuristic scoring engine, mandatory USPTO/EUIPO trademark gate, and portfolio
-tracker. Keyword and comparable-sales data remain free/manual by design. See
+pipeline, heuristic scoring engine, mandatory USPTO/EUIPO trademark gate, portfolio
+tracker with rescore + outcomes, and a fresh 0-100 calibrated score that powers the
+verdicts. Keyword and comparable-sales data remain free/manual by design. See
 [`CLAUDE.md`](CLAUDE.md) for the current development context.
 
 ## License
