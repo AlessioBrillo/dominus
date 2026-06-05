@@ -16,6 +16,7 @@ import {
   TrademarkGateStage,
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
+import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
 import { PipelineRunService, CachedTrademarkProvider } from './app/index.js';
 import { createCli } from './cli/index.js';
 
@@ -66,6 +67,7 @@ const portfolioManager = new PortfolioManager(
   config.DROP_SCORE_THRESHOLD,
   config.DROP_RENEWAL_HORIZON_DAYS,
 );
+portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate));
 
 const cli = createCli(runService, portfolioManager, engine);
 cli.parse(process.argv);
