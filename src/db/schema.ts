@@ -90,3 +90,37 @@ CREATE INDEX IF NOT EXISTS idx_trademark_candidate ON trademark_results(candidat
 export const TRADEMARK_TERM_INDEX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_trademark_term ON trademark_results(search_term, source)
 `;
+
+/**
+ * Outcomes are real-world events recorded against portfolio domains. They feed
+ * the future weight-retraining loop (vision §6, §9) and let the operator
+ * answer "of the N domains I bought in 2024, how many sold, for how much,
+ * after how long?". Most numeric/qualitative fields are optional: only the
+ * event type and occurrence date are mandatory. A domain is identified by its
+ * portfolio_entries row (FK) so that deleting a portfolio entry cascades
+ * cleanly. We do NOT FK to `candidates`: outcomes outlive the candidate
+ * evaluation cycle and belong to the portfolio, not the pipeline.
+ */
+export const OUTCOMES_DDL = `
+CREATE TABLE IF NOT EXISTS outcomes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL REFERENCES portfolio_entries(domain) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  sale_price_eur REAL,
+  listing_price_eur REAL,
+  days_listed INTEGER,
+  venue TEXT,
+  commission_pct REAL,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const OUTCOMES_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_outcomes_domain ON outcomes(domain)
+`;
+
+export const OUTCOMES_TYPE_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_outcomes_type ON outcomes(type, occurred_at)
+`;
