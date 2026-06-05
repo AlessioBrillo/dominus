@@ -7,6 +7,7 @@ import {
   ScoringRepository,
   PortfolioRepository,
   TrademarkRepository,
+  OutcomeRepository,
 } from './db/index.js';
 import { NodeDnsProvider } from './providers/dns/index.js';
 import { PublicRdapProvider } from './providers/rdap/index.js';
@@ -24,6 +25,7 @@ import {
   TrademarkGateStage,
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
+import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
 import { PipelineRunService, CachedTrademarkProvider } from './app/index.js';
 import {
   createCandidatesRouter,
@@ -42,6 +44,7 @@ const candidateRepo = new CandidateRepository(db);
 const scoringRepo = new ScoringRepository(db);
 const portfolioRepo = new PortfolioRepository(db);
 const trademarkRepo = new TrademarkRepository(db);
+const outcomeRepo = new OutcomeRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
@@ -82,13 +85,14 @@ const portfolioManager = new PortfolioManager(
   config.DROP_SCORE_THRESHOLD,
   config.DROP_RENEWAL_HORIZON_DAYS,
 );
+portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate));
 
 const app = express();
 app.use(express.json());
 app.use(createRequestLogger(logger));
 
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
-app.use('/api/portfolio', createPortfolioRouter(portfolioManager));
+app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
 
 app.use(errorHandler);
 

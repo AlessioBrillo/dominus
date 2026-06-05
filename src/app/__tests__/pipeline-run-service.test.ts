@@ -25,6 +25,7 @@ function makeScoreResult(domain: string): ScoreResult {
     confidence: 0.65,
     suggestedBuyMax: 100,
     suggestedListPrice: 600,
+    weightedScore: 0.55,
     breakdown: {
       intrinsic: { score: 0.8, weight: 0.3, details: {} },
       commercial: { score: 0.5, weight: 0.35, details: { monthlySearchVolume: 0 } },

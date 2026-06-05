@@ -51,7 +51,7 @@ Weights are tuned manually against real comparable sales. ML is out of scope at 
 
 ## Current project status
 
-The MVP is implemented and runs end-to-end (TypeScript + SQLite, CLI + Express API). All five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers + caching), the portfolio tracker, and persistence are in place and tested. `dominus-product-vision.md` (v0.2) remains the authoritative spec.
+The MVP is implemented and runs end-to-end (TypeScript + SQLite, CLI + Express API). All five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers + caching), the portfolio tracker, portfolio re-score (scoring + TM gate against owned domains), and the outcomes table (sold / dropped / expired / renewed) are in place and tested. `dominus-product-vision.md` (v0.2) remains the authoritative spec.
 
 Resolved v0.3 decisions (vision §11):
 

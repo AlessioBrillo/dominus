@@ -49,6 +49,7 @@ export class ScoringEngine {
       confidence: Math.round(confidence * 1000) / 1000,
       suggestedBuyMax: Math.round(suggestedBuyMax * 100) / 100,
       suggestedListPrice: Math.round(suggestedListPrice * 100) / 100,
+      weightedScore: Math.round(weightedScore * 1000) / 1000,
       breakdown: { intrinsic, commercial, market, expiry },
       recommended,
       scoredAt: new Date().toISOString(),

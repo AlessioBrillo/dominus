@@ -9,9 +9,16 @@ export function createCandidatesRouter(
 ): Router {
   const router = Router();
 
-  router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const candidates = candidateRepo.findByRunId('');
+      const runId = typeof req.query['runId'] === 'string' ? req.query['runId'] : '';
+      if (runId === '') {
+        res.status(400).json({
+          error: { code: 'BAD_REQUEST', message: 'runId query parameter is required' },
+        });
+        return;
+      }
+      const candidates = candidateRepo.findByRunId(runId);
       res.json({ candidates });
     } catch (err: unknown) {
       next(err);

@@ -56,4 +56,25 @@ describe('ScoringEngine', () => {
     expect(result.breakdown).toHaveProperty('market');
     expect(result.breakdown).toHaveProperty('expiry');
   });
+
+  it('exposes a 0-1 weightedScore derived from the breakdown', async () => {
+    const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({ domain: 'nova.com', tld: '.com', isCloseout: false });
+
+    // Recompute the expected weighted score from the breakdown — proves the
+    // engine is not making the field up.
+    const { intrinsic, commercial, market, expiry } = result.breakdown;
+    const expected = Math.round(
+      (intrinsic.score * intrinsic.weight +
+        commercial.score * commercial.weight +
+        market.score * market.weight +
+        expiry.score * expiry.weight) *
+        1000,
+    ) / 1000;
+
+    expect(result.weightedScore).toBe(expected);
+    expect(result.weightedScore).toBeGreaterThanOrEqual(0);
+    expect(result.weightedScore).toBeLessThanOrEqual(1);
+  });
 });
