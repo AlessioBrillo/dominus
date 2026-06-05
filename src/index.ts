@@ -6,6 +6,7 @@ import {
   CandidateRepository,
   ScoringRepository,
   PortfolioRepository,
+  TrademarkRepository,
 } from './db/index.js';
 import { NodeDnsProvider } from './providers/dns/index.js';
 import { PublicRdapProvider } from './providers/rdap/index.js';
@@ -23,7 +24,7 @@ import {
   TrademarkGateStage,
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
-import { PipelineRunService } from './app/index.js';
+import { PipelineRunService, CachedTrademarkProvider } from './app/index.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -40,12 +41,31 @@ runMigrations(db);
 const candidateRepo = new CandidateRepository(db);
 const scoringRepo = new ScoringRepository(db);
 const portfolioRepo = new PortfolioRepository(db);
+const trademarkRepo = new TrademarkRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
 const engine = new ScoringEngine(keywordProvider, compsProvider);
 
-const trademarkGate = new TrademarkGate(new UsptoCasesProvider(), new EuipoProvider());
+const trademarkGate = new TrademarkGate(
+  new CachedTrademarkProvider(
+    new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+    trademarkRepo,
+    'USPTO',
+    config.TM_CACHE_TTL_DAYS,
+  ),
+  new CachedTrademarkProvider(
+    new EuipoProvider({
+      clientId: config.EUIPO_CLIENT_ID,
+      clientSecret: config.EUIPO_CLIENT_SECRET,
+      authUrl: config.EUIPO_AUTH_URL,
+      apiUrl: config.EUIPO_API_URL,
+    }),
+    trademarkRepo,
+    'EUIPO',
+    config.TM_CACHE_TTL_DAYS,
+  ),
+);
 
 const orchestrator = new PipelineOrchestrator(
   new CandidateGenerationStage(),

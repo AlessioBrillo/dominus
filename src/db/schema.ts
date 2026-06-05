@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS portfolio_entries (
 export const TRADEMARK_RESULTS_DDL = `
 CREATE TABLE IF NOT EXISTS trademark_results (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  candidate_id INTEGER NOT NULL REFERENCES candidates(id),
+  candidate_id INTEGER REFERENCES candidates(id),
   search_term TEXT NOT NULL,
   source TEXT NOT NULL,
   match_found INTEGER NOT NULL,
@@ -85,4 +85,8 @@ CREATE TABLE IF NOT EXISTS trademark_results (
 
 export const TRADEMARK_INDEX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_trademark_candidate ON trademark_results(candidate_id, source)
+`;
+
+export const TRADEMARK_TERM_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_trademark_term ON trademark_results(search_term, source)
 `;

@@ -33,7 +33,14 @@ function makeMockRdap(available = true): RdapProvider {
 }
 
 function makeMockGate(verdict = GateVerdict.Clear): TrademarkGate {
-  return { check: vi.fn().mockResolvedValue({ domain: 'x', verdict }) } as unknown as TrademarkGate;
+  return {
+    check: vi.fn().mockResolvedValue({
+      domain: 'x',
+      verdict,
+      verifiedSources: verdict === GateVerdict.Clear ? ['USPTO', 'EUIPO'] : [],
+      partial: false,
+    }),
+  } as unknown as TrademarkGate;
 }
 
 function makeMockEngine(): ScoringEngine {
@@ -135,8 +142,28 @@ describe('PipelineOrchestrator', () => {
     expect(result.scored[0]?.domain).toBe('nikestore.com');
   });
 
-  it('Principle 6: TM provider error keeps the candidate out of recommended', async () => {
-    // Arrange — gate throws (provider unavailable)
+  it('Principle 6: TM Unverified verdict keeps the candidate out of recommended', async () => {
+    // Arrange — gate returns Unverified (both sources down — the degrade-gracefully case
+    // where no source responded)
+    const gate = makeMockGate(GateVerdict.Unverified);
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(gate),
+    );
+
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['unknowntm.com'] });
+
+    // Assert — cannot confirm clearance → not recommended
+    expect(result.recommended).toHaveLength(0);
+    expect(result.scored[0]?.status).toBe('unscored');
+  });
+
+  it('Principle 6: unexpected gate.check() error keeps the candidate out of recommended', async () => {
+    // Arrange — gate itself throws (defensive path beyond provider handling)
     const brokenGate: TrademarkGate = {
       check: vi.fn().mockRejectedValue(new Error('TM API unavailable')),
     } as unknown as TrademarkGate;
@@ -160,8 +187,17 @@ describe('PipelineOrchestrator', () => {
     // Arrange — one clear, one blocked
     const gate = { check: vi.fn() } as unknown as TrademarkGate;
     (gate.check as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ domain: 'nova.com', verdict: GateVerdict.Clear })
-      .mockResolvedValueOnce({ domain: 'nikestore.com', verdict: GateVerdict.Blocked });
+      .mockResolvedValueOnce({
+        domain: 'nova.com',
+        verdict: GateVerdict.Clear,
+        verifiedSources: ['USPTO', 'EUIPO'],
+        partial: false,
+      })
+      .mockResolvedValueOnce({
+        domain: 'nikestore.com',
+        verdict: GateVerdict.Blocked,
+        verifiedSources: ['EUIPO'],
+      });
 
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
