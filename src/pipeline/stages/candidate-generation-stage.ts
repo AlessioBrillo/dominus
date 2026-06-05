@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
-import type { DomainCandidate } from '../../types/candidate.js';
+import type { CloseoutEntry, DomainCandidate } from '../../types/candidate.js';
 import type { Stage, StageResult } from '../stage.js';
 
 export interface CandidateGenerationInput {
   keywords?: string[] | undefined;
   brandableNames?: string[] | undefined;
+  /** Plain closeout domains with no metadata (e.g. the inline --closeout flag). */
   closeoutDomains?: string[] | undefined;
+  /** Closeout domains carrying expiry-signal metadata (e.g. a --closeout-csv import). */
+  closeoutEntries?: CloseoutEntry[] | undefined;
 }
 
 function extractTld(domain: string): string {
@@ -35,6 +38,18 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
       for (const domain of input.closeoutDomains ?? []) {
         const tld = extractTld(domain);
         passed.push({ domain, tld, source: CandidateSource.CloseoutCsv, status: CandidateStatus.Pending, isPremium: false, pipelineRunId: runId });
+      }
+      for (const entry of input.closeoutEntries ?? []) {
+        const tld = extractTld(entry.domain);
+        passed.push({
+          domain: entry.domain,
+          tld,
+          source: CandidateSource.CloseoutCsv,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
+          closeoutMeta: { domainAge: entry.domainAge, backlinks: entry.backlinks, waybackSnapshots: entry.waybackSnapshots },
+        });
       }
     }
 
