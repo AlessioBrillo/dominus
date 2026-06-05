@@ -1,5 +1,5 @@
 import { loadConfig } from './config.js';
-import { openDatabase, runMigrations, CandidateRepository, ScoringRepository, PortfolioRepository, TrademarkRepository } from './db/index.js';
+import { openDatabase, runMigrations, CandidateRepository, ScoringRepository, PortfolioRepository, TrademarkRepository, OutcomeRepository } from './db/index.js';
 import { ManualKeywordProvider } from './providers/keyword/index.js';
 import { ManualCompsProvider } from './providers/comps/index.js';
 import { NodeDnsProvider } from './providers/dns/index.js';
@@ -27,6 +27,7 @@ runMigrations(db);
 const candidateRepo = new CandidateRepository(db);
 const scoringRepo = new ScoringRepository(db);
 const trademarkRepo = new TrademarkRepository(db);
+const outcomeRepo = new OutcomeRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
@@ -69,5 +70,5 @@ const portfolioManager = new PortfolioManager(
 );
 portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate));
 
-const cli = createCli(runService, portfolioManager, engine);
+const cli = createCli(runService, portfolioManager, engine, outcomeRepo);
 cli.parse(process.argv);
