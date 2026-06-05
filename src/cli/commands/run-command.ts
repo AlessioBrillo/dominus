@@ -1,5 +1,9 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
+import { parseCloseoutCsv } from '../../candidates/index.js';
+import type { CloseoutEntry } from '../../types/candidate.js';
 
 export function registerRunCommand(program: Command, runService: PipelineRunService): void {
   program
@@ -8,13 +12,25 @@ export function registerRunCommand(program: Command, runService: PipelineRunServ
     .option('-k, --keywords <keywords>', 'Comma-separated keywords to evaluate as .com names')
     .option('-b, --brandable <domains>', 'Comma-separated brandable domain names')
     .option('-c, --closeout <domains>', 'Comma-separated closeout/expired domain names')
-    .action((options: { keywords?: string; brandable?: string; closeout?: string }) => {
+    .option('--closeout-csv <path>', 'Path to a closeout CSV (header: domain,age,backlinks,wayback)')
+    .action((options: { keywords?: string; brandable?: string; closeout?: string; closeoutCsv?: string }) => {
       const keywords = options.keywords?.split(',').map((k) => k.trim()).filter(Boolean);
       const brandableNames = options.brandable?.split(',').map((k) => k.trim()).filter(Boolean);
       const closeoutDomains = options.closeout?.split(',').map((k) => k.trim()).filter(Boolean);
 
+      let closeoutEntries: CloseoutEntry[] | undefined;
+      if (options.closeoutCsv !== undefined) {
+        const csvPath = resolve(process.cwd(), options.closeoutCsv);
+        if (!existsSync(csvPath)) {
+          process.stderr.write(`Error: closeout CSV not found: ${csvPath}\n`);
+          process.exit(1);
+        }
+        closeoutEntries = parseCloseoutCsv(readFileSync(csvPath, 'utf-8'));
+        process.stdout.write(`Imported ${closeoutEntries.length} closeout domains from ${options.closeoutCsv}\n`);
+      }
+
       runService
-        .run({ keywords, brandableNames, closeoutDomains })
+        .run({ keywords, brandableNames, closeoutDomains, closeoutEntries })
         .then((result) => {
           process.stdout.write(`\nPipeline run: ${result.runId}\n`);
           process.stdout.write(`Duration: ${result.totalDurationMs}ms\n\n`);

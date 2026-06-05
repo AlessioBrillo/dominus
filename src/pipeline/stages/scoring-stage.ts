@@ -24,6 +24,11 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
           domain: candidate.domain,
           tld: candidate.tld,
           isCloseout: candidate.source === CandidateSource.CloseoutCsv,
+          // Closeout metadata (when imported) feeds the expiry signal; absent for
+          // keyword/brandable candidates, where the signal stays zero.
+          domainAge: candidate.closeoutMeta?.domainAge,
+          backlinks: candidate.closeoutMeta?.backlinks,
+          waybackSnapshots: candidate.closeoutMeta?.waybackSnapshots,
         });
 
         const status = scoreResult.recommended ? CandidateStatus.Recommended : CandidateStatus.Scored;

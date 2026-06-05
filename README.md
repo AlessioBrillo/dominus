@@ -67,9 +67,33 @@ npm test
 npm run lint
 ```
 
+## Importing closeout candidates
+
+The pipeline's first segment is **economic closeouts**. Feed a CSV of closeout/expiry
+domains to the `run` command:
+
+```bash
+node dist/cli.js run --closeout-csv examples/closeout-sample.csv
+```
+
+The CSV is header-driven (column order is free; unknown columns ignored):
+
+| Column | Required | Meaning |
+|--------|----------|---------|
+| `domain` | yes | the closeout domain name |
+| `age` | no | domain age in years |
+| `backlinks` | no | referring/backlink count |
+| `wayback` | no | number of Wayback Machine snapshots |
+
+`age`, `backlinks`, and `wayback` feed the **expiry signal** of the scoring engine. Rows
+with a missing/invalid domain are skipped, so one bad line never aborts an import.
+
 ## Project Status
 
-This project is in early development. No production code exists yet. See [`CLAUDE.md`](CLAUDE.md) for the current development context.
+MVP implemented and running end-to-end (CLI + API, SQLite persistence): five-stage
+pipeline, heuristic scoring engine, mandatory USPTO/EUIPO trademark gate, and portfolio
+tracker. Keyword and comparable-sales data remain free/manual by design. See
+[`CLAUDE.md`](CLAUDE.md) for the current development context.
 
 ## License
 
