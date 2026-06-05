@@ -1,0 +1,93 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+import { describe, it, expect, beforeEach } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../db/migrator.js';
+import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
+import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
+import { createCandidatesRouter } from '../routes/candidates.js';
+import { errorHandler } from '../middleware/error-handler.js';
+import type { PipelineRunService } from '../../app/pipeline-run-service.js';
+
+function openTestDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  runMigrations(db);
+  return db;
+}
+
+function makeStubRunService(): PipelineRunService {
+  return {
+    run: () =>
+      Promise.resolve({
+        runId: 'stub',
+        recommended: [],
+        scored: [],
+        allCandidates: [],
+        stageSummary: {},
+        totalDurationMs: 0,
+        persistence: { candidatesPersisted: 0, scoresPersisted: 0 },
+      }),
+  } as unknown as PipelineRunService;
+}
+
+function buildApp(db: Database.Database): express.Express {
+  const candidateRepo = new CandidateRepository(db);
+  candidateRepo.insert({
+    domain: 'alpha.com',
+    tld: '.com',
+    source: CandidateSource.KeywordCombo,
+    status: CandidateStatus.Recommended,
+    isPremium: false,
+    pipelineRunId: 'run-1',
+  });
+  candidateRepo.insert({
+    domain: 'beta.io',
+    tld: '.io',
+    source: CandidateSource.KeywordCombo,
+    status: CandidateStatus.Recommended,
+    isPremium: false,
+    pipelineRunId: 'run-2',
+  });
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api/candidates', createCandidatesRouter(makeStubRunService(), candidateRepo));
+  app.use(errorHandler);
+  return app;
+}
+
+describe('Candidates API', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = openTestDb();
+  });
+
+  describe('GET /api/candidates', () => {
+    it('returns 400 with a clear error when runId is missing', async () => {
+      const app = buildApp(db);
+      const res = await request(app).get('/api/candidates');
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('BAD_REQUEST');
+      expect(res.body.error.message).toMatch(/runId/);
+    });
+
+    it('returns the candidates for the requested runId', async () => {
+      const app = buildApp(db);
+      const res = await request(app).get('/api/candidates?runId=run-1');
+      expect(res.status).toBe(200);
+      expect(res.body.candidates).toHaveLength(1);
+      expect(res.body.candidates[0].domain).toBe('alpha.com');
+    });
+
+    it('returns an empty array for an unknown runId', async () => {
+      const app = buildApp(db);
+      const res = await request(app).get('/api/candidates?runId=does-not-exist');
+      expect(res.status).toBe(200);
+      expect(res.body.candidates).toEqual([]);
+    });
+  });
+});
