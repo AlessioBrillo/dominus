@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { Command } from 'commander';
 import { registerRunCommand } from '../commands/run-command.js';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
@@ -34,6 +37,30 @@ describe('registerRunCommand', () => {
     await program.parseAsync(['node', 'cli', 'run', '--keywords', 'nova,saas']);
     expect(runService.run).toHaveBeenCalledWith(
       expect.objectContaining({ keywords: ['nova', 'saas'] }),
+    );
+  });
+
+  const tmpFiles: string[] = [];
+  afterEach(() => {
+    for (const f of tmpFiles) rmSync(f, { force: true });
+    tmpFiles.length = 0;
+  });
+
+  it('parses --closeout-csv and forwards closeoutEntries', async () => {
+    const csvPath = join(tmpdir(), `dominus-closeout-${Date.now()}.csv`);
+    writeFileSync(csvPath, 'domain,age,backlinks,wayback\nexpired.com,12,340,87\nbad domain,1,1,1\n');
+    tmpFiles.push(csvPath);
+
+    const runService = makeMockRunService();
+    const program = new Command();
+    program.exitOverride();
+    registerRunCommand(program, runService);
+
+    await program.parseAsync(['node', 'cli', 'run', '--closeout-csv', csvPath]);
+    expect(runService.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        closeoutEntries: [{ domain: 'expired.com', domainAge: 12, backlinks: 340, waybackSnapshots: 87 }],
+      }),
     );
   });
 });
