@@ -17,8 +17,8 @@ export function computeExpiryScore(input: ScoringInput, weight: number): SignalO
     ? Math.min(1, input.backlinks / MAX_BACKLINKS)
     : 0;
 
-  const waybackScore = input.waybkackSnapshots !== undefined
-    ? Math.min(1, input.waybkackSnapshots / MAX_WAYBACK_SNAPSHOTS)
+  const waybackScore = input.waybackSnapshots !== undefined
+    ? Math.min(1, input.waybackSnapshots / MAX_WAYBACK_SNAPSHOTS)
     : 0;
 
   const score = Math.min(1, Math.max(0, ageScore * 0.4 + backlinkScore * 0.4 + waybackScore * 0.2));
@@ -30,7 +30,7 @@ export function computeExpiryScore(input: ScoringInput, weight: number): SignalO
       isCloseout: true,
       domainAge: input.domainAge,
       backlinks: input.backlinks,
-      waybkackSnapshots: input.waybkackSnapshots,
+      waybackSnapshots: input.waybackSnapshots,
       ageScore,
       backlinkScore,
       waybackScore,

@@ -29,5 +29,5 @@ export interface ScoringInput {
   isCloseout: boolean;
   domainAge?: number | undefined;
   backlinks?: number | undefined;
-  waybkackSnapshots?: number | undefined;
+  waybackSnapshots?: number | undefined;
 }
