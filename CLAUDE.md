@@ -51,9 +51,13 @@ Weights are tuned manually against real comparable sales. ML is out of scope at 
 
 ## Current project status
 
-No code exists yet. The repository contains only `dominus-product-vision.md` (v0.2), which is the authoritative spec. Open decisions for v0.3 (documented in §11 of the vision doc):
+The MVP is implemented and runs end-to-end (TypeScript + SQLite, CLI + Express API). All five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers + caching), the portfolio tracker, and persistence are in place and tested. `dominus-product-vision.md` (v0.2) remains the authoritative spec.
 
-1. Starting segment: invented brandables vs. economic closeouts
-2. MVP interface: pure CLI vs. web dashboard
-3. Which registrar for manual purchases
-4. Drop policy: how many months + what score threshold before a domain is released
+Resolved v0.3 decisions (vision §11):
+
+1. **Starting segment: economic closeouts first** — Stage 1 imports closeout CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the expiry signal.
+2. **MVP interface: CLI** — the React dashboard is deferred.
+3. Registrar for manual purchases — still open.
+4. Drop policy — defaults live in config (`DROP_SCORE_THRESHOLD`, `DROP_RENEWAL_HORIZON_DAYS`); thresholds still being tuned.
+
+Providers still on free/manual data by design: `KeywordProvider` and `CompsProvider` read optional local files (`KEYWORD_DATA_PATH`, `COMPS_DATA_PATH`).

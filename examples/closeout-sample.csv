@@ -1,0 +1,6 @@
+# Sample closeout export — feed with: node dist/cli.js run --closeout-csv examples/closeout-sample.csv
+# Columns are header-driven; order is free and unknown columns are ignored.
+domain,age,backlinks,wayback
+vintagecoffee.com,14,420,180
+oldmaproom.net,9,75,40
+greenharvest.io,6,210,95
