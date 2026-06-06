@@ -128,6 +128,98 @@ node dist/cli.js outcome list --domain alpha.com
 node dist/cli.js outcome stats --domain alpha.com
 ```
 
+## Backtest & calibration
+
+The backtest command closes the loop between scoring predictions and the
+realised `sold` outcomes you have recorded. It pairs each sale with the
+scoring snapshot that was available *at the time of the sale* (point-in-time
+correct), aggregates the pairs into MAE / bias / buy-max hit rate, and breaks
+the metrics down by confidence bucket.
+
+```bash
+# Snapshot + report in one call (typical workflow)
+node dist/cli.js backtest run
+
+# Just rebuild the snapshot table (idempotent)
+node dist/cli.js backtest snapshot
+
+# Just print the report against the current snapshot
+node dist/cli.js backtest report
+
+# Machine-readable output for piping into other tools
+node dist/cli.js backtest run --json
+
+# Report without rebuilding (e.g. to compare against a saved snapshot)
+node dist/cli.js backtest run --no-snapshot
+```
+
+Sample output:
+
+```
+DOMINUS backtest — generated 2026-06-06T14:32:11.000Z
+Sample: 8 sold outcome(s)
+
+Error on expected_value:
+  MAE      €487
+  Median   €312
+  Bias     -€204  (over-predicting by 11% on average)
+
+Buy-max accuracy (the metric that matters for capital):
+  MAE         €212
+  Hit rate    75.0%  (sale_price > suggested_buy_max)
+
+Confidence calibration:
+  bucket  n     MAE    realised   predicted
+  low     2   €820       €310       €400
+  mid     3   €445      €1180      €1050
+  high    3   €210      €2450      €2300
+```
+
+The `backtest_signals` table is migration 0007 and is unique on
+`(outcome_id, scoring_run_id)`, so re-running `backtest run` is safe and
+idempotent. The point-in-time join (last `scoring_runs.scored_at <= outcome.occurred_at`)
+is what makes the bias number honest — a re-run of the pipeline after a sale
+will not retroactively inflate the engine's apparent accuracy.
+
+### Calibrating engine weights from the backtest
+
+The backtest report tells you *how* the engine is wrong (over-predicting,
+under-predicting on high-confidence picks, etc.). The
+`dominus backtest suggest-weights` command turns that report into a
+proposed weight adjustment — and crucially, does **not** apply it
+automatically:
+
+```bash
+# Propose weight adjustments based on the current backtest snapshot
+node dist/cli.js backtest suggest-weights
+
+# Same, but machine-readable
+node dist/cli.js backtest suggest-weights --json
+
+# Persist the suggestion to data/weights-override.json (no auto-activation)
+node dist/cli.js backtest suggest-weights --apply
+```
+
+The algorithm splits each signal's sample into "high" (score ≥ 0.5) and
+"low" (score < 0.5), computes the lift in mean realised price between
+the two buckets, and proposes a `±0.02` weight delta (capped at
+`±0.05`) when the lift exceeds `€50` in absolute value. With fewer than
+5 sold outcomes in the sample, the suggester returns "hold" for every
+signal — the engine will not act on insufficient evidence.
+
+Activation is a **two-gate process** that satisfies Principle 5
+(conservatism):
+
+1. `dominus backtest suggest-weights --apply` writes
+   `data/weights-override.json` with the proposed weights.
+2. The engine reads the file **only** when you set
+   `SCORING_WEIGHTS_OVERRIDE=./data/weights-override.json` in `.env`.
+
+Touching one without the other is a no-op. The override file is validated
+on every engine startup; an invalid JSON or a non-1.0 weight sum falls
+back to the defaults with a stderr warning — the engine never crashes
+on a malformed override.
+
 The REST equivalents:
 
 | Method | Path | Purpose |
@@ -142,8 +234,11 @@ The REST equivalents:
 
 MVP implemented and running end-to-end (CLI + API, SQLite persistence): five-stage
 pipeline, heuristic scoring engine, mandatory USPTO/EUIPO trademark gate, portfolio
-tracker with rescore + outcomes, and a fresh 0-100 calibrated score that powers the
-verdicts. Keyword and comparable-sales data remain free/manual by design. See
+tracker with rescore + outcomes, fresh 0-100 calibrated score that powers the
+verdicts, and a backtest engine (`dominus backtest run`) that pairs every sold
+outcome with the scoring snapshot available at decision time and reports MAE,
+bias, buy-max hit rate, and per-confidence-bucket calibration. Keyword and
+comparable-sales data remain free/manual by design. See
 [`CLAUDE.md`](CLAUDE.md) for the current development context.
 
 ## License

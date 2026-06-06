@@ -5,3 +5,4 @@ export { ScoringRepository } from './repositories/scoring-repository.js';
 export { PortfolioRepository } from './repositories/portfolio-repository.js';
 export { TrademarkRepository } from './repositories/trademark-repository.js';
 export { OutcomeRepository } from './repositories/outcome-repository.js';
+export { BacktestSignalsRepository } from './repositories/backtest-signals-repository.js';

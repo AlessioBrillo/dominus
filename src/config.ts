@@ -59,6 +59,15 @@ const configSchema = z.object({
    * Avoids re-hitting rate-limited free APIs on repeat pipeline runs.
    */
   TM_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
+  /**
+   * Optional path to a JSON file with operator-approved weight overrides.
+   * When set, the scoring engine reads this file at startup and uses the
+   * weights inside it instead of DEFAULT_WEIGHTS. The CLI's
+   * `backtest suggest-weights --apply` writes this file; the operator
+   * is the only one who can activate it (via .env). Per Principle 5
+   * (conservatism), no auto-activation is permitted.
+   */
+  SCORING_WEIGHTS_OVERRIDE: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

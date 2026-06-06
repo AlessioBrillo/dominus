@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import type Database from 'better-sqlite3';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
@@ -7,8 +8,10 @@ import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
 import { registerOutcomeCommand } from './commands/outcome-command.js';
+import { registerBacktestCommand } from './commands/backtest-command.js';
 
 export function createCli(
+  db: Database.Database,
   runService: PipelineRunService,
   manager: PortfolioManager,
   engine: ScoringEngine,
@@ -25,6 +28,7 @@ export function createCli(
   registerPortfolioCommand(program, manager);
   registerScoreCommand(program, engine);
   registerOutcomeCommand(program, outcomeRepo);
+  registerBacktestCommand(program, { db, outcomeRepo });
 
   return program;
 }

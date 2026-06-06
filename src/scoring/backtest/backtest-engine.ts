@@ -1,0 +1,217 @@
+import type Database from 'better-sqlite3';
+import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
+import type {
+  BacktestSignalsRepository,
+  BacktestSignal,
+} from '../../db/repositories/backtest-signals-repository.js';
+import type { Outcome } from '../../types/outcome.js';
+import type { BacktestReport, CalibrationBucketStat, SnapshotSummary } from './types.js';
+import { CONFIDENCE_BUCKETS } from '../../db/repositories/backtest-signals-repository.js';
+
+interface ScoringSnapshotRow {
+  id: number;
+  run_id: string;
+  expected_value: number;
+  confidence: number;
+  suggested_buy_max: number;
+  suggested_list_price: number;
+  scored_at: string;
+}
+
+interface CandidateLookupRow {
+  id: number;
+  domain: string;
+}
+
+const ZERO_CALIBRATION: CalibrationBucketStat = {
+  n: 0,
+  meanAbsError: 0,
+  meanRealised: 0,
+  meanPredicted: 0,
+};
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
+  }
+  return sorted[mid] ?? 0;
+}
+
+function mean(values: number[]): number {
+  if (values.length === 0) return 0;
+  let sum = 0;
+  for (const v of values) sum += v;
+  return sum / values.length;
+}
+
+/**
+ * Backtest engine — closes the loop between scoring predictions and
+ * realised outcomes.
+ *
+ * Two responsibilities, exposed as separate methods so callers can
+ * pick:
+ *
+ *  - `snapshot()` scans `outcomes` for `sold` rows, joins each to the
+ *    last `scoring_runs` row whose `scored_at <= outcome.occurred_at`
+ *    (point-in-time correctness), and UPSERTs the pair into
+ *    `backtest_signals` (idempotent thanks to the unique index).
+ *  - `report()` aggregates the snapshot table into the metrics the
+ *    operator actually reads: MAE, bias, buy-max hit rate, and a
+ *    per-confidence-bucket calibration table.
+ *
+ * Why "sold only" (per the v0.3 product decision): dropped / expired
+ * / renewed outcomes are not "what did the engine predict vs reality"
+ * signals — they are process outcomes. Mixing them would corrupt the
+ * MAE and the confidence calibration. Sold-only is the cleanest
+ * monetary truth the engine can be held to.
+ */
+export class BacktestEngine {
+  constructor(
+    private readonly db: Database.Database,
+    private readonly outcomeRepo: OutcomeRepository,
+    private readonly backtestRepo: BacktestSignalsRepository,
+  ) {}
+
+  /**
+   * Re-derive the backtest_signals table from current outcomes and
+   * scoring_runs. Idempotent. Returns a summary the CLI can print.
+   */
+  snapshot(): SnapshotSummary {
+    const soldOutcomes = this.outcomeRepo.findByType('sold');
+    let inserted = 0;
+    let skipped = 0;
+
+    for (const outcome of soldOutcomes) {
+      if (outcome.salePriceEur === undefined) {
+        skipped++;
+        continue;
+      }
+      const insertedNow = this.writeSignalForOutcome(outcome);
+      if (insertedNow) inserted++;
+      else skipped++;
+    }
+
+    return {
+      scanned: soldOutcomes.length,
+      inserted,
+      skipped,
+    };
+  }
+
+  /**
+   * Produce a BacktestReport from the current backtest_signals table.
+   * Does not touch outcomes or scoring_runs — pure aggregation.
+   */
+  report(): BacktestReport {
+    const signals = this.backtestRepo.findAll();
+    const sampleSize = signals.length;
+
+    if (sampleSize === 0) {
+      return {
+        generatedAt: new Date().toISOString(),
+        sampleSize: 0,
+        excludedNoPrediction: 0,
+        excludedNoOutcome: 0,
+        meanAbsoluteErrorEur: 0,
+        medianAbsoluteErrorEur: 0,
+        biasEur: 0,
+        biasPct: 0,
+        buyMaxMeanAbsoluteErrorEur: 0,
+        buyMaxHitRate: 0,
+        calibration: {
+          low: { ...ZERO_CALIBRATION },
+          mid: { ...ZERO_CALIBRATION },
+          high: { ...ZERO_CALIBRATION },
+        },
+      };
+    }
+
+    const absErrors = signals.map((s) => Math.abs(s.predictedExpectedValue - s.actualSalePriceEur));
+    const signedErrors = signals.map((s) => s.actualSalePriceEur - s.predictedExpectedValue);
+    const buyMaxAbsErrors = signals.map((s) => Math.abs(s.predictedBuyMax - s.actualSalePriceEur));
+    const buyMaxHits = signals.filter((s) => s.actualSalePriceEur > s.predictedBuyMax);
+
+    const meanActual = mean(signals.map((s) => s.actualSalePriceEur));
+    const biasEur = mean(signedErrors);
+    const biasPct = meanActual === 0 ? 0 : (biasEur / meanActual) * 100;
+
+    const calibration: Record<string, CalibrationBucketStat> = {};
+    for (const bucket of CONFIDENCE_BUCKETS) {
+      const subset = signals.filter((s) => s.confidenceBucket === bucket);
+      calibration[bucket] = {
+        n: subset.length,
+        meanAbsError: mean(subset.map((s) => Math.abs(s.predictedExpectedValue - s.actualSalePriceEur))),
+        meanRealised: mean(subset.map((s) => s.actualSalePriceEur)),
+        meanPredicted: mean(subset.map((s) => s.predictedExpectedValue)),
+      };
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      sampleSize,
+      excludedNoPrediction: 0,
+      excludedNoOutcome: 0,
+      meanAbsoluteErrorEur: mean(absErrors),
+      medianAbsoluteErrorEur: median(absErrors),
+      biasEur,
+      biasPct,
+      buyMaxMeanAbsoluteErrorEur: mean(buyMaxAbsErrors),
+      buyMaxHitRate: buyMaxHits.length / sampleSize,
+      calibration: calibration as Record<'low' | 'mid' | 'high', CalibrationBucketStat>,
+    };
+  }
+
+  /** Expose the signals list for the weight suggester (ADR-0009). */
+  signals(): BacktestSignal[] {
+    return this.backtestRepo.findAll();
+  }
+
+  private writeSignalForOutcome(outcome: Outcome): boolean {
+    if (outcome.id === undefined || outcome.salePriceEur === undefined) return false;
+
+    const snapshot = this.findSnapshotForOutcome(outcome.domain, outcome.occurredAt);
+    if (snapshot === null) {
+      return false;
+    }
+
+    this.backtestRepo.upsert({
+      domain: outcome.domain,
+      outcomeId: outcome.id,
+      scoringRunId: snapshot.run_id,
+      predictedExpectedValue: snapshot.expected_value,
+      predictedBuyMax: snapshot.suggested_buy_max,
+      predictedListPrice: snapshot.suggested_list_price,
+      predictedConfidence: snapshot.confidence,
+      actualSalePriceEur: outcome.salePriceEur,
+    });
+    return true;
+  }
+
+  /**
+   * Find the last scoring_runs row for `domain` whose `scored_at` is
+   * not later than `occurredAt`. Joins through `candidates` because
+   * `scoring_runs.candidate_id` is the only stable link to a domain.
+   */
+  private findSnapshotForOutcome(domain: string, occurredAt: string): ScoringSnapshotRow | null {
+    const candidate = this.db
+      .prepare('SELECT id, domain FROM candidates WHERE domain = ?')
+      .get(domain) as CandidateLookupRow | undefined;
+    if (candidate === undefined) return null;
+
+    const row = this.db
+      .prepare(
+        `SELECT id, run_id, expected_value, confidence, suggested_buy_max,
+                suggested_list_price, scored_at
+           FROM scoring_runs
+          WHERE candidate_id = ?
+            AND scored_at <= ?
+          ORDER BY scored_at DESC, id DESC
+          LIMIT 1`,
+      )
+      .get(candidate.id, occurredAt) as ScoringSnapshotRow | undefined;
+    return row ?? null;
+  }
+}

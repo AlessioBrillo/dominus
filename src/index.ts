@@ -14,7 +14,7 @@ import { PublicRdapProvider } from './providers/rdap/index.js';
 import { UsptoCasesProvider, EuipoProvider } from './providers/trademark/index.js';
 import { ManualKeywordProvider } from './providers/keyword/index.js';
 import { ManualCompsProvider } from './providers/comps/index.js';
-import { ScoringEngine } from './scoring/index.js';
+import { ScoringEngine, loadWeights } from './scoring/index.js';
 import { TrademarkGate } from './trademark/index.js';
 import {
   PipelineOrchestrator,
@@ -48,7 +48,7 @@ const outcomeRepo = new OutcomeRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
-const engine = new ScoringEngine(keywordProvider, compsProvider);
+const engine = new ScoringEngine(keywordProvider, compsProvider, loadWeights(config.SCORING_WEIGHTS_OVERRIDE));
 
 const trademarkGate = new TrademarkGate(
   new CachedTrademarkProvider(
