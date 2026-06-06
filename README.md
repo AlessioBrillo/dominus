@@ -128,6 +128,59 @@ node dist/cli.js outcome list --domain alpha.com
 node dist/cli.js outcome stats --domain alpha.com
 ```
 
+## Backtest & calibration
+
+The backtest command closes the loop between scoring predictions and the
+realised `sold` outcomes you have recorded. It pairs each sale with the
+scoring snapshot that was available *at the time of the sale* (point-in-time
+correct), aggregates the pairs into MAE / bias / buy-max hit rate, and breaks
+the metrics down by confidence bucket.
+
+```bash
+# Snapshot + report in one call (typical workflow)
+node dist/cli.js backtest run
+
+# Just rebuild the snapshot table (idempotent)
+node dist/cli.js backtest snapshot
+
+# Just print the report against the current snapshot
+node dist/cli.js backtest report
+
+# Machine-readable output for piping into other tools
+node dist/cli.js backtest run --json
+
+# Report without rebuilding (e.g. to compare against a saved snapshot)
+node dist/cli.js backtest run --no-snapshot
+```
+
+Sample output:
+
+```
+DOMINUS backtest — generated 2026-06-06T14:32:11.000Z
+Sample: 8 sold outcome(s)
+
+Error on expected_value:
+  MAE      €487
+  Median   €312
+  Bias     -€204  (over-predicting by 11% on average)
+
+Buy-max accuracy (the metric that matters for capital):
+  MAE         €212
+  Hit rate    75.0%  (sale_price > suggested_buy_max)
+
+Confidence calibration:
+  bucket  n     MAE    realised   predicted
+  low     2   €820       €310       €400
+  mid     3   €445      €1180      €1050
+  high    3   €210      €2450      €2300
+```
+
+The `backtest_signals` table is migration 0007 and is unique on
+`(outcome_id, scoring_run_id)`, so re-running `backtest run` is safe and
+idempotent. The point-in-time join (last `scoring_runs.scored_at <= outcome.occurred_at`)
+is what makes the bias number honest — a re-run of the pipeline after a sale
+will not retroactively inflate the engine's apparent accuracy.
+
 The REST equivalents:
 
 | Method | Path | Purpose |
@@ -142,8 +195,11 @@ The REST equivalents:
 
 MVP implemented and running end-to-end (CLI + API, SQLite persistence): five-stage
 pipeline, heuristic scoring engine, mandatory USPTO/EUIPO trademark gate, portfolio
-tracker with rescore + outcomes, and a fresh 0-100 calibrated score that powers the
-verdicts. Keyword and comparable-sales data remain free/manual by design. See
+tracker with rescore + outcomes, fresh 0-100 calibrated score that powers the
+verdicts, and a backtest engine (`dominus backtest run`) that pairs every sold
+outcome with the scoring snapshot available at decision time and reports MAE,
+bias, buy-max hit rate, and per-confidence-bucket calibration. Keyword and
+comparable-sales data remain free/manual by design. See
 [`CLAUDE.md`](CLAUDE.md) for the current development context.
 
 ## License

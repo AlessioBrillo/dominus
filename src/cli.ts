@@ -70,5 +70,5 @@ const portfolioManager = new PortfolioManager(
 );
 portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate));
 
-const cli = createCli(runService, portfolioManager, engine, outcomeRepo);
+const cli = createCli(db, runService, portfolioManager, engine, outcomeRepo);
 cli.parse(process.argv);
