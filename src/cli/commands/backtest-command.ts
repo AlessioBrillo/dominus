@@ -1,14 +1,20 @@
 import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
-import { BacktestEngine } from '../../scoring/backtest/index.js';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { BacktestSignalsRepository } from '../../db/repositories/backtest-signals-repository.js';
-import type { BacktestReport } from '../../scoring/backtest/index.js';
+import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import { loadConfig } from '../../config.js';
+import type { BacktestReport, WeightSuggestionReport } from '../../scoring/backtest/index.js';
 
 export interface BacktestCommandDeps {
   db: Database.Database;
   outcomeRepo: OutcomeRepository;
 }
+
+const DEFAULT_OVERRIDE_PATH = './data/weights-override.json';
 
 export function registerBacktestCommand(program: Command, deps: BacktestCommandDeps): void {
   const backtest = program
@@ -17,6 +23,9 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
 
   const makeEngine = (): BacktestEngine =>
     new BacktestEngine(deps.db, deps.outcomeRepo, new BacktestSignalsRepository(deps.db));
+
+  const makeSuggester = (): WeightSuggester =>
+    new WeightSuggester(deps.db, new BacktestSignalsRepository(deps.db), new ScoringRepository(deps.db));
 
   backtest
     .command('snapshot')
@@ -64,6 +73,74 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
       process.stdout.write(snapshotNote);
       process.stdout.write(formatReport(report));
     });
+
+  backtest
+    .command('suggest-weights')
+    .description('Propose per-signal weight adjustments based on the backtest signals (manual approval required)')
+    .option('--json', 'emit machine-readable JSON instead of a human report', false)
+    .option('--apply', 'persist the suggestion to data/weights-override.json (no auto-activation)', false)
+    .action((options: { json: boolean; apply: boolean }) => {
+      const suggester = makeSuggester();
+      const report = suggester.suggest();
+      if (options.json) {
+        process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+      } else {
+        process.stdout.write(formatSuggestionReport(report));
+      }
+      if (report.warnings.length > 0 && !options.apply) {
+        process.stdout.write(`\nWarnings:\n${report.warnings.map((w) => `  - ${w}`).join('\n')}\n`);
+      }
+      if (options.apply) {
+        if (report.sampleSize < 5) {
+          process.stderr.write('Refusing to apply: sample size below the 5-sold-outcome minimum.\n');
+          process.exit(1);
+        }
+        if (!report.sumsToOne) {
+          process.stderr.write('Refusing to apply: suggested weights do not sum to 1.0.\n');
+          process.exit(1);
+        }
+        const config = loadConfig();
+        const targetPath = resolve(process.cwd(), config.SCORING_WEIGHTS_OVERRIDE ?? DEFAULT_OVERRIDE_PATH);
+        if (!targetPath.startsWith(resolve(process.cwd(), './data'))) {
+          process.stderr.write(`Refusing to write outside ./data: ${targetPath}\n`);
+          process.exit(1);
+        }
+        const payload = {
+          generatedAt: report.generatedAt,
+          sampleSize: report.sampleSize,
+          weights: Object.fromEntries(
+            report.suggestions.map((s) => [s.signal, s.suggestedWeight]),
+          ),
+        };
+        writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
+        process.stdout.write(
+          `\nWrote weights override to ${targetPath}.\n` +
+            `Set SCORING_WEIGHTS_OVERRIDE=${targetPath} in .env to activate it.\n`,
+        );
+      }
+    });
+}
+
+function formatSuggestionReport(r: WeightSuggestionReport): string {
+  const lines: string[] = [];
+  lines.push(`DOMINUS weight suggester — generated ${r.generatedAt}`);
+  lines.push(`Sample: ${r.sampleSize} sold outcome(s)`);
+  lines.push(`Current total weight: ${r.totalCurrentWeight.toFixed(3)}`);
+  lines.push(`Suggested total weight: ${r.totalSuggestedWeight.toFixed(3)}${r.sumsToOne ? '' : '  (WARNING: does not sum to 1)'}`);
+  lines.push('');
+  lines.push(
+    `  ${'signal'.padEnd(11)}  ${'current'.padStart(8)}  ${'suggested'.padStart(9)}  ${'delta'.padStart(8)}  ${'action'.padEnd(7)}  rationale`,
+  );
+  for (const s of r.suggestions) {
+    const deltaStr = `${s.delta >= 0 ? '+' : ''}${(s.delta * 100).toFixed(1)}%`;
+    lines.push(
+      `  ${s.signal.padEnd(11)}  ${(s.currentWeight * 100).toFixed(1).padStart(7)}%  ${(s.suggestedWeight * 100).toFixed(1).padStart(8)}%  ${deltaStr.padStart(8)}  ${s.action.padEnd(7)}  ${s.rationale}`,
+    );
+  }
+  lines.push('');
+  lines.push('Run `dominus backtest suggest-weights --apply` to persist the suggestion to data/weights-override.json.');
+  lines.push('The engine does NOT pick it up automatically — set SCORING_WEIGHTS_OVERRIDE in .env to activate.');
+  return lines.join('\n');
 }
 
 function formatReport(r: BacktestReport): string {

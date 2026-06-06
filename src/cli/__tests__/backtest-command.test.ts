@@ -231,4 +231,25 @@ describe('dominus backtest CLI', () => {
     expect(out).not.toContain('Snapshot: scanned');
     expect(out).toContain('Sample: 1 sold');
   });
+
+  it('suggest-weights subcommand holds all signals on a small sample', async () => {
+    seedPortfolio(db, 'alpha.com');
+    seedScoringSnapshot(db, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
+    seedSoldOutcome(db, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+
+    const out = await captureStdout(async () => {
+      const program = new Command();
+      program.exitOverride();
+      const outcomeRepo = new OutcomeRepository(db);
+      registerBacktestCommand(program, { db, outcomeRepo });
+      try {
+        await program.parseAsync(['node', 'dominus', 'backtest', 'suggest-weights']);
+      } catch {
+        // exitOverride throws after the action runs
+      }
+    });
+
+    expect(out).toContain('DOMINUS weight suggester');
+    expect(out).toMatch(/below the 5 minimum/);
+  });
 });

@@ -181,6 +181,45 @@ idempotent. The point-in-time join (last `scoring_runs.scored_at <= outcome.occu
 is what makes the bias number honest — a re-run of the pipeline after a sale
 will not retroactively inflate the engine's apparent accuracy.
 
+### Calibrating engine weights from the backtest
+
+The backtest report tells you *how* the engine is wrong (over-predicting,
+under-predicting on high-confidence picks, etc.). The
+`dominus backtest suggest-weights` command turns that report into a
+proposed weight adjustment — and crucially, does **not** apply it
+automatically:
+
+```bash
+# Propose weight adjustments based on the current backtest snapshot
+node dist/cli.js backtest suggest-weights
+
+# Same, but machine-readable
+node dist/cli.js backtest suggest-weights --json
+
+# Persist the suggestion to data/weights-override.json (no auto-activation)
+node dist/cli.js backtest suggest-weights --apply
+```
+
+The algorithm splits each signal's sample into "high" (score ≥ 0.5) and
+"low" (score < 0.5), computes the lift in mean realised price between
+the two buckets, and proposes a `±0.02` weight delta (capped at
+`±0.05`) when the lift exceeds `€50` in absolute value. With fewer than
+5 sold outcomes in the sample, the suggester returns "hold" for every
+signal — the engine will not act on insufficient evidence.
+
+Activation is a **two-gate process** that satisfies Principle 5
+(conservatism):
+
+1. `dominus backtest suggest-weights --apply` writes
+   `data/weights-override.json` with the proposed weights.
+2. The engine reads the file **only** when you set
+   `SCORING_WEIGHTS_OVERRIDE=./data/weights-override.json` in `.env`.
+
+Touching one without the other is a no-op. The override file is validated
+on every engine startup; an invalid JSON or a non-1.0 weight sum falls
+back to the defaults with a stderr warning — the engine never crashes
+on a malformed override.
+
 The REST equivalents:
 
 | Method | Path | Purpose |
