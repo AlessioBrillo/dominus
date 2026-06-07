@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
-import { isValidDomain } from '../../utils/domain.js';
+import { isValidDomain, parseDomain } from '../../utils/domain.js';
 
 export function registerScoreCommand(program: Command, engine: ScoringEngine): void {
   program
@@ -21,12 +21,15 @@ export function registerScoreCommand(program: Command, engine: ScoringEngine): v
           process.exit(1);
         }
 
-        const tld = `.${domain.split('.').pop() ?? 'com'}`;
+        // Use the shared parser so the CLI prints the same TLD/SLD the
+        // pipeline would (fixes the multi-part TLD bug for ad-hoc scoring).
+        const parsed = parseDomain(domain);
 
         engine
           .score({
             domain,
-            tld,
+            tld: parsed.tld,
+            sld: parsed.sld,
             isCloseout: options.closeout,
             domainAge: options.age,
             backlinks: options.backlinks,
