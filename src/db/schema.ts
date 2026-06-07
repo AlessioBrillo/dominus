@@ -165,3 +165,53 @@ export const BACKTEST_SIGNALS_UNIQUE_IDX_DDL = `
 CREATE UNIQUE INDEX IF NOT EXISTS uq_backtest_outcome_run
   ON backtest_signals(outcome_id, scoring_run_id)
 `;
+
+/**
+ * pipeline_runs: durable history of every pipeline execution. See ADR-0011.
+ *
+ * One row per orchestrator.run() invocation. The orchestrator produces
+ * `stageSummary` and `totalDurationMs` today; this table captures them
+ * durably so the operator can list, inspect, and prune past runs.
+ *
+ *  - `run_id`              PK, UUID text. The orchestrator generates it
+ *                          before any row is written; other tables
+ *                          reference it by value (no FK).
+ *  - `started_at`          ISO-8601 UTC; the moment run() was called.
+ *  - `finished_at`         ISO-8601 UTC; updated on completion.
+ *  - `total_duration_ms`   wall-clock duration; mirrors
+ *                          `PipelineResult.totalDurationMs`.
+ *  - `stage_summary`       JSON: { [StageName]: { passed, filtered, durationMs } }.
+ *  - `inputs`              JSON: { keywords, brandableNames, closeoutDomains, closeoutEntries counts }.
+ *  - `results_summary`     JSON: { candidatesEvaluated, recommended, trademarkBlocked, unscored, errors }.
+ *  - `host_version`        text: DOMINUS package.json version at run time.
+ *  - `retained_until`      ISO-8601 UTC; used by prune() to bound the table size.
+ *  - `error`               text; non-null when the run failed before completion.
+ *
+ * No FK to scoring_runs or candidates. The relationship is join-by-string
+ * (`scoring_runs.run_id = pipeline_runs.run_id`), so a future prune of
+ * pipeline_runs does not cascade into scoring history.
+ */
+export const PIPELINE_RUNS_DDL = `
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+  run_id              TEXT PRIMARY KEY,
+  started_at          TEXT NOT NULL,
+  finished_at         TEXT,
+  total_duration_ms   INTEGER,
+  stage_summary       TEXT NOT NULL DEFAULT '{}',
+  inputs              TEXT NOT NULL DEFAULT '{}',
+  results_summary     TEXT NOT NULL DEFAULT '{}',
+  host_version        TEXT NOT NULL,
+  retained_until      TEXT NOT NULL,
+  error               TEXT
+)
+`;
+
+export const PIPELINE_RUNS_STARTED_AT_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started_at
+  ON pipeline_runs(started_at DESC)
+`;
+
+export const PIPELINE_RUNS_RETAINED_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_retained_until
+  ON pipeline_runs(retained_until)
+`;
