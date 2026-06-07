@@ -132,7 +132,11 @@ export class PipelineRunService {
       // Persist scores for every candidate that was evaluated by the scoring engine,
       // whether recommended, not-recommended, or TM-blocked. Partial history is
       // valuable for tuning weights against real results.
+      // Candidates that errored during scoring carry scoreResult === null;
+      // skip them rather than writing a null row (the scoring_runs columns
+      // are all NOT NULL, so the INSERT would crash).
       for (const scored of result.scored) {
+        if (scored.scoreResult === null) continue;
         const id = idByDomain.get(scored.domain);
         if (id !== undefined) {
           this.#scoringRepo.insert(id, result.runId, scored.scoreResult);

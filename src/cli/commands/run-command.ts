@@ -40,7 +40,7 @@ export function registerRunCommand(program: Command, runService: PipelineRunServ
           } else {
             process.stdout.write(`Recommended (${result.recommended.length}):\n`);
             for (const c of result.recommended) {
-              const score = c.scoreResult;
+              const score = c.scoreResult!;
               process.stdout.write(
                 `  ${c.domain.padEnd(30)} EV: €${score.expectedValue.toFixed(0).padStart(6)}  Buy≤: €${score.suggestedBuyMax.toFixed(0).padStart(5)}  conf: ${(score.confidence * 100).toFixed(0)}%\n`,
               );

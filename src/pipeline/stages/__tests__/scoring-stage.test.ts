@@ -39,10 +39,13 @@ describe('ScoringStage closeout metadata threading', () => {
 
     // Both are closeouts, but only the one carrying metadata produces a non-zero
     // expiry signal — proving the previously-dead inputs now reach the engine.
-    expect(rich?.scoreResult.breakdown.expiry.score).toBeGreaterThan(0);
-    expect(bare?.scoreResult.breakdown.expiry.score).toBe(0);
-    expect(rich?.scoreResult.breakdown.expiry.details['domainAge']).toBe(15);
-    expect(rich?.scoreResult.breakdown.expiry.details['waybackSnapshots']).toBe(400);
-    expect(rich?.scoreResult.expectedValue).toBeGreaterThan(bare?.scoreResult.expectedValue ?? 0);
+    // After the type change to ScoreResult|null, these candidates are guaranteed
+    // non-null (they came from the engine's happy path), so the non-null
+    // assertions are safe in this test context.
+    expect(rich!.scoreResult!.breakdown.expiry.score).toBeGreaterThan(0);
+    expect(bare!.scoreResult!.breakdown.expiry.score).toBe(0);
+    expect(rich!.scoreResult!.breakdown.expiry.details['domainAge']).toBe(15);
+    expect(rich!.scoreResult!.breakdown.expiry.details['waybackSnapshots']).toBe(400);
+    expect(rich!.scoreResult!.expectedValue).toBeGreaterThan(bare!.scoreResult!.expectedValue ?? 0);
   });
 });
