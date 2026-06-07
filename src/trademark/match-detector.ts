@@ -1,3 +1,5 @@
+import { MULTI_PART_TLDS } from '../utils/domain.js';
+
 export interface MatchCandidate {
   markName: string;
   owner: string;
@@ -45,18 +47,11 @@ const MIN_MARK_TOKEN_LENGTH_FOR_SUBSTRING = 3;
 const MAX_LEVENSHTEIN_DISTANCE = 1;
 
 /**
- * Public-suffix-style multi-part TLDs. A small, conservative set covering
- * the country/second-level suffixes we are most likely to encounter. The
- * full Public Suffix List lives at https://publicsuffix.org/; a future
- * change can swap this constant for a parser-fed Set without touching the
- * matching logic.
+ * `MULTI_PART_TLDS` is imported from `src/utils/domain.js` so the
+ * scoring engine and the trademark gate agree on what counts as a
+ * multi-part TLD. A future change to that set (e.g. adopting the full
+ * Public Suffix List) only needs to land in one place.
  */
-const MULTI_PART_TLDS: ReadonlySet<string> = new Set([
-  'co.uk', 'co.jp', 'co.kr', 'co.nz', 'co.za', 'co.in',
-  'com.au', 'com.br', 'com.cn', 'com.hk', 'com.mx', 'com.sg', 'com.tw', 'com.tr',
-  'ne.jp', 'or.jp', 'ac.uk', 'gov.uk', 'org.uk', 'net.uk', 'sch.uk',
-  'co.il', 'co.ke', 'co.id', 'com.ar', 'com.co', 'com.pe', 'com.ve',
-]);
 
 function normalise(input: string): string {
   return input
