@@ -237,3 +237,126 @@ describe('PipelineRunService', () => {
     expect(scoreCount.cnt).toBe(0);
   });
 });
+
+describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
+  it('inserts a pipeline_runs row before orchestrator.run and completes it on success', async () => {
+    // Arrange
+    const db = openTestDb();
+    const candidate = makeScoredCandidate('nova.com', true);
+    const result: PipelineResult = {
+      runId: 'run-abc',
+      recommended: [candidate],
+      scored: [candidate],
+      allCandidates: [candidate],
+      stageSummary: { 'ScoringStage': { passed: 1, filtered: 0, durationMs: 5 } },
+      totalDurationMs: 42,
+    };
+    const service = new PipelineRunService(
+      db,
+      makeMockOrchestrator(result),
+      new CandidateRepository(db),
+      new ScoringRepository(db),
+    );
+
+    // Act
+    const out = await service.run({ closeoutDomains: ['nova.com'] });
+
+    // Assert — pipeline_runs row exists, completed, no error
+    const row = db.prepare('SELECT * FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
+      | { run_id: string; finished_at: string | null; total_duration_ms: number | null; error: string | null; host_version: string; inputs: string; results_summary: string }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(row?.finished_at).not.toBeNull();
+    expect(row?.total_duration_ms).toBeGreaterThanOrEqual(0);
+    expect(row?.error).toBeNull();
+    expect(row?.host_version).toMatch(/^\d+\.\d+\.\d+/);
+    const inputs = JSON.parse(row?.inputs ?? '{}') as { closeoutDomains: number };
+    expect(inputs.closeoutDomains).toBe(1);
+  });
+
+  it('computes retained_until as started_at + 180 days', async () => {
+    // Arrange
+    const db = openTestDb();
+    const candidate = makeScoredCandidate('nova.com', true);
+    const result: PipelineResult = {
+      runId: 'run-abc',
+      recommended: [candidate],
+      scored: [candidate],
+      allCandidates: [candidate],
+      stageSummary: {},
+      totalDurationMs: 10,
+    };
+    const service = new PipelineRunService(
+      db,
+      makeMockOrchestrator(result),
+      new CandidateRepository(db),
+      new ScoringRepository(db),
+    );
+
+    // Act
+    const out = await service.run({});
+
+    // Assert
+    const row = db.prepare('SELECT started_at, retained_until FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
+      | { started_at: string; retained_until: string } | undefined;
+    expect(row).toBeDefined();
+    const diffMs = new Date(row!.retained_until).getTime() - new Date(row!.started_at).getTime();
+    const expectedMs = 180 * 24 * 60 * 60 * 1000;
+    expect(diffMs).toBe(expectedMs);
+  });
+
+  it('persists stage_summary and results_summary as JSON', async () => {
+    // Arrange
+    const db = openTestDb();
+    const candidate = makeScoredCandidate('nova.com', true);
+    const result: PipelineResult = {
+      runId: 'run-abc',
+      recommended: [candidate],
+      scored: [candidate],
+      allCandidates: [candidate],
+      stageSummary: { 'ScoringStage': { passed: 1, filtered: 0, durationMs: 3 } },
+      totalDurationMs: 10,
+    };
+    const service = new PipelineRunService(
+      db,
+      makeMockOrchestrator(result),
+      new CandidateRepository(db),
+      new ScoringRepository(db),
+    );
+
+    // Act
+    const out = await service.run({});
+
+    // Assert
+    const row = db.prepare('SELECT stage_summary, results_summary FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
+      | { stage_summary: string; results_summary: string } | undefined;
+    const stage = JSON.parse(row?.stage_summary ?? '{}') as Record<string, { passed: number }>;
+    const results = JSON.parse(row?.results_summary ?? '{}') as { recommended: number; candidatesEvaluated: number };
+    expect(stage.ScoringStage?.passed).toBe(1);
+    expect(results.recommended).toBe(1);
+    expect(results.candidatesEvaluated).toBe(1);
+  });
+
+  it('completes the row with error=message and rethrows on orchestrator failure', async () => {
+    // Arrange
+    const db = openTestDb();
+    const orchestrator: PipelineOrchestrator = {
+      run: vi.fn().mockRejectedValue(new Error('boom')),
+    } as unknown as PipelineOrchestrator;
+    const service = new PipelineRunService(
+      db,
+      orchestrator,
+      new CandidateRepository(db),
+      new ScoringRepository(db),
+    );
+
+    // Act + Assert
+    await expect(service.run({})).rejects.toThrow('boom');
+
+    const row = db.prepare('SELECT error, finished_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 1').get() as
+      | { error: string | null; finished_at: string | null } | undefined;
+    expect(row).toBeDefined();
+    expect(row?.error).toBe('boom');
+    expect(row?.finished_at).not.toBeNull();
+  });
+});
