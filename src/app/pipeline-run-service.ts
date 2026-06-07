@@ -140,6 +140,16 @@ export class PipelineRunService {
         }
       }
 
+      // Align the orchestrator-level runId (used inside candidates + scoring_runs)
+      // with the service-level runRowId (used in pipeline_runs). This makes
+      // pipeline_runs the single source of truth for "what ran together" and
+      // lets REST endpoints (e.g. GET /api/runs/:runId/candidates) join on
+      // pipeline_runs.run_id. ADR-0011 §5.3.
+      if (result.runId !== runRowId) {
+        this.#db.prepare('UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?').run(runRowId, result.runId);
+        this.#db.prepare('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?').run(runRowId, result.runId);
+      }
+
       return { candidatesPersisted, scoresPersisted };
     })();
 
