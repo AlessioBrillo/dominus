@@ -19,9 +19,18 @@ Single source of truth for every Git operation in this project. Covers branching
 
 ### Strategy: Trunk-based Development
 
-- The only permanent branch is `main` (the trunk).
+- The only permanent branch is `master` (the trunk).
 - All work happens on **short-lived branches** — hours to a few days.
-- **Never commit directly to `main`.** Every change goes through a branch.
+- **Never commit directly to `master`.** Every change goes through a branch.
+
+> **Note on `master` vs `main`** — this repository's trunk is named
+> `master`, matching its initial `git init` and the GitHub default
+> branch for the AlessioBrillo/dominus remote. A future rename to
+> `main` (with branch-protection migration and a default-branch
+> redirect on GitHub) is a deliberate, separate change — not part of
+> feature work. The references to `main` in this skill reflect the
+> upstream MADR / Conventional Commits conventions, not the
+> repository state.
 
 ### Branch Naming
 
@@ -58,7 +67,7 @@ Rules:
  4. PREFLIGHT — /preflight (run local quality gate before pushing)
  5. PUSH      — git push -u origin <branch>
  6. PR        — gh pr create (see §4)
- 7. MERGE     — Squash-merge into main
+  7. MERGE     — Squash-merge into master
  8. CLEANUP   — Delete the feature branch (git branch -D)
 ```
 
@@ -185,22 +194,22 @@ gh pr create --title "<conventional-commit-title>" --body "<body>"
 - [ ] Architecture principles satisfied (see architecture-guardian)
 - [ ] Security checklist verified (no secrets, no injection vectors)
 - [ ] Tests added or updated
-- [ ] Branch is rebased on latest main
+- [ ] Branch is rebased on latest master
 ```
 
 ### PR Requirements (Single-Dev)
 
 - **Preflight must pass** before creating the PR
 - **Review is optional** (solo project) — merge at your discretion
-- **No merge conflicts** with `main` — rebase if needed
-- **Squash-merge** is the preferred strategy (clean linear history on `main`)
+- **No merge conflicts** with `master` — rebase if needed
+- **Squash-merge** is the preferred strategy (clean linear history on `master`)
 
 ---
 
 ## 5. Non-negotiable Safety Rules
 
-- **Never** commit directly to `main`
-- **Never** force-push (`git push --force` or `git push --force-with-lease`) to `main`
+- **Never** commit directly to `master`
+- **Never** force-push (`git push --force` or `git push --force-with-lease`) to `master`
 - **Never** force-push to a branch that may have been pushed
 - **Never** amend or rebase a commit that has already been pushed — add a new commit instead
 - **Never** commit credentials, API keys, `.env` files, `node_modules/`, build artifacts, or large binaries

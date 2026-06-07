@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Trunk
+
+The trunk branch is **`master`** (GitHub default branch for `AlessioBrillo/dominus`).
+The `github-workflow` skill aligns to this. A future rename to `main` is
+a deliberate, separate change.
+
 ## Project
 
 DOMINUS is a personal decision-support tool for buying and reselling DNS domains on the aftermarket. It is single-user, zero-cost on APIs, and budget-constrained (~500€). The goal is not automation of buying/selling but producing better purchase/portfolio decisions than the market average.
