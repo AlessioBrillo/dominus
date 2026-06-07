@@ -1,17 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type Database from 'better-sqlite3';
 import type { PortfolioEntry } from '../types/portfolio.js';
-import { Verdict } from '../types/portfolio.js';
-import { ScoringEngine } from '../scoring/scoring-engine.js';
-import { TrademarkGate, GateVerdict } from '../trademark/trademark-gate.js';
-import type { KeywordProvider } from '../providers/keyword/keyword-provider.js';
-import type { CompsProvider } from '../providers/comps/comps-provider.js';
-import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
-import type { TrademarkMatch } from '../providers/trademark/trademark-provider.js';
-import { CandidateRepository } from '../db/repositories/candidate-repository.js';
-import { ScoringRepository } from '../db/repositories/scoring-repository.js';
+import type { ScoringEngine } from '../scoring/scoring-engine.js';
+import { GateVerdict, type TrademarkGate } from '../trademark/trademark-gate.js';
+import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
+import type { ScoringRepository } from '../db/repositories/scoring-repository.js';
 import { CandidateSource, CandidateStatus } from '../types/candidate.js';
-import { vi } from 'vitest';
 
 /**
  * Re-evaluates every entry in the operator's portfolio against the
@@ -167,61 +160,3 @@ export class PortfolioRescoreService {
   }
 }
 
-/** Test helper: stand up a service backed by fakes. The keyword and
- *  comps providers return zero, so the test must inject scores via
- *  the engine. Each test wraps the engine and gate as needed. */
-export interface FakeRescoreDeps {
-  keyword: KeywordProvider;
-  comps: CompsProvider;
-  uspto: TrademarkProvider;
-  euipo: TrademarkProvider;
-  candidateRepo: CandidateRepository;
-  scoringRepo: ScoringRepository;
-}
-
-export function makeFakeRescoreDeps(db?: Database.Database): FakeRescoreDeps {
-  const candidateRepo = new CandidateRepository(db ?? ({} as Database.Database));
-  const scoringRepo = new ScoringRepository(db ?? ({} as Database.Database));
-  return {
-    keyword: { getMetrics: vi.fn().mockResolvedValue({ term: '', monthlySearchVolume: 0, cpc: 0, competition: 0 }) },
-    comps: { getSales: vi.fn().mockResolvedValue([]) },
-    uspto: { search: vi.fn().mockResolvedValue([]) },
-    euipo: { search: vi.fn().mockResolvedValue([]) },
-    candidateRepo,
-    scoringRepo,
-  };
-}
-
-export function makeServiceFromFakes(deps: FakeRescoreDeps): {
-  service: PortfolioRescoreService;
-  engine: ScoringEngine;
-  gate: TrademarkGate;
-} {
-  const engine = new ScoringEngine(deps.keyword, deps.comps);
-  const gate = new TrademarkGate(deps.uspto, deps.euipo);
-  return {
-    service: new PortfolioRescoreService(engine, gate, deps.candidateRepo, deps.scoringRepo),
-    engine,
-    gate,
-  };
-}
-
-/** Test helper: build a PortfolioEntry with sensible defaults. */
-export function makePortfolioEntry(overrides: Partial<PortfolioEntry> = {}): PortfolioEntry {
-  return {
-    domain: 'example.com',
-    tld: '.com',
-    acquiredAt: '2025-01-01T00:00:00.000Z',
-    renewalDate: '2026-01-01T00:00:00.000Z',
-    acquisitionCost: 12,
-    renewalCost: 12,
-    registrar: 'namecheap',
-    verdict: Verdict.Keep,
-    ...overrides,
-  };
-}
-
-/** Test helper: return a TrademarkMatch-shaped object. */
-export function makeMatch(markName: string, owner: string): TrademarkMatch {
-  return { markName, owner, status: 'live', source: 'USPTO' };
-}

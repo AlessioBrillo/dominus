@@ -33,12 +33,25 @@ module.exports = {
       { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
     ],
     'no-console': ['warn', { allow: ['warn', 'error'] }],
+    'no-restricted-imports': [
+      'error',
+      {
+        paths: [
+          {
+            name: 'vitest',
+            message:
+              "vitest is a test-only dependency. Import it from a file under __tests__/ (e.g. '__tests__/<name>.ts' or '<name>.test.ts'), not from production modules.",
+          },
+        ],
+      },
+    ],
   },
   overrides: [
     {
       files: ['**/__tests__/**/*.ts', '**/*.test.ts'],
       rules: {
         '@typescript-eslint/unbound-method': 'off',
+        'no-restricted-imports': 'off',
       },
     },
   ],
