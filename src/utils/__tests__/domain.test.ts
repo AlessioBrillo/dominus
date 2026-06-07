@@ -4,7 +4,6 @@ import {
   parseDomain,
   extractTld,
   extractSld,
-  MULTI_PART_TLDS,
 } from '../domain.js';
 
 describe('isValidDomain', () => {
@@ -105,13 +104,13 @@ describe('parseDomain', () => {
       expect(parseDomain('oxford.ac.uk').tld).toBe('.ac.uk');
     });
 
-    it('falls through to first-label default for unknown multi-part suffixes', () => {
-      // .foo.bar is not in MULTI_PART_TLDS — fall through to treating
-      // `bar.foo.bar` as a 3-part single-label case.
-      expect(parseDomain('a.foo.bar')).toEqual({
-        input: 'a.foo.bar',
-        sld: 'a',
-        tld: '.bar',
+    it('strips subdomain prefixes correctly with full PSL', () => {
+      // `sub.domain.com` — PSL recognises `.com` as the TLD,
+      // strips `sub` as a subdomain, returns `domain` as the SLD.
+      expect(parseDomain('sub.domain.com')).toEqual({
+        input: 'sub.domain.com',
+        sld: 'domain',
+        tld: '.com',
       });
     });
   });
@@ -151,15 +150,4 @@ describe('extractTld / extractSld convenience wrappers', () => {
   });
 });
 
-describe('MULTI_PART_TLDS', () => {
-  it('contains the most common multi-part ccTLDs', () => {
-    expect(MULTI_PART_TLDS.has('co.uk')).toBe(true);
-    expect(MULTI_PART_TLDS.has('com.au')).toBe(true);
-    expect(MULTI_PART_TLDS.has('ac.uk')).toBe(true);
-  });
 
-  it('does not contain vanilla gTLDs', () => {
-    expect(MULTI_PART_TLDS.has('com')).toBe(false);
-    expect(MULTI_PART_TLDS.has('io')).toBe(false);
-  });
-});
