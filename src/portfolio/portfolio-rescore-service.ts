@@ -5,6 +5,7 @@ import { GateVerdict, type TrademarkGate } from '../trademark/trademark-gate.js'
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../db/repositories/scoring-repository.js';
 import { CandidateSource, CandidateStatus } from '../types/candidate.js';
+import { parseDomain } from '../utils/domain.js';
 
 /**
  * Re-evaluates every entry in the operator's portfolio against the
@@ -91,6 +92,7 @@ export class PortfolioRescoreService {
       const score = await this.engine.score({
         domain: entry.domain,
         tld: entry.tld,
+        sld: parseDomain(entry.domain).sld,
         isCloseout: false,
       });
 

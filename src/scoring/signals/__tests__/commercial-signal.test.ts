@@ -9,7 +9,7 @@ function mockProvider(volume: number, cpc: number): KeywordProvider {
 describe('CommercialSignal', () => {
   it('returns 0 when no keyword data', async () => {
     const result = await computeCommercialScore(
-      { domain: 'nova.com', tld: '.com', isCloseout: false },
+      { domain: 'nova.com', tld: '.com', sld: 'nova', isCloseout: false },
       mockProvider(0, 0),
       1,
     );
@@ -18,7 +18,7 @@ describe('CommercialSignal', () => {
 
   it('high volume + high CPC scores close to 1', async () => {
     const result = await computeCommercialScore(
-      { domain: 'loans.com', tld: '.com', isCloseout: false },
+      { domain: 'loans.com', tld: '.com', sld: 'loans', isCloseout: false },
       mockProvider(1_000_000, 50),
       1,
     );
@@ -27,7 +27,7 @@ describe('CommercialSignal', () => {
 
   it('score is clamped between 0 and 1', async () => {
     const result = await computeCommercialScore(
-      { domain: 'example.com', tld: '.com', isCloseout: false },
+      { domain: 'example.com', tld: '.com', sld: 'example', isCloseout: false },
       mockProvider(5_000_000, 200),
       1,
     );

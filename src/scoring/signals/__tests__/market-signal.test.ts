@@ -13,7 +13,7 @@ function mockComps(prices: number[]): CompsProvider {
 describe('MarketSignal', () => {
   it('returns 0 score when no comparables', async () => {
     const result = await computeMarketScore(
-      { domain: 'nova.com', tld: '.com', isCloseout: false },
+      { domain: 'nova.com', tld: '.com', sld: 'nova', isCloseout: false },
       mockComps([]),
       1,
     );
@@ -23,7 +23,7 @@ describe('MarketSignal', () => {
 
   it('high comparable prices produce high score', async () => {
     const result = await computeMarketScore(
-      { domain: 'loans.com', tld: '.com', isCloseout: false },
+      { domain: 'loans.com', tld: '.com', sld: 'loans', isCloseout: false },
       mockComps([8000, 9000, 10000]),
       1,
     );
@@ -32,7 +32,7 @@ describe('MarketSignal', () => {
 
   it('median is correctly computed for even list', async () => {
     const result = await computeMarketScore(
-      { domain: 'test.com', tld: '.com', isCloseout: false },
+      { domain: 'test.com', tld: '.com', sld: 'test', isCloseout: false },
       mockComps([1000, 2000]),
       1,
     );
