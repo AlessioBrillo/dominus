@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { BacktestSignalsRepository } from '../../db/repositories/backtest-signals-repository.js';
@@ -112,6 +112,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
             report.suggestions.map((s) => [s.signal, s.suggestedWeight]),
           ),
         };
+        mkdirSync(dirname(targetPath), { recursive: true });
         writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
         process.stdout.write(
           `\nWrote weights override to ${targetPath}.\n` +

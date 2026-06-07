@@ -89,9 +89,13 @@ export class BacktestEngine {
         skipped++;
         continue;
       }
-      const insertedNow = this.writeSignalForOutcome(outcome);
-      if (insertedNow) inserted++;
-      else skipped++;
+      try {
+        const insertedNow = this.writeSignalForOutcome(outcome);
+        if (insertedNow) inserted++;
+        else skipped++;
+      } catch {
+        skipped++;
+      }
     }
 
     return {

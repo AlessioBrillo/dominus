@@ -9,7 +9,7 @@ import { getLogger } from '../logger.js';
  * across releases so the JSON output is safe for dashboards.
  */
 export interface ProviderStatus {
-  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio';
+  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio' | 'WHOIS';
   configured: boolean;
   note: string;
 }
@@ -20,6 +20,11 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     config.EUIPO_CLIENT_SECRET !== undefined && config.EUIPO_CLIENT_SECRET !== '';
 
   return [
+    {
+      name: 'WHOIS',
+      configured: true,
+      note: `Node.js port-43 client, ${config.WHOIS_LOOKUP_TIMEOUT}ms timeout. TLD map + IANA fallback for unknown TLDs.`,
+    },
     {
       name: 'USPTO',
       configured: true,
