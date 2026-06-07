@@ -4,6 +4,7 @@ import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import type { Database } from 'better-sqlite3';
+import { getRouteParam } from '../route-utils.js';
 
 /**
  * REST surface for the pipeline_runs history (ADR-0011).
@@ -41,7 +42,7 @@ export function createRunsRouter(
 
   router.get('/:runId', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const runId = req.params['runId'];
+      const runId = getRouteParam(req, 'runId');
       if (runId === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
         return;
@@ -59,7 +60,7 @@ export function createRunsRouter(
 
   router.get('/:runId/candidates', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const runId = req.params['runId'];
+      const runId = getRouteParam(req, 'runId');
       if (runId === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
         return;
