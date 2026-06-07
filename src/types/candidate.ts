@@ -37,13 +37,6 @@ export interface RawCandidate {
   pipelineRunId: string;
 }
 
-export interface CloseoutEntry {
-  domain: string;
-  domainAge?: number | undefined;
-  backlinks?: number | undefined;
-  waybackSnapshots?: number | undefined;
-}
-
 export interface DomainCandidate extends RawCandidate {
   id?: number;
   tld: string;
