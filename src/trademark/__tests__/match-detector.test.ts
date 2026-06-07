@@ -90,13 +90,15 @@ describe('extractSld', () => {
     expect(extractSld('nike.co.uk')).toBe('nike');
   });
 
-  it('handles a deep subdomain before a multi-part TLD', () => {
-    expect(extractSld('shop.us.nike.co.uk')).toBe('shop.us.nike');
+  it('strips subdomain prefixes before a multi-part TLD (PSL-aware)', () => {
+    // Full PSL recognises `co.uk` as the public suffix and strips
+    // `shop.us` as subdomain prefixes — only `nike` is the SLD.
+    expect(extractSld('shop.us.nike.co.uk')).toBe('nike');
   });
 
-  it('falls back gracefully for a non-listed multi-part TLD', () => {
-    // "weird.tld" is not in our curated set; default to the first label.
-    expect(extractSld('nike.weird.tld')).toBe('nike');
+  it('extracts SLD from a 3-label domain with single-part TLD', () => {
+    // `company.io` is the registered domain; `other` is a subdomain.
+    expect(extractSld('other.company.io')).toBe('company');
   });
 
   it('returns domain unchanged if no dot', () => {

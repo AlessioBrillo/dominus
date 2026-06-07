@@ -1,4 +1,4 @@
-import { MULTI_PART_TLDS } from '../utils/domain.js';
+import { extractSld } from '../utils/domain.js';
 
 export interface MatchCandidate {
   markName: string;
@@ -47,10 +47,9 @@ const MIN_MARK_TOKEN_LENGTH_FOR_SUBSTRING = 3;
 const MAX_LEVENSHTEIN_DISTANCE = 1;
 
 /**
- * `MULTI_PART_TLDS` is imported from `src/utils/domain.js` so the
- * scoring engine and the trademark gate agree on what counts as a
- * multi-part TLD. A future change to that set (e.g. adopting the full
- * Public Suffix List) only needs to land in one place.
+ * SLD extraction is delegated to `extractSld` from `src/utils/domain.js`
+ * (now backed by the full Public Suffix List per ADR-0015), ensuring the
+ * scoring engine and the trademark gate agree on what counts as the SLD.
  */
 
 function normalise(input: string): string {
@@ -148,24 +147,8 @@ export function detectMatch(
 }
 
 /**
- * Extract the second-level label from a domain name. The implementation
- * strips a multi-part TLD (e.g. "co.uk") when it matches the conservative
- * `MULTI_PART_TLDS` set, so `nike.co.uk` → `nike` (not `nikeco`).
- *
- * Limitation: the multi-part TLD list is a curated subset of the Public
- * Suffix List. New gTLD delegations (e.g. `bar.baz.qux`) are not yet
- * covered. ADR-0012 lists this as a follow-up.
+ * Extract the second-level label from a domain name using the full Public
+ * Suffix List (ADR-0015). Delegated to `src/utils/domain.js` so the
+ * scoring engine and the trademark gate share one implementation.
  */
-export function extractSld(domain: string): string {
-  const lower = domain.toLowerCase().trim();
-  if (lower === '') return '';
-  const parts = lower.split('.');
-  if (parts.length < 2) return lower;
-  if (parts.length >= 3) {
-    const lastTwo = parts.slice(-2).join('.');
-    if (MULTI_PART_TLDS.has(lastTwo)) {
-      return parts.slice(0, -2).join('.');
-    }
-  }
-  return parts[0] ?? '';
-}
+export { extractSld };
