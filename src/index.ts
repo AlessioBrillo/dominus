@@ -26,7 +26,7 @@ import {
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { PipelineRunService, CachedTrademarkProvider, RetryingTrademarkProvider } from './app/index.js';
+import { PipelineRunService, CachedTrademarkProvider, RetryingTrademarkProvider, warnEuipoIfMissing } from './app/index.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -41,6 +41,7 @@ const logger = getLogger();
 
 const db = openDatabase(config.DATABASE_PATH);
 runMigrations(db);
+warnEuipoIfMissing(config);
 
 const candidateRepo = new CandidateRepository(db);
 const scoringRepo = new ScoringRepository(db);

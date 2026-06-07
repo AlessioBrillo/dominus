@@ -3,3 +3,5 @@ export type { PipelineRunResult, PersistenceSummary } from './pipeline-run-servi
 export { CachedTrademarkProvider } from './cached-trademark-provider.js';
 export { RetryingTrademarkProvider, DEFAULT_RETRY_POLICY, isTransient } from './retrying-trademark-provider.js';
 export type { RetryPolicy } from './retrying-trademark-provider.js';
+export { reportProviderStatuses, warnEuipoIfMissing } from './provider-status.js';
+export type { ProviderStatus } from './provider-status.js';
