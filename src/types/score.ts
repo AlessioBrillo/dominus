@@ -34,6 +34,15 @@ export interface ScoreResult {
 export interface ScoringInput {
   domain: string;
   tld: string;
+  /**
+   * Canonical second-level label, pre-computed by the caller via
+   * `parseDomain()` from `src/utils/domain.js`. The scoring engine
+   * does NOT recompute the SLD from `domain` and `tld` — for
+   * multi-part TLDs that reconstruction is ambiguous (e.g. given
+   * `nike.co.uk` and `.uk` the SLD would be `nike.co`, not `nike`).
+   * Callers are responsible for passing the canonical SLD.
+   */
+  sld: string;
   isCloseout: boolean;
   domainAge?: number | undefined;
   backlinks?: number | undefined;

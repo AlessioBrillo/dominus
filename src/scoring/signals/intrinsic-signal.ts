@@ -5,7 +5,11 @@ const IDEAL_LENGTH = 7;
 const MAX_LENGTH = 20;
 
 export function computeIntrinsicScore(input: ScoringInput, weight: number): SignalOutput {
-  const sld = input.domain.replace(input.tld, '');
+  // SLD is supplied by the caller (via parseDomain). For multi-part TLDs
+  // reconstructing it from `input.domain.replace(input.tld, '')` would
+  // leave the public-suffix prefix in the SLD (e.g. 'nike.co' for
+  // nike.co.uk). The canonical SLD is the caller's responsibility.
+  const sld = input.sld;
   const length = sld.length;
 
   const lengthScore = length <= IDEAL_LENGTH

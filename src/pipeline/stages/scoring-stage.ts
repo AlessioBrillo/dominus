@@ -2,6 +2,7 @@ import { CandidateStatus, CandidateSource } from '../../types/candidate.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import type { ScoreResult } from '../../types/score.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
+import { parseDomain } from '../../utils/domain.js';
 import type { Stage, StageResult } from '../stage.js';
 
 export interface ScoredCandidate extends DomainCandidate {
@@ -23,6 +24,11 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
         const scoreResult = await this.engine.score({
           domain: candidate.domain,
           tld: candidate.tld,
+          // Canonical SLD via the shared parser (see ADR-0013). For a
+          // multi-part TLD like .co.uk, the naive `domain.replace(tld)`
+          // approach would leave 'co' in the SLD; parseDomain returns
+          // just the label the operator cares about.
+          sld: parseDomain(candidate.domain).sld,
           isCloseout: candidate.source === CandidateSource.CloseoutCsv,
           // Closeout metadata (when imported) feeds the expiry signal; absent for
           // keyword/brandable candidates, where the signal stays zero.

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { CloseoutEntry, DomainCandidate } from '../../types/candidate.js';
 import type { Stage, StageResult } from '../stage.js';
+import { extractTld } from '../../utils/domain.js';
 
 export interface CandidateGenerationInput {
   keywords?: string[] | undefined;
@@ -10,12 +11,6 @@ export interface CandidateGenerationInput {
   closeoutDomains?: string[] | undefined;
   /** Closeout domains carrying expiry-signal metadata (e.g. a --closeout-csv import). */
   closeoutEntries?: CloseoutEntry[] | undefined;
-}
-
-function extractTld(domain: string): string {
-  const parts = domain.split('.');
-  if (parts.length < 2) return '.com';
-  return `.${parts[parts.length - 1] ?? 'com'}`;
 }
 
 export class CandidateGenerationStage implements Stage<CandidateGenerationInput, DomainCandidate> {
