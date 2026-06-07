@@ -1,4 +1,5 @@
 import type { CloseoutEntry } from '../types/candidate.js';
+import { isValidDomain } from '../utils/domain.js';
 
 /**
  * Parses a closeout/expiry CSV into candidate entries.
@@ -19,13 +20,9 @@ import type { CloseoutEntry } from '../types/candidate.js';
  * Blank lines and `#`-prefixed comment lines are ignored.
  */
 
-// RFC-1123-ish hostname check: 1+ labels then a TLD, ≤253 chars total, each
-// label 1-63 chars of [a-z0-9-] not starting/ending with a hyphen.
-const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
-
-export function isValidDomain(value: string): boolean {
-  return DOMAIN_RE.test(value.toLowerCase());
-}
+// Re-exported for backwards compatibility with code that imports
+// isValidDomain from this module. The canonical home is src/utils/domain.ts.
+export { isValidDomain };
 
 /** Parse a column to a finite, non-negative number, or undefined if absent/invalid. */
 function parseNonNegative(raw: string | undefined): number | undefined {
