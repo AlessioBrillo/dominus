@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import type Database from 'better-sqlite3';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
+import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
 import type { Config } from '../config.js';
@@ -23,6 +24,7 @@ export function createCli(
   engine: ScoringEngine,
   outcomeRepo: OutcomeRepository,
   config: Config,
+  gate?: TrademarkGate,
 ): Command {
   const program = new Command();
 
@@ -33,7 +35,7 @@ export function createCli(
 
   registerRunCommand(program, runService);
   registerPortfolioCommand(program, manager);
-  registerScoreCommand(program, engine);
+  registerScoreCommand(program, engine, gate);
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo });
   registerRunsCommand(program, { runsRepo: new PipelineRunsRepository(db) });
