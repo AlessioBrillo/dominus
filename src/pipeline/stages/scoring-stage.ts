@@ -6,7 +6,7 @@ import { parseDomain } from '../../utils/domain.js';
 import type { Stage, StageResult } from '../stage.js';
 
 export interface ScoredCandidate extends DomainCandidate {
-  scoreResult: ScoreResult;
+  scoreResult: ScoreResult | null;
 }
 
 export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
@@ -46,7 +46,7 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
           filtered.push(scored);
         }
       } catch {
-        filtered.push({ ...candidate, status: CandidateStatus.Unscored, scoreResult: null as unknown as ScoreResult });
+        filtered.push({ ...candidate, status: CandidateStatus.Unscored, scoreResult: null });
       }
     }
 

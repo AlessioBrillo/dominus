@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, assert } from 'vitest';
 import { computeMarketScore } from '../market-signal.js';
 import type { CompsProvider } from '../../../providers/comps/comps-provider.js';
 
@@ -28,6 +28,18 @@ describe('MarketSignal', () => {
       1,
     );
     expect(result.score).toBeGreaterThan(0.7);
+  });
+
+  it('uses canonical sld for multi-part TLDs', async () => {
+    const provider = mockComps([1500, 2000]);
+    const result = await computeMarketScore(
+      { domain: 'nike.co.uk', tld: '.co.uk', sld: 'nike', isCloseout: false },
+      provider,
+      1,
+    );
+    assert(provider.getSales !== undefined);
+    expect(provider.getSales).toHaveBeenCalledWith('nike');
+    expect(result.score).toBeGreaterThan(0);
   });
 
   it('median is correctly computed for even list', async () => {
