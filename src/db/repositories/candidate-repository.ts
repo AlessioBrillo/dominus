@@ -34,6 +34,13 @@ function rowToCandidate(row: CandidateRow): DomainCandidate {
 export class CandidateRepository {
   constructor(private readonly db: Database.Database) {}
 
+  findAll(limit = 50): DomainCandidate[] {
+    const rows = this.db
+      .prepare('SELECT * FROM candidates ORDER BY updated_at DESC LIMIT ?')
+      .all(limit) as CandidateRow[];
+    return rows.map(rowToCandidate);
+  }
+
   insert(candidate: DomainCandidate): DomainCandidate {
     const stmt = this.db.prepare(
       `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)

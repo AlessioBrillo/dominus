@@ -89,6 +89,11 @@ const configSchema = z.object({
    * rate-limiting by upstream DNS servers.
    */
   DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
+  /**
+   * Maximum time (ms) to wait for a WHOIS port-43 response.
+   * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
+   */
+  WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(10_000),
 });
 
 export type Config = z.infer<typeof configSchema>;

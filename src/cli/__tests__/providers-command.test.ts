@@ -20,6 +20,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_API_URL: 'https://euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
     DNS_BULK_CONCURRENCY: 10,
+    WHOIS_LOOKUP_TIMEOUT: 10_000,
     ...overrides,
   };
 }
@@ -149,6 +150,7 @@ describe('CLI: dominus providers', () => {
     expect(out).toContain('EUIPO');
     expect(out).toContain('KeywordPlanner');
     expect(out).toContain('NameBio');
+    expect(out).toContain('WHOIS');
   });
 
   it('status --json emits a JSON array', async () => {
@@ -164,7 +166,7 @@ describe('CLI: dominus providers', () => {
 
     // Assert
     const parsed = JSON.parse(out) as ProviderRow[];
-    expect(parsed).toHaveLength(4);
+    expect(parsed).toHaveLength(5);
     const euipo = parsed.find((r) => r.name === 'EUIPO');
     expect(euipo?.configured).toBe(true);
   });

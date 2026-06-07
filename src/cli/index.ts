@@ -4,6 +4,7 @@ import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
+import { CandidateRepository } from '../db/repositories/candidate-repository.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
 import type { Config } from '../config.js';
 import { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
@@ -16,6 +17,7 @@ import { registerBacktestCommand } from './commands/backtest-command.js';
 import { registerRunsCommand } from './commands/runs-command.js';
 import { registerMaintenanceCommand } from './commands/maintenance-command.js';
 import { registerProvidersCommand } from './commands/providers-command.js';
+import { registerCandidatesCommand } from './commands/candidates-command.js';
 
 export function createCli(
   db: Database.Database,
@@ -34,6 +36,7 @@ export function createCli(
     .version('0.1.0');
 
   registerRunCommand(program, runService);
+  registerCandidatesCommand(program, { candidateRepo: new CandidateRepository(db) });
   registerPortfolioCommand(program, manager);
   registerScoreCommand(program, engine, gate);
   registerOutcomeCommand(program, outcomeRepo);

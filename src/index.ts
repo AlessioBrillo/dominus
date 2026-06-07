@@ -11,6 +11,7 @@ import {
 } from './db/index.js';
 import { NodeDnsProvider } from './providers/dns/index.js';
 import { PublicRdapProvider } from './providers/rdap/index.js';
+import { NodeWhoisProviderWithIanaFallback } from './providers/whois/index.js';
 import { UsptoCasesProvider, EuipoProvider } from './providers/trademark/index.js';
 import { ManualKeywordProvider } from './providers/keyword/index.js';
 import { ManualCompsProvider } from './providers/comps/index.js';
@@ -75,10 +76,14 @@ const trademarkGate = new TrademarkGate(
   ),
 );
 
+const whoisProvider = new NodeWhoisProviderWithIanaFallback({
+  timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
+});
+
 const orchestrator = new PipelineOrchestrator(
   new CandidateGenerationStage(),
   new DnsPreFilterStage(new NodeDnsProvider()),
-  new RdapConfirmationStage(new PublicRdapProvider()),
+  new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
   new ScoringStage(engine),
   new TrademarkGateStage(trademarkGate),
 );
