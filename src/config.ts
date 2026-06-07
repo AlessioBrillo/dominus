@@ -8,10 +8,10 @@ const configSchema = z.object({
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
-  LOG_PRETTY: z
-    .string()
-    .transform((v) => v === 'true')
-    .default('false'),
+  LOG_PRETTY: z.preprocess(
+    (v) => (typeof v === 'string' ? v === 'true' : Boolean(v)),
+    z.boolean(),
+  ).default(false),
   SCORING_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
   DROP_RENEWAL_HORIZON_DAYS: z.coerce.number().int().min(1).default(60),

@@ -6,6 +6,7 @@ import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { isOutcomeType } from '../../types/outcome.js';
 import { ConfigError } from '../../types/errors.js';
+import { getRouteParam } from '../route-utils.js';
 
 const outcomeInputSchema = z.object({
   type: z.string().refine(isOutcomeType, {
@@ -64,7 +65,7 @@ export function createPortfolioRouter(
 
   router.delete('/:domain', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const domain = req.params['domain'];
+      const domain = getRouteParam(req, 'domain');
       if (domain === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
         return;
@@ -101,7 +102,7 @@ export function createPortfolioRouter(
 
   router.get('/:domain/outcomes', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const domain = req.params['domain'];
+      const domain = getRouteParam(req, 'domain');
       if (domain === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
         return;
@@ -115,7 +116,7 @@ export function createPortfolioRouter(
 
   router.get('/:domain/outcomes/stats', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const domain = req.params['domain'];
+      const domain = getRouteParam(req, 'domain');
       if (domain === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
         return;
@@ -129,7 +130,7 @@ export function createPortfolioRouter(
 
   router.post('/:domain/outcomes', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const domain = req.params['domain'];
+      const domain = getRouteParam(req, 'domain');
       if (domain === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
         return;
