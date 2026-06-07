@@ -124,7 +124,7 @@ describe('UsptoCasesProvider', () => {
 });
 
 // ---------------------------------------------------------------------------
-// EuipoProvider
+// EuipoProvider — Trademark Search 1.1.0 (RSQL + X-IBM-Client-Id)
 // ---------------------------------------------------------------------------
 
 describe('EuipoProvider', () => {
@@ -132,10 +132,16 @@ describe('EuipoProvider', () => {
     clientId: 'test-id',
     clientSecret: 'test-secret',
     authUrl: 'https://euipo.europa.eu/oauth2/token',
-    apiUrl: 'https://euipo.europa.eu/copla/trademark/data-capture/V1/trademarks',
+    apiUrl: 'https://api.euipo.europa.eu/trademark-search/trademarks',
   };
 
   const tokenResponse = { access_token: 'mock-token', expires_in: 3600 };
+  const pagedResponse = (items: unknown[]): Record<string, unknown> => ({
+    content: items,
+    totalElements: items.length,
+    number: 0,
+    size: 50,
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -149,7 +155,95 @@ describe('EuipoProvider', () => {
     await expect(noSecret.search('test')).rejects.toBeInstanceOf(ProviderError);
   });
 
-  it('fetches a token and returns trademark matches', async () => {
+  it('fetches a token and returns trademark matches from paged response', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(tokenResponse),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(
+            pagedResponse([
+              {
+                trademarkName: 'APPLE',
+                applicantName: 'Apple Inc.',
+                status: 'REGISTERED',
+                applicationNumber: '018123456',
+              },
+            ]),
+          ),
+      });
+
+    const provider = new EuipoProvider(config);
+    const results = await provider.search('apple');
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      markName: 'APPLE',
+      owner: 'Apple Inc.',
+      status: 'REGISTERED',
+      source: 'EUIPO',
+      registrationNumber: '018123456',
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0]![0]).toBe(config.authUrl);
+  });
+
+  it('builds an RSQL wildcard query and sends X-IBM-Client-Id on every search', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(tokenResponse),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(pagedResponse([])),
+      });
+
+    const provider = new EuipoProvider(config);
+    await provider.search('Nike');
+
+    const searchCall = mockFetch.mock.calls[1]!;
+    const searchUrl = new URL(searchCall[0] as string);
+    expect(searchUrl.searchParams.get('query')).toBe('trademarkName==*nike*');
+    expect(searchUrl.searchParams.get('page')).toBe('0');
+    expect(searchUrl.searchParams.get('size')).toBe('50');
+
+    const headers = (searchCall[1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer mock-token');
+    expect(headers['X-IBM-Client-Id']).toBe('test-id');
+  });
+
+  it('sanitises RSQL metacharacters from the search term', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(tokenResponse),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(pagedResponse([])),
+      });
+
+    const provider = new EuipoProvider(config);
+    await provider.search('  Ni*ke\'s "Best"  ');
+
+    const searchCall = mockFetch.mock.calls[1]!;
+    const searchUrl = new URL(searchCall[0] as string);
+    // Whitespace, asterisk, single and double quotes are stripped; the
+    // term becomes the bare lowercased alphanumeric core.
+    expect(searchUrl.searchParams.get('query')).toBe('trademarkName==*nikesbest*');
+  });
+
+  it('accepts the legacy `trademarks` response shape (backward compat)', async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -163,10 +257,10 @@ describe('EuipoProvider', () => {
           Promise.resolve({
             trademarks: [
               {
-                trademarkName: 'APPLE',
-                applicantName: 'Apple Inc.',
-                status: 'Registered',
-                applicationNumber: '018123456',
+                trademarkName: 'LEGACY',
+                applicantName: 'Legacy Owner',
+                status: 'REGISTERED',
+                applicationNumber: '018999999',
               },
             ],
             total: 1,
@@ -174,19 +268,9 @@ describe('EuipoProvider', () => {
       });
 
     const provider = new EuipoProvider(config);
-    const results = await provider.search('apple');
-
+    const results = await provider.search('legacy');
     expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({
-      markName: 'APPLE',
-      owner: 'Apple Inc.',
-      status: 'Registered',
-      source: 'EUIPO',
-      registrationNumber: '018123456',
-    });
-    // Token fetch should be called first, then search
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(mockFetch.mock.calls[0]![0]).toBe(config.authUrl);
+    expect(results[0]!.markName).toBe('LEGACY');
   });
 
   it('reuses cached token on second call within TTL', async () => {
@@ -199,14 +283,13 @@ describe('EuipoProvider', () => {
       .mockResolvedValue({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ trademarks: [] }),
+        json: () => Promise.resolve(pagedResponse([])),
       });
 
     const provider = new EuipoProvider(config);
     await provider.search('test1');
     await provider.search('test2');
 
-    // Token was only fetched once despite two searches
     expect(mockFetch).toHaveBeenCalledTimes(3);
     const tokenCalls = mockFetch.mock.calls.filter(
       (call: unknown[]) => call[0] === config.authUrl,
@@ -214,7 +297,7 @@ describe('EuipoProvider', () => {
     expect(tokenCalls).toHaveLength(1);
   });
 
-  it('filters out refused/withdrawn/expired trademarks', async () => {
+  it('filters out refused/withdrawn/expired/cancelled/surrendered trademarks', async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -225,20 +308,23 @@ describe('EuipoProvider', () => {
         ok: true,
         status: 200,
         json: () =>
-          Promise.resolve({
-            trademarks: [
-              { trademarkName: 'REFUSED', status: 'Refused', applicantName: 'X' },
-              { trademarkName: 'WITHDRAWN', status: 'Withdrawn', applicantName: 'X' },
-              { trademarkName: 'EXPIRED', status: 'Expired', applicantName: 'X' },
-              { trademarkName: 'ACTIVE', status: 'Registered', applicantName: 'Y' },
-            ],
-          }),
+          Promise.resolve(
+            pagedResponse([
+              { trademarkName: 'REFUSED', status: 'REFUSED', applicantName: 'X' },
+              { trademarkName: 'WITHDRAWN', status: 'WITHDRAWN', applicantName: 'X' },
+              { trademarkName: 'EXPIRED', status: 'EXPIRED', applicantName: 'X' },
+              { trademarkName: 'CANCELLED', status: 'CANCELLED', applicantName: 'X' },
+              { trademarkName: 'SURRENDERED', status: 'SURRENDERED', applicantName: 'X' },
+              { trademarkName: 'REGISTERED', status: 'REGISTERED', applicantName: 'Y' },
+              { trademarkName: 'PUBLISHED', status: 'APPLICATION_PUBLISHED', applicantName: 'Z' },
+            ]),
+          ),
       });
 
     const provider = new EuipoProvider(config);
     const results = await provider.search('test');
-    expect(results).toHaveLength(1);
-    expect(results[0]!.markName).toBe('ACTIVE');
+    expect(results).toHaveLength(2);
+    expect(results.map((r) => r.markName)).toEqual(['REGISTERED', 'PUBLISHED']);
   });
 
   it('throws ProviderError on network failure during token fetch', async () => {
@@ -282,7 +368,7 @@ describe('EuipoProvider', () => {
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ trademarks: [] }),
+        json: () => Promise.resolve(pagedResponse([])),
       });
 
     const provider = new EuipoProvider(config);
@@ -294,6 +380,22 @@ describe('EuipoProvider', () => {
       (call: unknown[]) => call[0] === config.authUrl,
     );
     expect(tokenCalls).toHaveLength(2);
+  });
+
+  it('mentions X-IBM-Client-Id and Trademark Search 1.1.0 in the 401 error message', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(tokenResponse),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
+
+    const provider = new EuipoProvider(config);
+    const error = await provider.search('test').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as ProviderError).message).toMatch(/X-IBM-Client-Id/);
+    expect((error as ProviderError).message).toMatch(/Trademark Search 1\.1\.0/);
   });
 
   it('returns empty array when trademark list is absent in response', async () => {

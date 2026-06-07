@@ -42,18 +42,33 @@ const configSchema = z.object({
     .default('https://tmsearch.uspto.gov/tmsearch'),
   /**
    * EUIPO OAuth2 credentials (free registration at https://euipo.europa.eu/ohimportal/en/open-data).
+   * The same `EUIPO_CLIENT_ID` is reused as the `X-IBM-Client-Id` header on the
+   * Trademark Search 1.1.0 API — the OAuth2 client_id and the IBM API gateway
+   * client identifier are issued together.
    * When absent, EuipoProvider is treated as unavailable (graceful degrade).
    */
   EUIPO_CLIENT_ID: z.string().optional(),
   EUIPO_CLIENT_SECRET: z.string().optional(),
+  /**
+   * EUIPO OAuth2 token endpoint for the client_credentials grant.
+   * Default points at the production EUIPO CAS endpoint; the operator can
+   * switch to the sandbox (`https://auth-sandbox.euipo.europa.eu/oidc/access_token`)
+   * by overriding this variable. EUIPO periodically rotates the exact path,
+   * so the default is a placeholder until a verified current URL is known.
+   */
   EUIPO_AUTH_URL: z
     .string()
     .url()
     .default('https://euipo.europa.eu/oauth2/token'),
+  /**
+   * EUIPO Trademark Search 1.1.0 endpoint (RSQL-based, `X-IBM-Client-Id` required).
+   * The legacy COPLA endpoint (`copla/trademark/data-capture/V1/trademarks`) was
+   * retired and silently returns zero hits; see ADR-0014 for the migration context.
+   */
   EUIPO_API_URL: z
     .string()
     .url()
-    .default('https://euipo.europa.eu/copla/trademark/data-capture/V1/trademarks'),
+    .default('https://api.euipo.europa.eu/trademark-search/trademarks'),
   /**
    * Number of days that a cached trademark result remains valid.
    * Avoids re-hitting rate-limited free APIs on repeat pipeline runs.
