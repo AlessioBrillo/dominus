@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { isValidDomain } from '../domain.js';
+import {
+  isValidDomain,
+  parseDomain,
+  extractTld,
+  extractSld,
+  MULTI_PART_TLDS,
+} from '../domain.js';
 
 describe('isValidDomain', () => {
   it.each([
@@ -30,5 +36,130 @@ describe('isValidDomain', () => {
     'example.123',
   ])('rejects %s', (value) => {
     expect(isValidDomain(value)).toBe(false);
+  });
+});
+
+describe('parseDomain', () => {
+  describe('gTLDs', () => {
+    it('parses a vanilla .com domain', () => {
+      expect(parseDomain('nike.com')).toEqual({
+        input: 'nike.com',
+        sld: 'nike',
+        tld: '.com',
+      });
+    });
+
+    it('lowercases mixed-case input', () => {
+      expect(parseDomain('Nike.COM')).toEqual({
+        input: 'nike.com',
+        sld: 'nike',
+        tld: '.com',
+      });
+    });
+
+    it('handles single-character SLDs', () => {
+      expect(parseDomain('a.io').sld).toBe('a');
+      expect(parseDomain('a.io').tld).toBe('.io');
+    });
+
+    it('handles numeric SLDs', () => {
+      expect(parseDomain('123.com')).toEqual({
+        input: '123.com',
+        sld: '123',
+        tld: '.com',
+      });
+    });
+
+    it('returns .com as a safe default for malformed input', () => {
+      expect(parseDomain('notld').tld).toBe('.com');
+    });
+  });
+
+  describe('multi-part ccTLDs (the bug)', () => {
+    it('treats nike.co.uk as sld=nike, tld=.co.uk', () => {
+      expect(parseDomain('nike.co.uk')).toEqual({
+        input: 'nike.co.uk',
+        sld: 'nike',
+        tld: '.co.uk',
+      });
+    });
+
+    it('treats foo.com.au as sld=foo, tld=.com.au', () => {
+      expect(parseDomain('foo.com.au')).toEqual({
+        input: 'foo.com.au',
+        sld: 'foo',
+        tld: '.com.au',
+      });
+    });
+
+    it('treats a.ne.jp as sld=a, tld=.ne.jp', () => {
+      expect(parseDomain('a.ne.jp')).toEqual({
+        input: 'a.ne.jp',
+        sld: 'a',
+        tld: '.ne.jp',
+      });
+    });
+
+    it('treats a deeply nested ac.uk as sld=a, tld=.ac.uk', () => {
+      expect(parseDomain('oxford.ac.uk').sld).toBe('oxford');
+      expect(parseDomain('oxford.ac.uk').tld).toBe('.ac.uk');
+    });
+
+    it('falls through to first-label default for unknown multi-part suffixes', () => {
+      // .foo.bar is not in MULTI_PART_TLDS — fall through to treating
+      // `bar.foo.bar` as a 3-part single-label case.
+      expect(parseDomain('a.foo.bar')).toEqual({
+        input: 'a.foo.bar',
+        sld: 'a',
+        tld: '.bar',
+      });
+    });
+  });
+
+  describe('empty / degenerate input', () => {
+    it('returns empty sld and default tld for empty input', () => {
+      expect(parseDomain('')).toEqual({ input: '', sld: '', tld: '.com' });
+    });
+
+    it('returns empty sld and default tld for whitespace-only input', () => {
+      expect(parseDomain('   ')).toEqual({ input: '', sld: '', tld: '.com' });
+    });
+  });
+});
+
+describe('extractTld / extractSld convenience wrappers', () => {
+  it('extractTld returns the TLD for a vanilla domain', () => {
+    expect(extractTld('nike.com')).toBe('.com');
+  });
+
+  it('extractTld returns the multi-part TLD when applicable', () => {
+    expect(extractTld('nike.co.uk')).toBe('.co.uk');
+    expect(extractTld('foo.com.au')).toBe('.com.au');
+  });
+
+  it('extractSld returns the SLD for a vanilla domain', () => {
+    expect(extractSld('nike.com')).toBe('nike');
+  });
+
+  it('extractSld returns the SLD correctly for multi-part TLDs', () => {
+    expect(extractSld('nike.co.uk')).toBe('nike');
+    expect(extractSld('foo.com.au')).toBe('foo');
+  });
+
+  it('extractSld on empty input returns empty string', () => {
+    expect(extractSld('')).toBe('');
+  });
+});
+
+describe('MULTI_PART_TLDS', () => {
+  it('contains the most common multi-part ccTLDs', () => {
+    expect(MULTI_PART_TLDS.has('co.uk')).toBe(true);
+    expect(MULTI_PART_TLDS.has('com.au')).toBe(true);
+    expect(MULTI_PART_TLDS.has('ac.uk')).toBe(true);
+  });
+
+  it('does not contain vanilla gTLDs', () => {
+    expect(MULTI_PART_TLDS.has('com')).toBe(false);
+    expect(MULTI_PART_TLDS.has('io')).toBe(false);
   });
 });
