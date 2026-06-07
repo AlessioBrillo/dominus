@@ -2,6 +2,7 @@ import { promises as dnsPromises } from 'node:dns';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from './dns-provider.js';
+import { loadConfig } from '../../config.js';
 
 export class NodeDnsProvider implements DnsProvider {
   async checkAvailability(domain: string): Promise<DnsCheckResult> {
@@ -18,6 +19,13 @@ export class NodeDnsProvider implements DnsProvider {
   }
 
   async checkBulk(domains: string[]): Promise<DnsCheckResult[]> {
-    return Promise.all(domains.map((d) => this.checkAvailability(d)));
+    const concurrency = loadConfig().DNS_BULK_CONCURRENCY;
+    const results: DnsCheckResult[] = [];
+    for (let i = 0; i < domains.length; i += concurrency) {
+      const chunk = domains.slice(i, i + concurrency);
+      const chunkResults = await Promise.all(chunk.map((d) => this.checkAvailability(d)));
+      results.push(...chunkResults);
+    }
+    return results;
   }
 }

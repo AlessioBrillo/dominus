@@ -19,6 +19,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_AUTH_URL: 'https://euipo.europa.eu/oauth2/token',
     EUIPO_API_URL: 'https://euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
+    DNS_BULK_CONCURRENCY: 10,
     ...overrides,
   };
 }

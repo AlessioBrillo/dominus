@@ -83,6 +83,12 @@ const configSchema = z.object({
    * (conservatism), no auto-activation is permitted.
    */
   SCORING_WEIGHTS_OVERRIDE: z.string().optional(),
+  /**
+   * Maximum number of concurrent DNS resolution requests during bulk checks.
+   * Defaults to 10 to avoid overwhelming the system resolver or triggering
+   * rate-limiting by upstream DNS servers.
+   */
+  DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
 });
 
 export type Config = z.infer<typeof configSchema>;
