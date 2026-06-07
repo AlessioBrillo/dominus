@@ -9,7 +9,7 @@ export async function computeMarketScore(
   provider: CompsProvider,
   weight: number,
 ): Promise<SignalOutput & { medianSalePrice: number }> {
-  const sld = input.domain.replace(input.tld, '');
+  const sld = input.sld;
   const sales = await provider.getSales(sld);
 
   if (sales.length === 0) {

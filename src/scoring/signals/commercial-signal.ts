@@ -9,7 +9,7 @@ export async function computeCommercialScore(
   provider: KeywordProvider,
   weight: number,
 ): Promise<SignalOutput> {
-  const sld = input.domain.replace(input.tld, '');
+  const sld = input.sld;
   const metrics = await provider.getMetrics(sld);
 
   const volumeScore = Math.min(1, metrics.monthlySearchVolume / MAX_VOLUME);
