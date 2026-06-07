@@ -215,9 +215,9 @@ describe('EuipoProvider', () => {
     expect(searchUrl.searchParams.get('page')).toBe('0');
     expect(searchUrl.searchParams.get('size')).toBe('50');
 
-    const headers = (searchCall[1] as RequestInit).headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer mock-token');
-    expect(headers['X-IBM-Client-Id']).toBe('test-id');
+    const init = searchCall[1] as { headers: Record<string, string> };
+    expect(init.headers.Authorization).toBe('Bearer mock-token');
+    expect(init.headers['X-IBM-Client-Id']).toBe('test-id');
   });
 
   it('sanitises RSQL metacharacters from the search term', async () => {
