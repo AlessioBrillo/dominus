@@ -7,8 +7,8 @@ import { GateVerdict } from '../../trademark/trademark-gate.js';
 import {
   makeFakeRescoreDeps,
   makeServiceFromFakes,
-  type PortfolioRescoreService,
-} from '../portfolio-rescore-service.js';
+} from './rescore-test-helpers.js';
+import type { PortfolioRescoreService } from '../portfolio-rescore-service.js';
 import { PortfolioManager } from '../portfolio-manager.js';
 
 function openTestDb(): Database.Database {

@@ -10,7 +10,7 @@ import { GateVerdict } from '../../trademark/trademark-gate.js';
 import {
   makeFakeRescoreDeps,
   makeServiceFromFakes,
-} from '../../portfolio/portfolio-rescore-service.js';
+} from '../../portfolio/__tests__/rescore-test-helpers.js';
 import { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import { createPortfolioRouter } from '../routes/portfolio.js';
 import { errorHandler } from '../middleware/error-handler.js';

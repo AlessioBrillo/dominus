@@ -7,7 +7,7 @@ import {
   makeFakeRescoreDeps,
   makeServiceFromFakes,
   makePortfolioEntry,
-} from '../portfolio-rescore-service.js';
+} from './rescore-test-helpers.js';
 
 function openTestDb(): Database.Database {
   const db = new Database(':memory:');
@@ -174,6 +174,24 @@ describe('PortfolioRescoreService', () => {
       // Assert
       const alphaCount = db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE domain = ?').get('alpha.com') as { n: number };
       expect(alphaCount.n).toBe(1);
+    });
+  });
+
+  describe('runtime isolation (regression: vitest-in-prod)', () => {
+    it('production module source does not import from vitest', async () => {
+      // Arrange — read the source on disk and confirm there is no
+      // `from 'vitest'` import in the runtime module. The test fails
+      // the moment a future change drags vitest back into the
+      // production graph (which would crash `npm install --omit=dev`).
+      const { readFileSync } = await import('node:fs');
+      const { fileURLToPath } = await import('node:url');
+      const { dirname, resolve } = await import('node:path');
+      const here = dirname(fileURLToPath(import.meta.url));
+      const source = readFileSync(resolve(here, '../portfolio-rescore-service.ts'), 'utf-8');
+
+      // Assert
+      expect(source).not.toMatch(/from\s+['"]vitest['"]/);
+      expect(source).not.toMatch(/require\(['"]vitest['"]\)/);
     });
   });
 });
