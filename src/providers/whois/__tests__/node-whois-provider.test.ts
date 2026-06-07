@@ -11,7 +11,7 @@ function makeMockConnect(): { connect: ConnectFn; emittedEvents: Array<{ emit: (
   const connect = vi.fn((_port: number, _host: string, callback?: () => void) => {
     const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
 
-    const emit = (event: string, ...args: unknown[]) => {
+    const emit = (event: string, ...args: unknown[]): void => {
       const h = handlers.get(event);
       if (h !== undefined) {
         for (const handler of h) handler(...args);
