@@ -2,14 +2,19 @@ import { ProviderError } from '../../types/errors.js';
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
 
 /**
- * EUIPO trademark search provider using the COPLA REST API with OAuth2
- * client_credentials flow.
+ * EUIPO trademark search provider using the Trademark Search 1.1.0
+ * API (RSQL queries, `X-IBM-Client-Id` gateway header, OAuth2
+ * client_credentials for token acquisition).
+ *
+ * The legacy COPLA endpoint was retired; queries against it return
+ * zero hits silently. See ADR-0014 for the migration context.
  *
  * Free registration required at:
  *   https://euipo.europa.eu/ohimportal/en/open-data
  *
- * When credentials are absent the constructor throws a ProviderError so the
- * gate treats this source as unavailable and degrades gracefully.
+ * When credentials are absent the constructor does not throw; instead
+ * `search()` raises a ProviderError so the gate treats this source as
+ * unavailable and degrades gracefully.
  */
 
 interface EuipoTokenResponse {
@@ -22,19 +27,45 @@ interface EuipoTrademark {
   applicantName?: string;
   status?: string;
   applicationNumber?: string;
-  kind?: string;
+  filingNumber?: string;
+  registrationNumber?: string;
 }
 
+/**
+ * EUIPO Trademark Search 1.1.0 returns a Spring-Data-style paged envelope.
+ * The legacy COPLA endpoint returned `{ trademarks: [...] }`; both shapes
+ * are accepted so the parser is robust to EUIPO API evolution and to
+ * pre-production environments that still serve the old envelope.
+ */
 interface EuipoSearchResponse {
+  content?: EuipoTrademark[];
+  items?: EuipoTrademark[];
   trademarks?: EuipoTrademark[];
+  totalElements?: number;
   total?: number;
+  number?: number;
+  size?: number;
 }
+
+const INACTIVE_STATUS_TOKENS = [
+  'refused',
+  'withdrawn',
+  'expired',
+  'cancelled',
+  'canceled',
+  'surrendered',
+  'invalid',
+  'lapsed',
+  'revoked',
+];
 
 export interface EuipoProviderConfig {
   clientId: string | undefined;
   clientSecret: string | undefined;
   authUrl: string;
   apiUrl: string;
+  /** Page size requested from EUIPO (default: 50, EUIPO max is 100). */
+  pageSize?: number;
 }
 
 export class EuipoProvider implements TrademarkProvider {
@@ -42,6 +73,7 @@ export class EuipoProvider implements TrademarkProvider {
   readonly #clientSecret: string | undefined;
   readonly #authUrl: string;
   readonly #apiUrl: string;
+  readonly #pageSize: number;
 
   #token: string | null = null;
   #tokenExpiresAt: number = 0;
@@ -51,14 +83,12 @@ export class EuipoProvider implements TrademarkProvider {
     this.#clientSecret = config.clientSecret;
     this.#authUrl = config.authUrl;
     this.#apiUrl = config.apiUrl;
+    this.#pageSize = config.pageSize ?? 50;
   }
 
   async search(term: string): Promise<TrademarkMatch[]> {
     const token = await this.#getToken();
-    const url = new URL(this.#apiUrl);
-    url.searchParams.set('trademarkName', term);
-    url.searchParams.set('pageSize', '50');
-    url.searchParams.set('pageNumber', '0');
+    const url = this.#buildSearchUrl(term);
 
     let response: Response;
     try {
@@ -66,6 +96,7 @@ export class EuipoProvider implements TrademarkProvider {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${token}`,
+          'X-IBM-Client-Id': this.#clientId ?? '',
           Accept: 'application/json',
         },
         signal: AbortSignal.timeout(15_000),
@@ -79,11 +110,12 @@ export class EuipoProvider implements TrademarkProvider {
     }
 
     if (response.status === 401 || response.status === 403) {
-      // Token may have been invalidated; clear the cached token
       this.#token = null;
       this.#tokenExpiresAt = 0;
       throw new ProviderError(
-        `EUIPO search unauthorised (HTTP ${response.status}) for term "${term}"`,
+        `EUIPO search unauthorised (HTTP ${response.status}) for term "${term}". ` +
+          'Verify EUIPO_CLIENT_ID (OAuth2 client_id is reused as X-IBM-Client-Id) ' +
+          'and that the subscription to Trademark Search 1.1.0 is active.',
         'EuipoProvider',
         'EUIPO_UNAUTHORIZED',
       );
@@ -111,6 +143,20 @@ export class EuipoProvider implements TrademarkProvider {
     return this.#parseResponse(data);
   }
 
+  #buildSearchUrl(term: string): URL {
+    const url = new URL(this.#apiUrl);
+    // RSQL: `trademarkName==*<term>*` performs a case-insensitive substring
+    // match against the verbal element (mark name). Wildcards are quoted
+    // implicitly by `*`; the term itself is sanitised to prevent RSQL
+    // injection (asterisks, spaces, and quotes inside the term would
+    // otherwise break the query grammar).
+    const sanitised = term.replace(/[\\*'"\s]/g, '').toLowerCase();
+    url.searchParams.set('query', `trademarkName==*${sanitised}*`);
+    url.searchParams.set('page', '0');
+    url.searchParams.set('size', String(this.#pageSize));
+    return url;
+  }
+
   async #getToken(): Promise<string> {
     if (!this.#clientId || !this.#clientSecret) {
       throw new ProviderError(
@@ -122,7 +168,6 @@ export class EuipoProvider implements TrademarkProvider {
     }
 
     const now = Date.now();
-    // Reuse token if it still has at least 60 seconds remaining
     if (this.#token !== null && now < this.#tokenExpiresAt - 60_000) {
       return this.#token;
     }
@@ -184,7 +229,8 @@ export class EuipoProvider implements TrademarkProvider {
   #parseResponse(raw: unknown): TrademarkMatch[] {
     if (!isEuipoSearchResponse(raw)) return [];
 
-    return (raw.trademarks ?? [])
+    const list = raw.content ?? raw.items ?? raw.trademarks ?? [];
+    return list
       .filter((tm): tm is EuipoTrademark => tm !== null && tm !== undefined)
       .filter((tm) => isActiveEuipoStatus(tm.status))
       .map((tm) => ({
@@ -192,7 +238,7 @@ export class EuipoProvider implements TrademarkProvider {
         owner: tm.applicantName ?? '',
         status: tm.status ?? '',
         source: 'EUIPO',
-        registrationNumber: tm.applicationNumber,
+        registrationNumber: tm.applicationNumber ?? tm.registrationNumber ?? tm.filingNumber,
       }))
       .filter((m) => m.markName.length > 0);
   }
@@ -201,8 +247,7 @@ export class EuipoProvider implements TrademarkProvider {
 function isActiveEuipoStatus(status: string | undefined): boolean {
   if (!status) return false;
   const lower = status.toLowerCase();
-  // Exclude clearly inactive statuses
-  return !lower.includes('refused') && !lower.includes('withdrawn') && !lower.includes('expired');
+  return !INACTIVE_STATUS_TOKENS.some((token) => lower.includes(token));
 }
 
 function isTokenResponse(v: unknown): v is EuipoTokenResponse {
@@ -217,5 +262,12 @@ function isTokenResponse(v: unknown): v is EuipoTokenResponse {
 }
 
 function isEuipoSearchResponse(v: unknown): v is EuipoSearchResponse {
-  return typeof v === 'object' && v !== null && 'trademarks' in v;
+  if (typeof v !== 'object' || v === null) return false;
+  return (
+    'content' in v ||
+    'items' in v ||
+    'trademarks' in v ||
+    'totalElements' in v ||
+    'total' in v
+  );
 }
