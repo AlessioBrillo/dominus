@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { loadConfig } from './config.js';
 import { openDatabase, runMigrations, CandidateRepository, ScoringRepository, PortfolioRepository, TrademarkRepository, OutcomeRepository } from './db/index.js';
 import { ManualKeywordProvider } from './providers/keyword/index.js';

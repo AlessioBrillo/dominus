@@ -18,7 +18,8 @@
     "noImplicitOverride": true,
     "exactOptionalPropertyTypes": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true
+    "noUnusedParameters": true,
+    "removeComments": false
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "coverage", "vitest.config.ts"]
