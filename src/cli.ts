@@ -68,7 +68,7 @@ const portfolioManager = new PortfolioManager(
   config.DROP_SCORE_THRESHOLD,
   config.DROP_RENEWAL_HORIZON_DAYS,
 );
-portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate));
+portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo));
 
 const cli = createCli(db, runService, portfolioManager, engine, outcomeRepo);
 cli.parse(process.argv);

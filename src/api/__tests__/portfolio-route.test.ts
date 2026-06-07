@@ -30,7 +30,7 @@ function buildApp(db: Database.Database): {
 } {
   const outcomeRepo = new OutcomeRepository(db);
   const manager = new PortfolioManager(new PortfolioRepository(db), 25, 60);
-  const deps = makeFakeRescoreDeps();
+  const deps = makeFakeRescoreDeps(db);
   const { service } = makeServiceFromFakes(deps);
   manager.setRescoreService(service);
 
