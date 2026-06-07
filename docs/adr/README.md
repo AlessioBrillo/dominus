@@ -11,6 +11,7 @@ re-running the original arguments.
 | [0008](0008-backtest-engine.md) | Backtest engine — joining predictions to outcomes with point-in-time correctness | 2026-06-06 | Accepted |
 | [0009](0009-weight-recalibration-suggestion.md) | Weight recalibration suggestion with manual approval | 2026-06-06 | Accepted |
 | [0010](0010-rescore-bridge-decision.md) | Portfolio rescore bridge — why DNS/RDAP are bypassed on owned domains | 2026-06-06 | Accepted (retrospective) |
+| [0011](0011-pipeline-runs-schema.md) | pipeline_runs schema — durable history of every pipeline execution | 2026-06-07 | Accepted |
 
 ## Conventions
 

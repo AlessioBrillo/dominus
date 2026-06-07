@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../db/migrator.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import type { TrademarkMatch } from '../../providers/trademark/trademark-provider.js';
 import {
@@ -7,15 +9,29 @@ import {
   makePortfolioEntry,
 } from '../portfolio-rescore-service.js';
 
+function openTestDb(): Database.Database {
+  const db = new Database(':memory:');
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  runMigrations(db);
+  return db;
+}
+
 function makeBlockedMatch(markName: string): TrademarkMatch {
   return { markName, owner: 'Acme Corp', status: 'live', source: 'USPTO' };
 }
 
 describe('PortfolioRescoreService', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = openTestDb();
+  });
+
   describe('happy path', () => {
     it('produces a RescoreOutcome for each portfolio entry', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps();
+      const deps = makeFakeRescoreDeps(db);
       const { service } = makeServiceFromFakes(deps);
       const entries = [
         makePortfolioEntry({ domain: 'alpha.com' }),
@@ -33,7 +49,7 @@ describe('PortfolioRescoreService', () => {
 
     it('produces a 0-100 calibratedScore from the engine weightedScore', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps();
+      const deps = makeFakeRescoreDeps(db);
       const { service } = makeServiceFromFakes(deps);
 
       // Act
@@ -48,7 +64,7 @@ describe('PortfolioRescoreService', () => {
 
     it('sets trademarkClear=true when both providers respond and no match', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps();
+      const deps = makeFakeRescoreDeps(db);
       const { service } = makeServiceFromFakes(deps);
 
       // Act
@@ -66,7 +82,7 @@ describe('PortfolioRescoreService', () => {
   describe('trademark gate', () => {
     it('flags a domain as blocked when USPTO finds a matching mark', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps();
+      const deps = makeFakeRescoreDeps(db);
       vi.mocked(deps.uspto.search).mockResolvedValue([makeBlockedMatch('alpha')]);
       const { service } = makeServiceFromFakes(deps);
 
@@ -82,7 +98,7 @@ describe('PortfolioRescoreService', () => {
 
     it('reports Unverified when every TM provider errors', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps();
+      const deps = makeFakeRescoreDeps(db);
       vi.mocked(deps.uspto.search).mockRejectedValue(new Error('upstream 503'));
       vi.mocked(deps.euipo.search).mockRejectedValue(new Error('upstream 503'));
       const { service } = makeServiceFromFakes(deps);
@@ -101,7 +117,7 @@ describe('PortfolioRescoreService', () => {
   describe('error containment', () => {
     it('captures a per-domain error when scoring throws, without aborting the batch', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps();
+      const deps = makeFakeRescoreDeps(db);
       // The keyword provider is async — make the second call fail
       // so the second entry errors but the first succeeds.
       let calls = 0;
@@ -124,6 +140,40 @@ describe('PortfolioRescoreService', () => {
       expect(summary.results[1]?.error).toContain('keyword provider down');
       expect(summary.results[1]?.calibratedScore).toBe(0);
       expect(summary.results[1]?.trademarkVerdict).toBe(GateVerdict.Unverified);
+    });
+  });
+
+  describe('scoring_runs persistence (ADR-0010 errata)', () => {
+    it('creates a synthetic candidate and writes a scoring_runs row per entry', async () => {
+      // Arrange
+      const deps = makeFakeRescoreDeps(db);
+      const { service } = makeServiceFromFakes(deps);
+
+      // Act
+      await service.rescore([
+        makePortfolioEntry({ domain: 'alpha.com' }),
+        makePortfolioEntry({ domain: 'beta.io', tld: '.io' }),
+      ]);
+
+      // Assert
+      const candidateCount = db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE source = ?').get('portfolio_rescore') as { n: number };
+      expect(candidateCount.n).toBe(2);
+      const scoreCount = db.prepare('SELECT COUNT(*) AS n FROM scoring_runs WHERE run_id LIKE ?').get('portfolio-rescore-%') as { n: number };
+      expect(scoreCount.n).toBe(2);
+    });
+
+    it('reuses an existing candidate row instead of duplicating', async () => {
+      // Arrange
+      const deps = makeFakeRescoreDeps(db);
+      const { service } = makeServiceFromFakes(deps);
+      db.prepare('INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id) VALUES (?, ?, ?, ?, 0, ?)').run('alpha.com', '.com', 'keyword_combo', 'scored', 'pre-existing');
+
+      // Act
+      await service.rescore([makePortfolioEntry({ domain: 'alpha.com' })]);
+
+      // Assert
+      const alphaCount = db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE domain = ?').get('alpha.com') as { n: number };
+      expect(alphaCount.n).toBe(1);
     });
   });
 });

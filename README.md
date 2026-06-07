@@ -230,6 +230,36 @@ The REST equivalents:
 | `GET`  | `/api/portfolio/:domain/outcomes/stats` | Aggregate counts and realised revenue |
 | `GET`  | `/api/candidates?runId=<id>` | List candidates for a pipeline run |
 
+## Pipeline runs history
+
+Every `dominus run` (or `POST /api/candidates/run`) writes a row to
+`pipeline_runs` *before* the orchestrator runs and completes it (with
+duration, stage summary, results summary, and any error) when the run
+ends. Rows are retained for **180 days** by default; pass a custom value
+to `new PipelineRunService(..., retentionDays)` to override.
+
+CLI:
+
+```bash
+dominus runs list [--since ISO] [--limit N] [--json]
+dominus runs show <runId> [--json]
+dominus runs prune [--dry-run]
+```
+
+REST:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET`  | `/api/runs` | List runs (newest first; `?since`, `?until`, `?limit`) |
+| `GET`  | `/api/runs/:runId` | One run with stage + result summary |
+| `GET`  | `/api/runs/:runId/candidates` | Candidates persisted during that run |
+| `POST` | `/api/runs/prune` | Delete expired runs; returns `{ deleted, remaining }` |
+
+Candidates persisted by a run share the same `pipeline_run_id` as the
+`pipeline_runs.run_id`, so the join `pipeline_runs → candidates` is a
+direct equality. See `docs/adr/0011-pipeline-runs-schema.md` for the
+design rationale.
+
 ## Project Status
 
 MVP implemented and running end-to-end (CLI + API, SQLite persistence): five-stage

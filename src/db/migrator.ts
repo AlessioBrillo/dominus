@@ -7,13 +7,14 @@ import * as m0004 from './migrations/0004_create_trademark.js';
 import * as m0005 from './migrations/0005_trademark_term_cache.js';
 import * as m0006 from './migrations/0006_create_outcomes.js';
 import * as m0007 from './migrations/0007_create_backtest_signals.js';
+import * as m0008 from './migrations/0008_create_pipeline_runs.js';
 
 interface Migration {
   name: string;
   up: (db: Database.Database) => void;
 }
 
-const MIGRATIONS: Migration[] = [m0001, m0002, m0003, m0004, m0005, m0006, m0007];
+const MIGRATIONS: Migration[] = [m0001, m0002, m0003, m0004, m0005, m0006, m0007, m0008];
 
 export function runMigrations(db: Database.Database): void {
   db.exec(SCHEMA_MIGRATIONS_DDL);

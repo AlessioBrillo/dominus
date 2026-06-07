@@ -2,6 +2,7 @@ export enum CandidateSource {
   KeywordCombo = 'keyword_combo',
   Brandable = 'brandable',
   CloseoutCsv = 'closeout_csv',
+  PortfolioRescore = 'portfolio_rescore',
 }
 
 export enum CandidateStatus {

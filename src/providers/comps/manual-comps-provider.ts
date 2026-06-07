@@ -26,6 +26,36 @@ function parseCsv(content: string): CsvRow[] {
   return rows;
 }
 
+/**
+ * Extract the second-level label (the "name") from a domain.
+ * "snapps.com"   → "snapps"
+ * "my-app.io"    → "my-app"
+ * "foo.co.uk"    → "foo"
+ * ".com"         → ""
+ * ""             → ""
+ */
+function sldOf(domain: string): string {
+  const trimmed = domain.trim();
+  if (trimmed === '') return '';
+  const labels = trimmed.split('.');
+  if (labels.length < 2) return trimmed;
+  return labels[0] ?? '';
+}
+
+/**
+ * Split a label into lowercase word tokens on any non-letter character.
+ * "snapps"       → ["snapps"]
+ * "my-app"       → ["my", "app"]
+ * "myApp123"     → ["myapp"]
+ * "1cloud"       → ["cloud"]
+ */
+function tokenize(label: string): string[] {
+  return label
+    .toLowerCase()
+    .split(/[^a-z]+/u)
+    .filter((t) => t.length > 0);
+}
+
 export class ManualCompsProvider implements CompsProvider {
   private readonly sales: ComparableSale[];
 
@@ -47,8 +77,24 @@ export class ManualCompsProvider implements CompsProvider {
     }
   }
 
+  /**
+   * Find sales whose second-level label contains the search term as a
+   * whole word token.
+   *
+   * The previous implementation used `s.domain.toLowerCase().includes(term)`
+   * which produced false positives: searching for "app" matched
+   * "snapps.com" and "appsolutely.com". The new rule tokenises the SLD on
+   * non-letters and matches on exact token equality, so "app" only matches
+   * "app.com", "my-app.com", or any label whose tokens include "app".
+   */
   getSales(term: string): Promise<ComparableSale[]> {
-    const lower = term.toLowerCase();
-    return Promise.resolve(this.sales.filter((s) => s.domain.toLowerCase().includes(lower)));
+    const needle = term.toLowerCase().trim();
+    if (needle === '') return Promise.resolve([]);
+    return Promise.resolve(
+      this.sales.filter((s) => {
+        const tokens = tokenize(sldOf(s.domain));
+        return tokens.includes(needle);
+      }),
+    );
   }
 }

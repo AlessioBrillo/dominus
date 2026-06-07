@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
+import { isValidDomain } from '../../utils/domain.js';
 
 export function registerScoreCommand(program: Command, engine: ScoringEngine): void {
   program
@@ -13,7 +14,14 @@ export function registerScoreCommand(program: Command, engine: ScoringEngine): v
         domain: string,
         options: { closeout: boolean; age?: number; backlinks?: number },
       ) => {
-        const tld = domain.includes('.') ? `.${domain.split('.').pop() ?? 'com'}` : '.com';
+        if (!isValidDomain(domain)) {
+          process.stderr.write(
+            `Error: '${domain}' is not a syntactically valid domain. Expected something like 'example.com'.\n`,
+          );
+          process.exit(1);
+        }
+
+        const tld = `.${domain.split('.').pop() ?? 'com'}`;
 
         engine
           .score({

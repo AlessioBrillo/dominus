@@ -26,19 +26,22 @@ import {
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { PipelineRunService, CachedTrademarkProvider } from './app/index.js';
+import { PipelineRunService, CachedTrademarkProvider, RetryingTrademarkProvider, warnEuipoIfMissing } from './app/index.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
+  createRunsRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
+import { PipelineRunsRepository } from './db/repositories/pipeline-runs-repository.js';
 
 const config = loadConfig();
 const logger = getLogger();
 
 const db = openDatabase(config.DATABASE_PATH);
 runMigrations(db);
+warnEuipoIfMissing(config);
 
 const candidateRepo = new CandidateRepository(db);
 const scoringRepo = new ScoringRepository(db);
@@ -52,18 +55,20 @@ const engine = new ScoringEngine(keywordProvider, compsProvider, loadWeights(con
 
 const trademarkGate = new TrademarkGate(
   new CachedTrademarkProvider(
-    new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+    new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
     trademarkRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
   ),
   new CachedTrademarkProvider(
-    new EuipoProvider({
-      clientId: config.EUIPO_CLIENT_ID,
-      clientSecret: config.EUIPO_CLIENT_SECRET,
-      authUrl: config.EUIPO_AUTH_URL,
-      apiUrl: config.EUIPO_API_URL,
-    }),
+    new RetryingTrademarkProvider(
+      new EuipoProvider({
+        clientId: config.EUIPO_CLIENT_ID,
+        clientSecret: config.EUIPO_CLIENT_SECRET,
+        authUrl: config.EUIPO_AUTH_URL,
+        apiUrl: config.EUIPO_API_URL,
+      }),
+    ),
     trademarkRepo,
     'EUIPO',
     config.TM_CACHE_TTL_DAYS,
@@ -85,7 +90,7 @@ const portfolioManager = new PortfolioManager(
   config.DROP_SCORE_THRESHOLD,
   config.DROP_RENEWAL_HORIZON_DAYS,
 );
-portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate));
+portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo));
 
 const app = express();
 app.use(express.json());
@@ -93,6 +98,7 @@ app.use(createRequestLogger(logger));
 
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
+app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db));
 
 app.use(errorHandler);
 

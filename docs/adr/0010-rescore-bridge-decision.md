@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | **Status** | Accepted (retrospective) |
-| **Date** | 2026-06-06 |
+| **Date** | 2026-06-06 (original), 2026-06-07 (errata) |
 | **Authors** | DOMINUS team |
 | **Deciders** | DOMINUS team |
 | **Supersedes** | N/A |
@@ -234,6 +234,66 @@ into the latter.
   verdicts (some Keep, some Drop) should produce the same
   verdicts after a rescore, modulo the calibration delta from
   the current engine weights.
+
+---
+
+## Errata — 2026-06-07
+
+The original ADR's *Negative* section claimed that "The rescore does
+not write to `candidates` or `scoring_runs` by default" and that the
+"net-new signal for the backtest engine" would arrive via the
+`scoring_runs` table. **This was inaccurate.** The implementation in
+`src/portfolio/portfolio-rescore-service.ts` (introduced in PR #5) did
+not write to `scoring_runs` at all, which means the backtest
+point-in-time join (ADR-0008) would never see a rescore-time score
+for a portfolio domain that was later sold.
+
+### What changed
+
+`PortfolioRescoreService` now writes a `scoring_runs` row for every
+rescored portfolio domain, in addition to updating
+`portfolio_entries.current_score` and `portfolio_entries.suggested_list_price`.
+
+The `scoring_runs.candidate_id` FK is preserved by creating (or
+reusing) a `candidates` row for the portfolio domain with
+`source = 'portfolio_rescore'`. This synthetic candidate is a
+deliberate extension: it lets the backtest engine join the rescore
+snapshot to a future sold outcome with the same point-in-time
+correctness the pipeline run already enjoys.
+
+### Why the change is safe
+
+1. **The candidate row is a faithful model of reality.** A
+   portfolio domain is a domain the operator evaluated and decided
+   to acquire; the rescore is a fresh evaluation of that same
+   domain. The `candidates` row simply records "the engine saw
+   this domain, source = rescore, status = Scored".
+2. **No new table, no migration.** The `candidates` table already
+   accepts arbitrary `source` values (it is a TEXT column, see
+   migration 0001 and `CandidateSource` enum in
+   `src/types/candidate.ts`). Adding a new enum value is a
+   non-migration change.
+3. **Append-only on `scoring_runs`.** Each rescore produces a new
+   `scoring_runs` row with `scored_at = now()`. A future sale of
+   the domain joins the most-recent rescore, which is exactly the
+   behaviour the original ADR-0008 promises.
+4. **No performance regression at realistic scale.** A 50-domain
+   portfolio produces 50 extra `candidates` upserts and 50
+   `scoring_runs` inserts per rescore — a sub-second operation.
+
+### Decision (re-stated)
+
+The rescore IS expected to write to `scoring_runs` so the backtest
+point-in-time join sees rescore-time predictions. ADR-0008's contract
+— "the prediction row used in the join must be the one available
+*before* the outcome occurred, not the latest row" — is preserved:
+a rescore before the sale beats the sale's `occurred_at`; a rescore
+after does not retroactively affect an older signal.
+
+The earlier text describing "net-new signal for the backtest engine"
+is therefore accurate; the earlier text claiming the rescore "does
+not write to `candidates` or `scoring_runs`" is corrected by this
+errata.
 
 ---
 

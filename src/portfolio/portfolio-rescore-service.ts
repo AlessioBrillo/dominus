@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type Database from 'better-sqlite3';
 import type { PortfolioEntry } from '../types/portfolio.js';
 import { Verdict } from '../types/portfolio.js';
 import { ScoringEngine } from '../scoring/scoring-engine.js';
@@ -6,6 +8,9 @@ import type { KeywordProvider } from '../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../providers/comps/comps-provider.js';
 import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
 import type { TrademarkMatch } from '../providers/trademark/trademark-provider.js';
+import { CandidateRepository } from '../db/repositories/candidate-repository.js';
+import { ScoringRepository } from '../db/repositories/scoring-repository.js';
+import { CandidateSource, CandidateStatus } from '../types/candidate.js';
 import { vi } from 'vitest';
 
 /**
@@ -30,6 +35,13 @@ import { vi } from 'vitest';
  * score + suggested list price + TM gate verdict). The application
  * layer (PortfolioManager) persists the score/list price fields onto
  * `portfolio_entries` and then refreshes verdicts.
+ *
+ * ADR-0010 errata (2026-06-07): the rescore now also writes a
+ * `scoring_runs` row for each domain, so the backtest point-in-time
+ * join (ADR-0008) sees rescore-time predictions. The required
+ * `candidate_id` is satisfied by upserting a synthetic candidate
+ * (source = 'portfolio_rescore', status = Scored). No new table, no
+ * migration: `candidates.source` is a free TEXT column already.
  */
 export interface RescoreOutcome {
   domain: string;
@@ -54,10 +66,20 @@ export interface RescoreSummary {
   totalDurationMs: number;
 }
 
+/**
+ * Prefix used for synthetic rescore `run_id` values. Backtest joins
+ * key on `scoring_runs.run_id`; a rescore-only row carries this
+ * prefix so a future "distinguish pipeline runs from rescores"
+ * query is trivial.
+ */
+export const RESCORE_RUN_ID_PREFIX = 'portfolio-rescore-';
+
 export class PortfolioRescoreService {
   constructor(
     private readonly engine: ScoringEngine,
     private readonly gate: TrademarkGate,
+    private readonly candidateRepo: CandidateRepository,
+    private readonly scoringRepo: ScoringRepository,
   ) {}
 
   async rescore(entries: PortfolioEntry[]): Promise<RescoreSummary> {
@@ -80,6 +102,14 @@ export class PortfolioRescoreService {
       });
 
       const gate = await this.gate.check(entry.domain);
+
+      // ADR-0010 errata: persist a scoring_runs row keyed on a
+      // synthetic candidate so the backtest point-in-time join sees
+      // this prediction. The candidate is created with source =
+      // 'portfolio_rescore' and status = 'scored'.
+      const candidateId = this.ensureRescoreCandidate(entry);
+      const runId = `${RESCORE_RUN_ID_PREFIX}${entry.domain}-${randomUUID()}`;
+      this.scoringRepo.insert(candidateId, runId, score);
 
       return {
         domain: entry.domain,
@@ -109,6 +139,32 @@ export class PortfolioRescoreService {
       };
     }
   }
+
+  /**
+   * Return the id of an existing candidate for `entry.domain`, or
+   * upsert a synthetic one with `source = portfolio_rescore` and
+   * `status = scored`. The candidate row is the FK target required
+   * by `scoring_runs.candidate_id`; without it the rescore would
+   * have no way to write its prediction snapshot.
+   */
+  private ensureRescoreCandidate(entry: PortfolioEntry): number {
+    const existing = this.candidateRepo.findByDomain(entry.domain);
+    if (existing !== null && existing.id !== undefined) {
+      return existing.id;
+    }
+    const inserted = this.candidateRepo.upsert({
+      domain: entry.domain,
+      tld: entry.tld,
+      source: CandidateSource.PortfolioRescore,
+      status: CandidateStatus.Scored,
+      isPremium: false,
+      pipelineRunId: RESCORE_RUN_ID_PREFIX + entry.domain,
+    });
+    if (inserted.id === undefined) {
+      throw new Error(`Failed to upsert rescore candidate for ${entry.domain}`);
+    }
+    return inserted.id;
+  }
 }
 
 /** Test helper: stand up a service backed by fakes. The keyword and
@@ -119,14 +175,20 @@ export interface FakeRescoreDeps {
   comps: CompsProvider;
   uspto: TrademarkProvider;
   euipo: TrademarkProvider;
+  candidateRepo: CandidateRepository;
+  scoringRepo: ScoringRepository;
 }
 
-export function makeFakeRescoreDeps(): FakeRescoreDeps {
+export function makeFakeRescoreDeps(db?: Database.Database): FakeRescoreDeps {
+  const candidateRepo = new CandidateRepository(db ?? ({} as Database.Database));
+  const scoringRepo = new ScoringRepository(db ?? ({} as Database.Database));
   return {
     keyword: { getMetrics: vi.fn().mockResolvedValue({ term: '', monthlySearchVolume: 0, cpc: 0, competition: 0 }) },
     comps: { getSales: vi.fn().mockResolvedValue([]) },
     uspto: { search: vi.fn().mockResolvedValue([]) },
     euipo: { search: vi.fn().mockResolvedValue([]) },
+    candidateRepo,
+    scoringRepo,
   };
 }
 
@@ -137,7 +199,11 @@ export function makeServiceFromFakes(deps: FakeRescoreDeps): {
 } {
   const engine = new ScoringEngine(deps.keyword, deps.comps);
   const gate = new TrademarkGate(deps.uspto, deps.euipo);
-  return { service: new PortfolioRescoreService(engine, gate), engine, gate };
+  return {
+    service: new PortfolioRescoreService(engine, gate, deps.candidateRepo, deps.scoringRepo),
+    engine,
+    gate,
+  };
 }
 
 /** Test helper: build a PortfolioEntry with sensible defaults. */

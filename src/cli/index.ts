@@ -4,11 +4,17 @@ import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
+import type { Config } from '../config.js';
+import { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
+import { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
 import { registerOutcomeCommand } from './commands/outcome-command.js';
 import { registerBacktestCommand } from './commands/backtest-command.js';
+import { registerRunsCommand } from './commands/runs-command.js';
+import { registerMaintenanceCommand } from './commands/maintenance-command.js';
+import { registerProvidersCommand } from './commands/providers-command.js';
 
 export function createCli(
   db: Database.Database,
@@ -16,6 +22,7 @@ export function createCli(
   manager: PortfolioManager,
   engine: ScoringEngine,
   outcomeRepo: OutcomeRepository,
+  config: Config,
 ): Command {
   const program = new Command();
 
@@ -29,6 +36,12 @@ export function createCli(
   registerScoreCommand(program, engine);
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo });
+  registerRunsCommand(program, { runsRepo: new PipelineRunsRepository(db) });
+  registerMaintenanceCommand(program, {
+    trademarkRepo: new TrademarkRepository(db),
+    runsRepo: new PipelineRunsRepository(db),
+  });
+  registerProvidersCommand(program, { config });
 
   return program;
 }

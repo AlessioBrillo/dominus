@@ -112,4 +112,32 @@ export class TrademarkRepository {
         .get(candidateId, source, now) as TrademarkResultRow | undefined) ?? null
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Maintenance
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Delete every row whose `expires_at` is strictly in the past. Returns
+   * the number of rows removed. Idempotent — a second call is a no-op.
+   *
+   * The cache TTL defaults to 7 days but the term-keyed cache (`insertByTerm`)
+   * accepts a per-call `ttlDays`; rows are pruned uniformly on `expires_at`.
+   * Operators can run this on demand (`dominus maintenance prune --cache-only`)
+   * or as a scheduled job.
+   */
+  pruneExpired(now: string = new Date().toISOString()): number {
+    const result = this.db
+      .prepare('DELETE FROM trademark_results WHERE expires_at < ?')
+      .run(now);
+    return Number(result.changes);
+  }
+
+  /** Total row count (for diagnostics). */
+  count(): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM trademark_results')
+      .get() as { n: number };
+    return row.n;
+  }
 }
