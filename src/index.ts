@@ -26,7 +26,7 @@ import {
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { PipelineRunService, CachedTrademarkProvider } from './app/index.js';
+import { PipelineRunService, CachedTrademarkProvider, RetryingTrademarkProvider } from './app/index.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -54,18 +54,20 @@ const engine = new ScoringEngine(keywordProvider, compsProvider, loadWeights(con
 
 const trademarkGate = new TrademarkGate(
   new CachedTrademarkProvider(
-    new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+    new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
     trademarkRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
   ),
   new CachedTrademarkProvider(
-    new EuipoProvider({
-      clientId: config.EUIPO_CLIENT_ID,
-      clientSecret: config.EUIPO_CLIENT_SECRET,
-      authUrl: config.EUIPO_AUTH_URL,
-      apiUrl: config.EUIPO_API_URL,
-    }),
+    new RetryingTrademarkProvider(
+      new EuipoProvider({
+        clientId: config.EUIPO_CLIENT_ID,
+        clientSecret: config.EUIPO_CLIENT_SECRET,
+        authUrl: config.EUIPO_AUTH_URL,
+        apiUrl: config.EUIPO_API_URL,
+      }),
+    ),
     trademarkRepo,
     'EUIPO',
     config.TM_CACHE_TTL_DAYS,
