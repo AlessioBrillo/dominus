@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
+import type { CloseoutEntry } from '../../types/candidate.js';
 import { createCandidatesRouter } from '../routes/candidates.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
@@ -19,16 +20,15 @@ function openTestDb(): Database.Database {
 
 function makeStubRunService(): PipelineRunService {
   return {
-    run: () =>
-      Promise.resolve({
-        runId: 'stub',
-        recommended: [],
-        scored: [],
-        allCandidates: [],
-        stageSummary: {},
-        totalDurationMs: 0,
-        persistence: { candidatesPersisted: 0, scoresPersisted: 0 },
-      }),
+    run: vi.fn().mockResolvedValue({
+      runId: 'stub',
+      recommended: [],
+      scored: [],
+      allCandidates: [],
+      stageSummary: {},
+      totalDurationMs: 0,
+      persistence: { candidatesPersisted: 0, scoresPersisted: 0 },
+    }),
   } as unknown as PipelineRunService;
 }
 
@@ -63,6 +63,52 @@ describe('Candidates API', () => {
 
   beforeEach(() => {
     db = openTestDb();
+  });
+
+  describe('POST /api/candidates/run', () => {
+    it('forwards closeoutEntries to the run service', async () => {
+      const runService = makeStubRunService();
+      const app = express();
+      app.use(express.json());
+      app.use('/api/candidates', createCandidatesRouter(runService, new CandidateRepository(db)));
+      app.use(errorHandler);
+
+      const entries: CloseoutEntry[] = [
+        { domain: 'expired.com', domainAge: 10, backlinks: 500, waybackSnapshots: 100 },
+        { domain: 'aged.org', domainAge: 15 },
+      ];
+
+      await request(app)
+        .post('/api/candidates/run')
+        .send({ closeoutEntries: entries });
+
+      expect(runService.run).toHaveBeenCalledWith(
+        expect.objectContaining({ closeoutEntries: entries }),
+      );
+    });
+
+    it('forwards keywords, brandableNames, and closeoutDomains', async () => {
+      const runService = makeStubRunService();
+      const app = express();
+      app.use(express.json());
+      app.use('/api/candidates', createCandidatesRouter(runService, new CandidateRepository(db)));
+      app.use(errorHandler);
+
+      await request(app)
+        .post('/api/candidates/run')
+        .send({
+          keywords: ['cloud', 'saas'],
+          brandableNames: ['getnova.com'],
+          closeoutDomains: ['lastchance.net'],
+        });
+
+      expect(runService.run).toHaveBeenCalledWith({
+        keywords: ['cloud', 'saas'],
+        brandableNames: ['getnova.com'],
+        closeoutDomains: ['lastchance.net'],
+        closeoutEntries: undefined,
+      });
+    });
   });
 
   describe('GET /api/candidates', () => {
