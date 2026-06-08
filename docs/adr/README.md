@@ -7,6 +7,12 @@ re-running the original arguments.
 
 | ADR | Title | Date | Status |
 |-----|-------|------|--------|
+| [0001](0001-project-architecture.md) | Project architecture and technology decisions | 2026-06-08 | Accepted (retrospective) |
+| [0002](0002-scoring-engine-design.md) | Scoring engine design and conservatism principle | 2026-06-08 | Accepted (retrospective) |
+| [0003](0003-pipeline-stage-separation.md) | Pipeline stage separation | 2026-06-08 | Accepted (retrospective) |
+| [0004](0004-provider-abstraction-pattern.md) | Provider abstraction pattern | 2026-06-08 | Accepted (retrospective) |
+| [0005](0005-sqlite-schema-and-migrations.md) | SQLite schema and migration strategy | 2026-06-08 | Accepted (retrospective) |
+| [0006](0006-trademark-gate-mandate.md) | Trademark gate mandate | 2026-06-08 | Accepted (retrospective) |
 | [0007](0007-backtest-signals-schema.md) | backtest_signals schema for prediction-vs-reality audit | 2026-06-06 | Accepted |
 | [0008](0008-backtest-engine.md) | Backtest engine — joining predictions to outcomes with point-in-time correctness | 2026-06-06 | Accepted |
 | [0009](0009-weight-recalibration-suggestion.md) | Weight recalibration suggestion with manual approval | 2026-06-06 | Accepted |
@@ -15,7 +21,7 @@ re-running the original arguments.
 | [0012](0012-trademark-matching-policy.md) | Trademark matching policy and `.com` USPTO fallback | 2026-06-07 | Accepted |
 | [0013](0013-domain-parsing-consolidation.md) | Domain parsing consolidation — canonical SLD/TLD across scoring and trademark gate | 2026-06-07 | Accepted |
 | [0014](0014-euipo-api-migration.md) | EUIPO provider migration to Trademark Search 1.1.0 (RSQL + X-IBM-Client-Id) | 2026-06-07 | Accepted |
-| [0015](0015-psl-parser-adoption.md) | Adopt full Public Suffix List via `psl` npm Package | 2026-06-07 | Proposed |
+| [0015](0015-psl-parser-adoption.md) | Adopt full Public Suffix List via `psl` npm Package | 2026-06-07 | Accepted |
 
 ## Conventions
 
@@ -25,7 +31,9 @@ re-running the original arguments.
   that supersedes the old one — never an edit in place.
 - The MADR 4.0.0 template is the source of truth for ADR structure.
   See `.claude/skills/adr/template.md` for the canonical form.
-- All ADRs must be consistent with `dominus-product-vision.md`.
+- All ADRs must be consistent with earlier ADRs. The foundational decisions
+  (ADR-0001 through ADR-0006) document the architecture principles that all
+  subsequent ADRs build upon.
 
 ## How to write a new ADR
 

@@ -14,21 +14,25 @@ DOMINUS is a personal decision-support tool for buying and reselling DNS domains
 
 The core asset is the **scoring engine**: a heuristic valuator that outputs `expected_value`, `confidence`, `suggested_buy_max`, and `suggested_list_price` per domain candidate. The engine must be more conservative than commercial appraisal tools, not more generous.
 
-## Planned stack
+## Current stack
 
-- **Backend**: Node.js + Express
-- **Database**: SQLite (single-user, zero-server; Postgres only if the project scales)
-- **Frontend**: React + Vite + Tailwind (minimal dashboard or plain table for MVP)
-- **Domain availability**: Node built-in `dns` module for pre-filter; RDAP public endpoints (no key required) for confirmation; WHOIS port-43 fallback for ccTLDs
-- **Keyword data**: Google Keyword Planner (free with Ads account)
-- **Comparables**: NameBio (manual lookup)
-- **Trademark**: USPTO and EUIPO public APIs (free)
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | Node.js 20+, Express 5 |
+| **Database** | SQLite (better-sqlite3, WAL mode) |
+| **CLI** | Commander (8 commands) |
+| **API** | Express REST (8 route modules) |
+| **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
+| **Infrastructure** | CI via GitHub Actions, zero-cost hosting |
 
-All external providers must sit behind interfaces: `WhoisProvider`, `CompsProvider`, `TrademarkProvider`, `KeywordProvider`. Free/manual implementations now; paid implementations swapped in later without touching core logic.
+See [ADR-0001](docs/adr/0001-project-architecture.md) for the rationale
+behind the technology choices. A future frontend dashboard (React + Vite +
+Tailwind) is planned as a separate project phase but is not required for
+daily operation.
 
 ## Pipeline architecture
 
-Five-stage pipeline — all stages are in scope for MVP; acquisition and auto-listing are manual and out of scope:
+Five-stage pipeline — acquisition and auto-listing are manual and out of scope:
 
 1. **Candidate generation** — keyword combos, brandable names, closeout CSVs imported manually
 2. **DNS pre-filter** — fast bulk check via Node `dns`; drops obviously registered names
@@ -36,7 +40,9 @@ Five-stage pipeline — all stages are in scope for MVP; acquisition and auto-li
 4. **Scoring** — heuristic engine (see below)
 5. **Trademark gate** — mandatory USPTO/EUIPO check; any match blocks the candidate
 
-Plus a **portfolio tracker** (Level 7): renewal clock per domain, monthly keep/drop verdict.
+Plus a **portfolio tracker**: renewal clock per domain, monthly keep/drop verdict.
+
+All five stages are implemented and running. See [ADR-0003](docs/adr/0003-pipeline-stage-separation.md) for the architectural design.
 
 ## Scoring engine signals
 
@@ -45,25 +51,51 @@ Plus a **portfolio tracker** (Level 7): renewal clock per domain, monthly keep/d
 - **Market**: comparables from NameBio sales for similar names
 - **For expired/closeout domains**: domain age, backlinks, Wayback history
 
-Weights are tuned manually against real comparable sales. ML is out of scope at this scale — heuristic only.
+Weights are tuned manually against real comparable sales. ML is out of scope
+at this scale — heuristic only. See [ADR-0002](docs/adr/0002-scoring-engine-design.md)
+for the conservatism principle and [ADR-0008](docs/adr/0008-backtest-engine.md)
+for the backtest-driven tuning loop.
 
 ## Key design decisions
 
-- **Decision-first UX**: one question per candidate — *buy / pass*. One question per portfolio domain — *keep / drop / reprice*.
-- **Trademark gate is non-negotiable** — it runs on every candidate before any buy recommendation.
-- **Provider abstraction is non-negotiable** — never hardcode a specific API client into core logic.
-- **Cost discipline**: any paid API is banned from MVP. Every feature must be implementable at €0 infra cost.
-- **Renewal clock matters more than acquisition volume**: a domain that doesn't sell is a recurring liability. Drop logic is a first-class feature.
+- **Decision-first UX**: one question per candidate — *buy / pass*. One question
+  per portfolio domain — *keep / drop / reprice*.
+- **Trademark gate is non-negotiable** — it runs on every candidate before any
+  buy recommendation. See [ADR-0006](docs/adr/0006-trademark-gate-mandate.md).
+- **Provider abstraction is non-negotiable** — never hardcode a specific API
+  client into core logic. See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
+- **Cost discipline**: no paid API is used. Every feature runs at €0 infra cost.
+  See [ADR-0001](docs/adr/0001-project-architecture.md).
+- **Renewal clock matters more than acquisition volume**: a domain that doesn't
+  sell is a recurring liability. Drop logic is a first-class feature.
 
-## Current project status
+## Project status
 
-The MVP is implemented and runs end-to-end (TypeScript + SQLite, CLI + Express API). All five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers + caching), the portfolio tracker, portfolio re-score (scoring + TM gate against owned domains), and the outcomes table (sold / dropped / expired / renewed) are in place and tested. `dominus-product-vision.md` (v0.2) remains the authoritative spec.
+DOMINUS v0.2.0 — production-ready, tested, and running end-to-end.
 
-Resolved v0.3 decisions (vision §11):
+All five pipeline stages, the heuristic scoring engine, the trademark gate
+(real USPTO/EUIPO providers + caching), the portfolio tracker, portfolio
+re-score (scoring + TM gate against owned domains), the outcomes table
+(sold / dropped / expired / renewed), and the backtest engine are in place
+and tested. See the [ADR series](docs/adr/README.md) for the full
+architecture documentation.
 
-1. **Starting segment: economic closeouts first** — Stage 1 imports closeout CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the expiry signal.
-2. **MVP interface: CLI** — the React dashboard is deferred.
-3. Registrar for manual purchases — still open.
-4. Drop policy — defaults live in config (`DROP_SCORE_THRESHOLD`, `DROP_RENEWAL_HORIZON_DAYS`); thresholds still being tuned.
+Resolved design decisions:
 
-Providers still on free/manual data by design: `KeywordProvider` and `CompsProvider` read optional local files (`KEYWORD_DATA_PATH`, `COMPS_DATA_PATH`).
+1. **Starting segment: economic closeouts first** — Stage 1 imports closeout
+   CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the
+   expiry signal. See [ADR-0003](docs/adr/0003-pipeline-stage-separation.md).
+2. **Interface: CLI** — the React dashboard is deferred to a future phase.
+   Current CLI has 8 commands covering all operations.
+3. **Registrar**: manual purchases. A [RegistrarProvider]
+   (src/providers/registrar/registrar-provider.ts) interface is available for
+   future API integration with Namecheap, GoDaddy, or Cloudflare.
+   See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
+4. **Drop policy** — defaults live in config (`DROP_SCORE_THRESHOLD`,
+   `DROP_RENEWAL_HORIZON_DAYS`); thresholds are tuned via backtest feedback.
+
+Providers remain on free/manual data by design: `KeywordProvider` and
+`CompsProvider` read optional local files (`KEYWORD_DATA_PATH`,
+`COMPS_DATA_PATH`). A future upgrade to paid API providers requires only
+a new implementation file swapping in — no core logic changes.
+See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).

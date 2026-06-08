@@ -112,4 +112,4 @@
 
 ---
 
-*This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs should be consistent with the product vision in `dominus-product-vision.md`. Template: ${CLAUDE_SKILL_DIR}/template.md.*
+*This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs should be consistent with the ADR series starting at `docs/adr/0001-project-architecture.md`. Template: ${CLAUDE_SKILL_DIR}/template.md.*

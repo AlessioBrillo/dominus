@@ -214,5 +214,5 @@ to be re-derived on demand.
 ---
 
 *This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs
-should be consistent with the product vision in `dominus-product-vision.md`.
+should be consistent with the ADR series starting at `docs/adr/0001-project-architecture.md`.
 Template: `/home/aledio/Documents/Project/dominus/.claude/skills/adr/template.md`.*

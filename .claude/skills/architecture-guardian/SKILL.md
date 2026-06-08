@@ -222,5 +222,5 @@ The roadmap in §10 of the vision document maps to these phases:
 - **The trademark gate is never optional.** No buy recommendation without a passing trademark check.
 - **The scoring engine must be conservative.** When in doubt, underestimate. Overestimating destroys capital.
 - **Renewal cost is tracked from day one.** A domain without a renewal clock is a bug.
-- **No paid API is allowed in MVP.** Every provider implementation must be free/public/self-hosted.
-- **All identifiers, comments, and documentation must be in English.** (Exception: the product vision document `dominus-product-vision.md` is in Italian by design.)
+- **No paid API is allowed.** Every provider implementation must be free/public/self-hosted.
+- **All identifiers, comments, and documentation must be in English.**

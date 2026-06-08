@@ -38,6 +38,3 @@ data/
 
 # --- Claude runtime ---
 .claude/scheduled_tasks.lock
-
-# --- Project-specific (local only) ---
-dominus-product-vision.md
