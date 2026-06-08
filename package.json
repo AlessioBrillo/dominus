@@ -44,8 +44,10 @@
     "aftermarket"
   ],
   "dependencies": {
+    "@types/cors": "^2.8.19",
     "better-sqlite3": "^12.10.0",
     "commander": "^15.0.0",
+    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "node-cron": "^4.2.1",

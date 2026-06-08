@@ -38,6 +38,7 @@ const baseConfig: Config = {
   SCHEDULER_RENEWAL_CHECK_CRON: '0 8 * * *',
   SCHEDULER_RESCORE_CRON: '0 9 * * 1',
   SCHEDULER_PRUNE_CRON: '0 10 1 * *',
+  CORS_ORIGIN: '*',
 };
 
 describe('buildNotifiers', () => {

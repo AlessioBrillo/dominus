@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
@@ -23,6 +24,7 @@ const deps = createDependencies(config);
 
 const app = express();
 
+app.use(cors({ origin: config.CORS_ORIGIN }));
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -30,7 +32,7 @@ app.use((_req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter());
