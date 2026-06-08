@@ -35,6 +35,8 @@ import {
   createHealthRouter,
   createScoreRouter,
   createBacktestRouter,
+  createProvidersRouter,
+  createOutcomesRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -121,6 +123,8 @@ app.use(createRequestLogger(logger));
 app.use('/api/health', createHealthRouter());
 app.use('/api/score', createScoreRouter(engine, trademarkGate));
 app.use('/api/backtest', createBacktestRouter(db, outcomeRepo, loadWeights(config.SCORING_WEIGHTS_OVERRIDE)));
+app.use('/api/providers', createProvidersRouter(config));
+app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
 app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db));
