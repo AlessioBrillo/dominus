@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
-import { NotifierChannel } from './notifier.js';
-import type { Notifier } from './notifier.js';
+import type { Notifier, NotifierChannel } from './notifier.js';
 import type { RenewalAlert } from '../types/alert.js';
 
 export class DesktopNotifier implements Notifier {

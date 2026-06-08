@@ -27,8 +27,8 @@ describe('ConsoleNotifier', () => {
     stderrBuffer = [];
     originalStdout = process.stdout.write.bind(process.stdout);
     originalStderr = process.stderr.write.bind(process.stderr);
-    process.stdout.write = (s: string) => { stdoutBuffer.push(s); return true; };
-    process.stderr.write = (s: string) => { stderrBuffer.push(s); return true; };
+    process.stdout.write = (s: string): boolean => { stdoutBuffer.push(s); return true; };
+    process.stderr.write = (s: string): boolean => { stderrBuffer.push(s); return true; };
   });
 
   afterEach(() => {

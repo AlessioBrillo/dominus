@@ -46,7 +46,7 @@ export class SchedulerService {
 
   stop(): void {
     for (const [name, task] of this.jobs) {
-      task.stop();
+      void task.stop();
       logger.info(`Stopped job: ${name}`);
     }
     this.jobs.clear();
@@ -83,15 +83,16 @@ export class SchedulerService {
     this.#setJobDefinition(name, cronExpression, description, execute);
 
     if (cron.validate(cronExpression)) {
-      const task = cron.schedule(cronExpression, async () => {
-        try {
-          const result = await execute();
-          this.status.set(name, { lastRunAt: new Date().toISOString(), lastResult: result });
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          logger.error(`Job ${name} failed: ${errorMsg}`);
-          this.status.set(name, { lastRunAt: new Date().toISOString(), lastResult: `Error: ${errorMsg}` });
-        }
+      const task = cron.schedule(cronExpression, () => {
+        execute()
+          .then((result) => {
+            this.status.set(name, { lastRunAt: new Date().toISOString(), lastResult: result });
+          })
+          .catch((err: unknown) => {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            logger.error(`Job ${name} failed: ${errorMsg}`);
+            this.status.set(name, { lastRunAt: new Date().toISOString(), lastResult: `Error: ${errorMsg}` });
+          });
       });
       this.jobs.set(name, task);
     } else {
