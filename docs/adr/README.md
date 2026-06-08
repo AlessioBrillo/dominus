@@ -22,6 +22,7 @@ re-running the original arguments.
 | [0013](0013-domain-parsing-consolidation.md) | Domain parsing consolidation — canonical SLD/TLD across scoring and trademark gate | 2026-06-07 | Accepted |
 | [0014](0014-euipo-api-migration.md) | EUIPO provider migration to Trademark Search 1.1.0 (RSQL + X-IBM-Client-Id) | 2026-06-07 | Accepted |
 | [0015](0015-psl-parser-adoption.md) | Adopt full Public Suffix List via `psl` npm Package | 2026-06-07 | Accepted |
+| [0016](0016-registrar-abstraction.md) | Registrar provider abstraction | 2026-06-08 | Accepted |
 
 ## Conventions
 
