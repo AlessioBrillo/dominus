@@ -8,7 +8,7 @@ import { computeExpiryScore } from './signals/expiry-signal.js';
 import { DEFAULT_WEIGHTS, CONFIDENCE_THRESHOLD, WEIGHT_RECOMMEND_THRESHOLD, type ScoringWeights } from './weights.js';
 
 const BUY_MAX_RATIO = 0.5;
-const LIST_PRICE_MULTIPLIER = 3.0;
+const LIST_PRICE_MULTIPLIER = 2.5;
 const BASE_MARKET_VALUE_EUR = 500;
 
 export class ScoringEngine {
