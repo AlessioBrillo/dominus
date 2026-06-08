@@ -4,8 +4,8 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Proposed |
-| **Date** | 2026-06-07 |
+| **Status** | Accepted |
+| **Date** | 2026-06-08 |
 | **Authors** | AlessioBrillo |
 | **Deciders** | AlessioBrillo |
 | **Supersedes** | ADR-0013 (domain parsing — the curated `MULTI_PART_TLDS` set was always intended as an interim solution) |
