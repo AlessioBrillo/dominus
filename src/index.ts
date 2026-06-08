@@ -32,6 +32,7 @@ import {
   createCandidatesRouter,
   createPortfolioRouter,
   createRunsRouter,
+  createHealthRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -103,9 +104,19 @@ const portfolioManager = new PortfolioManager(
 portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo));
 
 const app = express();
+
+// Security headers (Principle 4: cost includes safety — zero-effort hardening).
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  next();
+});
+
 app.use(express.json());
 app.use(createRequestLogger(logger));
 
+app.use('/api/health', createHealthRouter());
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
 app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db));
