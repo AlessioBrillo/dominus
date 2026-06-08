@@ -135,6 +135,26 @@ const configSchema = z.object({
   /** Cron expression for monthly data pruning. Default: 1st at 10:00. */
   SCHEDULER_PRUNE_CRON: z.string().default('0 10 1 * *'),
 
+  // ── API hardening config ──────────────────────────────────────────
+
+  /**
+   * Allowed CORS origin for the REST API.
+   * Set to the URL of your frontend (e.g. http://localhost:5173).
+   * Default '*' allows any origin (safe for local-only / reverse-proxy setups).
+   */
+  CORS_ORIGIN: z.string().default('*'),
+
+  /**
+   * Rate limiting: window duration in milliseconds (default: 15 minutes).
+   */
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+
+  /**
+   * Rate limiting: max requests per window per IP (default: 100).
+   * Set to 0 to disable rate limiting entirely.
+   */
+  RATE_LIMIT_MAX: z.coerce.number().int().nonnegative().default(100),
+
   // ── Cloudflare Registrar config ───────────────────────────────────
 
   /** Cloudflare API token with Zone:Read, Registrar:Read, Registrar:Write permissions. */

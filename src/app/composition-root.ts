@@ -1,0 +1,183 @@
+import type Database from 'better-sqlite3';
+import type { Config } from '../config.js';
+import { openDatabase, runMigrations } from '../db/index.js';
+import {
+  CandidateRepository,
+  ScoringRepository,
+  PortfolioRepository,
+  TrademarkRepository,
+  OutcomeRepository,
+  RenewalAlertRepository,
+  PipelineRunsRepository,
+} from '../db/index.js';
+import { ManualKeywordProvider } from '../providers/keyword/index.js';
+import { ManualCompsProvider } from '../providers/comps/index.js';
+import { NodeDnsProvider } from '../providers/dns/index.js';
+import { PublicRdapProvider } from '../providers/rdap/index.js';
+import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
+import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
+import { ScoringEngine, loadWeights, type ScoringWeights } from '../scoring/index.js';
+import { TrademarkGate } from '../trademark/index.js';
+import {
+  PipelineOrchestrator,
+  CandidateGenerationStage,
+  DnsPreFilterStage,
+  RdapConfirmationStage,
+  ScoringStage,
+  TrademarkGateStage,
+} from '../pipeline/index.js';
+import { PortfolioManager, RenewalAlertEngine } from '../portfolio/index.js';
+import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.js';
+import { buildNotifiers } from '../notifiers/index.js';
+import type { Notifier } from '../notifiers/notifier.js';
+import { SchedulerService } from '../scheduler/index.js';
+import {
+  PipelineRunService,
+  CachedTrademarkProvider,
+  RetryingTrademarkProvider,
+  warnEuipoIfMissing,
+  warnCloudflareIfMissing,
+} from './index.js';
+
+export interface DominusDependencies {
+  db: Database.Database;
+  config: Config;
+
+  candidateRepo: CandidateRepository;
+  scoringRepo: ScoringRepository;
+  trademarkRepo: TrademarkRepository;
+  outcomeRepo: OutcomeRepository;
+  portfolioRepo: PortfolioRepository;
+  alertRepo: RenewalAlertRepository;
+  pipelineRunsRepo: PipelineRunsRepository;
+
+  keywordProvider: ManualKeywordProvider;
+  compsProvider: ManualCompsProvider;
+  whoisProvider: NodeWhoisProviderWithIanaFallback;
+
+  currentWeights: ScoringWeights;
+  engine: ScoringEngine;
+  trademarkGate: TrademarkGate;
+
+  orchestrator: PipelineOrchestrator;
+  runService: PipelineRunService;
+
+  portfolioManager: PortfolioManager;
+
+  notifiers: Notifier[];
+  alertEngine: RenewalAlertEngine;
+
+  scheduler: SchedulerService | undefined;
+}
+
+export function createDependencies(config: Config): DominusDependencies {
+  const db = openDatabase(config.DATABASE_PATH);
+  runMigrations(db);
+  warnEuipoIfMissing(config);
+  warnCloudflareIfMissing(config);
+
+  const candidateRepo = new CandidateRepository(db);
+  const scoringRepo = new ScoringRepository(db);
+  const trademarkRepo = new TrademarkRepository(db);
+  const outcomeRepo = new OutcomeRepository(db);
+  const portfolioRepo = new PortfolioRepository(db);
+  const alertRepo = new RenewalAlertRepository(db);
+  const pipelineRunsRepo = new PipelineRunsRepository(db);
+
+  const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
+  const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
+
+  const currentWeights = loadWeights(config.SCORING_WEIGHTS_OVERRIDE);
+
+  const engine = new ScoringEngine(
+    keywordProvider,
+    compsProvider,
+    currentWeights,
+    config.BUY_MAX_ABSOLUTE_CAP,
+    config.SCORING_RECOMMEND_THRESHOLD,
+  );
+
+  const trademarkGate = new TrademarkGate(
+    new CachedTrademarkProvider(
+      new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
+      trademarkRepo,
+      'USPTO',
+      config.TM_CACHE_TTL_DAYS,
+    ),
+    new CachedTrademarkProvider(
+      new RetryingTrademarkProvider(
+        new EuipoProvider({
+          clientId: config.EUIPO_CLIENT_ID,
+          clientSecret: config.EUIPO_CLIENT_SECRET,
+          authUrl: config.EUIPO_AUTH_URL,
+          apiUrl: config.EUIPO_API_URL,
+        }),
+      ),
+      trademarkRepo,
+      'EUIPO',
+      config.TM_CACHE_TTL_DAYS,
+    ),
+  );
+
+  const whoisProvider = new NodeWhoisProviderWithIanaFallback({
+    timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
+  });
+
+  const orchestrator = new PipelineOrchestrator(
+    new CandidateGenerationStage(),
+    new DnsPreFilterStage(new NodeDnsProvider()),
+    new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
+    new ScoringStage(engine),
+    new TrademarkGateStage(trademarkGate),
+  );
+
+  const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
+
+  const portfolioManager = new PortfolioManager(
+    portfolioRepo,
+    config.DROP_SCORE_THRESHOLD,
+    config.DROP_RENEWAL_HORIZON_DAYS,
+  );
+  portfolioManager.setRescoreService(
+    new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
+  );
+
+  const notifiers = buildNotifiers(config);
+  const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
+
+  let scheduler: SchedulerService | undefined;
+  if (config.SCHEDULER_ENABLED) {
+    scheduler = new SchedulerService({
+      config,
+      alertEngine,
+      portfolioManager,
+      trademarkRepo,
+      runsRepo: pipelineRunsRepo,
+    });
+    scheduler.start();
+  }
+
+  return {
+    db,
+    config,
+    candidateRepo,
+    scoringRepo,
+    trademarkRepo,
+    outcomeRepo,
+    portfolioRepo,
+    alertRepo,
+    pipelineRunsRepo,
+    keywordProvider,
+    compsProvider,
+    whoisProvider,
+    currentWeights,
+    engine,
+    trademarkGate,
+    orchestrator,
+    runService,
+    portfolioManager,
+    notifiers,
+    alertEngine,
+    scheduler,
+  };
+}

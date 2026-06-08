@@ -1,42 +1,9 @@
 import express from 'express';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
-import { openDatabase, runMigrations } from './db/index.js';
-import {
-  CandidateRepository,
-  ScoringRepository,
-  PortfolioRepository,
-  TrademarkRepository,
-  OutcomeRepository,
-} from './db/index.js';
-import { NodeDnsProvider } from './providers/dns/index.js';
-import { PublicRdapProvider } from './providers/rdap/index.js';
-import { NodeWhoisProviderWithIanaFallback } from './providers/whois/index.js';
-import { UsptoCasesProvider, EuipoProvider } from './providers/trademark/index.js';
-import { ManualKeywordProvider } from './providers/keyword/index.js';
-import { ManualCompsProvider } from './providers/comps/index.js';
-import { ScoringEngine, loadWeights } from './scoring/index.js';
-import { TrademarkGate } from './trademark/index.js';
-import {
-  PipelineOrchestrator,
-  CandidateGenerationStage,
-  DnsPreFilterStage,
-  RdapConfirmationStage,
-  ScoringStage,
-  TrademarkGateStage,
-} from './pipeline/index.js';
-import { PortfolioManager, RenewalAlertEngine } from './portfolio/index.js';
-import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { RenewalAlertRepository } from './db/index.js';
-import { buildNotifiers } from './notifiers/index.js';
-import { SchedulerService } from './scheduler/index.js';
-import {
-  PipelineRunService,
-  CachedTrademarkProvider,
-  RetryingTrademarkProvider,
-  warnEuipoIfMissing,
-  warnCloudflareIfMissing,
-} from './app/index.js';
+import { createDependencies } from './app/composition-root.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -51,90 +18,27 @@ import {
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
-import { PipelineRunsRepository } from './db/repositories/pipeline-runs-repository.js';
 
 const config = loadConfig();
 const logger = getLogger();
-
-const db = openDatabase(config.DATABASE_PATH);
-runMigrations(db);
-warnEuipoIfMissing(config);
-warnCloudflareIfMissing(config);
-
-const candidateRepo = new CandidateRepository(db);
-const scoringRepo = new ScoringRepository(db);
-const portfolioRepo = new PortfolioRepository(db);
-const trademarkRepo = new TrademarkRepository(db);
-const outcomeRepo = new OutcomeRepository(db);
-
-const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
-const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
-const engine = new ScoringEngine(
-  keywordProvider,
-  compsProvider,
-  loadWeights(config.SCORING_WEIGHTS_OVERRIDE),
-  config.BUY_MAX_ABSOLUTE_CAP,
-  config.SCORING_RECOMMEND_THRESHOLD,
-);
-
-const trademarkGate = new TrademarkGate(
-  new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
-    trademarkRepo,
-    'USPTO',
-    config.TM_CACHE_TTL_DAYS,
-  ),
-  new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(
-      new EuipoProvider({
-        clientId: config.EUIPO_CLIENT_ID,
-        clientSecret: config.EUIPO_CLIENT_SECRET,
-        authUrl: config.EUIPO_AUTH_URL,
-        apiUrl: config.EUIPO_API_URL,
-      }),
-    ),
-    trademarkRepo,
-    'EUIPO',
-    config.TM_CACHE_TTL_DAYS,
-  ),
-);
-
-const whoisProvider = new NodeWhoisProviderWithIanaFallback({
-  timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
-});
-
-const orchestrator = new PipelineOrchestrator(
-  new CandidateGenerationStage(),
-  new DnsPreFilterStage(new NodeDnsProvider()),
-  new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
-  new ScoringStage(engine),
-  new TrademarkGateStage(trademarkGate),
-);
-
-const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
-
-const portfolioManager = new PortfolioManager(
-  portfolioRepo,
-  config.DROP_SCORE_THRESHOLD,
-  config.DROP_RENEWAL_HORIZON_DAYS,
-);
-portfolioManager.setRescoreService(
-  new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
-);
-
-const alertRepo = new RenewalAlertRepository(db);
-const notifiersAlert = buildNotifiers(config);
-const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiersAlert);
-
-let scheduler: SchedulerService | undefined;
-if (config.SCHEDULER_ENABLED) {
-  scheduler = new SchedulerService(config, alertEngine);
-  scheduler.start();
-}
+const deps = createDependencies(config);
 
 const app = express();
 
-// Security headers (Principle 4: cost includes safety — zero-effort hardening).
+app.use(cors({ origin: config.CORS_ORIGIN }));
+
+if (config.RATE_LIMIT_MAX > 0) {
+  app.use(
+    rateLimit({
+      windowMs: config.RATE_LIMIT_WINDOW_MS,
+      max: config.RATE_LIMIT_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' } },
+    }),
+  );
+}
+
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -142,26 +46,23 @@ app.use((_req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter());
-app.use('/api/score', createScoreRouter(engine, trademarkGate));
+app.use('/api/score', createScoreRouter(deps.engine, deps.trademarkGate));
 app.use(
   '/api/backtest',
-  createBacktestRouter(db, outcomeRepo, loadWeights(config.SCORING_WEIGHTS_OVERRIDE)),
+  createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights),
 );
-app.use('/api/providers', createProvidersRouter(config));
-app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
-app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
-app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
-app.use(
-  '/api/runs',
-  createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db),
-);
-app.use('/api/alerts', createAlertsRouter({ alertRepo, alertEngine }));
-if (scheduler) {
-  app.use('/api/scheduler', createSchedulerRouter(scheduler));
+app.use('/api/providers', createProvidersRouter(deps.config));
+app.use('/api/outcomes', createOutcomesRouter(deps.outcomeRepo));
+app.use('/api/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
+app.use('/api/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
+app.use('/api/runs', createRunsRouter(deps.pipelineRunsRepo, deps.candidateRepo, deps.scoringRepo, deps.db));
+app.use('/api/alerts', createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }));
+if (deps.scheduler) {
+  app.use('/api/scheduler', createSchedulerRouter(deps.scheduler));
 }
 
 app.use(errorHandler);

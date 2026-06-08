@@ -1,12 +1,22 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type { AddPortfolioEntryInput } from '../../types/portfolio.js';
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { isOutcomeType } from '../../types/outcome.js';
 import { ConfigError } from '../../types/errors.js';
 import { getRouteParam } from '../route-utils.js';
+
+const portfolioInputSchema = z.object({
+  domain: z.string().min(1).max(255),
+  tld: z.string().min(1).max(255),
+  acquiredAt: z.string().min(1),
+  renewalDate: z.string().min(1),
+  acquisitionCost: z.number().nonnegative(),
+  renewalCost: z.number().nonnegative(),
+  registrar: z.string().min(1).max(255),
+  notes: z.string().optional(),
+});
 
 const outcomeInputSchema = z.object({
   type: z.string().refine(isOutcomeType, {
@@ -46,8 +56,12 @@ export function createPortfolioRouter(
 
   router.post('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
-      const input = req.body as unknown as AddPortfolioEntryInput;
-      const entry = manager.add(input);
+      const parsed = portfolioInputSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: parseZodError(parsed.error) });
+        return;
+      }
+      const entry = manager.add(parsed.data);
       res.status(201).json({ entry });
     } catch (err: unknown) {
       next(err);
