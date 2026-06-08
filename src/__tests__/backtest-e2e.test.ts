@@ -21,19 +21,43 @@ function seedScenario(db: Database.Database): void {
   db.prepare(
     `INSERT INTO portfolio_entries (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run('sold-alpha.com', '.com', '2025-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', 10, 12, 'GoDaddy');
+  ).run(
+    'sold-alpha.com',
+    '.com',
+    '2025-01-01T00:00:00.000Z',
+    '2027-01-01T00:00:00.000Z',
+    10,
+    12,
+    'GoDaddy',
+  );
   db.prepare(
     `INSERT INTO portfolio_entries (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run('sold-beta.io', '.io', '2025-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', 10, 15, 'Namecheap');
+  ).run(
+    'sold-beta.io',
+    '.io',
+    '2025-01-01T00:00:00.000Z',
+    '2027-01-01T00:00:00.000Z',
+    10,
+    15,
+    'Namecheap',
+  );
 
   // Insert a candidate + scoring_run so the point-in-time join works
   db.prepare(
     `INSERT INTO candidates (domain, tld, source, status, pipeline_run_id)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run('sold-alpha.com', '.com', CandidateSource.CloseoutCsv, CandidateStatus.Recommended, 'run-1');
+  ).run(
+    'sold-alpha.com',
+    '.com',
+    CandidateSource.CloseoutCsv,
+    CandidateStatus.Recommended,
+    'run-1',
+  );
 
-  const candRow = db.prepare('SELECT id FROM candidates WHERE domain = ?').get('sold-alpha.com') as { id: number };
+  const candRow = db
+    .prepare('SELECT id FROM candidates WHERE domain = ?')
+    .get('sold-alpha.com') as { id: number };
 
   db.prepare(
     `INSERT INTO scoring_runs
@@ -41,7 +65,20 @@ function seedScenario(db: Database.Database): void {
         suggested_list_price, intrinsic_score, commercial_score, market_score,
         expiry_score, weights_snapshot, scored_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('run-1', candRow.id, 500, 0.7, 200, 1200, 0.3, 0.35, 0.25, 0.1, '{"intrinsic":0.3,"commercial":0.35,"market":0.25,"expiry":0.1}', '2026-01-15T12:00:00.000Z');
+  ).run(
+    'run-1',
+    candRow.id,
+    500,
+    0.7,
+    200,
+    1200,
+    0.3,
+    0.35,
+    0.25,
+    0.1,
+    '{"intrinsic":0.3,"commercial":0.35,"market":0.25,"expiry":0.1}',
+    '2026-01-15T12:00:00.000Z',
+  );
 
   // Seed a second candidate + scoring_run
   db.prepare(
@@ -49,7 +86,9 @@ function seedScenario(db: Database.Database): void {
      VALUES (?, ?, ?, ?, ?)`,
   ).run('sold-beta.io', '.io', CandidateSource.KeywordCombo, CandidateStatus.Scored, 'run-1');
 
-  const candRow2 = db.prepare('SELECT id FROM candidates WHERE domain = ?').get('sold-beta.io') as { id: number };
+  const candRow2 = db.prepare('SELECT id FROM candidates WHERE domain = ?').get('sold-beta.io') as {
+    id: number;
+  };
 
   db.prepare(
     `INSERT INTO scoring_runs
@@ -57,7 +96,20 @@ function seedScenario(db: Database.Database): void {
         suggested_list_price, intrinsic_score, commercial_score, market_score,
         expiry_score, weights_snapshot, scored_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('run-1', candRow2.id, 150, 0.3, 50, 400, 0.3, 0.35, 0.25, 0.1, '{"intrinsic":0.3,"commercial":0.35,"market":0.25,"expiry":0.1}', '2026-02-01T12:00:00.000Z');
+  ).run(
+    'run-1',
+    candRow2.id,
+    150,
+    0.3,
+    50,
+    400,
+    0.3,
+    0.35,
+    0.25,
+    0.1,
+    '{"intrinsic":0.3,"commercial":0.35,"market":0.25,"expiry":0.1}',
+    '2026-02-01T12:00:00.000Z',
+  );
 
   // Also add a scoring_run after the sale to ensure point-in-time picks
   // the earlier one (anti-lookahead)
@@ -67,7 +119,20 @@ function seedScenario(db: Database.Database): void {
         suggested_list_price, intrinsic_score, commercial_score, market_score,
         expiry_score, weights_snapshot, scored_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('run-2', candRow.id, 900, 0.9, 600, 2500, 0.3, 0.35, 0.25, 0.1, '{"intrinsic":0.3,"commercial":0.35,"market":0.25,"expiry":0.1}', '2026-06-01T12:00:00.000Z');
+  ).run(
+    'run-2',
+    candRow.id,
+    900,
+    0.9,
+    600,
+    2500,
+    0.3,
+    0.35,
+    0.25,
+    0.1,
+    '{"intrinsic":0.3,"commercial":0.35,"market":0.25,"expiry":0.1}',
+    '2026-06-01T12:00:00.000Z',
+  );
 }
 
 function seedOutcome(db: Database.Database): Outcome {
@@ -120,10 +185,7 @@ describe('Backtest — end-to-end', () => {
     // actual=450, predicted=500 => MAE=50, bias=450-500=-50
     expect(report.meanAbsoluteErrorEur).toBeCloseTo(50, 1);
     expect(report.biasEur).toBeCloseTo(-50, 1);
-    expect(report.buyMaxMeanAbsoluteErrorEur).toBeCloseTo(
-      Math.abs(450 - 200),
-      1,
-    );
+    expect(report.buyMaxMeanAbsoluteErrorEur).toBeCloseTo(Math.abs(450 - 200), 1);
     expect(report.medianAbsoluteErrorEur).toBeCloseTo(50, 1);
   });
 
@@ -201,7 +263,15 @@ describe('Backtest — end-to-end', () => {
     db.prepare(
       `INSERT INTO portfolio_entries (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run('ghost.com', '.com', '2025-01-01T00:00:00.000Z', '2027-01-01T00:00:00.000Z', 10, 12, 'GoDaddy');
+    ).run(
+      'ghost.com',
+      '.com',
+      '2025-01-01T00:00:00.000Z',
+      '2027-01-01T00:00:00.000Z',
+      10,
+      12,
+      'GoDaddy',
+    );
     outcomeRepo.insert({
       domain: 'ghost.com',
       type: 'sold',

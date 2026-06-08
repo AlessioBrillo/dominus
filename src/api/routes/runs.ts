@@ -27,7 +27,10 @@ export function createRunsRouter(
     try {
       const since = typeof req.query['since'] === 'string' ? req.query['since'] : undefined;
       const until = typeof req.query['until'] === 'string' ? req.query['until'] : undefined;
-      const limitRaw = typeof req.query['limit'] === 'string' ? Number.parseInt(req.query['limit'], 10) : undefined;
+      const limitRaw =
+        typeof req.query['limit'] === 'string'
+          ? Number.parseInt(req.query['limit'], 10)
+          : undefined;
       const limit = Number.isFinite(limitRaw) ? limitRaw : undefined;
       const opts: { since?: string; until?: string; limit?: number } = {};
       if (since !== undefined) opts.since = since;
@@ -49,7 +52,9 @@ export function createRunsRouter(
       }
       const run = runsRepo.findById(runId);
       if (run === null) {
-        res.status(404).json({ error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` } });
+        res
+          .status(404)
+          .json({ error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` } });
         return;
       }
       res.json({ run });
@@ -67,7 +72,9 @@ export function createRunsRouter(
       }
       const run = runsRepo.findById(runId);
       if (run === null) {
-        res.status(404).json({ error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` } });
+        res
+          .status(404)
+          .json({ error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` } });
         return;
       }
       const candidates = candidateRepo.findByRunId(runId);

@@ -156,9 +156,13 @@ describe('PortfolioRescoreService', () => {
       ]);
 
       // Assert
-      const candidateCount = db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE source = ?').get('portfolio_rescore') as { n: number };
+      const candidateCount = db
+        .prepare('SELECT COUNT(*) AS n FROM candidates WHERE source = ?')
+        .get('portfolio_rescore') as { n: number };
       expect(candidateCount.n).toBe(2);
-      const scoreCount = db.prepare('SELECT COUNT(*) AS n FROM scoring_runs WHERE run_id LIKE ?').get('portfolio-rescore-%') as { n: number };
+      const scoreCount = db
+        .prepare('SELECT COUNT(*) AS n FROM scoring_runs WHERE run_id LIKE ?')
+        .get('portfolio-rescore-%') as { n: number };
       expect(scoreCount.n).toBe(2);
     });
 
@@ -166,13 +170,17 @@ describe('PortfolioRescoreService', () => {
       // Arrange
       const deps = makeFakeRescoreDeps(db);
       const { service } = makeServiceFromFakes(deps);
-      db.prepare('INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id) VALUES (?, ?, ?, ?, 0, ?)').run('alpha.com', '.com', 'keyword_combo', 'scored', 'pre-existing');
+      db.prepare(
+        'INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id) VALUES (?, ?, ?, ?, 0, ?)',
+      ).run('alpha.com', '.com', 'keyword_combo', 'scored', 'pre-existing');
 
       // Act
       await service.rescore([makePortfolioEntry({ domain: 'alpha.com' })]);
 
       // Assert
-      const alphaCount = db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE domain = ?').get('alpha.com') as { n: number };
+      const alphaCount = db
+        .prepare('SELECT COUNT(*) AS n FROM candidates WHERE domain = ?')
+        .get('alpha.com') as { n: number };
       expect(alphaCount.n).toBe(1);
     });
   });

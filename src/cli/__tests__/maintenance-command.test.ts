@@ -33,9 +33,11 @@ function captureStdout(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 function captureStderr(fn: () => Promise<void> | void): Promise<string> {
@@ -45,9 +47,11 @@ function captureStderr(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stderr.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stderr.write = original;
+    })
+    .then((): string => buffer);
 }
 
 describe('CLI: dominus maintenance', () => {
@@ -176,7 +180,15 @@ describe('CLI: dominus maintenance', () => {
 
     // Act
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--runs-only', '--before', '180']);
+      await program.parseAsync([
+        'node',
+        'dominus',
+        'maintenance',
+        'prune',
+        '--runs-only',
+        '--before',
+        '180',
+      ]);
     });
 
     // Assert
@@ -197,7 +209,16 @@ describe('CLI: dominus maintenance', () => {
 
     // Act
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--runs-only', '--before', '180', '--dry-run']);
+      await program.parseAsync([
+        'node',
+        'dominus',
+        'maintenance',
+        'prune',
+        '--runs-only',
+        '--before',
+        '180',
+        '--dry-run',
+      ]);
     });
 
     // Assert
@@ -213,7 +234,14 @@ describe('CLI: dominus maintenance', () => {
         throw new Error(`__exit:${code}`);
       }) as never;
       try {
-        await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--cache-only', '--runs-only']);
+        await program.parseAsync([
+          'node',
+          'dominus',
+          'maintenance',
+          'prune',
+          '--cache-only',
+          '--runs-only',
+        ]);
       } catch (e) {
         void e;
       } finally {

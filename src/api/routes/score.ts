@@ -5,10 +5,7 @@ import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import { isValidDomain, parseDomain } from '../../utils/domain.js';
 import { getRouteParam } from '../route-utils.js';
 
-export function createScoreRouter(
-  engine: ScoringEngine,
-  gate?: TrademarkGate,
-): Router {
+export function createScoreRouter(engine: ScoringEngine, gate?: TrademarkGate): Router {
   const router = Router();
 
   router.get('/:domain', (req: Request, res: Response, next: NextFunction): void => {
@@ -22,7 +19,8 @@ export function createScoreRouter(
 
     const closeout = req.query['closeout'] === 'true';
     const age = req.query['age'] !== undefined ? Number(req.query['age']) : undefined;
-    const backlinks = req.query['backlinks'] !== undefined ? Number(req.query['backlinks']) : undefined;
+    const backlinks =
+      req.query['backlinks'] !== undefined ? Number(req.query['backlinks']) : undefined;
     const wayback = req.query['wayback'] !== undefined ? Number(req.query['wayback']) : undefined;
 
     const parsed = parseDomain(domain);
@@ -46,10 +44,16 @@ export function createScoreRouter(
             trademark = {
               verdict: gateResult.verdict,
               verifiedSources: gateResult.verifiedSources,
-              ...(gateResult.matchedMark !== undefined ? { matchedMark: gateResult.matchedMark } : {}),
-              ...(gateResult.matchedOwner !== undefined ? { matchedOwner: gateResult.matchedOwner } : {}),
+              ...(gateResult.matchedMark !== undefined
+                ? { matchedMark: gateResult.matchedMark }
+                : {}),
+              ...(gateResult.matchedOwner !== undefined
+                ? { matchedOwner: gateResult.matchedOwner }
+                : {}),
               ...(gateResult.partial !== undefined ? { partial: gateResult.partial } : {}),
-              ...(gateResult.usptoFailed !== undefined ? { usptoFailed: gateResult.usptoFailed } : {}),
+              ...(gateResult.usptoFailed !== undefined
+                ? { usptoFailed: gateResult.usptoFailed }
+                : {}),
             };
           } catch {
             trademark = { verdict: 'unverified', verifiedSources: [] };

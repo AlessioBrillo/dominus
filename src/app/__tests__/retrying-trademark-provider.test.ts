@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
-import { RetryingTrademarkProvider, isTransient, DEFAULT_RETRY_POLICY } from '../retrying-trademark-provider.js';
-import type { TrademarkMatch, TrademarkProvider } from '../../providers/trademark/trademark-provider.js';
+import {
+  RetryingTrademarkProvider,
+  isTransient,
+  DEFAULT_RETRY_POLICY,
+} from '../retrying-trademark-provider.js';
+import type {
+  TrademarkMatch,
+  TrademarkProvider,
+} from '../../providers/trademark/trademark-provider.js';
 
 function makeProvider(impl: TrademarkProvider['search']): TrademarkProvider {
   return { search: impl };
@@ -46,7 +53,8 @@ describe('RetryingTrademarkProvider', () => {
   it('retries on transient errors and eventually returns success', async () => {
     // Arrange
     const delegate = makeProvider(
-      vi.fn()
+      vi
+        .fn()
         .mockRejectedValueOnce(new Error('upstream 503'))
         .mockRejectedValueOnce(new Error('ECONNRESET'))
         .mockResolvedValueOnce([match('alpha')]),

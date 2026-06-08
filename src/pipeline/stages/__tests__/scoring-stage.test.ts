@@ -12,7 +12,10 @@ function makeStage(): ScoringStage {
   return new ScoringStage(engine);
 }
 
-function closeoutCandidate(domain: string, closeoutMeta?: DomainCandidate['closeoutMeta']): DomainCandidate {
+function closeoutCandidate(
+  domain: string,
+  closeoutMeta?: DomainCandidate['closeoutMeta'],
+): DomainCandidate {
   return {
     domain,
     tld: '.com',

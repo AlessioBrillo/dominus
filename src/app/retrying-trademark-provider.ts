@@ -1,4 +1,7 @@
-import type { TrademarkMatch, TrademarkProvider } from '../providers/trademark/trademark-provider.js';
+import type {
+  TrademarkMatch,
+  TrademarkProvider,
+} from '../providers/trademark/trademark-provider.js';
 
 /**
  * Configurable retry policy for {@link RetryingTrademarkProvider}.
@@ -41,9 +44,17 @@ export function isTransient(err: unknown): boolean {
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
     if (msg.includes('429')) return true;
-    if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504')) return true;
-    if (msg.includes('econnreset') || msg.includes('etimedout') || msg.includes('enotfound') || msg.includes('eai_again')) return true;
-    if (msg.includes('fetch failed') || msg.includes('network') || msg.includes('timeout')) return true;
+    if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504'))
+      return true;
+    if (
+      msg.includes('econnreset') ||
+      msg.includes('etimedout') ||
+      msg.includes('enotfound') ||
+      msg.includes('eai_again')
+    )
+      return true;
+    if (msg.includes('fetch failed') || msg.includes('network') || msg.includes('timeout'))
+      return true;
   }
   return false;
 }

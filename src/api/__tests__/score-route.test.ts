@@ -19,7 +19,11 @@ function makeScoreResult(overrides: Partial<ScoreResult> = {}): ScoreResult {
     recommended: true,
     breakdown: {
       intrinsic: { score: 0.8, weight: 0.3, details: {} },
-      commercial: { score: 0.5, weight: 0.35, details: { monthlySearchVolume: 10000, cpc: 2.5, volumeScore: 0.01, cpcScore: 0.05 } },
+      commercial: {
+        score: 0.5,
+        weight: 0.35,
+        details: { monthlySearchVolume: 10000, cpc: 2.5, volumeScore: 0.01, cpcScore: 0.05 },
+      },
       market: { score: 0.3, weight: 0.25, details: { comparables: 5, medianSalePrice: 2000 } },
       expiry: { score: 0, weight: 0.1, details: { isCloseout: false } },
     },

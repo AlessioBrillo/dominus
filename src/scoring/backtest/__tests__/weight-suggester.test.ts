@@ -69,8 +69,9 @@ function seedSignalRow(db: Database.Database, s: SeedSignal): void {
     scoredAt: s.scoredAt,
   };
   scoringRepo.insert(candidate.id!, 'test', result);
-  db.prepare('UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1')
-    .run(s.scoredAt, candidate.id);
+  db.prepare(
+    'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
+  ).run(s.scoredAt, candidate.id);
 
   const outcome = new OutcomeRepository(db).insert({
     domain: s.domain,
@@ -224,16 +225,24 @@ describe('WeightSuggester', () => {
     // 5 outcomes, but only 1 has high intrinsic (the other 4 are low).
     seedSignalRow(db, {
       domain: 'one-high.com',
-      intrinsic: 0.9, commercial: 0.4, market: 0.4, expiry: 0.0,
+      intrinsic: 0.9,
+      commercial: 0.4,
+      market: 0.4,
+      expiry: 0.0,
       salePrice: 2000,
-      scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+      scoredAt: '2025-12-01T00:00:00.000Z',
+      occurredAt: '2026-04-15T00:00:00.000Z',
     });
     for (let i = 0; i < 4; i++) {
       seedSignalRow(db, {
         domain: `low${i}.com`,
-        intrinsic: 0.1, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.1,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 500,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
@@ -248,17 +257,25 @@ describe('WeightSuggester', () => {
     for (let i = 0; i < 3; i++) {
       seedSignalRow(db, {
         domain: `hi${i}.com`,
-        intrinsic: 0.9, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.9,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 5000,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     for (let i = 0; i < 3; i++) {
       seedSignalRow(db, {
         domain: `lo${i}.com`,
-        intrinsic: 0.1, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.1,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 10,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
@@ -278,17 +295,25 @@ describe('WeightSuggester', () => {
     for (let i = 0; i < 3; i++) {
       seedSignalRow(db, {
         domain: `hi${i}.com`,
-        intrinsic: 0.8, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.8,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 2000,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     for (let i = 0; i < 3; i++) {
       seedSignalRow(db, {
         domain: `lo${i}.com`,
-        intrinsic: 0.2, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.2,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 500,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo, customWeights);
@@ -301,17 +326,25 @@ describe('WeightSuggester', () => {
     for (let i = 0; i < 3; i++) {
       seedSignalRow(db, {
         domain: `hi${i}.com`,
-        intrinsic: 0.8, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.8,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 2000,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     for (let i = 0; i < 3; i++) {
       seedSignalRow(db, {
         domain: `lo${i}.com`,
-        intrinsic: 0.2, commercial: 0.4, market: 0.4, expiry: 0.0,
+        intrinsic: 0.2,
+        commercial: 0.4,
+        market: 0.4,
+        expiry: 0.0,
         salePrice: 500,
-        scoredAt: '2025-12-01T00:00:00.000Z', occurredAt: '2026-04-15T00:00:00.000Z',
+        scoredAt: '2025-12-01T00:00:00.000Z',
+        occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);

@@ -264,10 +264,6 @@ function isTokenResponse(v: unknown): v is EuipoTokenResponse {
 function isEuipoSearchResponse(v: unknown): v is EuipoSearchResponse {
   if (typeof v !== 'object' || v === null) return false;
   return (
-    'content' in v ||
-    'items' in v ||
-    'trademarks' in v ||
-    'totalElements' in v ||
-    'total' in v
+    'content' in v || 'items' in v || 'trademarks' in v || 'totalElements' in v || 'total' in v
   );
 }

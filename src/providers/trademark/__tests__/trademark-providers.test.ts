@@ -291,9 +291,7 @@ describe('EuipoProvider', () => {
     await provider.search('test2');
 
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    const tokenCalls = mockFetch.mock.calls.filter(
-      (call: unknown[]) => call[0] === config.authUrl,
-    );
+    const tokenCalls = mockFetch.mock.calls.filter((call: unknown[]) => call[0] === config.authUrl);
     expect(tokenCalls).toHaveLength(1);
   });
 
@@ -376,9 +374,7 @@ describe('EuipoProvider', () => {
 
     // Second search should re-fetch the token (cache was cleared)
     await provider.search('test2');
-    const tokenCalls = mockFetch.mock.calls.filter(
-      (call: unknown[]) => call[0] === config.authUrl,
-    );
+    const tokenCalls = mockFetch.mock.calls.filter((call: unknown[]) => call[0] === config.authUrl);
     expect(tokenCalls).toHaveLength(2);
   });
 

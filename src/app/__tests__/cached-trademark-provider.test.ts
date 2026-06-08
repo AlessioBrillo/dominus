@@ -108,8 +108,12 @@ describe('CachedTrademarkProvider', () => {
   });
 
   it('cache is source-scoped: USPTO and EUIPO entries do not collide', async () => {
-    const usptoMatches = [{ markName: 'USPTO-MARK', owner: 'A', status: 'active', source: 'USPTO' }];
-    const euipoMatches = [{ markName: 'EUIPO-MARK', owner: 'B', status: 'Registered', source: 'EUIPO' }];
+    const usptoMatches = [
+      { markName: 'USPTO-MARK', owner: 'A', status: 'active', source: 'USPTO' },
+    ];
+    const euipoMatches = [
+      { markName: 'EUIPO-MARK', owner: 'B', status: 'Registered', source: 'EUIPO' },
+    ];
 
     const usptoDelegate = makeDelegate(usptoMatches);
     const euipoDelegate = makeDelegate(euipoMatches);

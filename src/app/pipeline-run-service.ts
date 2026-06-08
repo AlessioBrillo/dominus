@@ -150,8 +150,12 @@ export class PipelineRunService {
       // lets REST endpoints (e.g. GET /api/runs/:runId/candidates) join on
       // pipeline_runs.run_id. ADR-0011 §5.3.
       if (result.runId !== runRowId) {
-        this.#db.prepare('UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?').run(runRowId, result.runId);
-        this.#db.prepare('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?').run(runRowId, result.runId);
+        this.#db
+          .prepare('UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?')
+          .run(runRowId, result.runId);
+        this.#db
+          .prepare('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?')
+          .run(runRowId, result.runId);
       }
 
       return { candidatesPersisted, scoresPersisted };
@@ -197,7 +201,8 @@ function buildResultsSummary(
   let unscored = 0;
   for (const status of statusByDomain.values()) {
     if (status === 'trademark_blocked') trademarkBlocked++;
-    else if (status === 'dns_filtered' || status === 'rdap_filtered' || status === 'unscored') unscored++;
+    else if (status === 'dns_filtered' || status === 'rdap_filtered' || status === 'unscored')
+      unscored++;
   }
   return {
     candidatesEvaluated: persistence.candidatesPersisted,

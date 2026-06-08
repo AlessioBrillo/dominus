@@ -49,7 +49,9 @@ describe('ManualCompsProvider — word-boundary matching', () => {
 
   it('does NOT match a substring (app does not match snapps.com)', async () => {
     // Arrange — the bug the rewrite fixes
-    const path = writeCsv('domain,price,date,venue\nsnapps.com,500,2025-01-01,namecheap\nappsolutely.com,800,2025-02-01,sedo\n');
+    const path = writeCsv(
+      'domain,price,date,venue\nsnapps.com,500,2025-01-01,namecheap\nappsolutely.com,800,2025-02-01,sedo\n',
+    );
     const provider = new ManualCompsProvider(path);
 
     // Act + Assert
@@ -59,7 +61,9 @@ describe('ManualCompsProvider — word-boundary matching', () => {
 
   it('matches when the term is one of several hyphenated tokens', async () => {
     // Arrange
-    const path = writeCsv('domain,price,date,venue\nmy-app.com,2000,2025-01-01,sedo\nmy-app.io,1500,2025-02-01,dan\nmy-cloud.com,3000,2025-03-01,atom\n');
+    const path = writeCsv(
+      'domain,price,date,venue\nmy-app.com,2000,2025-01-01,sedo\nmy-app.io,1500,2025-02-01,dan\nmy-cloud.com,3000,2025-03-01,atom\n',
+    );
     const provider = new ManualCompsProvider(path);
 
     // Act + Assert
@@ -99,7 +103,9 @@ describe('ManualCompsProvider — word-boundary matching', () => {
 
   it('handles multi-label ccTLDs by tokenising the SLD only', async () => {
     // Arrange — foo.co.uk → SLD = "foo"
-    const path = writeCsv('domain,price,date,venue\nfoo.co.uk,1000,2025-01-01,sedo\nbar.co.uk,500,2025-01-01,dan\n');
+    const path = writeCsv(
+      'domain,price,date,venue\nfoo.co.uk,1000,2025-01-01,sedo\nbar.co.uk,500,2025-01-01,dan\n',
+    );
     const provider = new ManualCompsProvider(path);
 
     // Act + Assert

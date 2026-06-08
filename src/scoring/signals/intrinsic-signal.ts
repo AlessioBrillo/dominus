@@ -12,9 +12,10 @@ export function computeIntrinsicScore(input: ScoringInput, weight: number): Sign
   const sld = input.sld;
   const length = sld.length;
 
-  const lengthScore = length <= IDEAL_LENGTH
-    ? 1.0
-    : Math.max(0, 1 - (length - IDEAL_LENGTH) / (MAX_LENGTH - IDEAL_LENGTH));
+  const lengthScore =
+    length <= IDEAL_LENGTH
+      ? 1.0
+      : Math.max(0, 1 - (length - IDEAL_LENGTH) / (MAX_LENGTH - IDEAL_LENGTH));
 
   const hyphenCount = (sld.match(/-/g) ?? []).length;
   const digitCount = (sld.match(/[0-9]/g) ?? []).length;
@@ -24,7 +25,8 @@ export function computeIntrinsicScore(input: ScoringInput, weight: number): Sign
 
   const pronounceabilityScore = computePronouncability(sld);
 
-  const raw = (lengthScore * 0.3 + penaltyScore * 0.35 + pronounceabilityScore * 0.35) * tldMultiplier;
+  const raw =
+    (lengthScore * 0.3 + penaltyScore * 0.35 + pronounceabilityScore * 0.35) * tldMultiplier;
   const score = Math.min(1, Math.max(0, raw));
 
   return {

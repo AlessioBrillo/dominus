@@ -24,15 +24,36 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
     for (const input of inputs) {
       for (const domain of input.keywords ?? []) {
         const tld = '.com';
-        passed.push({ domain: `${domain}${tld}`, tld, source: CandidateSource.KeywordCombo, status: CandidateStatus.Pending, isPremium: false, pipelineRunId: runId });
+        passed.push({
+          domain: `${domain}${tld}`,
+          tld,
+          source: CandidateSource.KeywordCombo,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
+        });
       }
       for (const domain of input.brandableNames ?? []) {
         const tld = extractTld(domain);
-        passed.push({ domain, tld, source: CandidateSource.Brandable, status: CandidateStatus.Pending, isPremium: false, pipelineRunId: runId });
+        passed.push({
+          domain,
+          tld,
+          source: CandidateSource.Brandable,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
+        });
       }
       for (const domain of input.closeoutDomains ?? []) {
         const tld = extractTld(domain);
-        passed.push({ domain, tld, source: CandidateSource.CloseoutCsv, status: CandidateStatus.Pending, isPremium: false, pipelineRunId: runId });
+        passed.push({
+          domain,
+          tld,
+          source: CandidateSource.CloseoutCsv,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
+        });
       }
       for (const entry of input.closeoutEntries ?? []) {
         const tld = extractTld(entry.domain);
@@ -43,7 +64,11 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
           status: CandidateStatus.Pending,
           isPremium: false,
           pipelineRunId: runId,
-          closeoutMeta: { domainAge: entry.domainAge, backlinks: entry.backlinks, waybackSnapshots: entry.waybackSnapshots },
+          closeoutMeta: {
+            domainAge: entry.domainAge,
+            backlinks: entry.backlinks,
+            waybackSnapshots: entry.waybackSnapshots,
+          },
         });
       }
     }
@@ -55,6 +80,11 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
       return true;
     });
 
-    return Promise.resolve({ passed: deduped, filtered: [], stageName: this.name, durationMs: Date.now() - start });
+    return Promise.resolve({
+      passed: deduped,
+      filtered: [],
+      stageName: this.name,
+      durationMs: Date.now() - start,
+    });
   }
 }

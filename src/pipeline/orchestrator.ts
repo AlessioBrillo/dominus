@@ -37,25 +37,45 @@ export class PipelineOrchestrator {
 
     // Stage 1 — Candidate generation
     const gen = await this.generationStage.process([input]);
-    stageSummary[gen.stageName] = { passed: gen.passed.length, filtered: gen.filtered.length, durationMs: gen.durationMs };
+    stageSummary[gen.stageName] = {
+      passed: gen.passed.length,
+      filtered: gen.filtered.length,
+      durationMs: gen.durationMs,
+    };
     const runId = gen.passed[0]?.pipelineRunId ?? 'unknown';
 
     // Stage 2 — DNS pre-filter
     const dns = await this.dnsStage.process(gen.passed);
-    stageSummary[dns.stageName] = { passed: dns.passed.length, filtered: dns.filtered.length, durationMs: dns.durationMs };
+    stageSummary[dns.stageName] = {
+      passed: dns.passed.length,
+      filtered: dns.filtered.length,
+      durationMs: dns.durationMs,
+    };
 
     // Stage 3 — RDAP confirmation (drops registered + premium names)
     const rdap = await this.rdapStage.process(dns.passed);
-    stageSummary[rdap.stageName] = { passed: rdap.passed.length, filtered: rdap.filtered.length, durationMs: rdap.durationMs };
+    stageSummary[rdap.stageName] = {
+      passed: rdap.passed.length,
+      filtered: rdap.filtered.length,
+      durationMs: rdap.durationMs,
+    };
 
     // Stage 4 — Scoring (heuristic engine produces expected_value / confidence / buy_max)
     const scoring = await this.scoringStage.process(rdap.passed);
-    stageSummary[scoring.stageName] = { passed: scoring.passed.length, filtered: scoring.filtered.length, durationMs: scoring.durationMs };
+    stageSummary[scoring.stageName] = {
+      passed: scoring.passed.length,
+      filtered: scoring.filtered.length,
+      durationMs: scoring.durationMs,
+    };
 
     // Stage 5 — Trademark gate (runs LAST; only on score-recommended names to preserve
     //            rate-limited USPTO/EUIPO calls — Principle 3 + 6).
     const trademark = await this.trademarkStage.process(scoring.passed);
-    stageSummary[trademark.stageName] = { passed: trademark.passed.length, filtered: trademark.filtered.length, durationMs: trademark.durationMs };
+    stageSummary[trademark.stageName] = {
+      passed: trademark.passed.length,
+      filtered: trademark.filtered.length,
+      durationMs: trademark.durationMs,
+    };
 
     // All scored candidates (for persistence): those that passed scoring + those that were
     // then blocked or held at the trademark gate all carry a scoreResult.

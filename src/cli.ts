@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 import { loadConfig } from './config.js';
-import { openDatabase, runMigrations, CandidateRepository, ScoringRepository, PortfolioRepository, TrademarkRepository, OutcomeRepository } from './db/index.js';
+import {
+  openDatabase,
+  runMigrations,
+  CandidateRepository,
+  ScoringRepository,
+  PortfolioRepository,
+  TrademarkRepository,
+  OutcomeRepository,
+} from './db/index.js';
 import { ManualKeywordProvider } from './providers/keyword/index.js';
 import { ManualCompsProvider } from './providers/comps/index.js';
 import { NodeDnsProvider } from './providers/dns/index.js';
@@ -19,7 +27,12 @@ import {
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { PipelineRunService, CachedTrademarkProvider, RetryingTrademarkProvider, warnEuipoIfMissing } from './app/index.js';
+import {
+  PipelineRunService,
+  CachedTrademarkProvider,
+  RetryingTrademarkProvider,
+  warnEuipoIfMissing,
+} from './app/index.js';
 import { createCli } from './cli/index.js';
 
 const config = loadConfig();
@@ -83,7 +96,9 @@ const portfolioManager = new PortfolioManager(
   config.DROP_SCORE_THRESHOLD,
   config.DROP_RENEWAL_HORIZON_DAYS,
 );
-portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo));
+portfolioManager.setRescoreService(
+  new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
+);
 
 const cli = createCli(db, runService, portfolioManager, engine, outcomeRepo, config, trademarkGate);
 cli.parse(process.argv);

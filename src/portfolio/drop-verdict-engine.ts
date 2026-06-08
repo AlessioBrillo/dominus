@@ -30,8 +30,7 @@ export function computeDropVerdict(
 
   if (entry.suggestedListPrice !== undefined && entry.currentScore !== undefined) {
     const pricedForLong =
-      clock.daysUntilRenewal <= config.renewalHorizonDays * 3 &&
-      score >= config.scoreThreshold;
+      clock.daysUntilRenewal <= config.renewalHorizonDays * 3 && score >= config.scoreThreshold;
     if (pricedForLong) {
       return {
         domain: entry.domain,

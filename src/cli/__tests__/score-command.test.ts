@@ -33,9 +33,11 @@ function captureStdout(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 function captureStderr(fn: () => Promise<void> | void): Promise<string> {
@@ -45,9 +47,11 @@ function captureStderr(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stderr.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stderr.write = original;
+    })
+    .then((): string => buffer);
 }
 
 describe('CLI: dominus score (input validation)', () => {

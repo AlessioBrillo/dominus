@@ -91,7 +91,10 @@ const EMPTY_RESULTS: PipelineRunResults = {
   errors: 0,
 };
 
-const EMPTY_STAGE_SUMMARY: Record<string, { passed: number; filtered: number; durationMs: number }> = {};
+const EMPTY_STAGE_SUMMARY: Record<
+  string,
+  { passed: number; filtered: number; durationMs: number }
+> = {};
 
 function parseJsonOr<T>(raw: string, fallback: T): T {
   try {
@@ -188,9 +191,9 @@ export class PipelineRunsRepository {
   }
 
   findById(runId: string): PipelineRun | null {
-    const row = this.db
-      .prepare('SELECT * FROM pipeline_runs WHERE run_id = ?')
-      .get(runId) as PipelineRunRow | undefined;
+    const row = this.db.prepare('SELECT * FROM pipeline_runs WHERE run_id = ?').get(runId) as
+      | PipelineRunRow
+      | undefined;
     return row ? rowToRun(row) : null;
   }
 
@@ -212,7 +215,8 @@ export class PipelineRunsRepository {
     }
     const whereClause = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`;
     const limitClause = options.limit !== undefined && options.limit > 0 ? 'LIMIT ?' : '';
-    const finalParams = options.limit !== undefined && options.limit > 0 ? [...params, options.limit] : params;
+    const finalParams =
+      options.limit !== undefined && options.limit > 0 ? [...params, options.limit] : params;
     const sql = `SELECT * FROM pipeline_runs ${whereClause} ORDER BY started_at DESC ${limitClause}`;
     const rows = this.db.prepare(sql).all(...finalParams) as PipelineRunRow[];
     return rows.map(rowToRun);
@@ -241,9 +245,7 @@ export class PipelineRunsRepository {
    * of rows deleted.
    */
   pruneBefore(cutoff: string): number {
-    const result = this.db
-      .prepare('DELETE FROM pipeline_runs WHERE started_at < ?')
-      .run(cutoff);
+    const result = this.db.prepare('DELETE FROM pipeline_runs WHERE started_at < ?').run(cutoff);
     return Number(result.changes);
   }
 
@@ -253,9 +255,7 @@ export class PipelineRunsRepository {
    * with the same `now` is a no-op.
    */
   prune(now: string = new Date().toISOString()): number {
-    const result = this.db
-      .prepare('DELETE FROM pipeline_runs WHERE retained_until < ?')
-      .run(now);
+    const result = this.db.prepare('DELETE FROM pipeline_runs WHERE retained_until < ?').run(now);
     return Number(result.changes);
   }
 

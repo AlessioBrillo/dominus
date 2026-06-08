@@ -37,7 +37,12 @@ function makeScoreResult(domain: string): ScoreResult {
     breakdown: {
       intrinsic: { score: 0.85, weight: 0.3, details: {} },
       commercial: { score: 0.55, weight: 0.35, details: { monthlySearchVolume: 100 } },
-      market: { score: 0.5, weight: 0.25, details: { comparables: 1 }, medianSalePrice: 350 } as ScoreResult['breakdown']['market'] & { medianSalePrice: number },
+      market: {
+        score: 0.5,
+        weight: 0.25,
+        details: { comparables: 1 },
+        medianSalePrice: 350,
+      } as ScoreResult['breakdown']['market'] & { medianSalePrice: number },
       expiry: { score: 0.0, weight: 0.1, details: {} },
     },
     recommended: true,
@@ -83,7 +88,14 @@ function buildIntegration(db: Database.Database): IntegrationDeps {
     allCandidates: [
       scored,
       blocked,
-      { domain: 'noise.com', tld: '.com', source: CandidateSource.KeywordCombo, status: CandidateStatus.DnsFiltered, isPremium: false, pipelineRunId: 'orchestrator-run-id' } as DomainCandidate,
+      {
+        domain: 'noise.com',
+        tld: '.com',
+        source: CandidateSource.KeywordCombo,
+        status: CandidateStatus.DnsFiltered,
+        isPremium: false,
+        pipelineRunId: 'orchestrator-run-id',
+      } as DomainCandidate,
     ],
     stageSummary: {
       CandidateGenerationStage: { passed: 3, filtered: 0, durationMs: 1 },
@@ -117,7 +129,9 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('a run() call writes a complete pipeline_runs row + 3 candidates + 2 scoring_runs', async () => {
     // Act
-    const result = await deps.service.run({ closeoutDomains: ['alpha.com', 'beta.io', 'noise.com'] });
+    const result = await deps.service.run({
+      closeoutDomains: ['alpha.com', 'beta.io', 'noise.com'],
+    });
 
     // Assert — pipeline_runs row
     const row = deps.runsRepo.findById(result.runRowId);
@@ -127,11 +141,15 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     expect(row?.totalDurationMs).toBeGreaterThanOrEqual(0);
 
     // Assert — candidates (linked to the service-level runRowId after alignment)
-    const candCount = db.prepare('SELECT COUNT(*) AS n FROM candidates WHERE pipeline_run_id = ?').get(result.runRowId) as { n: number };
+    const candCount = db
+      .prepare('SELECT COUNT(*) AS n FROM candidates WHERE pipeline_run_id = ?')
+      .get(result.runRowId) as { n: number };
     expect(candCount.n).toBe(3);
 
     // Assert — scoring_runs (linked to the service-level runRowId after alignment)
-    const scoreCount = db.prepare('SELECT COUNT(*) AS n FROM scoring_runs WHERE run_id = ?').get(result.runRowId) as { n: number };
+    const scoreCount = db
+      .prepare('SELECT COUNT(*) AS n FROM scoring_runs WHERE run_id = ?')
+      .get(result.runRowId) as { n: number };
     expect(scoreCount.n).toBe(2);
   });
 
@@ -190,7 +208,9 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     // Arrange — swap the orchestrator for one that throws
     const failingService = new PipelineRunService(
       db,
-      { run: () => Promise.reject(new Error('upstream RDAP timed out')) } as unknown as PipelineOrchestrator,
+      {
+        run: () => Promise.reject(new Error('upstream RDAP timed out')),
+      } as unknown as PipelineOrchestrator,
       deps.candidateRepo,
       deps.scoringRepo,
       deps.runsRepo,
@@ -217,7 +237,9 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     app.use(errorHandler);
     const res = await request(app).get('/api/runs');
     expect(res.status).toBe(200);
-    const listBody = res.body as { runs: Array<{ runId: string; resultsSummary: { recommended: number } }> };
+    const listBody = res.body as {
+      runs: Array<{ runId: string; resultsSummary: { recommended: number } }>;
+    };
     expect(listBody.runs).toHaveLength(1);
     expect(listBody.runs[0]?.runId).toBe(result.runRowId);
     expect(listBody.runs[0]?.resultsSummary.recommended).toBe(1);
@@ -230,6 +252,10 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     expect(candRes.status).toBe(200);
     const candBody = candRes.body as { runId: string; candidates: Array<{ domain: string }> };
     expect(candBody.runId).toBe(result.runRowId);
-    expect(candBody.candidates.map((c) => c.domain).sort()).toEqual(['alpha.com', 'beta.io', 'noise.com']);
+    expect(candBody.candidates.map((c) => c.domain).sort()).toEqual([
+      'alpha.com',
+      'beta.io',
+      'noise.com',
+    ]);
   });
 });

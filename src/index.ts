@@ -27,7 +27,12 @@ import {
 } from './pipeline/index.js';
 import { PortfolioManager } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { PipelineRunService, CachedTrademarkProvider, RetryingTrademarkProvider, warnEuipoIfMissing } from './app/index.js';
+import {
+  PipelineRunService,
+  CachedTrademarkProvider,
+  RetryingTrademarkProvider,
+  warnEuipoIfMissing,
+} from './app/index.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -106,7 +111,9 @@ const portfolioManager = new PortfolioManager(
   config.DROP_SCORE_THRESHOLD,
   config.DROP_RENEWAL_HORIZON_DAYS,
 );
-portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo));
+portfolioManager.setRescoreService(
+  new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
+);
 
 const app = express();
 
@@ -123,12 +130,18 @@ app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter());
 app.use('/api/score', createScoreRouter(engine, trademarkGate));
-app.use('/api/backtest', createBacktestRouter(db, outcomeRepo, loadWeights(config.SCORING_WEIGHTS_OVERRIDE)));
+app.use(
+  '/api/backtest',
+  createBacktestRouter(db, outcomeRepo, loadWeights(config.SCORING_WEIGHTS_OVERRIDE)),
+);
 app.use('/api/providers', createProvidersRouter(config));
 app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
-app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db));
+app.use(
+  '/api/runs',
+  createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db),
+);
 
 app.use(errorHandler);
 

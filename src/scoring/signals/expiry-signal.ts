@@ -9,17 +9,15 @@ export function computeExpiryScore(input: ScoringInput, weight: number): SignalO
     return { score: 0, weight, details: { isCloseout: false } };
   }
 
-  const ageScore = input.domainAge !== undefined
-    ? Math.min(1, input.domainAge / MAX_AGE_YEARS)
-    : 0;
+  const ageScore = input.domainAge !== undefined ? Math.min(1, input.domainAge / MAX_AGE_YEARS) : 0;
 
-  const backlinkScore = input.backlinks !== undefined
-    ? Math.min(1, input.backlinks / MAX_BACKLINKS)
-    : 0;
+  const backlinkScore =
+    input.backlinks !== undefined ? Math.min(1, input.backlinks / MAX_BACKLINKS) : 0;
 
-  const waybackScore = input.waybackSnapshots !== undefined
-    ? Math.min(1, input.waybackSnapshots / MAX_WAYBACK_SNAPSHOTS)
-    : 0;
+  const waybackScore =
+    input.waybackSnapshots !== undefined
+      ? Math.min(1, input.waybackSnapshots / MAX_WAYBACK_SNAPSHOTS)
+      : 0;
 
   const score = Math.min(1, Math.max(0, ageScore * 0.4 + backlinkScore * 0.4 + waybackScore * 0.2));
 

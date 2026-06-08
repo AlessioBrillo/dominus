@@ -58,24 +58,22 @@ export class CandidateRepository {
   }
 
   findById(id: number): DomainCandidate | null {
-    const row = this.db
-      .prepare('SELECT * FROM candidates WHERE id = ?')
-      .get(id) as CandidateRow | undefined;
+    const row = this.db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as
+      | CandidateRow
+      | undefined;
     return row ? rowToCandidate(row) : null;
   }
 
   findByDomain(domain: string): DomainCandidate | null {
-    const row = this.db
-      .prepare('SELECT * FROM candidates WHERE domain = ?')
-      .get(domain) as CandidateRow | undefined;
+    const row = this.db.prepare('SELECT * FROM candidates WHERE domain = ?').get(domain) as
+      | CandidateRow
+      | undefined;
     return row ? rowToCandidate(row) : null;
   }
 
   updateStatus(id: number, status: CandidateStatus): void {
     this.db
-      .prepare(
-        `UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`,
-      )
+      .prepare(`UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`)
       .run(status, id);
   }
 

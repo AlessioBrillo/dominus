@@ -29,7 +29,12 @@ function makeScoreResult(domain: string): ScoreResult {
     breakdown: {
       intrinsic: { score: 0.8, weight: 0.3, details: {} },
       commercial: { score: 0.5, weight: 0.35, details: { monthlySearchVolume: 0 } },
-      market: { score: 0.4, weight: 0.25, details: { comparables: 0 }, medianSalePrice: 0 } as ScoreResult['breakdown']['market'] & { medianSalePrice: number },
+      market: {
+        score: 0.4,
+        weight: 0.25,
+        details: { comparables: 0 },
+        medianSalePrice: 0,
+      } as ScoreResult['breakdown']['market'] & { medianSalePrice: number },
       expiry: { score: 0.0, weight: 0.1, details: {} },
     },
     recommended: true,
@@ -116,7 +121,9 @@ describe('PipelineRunService', () => {
     await service.run({});
 
     // Assert — row exists in candidates table
-    const row = db.prepare('SELECT domain, status FROM candidates WHERE domain = ?').get('sol.com') as { domain: string; status: string } | undefined;
+    const row = db
+      .prepare('SELECT domain, status FROM candidates WHERE domain = ?')
+      .get('sol.com') as { domain: string; status: string } | undefined;
     expect(row).toBeDefined();
     expect(row?.domain).toBe('sol.com');
     expect(row?.status).toBe(CandidateStatus.Recommended);
@@ -165,19 +172,31 @@ describe('PipelineRunService', () => {
     const candidateRepo = new CandidateRepository(db);
     const scoringRepo = new ScoringRepository(db);
 
-    const service1 = new PipelineRunService(db, makeMockOrchestrator(result), candidateRepo, scoringRepo);
+    const service1 = new PipelineRunService(
+      db,
+      makeMockOrchestrator(result),
+      candidateRepo,
+      scoringRepo,
+    );
     await service1.run({});
 
     // Second run — same domain, new runId
     const result2: PipelineResult = { ...result, runId: 'run-002' };
-    const service2 = new PipelineRunService(db, makeMockOrchestrator(result2), candidateRepo, scoringRepo);
+    const service2 = new PipelineRunService(
+      db,
+      makeMockOrchestrator(result2),
+      candidateRepo,
+      scoringRepo,
+    );
 
     // Act + Assert — no UNIQUE crash
     await expect(service2.run({})).resolves.toBeDefined();
 
     // One candidate row (upserted), two scoring rows (history preserved)
     const candCount = db.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as { cnt: number };
-    const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as { cnt: number };
+    const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
+      cnt: number;
+    };
     expect(candCount.cnt).toBe(1);
     expect(scoreCount.cnt).toBe(2);
   });
@@ -217,7 +236,7 @@ describe('PipelineRunService', () => {
     const result: PipelineResult = {
       runId: 'run-abc',
       recommended: [],
-      scored: [],             // no scored candidates
+      scored: [], // no scored candidates
       allCandidates: [dnsFiltered],
       stageSummary: {},
       totalDurationMs: 5,
@@ -233,7 +252,9 @@ describe('PipelineRunService', () => {
     await service.run({});
 
     // Assert — one candidate, zero scores
-    const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as { cnt: number };
+    const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
+      cnt: number;
+    };
     expect(scoreCount.cnt).toBe(0);
   });
 });
@@ -248,7 +269,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       recommended: [candidate],
       scored: [candidate],
       allCandidates: [candidate],
-      stageSummary: { 'ScoringStage': { passed: 1, filtered: 0, durationMs: 5 } },
+      stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 5 } },
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
@@ -263,7 +284,15 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
     // Assert — pipeline_runs row exists, completed, no error
     const row = db.prepare('SELECT * FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
-      | { run_id: string; finished_at: string | null; total_duration_ms: number | null; error: string | null; host_version: string; inputs: string; results_summary: string }
+      | {
+          run_id: string;
+          finished_at: string | null;
+          total_duration_ms: number | null;
+          error: string | null;
+          host_version: string;
+          inputs: string;
+          results_summary: string;
+        }
       | undefined;
     expect(row).toBeDefined();
     expect(row?.finished_at).not.toBeNull();
@@ -297,8 +326,9 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     const out = await service.run({});
 
     // Assert
-    const row = db.prepare('SELECT started_at, retained_until FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
-      | { started_at: string; retained_until: string } | undefined;
+    const row = db
+      .prepare('SELECT started_at, retained_until FROM pipeline_runs WHERE run_id = ?')
+      .get(out.runRowId) as { started_at: string; retained_until: string } | undefined;
     expect(row).toBeDefined();
     const diffMs = new Date(row!.retained_until).getTime() - new Date(row!.started_at).getTime();
     const expectedMs = 180 * 24 * 60 * 60 * 1000;
@@ -314,7 +344,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       recommended: [candidate],
       scored: [candidate],
       allCandidates: [candidate],
-      stageSummary: { 'ScoringStage': { passed: 1, filtered: 0, durationMs: 3 } },
+      stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 3 } },
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
@@ -328,10 +358,14 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     const out = await service.run({});
 
     // Assert
-    const row = db.prepare('SELECT stage_summary, results_summary FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
-      | { stage_summary: string; results_summary: string } | undefined;
+    const row = db
+      .prepare('SELECT stage_summary, results_summary FROM pipeline_runs WHERE run_id = ?')
+      .get(out.runRowId) as { stage_summary: string; results_summary: string } | undefined;
     const stage = JSON.parse(row?.stage_summary ?? '{}') as Record<string, { passed: number }>;
-    const results = JSON.parse(row?.results_summary ?? '{}') as { recommended: number; candidatesEvaluated: number };
+    const results = JSON.parse(row?.results_summary ?? '{}') as {
+      recommended: number;
+      candidatesEvaluated: number;
+    };
     expect(stage.ScoringStage?.passed).toBe(1);
     expect(results.recommended).toBe(1);
     expect(results.candidatesEvaluated).toBe(1);
@@ -353,8 +387,9 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     // Act + Assert
     await expect(service.run({})).rejects.toThrow('boom');
 
-    const row = db.prepare('SELECT error, finished_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 1').get() as
-      | { error: string | null; finished_at: string | null } | undefined;
+    const row = db
+      .prepare('SELECT error, finished_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 1')
+      .get() as { error: string | null; finished_at: string | null } | undefined;
     expect(row).toBeDefined();
     expect(row?.error).toBe('boom');
     expect(row?.finished_at).not.toBeNull();

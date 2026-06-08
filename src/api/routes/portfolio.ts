@@ -10,7 +10,7 @@ import { getRouteParam } from '../route-utils.js';
 
 const outcomeInputSchema = z.object({
   type: z.string().refine(isOutcomeType, {
-    message: "type must be one of: sold, dropped, expired, renewed",
+    message: 'type must be one of: sold, dropped, expired, renewed',
   }),
   occurredAt: z.string().min(1),
   salePriceEur: z.number().nonnegative().optional(),

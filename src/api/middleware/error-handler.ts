@@ -1,5 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
-import { DominusError, ProviderError, PortfolioError, DuplicateDomainError } from '../../types/errors.js';
+import {
+  DominusError,
+  ProviderError,
+  PortfolioError,
+  DuplicateDomainError,
+} from '../../types/errors.js';
 
 interface ErrorResponse {
   error: {

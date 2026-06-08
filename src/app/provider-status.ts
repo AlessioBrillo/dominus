@@ -16,8 +16,10 @@ export interface ProviderStatus {
 
 export function reportProviderStatuses(config: Config): ProviderStatus[] {
   const euipoConfigured =
-    config.EUIPO_CLIENT_ID !== undefined && config.EUIPO_CLIENT_ID !== '' &&
-    config.EUIPO_CLIENT_SECRET !== undefined && config.EUIPO_CLIENT_SECRET !== '';
+    config.EUIPO_CLIENT_ID !== undefined &&
+    config.EUIPO_CLIENT_ID !== '' &&
+    config.EUIPO_CLIENT_SECRET !== undefined &&
+    config.EUIPO_CLIENT_SECRET !== '';
 
   return [
     {
@@ -40,16 +42,18 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     {
       name: 'KeywordPlanner',
       configured: config.KEYWORD_DATA_PATH !== undefined && config.KEYWORD_DATA_PATH !== '',
-      note: config.KEYWORD_DATA_PATH !== undefined && config.KEYWORD_DATA_PATH !== ''
-        ? `Manual file at ${config.KEYWORD_DATA_PATH}.`
-        : 'KEYWORD_DATA_PATH is unset — commercial-signal search volume and CPC will be zero for every term.',
+      note:
+        config.KEYWORD_DATA_PATH !== undefined && config.KEYWORD_DATA_PATH !== ''
+          ? `Manual file at ${config.KEYWORD_DATA_PATH}.`
+          : 'KEYWORD_DATA_PATH is unset — commercial-signal search volume and CPC will be zero for every term.',
     },
     {
       name: 'NameBio',
       configured: config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== '',
-      note: config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== ''
-        ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
-        : 'COMPS_DATA_PATH is unset — the market signal will produce zero comparables.',
+      note:
+        config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== ''
+          ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
+          : 'COMPS_DATA_PATH is unset — the market signal will produce zero comparables.',
     },
   ];
 }
@@ -67,8 +71,10 @@ export function warnEuipoIfMissing(
   logger: { warn: (msg: string) => void } = getLogger(),
 ): void {
   const euipoConfigured =
-    config.EUIPO_CLIENT_ID !== undefined && config.EUIPO_CLIENT_ID !== '' &&
-    config.EUIPO_CLIENT_SECRET !== undefined && config.EUIPO_CLIENT_SECRET !== '';
+    config.EUIPO_CLIENT_ID !== undefined &&
+    config.EUIPO_CLIENT_ID !== '' &&
+    config.EUIPO_CLIENT_SECRET !== undefined &&
+    config.EUIPO_CLIENT_SECRET !== '';
   if (euipoConfigured) return;
 
   logger.warn(

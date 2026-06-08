@@ -78,9 +78,7 @@ describe('Candidates API', () => {
         { domain: 'aged.org', domainAge: 15 },
       ];
 
-      await request(app)
-        .post('/api/candidates/run')
-        .send({ closeoutEntries: entries });
+      await request(app).post('/api/candidates/run').send({ closeoutEntries: entries });
 
       expect(runService.run).toHaveBeenCalledWith(
         expect.objectContaining({ closeoutEntries: entries }),

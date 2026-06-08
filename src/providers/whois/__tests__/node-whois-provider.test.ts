@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NodeWhoisProvider, NodeWhoisProviderWithIanaFallback, parseWhoisResponse } from '../node-whois-provider.js';
+import {
+  NodeWhoisProvider,
+  NodeWhoisProviderWithIanaFallback,
+  parseWhoisResponse,
+} from '../node-whois-provider.js';
 import type { Socket } from 'node:net';
 import { ProviderError } from '../../../types/errors.js';
 import { clearIanaCache } from '../iana-server-lookup.js';
 
 type ConnectFn = (port: number, host: string, callback?: () => void) => Socket;
 
-function makeMockConnect(): { connect: ConnectFn; emittedEvents: Array<{ emit: (event: string, ...args: unknown[]) => void }> } {
+function makeMockConnect(): {
+  connect: ConnectFn;
+  emittedEvents: Array<{ emit: (event: string, ...args: unknown[]) => void }>;
+} {
   const emittedEvents: Array<{ emit: (event: string, ...args: unknown[]) => void }> = [];
   const connect = vi.fn((_port: number, _host: string, callback?: () => void) => {
     const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
@@ -80,15 +87,15 @@ describe('parseWhoisResponse', () => {
   });
 
   it('parses registrar line', () => {
-    const r = parseWhoisResponse('example.com', 'Registrar: GoDaddy, LLC\nDomain Name: EXAMPLE.COM');
+    const r = parseWhoisResponse(
+      'example.com',
+      'Registrar: GoDaddy, LLC\nDomain Name: EXAMPLE.COM',
+    );
     expect(r.registrar).toBe('GoDaddy, LLC');
   });
 
   it('parses expiry date from common fields', () => {
-    const r = parseWhoisResponse(
-      'example.com',
-      'Registry Expiry Date: 2028-06-07T23:59:59Z',
-    );
+    const r = parseWhoisResponse('example.com', 'Registry Expiry Date: 2028-06-07T23:59:59Z');
     expect(r.expiryDate).toBe('2028-06-07T23:59:59.000Z');
   });
 
@@ -98,7 +105,10 @@ describe('parseWhoisResponse', () => {
   });
 
   it('ignores comment lines in registrar field', () => {
-    const r = parseWhoisResponse('example.com', '% Registrar: hidden\nRegistrar: The Real Registrar');
+    const r = parseWhoisResponse(
+      'example.com',
+      '% Registrar: hidden\nRegistrar: The Real Registrar',
+    );
     expect(r.registrar).toBe('The Real Registrar');
   });
 
@@ -164,7 +174,10 @@ describe('NodeWhoisProvider', () => {
     const provider = new NodeWhoisProvider({ timeoutMs: 5000, connect: mockConnect });
     const promise = provider.checkAvailability('example.de');
     process.nextTick(() => {
-      lastEvents().emit('data', Buffer.from('Domain: example.de\nExpiry Date: 2027-12-31T23:59:59Z'));
+      lastEvents().emit(
+        'data',
+        Buffer.from('Domain: example.de\nExpiry Date: 2027-12-31T23:59:59Z'),
+      );
       lastEvents().emit('end');
     });
     const result = await promise;
@@ -214,9 +227,9 @@ describe('NodeWhoisProvider', () => {
 
   it('throws WHOIS_NO_SERVER for unknown TLDs', async () => {
     const provider = new NodeWhoisProvider({ timeoutMs: 5000, connect: mockConnect });
-    await expect(
-      provider.checkAvailability('test.unknown-tld-xyz'),
-    ).rejects.toMatchObject({ code: 'WHOIS_NO_SERVER' });
+    await expect(provider.checkAvailability('test.unknown-tld-xyz')).rejects.toMatchObject({
+      code: 'WHOIS_NO_SERVER',
+    });
   });
 
   it('uses server overrides when provided', async () => {
@@ -261,9 +274,12 @@ describe('NodeWhoisProviderWithIanaFallback', () => {
     const p = provider.checkAvailability('test.unknown');
 
     // Wait for the async catch handler to call resolveWhoisServer
-    await vi.waitFor(() => {
-      expect(emittedEvents.length).toBeGreaterThanOrEqual(1);
-    }, { timeout: 1000, interval: 10 });
+    await vi.waitFor(
+      () => {
+        expect(emittedEvents.length).toBeGreaterThanOrEqual(1);
+      },
+      { timeout: 1000, interval: 10 },
+    );
 
     // IANA responds with a WHOIS server
     lastEmitted().emit(
@@ -273,9 +289,12 @@ describe('NodeWhoisProviderWithIanaFallback', () => {
     lastEmitted().emit('end');
 
     // Wait for second connection (to discovered server) + complete it
-    await vi.waitFor(() => {
-      expect(emittedEvents.length).toBeGreaterThanOrEqual(2);
-    }, { timeout: 1000, interval: 10 });
+    await vi.waitFor(
+      () => {
+        expect(emittedEvents.length).toBeGreaterThanOrEqual(2);
+      },
+      { timeout: 1000, interval: 10 },
+    );
 
     completeSocket(lastEmitted());
     await expect(p).resolves.toBeDefined();
@@ -306,9 +325,12 @@ describe('NodeWhoisProviderWithIanaFallback', () => {
     const p = provider.checkAvailability('test.void');
 
     // Wait for IANA connection
-    await vi.waitFor(() => {
-      expect(emittedEvents.length).toBeGreaterThanOrEqual(1);
-    }, { timeout: 1000, interval: 10 });
+    await vi.waitFor(
+      () => {
+        expect(emittedEvents.length).toBeGreaterThanOrEqual(1);
+      },
+      { timeout: 1000, interval: 10 },
+    );
 
     // IANA responds with no whois server line
     lastEmitted().emit('data', Buffer.from('domain: VOID\nstatus: not assigned\n'));

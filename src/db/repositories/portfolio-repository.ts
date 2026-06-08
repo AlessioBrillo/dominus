@@ -74,9 +74,9 @@ export class PortfolioRepository {
   }
 
   findByDomain(domain: string): PortfolioEntry | null {
-    const row = this.db
-      .prepare('SELECT * FROM portfolio_entries WHERE domain = ?')
-      .get(domain) as PortfolioRow | undefined;
+    const row = this.db.prepare('SELECT * FROM portfolio_entries WHERE domain = ?').get(domain) as
+      | PortfolioRow
+      | undefined;
     return row ? rowToEntry(row) : null;
   }
 

@@ -1,12 +1,17 @@
 import type { Command } from 'commander';
-import type { PipelineRun, PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
+import type {
+  PipelineRun,
+  PipelineRunsRepository,
+} from '../../db/repositories/pipeline-runs-repository.js';
 
 export interface RunsCommandDeps {
   runsRepo: PipelineRunsRepository;
 }
 
 export function registerRunsCommand(program: Command, deps: RunsCommandDeps): void {
-  const runs = program.command('runs').description('Browse and prune the pipeline_runs history (ADR-0011)');
+  const runs = program
+    .command('runs')
+    .description('Browse and prune the pipeline_runs history (ADR-0011)');
 
   runs
     .command('list')
@@ -60,7 +65,9 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
       if (options.dryRun) {
         // Reuse the same cutoff logic as prune() for a faithful preview.
         // We do not delete; we just report.
-        process.stdout.write(`Would prune runs whose retained_until < now (${before} total rows remain in table).\n`);
+        process.stdout.write(
+          `Would prune runs whose retained_until < now (${before} total rows remain in table).\n`,
+        );
         return;
       }
       const deleted = deps.runsRepo.prune();
@@ -116,7 +123,9 @@ function formatRunDetail(r: PipelineRun): string {
   lines.push('');
   lines.push('Stages:');
   for (const [name, s] of Object.entries(r.stageSummary)) {
-    lines.push(`  ${name.padEnd(30)} passed=${s.passed} filtered=${s.filtered} dur=${s.durationMs}ms`);
+    lines.push(
+      `  ${name.padEnd(30)} passed=${s.passed} filtered=${s.filtered} dur=${s.durationMs}ms`,
+    );
   }
   return lines.join('\n') + '\n';
 }

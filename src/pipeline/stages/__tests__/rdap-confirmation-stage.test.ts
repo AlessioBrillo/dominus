@@ -8,7 +8,14 @@ import { CandidateSource, CandidateStatus } from '../../../types/candidate.js';
 
 function makeCandidate(domain: string): DomainCandidate {
   const tld = domain.includes('.') ? domain.slice(domain.lastIndexOf('.')) : '.com';
-  return { domain, tld, source: CandidateSource.KeywordCombo, status: CandidateStatus.Pending, isPremium: false, pipelineRunId: 'test' };
+  return {
+    domain,
+    tld,
+    source: CandidateSource.KeywordCombo,
+    status: CandidateStatus.Pending,
+    isPremium: false,
+    pipelineRunId: 'test',
+  };
 }
 
 function makeMockRdap(

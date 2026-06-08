@@ -23,9 +23,10 @@ export async function computeMarketScore(
 
   const prices = sales.map((s) => s.salePrice).sort((a, b) => a - b);
   const mid = Math.floor(prices.length / 2);
-  const median = prices.length % 2 === 0
-    ? ((prices[mid - 1] ?? 0) + (prices[mid] ?? 0)) / 2
-    : (prices[mid] ?? 0);
+  const median =
+    prices.length % 2 === 0
+      ? ((prices[mid - 1] ?? 0) + (prices[mid] ?? 0)) / 2
+      : (prices[mid] ?? 0);
 
   const score = Math.min(1, Math.max(0, (median - FLOOR_VALUE) / (HIGH_VALUE - FLOOR_VALUE)));
 

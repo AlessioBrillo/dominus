@@ -38,7 +38,9 @@ describe('TrademarkGate', () => {
 
   it('returns Blocked when USPTO has a matching mark', async () => {
     const gate = new TrademarkGate(
-      mockProvider([{ markName: 'nova', owner: 'Nova Corp', status: 'registered', source: 'USPTO' }]),
+      mockProvider([
+        { markName: 'nova', owner: 'Nova Corp', status: 'registered', source: 'USPTO' },
+      ]),
       mockProvider([]),
     );
     const result = await gate.check('nova.io');
@@ -50,7 +52,9 @@ describe('TrademarkGate', () => {
   it('returns Blocked when EUIPO has a matching mark', async () => {
     const gate = new TrademarkGate(
       mockProvider([]),
-      mockProvider([{ markName: 'Apple', owner: 'Apple Inc', status: 'registered', source: 'EUIPO' }]),
+      mockProvider([
+        { markName: 'Apple', owner: 'Apple Inc', status: 'registered', source: 'EUIPO' },
+      ]),
     );
     const result = await gate.check('apple.io');
     expect(result.verdict).toBe(GateVerdict.Blocked);
@@ -138,7 +142,9 @@ describe('TrademarkGate — strict USPTO TLDs (ADR-0012)', () => {
     // override of the Block path.
     const gate = new TrademarkGate(
       errorProvider(),
-      mockProvider([{ markName: 'alpha', owner: 'Alpha Corp', status: 'registered', source: 'EUIPO' }]),
+      mockProvider([
+        { markName: 'alpha', owner: 'Alpha Corp', status: 'registered', source: 'EUIPO' },
+      ]),
     );
     const result = await gate.check('alpha.com');
     expect(result.verdict).toBe(GateVerdict.Blocked);

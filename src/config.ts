@@ -5,13 +5,10 @@ import { ConfigError } from './types/errors.js';
 const configSchema = z.object({
   DATABASE_PATH: z.string().min(1).default('./data/dominus.db'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  LOG_LEVEL: z
-    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
-    .default('info'),
-  LOG_PRETTY: z.preprocess(
-    (v) => (typeof v === 'string' ? v === 'true' : Boolean(v)),
-    z.boolean(),
-  ).default(false),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  LOG_PRETTY: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
   SCORING_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
   SCORING_RECOMMEND_THRESHOLD: z.coerce.number().min(0).max(1).default(0.4),
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
@@ -37,10 +34,7 @@ const configSchema = z.object({
    * Accepts POST with an ES-style query body; fields: WM (word mark), ST (status),
    * ON (owner name), SN (serial number), RN (registration number).
    */
-  USPTO_SEARCH_URL: z
-    .string()
-    .url()
-    .default('https://tmsearch.uspto.gov/tmsearch'),
+  USPTO_SEARCH_URL: z.string().url().default('https://tmsearch.uspto.gov/tmsearch'),
   /**
    * EUIPO OAuth2 credentials (free registration at https://euipo.europa.eu/ohimportal/en/open-data).
    * The same `EUIPO_CLIENT_ID` is reused as the `X-IBM-Client-Id` header on the
@@ -57,10 +51,7 @@ const configSchema = z.object({
    * by overriding this variable. EUIPO periodically rotates the exact path,
    * so the default is a placeholder until a verified current URL is known.
    */
-  EUIPO_AUTH_URL: z
-    .string()
-    .url()
-    .default('https://euipo.europa.eu/oauth2/token'),
+  EUIPO_AUTH_URL: z.string().url().default('https://euipo.europa.eu/oauth2/token'),
   /**
    * EUIPO Trademark Search 1.1.0 endpoint (RSQL-based, `X-IBM-Client-Id` required).
    * The legacy COPLA endpoint (`copla/trademark/data-capture/V1/trademarks`) was

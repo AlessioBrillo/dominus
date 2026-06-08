@@ -3,11 +3,7 @@ import { computeDropVerdict } from '../drop-verdict-engine.js';
 import { Verdict } from '../../types/portfolio.js';
 import type { PortfolioEntry } from '../../types/portfolio.js';
 
-function makeEntry(
-  daysUntilRenewal: number,
-  score?: number,
-  listPrice?: number,
-): PortfolioEntry {
+function makeEntry(daysUntilRenewal: number, score?: number, listPrice?: number): PortfolioEntry {
   const renewal = new Date(Date.now() + daysUntilRenewal * 24 * 60 * 60 * 1000);
   return {
     domain: 'nova.com',

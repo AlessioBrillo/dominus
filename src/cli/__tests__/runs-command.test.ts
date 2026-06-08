@@ -27,9 +27,11 @@ function captureStdout(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 function captureStderr(fn: () => Promise<void> | void): Promise<string> {
@@ -39,9 +41,11 @@ function captureStderr(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stderr.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stderr.write = original;
+    })
+    .then((): string => buffer);
 }
 
 describe('CLI: dominus runs', () => {
@@ -75,7 +79,13 @@ describe('CLI: dominus runs', () => {
       finishedAt: t0,
       totalDurationMs: 250,
       stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 5 } },
-      resultsSummary: { candidatesEvaluated: 1, recommended: 1, trademarkBlocked: 0, unscored: 0, errors: 0 },
+      resultsSummary: {
+        candidatesEvaluated: 1,
+        recommended: 1,
+        trademarkBlocked: 0,
+        unscored: 0,
+        errors: 0,
+      },
     });
     repo.insert({
       runId: 'bbbbbbbb-1111-2222-3333-444444444444',
@@ -136,12 +146,27 @@ describe('CLI: dominus runs', () => {
 
     // Act
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'runs', 'list', '--since', '2026-06-01T00:00:00.000Z']);
+      await program.parseAsync([
+        'node',
+        'dominus',
+        'runs',
+        'list',
+        '--since',
+        '2026-06-01T00:00:00.000Z',
+      ]);
     });
 
     // Assert — runId column is truncated to 8 chars; JSON output would not be.
     const outJson = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'runs', 'list', '--since', '2026-06-01T00:00:00.000Z', '--json']);
+      await program.parseAsync([
+        'node',
+        'dominus',
+        'runs',
+        'list',
+        '--since',
+        '2026-06-01T00:00:00.000Z',
+        '--json',
+      ]);
     });
     expect(out).toContain('new-run-');
     expect(out).not.toContain('old-run-');
@@ -161,7 +186,13 @@ describe('CLI: dominus runs', () => {
       finishedAt: '2026-06-01T10:00:01.000Z',
       totalDurationMs: 1000,
       stageSummary: { ScoringStage: { passed: 2, filtered: 1, durationMs: 8 } },
-      resultsSummary: { candidatesEvaluated: 3, recommended: 2, trademarkBlocked: 0, unscored: 1, errors: 0 },
+      resultsSummary: {
+        candidatesEvaluated: 3,
+        recommended: 2,
+        trademarkBlocked: 0,
+        unscored: 1,
+        errors: 0,
+      },
     });
 
     // Act

@@ -35,9 +35,11 @@ async function captureStdout<T>(fn: () => Promise<T>): Promise<string> {
     return true;
   };
   process.stdout.write = mockWrite as typeof process.stdout.write;
-  return Promise.resolve(fn()).finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 function freshDb(): Database.Database {

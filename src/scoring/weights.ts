@@ -6,10 +6,10 @@ export interface ScoringWeights {
 }
 
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  intrinsic: 0.30,
+  intrinsic: 0.3,
   commercial: 0.35,
   market: 0.25,
-  expiry: 0.10,
+  expiry: 0.1,
 };
 
 export const CONFIDENCE_THRESHOLD = 0.3;

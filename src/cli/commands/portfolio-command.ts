@@ -3,9 +3,7 @@ import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 
 export function registerPortfolioCommand(program: Command, manager: PortfolioManager): void {
-  const portfolio = program
-    .command('portfolio')
-    .description('Manage your domain portfolio');
+  const portfolio = program.command('portfolio').description('Manage your domain portfolio');
 
   portfolio
     .command('list')
@@ -33,7 +31,9 @@ export function registerPortfolioCommand(program: Command, manager: PortfolioMan
 
   portfolio
     .command('rescore')
-    .description('Re-score every portfolio entry against the current engine and TM gate, then refresh verdicts')
+    .description(
+      'Re-score every portfolio entry against the current engine and TM gate, then refresh verdicts',
+    )
     .option('--quiet', 'Suppress per-domain output, print only the summary', false)
     .action((options: { quiet: boolean }) => {
       const portfolioEntries = manager.list();
@@ -61,9 +61,7 @@ export function registerPortfolioCommand(program: Command, manager: PortfolioMan
 
             if (r.error !== undefined) {
               errored++;
-              process.stdout.write(
-                `  ${r.domain.padEnd(30)} ERROR  ${r.error}\n`,
-              );
+              process.stdout.write(`  ${r.domain.padEnd(30)} ERROR  ${r.error}\n`);
             } else if (!r.trademarkClear && r.trademarkVerdict === GateVerdict.Blocked) {
               blocked++;
               process.stdout.write(
@@ -78,7 +76,9 @@ export function registerPortfolioCommand(program: Command, manager: PortfolioMan
           }
         } else {
           ok = summary.results.filter((r) => r.error === undefined && r.trademarkClear).length;
-          blocked = summary.results.filter((r) => r.trademarkVerdict === GateVerdict.Blocked).length;
+          blocked = summary.results.filter(
+            (r) => r.trademarkVerdict === GateVerdict.Blocked,
+          ).length;
           errored = summary.results.filter((r) => r.error !== undefined).length;
         }
 

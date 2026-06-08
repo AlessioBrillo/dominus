@@ -71,8 +71,9 @@ function seedScoringSnapshot(
     scoredAt,
   };
   scoringRepo.insert(candidate.id!, 'test', result);
-  db.prepare('UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1')
-    .run(scoredAt, candidate.id);
+  db.prepare(
+    'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
+  ).run(scoredAt, candidate.id);
 }
 
 function seedSoldOutcome(

@@ -87,15 +87,15 @@ describe('loadWeights', () => {
       JSON.stringify({
         generatedAt: '2026-06-06T00:00:00.000Z',
         sampleSize: 10,
-        weights: { intrinsic: 0.32, commercial: 0.30, market: 0.28, expiry: 0.10 },
+        weights: { intrinsic: 0.32, commercial: 0.3, market: 0.28, expiry: 0.1 },
       }),
       'utf-8',
     );
     const w = loadWeights(path);
     expect(w.intrinsic).toBeCloseTo(0.32, 5);
-    expect(w.commercial).toBeCloseTo(0.30, 5);
+    expect(w.commercial).toBeCloseTo(0.3, 5);
     expect(w.market).toBeCloseTo(0.28, 5);
-    expect(w.expiry).toBeCloseTo(0.10, 5);
+    expect(w.expiry).toBeCloseTo(0.1, 5);
   });
 
   it('exports a sum tolerance constant that the CLI can echo to the user', () => {

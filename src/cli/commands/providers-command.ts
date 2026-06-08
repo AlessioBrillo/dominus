@@ -7,7 +7,9 @@ export interface ProvidersCommandDeps {
 }
 
 export function registerProvidersCommand(program: Command, deps: ProvidersCommandDeps): void {
-  const providers = program.command('providers').description('Inspect the runtime status of every external provider');
+  const providers = program
+    .command('providers')
+    .description('Inspect the runtime status of every external provider');
 
   providers
     .command('status')
@@ -27,7 +29,9 @@ function formatTable(rows: ProviderStatus[]): string {
   const nameWidth = Math.max(8, ...rows.map((r) => r.name.length));
   const configuredWidth = 11;
   const lines: string[] = [];
-  lines.push(['PROVIDER'.padEnd(nameWidth), 'CONFIGURED'.padEnd(configuredWidth), 'NOTE'].join('  '));
+  lines.push(
+    ['PROVIDER'.padEnd(nameWidth), 'CONFIGURED'.padEnd(configuredWidth), 'NOTE'].join('  '),
+  );
   for (const r of rows) {
     lines.push(
       [

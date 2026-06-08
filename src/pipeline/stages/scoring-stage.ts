@@ -37,7 +37,9 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
           waybackSnapshots: candidate.closeoutMeta?.waybackSnapshots,
         });
 
-        const status = scoreResult.recommended ? CandidateStatus.Recommended : CandidateStatus.Scored;
+        const status = scoreResult.recommended
+          ? CandidateStatus.Recommended
+          : CandidateStatus.Scored;
         const scored: ScoredCandidate = { ...candidate, status, scoreResult };
 
         if (scoreResult.recommended) {

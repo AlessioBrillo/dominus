@@ -85,7 +85,9 @@ describe('CandidateRepository.upsert', () => {
     repo.upsert(candidate);
 
     // Assert
-    const rows = db.prepare('SELECT COUNT(*) as cnt FROM candidates WHERE domain = ?').get('example.com') as { cnt: number };
+    const rows = db
+      .prepare('SELECT COUNT(*) as cnt FROM candidates WHERE domain = ?')
+      .get('example.com') as { cnt: number };
     expect(rows.cnt).toBe(1);
   });
 

@@ -4,11 +4,13 @@ import { registerPortfolioCommand } from '../commands/portfolio-command.js';
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 
-function makeMockManager(opts: {
-  entries?: Array<{ domain: string; verdict?: string }>;
-  rescoreResult?: unknown;
-  rescoreShouldThrow?: boolean;
-} = {}): PortfolioManager & {
+function makeMockManager(
+  opts: {
+    entries?: Array<{ domain: string; verdict?: string }>;
+    rescoreResult?: unknown;
+    rescoreShouldThrow?: boolean;
+  } = {},
+): PortfolioManager & {
   rescoreAll: ReturnType<typeof vi.fn>;
   refreshVerdicts: ReturnType<typeof vi.fn>;
 } {
@@ -125,9 +127,9 @@ describe('registerPortfolioCommand.rescore', () => {
 
     // parseAsync rejects because the rescore promise rejected and
     // commander propagates the rejection out of the action.
-    await expect(
-      program.parseAsync(['node', 'cli', 'portfolio', 'rescore']),
-    ).rejects.toThrow(/upstream down/);
+    await expect(program.parseAsync(['node', 'cli', 'portfolio', 'rescore'])).rejects.toThrow(
+      /upstream down/,
+    );
   });
 
   it('honours --quiet to suppress per-domain output', async () => {

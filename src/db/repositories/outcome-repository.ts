@@ -86,9 +86,9 @@ export class OutcomeRepository {
   }
 
   findById(id: number): Outcome | null {
-    const row = this.db
-      .prepare('SELECT * FROM outcomes WHERE id = ?')
-      .get(id) as OutcomeRow | undefined;
+    const row = this.db.prepare('SELECT * FROM outcomes WHERE id = ?').get(id) as
+      | OutcomeRow
+      | undefined;
     return row ? rowToOutcome(row) : null;
   }
 
@@ -135,12 +135,12 @@ export class OutcomeRepository {
          FROM outcomes WHERE domain = ?`,
       )
       .get(domain) as {
-        sold: number | null;
-        dropped: number | null;
-        expired: number | null;
-        renewed: number | null;
-        total_realised_eur: number | null;
-      };
+      sold: number | null;
+      dropped: number | null;
+      expired: number | null;
+      renewed: number | null;
+      total_realised_eur: number | null;
+    };
     return {
       sold: row.sold ?? 0,
       dropped: row.dropped ?? 0,

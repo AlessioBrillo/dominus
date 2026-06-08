@@ -2,7 +2,10 @@ import type Database from 'better-sqlite3';
 import type { ScoringWeights } from '../weights.js';
 import { DEFAULT_WEIGHTS } from '../weights.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
-import type { BacktestSignalsRepository, BacktestSignal } from '../../db/repositories/backtest-signals-repository.js';
+import type {
+  BacktestSignalsRepository,
+  BacktestSignal,
+} from '../../db/repositories/backtest-signals-repository.js';
 import type {
   SignalName,
   SignalPredictiveness,
@@ -77,10 +80,38 @@ export class WeightSuggester {
 
     const lookup = this.indexSignalsByRun(signals);
     const predictiveness: Record<SignalName, SignalPredictiveness> = {
-      intrinsic: { signal: 'intrinsic', highMeanRealised: 0, highN: 0, lowMeanRealised: 0, lowN: 0, lift: 0 },
-      commercial: { signal: 'commercial', highMeanRealised: 0, highN: 0, lowMeanRealised: 0, lowN: 0, lift: 0 },
-      market: { signal: 'market', highMeanRealised: 0, highN: 0, lowMeanRealised: 0, lowN: 0, lift: 0 },
-      expiry: { signal: 'expiry', highMeanRealised: 0, highN: 0, lowMeanRealised: 0, lowN: 0, lift: 0 },
+      intrinsic: {
+        signal: 'intrinsic',
+        highMeanRealised: 0,
+        highN: 0,
+        lowMeanRealised: 0,
+        lowN: 0,
+        lift: 0,
+      },
+      commercial: {
+        signal: 'commercial',
+        highMeanRealised: 0,
+        highN: 0,
+        lowMeanRealised: 0,
+        lowN: 0,
+        lift: 0,
+      },
+      market: {
+        signal: 'market',
+        highMeanRealised: 0,
+        highN: 0,
+        lowMeanRealised: 0,
+        lowN: 0,
+        lift: 0,
+      },
+      expiry: {
+        signal: 'expiry',
+        highMeanRealised: 0,
+        highN: 0,
+        lowMeanRealised: 0,
+        lowN: 0,
+        lift: 0,
+      },
     };
 
     for (const signal of SIGNAL_NAMES) {
@@ -122,9 +153,7 @@ export class WeightSuggester {
     };
   }
 
-  private indexSignalsByRun(
-    signals: BacktestSignal[],
-  ): Map<number, SignalScores> {
+  private indexSignalsByRun(signals: BacktestSignal[]): Map<number, SignalScores> {
     const out = new Map<number, SignalScores>();
     for (const s of signals) {
       if (s.id === undefined) continue;
@@ -171,10 +200,7 @@ export class WeightSuggester {
     };
   }
 
-  private rawSuggestionFor(
-    signal: SignalName,
-    p: SignalPredictiveness,
-  ): WeightSuggestion {
+  private rawSuggestionFor(signal: SignalName, p: SignalPredictiveness): WeightSuggestion {
     if (p.highN < MIN_BUCKET_SIZE || p.lowN < MIN_BUCKET_SIZE) {
       return this.holdSuggestion(
         signal,
@@ -182,7 +208,10 @@ export class WeightSuggester {
       );
     }
     if (Math.abs(p.lift) < MIN_LIFT_EUR) {
-      return this.holdSuggestion(signal, `lift €${p.lift.toFixed(0)} below €${MIN_LIFT_EUR} threshold`);
+      return this.holdSuggestion(
+        signal,
+        `lift €${p.lift.toFixed(0)} below €${MIN_LIFT_EUR} threshold`,
+      );
     }
     const direction = p.lift > 0 ? 1 : -1;
     const rawDelta = direction * DELTA_STEP;

@@ -2,12 +2,42 @@ import { describe, it, expect } from 'vitest';
 import { detectMatch, extractSld } from '../match-detector.js';
 import type { MatchCandidate } from '../match-detector.js';
 
-const NIKE: MatchCandidate = { markName: 'Nike', owner: 'Nike Inc.', status: 'registered', source: 'uspto' };
-const APPLE: MatchCandidate = { markName: 'Apple', owner: 'Apple Inc.', status: 'registered', source: 'uspto' };
-const APP_STORE: MatchCandidate = { markName: 'App Store', owner: 'Apple Inc.', status: 'registered', source: 'uspto' };
-const CHAN: MatchCandidate = { markName: 'Chan', owner: '4chan LLC', status: 'registered', source: 'uspto' };
-const STATE_FARM: MatchCandidate = { markName: 'State Farm', owner: 'State Farm', status: 'registered', source: 'uspto' };
-const BOSS: MatchCandidate = { markName: 'Boss', owner: 'Hugo Boss', status: 'registered', source: 'uspto' };
+const NIKE: MatchCandidate = {
+  markName: 'Nike',
+  owner: 'Nike Inc.',
+  status: 'registered',
+  source: 'uspto',
+};
+const APPLE: MatchCandidate = {
+  markName: 'Apple',
+  owner: 'Apple Inc.',
+  status: 'registered',
+  source: 'uspto',
+};
+const APP_STORE: MatchCandidate = {
+  markName: 'App Store',
+  owner: 'Apple Inc.',
+  status: 'registered',
+  source: 'uspto',
+};
+const CHAN: MatchCandidate = {
+  markName: 'Chan',
+  owner: '4chan LLC',
+  status: 'registered',
+  source: 'uspto',
+};
+const STATE_FARM: MatchCandidate = {
+  markName: 'State Farm',
+  owner: 'State Farm',
+  status: 'registered',
+  source: 'uspto',
+};
+const BOSS: MatchCandidate = {
+  markName: 'Boss',
+  owner: 'Hugo Boss',
+  status: 'registered',
+  source: 'uspto',
+};
 
 describe('detectMatch', () => {
   it('exact match is detected (case-insensitive)', () => {
@@ -48,7 +78,7 @@ describe('detectMatch', () => {
     expect(result?.markName).toBe('Apple');
   });
 
-  it('matches when the SLD contains a compound mark\'s tokens (applestore vs App Store)', () => {
+  it("matches when the SLD contains a compound mark's tokens (applestore vs App Store)", () => {
     const result = detectMatch('applestore', [APP_STORE]);
     expect(result).not.toBeNull();
     expect(result?.markName).toBe('App Store');

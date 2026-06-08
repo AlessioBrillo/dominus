@@ -33,8 +33,16 @@ export interface MatchCandidate {
  */
 
 const DIGIT_WORDS: Record<string, string> = {
-  '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
-  '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
+  '0': 'zero',
+  '1': 'one',
+  '2': 'two',
+  '3': 'three',
+  '4': 'four',
+  '5': 'five',
+  '6': 'six',
+  '7': 'seven',
+  '8': 'eight',
+  '9': 'nine',
 };
 
 /** Below this length we do not allow Levenshtein-1 matching. */
@@ -53,9 +61,7 @@ const MAX_LEVENSHTEIN_DISTANCE = 1;
  */
 
 function normalise(input: string): string {
-  return input
-    .toLowerCase()
-    .replace(/[0-9]/g, (d) => DIGIT_WORDS[d] ?? d);
+  return input.toLowerCase().replace(/[0-9]/g, (d) => DIGIT_WORDS[d] ?? d);
 }
 
 function tokenise(input: string): string[] {
@@ -115,10 +121,7 @@ function isTokenClose(sldToken: string, markToken: string): boolean {
  * volumes we deal with (≤ 50 hits per provider per SLD) this is well
  * within budget — no pre-indexing needed.
  */
-export function detectMatch(
-  domainSld: string,
-  marks: MatchCandidate[],
-): MatchCandidate | null {
+export function detectMatch(domainSld: string, marks: MatchCandidate[]): MatchCandidate | null {
   const sldTokens = tokenise(domainSld);
   if (sldTokens.length === 0) return null;
 
