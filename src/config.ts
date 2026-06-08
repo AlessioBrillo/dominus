@@ -135,6 +135,15 @@ const configSchema = z.object({
   /** Cron expression for monthly data pruning. Default: 1st at 10:00. */
   SCHEDULER_PRUNE_CRON: z.string().default('0 10 1 * *'),
 
+  /** Cron expression for watchlist RDAP polling. Default: every 6 hours. */
+  SCHEDULER_WATCHLIST_CRON: z.string().default('0 */6 * * *'),
+
+  /** Hours since last check before a watchlist entry is re-polled. */
+  WATCHLIST_POLL_INTERVAL_HOURS: z.coerce.number().int().min(1).default(6),
+
+  /** Delay in ms between RDAP requests during watchlist polling (rate limiting). */
+  WATCHLIST_RDAP_DELAY_MS: z.coerce.number().int().min(50).max(5000).default(200),
+
   // ── API hardening config ──────────────────────────────────────────
 
   /**

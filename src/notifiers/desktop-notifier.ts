@@ -1,11 +1,11 @@
 import notifier from 'node-notifier';
 import type { Notifier, NotifierChannel } from './notifier.js';
-import type { RenewalAlert } from '../types/alert.js';
+import type { Notification } from '../types/alert.js';
 
 export class DesktopNotifier implements Notifier {
   readonly channel: NotifierChannel = 'desktop';
 
-  async send(alert: RenewalAlert): Promise<void> {
+  async send(alert: Notification): Promise<void> {
     try {
       await new Promise<void>((resolve, reject) => {
         notifier.notify(

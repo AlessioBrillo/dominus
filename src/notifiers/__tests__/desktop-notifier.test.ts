@@ -18,13 +18,10 @@ describe('DesktopNotifier', () => {
     const notifier = new DesktopNotifier();
     await expect(
       notifier.send({
-        id: 1,
         domain: 'example.com',
-        portfolioEntryId: 1,
         alertType: AlertType.RenewalImminent,
         severity: AlertSeverity.Warning,
         message: 'test',
-        notifiedChannels: [],
       }),
     ).resolves.toBeUndefined();
   });

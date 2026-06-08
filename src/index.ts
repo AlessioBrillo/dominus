@@ -15,6 +15,7 @@ import {
   createOutcomesRouter,
   createAlertsRouter,
   createSchedulerRouter,
+  createWatchlistRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -64,6 +65,8 @@ app.use('/api/alerts', createAlertsRouter({ alertRepo: deps.alertRepo, alertEngi
 if (deps.scheduler) {
   app.use('/api/scheduler', createSchedulerRouter(deps.scheduler));
 }
+
+app.use('/api/watchlist', createWatchlistRouter(deps.watchlistService));
 
 app.use(errorHandler);
 

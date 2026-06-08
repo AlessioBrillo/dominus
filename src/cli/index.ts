@@ -23,6 +23,8 @@ import { registerProvidersCommand } from './commands/providers-command.js';
 import { registerCandidatesCommand } from './commands/candidates-command.js';
 import { registerHealthCommand } from './commands/health-command.js';
 import { registerSchedulerCommand } from './commands/scheduler-command.js';
+import { registerWatchlistCommand } from './commands/watchlist-command.js';
+import type { WatchlistService } from '../watchlist/watchlist-service.js';
 
 export interface CreateCliOptions {
   db: Database.Database;
@@ -38,6 +40,7 @@ export interface CreateCliOptions {
   alertEngine?: RenewalAlertEngine;
   alertRepo?: RenewalAlertRepository;
   scheduler: SchedulerService | undefined;
+  watchlistService?: WatchlistService;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -55,6 +58,7 @@ export function createCli(options: CreateCliOptions): Command {
     alertEngine,
     alertRepo,
     scheduler,
+    watchlistService,
   } = options;
 
   const program = new Command();
@@ -76,6 +80,10 @@ export function createCli(options: CreateCliOptions): Command {
   registerHealthCommand(program, { db, config });
   if (scheduler) {
     registerSchedulerCommand(program, { scheduler });
+  }
+
+  if (watchlistService) {
+    registerWatchlistCommand(program, { watchlistService });
   }
 
   return program;

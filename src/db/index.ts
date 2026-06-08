@@ -8,6 +8,7 @@ export { OutcomeRepository } from './repositories/outcome-repository.js';
 export { BacktestSignalsRepository } from './repositories/backtest-signals-repository.js';
 export { PipelineRunsRepository } from './repositories/pipeline-runs-repository.js';
 export { RenewalAlertRepository } from './repositories/renewal-alert-repository.js';
+export { WatchlistRepository } from './repositories/watchlist-repository.js';
 export type {
   PipelineRun,
   PipelineRunInputs,

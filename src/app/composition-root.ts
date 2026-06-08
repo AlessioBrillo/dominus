@@ -9,6 +9,7 @@ import {
   OutcomeRepository,
   RenewalAlertRepository,
   PipelineRunsRepository,
+  WatchlistRepository,
 } from '../db/index.js';
 import { ManualKeywordProvider } from '../providers/keyword/index.js';
 import { ManualCompsProvider } from '../providers/comps/index.js';
@@ -31,6 +32,7 @@ import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.
 import { buildNotifiers } from '../notifiers/index.js';
 import type { Notifier } from '../notifiers/notifier.js';
 import { SchedulerService } from '../scheduler/index.js';
+import { WatchlistService } from '../watchlist/watchlist-service.js';
 import {
   PipelineRunService,
   CachedTrademarkProvider,
@@ -67,6 +69,7 @@ export interface DominusDependencies {
   notifiers: Notifier[];
   alertEngine: RenewalAlertEngine;
 
+  watchlistService: WatchlistService;
   scheduler: SchedulerService | undefined;
 }
 
@@ -145,6 +148,14 @@ export function createDependencies(config: Config): DominusDependencies {
   const notifiers = buildNotifiers(config);
   const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
 
+  const watchlistService = new WatchlistService(
+    new WatchlistRepository(db),
+    new NodeDnsProvider(),
+    new PublicRdapProvider(),
+    notifiers,
+    config,
+  );
+
   let scheduler: SchedulerService | undefined;
   if (config.SCHEDULER_ENABLED) {
     scheduler = new SchedulerService({
@@ -153,6 +164,7 @@ export function createDependencies(config: Config): DominusDependencies {
       portfolioManager,
       trademarkRepo,
       runsRepo: pipelineRunsRepo,
+      watchlistService,
     });
     scheduler.start();
   }
@@ -178,6 +190,7 @@ export function createDependencies(config: Config): DominusDependencies {
     portfolioManager,
     notifiers,
     alertEngine,
+    watchlistService,
     scheduler,
   };
 }
