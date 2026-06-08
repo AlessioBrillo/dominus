@@ -47,6 +47,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     SCHEDULER_RESCORE_CRON: '0 9 * * 1',
     SCHEDULER_PRUNE_CRON: '0 10 1 * *',
     CORS_ORIGIN: '*',
+    RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
+    RATE_LIMIT_MAX: 100,
     ...overrides,
   };
 }
