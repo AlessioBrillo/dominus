@@ -34,7 +34,12 @@ const outcomeRepo = new OutcomeRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
-const engine = new ScoringEngine(keywordProvider, compsProvider, loadWeights(config.SCORING_WEIGHTS_OVERRIDE));
+const engine = new ScoringEngine(
+  keywordProvider,
+  compsProvider,
+  loadWeights(config.SCORING_WEIGHTS_OVERRIDE),
+  config.BUY_MAX_ABSOLUTE_CAP,
+);
 
 const trademarkGate = new TrademarkGate(
   new CachedTrademarkProvider(

@@ -32,6 +32,11 @@ import {
   createCandidatesRouter,
   createPortfolioRouter,
   createRunsRouter,
+  createHealthRouter,
+  createScoreRouter,
+  createBacktestRouter,
+  createProvidersRouter,
+  createOutcomesRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -52,7 +57,12 @@ const outcomeRepo = new OutcomeRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
-const engine = new ScoringEngine(keywordProvider, compsProvider, loadWeights(config.SCORING_WEIGHTS_OVERRIDE));
+const engine = new ScoringEngine(
+  keywordProvider,
+  compsProvider,
+  loadWeights(config.SCORING_WEIGHTS_OVERRIDE),
+  config.BUY_MAX_ABSOLUTE_CAP,
+);
 
 const trademarkGate = new TrademarkGate(
   new CachedTrademarkProvider(
@@ -98,15 +108,29 @@ const portfolioManager = new PortfolioManager(
 portfolioManager.setRescoreService(new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo));
 
 const app = express();
+
+// Security headers (Principle 4: cost includes safety — zero-effort hardening).
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  next();
+});
+
 app.use(express.json());
 app.use(createRequestLogger(logger));
 
+app.use('/api/health', createHealthRouter());
+app.use('/api/score', createScoreRouter(engine, trademarkGate));
+app.use('/api/backtest', createBacktestRouter(db, outcomeRepo, loadWeights(config.SCORING_WEIGHTS_OVERRIDE)));
+app.use('/api/providers', createProvidersRouter(config));
+app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
 app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db));
 
 app.use(errorHandler);
 
-app.listen(config.PORT, () => {
-  logger.info({ port: config.PORT }, 'DOMINUS server started');
+app.listen(config.PORT, config.HOST, () => {
+  logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
 });

@@ -21,6 +21,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     TM_CACHE_TTL_DAYS: 7,
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
+    BUY_MAX_ABSOLUTE_CAP: 500,
+    HOST: '127.0.0.1',
     ...overrides,
   };
 }

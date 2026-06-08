@@ -16,6 +16,7 @@ export class ScoringEngine {
     private readonly keywordProvider: KeywordProvider,
     private readonly compsProvider: CompsProvider,
     private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
+    private readonly buyMaxAbsoluteCap: number = 500,
   ) {}
 
   async score(input: ScoringInput): Promise<ScoreResult> {
@@ -35,10 +36,10 @@ export class ScoringEngine {
       market.details.comparables !== 0,
     ].filter(Boolean).length;
 
-    const confidence = Math.min(1, 0.3 + signalsWithData * 0.35);
+    const confidence = Math.min(1, signalsWithData * 0.4 + 0.2);
 
     const expectedValue = weightedScore * BASE_MARKET_VALUE_EUR * (1 + (market.medianSalePrice / BASE_MARKET_VALUE_EUR) * 0.5);
-    const suggestedBuyMax = expectedValue * BUY_MAX_RATIO;
+    const suggestedBuyMax = Math.min(expectedValue * BUY_MAX_RATIO, this.buyMaxAbsoluteCap);
     const suggestedListPrice = expectedValue * LIST_PRICE_MULTIPLIER;
 
     const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= 0.4;

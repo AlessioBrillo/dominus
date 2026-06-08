@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
+import type { CloseoutEntry } from '../../types/candidate.js';
 
 export function createCandidatesRouter(
   runService: PipelineRunService,
@@ -26,14 +27,15 @@ export function createCandidatesRouter(
   });
 
   router.post('/run', (req: Request, res: Response, next: NextFunction): void => {
-    const { keywords, brandableNames, closeoutDomains } = req.body as {
+    const { keywords, brandableNames, closeoutDomains, closeoutEntries } = req.body as {
       keywords?: string[];
       brandableNames?: string[];
       closeoutDomains?: string[];
+      closeoutEntries?: CloseoutEntry[];
     };
 
     runService
-      .run({ keywords, brandableNames, closeoutDomains })
+      .run({ keywords, brandableNames, closeoutDomains, closeoutEntries })
       .then((result) => {
         res.json({
           runId: result.runId,

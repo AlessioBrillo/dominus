@@ -94,6 +94,19 @@ const configSchema = z.object({
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */
   WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(10_000),
+  /**
+   * Absolute cap on suggestedBuyMax in EUR. Prevents the scoring engine
+   * from recommending purchases beyond the operator's stated ~500€ budget,
+   * even when comparable sales suggest extreme values.
+   * Default: 500. Set to 0 for unlimited (not recommended).
+   */
+  BUY_MAX_ABSOLUTE_CAP: z.coerce.number().min(0).default(500),
+  /**
+   * Network interface to bind the Express server to.
+   * '127.0.0.1' listens on localhost only (safe default).
+   * '0.0.0.0' exposes on all interfaces (use behind a reverse proxy).
+   */
+  HOST: z.string().default('127.0.0.1'),
 });
 
 export type Config = z.infer<typeof configSchema>;
