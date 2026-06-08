@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](package.json)
 
 DOMINUS is a personal domain-investment tool that helps you make better purchase and portfolio decisions than the market average. It is **single-user**, **zero-cost on APIs**, and designed for a tight budget (~500&euro;).
 
@@ -26,23 +27,31 @@ Five sequential stages, each feeding the next:
 
 Plus a **portfolio tracker** with renewal clock and monthly keep/drop verdicts.
 
-## Planned Stack
+## Current Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Node.js + Express |
-| Database | SQLite (better-sqlite3) |
-| Frontend | React + Vite + Tailwind (or CLI-only MVP) |
-| Providers | Node `dns` / RDAP HTTP / WHOIS port-43 / Google Keyword Planner / NameBio / USPTO+EUIPO APIs |
+| **Backend** | Node.js 20+, Express 5 |
+| **Database** | SQLite (better-sqlite3, WAL mode) |
+| **CLI** | Commander (8 commands) |
+| **API** | Express REST (8 route modules) |
+| **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
+| **Infrastructure** | CI via GitHub Actions, zero-cost hosting |
 
-All external providers sit behind interfaces (`WhoisProvider`, `CompsProvider`, `TrademarkProvider`, `KeywordProvider`) so implementations can be swapped without touching core logic.
+See [ADR-0001](docs/adr/0001-project-architecture.md) for the rationale
+behind the technology choices. A future frontend dashboard (React + Vite +
+Tailwind) is planned as a separate project phase but is not required for
+daily operation.
 
 ## Key Design Decisions
 
 - **Decision-first UX**: one question per candidate &mdash; *buy or pass*; one question per portfolio domain &mdash; *keep, drop, or reprice*
 - **Trademark gate is non-negotiable**: never skippable, never optional
-- **Provider abstraction is non-negotiable**: never hardcode an API client into core logic
-- **Cost discipline**: no paid API in MVP; every feature works at &euro;0 infra cost
+  (see [ADR-0006](docs/adr/0006-trademark-gate-mandate.md))
+- **Provider abstraction is non-negotiable**: never hardcode an API client
+  into core logic (see [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md))
+- **Cost discipline**: no paid API is used; every feature runs at &euro;0 infra
+  cost (see [ADR-0001](docs/adr/0001-project-architecture.md))
 - **Renewal clock > acquisition volume**: a domain that doesn't sell is a recurring liability
 
 ## Getting Started
@@ -262,14 +271,12 @@ design rationale.
 
 ## Project Status
 
-MVP implemented and running end-to-end (CLI + API, SQLite persistence): five-stage
-pipeline, heuristic scoring engine, mandatory USPTO/EUIPO trademark gate, portfolio
-tracker with rescore + outcomes, fresh 0-100 calibrated score that powers the
-verdicts, and a backtest engine (`dominus backtest run`) that pairs every sold
-outcome with the scoring snapshot available at decision time and reports MAE,
-bias, buy-max hit rate, and per-confidence-bucket calibration. Keyword and
-comparable-sales data remain free/manual by design. See
-[`CLAUDE.md`](CLAUDE.md) for the current development context.
+DOMINUS v0.2.0 &mdash; production-ready, tested, and running end-to-end.
+
+All five pipeline stages, the heuristic scoring engine, the mandatory trademark
+gate (real USPTO/EUIPO providers + caching), the portfolio tracker with rescore
+and outcomes, and the backtest engine are in place and tested. See the
+[ADR series](docs/adr/README.md) for the full architecture documentation.
 
 ## License
 
