@@ -1,5 +1,5 @@
 import type { Notifier, NotifierChannel } from './notifier.js';
-import type { RenewalAlert } from '../types/alert.js';
+import type { Notification } from '../types/alert.js';
 
 export interface TelegramNotifierConfig {
   botToken: string;
@@ -11,7 +11,7 @@ export class TelegramNotifier implements Notifier {
 
   constructor(private readonly config: TelegramNotifierConfig) {}
 
-  async send(alert: RenewalAlert): Promise<void> {
+  async send(alert: Notification): Promise<void> {
     const emoji = alert.severity === 'critical' ? '🔴' : alert.severity === 'warning' ? '🟡' : '🟢';
     const text =
       `${emoji} *DOMINUS Alert* — ${alert.alertType}\n` +

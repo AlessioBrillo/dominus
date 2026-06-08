@@ -3,25 +3,30 @@ export enum AlertType {
   RenewalCritical = 'renewal_critical',
   RenewalPastDue = 'renewal_past_due',
   ScoreDropped = 'score_dropped',
+  DomainAvailable = 'domain_available',
 }
 
 export enum AlertSeverity {
   Info = 'info',
   Warning = 'warning',
   Critical = 'critical',
+  Success = 'success',
 }
 
-export interface RenewalAlert {
-  id?: number;
+export interface Notification {
   domain: string;
-  portfolioEntryId: number;
   alertType: AlertType;
   severity: AlertSeverity;
   message: string;
   details?: string | undefined;
+  createdAt?: string | undefined;
+}
+
+export interface RenewalAlert extends Notification {
+  id?: number;
+  portfolioEntryId: number;
   acknowledgedAt?: string | undefined;
   notifiedChannels: string[];
-  createdAt?: string | undefined;
 }
 
 export interface InsertRenewalAlertInput {
