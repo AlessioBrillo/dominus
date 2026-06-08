@@ -8,7 +8,7 @@ import { computeExpiryScore } from './signals/expiry-signal.js';
 import { DEFAULT_WEIGHTS, CONFIDENCE_THRESHOLD, WEIGHT_RECOMMEND_THRESHOLD, type ScoringWeights } from './weights.js';
 
 const BUY_MAX_RATIO = 0.5;
-const LIST_PRICE_MULTIPLIER = 3.0;
+const LIST_PRICE_MULTIPLIER = 2.5;
 const BASE_MARKET_VALUE_EUR = 500;
 
 export class ScoringEngine {
@@ -17,6 +17,7 @@ export class ScoringEngine {
     private readonly compsProvider: CompsProvider,
     private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
+    private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
   ) {}
 
   async score(input: ScoringInput): Promise<ScoreResult> {
@@ -49,7 +50,7 @@ export class ScoringEngine {
     const suggestedBuyMax = Math.min(expectedValue * BUY_MAX_RATIO, this.buyMaxAbsoluteCap);
     const suggestedListPrice = expectedValue * LIST_PRICE_MULTIPLIER;
 
-    const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= WEIGHT_RECOMMEND_THRESHOLD;
+    const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= this.recommendThreshold;
 
     return {
       domain: input.domain,

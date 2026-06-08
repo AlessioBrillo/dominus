@@ -39,6 +39,7 @@ const engine = new ScoringEngine(
   compsProvider,
   loadWeights(config.SCORING_WEIGHTS_OVERRIDE),
   config.BUY_MAX_ABSOLUTE_CAP,
+  config.SCORING_RECOMMEND_THRESHOLD,
 );
 
 const trademarkGate = new TrademarkGate(

@@ -13,6 +13,7 @@ const configSchema = z.object({
     z.boolean(),
   ).default(false),
   SCORING_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
+  SCORING_RECOMMEND_THRESHOLD: z.coerce.number().min(0).max(1).default(0.4),
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
   DROP_RENEWAL_HORIZON_DAYS: z.coerce.number().int().min(1).default(60),
   /**
