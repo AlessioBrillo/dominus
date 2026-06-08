@@ -1,0 +1,62 @@
+[
+  {
+    "term": "coffee",
+    "monthlySearchVolume": 550000,
+    "cpc": 3.45,
+    "competition": 0.85
+  },
+  {
+    "term": "vintage",
+    "monthlySearchVolume": 135000,
+    "cpc": 1.20,
+    "competition": 0.45
+  },
+  {
+    "term": "maps",
+    "monthlySearchVolume": 420000,
+    "cpc": 0.80,
+    "competition": 0.30
+  },
+  {
+    "term": "organic",
+    "monthlySearchVolume": 89000,
+    "cpc": 2.10,
+    "competition": 0.60
+  },
+  {
+    "term": "harvest",
+    "monthlySearchVolume": 42000,
+    "cpc": 1.75,
+    "competition": 0.55
+  },
+  {
+    "term": "green",
+    "monthlySearchVolume": 310000,
+    "cpc": 0.95,
+    "competition": 0.40
+  },
+  {
+    "term": "old",
+    "monthlySearchVolume": 680000,
+    "cpc": 0.50,
+    "competition": 0.20
+  },
+  {
+    "term": "maps",
+    "monthlySearchVolume": 420000,
+    "cpc": 0.80,
+    "competition": 0.30
+  },
+  {
+    "term": "cloud",
+    "monthlySearchVolume": 210000,
+    "cpc": 4.20,
+    "competition": 0.75
+  },
+  {
+    "term": "data",
+    "monthlySearchVolume": 780000,
+    "cpc": 1.50,
+    "competition": 0.50
+  }
+]

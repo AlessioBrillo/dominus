@@ -76,6 +76,25 @@ npm test
 npm run lint
 ```
 
+## Quick start with sample data
+
+Skip the configuration hassle and see DOMINUS running immediately:
+
+```bash
+# Score some candidates with sample keyword volume and comparable sales
+KEYWORD_DATA_PATH=examples/keywords-sample.json \
+COMPS_DATA_PATH=examples/comps-sample.csv \
+node dist/cli.js run --closeout-csv examples/closeout-sample.csv
+```
+
+Sample files live in [`examples/`](examples/) alongside the closeout import:
+
+| File | Format | Purpose |
+|------|--------|---------|
+| `keywords-sample.json` | `[{ term, monthlySearchVolume, cpc, competition }]` | Feeds the commercial signal (search volume × CPC) |
+| `comps-sample.csv` | `domain,price,date,venue` | Feeds the market signal (NameBio comparable sales) |
+| `closeout-sample.csv` | header-driven CSV | Feeds the acquisition pipeline mid-flight |
+
 ## Importing closeout candidates
 
 The pipeline's first segment is **economic closeouts**. Feed a CSV of closeout/expiry
