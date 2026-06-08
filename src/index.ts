@@ -33,6 +33,7 @@ import {
   createPortfolioRouter,
   createRunsRouter,
   createHealthRouter,
+  createScoreRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -117,6 +118,7 @@ app.use(express.json());
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter());
+app.use('/api/score', createScoreRouter(engine, trademarkGate));
 app.use('/api/candidates', createCandidatesRouter(runService, candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(portfolioManager, outcomeRepo));
 app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db));
