@@ -7,5 +7,5 @@ export {
   isTransient,
 } from './retrying-trademark-provider.js';
 export type { RetryPolicy } from './retrying-trademark-provider.js';
-export { reportProviderStatuses, warnEuipoIfMissing } from './provider-status.js';
+export { reportProviderStatuses, warnEuipoIfMissing, warnCloudflareIfMissing } from './provider-status.js';
 export type { ProviderStatus } from './provider-status.js';

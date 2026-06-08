@@ -134,6 +134,14 @@ const configSchema = z.object({
 
   /** Cron expression for monthly data pruning. Default: 1st at 10:00. */
   SCHEDULER_PRUNE_CRON: z.string().default('0 10 1 * *'),
+
+  // ── Cloudflare Registrar config ───────────────────────────────────
+
+  /** Cloudflare API token with Zone:Read, Registrar:Read, Registrar:Write permissions. */
+  CLOUDFLARE_API_TOKEN: z.string().optional(),
+
+  /** Cloudflare Account ID (found in the Cloudflare dashboard overview). */
+  CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
