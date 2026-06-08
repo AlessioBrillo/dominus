@@ -43,6 +43,7 @@ export function createCli(
   registerBacktestCommand(program, { db, outcomeRepo });
   registerRunsCommand(program, { runsRepo: new PipelineRunsRepository(db) });
   registerMaintenanceCommand(program, {
+    db,
     trademarkRepo: new TrademarkRepository(db),
     runsRepo: new PipelineRunsRepository(db),
   });

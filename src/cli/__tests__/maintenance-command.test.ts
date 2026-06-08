@@ -22,7 +22,7 @@ function buildProgram(db: Database.Database): {
   const tmRepo = new TrademarkRepository(db);
   const runsRepo = new PipelineRunsRepository(db);
   const program = new Command();
-  registerMaintenanceCommand(program, { trademarkRepo: tmRepo, runsRepo });
+  registerMaintenanceCommand(program, { db, trademarkRepo: tmRepo, runsRepo });
   return { program, tmRepo, runsRepo };
 }
 
