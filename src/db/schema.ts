@@ -255,3 +255,28 @@ export const RENEWAL_ALERTS_UNIQUE_DDL = `
 CREATE UNIQUE INDEX IF NOT EXISTS uq_renewal_alerts_domain_type
   ON renewal_alerts(domain, alert_type)
 `;
+
+export const WATCHLIST_ENTRIES_DDL = `
+CREATE TABLE IF NOT EXISTS watchlist_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL UNIQUE,
+  tld TEXT NOT NULL,
+  notes TEXT,
+  last_checked_at TEXT,
+  last_status TEXT,
+  last_status_change TEXT,
+  notified INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const WATCHLIST_CHECKED_AT_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_watchlist_checked_at
+  ON watchlist_entries(last_checked_at)
+`;
+
+export const WATCHLIST_NOTIFIED_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_watchlist_notified
+  ON watchlist_entries(notified)
+`;
