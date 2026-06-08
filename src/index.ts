@@ -25,8 +25,11 @@ import {
   ScoringStage,
   TrademarkGateStage,
 } from './pipeline/index.js';
-import { PortfolioManager } from './portfolio/index.js';
+import { PortfolioManager, RenewalAlertEngine } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
+import { RenewalAlertRepository } from './db/index.js';
+import { buildNotifiers } from './notifiers/index.js';
+import { SchedulerService } from './scheduler/index.js';
 import {
   PipelineRunService,
   CachedTrademarkProvider,
@@ -42,6 +45,8 @@ import {
   createBacktestRouter,
   createProvidersRouter,
   createOutcomesRouter,
+  createAlertsRouter,
+  createSchedulerRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -115,6 +120,16 @@ portfolioManager.setRescoreService(
   new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
 );
 
+const alertRepo = new RenewalAlertRepository(db);
+const notifiersAlert = buildNotifiers(config);
+const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiersAlert);
+
+let scheduler: SchedulerService | undefined;
+if (config.SCHEDULER_ENABLED) {
+  scheduler = new SchedulerService(config, alertEngine);
+  scheduler.start();
+}
+
 const app = express();
 
 // Security headers (Principle 4: cost includes safety — zero-effort hardening).
@@ -142,6 +157,10 @@ app.use(
   '/api/runs',
   createRunsRouter(new PipelineRunsRepository(db), candidateRepo, scoringRepo, db),
 );
+app.use('/api/alerts', createAlertsRouter({ alertRepo, alertEngine }));
+if (scheduler) {
+  app.use('/api/scheduler', createSchedulerRouter(scheduler));
+}
 
 app.use(errorHandler);
 

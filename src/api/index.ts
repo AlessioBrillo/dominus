@@ -8,3 +8,5 @@ export { createProvidersRouter } from './routes/providers.js';
 export { createOutcomesRouter } from './routes/outcomes.js';
 export { errorHandler } from './middleware/error-handler.js';
 export { createRequestLogger } from './middleware/request-logger.js';
+export { createAlertsRouter } from './routes/alerts.js';
+export { createSchedulerRouter } from './routes/scheduler.js';

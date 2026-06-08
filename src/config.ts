@@ -99,6 +99,41 @@ const configSchema = z.object({
    * '0.0.0.0' exposes on all interfaces (use behind a reverse proxy).
    */
   HOST: z.string().default('127.0.0.1'),
+
+  // ── Renewal monitoring & notifier config ──────────────────────────
+
+  RENEWAL_WARNING_DAYS: z.coerce.number().int().min(1).default(30),
+  RENEWAL_CRITICAL_DAYS: z.coerce.number().int().min(1).default(7),
+
+  /** Enable native desktop notifications via notify-send. */
+  NOTIFIER_DESKTOP_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+
+  /** Generic webhook URL for alert forwarding (e.g. Slack, Discord). */
+  NOTIFIER_WEBHOOK_URL: z.string().url().optional(),
+
+  /** Telegram bot token from @BotFather. Requires NOTIFIER_TELEGRAM_CHAT_ID. */
+  NOTIFIER_TELEGRAM_BOT_TOKEN: z.string().optional(),
+
+  /** Telegram chat/group ID to receive alerts. */
+  NOTIFIER_TELEGRAM_CHAT_ID: z.string().optional(),
+
+  // ── Scheduler config ──────────────────────────────────────────────
+
+  /** Enable the in-process scheduler when the API server starts. */
+  SCHEDULER_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+
+  /** Cron expression for daily renewal checks. Default: daily at 08:00. */
+  SCHEDULER_RENEWAL_CHECK_CRON: z.string().default('0 8 * * *'),
+
+  /** Cron expression for weekly portfolio rescore. Default: Monday 09:00. */
+  SCHEDULER_RESCORE_CRON: z.string().default('0 9 * * 1'),
+
+  /** Cron expression for monthly data pruning. Default: 1st at 10:00. */
+  SCHEDULER_PRUNE_CRON: z.string().default('0 10 1 * *'),
 });
 
 export type Config = z.infer<typeof configSchema>;

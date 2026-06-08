@@ -8,13 +8,14 @@ import * as m0005 from './migrations/0005_trademark_term_cache.js';
 import * as m0006 from './migrations/0006_create_outcomes.js';
 import * as m0007 from './migrations/0007_create_backtest_signals.js';
 import * as m0008 from './migrations/0008_create_pipeline_runs.js';
+import * as m0009 from './migrations/0009_create_renewal_alerts.js';
 
 interface Migration {
   name: string;
   up: (db: Database.Database) => void;
 }
 
-const MIGRATIONS: Migration[] = [m0001, m0002, m0003, m0004, m0005, m0006, m0007, m0008];
+const MIGRATIONS: Migration[] = [m0001, m0002, m0003, m0004, m0005, m0006, m0007, m0008, m0009];
 
 export function runMigrations(db: Database.Database): void {
   db.exec(SCHEMA_MIGRATIONS_DDL);

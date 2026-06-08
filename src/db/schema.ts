@@ -215,3 +215,43 @@ export const PIPELINE_RUNS_RETAINED_IDX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_pipeline_runs_retained_until
   ON pipeline_runs(retained_until)
 `;
+
+/**
+ * renewal_alerts: auto-generated reminders about portfolio domains that
+ * need operator attention before they expire or change in value.
+ *
+ * One row per (domain, alert_type) — the alert engine upserts so repeated
+ * runs don't flood the table. Each row tracks which channels were notified
+ * and when the operator acknowledged it.
+ */
+export const RENEWAL_ALERTS_DDL = `
+CREATE TABLE IF NOT EXISTS renewal_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL,
+  portfolio_entry_id INTEGER NOT NULL REFERENCES portfolio_entries(id) ON DELETE CASCADE,
+  alert_type TEXT NOT NULL
+    CHECK(alert_type IN ('renewal_imminent','renewal_critical','renewal_past_due','score_dropped')),
+  severity TEXT NOT NULL
+    CHECK(severity IN ('info','warning','critical')),
+  message TEXT NOT NULL,
+  details TEXT,
+  acknowledged_at TEXT,
+  notified_channels TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const RENEWAL_ALERTS_DOMAIN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_renewal_alerts_domain
+  ON renewal_alerts(domain)
+`;
+
+export const RENEWAL_ALERTS_UNACK_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_renewal_alerts_unack
+  ON renewal_alerts(acknowledged_at)
+`;
+
+export const RENEWAL_ALERTS_UNIQUE_DDL = `
+CREATE UNIQUE INDEX IF NOT EXISTS uq_renewal_alerts_domain_type
+  ON renewal_alerts(domain, alert_type)
+`;

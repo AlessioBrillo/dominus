@@ -81,7 +81,7 @@ describe('registerPortfolioCommand.rescore', () => {
   it('registers a "rescore" subcommand', () => {
     const program = new Command();
     const manager = makeMockManager();
-    registerPortfolioCommand(program, manager);
+    registerPortfolioCommand(program, { manager });
     const portfolioCmd = program.commands.find((c) => c.name() === 'portfolio');
     const rescoreCmd = portfolioCmd?.commands.find((c) => c.name() === 'rescore');
     expect(rescoreCmd).toBeDefined();
@@ -91,7 +91,7 @@ describe('registerPortfolioCommand.rescore', () => {
     const program = new Command();
     program.exitOverride();
     const manager = makeMockManager({ entries: [] });
-    registerPortfolioCommand(program, manager);
+    registerPortfolioCommand(program, { manager });
 
     await program.parseAsync(['node', 'cli', 'portfolio', 'rescore']);
 
@@ -105,7 +105,7 @@ describe('registerPortfolioCommand.rescore', () => {
     const manager = makeMockManager({
       entries: [{ domain: 'alpha.com' }, { domain: 'beta.io' }],
     });
-    registerPortfolioCommand(program, manager);
+    registerPortfolioCommand(program, { manager });
 
     await program.parseAsync(['node', 'cli', 'portfolio', 'rescore']);
 
@@ -123,7 +123,7 @@ describe('registerPortfolioCommand.rescore', () => {
       entries: [{ domain: 'alpha.com' }],
       rescoreShouldThrow: true,
     });
-    registerPortfolioCommand(program, manager);
+    registerPortfolioCommand(program, { manager });
 
     // parseAsync rejects because the rescore promise rejected and
     // commander propagates the rejection out of the action.
@@ -138,7 +138,7 @@ describe('registerPortfolioCommand.rescore', () => {
     const manager = makeMockManager({
       entries: [{ domain: 'alpha.com' }],
     });
-    registerPortfolioCommand(program, manager);
+    registerPortfolioCommand(program, { manager });
 
     await program.parseAsync(['node', 'cli', 'portfolio', 'rescore', '--quiet']);
 
