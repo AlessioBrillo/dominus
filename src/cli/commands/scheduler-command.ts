@@ -30,7 +30,7 @@ export function registerSchedulerCommand(program: Command, deps: SchedulerComman
             j.name.padEnd(16),
             j.cronExpression.padEnd(12),
             (j.lastRunAt ?? '-').padEnd(24),
-            (j.lastResult ?? '-'),
+            j.lastResult ?? '-',
           ].join('  '),
         );
       }

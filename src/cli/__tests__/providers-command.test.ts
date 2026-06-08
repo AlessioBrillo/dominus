@@ -4,7 +4,11 @@ import { Command } from 'commander';
 import { runMigrations } from '../../db/migrator.js';
 import { registerProvidersCommand } from '../commands/providers-command.js';
 import type { Config } from '../../config.js';
-import { reportProviderStatuses, warnEuipoIfMissing, warnCloudflareIfMissing } from '../../app/provider-status.js';
+import {
+  reportProviderStatuses,
+  warnEuipoIfMissing,
+  warnCloudflareIfMissing,
+} from '../../app/provider-status.js';
 
 function buildConfig(overrides: Partial<Config> = {}): Config {
   return {

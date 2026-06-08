@@ -72,7 +72,12 @@ export class WatchlistService {
     }
 
     logger.info(
-      { checked: result.checked, available: result.available, notified: result.notified, errors: result.errors },
+      {
+        checked: result.checked,
+        available: result.available,
+        notified: result.notified,
+        errors: result.errors,
+      },
       'watchlist poll: complete',
     );
 

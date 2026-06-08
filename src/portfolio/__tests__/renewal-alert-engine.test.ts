@@ -178,16 +178,31 @@ describe('RenewalAlertEngine', () => {
 
   it('handles multiple domains with mixed renewal windows', async () => {
     portfolioRepo.insert({
-      domain: 'warning.com', tld: 'com', acquiredAt: '2025-01-01',
-      renewalDate: daysFromNow(20), acquisitionCost: 10, renewalCost: 15, registrar: 'test',
+      domain: 'warning.com',
+      tld: 'com',
+      acquiredAt: '2025-01-01',
+      renewalDate: daysFromNow(20),
+      acquisitionCost: 10,
+      renewalCost: 15,
+      registrar: 'test',
     });
     portfolioRepo.insert({
-      domain: 'critical.com', tld: 'com', acquiredAt: '2025-01-01',
-      renewalDate: daysFromNow(5), acquisitionCost: 10, renewalCost: 15, registrar: 'test',
+      domain: 'critical.com',
+      tld: 'com',
+      acquiredAt: '2025-01-01',
+      renewalDate: daysFromNow(5),
+      acquisitionCost: 10,
+      renewalCost: 15,
+      registrar: 'test',
     });
     portfolioRepo.insert({
-      domain: 'safe.com', tld: 'com', acquiredAt: '2025-01-01',
-      renewalDate: daysFromNow(90), acquisitionCost: 10, renewalCost: 15, registrar: 'test',
+      domain: 'safe.com',
+      tld: 'com',
+      acquiredAt: '2025-01-01',
+      renewalDate: daysFromNow(90),
+      acquisitionCost: 10,
+      renewalCost: 15,
+      registrar: 'test',
     });
 
     const result = await engine.checkAll();

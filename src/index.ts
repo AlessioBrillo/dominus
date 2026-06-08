@@ -35,7 +35,9 @@ if (config.RATE_LIMIT_MAX > 0) {
       max: config.RATE_LIMIT_MAX,
       standardHeaders: true,
       legacyHeaders: false,
-      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' } },
+      message: {
+        error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
+      },
     }),
   );
 }
@@ -52,16 +54,19 @@ app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter());
 app.use('/api/score', createScoreRouter(deps.engine, deps.trademarkGate));
-app.use(
-  '/api/backtest',
-  createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights),
-);
+app.use('/api/backtest', createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights));
 app.use('/api/providers', createProvidersRouter(deps.config));
 app.use('/api/outcomes', createOutcomesRouter(deps.outcomeRepo));
 app.use('/api/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
 app.use('/api/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
-app.use('/api/runs', createRunsRouter(deps.pipelineRunsRepo, deps.candidateRepo, deps.scoringRepo, deps.db));
-app.use('/api/alerts', createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }));
+app.use(
+  '/api/runs',
+  createRunsRouter(deps.pipelineRunsRepo, deps.candidateRepo, deps.scoringRepo, deps.db),
+);
+app.use(
+  '/api/alerts',
+  createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }),
+);
 if (deps.scheduler) {
   app.use('/api/scheduler', createSchedulerRouter(deps.scheduler));
 }

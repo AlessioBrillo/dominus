@@ -22,9 +22,7 @@ export function createAlertsRouter(deps: AlertRouteDeps): Router {
     try {
       const domain = typeof req.query.domain === 'string' ? req.query.domain : undefined;
       const unacknowledged =
-        typeof req.query.unacknowledged === 'string'
-          ? req.query.unacknowledged === 'true'
-          : false;
+        typeof req.query.unacknowledged === 'string' ? req.query.unacknowledged === 'true' : false;
       const alerts = alertRepo.findAll(domain, unacknowledged);
       res.json({ alerts });
     } catch (err: unknown) {
@@ -32,28 +30,25 @@ export function createAlertsRouter(deps: AlertRouteDeps): Router {
     }
   });
 
-  router.post(
-    '/:id/acknowledge',
-    (req: Request, res: Response, next: NextFunction): void => {
-      try {
-        const id = Number(getRouteParam(req, 'id'));
-        if (Number.isNaN(id) || id <= 0) {
-          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid alert ID' } });
-          return;
-        }
-        const existing = alertRepo.findById(id);
-        if (existing === null) {
-          res.status(404).json({ error: { code: 'NOT_FOUND', message: `Alert ${id} not found` } });
-          return;
-        }
-        alertRepo.acknowledge(id);
-        const updated = alertRepo.findById(id);
-        res.json({ alert: updated });
-      } catch (err: unknown) {
-        next(err);
+  router.post('/:id/acknowledge', (req: Request, res: Response, next: NextFunction): void => {
+    try {
+      const id = Number(getRouteParam(req, 'id'));
+      if (Number.isNaN(id) || id <= 0) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid alert ID' } });
+        return;
       }
-    },
-  );
+      const existing = alertRepo.findById(id);
+      if (existing === null) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Alert ${id} not found` } });
+        return;
+      }
+      alertRepo.acknowledge(id);
+      const updated = alertRepo.findById(id);
+      res.json({ alert: updated });
+    } catch (err: unknown) {
+      next(err);
+    }
+  });
 
   router.post('/acknowledge-all', (req: Request, res: Response, next: NextFunction): void => {
     try {

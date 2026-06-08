@@ -16,7 +16,18 @@ interface Migration {
   up: (db: Database.Database) => void;
 }
 
-const MIGRATIONS: Migration[] = [m0001, m0002, m0003, m0004, m0005, m0006, m0007, m0008, m0009, m0010];
+const MIGRATIONS: Migration[] = [
+  m0001,
+  m0002,
+  m0003,
+  m0004,
+  m0005,
+  m0006,
+  m0007,
+  m0008,
+  m0009,
+  m0010,
+];
 
 export function runMigrations(db: Database.Database): void {
   db.exec(SCHEMA_MIGRATIONS_DDL);

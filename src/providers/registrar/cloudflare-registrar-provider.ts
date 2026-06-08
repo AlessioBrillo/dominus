@@ -10,26 +10,26 @@ import type {
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
 const CLOUDFLARE_PRICING_EUR: Record<string, { register: number; renew: number }> = {
-  com: { register: 8.50, renew: 8.50 },
+  com: { register: 8.5, renew: 8.5 },
   net: { register: 10.25, renew: 10.25 },
   org: { register: 9.05, renew: 9.05 },
-  io: { register: 30.20, renew: 30.20 },
-  co: { register: 20.00, renew: 20.00 },
+  io: { register: 30.2, renew: 30.2 },
+  co: { register: 20.0, renew: 20.0 },
   app: { register: 11.15, renew: 11.15 },
   dev: { register: 11.15, renew: 11.15 },
   me: { register: 17.65, renew: 17.65 },
-  uk: { register: 5.10, renew: 5.10 },
-  de: { register: 7.50, renew: 7.50 },
-  fr: { register: 8.00, renew: 8.00 },
-  eu: { register: 6.50, renew: 6.50 },
-  it: { register: 9.00, renew: 9.00 },
-  info: { register: 12.00, renew: 12.00 },
-  biz: { register: 11.50, renew: 11.50 },
-  ai: { register: 65.00, renew: 65.00 },
-  tech: { register: 25.00, renew: 25.00 },
-  online: { register: 22.00, renew: 22.00 },
-  shop: { register: 18.00, renew: 18.00 },
-  store: { register: 35.00, renew: 35.00 },
+  uk: { register: 5.1, renew: 5.1 },
+  de: { register: 7.5, renew: 7.5 },
+  fr: { register: 8.0, renew: 8.0 },
+  eu: { register: 6.5, renew: 6.5 },
+  it: { register: 9.0, renew: 9.0 },
+  info: { register: 12.0, renew: 12.0 },
+  biz: { register: 11.5, renew: 11.5 },
+  ai: { register: 65.0, renew: 65.0 },
+  tech: { register: 25.0, renew: 25.0 },
+  online: { register: 22.0, renew: 22.0 },
+  shop: { register: 18.0, renew: 18.0 },
+  store: { register: 35.0, renew: 35.0 },
 };
 
 function getTldPricing(tld: string): { register: number; renew: number } | null {
@@ -60,7 +60,12 @@ interface CfDomainResult {
 }
 
 function isCfApiEnvelope<T>(v: unknown): v is CfApiEnvelope<T> {
-  return typeof v === 'object' && v !== null && 'success' in v && Array.isArray((v as Record<string, unknown>).errors);
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'success' in v &&
+    Array.isArray((v as Record<string, unknown>).errors)
+  );
 }
 
 function isCfDomainResult(v: unknown): v is CfDomainResult {

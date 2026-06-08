@@ -1,7 +1,12 @@
 import type Database from 'better-sqlite3';
-import type { WatchlistEntry, InsertWatchlistInput, UpdateWatchlistStatusInput } from '../../types/watchlist.js';
+import type {
+  WatchlistEntry,
+  InsertWatchlistInput,
+  UpdateWatchlistStatusInput,
+} from '../../types/watchlist.js';
 
-const ROW_MAPPER = 'id, domain, tld, notes, last_checked_at, last_status, last_status_change, notified, created_at, updated_at';
+const ROW_MAPPER =
+  'id, domain, tld, notes, last_checked_at, last_status, last_status_change, notified, created_at, updated_at';
 
 function parseRow(row: unknown): WatchlistEntry {
   const r = row as Record<string, unknown>;
@@ -74,13 +79,7 @@ export class WatchlistRepository {
          WHERE domain = ?
          RETURNING ${ROW_MAPPER}`,
       )
-      .get(
-        input.lastCheckedAt,
-        input.lastStatus,
-        input.lastStatusChange,
-        notified,
-        domain,
-      );
+      .get(input.lastCheckedAt, input.lastStatus, input.lastStatusChange, notified, domain);
     return parseRow(row);
   }
 
@@ -98,14 +97,14 @@ export class WatchlistRepository {
   }
 
   remove(domain: string): boolean {
-    const result = this.db
-      .prepare('DELETE FROM watchlist_entries WHERE domain = ?')
-      .run(domain);
+    const result = this.db.prepare('DELETE FROM watchlist_entries WHERE domain = ?').run(domain);
     return result.changes > 0;
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM watchlist_entries').get() as { n: number };
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM watchlist_entries').get() as {
+      n: number;
+    };
     return row.n;
   }
 }

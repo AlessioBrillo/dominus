@@ -156,7 +156,11 @@ const configSchema = z.object({
   /**
    * Rate limiting: window duration in milliseconds (default: 15 minutes).
    */
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
 
   /**
    * Rate limiting: max requests per window per IP (default: 100).

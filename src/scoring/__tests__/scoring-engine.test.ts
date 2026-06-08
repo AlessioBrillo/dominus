@@ -18,16 +18,14 @@ function makeProviders(
         .mockResolvedValue({ term: 'test', monthlySearchVolume: volume, cpc, competition: 0 }),
     },
     comps: {
-      getSales: vi
-        .fn()
-        .mockResolvedValue(
-          compPrices.map((p) => ({
-            domain: 'comp.com',
-            salePrice: p,
-            saleDate: '2024-01-01',
-            venue: 'namebio',
-          })),
-        ),
+      getSales: vi.fn().mockResolvedValue(
+        compPrices.map((p) => ({
+          domain: 'comp.com',
+          salePrice: p,
+          saleDate: '2024-01-01',
+          venue: 'namebio',
+        })),
+      ),
     },
   };
 }

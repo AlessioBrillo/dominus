@@ -29,7 +29,9 @@ export class WebhookNotifier implements Notifier {
         process.stderr.write(`Webhook returned ${response.status} for ${alert.domain}\n`);
       }
     } catch (err) {
-      process.stderr.write(`Webhook failed for ${alert.domain}: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.stderr.write(
+        `Webhook failed for ${alert.domain}: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
     }
   }
 }

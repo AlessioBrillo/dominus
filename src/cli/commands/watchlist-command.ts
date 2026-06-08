@@ -6,7 +6,9 @@ export interface WatchlistCommandDeps {
 }
 
 export function registerWatchlistCommand(program: Command, deps: WatchlistCommandDeps): void {
-  const watchlist = program.command('watchlist').description('Manage domains you are watching for availability');
+  const watchlist = program
+    .command('watchlist')
+    .description('Manage domains you are watching for availability');
 
   watchlist
     .command('add <domain>')
@@ -72,14 +74,18 @@ export function registerWatchlistCommand(program: Command, deps: WatchlistComman
     .description('Check all watched domains for availability')
     .option('--dry-run', 'Simulate without sending notifications or persisting', false)
     .action(async (options: { dryRun: boolean }) => {
-      process.stdout.write(options.dryRun ? '[DRY-RUN] Checking watchlist...\n' : 'Checking watchlist...\n');
+      process.stdout.write(
+        options.dryRun ? '[DRY-RUN] Checking watchlist...\n' : 'Checking watchlist...\n',
+      );
       try {
         const result = await deps.watchlistService.poll(options.dryRun);
         process.stdout.write(
           `Checked ${result.checked}, available: ${result.available}, notified: ${result.notified}, errors: ${result.errors}\n`,
         );
       } catch (err: unknown) {
-        process.stderr.write(`Error during poll: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.stderr.write(
+          `Error during poll: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
         process.exit(1);
       }
     });

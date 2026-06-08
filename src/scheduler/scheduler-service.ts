@@ -28,7 +28,8 @@ export interface SchedulerOptions {
 
 export class SchedulerService {
   private readonly jobs: Map<string, cron.ScheduledTask> = new Map();
-  private readonly status: Map<string, { lastRunAt: string | null; lastResult: string | null }> = new Map();
+  private readonly status: Map<string, { lastRunAt: string | null; lastResult: string | null }> =
+    new Map();
   private readonly config: Config;
   private readonly alertEngine: RenewalAlertEngine;
   private readonly portfolioManager: PortfolioManager | undefined;
@@ -92,7 +93,9 @@ export class SchedulerService {
         },
       );
     } else {
-      logger.warn('data-prune job disabled (TrademarkRepository or PipelineRunsRepository not provided)');
+      logger.warn(
+        'data-prune job disabled (TrademarkRepository or PipelineRunsRepository not provided)',
+      );
     }
 
     if (this.watchlistService) {
@@ -111,9 +114,7 @@ export class SchedulerService {
       logger.warn('watchlist-poll job disabled (WatchlistService not provided)');
     }
 
-    logger.info(
-      `Scheduler started with ${this.jobs.size} job(s)`,
-    );
+    logger.info(`Scheduler started with ${this.jobs.size} job(s)`);
   }
 
   stop(): void {
@@ -163,7 +164,10 @@ export class SchedulerService {
           .catch((err: unknown) => {
             const errorMsg = err instanceof Error ? err.message : String(err);
             logger.error(`Job ${name} failed: ${errorMsg}`);
-            this.status.set(name, { lastRunAt: new Date().toISOString(), lastResult: `Error: ${errorMsg}` });
+            this.status.set(name, {
+              lastRunAt: new Date().toISOString(),
+              lastResult: `Error: ${errorMsg}`,
+            });
           });
       });
       this.jobs.set(name, task);

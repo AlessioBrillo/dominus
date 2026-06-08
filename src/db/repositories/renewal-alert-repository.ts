@@ -100,7 +100,8 @@ export class RenewalAlertRepository {
   }
 
   acknowledgeAll(domain?: string): number {
-    let sql = "UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE acknowledged_at IS NULL";
+    let sql =
+      "UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE acknowledged_at IS NULL";
     const params: unknown[] = [];
     if (domain !== undefined) {
       sql += ' AND domain = ?';
