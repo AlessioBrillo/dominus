@@ -5,7 +5,7 @@ import { computeIntrinsicScore } from './signals/intrinsic-signal.js';
 import { computeCommercialScore } from './signals/commercial-signal.js';
 import { computeMarketScore } from './signals/market-signal.js';
 import { computeExpiryScore } from './signals/expiry-signal.js';
-import { DEFAULT_WEIGHTS, CONFIDENCE_THRESHOLD, type ScoringWeights } from './weights.js';
+import { DEFAULT_WEIGHTS, CONFIDENCE_THRESHOLD, WEIGHT_RECOMMEND_THRESHOLD, type ScoringWeights } from './weights.js';
 
 const BUY_MAX_RATIO = 0.5;
 const LIST_PRICE_MULTIPLIER = 3.0;
@@ -49,7 +49,7 @@ export class ScoringEngine {
     const suggestedBuyMax = Math.min(expectedValue * BUY_MAX_RATIO, this.buyMaxAbsoluteCap);
     const suggestedListPrice = expectedValue * LIST_PRICE_MULTIPLIER;
 
-    const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= 0.4;
+    const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= WEIGHT_RECOMMEND_THRESHOLD;
 
     return {
       domain: input.domain,
