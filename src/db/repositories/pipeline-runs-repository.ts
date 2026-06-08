@@ -224,6 +224,30 @@ export class PipelineRunsRepository {
   }
 
   /**
+   * Count runs whose `started_at` is strictly before `cutoff`.
+   * Used by `prune --before --dry-run` to preview deletions.
+   */
+  countBefore(cutoff: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?')
+      .get(cutoff) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Delete every run whose `started_at` is strictly before `cutoff`.
+   * Used by `prune --before <days>` to override the retained_until-
+   * based expiry with an absolute age threshold. Returns the number
+   * of rows deleted.
+   */
+  pruneBefore(cutoff: string): number {
+    const result = this.db
+      .prepare('DELETE FROM pipeline_runs WHERE started_at < ?')
+      .run(cutoff);
+    return Number(result.changes);
+  }
+
+  /**
    * Delete every run whose `retained_until` is strictly before `now`.
    * Returns the number of rows deleted. Idempotent — a second call
    * with the same `now` is a no-op.
