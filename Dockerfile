@@ -37,7 +37,7 @@ ENV NODE_ENV=production \
     DATABASE_PATH=/app/data/dominus.db
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node dist/index.js --healthcheck || node -e "require('http').get('http://localhost:${PORT:-3000}/api/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
+  CMD node dist/app/healthcheck.js
 
 ENTRYPOINT ["node"]
 CMD ["dist/index.js"]
