@@ -10,7 +10,6 @@ import type { Config } from '../../config.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { WatchlistEntry } from '../../types/watchlist.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {

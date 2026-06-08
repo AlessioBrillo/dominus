@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { Command } from 'commander';
 import { registerWatchlistCommand } from '../commands/watchlist-command.js';
 import type { WatchlistService } from '../../watchlist/watchlist-service.js';

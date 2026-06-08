@@ -4,7 +4,6 @@ import type { RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { Notifier } from '../notifiers/notifier.js';
 import type { Config } from '../config.js';
 import type { WatchlistEntry, WatchlistPollResult } from '../types/watchlist.js';
-import type { InsertWatchlistInput } from '../types/watchlist.js';
 import { AlertType, AlertSeverity } from '../types/alert.js';
 import { DomainStatus } from '../types/domain-status.js';
 import type { RdapResult } from '../types/domain-status.js';
