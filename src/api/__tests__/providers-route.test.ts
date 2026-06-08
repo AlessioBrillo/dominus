@@ -56,7 +56,8 @@ describe('GET /api/providers/status', () => {
 
   it('reports EUIPO as configured when credentials are present', async () => {
     const app = express();
-    app.use('/api/providers',
+    app.use(
+      '/api/providers',
       createProvidersRouter(buildConfig({ EUIPO_CLIENT_ID: 'abc', EUIPO_CLIENT_SECRET: 'xyz' })),
     );
     app.use(errorHandler);

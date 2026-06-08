@@ -8,7 +8,7 @@ import { getRouteParam } from '../route-utils.js';
 const outcomeInputSchema = z.object({
   domain: z.string().min(1),
   type: z.string().refine(isOutcomeType, {
-    message: "type must be one of: sold, dropped, expired, renewed",
+    message: 'type must be one of: sold, dropped, expired, renewed',
   }),
   occurredAt: z.string().min(1),
   salePriceEur: z.number().nonnegative().optional(),
@@ -33,9 +33,10 @@ export function createOutcomesRouter(outcomeRepo: OutcomeRepository): Router {
   router.get('/', (req: Request, res: Response, next: NextFunction): void => {
     try {
       const type = typeof req.query['type'] === 'string' ? req.query['type'] : undefined;
-      const outcomes = type !== undefined && isOutcomeType(type)
-        ? outcomeRepo.findByType(type)
-        : outcomeRepo.findAll();
+      const outcomes =
+        type !== undefined && isOutcomeType(type)
+          ? outcomeRepo.findByType(type)
+          : outcomeRepo.findAll();
       res.json({ outcomes });
     } catch (err: unknown) {
       next(err);

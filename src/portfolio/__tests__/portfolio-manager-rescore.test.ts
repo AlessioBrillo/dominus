@@ -4,10 +4,7 @@ import { runMigrations } from '../../db/migrator.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 import { Verdict } from '../../types/portfolio.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
-import {
-  makeFakeRescoreDeps,
-  makeServiceFromFakes,
-} from './rescore-test-helpers.js';
+import { makeFakeRescoreDeps, makeServiceFromFakes } from './rescore-test-helpers.js';
 import type { PortfolioRescoreService } from '../portfolio-rescore-service.js';
 import { PortfolioManager } from '../portfolio-manager.js';
 

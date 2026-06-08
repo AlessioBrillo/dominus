@@ -73,8 +73,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           // Mimic a standard browser request to reduce WAF friction
-          'User-Agent':
-            'Mozilla/5.0 (compatible; DOMINUS/1.0 trademark-check)',
+          'User-Agent': 'Mozilla/5.0 (compatible; DOMINUS/1.0 trademark-check)',
         },
         body,
         signal: AbortSignal.timeout(15_000),

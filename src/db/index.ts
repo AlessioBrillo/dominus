@@ -7,4 +7,11 @@ export { TrademarkRepository } from './repositories/trademark-repository.js';
 export { OutcomeRepository } from './repositories/outcome-repository.js';
 export { BacktestSignalsRepository } from './repositories/backtest-signals-repository.js';
 export { PipelineRunsRepository } from './repositories/pipeline-runs-repository.js';
-export type { PipelineRun, PipelineRunInputs, PipelineRunResults, InsertPipelineRunInput, CompletePipelineRunInput, ListPipelineRunsOptions } from './repositories/pipeline-runs-repository.js';
+export type {
+  PipelineRun,
+  PipelineRunInputs,
+  PipelineRunResults,
+  InsertPipelineRunInput,
+  CompletePipelineRunInput,
+  ListPipelineRunsOptions,
+} from './repositories/pipeline-runs-repository.js';

@@ -24,7 +24,11 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       if (result.status === DomainStatus.Available || result.status === DomainStatus.Unknown) {
         passed.push({ ...candidate, dnsStatus: result.status, status: CandidateStatus.Pending });
       } else {
-        filtered.push({ ...candidate, dnsStatus: result.status, status: CandidateStatus.DnsFiltered });
+        filtered.push({
+          ...candidate,
+          dnsStatus: result.status,
+          status: CandidateStatus.DnsFiltered,
+        });
       }
     }
 

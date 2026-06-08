@@ -147,7 +147,9 @@ export class BacktestEngine {
       const subset = signals.filter((s) => s.confidenceBucket === bucket);
       calibration[bucket] = {
         n: subset.length,
-        meanAbsError: mean(subset.map((s) => Math.abs(s.predictedExpectedValue - s.actualSalePriceEur))),
+        meanAbsError: mean(
+          subset.map((s) => Math.abs(s.predictedExpectedValue - s.actualSalePriceEur)),
+        ),
         meanRealised: mean(subset.map((s) => s.actualSalePriceEur)),
         meanPredicted: mean(subset.map((s) => s.predictedExpectedValue)),
       };

@@ -165,9 +165,9 @@ export class BacktestSignalsRepository {
   }
 
   count(): number {
-    const row = this.db
-      .prepare('SELECT COUNT(*) AS n FROM backtest_signals')
-      .get() as { n: number };
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM backtest_signals').get() as {
+      n: number;
+    };
     return row.n;
   }
 

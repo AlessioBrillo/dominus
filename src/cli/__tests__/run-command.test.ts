@@ -48,7 +48,10 @@ describe('registerRunCommand', () => {
 
   it('parses --closeout-csv and forwards closeoutEntries', async () => {
     const csvPath = join(tmpdir(), `dominus-closeout-${Date.now()}.csv`);
-    writeFileSync(csvPath, 'domain,age,backlinks,wayback\nexpired.com,12,340,87\nbad domain,1,1,1\n');
+    writeFileSync(
+      csvPath,
+      'domain,age,backlinks,wayback\nexpired.com,12,340,87\nbad domain,1,1,1\n',
+    );
     tmpFiles.push(csvPath);
 
     const runService = makeMockRunService();
@@ -59,7 +62,9 @@ describe('registerRunCommand', () => {
     await program.parseAsync(['node', 'cli', 'run', '--closeout-csv', csvPath]);
     expect(runService.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        closeoutEntries: [{ domain: 'expired.com', domainAge: 12, backlinks: 340, waybackSnapshots: 87 }],
+        closeoutEntries: [
+          { domain: 'expired.com', domainAge: 12, backlinks: 340, waybackSnapshots: 87 },
+        ],
       }),
     );
   });

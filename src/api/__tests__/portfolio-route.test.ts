@@ -59,17 +59,15 @@ describe('Portfolio API', () => {
   describe('POST /api/portfolio', () => {
     it('creates a portfolio entry', async () => {
       const { app } = buildApp(db);
-      const res = await request(app)
-        .post('/api/portfolio')
-        .send({
-          domain: 'alpha.com',
-          tld: '.com',
-          acquiredAt: '2025-01-01T00:00:00.000Z',
-          renewalDate: '2026-01-01T00:00:00.000Z',
-          acquisitionCost: 12,
-          renewalCost: 12,
-          registrar: 'namecheap',
-        });
+      const res = await request(app).post('/api/portfolio').send({
+        domain: 'alpha.com',
+        tld: '.com',
+        acquiredAt: '2025-01-01T00:00:00.000Z',
+        renewalDate: '2026-01-01T00:00:00.000Z',
+        acquisitionCost: 12,
+        renewalCost: 12,
+        registrar: 'namecheap',
+      });
       expect(res.status).toBe(201);
       expect(res.body.entry.domain).toBe('alpha.com');
     });
@@ -126,14 +124,12 @@ describe('Portfolio API', () => {
         registrar: 'namecheap',
       });
 
-      const res = await request(app)
-        .post('/api/portfolio/alpha.com/outcomes')
-        .send({
-          type: 'sold',
-          occurredAt: '2026-04-15T00:00:00.000Z',
-          salePriceEur: 1500,
-          venue: 'sedo',
-        });
+      const res = await request(app).post('/api/portfolio/alpha.com/outcomes').send({
+        type: 'sold',
+        occurredAt: '2026-04-15T00:00:00.000Z',
+        salePriceEur: 1500,
+        venue: 'sedo',
+      });
 
       expect(res.status).toBe(201);
       expect(res.body.outcome.domain).toBe('alpha.com');
@@ -187,9 +183,23 @@ describe('Portfolio API', () => {
         renewalCost: 12,
         registrar: 'namecheap',
       });
-      outcomeRepo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-01T00:00:00.000Z', salePriceEur: 800 });
-      outcomeRepo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-05-01T00:00:00.000Z', salePriceEur: 1200 });
-      outcomeRepo.insert({ domain: 'alpha.com', type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' });
+      outcomeRepo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        salePriceEur: 800,
+      });
+      outcomeRepo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-05-01T00:00:00.000Z',
+        salePriceEur: 1200,
+      });
+      outcomeRepo.insert({
+        domain: 'alpha.com',
+        type: 'renewed',
+        occurredAt: '2025-12-01T00:00:00.000Z',
+      });
 
       const res = await request(app).get('/api/portfolio/alpha.com/outcomes/stats');
       expect(res.status).toBe(200);

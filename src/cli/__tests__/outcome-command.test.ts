@@ -65,13 +65,22 @@ describe('registerOutcomeCommand', () => {
       registerOutcomeCommand(program, repo);
 
       await program.parseAsync([
-        'node', 'cli', 'outcome', 'record',
-        '--domain', 'alpha.com',
-        '--type', 'sold',
-        '--occurred-at', '2026-04-15',
-        '--sale-price', '1500',
-        '--venue', 'sedo',
-        '--days-listed', '240',
+        'node',
+        'cli',
+        'outcome',
+        'record',
+        '--domain',
+        'alpha.com',
+        '--type',
+        'sold',
+        '--occurred-at',
+        '2026-04-15',
+        '--sale-price',
+        '1500',
+        '--venue',
+        'sedo',
+        '--days-listed',
+        '240',
       ]);
 
       const stored = repo.findByDomain('alpha.com');
@@ -89,12 +98,20 @@ describe('registerOutcomeCommand', () => {
       program.exitOverride();
       registerOutcomeCommand(program, repo);
 
-      await program.parseAsync([
-        'node', 'cli', 'outcome', 'record',
-        '--domain', 'alpha.com',
-        '--type', 'parachuted',
-        '--occurred-at', '2026-04-15',
-      ]).catch(() => undefined);
+      await program
+        .parseAsync([
+          'node',
+          'cli',
+          'outcome',
+          'record',
+          '--domain',
+          'alpha.com',
+          '--type',
+          'parachuted',
+          '--occurred-at',
+          '2026-04-15',
+        ])
+        .catch(() => undefined);
 
       expect(stderrText()).toMatch(/invalid outcome type/);
       expect(exitSpy).toHaveBeenCalledWith(1);
@@ -108,12 +125,20 @@ describe('registerOutcomeCommand', () => {
       program.exitOverride();
       registerOutcomeCommand(program, repo);
 
-      await program.parseAsync([
-        'node', 'cli', 'outcome', 'record',
-        '--domain', 'alpha.com',
-        '--type', 'sold',
-        '--occurred-at', 'not-a-date',
-      ]).catch(() => undefined);
+      await program
+        .parseAsync([
+          'node',
+          'cli',
+          'outcome',
+          'record',
+          '--domain',
+          'alpha.com',
+          '--type',
+          'sold',
+          '--occurred-at',
+          'not-a-date',
+        ])
+        .catch(() => undefined);
 
       expect(stderrText()).toMatch(/invalid --occurred-at/);
       expect(exitSpy).toHaveBeenCalledWith(1);
@@ -126,12 +151,20 @@ describe('registerOutcomeCommand', () => {
       program.exitOverride();
       registerOutcomeCommand(program, repo);
 
-      await program.parseAsync([
-        'node', 'cli', 'outcome', 'record',
-        '--domain', 'ghost.com',
-        '--type', 'sold',
-        '--occurred-at', '2026-04-15',
-      ]).catch(() => undefined);
+      await program
+        .parseAsync([
+          'node',
+          'cli',
+          'outcome',
+          'record',
+          '--domain',
+          'ghost.com',
+          '--type',
+          'sold',
+          '--occurred-at',
+          '2026-04-15',
+        ])
+        .catch(() => undefined);
 
       expect(stderrText()).toMatch(/not found in portfolio/);
       expect(exitSpy).toHaveBeenCalledWith(1);
@@ -144,7 +177,12 @@ describe('registerOutcomeCommand', () => {
       seedPortfolio(db, 'alpha.com');
       seedPortfolio(db, 'beta.io');
       const repo = new OutcomeRepository(db);
-      repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z', salePriceEur: 1000 });
+      repo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-04-15T00:00:00.000Z',
+        salePriceEur: 1000,
+      });
       repo.insert({ domain: 'beta.io', type: 'renewed', occurredAt: '2026-05-15T00:00:00.000Z' });
       const program = new Command();
       program.exitOverride();
@@ -212,8 +250,18 @@ describe('registerOutcomeCommand', () => {
       seedPortfolio(db, 'alpha.com');
       const repo = new OutcomeRepository(db);
       repo.insert({ domain: 'alpha.com', type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' });
-      repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-01T00:00:00.000Z', salePriceEur: 800 });
-      repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-05-01T00:00:00.000Z', salePriceEur: 1200 });
+      repo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-04-01T00:00:00.000Z',
+        salePriceEur: 800,
+      });
+      repo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-05-01T00:00:00.000Z',
+        salePriceEur: 1200,
+      });
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);

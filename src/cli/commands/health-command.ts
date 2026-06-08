@@ -23,14 +23,20 @@ export function registerHealthCommand(program: Command, deps: HealthCommandDeps)
       const providers = reportProviderStatuses(deps.config);
 
       if (options.json) {
-        process.stdout.write(JSON.stringify({
-          status: dbOk ? 'ok' : 'degraded',
-          version,
-          uptime,
-          timestamp: new Date().toISOString(),
-          database: dbOk ? 'connected' : 'error',
-          providers,
-        }, null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            {
+              status: dbOk ? 'ok' : 'degraded',
+              version,
+              uptime,
+              timestamp: new Date().toISOString(),
+              database: dbOk ? 'connected' : 'error',
+              providers,
+            },
+            null,
+            2,
+          ) + '\n',
+        );
         return;
       }
 

@@ -11,7 +11,9 @@ export function registerScoreCommand(
 ): void {
   program
     .command('score <domain>')
-    .description('Score a single domain and display the result (includes trademark check when available)')
+    .description(
+      'Score a single domain and display the result (includes trademark check when available)',
+    )
     .option('--closeout', 'Treat domain as a closeout/expired domain', false)
     .option('--age <years>', 'Domain age in years (for closeout scoring)', parseFloat)
     .option('--backlinks <count>', 'Number of backlinks (for closeout scoring)', parseInt)
@@ -52,20 +54,34 @@ export function registerScoreCommand(
                 const gateResult = await gate.check(domain);
                 process.stdout.write(`\n  Trademark gate:\n`);
                 process.stdout.write(`    Verdict:         ${gateResult.verdict}\n`);
-                process.stdout.write(`    Sources:         ${gateResult.verifiedSources.join(', ') || 'none'}\n`);
+                process.stdout.write(
+                  `    Sources:         ${gateResult.verifiedSources.join(', ') || 'none'}\n`,
+                );
                 if (gateResult.verdict === GateVerdict.Blocked) {
-                  process.stdout.write(`    Matched mark:    ${gateResult.matchedMark ?? 'unknown'}\n`);
-                  process.stdout.write(`    Matched owner:   ${gateResult.matchedOwner ?? 'unknown'}\n`);
-                  process.stdout.write(`    Source:          ${gateResult.matchSource ?? 'unknown'}\n`);
+                  process.stdout.write(
+                    `    Matched mark:    ${gateResult.matchedMark ?? 'unknown'}\n`,
+                  );
+                  process.stdout.write(
+                    `    Matched owner:   ${gateResult.matchedOwner ?? 'unknown'}\n`,
+                  );
+                  process.stdout.write(
+                    `    Source:          ${gateResult.matchSource ?? 'unknown'}\n`,
+                  );
                 }
                 if (gateResult.partial) {
-                  process.stdout.write(`    (partial result — one trademark source did not respond)\n`);
+                  process.stdout.write(
+                    `    (partial result — one trademark source did not respond)\n`,
+                  );
                 }
                 if (gateResult.usptoFailed) {
-                  process.stdout.write(`    (USPTO unavailable — US-market domain requires USPTO clearance)\n`);
+                  process.stdout.write(
+                    `    (USPTO unavailable — US-market domain requires USPTO clearance)\n`,
+                  );
                 }
               } catch (err: unknown) {
-                process.stdout.write(`    Trademark gate error: ${err instanceof Error ? err.message : String(err)}\n`);
+                process.stdout.write(
+                  `    Trademark gate error: ${err instanceof Error ? err.message : String(err)}\n`,
+                );
               }
             }
           })

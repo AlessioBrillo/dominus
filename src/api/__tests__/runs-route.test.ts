@@ -138,7 +138,13 @@ describe('Runs API', () => {
         finishedAt: '2026-06-01T00:00:01.000Z',
         totalDurationMs: 1000,
         stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 4 } },
-        resultsSummary: { candidatesEvaluated: 1, recommended: 1, trademarkBlocked: 0, unscored: 0, errors: 0 },
+        resultsSummary: {
+          candidatesEvaluated: 1,
+          recommended: 1,
+          trademarkBlocked: 0,
+          unscored: 0,
+          errors: 0,
+        },
       });
 
       // Act

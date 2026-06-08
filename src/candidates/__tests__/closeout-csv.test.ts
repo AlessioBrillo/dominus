@@ -26,7 +26,12 @@ describe('parseCloseoutCsv', () => {
   it('leaves omitted optional columns undefined', () => {
     const csv = 'domain\nlonely.com\n';
     expect(parseCloseoutCsv(csv)).toEqual([
-      { domain: 'lonely.com', domainAge: undefined, backlinks: undefined, waybackSnapshots: undefined },
+      {
+        domain: 'lonely.com',
+        domainAge: undefined,
+        backlinks: undefined,
+        waybackSnapshots: undefined,
+      },
     ]);
   });
 
@@ -54,7 +59,12 @@ describe('parseCloseoutCsv', () => {
   it('coerces malformed or negative numerics to undefined', () => {
     const csv = 'domain,age,backlinks\nbad-nums.com,abc,-5\n';
     expect(parseCloseoutCsv(csv)).toEqual([
-      { domain: 'bad-nums.com', domainAge: undefined, backlinks: undefined, waybackSnapshots: undefined },
+      {
+        domain: 'bad-nums.com',
+        domainAge: undefined,
+        backlinks: undefined,
+        waybackSnapshots: undefined,
+      },
     ]);
   });
 

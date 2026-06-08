@@ -94,14 +94,19 @@ describe('OutcomeRepository', () => {
       seedPortfolio(db, 'second.com');
       repo.insert(makeInput({ occurredAt: '2025-06-01T00:00:00.000Z' }));
       repo.insert(makeInput({ occurredAt: '2026-03-01T00:00:00.000Z' }));
-      repo.insert(makeInput({ occurredAt: '2025-12-01T00:00:00.000Z', type: 'sold', domain: 'second.com' }));
+      repo.insert(
+        makeInput({ occurredAt: '2025-12-01T00:00:00.000Z', type: 'sold', domain: 'second.com' }),
+      );
 
       // Act
       const a = repo.findByDomain('example.com');
       const b = repo.findByDomain('second.com');
 
       // Assert
-      expect(a.map((o) => o.occurredAt)).toEqual(['2026-03-01T00:00:00.000Z', '2025-06-01T00:00:00.000Z']);
+      expect(a.map((o) => o.occurredAt)).toEqual([
+        '2026-03-01T00:00:00.000Z',
+        '2025-06-01T00:00:00.000Z',
+      ]);
       expect(b.map((o) => o.occurredAt)).toEqual(['2025-12-01T00:00:00.000Z']);
     });
 
@@ -115,7 +120,9 @@ describe('OutcomeRepository', () => {
     it('filters by outcome type', () => {
       // Arrange
       repo.insert(makeInput({ type: 'renewed' }));
-      repo.insert(makeInput({ type: 'sold', salePriceEur: 1000, occurredAt: '2026-02-01T00:00:00.000Z' }));
+      repo.insert(
+        makeInput({ type: 'sold', salePriceEur: 1000, occurredAt: '2026-02-01T00:00:00.000Z' }),
+      );
       repo.insert(makeInput({ type: 'dropped', occurredAt: '2026-02-15T00:00:00.000Z' }));
 
       // Act
@@ -133,8 +140,12 @@ describe('OutcomeRepository', () => {
     it('counts and sums outcomes per type', () => {
       // Arrange
       repo.insert(makeInput({ type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' }));
-      repo.insert(makeInput({ type: 'sold', salePriceEur: 800, occurredAt: '2026-04-01T00:00:00.000Z' }));
-      repo.insert(makeInput({ type: 'sold', salePriceEur: 1200, occurredAt: '2026-05-01T00:00:00.000Z' }));
+      repo.insert(
+        makeInput({ type: 'sold', salePriceEur: 800, occurredAt: '2026-04-01T00:00:00.000Z' }),
+      );
+      repo.insert(
+        makeInput({ type: 'sold', salePriceEur: 1200, occurredAt: '2026-05-01T00:00:00.000Z' }),
+      );
       repo.insert(makeInput({ type: 'dropped', occurredAt: '2026-06-01T00:00:00.000Z' }));
 
       // Act

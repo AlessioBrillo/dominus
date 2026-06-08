@@ -1,4 +1,7 @@
-import type { TrademarkMatch, TrademarkProvider } from '../providers/trademark/trademark-provider.js';
+import type {
+  TrademarkMatch,
+  TrademarkProvider,
+} from '../providers/trademark/trademark-provider.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 
 /**

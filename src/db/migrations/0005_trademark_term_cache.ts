@@ -36,6 +36,8 @@ export function up(db: Database.Database): void {
       expires_at TEXT NOT NULL
     )
   `);
-  db.exec(`CREATE INDEX IF NOT EXISTS idx_trademark_candidate ON trademark_results(candidate_id, source)`);
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_trademark_candidate ON trademark_results(candidate_id, source)`,
+  );
   db.exec(TRADEMARK_TERM_INDEX_DDL);
 }

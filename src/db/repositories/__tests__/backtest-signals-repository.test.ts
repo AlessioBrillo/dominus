@@ -76,23 +76,38 @@ describe('BacktestSignalsRepository', () => {
     const repo = new BacktestSignalsRepository(db);
     expect(
       repo.upsert({
-        domain: 'a.com', outcomeId: o1, scoringRunId: 'r',
-        predictedExpectedValue: 1000, predictedBuyMax: 500, predictedListPrice: 3000,
-        predictedConfidence: 0.1, actualSalePriceEur: 1000,
+        domain: 'a.com',
+        outcomeId: o1,
+        scoringRunId: 'r',
+        predictedExpectedValue: 1000,
+        predictedBuyMax: 500,
+        predictedListPrice: 3000,
+        predictedConfidence: 0.1,
+        actualSalePriceEur: 1000,
       }).confidenceBucket,
     ).toBe('low');
     expect(
       repo.upsert({
-        domain: 'b.com', outcomeId: o2, scoringRunId: 'r',
-        predictedExpectedValue: 1000, predictedBuyMax: 500, predictedListPrice: 3000,
-        predictedConfidence: 0.45, actualSalePriceEur: 1000,
+        domain: 'b.com',
+        outcomeId: o2,
+        scoringRunId: 'r',
+        predictedExpectedValue: 1000,
+        predictedBuyMax: 500,
+        predictedListPrice: 3000,
+        predictedConfidence: 0.45,
+        actualSalePriceEur: 1000,
       }).confidenceBucket,
     ).toBe('mid');
     expect(
       repo.upsert({
-        domain: 'c.com', outcomeId: o3, scoringRunId: 'r',
-        predictedExpectedValue: 1000, predictedBuyMax: 500, predictedListPrice: 3000,
-        predictedConfidence: 0.8, actualSalePriceEur: 1000,
+        domain: 'c.com',
+        outcomeId: o3,
+        scoringRunId: 'r',
+        predictedExpectedValue: 1000,
+        predictedBuyMax: 500,
+        predictedListPrice: 3000,
+        predictedConfidence: 0.8,
+        actualSalePriceEur: 1000,
       }).confidenceBucket,
     ).toBe('high');
   });
@@ -103,14 +118,24 @@ describe('BacktestSignalsRepository', () => {
 
     const repo = new BacktestSignalsRepository(db);
     repo.upsert({
-      domain: 'alpha.com', outcomeId, scoringRunId: 'run-1',
-      predictedExpectedValue: 1200, predictedBuyMax: 600, predictedListPrice: 3600,
-      predictedConfidence: 0.7, actualSalePriceEur: 1500,
+      domain: 'alpha.com',
+      outcomeId,
+      scoringRunId: 'run-1',
+      predictedExpectedValue: 1200,
+      predictedBuyMax: 600,
+      predictedListPrice: 3600,
+      predictedConfidence: 0.7,
+      actualSalePriceEur: 1500,
     });
     repo.upsert({
-      domain: 'alpha.com', outcomeId, scoringRunId: 'run-1',
-      predictedExpectedValue: 1200, predictedBuyMax: 600, predictedListPrice: 3600,
-      predictedConfidence: 0.7, actualSalePriceEur: 1500,
+      domain: 'alpha.com',
+      outcomeId,
+      scoringRunId: 'run-1',
+      predictedExpectedValue: 1200,
+      predictedBuyMax: 600,
+      predictedListPrice: 3600,
+      predictedConfidence: 0.7,
+      actualSalePriceEur: 1500,
     });
 
     expect(repo.count()).toBe(1);
@@ -123,9 +148,14 @@ describe('BacktestSignalsRepository', () => {
 
     const repo = new BacktestSignalsRepository(db);
     repo.upsert({
-      domain: 'alpha.com', outcomeId, scoringRunId: 'run-1',
-      predictedExpectedValue: 1200, predictedBuyMax: 600, predictedListPrice: 3600,
-      predictedConfidence: 0.7, actualSalePriceEur: 1500,
+      domain: 'alpha.com',
+      outcomeId,
+      scoringRunId: 'run-1',
+      predictedExpectedValue: 1200,
+      predictedBuyMax: 600,
+      predictedListPrice: 3600,
+      predictedConfidence: 0.7,
+      actualSalePriceEur: 1500,
     });
     expect(repo.count()).toBe(1);
 
@@ -141,14 +171,24 @@ describe('BacktestSignalsRepository', () => {
 
     const repo = new BacktestSignalsRepository(db);
     repo.upsert({
-      domain: 'alpha.com', outcomeId: o1, scoringRunId: 'r',
-      predictedExpectedValue: 1200, predictedBuyMax: 600, predictedListPrice: 3600,
-      predictedConfidence: 0.7, actualSalePriceEur: 1500,
+      domain: 'alpha.com',
+      outcomeId: o1,
+      scoringRunId: 'r',
+      predictedExpectedValue: 1200,
+      predictedBuyMax: 600,
+      predictedListPrice: 3600,
+      predictedConfidence: 0.7,
+      actualSalePriceEur: 1500,
     });
     repo.upsert({
-      domain: 'beta.io', outcomeId: o2, scoringRunId: 'r',
-      predictedExpectedValue: 1000, predictedBuyMax: 500, predictedListPrice: 3000,
-      predictedConfidence: 0.5, actualSalePriceEur: 800,
+      domain: 'beta.io',
+      outcomeId: o2,
+      scoringRunId: 'r',
+      predictedExpectedValue: 1000,
+      predictedBuyMax: 500,
+      predictedListPrice: 3000,
+      predictedConfidence: 0.5,
+      actualSalePriceEur: 800,
     });
 
     const alphaSigs = repo.findByDomain('alpha.com');

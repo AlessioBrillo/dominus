@@ -71,7 +71,12 @@ describe('Standalone outcomes API', () => {
   it('GET /api/outcomes lists all outcomes', async () => {
     seedPortfolio(db, 'alpha.com');
     seedPortfolio(db, 'beta.com');
-    outcomeRepo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2025-06-01', salePriceEur: 500 });
+    outcomeRepo.insert({
+      domain: 'alpha.com',
+      type: 'sold',
+      occurredAt: '2025-06-01',
+      salePriceEur: 500,
+    });
     outcomeRepo.insert({ domain: 'beta.com', type: 'renewed', occurredAt: '2025-07-01' });
 
     const app = express();
@@ -85,7 +90,12 @@ describe('Standalone outcomes API', () => {
 
   it('GET /api/outcomes?type=sold filters by type', async () => {
     seedPortfolio(db, 'alpha.com');
-    outcomeRepo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2025-06-01', salePriceEur: 500 });
+    outcomeRepo.insert({
+      domain: 'alpha.com',
+      type: 'sold',
+      occurredAt: '2025-06-01',
+      salePriceEur: 500,
+    });
 
     const app = express();
     app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
@@ -99,7 +109,12 @@ describe('Standalone outcomes API', () => {
 
   it('GET /api/outcomes/stats/:domain returns aggregate stats', async () => {
     seedPortfolio(db, 'alpha.com');
-    outcomeRepo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2025-06-01', salePriceEur: 500 });
+    outcomeRepo.insert({
+      domain: 'alpha.com',
+      type: 'sold',
+      occurredAt: '2025-06-01',
+      salePriceEur: 500,
+    });
 
     const app = express();
     app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));

@@ -12,7 +12,10 @@ function openTestDb(): Database.Database {
   return db;
 }
 
-function makeStartedRun(repo: PipelineRunsRepository, overrides: { runId?: string; startedAt?: string; retainedUntil?: string } = {}): void {
+function makeStartedRun(
+  repo: PipelineRunsRepository,
+  overrides: { runId?: string; startedAt?: string; retainedUntil?: string } = {},
+): void {
   repo.insert({
     runId: overrides.runId ?? `run-${Math.random().toString(36).slice(2, 10)}`,
     startedAt: overrides.startedAt ?? '2026-06-07T10:00:00.000Z',
@@ -140,7 +143,11 @@ describe('PipelineRunsRepository', () => {
         totalDurationMs: 1000,
         stageSummary: {},
         resultsSummary: {
-          candidatesEvaluated: 0, recommended: 0, trademarkBlocked: 0, unscored: 0, errors: 1,
+          candidatesEvaluated: 0,
+          recommended: 0,
+          trademarkBlocked: 0,
+          unscored: 0,
+          errors: 1,
         },
         error: 'EUIPO credentials missing',
       });
@@ -157,7 +164,11 @@ describe('PipelineRunsRepository', () => {
           totalDurationMs: 1,
           stageSummary: {},
           resultsSummary: {
-            candidatesEvaluated: 0, recommended: 0, trademarkBlocked: 0, unscored: 0, errors: 0,
+            candidatesEvaluated: 0,
+            recommended: 0,
+            trademarkBlocked: 0,
+            unscored: 0,
+            errors: 0,
           },
         }),
       ).toBeNull();
@@ -185,7 +196,10 @@ describe('PipelineRunsRepository', () => {
       makeStartedRun(repo, { runId: 'c', startedAt: '2026-06-15T10:00:00.000Z' });
 
       // Act
-      const inJune = repo.findAll({ since: '2026-06-01T00:00:00.000Z', until: '2026-06-30T23:59:59.999Z' });
+      const inJune = repo.findAll({
+        since: '2026-06-01T00:00:00.000Z',
+        until: '2026-06-30T23:59:59.999Z',
+      });
 
       // Assert
       expect(inJune.map((r) => r.runId).sort()).toEqual(['a', 'b', 'c']);

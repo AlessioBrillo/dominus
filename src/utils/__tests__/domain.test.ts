@@ -1,10 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  isValidDomain,
-  parseDomain,
-  extractTld,
-  extractSld,
-} from '../domain.js';
+import { isValidDomain, parseDomain, extractTld, extractSld } from '../domain.js';
 
 describe('isValidDomain', () => {
   it.each([
@@ -149,5 +144,3 @@ describe('extractTld / extractSld convenience wrappers', () => {
     expect(extractSld('')).toBe('');
   });
 });
-
-

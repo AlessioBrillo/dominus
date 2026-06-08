@@ -4,7 +4,10 @@ import { CandidateRepository } from '../../db/repositories/candidate-repository.
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import type { KeywordProvider } from '../../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../../providers/comps/comps-provider.js';
-import type { TrademarkProvider, TrademarkMatch } from '../../providers/trademark/trademark-provider.js';
+import type {
+  TrademarkProvider,
+  TrademarkMatch,
+} from '../../providers/trademark/trademark-provider.js';
 import { ScoringEngine } from '../../scoring/scoring-engine.js';
 import { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { PortfolioEntry } from '../../types/portfolio.js';
@@ -24,7 +27,11 @@ export function makeFakeRescoreDeps(db?: Database.Database): FakeRescoreDeps {
   const candidateRepo = new CandidateRepository(db ?? ({} as Database.Database));
   const scoringRepo = new ScoringRepository(db ?? ({} as Database.Database));
   return {
-    keyword: { getMetrics: vi.fn().mockResolvedValue({ term: '', monthlySearchVolume: 0, cpc: 0, competition: 0 }) },
+    keyword: {
+      getMetrics: vi
+        .fn()
+        .mockResolvedValue({ term: '', monthlySearchVolume: 0, cpc: 0, competition: 0 }),
+    },
     comps: { getSales: vi.fn().mockResolvedValue([]) },
     uspto: { search: vi.fn().mockResolvedValue([]) },
     euipo: { search: vi.fn().mockResolvedValue([]) },

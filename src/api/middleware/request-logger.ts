@@ -7,12 +7,15 @@ export function createRequestLogger(
   return (req: Request, res: Response, next: NextFunction): void => {
     const start = Date.now();
     res.on('finish', () => {
-      logger.info({
-        method: req.method,
-        url: req.url,
-        status: res.statusCode,
-        durationMs: Date.now() - start,
-      }, 'http request');
+      logger.info(
+        {
+          method: req.method,
+          url: req.url,
+          status: res.statusCode,
+          durationMs: Date.now() - start,
+        },
+        'http request',
+      );
     });
     next();
   };

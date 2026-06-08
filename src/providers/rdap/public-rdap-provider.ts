@@ -57,8 +57,6 @@ export class PublicRdapProvider implements RdapProvider {
 
   private detectPremium(data: RdapResponse): boolean {
     const notices = data.notices ?? [];
-    return notices.some((n) =>
-      (n.description ?? []).some((d) => /premium/i.test(d)),
-    );
+    return notices.some((n) => (n.description ?? []).some((d) => /premium/i.test(d)));
   }
 }

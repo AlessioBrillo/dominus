@@ -25,11 +25,17 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     new BacktestEngine(deps.db, deps.outcomeRepo, new BacktestSignalsRepository(deps.db));
 
   const makeSuggester = (): WeightSuggester =>
-    new WeightSuggester(deps.db, new BacktestSignalsRepository(deps.db), new ScoringRepository(deps.db));
+    new WeightSuggester(
+      deps.db,
+      new BacktestSignalsRepository(deps.db),
+      new ScoringRepository(deps.db),
+    );
 
   backtest
     .command('snapshot')
-    .description('Rebuild the backtest_signals table from current outcomes and scoring_runs (idempotent)')
+    .description(
+      'Rebuild the backtest_signals table from current outcomes and scoring_runs (idempotent)',
+    )
     .action(() => {
       const engine = makeEngine();
       const summary = engine.snapshot();
@@ -76,9 +82,15 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
 
   backtest
     .command('suggest-weights')
-    .description('Propose per-signal weight adjustments based on the backtest signals (manual approval required)')
+    .description(
+      'Propose per-signal weight adjustments based on the backtest signals (manual approval required)',
+    )
     .option('--json', 'emit machine-readable JSON instead of a human report', false)
-    .option('--apply', 'persist the suggestion to data/weights-override.json (no auto-activation)', false)
+    .option(
+      '--apply',
+      'persist the suggestion to data/weights-override.json (no auto-activation)',
+      false,
+    )
     .action((options: { json: boolean; apply: boolean }) => {
       const suggester = makeSuggester();
       const report = suggester.suggest();
@@ -92,7 +104,9 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
       }
       if (options.apply) {
         if (report.sampleSize < 5) {
-          process.stderr.write('Refusing to apply: sample size below the 5-sold-outcome minimum.\n');
+          process.stderr.write(
+            'Refusing to apply: sample size below the 5-sold-outcome minimum.\n',
+          );
           process.exit(1);
         }
         if (!report.sumsToOne) {
@@ -100,7 +114,10 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
           process.exit(1);
         }
         const config = loadConfig();
-        const targetPath = resolve(process.cwd(), config.SCORING_WEIGHTS_OVERRIDE ?? DEFAULT_OVERRIDE_PATH);
+        const targetPath = resolve(
+          process.cwd(),
+          config.SCORING_WEIGHTS_OVERRIDE ?? DEFAULT_OVERRIDE_PATH,
+        );
         if (!targetPath.startsWith(resolve(process.cwd(), './data'))) {
           process.stderr.write(`Refusing to write outside ./data: ${targetPath}\n`);
           process.exit(1);
@@ -108,9 +125,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
         const payload = {
           generatedAt: report.generatedAt,
           sampleSize: report.sampleSize,
-          weights: Object.fromEntries(
-            report.suggestions.map((s) => [s.signal, s.suggestedWeight]),
-          ),
+          weights: Object.fromEntries(report.suggestions.map((s) => [s.signal, s.suggestedWeight])),
         };
         mkdirSync(dirname(targetPath), { recursive: true });
         writeFileSync(targetPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
@@ -127,7 +142,9 @@ function formatSuggestionReport(r: WeightSuggestionReport): string {
   lines.push(`DOMINUS weight suggester — generated ${r.generatedAt}`);
   lines.push(`Sample: ${r.sampleSize} sold outcome(s)`);
   lines.push(`Current total weight: ${r.totalCurrentWeight.toFixed(3)}`);
-  lines.push(`Suggested total weight: ${r.totalSuggestedWeight.toFixed(3)}${r.sumsToOne ? '' : '  (WARNING: does not sum to 1)'}`);
+  lines.push(
+    `Suggested total weight: ${r.totalSuggestedWeight.toFixed(3)}${r.sumsToOne ? '' : '  (WARNING: does not sum to 1)'}`,
+  );
   lines.push('');
   lines.push(
     `  ${'signal'.padEnd(11)}  ${'current'.padStart(8)}  ${'suggested'.padStart(9)}  ${'delta'.padStart(8)}  ${'action'.padEnd(7)}  rationale`,
@@ -139,8 +156,12 @@ function formatSuggestionReport(r: WeightSuggestionReport): string {
     );
   }
   lines.push('');
-  lines.push('Run `dominus backtest suggest-weights --apply` to persist the suggestion to data/weights-override.json.');
-  lines.push('The engine does NOT pick it up automatically — set SCORING_WEIGHTS_OVERRIDE in .env to activate.');
+  lines.push(
+    'Run `dominus backtest suggest-weights --apply` to persist the suggestion to data/weights-override.json.',
+  );
+  lines.push(
+    'The engine does NOT pick it up automatically — set SCORING_WEIGHTS_OVERRIDE in .env to activate.',
+  );
   return lines.join('\n');
 }
 
@@ -163,7 +184,9 @@ function formatReport(r: BacktestReport): string {
   lines.push('Error on expected_value:');
   lines.push(`  MAE      ${eur(r.meanAbsoluteErrorEur)}`);
   lines.push(`  Median   ${eur(r.medianAbsoluteErrorEur)}`);
-  lines.push(`  Bias     ${eur(r.biasEur)}  (over-predicting when negative, ${r.biasPct.toFixed(1)}% of mean realised)`);
+  lines.push(
+    `  Bias     ${eur(r.biasEur)}  (over-predicting when negative, ${r.biasPct.toFixed(1)}% of mean realised)`,
+  );
   lines.push('');
   lines.push('Buy-max accuracy (the metric that matters for capital):');
   lines.push(`  MAE         ${eur(r.buyMaxMeanAbsoluteErrorEur)}`);

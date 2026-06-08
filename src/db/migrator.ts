@@ -20,14 +20,14 @@ export function runMigrations(db: Database.Database): void {
   db.exec(SCHEMA_MIGRATIONS_DDL);
 
   const applied = new Set(
-    (db.prepare('SELECT migration_name FROM schema_migrations').all() as { migration_name: string }[]).map(
-      (r) => r.migration_name,
-    ),
+    (
+      db.prepare('SELECT migration_name FROM schema_migrations').all() as {
+        migration_name: string;
+      }[]
+    ).map((r) => r.migration_name),
   );
 
-  const insert = db.prepare(
-    'INSERT INTO schema_migrations (migration_name) VALUES (?)',
-  );
+  const insert = db.prepare('INSERT INTO schema_migrations (migration_name) VALUES (?)');
 
   for (const migration of MIGRATIONS) {
     if (!applied.has(migration.name)) {

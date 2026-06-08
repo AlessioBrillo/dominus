@@ -32,9 +32,7 @@ export class TrademarkRepository {
     rawResponse: unknown,
     ttlDays: number,
   ): void {
-    const expiresAt = new Date(
-      Date.now() + ttlDays * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
     this.db
       .prepare(
         `INSERT INTO trademark_results
@@ -55,10 +53,7 @@ export class TrademarkRepository {
    * Return the most recent non-expired cache row for the given (term, source)
    * pair, or null when the cache is cold or expired.
    */
-  findValidByTerm(
-    searchTerm: string,
-    source: string,
-  ): TrademarkResultRow | null {
+  findValidByTerm(searchTerm: string, source: string): TrademarkResultRow | null {
     const now = new Date().toISOString();
     return (
       (this.db
@@ -127,17 +122,15 @@ export class TrademarkRepository {
    * or as a scheduled job.
    */
   pruneExpired(now: string = new Date().toISOString()): number {
-    const result = this.db
-      .prepare('DELETE FROM trademark_results WHERE expires_at < ?')
-      .run(now);
+    const result = this.db.prepare('DELETE FROM trademark_results WHERE expires_at < ?').run(now);
     return Number(result.changes);
   }
 
   /** Total row count (for diagnostics). */
   count(): number {
-    const row = this.db
-      .prepare('SELECT COUNT(*) AS n FROM trademark_results')
-      .get() as { n: number };
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM trademark_results').get() as {
+      n: number;
+    };
     return row.n;
   }
 }

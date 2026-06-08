@@ -18,9 +18,11 @@ function captureStdout(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 const sampleRows: DomainCandidate[] = [

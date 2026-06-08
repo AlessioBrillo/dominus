@@ -3,7 +3,11 @@ import { computeCommercialScore } from '../commercial-signal.js';
 import type { KeywordProvider } from '../../../providers/keyword/keyword-provider.js';
 
 function mockProvider(volume: number, cpc: number): KeywordProvider {
-  return { getMetrics: vi.fn().mockResolvedValue({ term: 'test', monthlySearchVolume: volume, cpc, competition: 0 }) };
+  return {
+    getMetrics: vi
+      .fn()
+      .mockResolvedValue({ term: 'test', monthlySearchVolume: volume, cpc, competition: 0 }),
+  };
 }
 
 describe('CommercialSignal', () => {
