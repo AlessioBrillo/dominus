@@ -52,7 +52,12 @@ const outcomeRepo = new OutcomeRepository(db);
 
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
-const engine = new ScoringEngine(keywordProvider, compsProvider, loadWeights(config.SCORING_WEIGHTS_OVERRIDE));
+const engine = new ScoringEngine(
+  keywordProvider,
+  compsProvider,
+  loadWeights(config.SCORING_WEIGHTS_OVERRIDE),
+  config.BUY_MAX_ABSOLUTE_CAP,
+);
 
 const trademarkGate = new TrademarkGate(
   new CachedTrademarkProvider(
@@ -107,6 +112,6 @@ app.use('/api/runs', createRunsRouter(new PipelineRunsRepository(db), candidateR
 
 app.use(errorHandler);
 
-app.listen(config.PORT, () => {
-  logger.info({ port: config.PORT }, 'DOMINUS server started');
+app.listen(config.PORT, config.HOST, () => {
+  logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
 });

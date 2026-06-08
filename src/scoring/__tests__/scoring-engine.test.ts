@@ -47,6 +47,29 @@ describe('ScoringEngine', () => {
     expect(result.confidence).toBeLessThanOrEqual(1);
   });
 
+  it('respects BUY_MAX_ABSOLUTE_CAP when expectedValue suggests a higher buy max', async () => {
+    const { keyword, comps } = makeProviders(1_000_000, 50, [200_000]);
+    const engine = new ScoringEngine(keyword, comps, undefined, 250);
+    const result = await engine.score({ domain: 'premium.ai', tld: '.ai', sld: 'premium', isCloseout: false });
+    expect(result.suggestedBuyMax).toBeLessThanOrEqual(250);
+    expect(result.suggestedBuyMax).toBeGreaterThan(0);
+  });
+
+  it('BUY_MAX_ABSOLUTE_CAP of 0 zeroes out suggestedBuyMax', async () => {
+    const { keyword, comps } = makeProviders(1_000_000, 50, [200_000]);
+    const engine = new ScoringEngine(keyword, comps, undefined, 0);
+    const result = await engine.score({ domain: 'premium.ai', tld: '.ai', sld: 'premium', isCloseout: false });
+    expect(result.suggestedBuyMax).toBe(0);
+  });
+
+  it('recommended is false when confidence is below threshold (no signals)', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({ domain: 'zzzzzzyyyyy.com', tld: '.com', sld: 'zzzzzzyyyyy', isCloseout: false });
+    expect(result.confidence).toBeLessThan(0.3);
+    expect(result.recommended).toBe(false);
+  });
+
   it('returns structured ScoreBreakdown with all four signals', async () => {
     const { keyword, comps } = makeProviders();
     const engine = new ScoringEngine(keyword, comps);
