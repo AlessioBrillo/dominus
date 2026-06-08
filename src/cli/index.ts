@@ -18,6 +18,7 @@ import { registerRunsCommand } from './commands/runs-command.js';
 import { registerMaintenanceCommand } from './commands/maintenance-command.js';
 import { registerProvidersCommand } from './commands/providers-command.js';
 import { registerCandidatesCommand } from './commands/candidates-command.js';
+import { registerHealthCommand } from './commands/health-command.js';
 
 export function createCli(
   db: Database.Database,
@@ -48,6 +49,7 @@ export function createCli(
     runsRepo: new PipelineRunsRepository(db),
   });
   registerProvidersCommand(program, { config });
+  registerHealthCommand(program, { db, config });
 
   return program;
 }

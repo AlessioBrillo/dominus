@@ -1,0 +1,58 @@
+# DOMINUS — Docker Compose for development and production.
+#
+# Development:
+#   docker compose up -d
+#
+# Production (with .env file for secrets):
+#   docker compose --env-file .env up -d
+
+services:
+  dominus:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dominus:latest
+    container_name: dominus
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./data:/app/data
+      - ./data/weights-override.json:/app/data/weights-override.json:ro
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_PATH=/app/data/dominus.db
+      - PORT=${PORT:-3000}
+      - HOST=0.0.0.0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_PRETTY=${LOG_PRETTY:-false}
+      - KEYWORD_DATA_PATH=${KEYWORD_DATA_PATH:-}
+      - COMPS_DATA_PATH=${COMPS_DATA_PATH:-}
+      - EUIPO_CLIENT_ID=${EUIPO_CLIENT_ID:-}
+      - EUIPO_CLIENT_SECRET=${EUIPO_CLIENT_SECRET:-}
+      - USPTO_SEARCH_URL=${USPTO_SEARCH_URL:-}
+      - EUIPO_AUTH_URL=${EUIPO_AUTH_URL:-}
+      - EUIPO_API_URL=${EUIPO_API_URL:-}
+      - TM_CACHE_TTL_DAYS=${TM_CACHE_TTL_DAYS:-7}
+      - SCORING_WEIGHTS_OVERRIDE=${SCORING_WEIGHTS_OVERRIDE:-}
+      - DNS_BULK_CONCURRENCY=${DNS_BULK_CONCURRENCY:-10}
+      - WHOIS_LOOKUP_TIMEOUT=${WHOIS_LOOKUP_TIMEOUT:-10000}
+      - BUY_MAX_ABSOLUTE_CAP=${BUY_MAX_ABSOLUTE_CAP:-500}
+      - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
+      - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
+    restart: unless-stopped
+
+  # Optional: run the pipeline on a schedule (uncomment and configure).
+  # scheduler:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: dominus:latest
+  #   container_name: dominus-scheduler
+  #   volumes:
+  #     - ./data:/app/data
+  #   environment:
+  #     - NODE_ENV=production
+  #     - DATABASE_PATH=/app/data/dominus.db
+  #     - LOG_LEVEL=info
+  #   entrypoint: ["node", "dist/cli.js", "maintenance", "prune"]
+  #   restart: unless-stopped
