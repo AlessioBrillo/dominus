@@ -11,3 +11,4 @@ export { createRequestLogger } from './middleware/request-logger.js';
 export { createAlertsRouter } from './routes/alerts.js';
 export { createSchedulerRouter } from './routes/scheduler.js';
 export { createWatchlistRouter } from './routes/watchlist.js';
+export { createAuthMiddleware } from './middleware/auth.js';

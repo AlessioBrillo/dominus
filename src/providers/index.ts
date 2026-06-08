@@ -5,3 +5,4 @@ export * from './keyword/index.js';
 export * from './comps/index.js';
 export * from './whois/index.js';
 export * from './registrar/index.js';
+export * from './auth/index.js';

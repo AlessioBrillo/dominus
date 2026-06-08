@@ -37,7 +37,7 @@ ENV NODE_ENV=production \
     DATABASE_PATH=/app/data/dominus.db
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node dist/app/healthcheck.js
+  CMD node dist/app/healthcheck-cli.js
 
 ENTRYPOINT ["node"]
 CMD ["dist/index.js"]

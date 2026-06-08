@@ -76,7 +76,9 @@ describe('WatchlistRepository', () => {
     it('returns entries with notified=0', () => {
       repo.insert({ domain: 'pending.com', tld: 'com' });
       repo.insert({ domain: 'notified.com', tld: 'com' });
-      db.prepare("UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now') WHERE domain = 'notified.com'").run();
+      db.prepare(
+        "UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now') WHERE domain = 'notified.com'",
+      ).run();
 
       const pending = repo.listPendingPoll(24);
       expect(pending).toHaveLength(1);
@@ -85,7 +87,9 @@ describe('WatchlistRepository', () => {
 
     it('returns entries with last_checked_at older than hours', () => {
       repo.insert({ domain: 'old.com', tld: 'com' });
-      db.prepare("UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now', '-48 hours') WHERE domain = 'old.com'").run();
+      db.prepare(
+        "UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now', '-48 hours') WHERE domain = 'old.com'",
+      ).run();
 
       const pending = repo.listPendingPoll(24);
       expect(pending).toHaveLength(1);

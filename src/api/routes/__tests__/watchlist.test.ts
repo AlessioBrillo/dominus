@@ -9,22 +9,30 @@ import type { WatchlistEntry, WatchlistPollResult } from '../../../types/watchli
 
 function makeStubService(): WatchlistService {
   return {
-    add: vi.fn().mockImplementation((domain: string, notes?: string) => ({
-      id: 1,
-      domain,
-      tld: '.com',
-      notes: notes ?? null,
-      lastCheckedAt: null,
-      lastStatus: null,
-      lastStatusChange: null,
-      notified: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } as WatchlistEntry)),
+    add: vi.fn().mockImplementation(
+      (domain: string, notes?: string) =>
+        ({
+          id: 1,
+          domain,
+          tld: '.com',
+          notes: notes ?? null,
+          lastCheckedAt: null,
+          lastStatus: null,
+          lastStatusChange: null,
+          notified: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }) as WatchlistEntry,
+    ),
     remove: vi.fn().mockReturnValue(true),
     list: vi.fn().mockReturnValue([]),
     get: vi.fn().mockReturnValue(null),
-    poll: vi.fn().mockResolvedValue({ checked: 0, available: 0, notified: 0, errors: 0 } as WatchlistPollResult),
+    poll: vi.fn().mockResolvedValue({
+      checked: 0,
+      available: 0,
+      notified: 0,
+      errors: 0,
+    } as WatchlistPollResult),
   } as unknown as WatchlistService;
 }
 
@@ -60,7 +68,9 @@ describe('API: /api/watchlist', () => {
     it('returns entry by domain', async () => {
       const service = makeStubService();
       (service.get as ReturnType<typeof vi.fn>).mockReturnValue({
-        domain: 'example.com', tld: '.com', notified: 0,
+        domain: 'example.com',
+        tld: '.com',
+        notified: 0,
       } as WatchlistEntry);
       const res = await request(buildApp(service)).get('/api/watchlist/example.com');
       expect(res.status).toBe(200);
@@ -81,7 +91,9 @@ describe('API: /api/watchlist', () => {
     });
 
     it('accepts optional notes', async () => {
-      const res = await request(buildApp()).post('/api/watchlist').send({ domain: 'test.io', notes: 'interesting' });
+      const res = await request(buildApp())
+        .post('/api/watchlist')
+        .send({ domain: 'test.io', notes: 'interesting' });
       expect(res.status).toBe(201);
     });
 
@@ -97,7 +109,9 @@ describe('API: /api/watchlist', () => {
         err.name = 'SQLITE_CONSTRAINT_UNIQUE';
         throw err;
       });
-      const res = await request(buildApp(service)).post('/api/watchlist').send({ domain: 'example.com' });
+      const res = await request(buildApp(service))
+        .post('/api/watchlist')
+        .send({ domain: 'example.com' });
       expect(res.status).toBe(409);
     });
   });
@@ -121,7 +135,10 @@ describe('API: /api/watchlist', () => {
     it('triggers poll and returns result', async () => {
       const service = makeStubService();
       (service.poll as ReturnType<typeof vi.fn>).mockResolvedValue({
-        checked: 10, available: 2, notified: 2, errors: 0,
+        checked: 10,
+        available: 2,
+        notified: 2,
+        errors: 0,
       });
       const res = await request(buildApp(service)).post('/api/watchlist/poll');
       expect(res.status).toBe(200);

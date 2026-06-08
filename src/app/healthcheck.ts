@@ -1,22 +1,29 @@
-import http from 'node:http';
-import { env } from 'node:process';
+import type http from 'node:http';
+import type { IncomingMessage, ClientRequest } from 'node:http';
 
-const port = env['PORT'] ?? '3000';
-const host = env['HOST'] ?? '127.0.0.1';
-const path = '/api/health';
+export interface HttpGetFn {
+  (
+    url: string | URL,
+    options: http.RequestOptions,
+    callback: (res: IncomingMessage) => void,
+  ): ClientRequest;
+}
 
-const req = http.get(`http://${host}:${port}${path}`, { timeout: 5000 }, (res) => {
-  if (res.statusCode === 200) {
-    process.exit(0);
-  }
-  process.exit(1);
-});
+export function runHealthcheck(getFn: HttpGetFn, port: string, host: string): void {
+  const path = '/api/health';
+  const req = getFn(`http://${host}:${port}${path}`, { timeout: 5000 }, (res) => {
+    if (res.statusCode === 200) {
+      process.exit(0);
+    }
+    process.exit(1);
+  });
 
-req.on('error', () => {
-  process.exit(1);
-});
+  req.on('error', () => {
+    process.exit(1);
+  });
 
-req.on('timeout', () => {
-  req.destroy();
-  process.exit(1);
-});
+  req.on('timeout', () => {
+    req.destroy();
+    process.exit(1);
+  });
+}

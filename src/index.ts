@@ -4,6 +4,8 @@ import rateLimit from 'express-rate-limit';
 import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
+import { EnvApiKeyProvider } from './providers/auth/env-api-key-provider.js';
+import { createAuthMiddleware } from './api/middleware/auth.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -24,6 +26,12 @@ const config = loadConfig();
 const logger = getLogger();
 const deps = createDependencies(config);
 
+const authProvider = new EnvApiKeyProvider(config.API_KEYS);
+if (!authProvider.isActive) {
+  logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
+}
+const authMiddleware = createAuthMiddleware(authProvider);
+
 const app = express();
 
 app.use(cors({ origin: config.CORS_ORIGIN }));
@@ -35,7 +43,9 @@ if (config.RATE_LIMIT_MAX > 0) {
       max: config.RATE_LIMIT_MAX,
       standardHeaders: true,
       legacyHeaders: false,
-      message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' } },
+      message: {
+        error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
+      },
     }),
   );
 }
@@ -51,22 +61,32 @@ app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter());
-app.use('/api/score', createScoreRouter(deps.engine, deps.trademarkGate));
-app.use(
-  '/api/backtest',
+
+// Protected routes — require authentication when API_KEYS is configured.
+const protectedRouter = express.Router();
+protectedRouter.use(authMiddleware);
+protectedRouter.use(
+  '/backtest',
   createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights),
 );
-app.use('/api/providers', createProvidersRouter(deps.config));
-app.use('/api/outcomes', createOutcomesRouter(deps.outcomeRepo));
-app.use('/api/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
-app.use('/api/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
-app.use('/api/runs', createRunsRouter(deps.pipelineRunsRepo, deps.candidateRepo, deps.scoringRepo, deps.db));
-app.use('/api/alerts', createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }));
+protectedRouter.use('/providers', createProvidersRouter(deps.config));
+protectedRouter.use('/outcomes', createOutcomesRouter(deps.outcomeRepo));
+protectedRouter.use('/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
+protectedRouter.use('/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
+protectedRouter.use(
+  '/runs',
+  createRunsRouter(deps.pipelineRunsRepo, deps.candidateRepo, deps.scoringRepo, deps.db),
+);
+protectedRouter.use(
+  '/alerts',
+  createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }),
+);
 if (deps.scheduler) {
-  app.use('/api/scheduler', createSchedulerRouter(deps.scheduler));
+  protectedRouter.use('/scheduler', createSchedulerRouter(deps.scheduler));
 }
-
-app.use('/api/watchlist', createWatchlistRouter(deps.watchlistService));
+protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
+protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
+app.use('/api', protectedRouter);
 
 app.use(errorHandler);
 

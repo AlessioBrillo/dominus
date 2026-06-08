@@ -48,9 +48,11 @@ function captureStdout(fn: () => Promise<void> | void): Promise<string> {
     buffer += s;
     return true;
   };
-  return Promise.resolve(fn()).finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return Promise.resolve(fn())
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 describe('portfolio alerts list', () => {
@@ -91,7 +93,14 @@ describe('portfolio alerts list', () => {
     registerPortfolioCommand(program, { manager, alertRepo });
 
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'portfolio', 'alerts', 'list', '--unacknowledged']);
+      await program.parseAsync([
+        'node',
+        'dominus',
+        'portfolio',
+        'alerts',
+        'list',
+        '--unacknowledged',
+      ]);
     });
     expect(out).toContain('No alerts found');
   });
@@ -106,7 +115,15 @@ describe('portfolio alerts acknowledge', () => {
     registerPortfolioCommand(program, { manager, alertRepo });
 
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'portfolio', 'alerts', 'acknowledge', '--id', '1']);
+      await program.parseAsync([
+        'node',
+        'dominus',
+        'portfolio',
+        'alerts',
+        'acknowledge',
+        '--id',
+        '1',
+      ]);
     });
     expect(out).toContain('Alert 1 acknowledged');
   });

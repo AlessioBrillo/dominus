@@ -4,16 +4,14 @@ import type { CompsProvider } from '../../../providers/comps/comps-provider.js';
 
 function mockComps(prices: number[]): CompsProvider {
   return {
-    getSales: vi
-      .fn()
-      .mockResolvedValue(
-        prices.map((p, i) => ({
-          domain: `comparable${i}.com`,
-          salePrice: p,
-          saleDate: '2024-01-01',
-          venue: 'namebio',
-        })),
-      ),
+    getSales: vi.fn().mockResolvedValue(
+      prices.map((p, i) => ({
+        domain: `comparable${i}.com`,
+        salePrice: p,
+        saleDate: '2024-01-01',
+        venue: 'namebio',
+      })),
+    ),
   };
 }
 

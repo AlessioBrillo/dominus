@@ -33,12 +33,16 @@ export function createWatchlistRouter(watchlistService: WatchlistService): Route
     try {
       const domain = getRouteParam(req, 'domain');
       if (domain === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Missing domain parameter' } });
+        res
+          .status(400)
+          .json({ error: { code: 'BAD_REQUEST', message: 'Missing domain parameter' } });
         return;
       }
       const entry = watchlistService.get(domain);
       if (entry === null) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Domain ${domain} not found in watchlist` } });
+        res.status(404).json({
+          error: { code: 'NOT_FOUND', message: `Domain ${domain} not found in watchlist` },
+        });
         return;
       }
       res.json({ entry });
@@ -59,7 +63,12 @@ export function createWatchlistRouter(watchlistService: WatchlistService): Route
       res.status(201).json({ entry });
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
-        res.status(409).json({ error: { code: 'CONFLICT', message: `Domain ${req.body.domain} is already in the watchlist` } });
+        res.status(409).json({
+          error: {
+            code: 'CONFLICT',
+            message: `Domain ${req.body.domain} is already in the watchlist`,
+          },
+        });
         return;
       }
       next(err);
@@ -70,12 +79,16 @@ export function createWatchlistRouter(watchlistService: WatchlistService): Route
     try {
       const domain = getRouteParam(req, 'domain');
       if (domain === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Missing domain parameter' } });
+        res
+          .status(400)
+          .json({ error: { code: 'BAD_REQUEST', message: 'Missing domain parameter' } });
         return;
       }
       const removed = watchlistService.remove(domain);
       if (!removed) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Domain ${domain} not found in watchlist` } });
+        res.status(404).json({
+          error: { code: 'NOT_FOUND', message: `Domain ${domain} not found in watchlist` },
+        });
         return;
       }
       res.json({ removed: true });

@@ -63,7 +63,10 @@ describe('buildNotifiers', () => {
   });
 
   it('includes WebhookNotifier when URL is configured', () => {
-    const notifiers = buildNotifiers({ ...baseConfig, NOTIFIER_WEBHOOK_URL: 'https://hooks.example.com/alert' });
+    const notifiers = buildNotifiers({
+      ...baseConfig,
+      NOTIFIER_WEBHOOK_URL: 'https://hooks.example.com/alert',
+    });
     expect(notifiers.some((n) => n instanceof WebhookNotifier)).toBe(true);
   });
 

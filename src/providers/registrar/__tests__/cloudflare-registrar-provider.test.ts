@@ -63,17 +63,15 @@ describe('CloudflareRegistrarProvider', () => {
     const managed = results.find((r) => r.domain === 'managed.com');
     expect(managed?.available).toBe(false);
     expect(managed?.registerPriceEur).toBeNull();
-    expect(managed?.renewalPriceEur).toBe(8.50);
+    expect(managed?.renewalPriceEur).toBe(8.5);
 
     const available = results.find((r) => r.domain === 'new.io');
     expect(available?.available).toBe(true);
-    expect(available?.registerPriceEur).toBe(30.20);
+    expect(available?.registerPriceEur).toBe(30.2);
   });
 
   it('checkPrice returns null pricing for unknown TLDs', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeCfResponse({ success: true, errors: [], result: [] }),
-    );
+    mockFetch.mockResolvedValueOnce(makeCfResponse({ success: true, errors: [], result: [] }));
 
     const provider = new CloudflareRegistrarProvider(validConfig);
     const results = await provider.checkPrice(['example.xyz']);
@@ -83,9 +81,7 @@ describe('CloudflareRegistrarProvider', () => {
   });
 
   it('checkPrice handles empty domain list', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeCfResponse({ success: true, errors: [], result: [] }),
-    );
+    mockFetch.mockResolvedValueOnce(makeCfResponse({ success: true, errors: [], result: [] }));
 
     const provider = new CloudflareRegistrarProvider(validConfig);
     const results = await provider.checkPrice([]);
@@ -197,9 +193,7 @@ describe('CloudflareRegistrarProvider', () => {
   });
 
   it('listDomains returns empty array on API success with no domains', async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeCfResponse({ success: true, errors: [], result: [] }),
-    );
+    mockFetch.mockResolvedValueOnce(makeCfResponse({ success: true, errors: [], result: [] }));
 
     const provider = new CloudflareRegistrarProvider(validConfig);
     const domains = await provider.listDomains();
@@ -207,7 +201,9 @@ describe('CloudflareRegistrarProvider', () => {
   });
 
   it('listDomains throws on API error', async () => {
-    mockFetch.mockResolvedValueOnce(makeCfResponse({ success: false, errors: [{ code: 6003, message: 'Auth error' }] }));
+    mockFetch.mockResolvedValueOnce(
+      makeCfResponse({ success: false, errors: [{ code: 6003, message: 'Auth error' }] }),
+    );
 
     const provider = new CloudflareRegistrarProvider(validConfig);
     await expect(provider.listDomains()).rejects.toThrow(/Cloudflare API/);
@@ -215,7 +211,9 @@ describe('CloudflareRegistrarProvider', () => {
 
   it('listDomains throws on credentials missing', async () => {
     const provider = new CloudflareRegistrarProvider({ apiToken: undefined, accountId: undefined });
-    await expect(provider.listDomains()).rejects.toThrow(/Cloudflare API credentials not configured/);
+    await expect(provider.listDomains()).rejects.toThrow(
+      /Cloudflare API credentials not configured/,
+    );
   });
 
   it('getRenewalCost returns pricing for known TLD', async () => {
@@ -236,7 +234,7 @@ describe('CloudflareRegistrarProvider', () => {
 
     const provider = new CloudflareRegistrarProvider(validConfig);
     const cost = await provider.getRenewalCost('example.com');
-    expect(cost).toBe(8.50);
+    expect(cost).toBe(8.5);
 
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining('/registrar/domains/example.com'),
@@ -265,7 +263,9 @@ describe('CloudflareRegistrarProvider', () => {
   });
 
   it('getRenewalCost throws on API error', async () => {
-    mockFetch.mockResolvedValueOnce(makeCfResponse({ success: false, errors: [{ code: 6003, message: 'Not found' }] }, 404));
+    mockFetch.mockResolvedValueOnce(
+      makeCfResponse({ success: false, errors: [{ code: 6003, message: 'Not found' }] }, 404),
+    );
 
     const provider = new CloudflareRegistrarProvider(validConfig);
     await expect(provider.getRenewalCost('missing.com')).rejects.toThrow();

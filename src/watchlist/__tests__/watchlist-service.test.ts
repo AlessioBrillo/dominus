@@ -59,7 +59,11 @@ function makeDnsMock(results: Record<string, DomainStatus>): DnsProvider {
   return {
     checkAvailability: vi.fn().mockImplementation((domain: string) => {
       const status = results[domain] ?? DomainStatus.Unknown;
-      return Promise.resolve({ domain, status, checkedAt: new Date().toISOString() } as DnsCheckResult);
+      return Promise.resolve({
+        domain,
+        status,
+        checkedAt: new Date().toISOString(),
+      } as DnsCheckResult);
     }),
     checkBulk: vi.fn(),
   };

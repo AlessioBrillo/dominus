@@ -6,22 +6,30 @@ import type { WatchlistEntry, WatchlistPollResult } from '../../types/watchlist.
 
 function makeStubService(): WatchlistService {
   return {
-    add: vi.fn().mockImplementation((domain: string, notes?: string) => ({
-      id: 1,
-      domain,
-      tld: '.com',
-      notes: notes ?? null,
-      lastCheckedAt: null,
-      lastStatus: null,
-      lastStatusChange: null,
-      notified: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    } as WatchlistEntry)),
+    add: vi.fn().mockImplementation(
+      (domain: string, notes?: string) =>
+        ({
+          id: 1,
+          domain,
+          tld: '.com',
+          notes: notes ?? null,
+          lastCheckedAt: null,
+          lastStatus: null,
+          lastStatusChange: null,
+          notified: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }) as WatchlistEntry,
+    ),
     remove: vi.fn().mockReturnValue(true),
     list: vi.fn().mockReturnValue([]),
     get: vi.fn().mockReturnValue(null),
-    poll: vi.fn().mockResolvedValue({ checked: 0, available: 0, notified: 0, errors: 0 } as WatchlistPollResult),
+    poll: vi.fn().mockResolvedValue({
+      checked: 0,
+      available: 0,
+      notified: 0,
+      errors: 0,
+    } as WatchlistPollResult),
   } as unknown as WatchlistService;
 }
 
@@ -38,9 +46,11 @@ function captureStdout(fn: () => Promise<void>): Promise<string> {
     buffer += s;
     return true;
   };
-  return fn().finally(() => {
-    process.stdout.write = original;
-  }).then((): string => buffer);
+  return fn()
+    .finally(() => {
+      process.stdout.write = original;
+    })
+    .then((): string => buffer);
 }
 
 function captureStderr(fn: () => Promise<void>): Promise<string> {
@@ -50,9 +60,11 @@ function captureStderr(fn: () => Promise<void>): Promise<string> {
     buffer += s;
     return true;
   };
-  return fn().finally(() => {
-    process.stderr.write = original;
-  }).then((): string => buffer);
+  return fn()
+    .finally(() => {
+      process.stderr.write = original;
+    })
+    .then((): string => buffer);
 }
 
 describe('CLI: dominus watchlist', () => {
@@ -74,7 +86,15 @@ describe('CLI: dominus watchlist', () => {
       const program = buildProgram(service);
 
       await captureStdout(async () => {
-        await program.parseAsync(['node', 'dominus', 'watchlist', 'add', 'test.io', '--notes', 'interesting']);
+        await program.parseAsync([
+          'node',
+          'dominus',
+          'watchlist',
+          'add',
+          'test.io',
+          '--notes',
+          'interesting',
+        ]);
       });
 
       expect(service.add).toHaveBeenCalledWith('test.io', 'interesting');
@@ -171,7 +191,10 @@ describe('CLI: dominus watchlist', () => {
     it('calls poll and prints result', async () => {
       const service = makeStubService();
       (service.poll as ReturnType<typeof vi.fn>).mockResolvedValue({
-        checked: 5, available: 1, notified: 1, errors: 0,
+        checked: 5,
+        available: 1,
+        notified: 1,
+        errors: 0,
       });
       const program = buildProgram(service);
 

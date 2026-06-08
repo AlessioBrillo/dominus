@@ -156,7 +156,11 @@ const configSchema = z.object({
   /**
    * Rate limiting: window duration in milliseconds (default: 15 minutes).
    */
-  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(15 * 60 * 1000),
 
   /**
    * Rate limiting: max requests per window per IP (default: 100).
@@ -165,6 +169,16 @@ const configSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().int().nonnegative().default(100),
 
   // ── Cloudflare Registrar config ───────────────────────────────────
+
+  // ── API Authentication ────────────────────────────────────────────
+
+  /**
+   * Comma-separated API keys for REST API authentication.
+   * Format: `name=key` or just `key` (name defaults to 'default').
+   * When empty or unset, authentication is disabled (backward-compatible).
+   * Example: API_KEYS=admin=sk-admin-key,ro=sk-readonly
+   */
+  API_KEYS: z.string().optional(),
 
   /** Cloudflare API token with Zone:Read, Registrar:Read, Registrar:Write permissions. */
   CLOUDFLARE_API_TOKEN: z.string().optional(),

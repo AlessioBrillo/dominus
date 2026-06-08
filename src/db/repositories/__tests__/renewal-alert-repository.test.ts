@@ -31,7 +31,12 @@ const testInput: InsertRenewalAlertInput = {
   message: 'Domain example.com renews in 25 days',
 };
 
-function insertSampleAlert(repo: RenewalAlertRepository, overrides: Partial<InsertRenewalAlertInput> & { portfolioEntryId: number } = { portfolioEntryId: testInput.portfolioEntryId }): ReturnType<typeof repo.upsert> {
+function insertSampleAlert(
+  repo: RenewalAlertRepository,
+  overrides: Partial<InsertRenewalAlertInput> & { portfolioEntryId: number } = {
+    portfolioEntryId: testInput.portfolioEntryId,
+  },
+): ReturnType<typeof repo.upsert> {
   return repo.upsert({ ...testInput, ...overrides }, ['console']);
 }
 
@@ -58,10 +63,10 @@ describe('RenewalAlertRepository', () => {
 
     it('updates an existing alert on conflict (domain + alert_type)', () => {
       repo.upsert(testInput, ['console']);
-      const updated = repo.upsert(
-        { ...testInput, severity: AlertSeverity.Critical },
-        ['console', 'desktop'],
-      );
+      const updated = repo.upsert({ ...testInput, severity: AlertSeverity.Critical }, [
+        'console',
+        'desktop',
+      ]);
       expect(updated.severity).toBe(AlertSeverity.Critical);
       expect(updated.notifiedChannels).toEqual(['console', 'desktop']);
     });
@@ -198,8 +203,14 @@ describe('RenewalAlertRepository', () => {
 
   describe('latestPerDomain', () => {
     it('returns the most recent unacknowledged alert per domain', () => {
-      insertSampleAlert(repo, { alertType: AlertType.RenewalImminent, portfolioEntryId: testInput.portfolioEntryId });
-      insertSampleAlert(repo, { alertType: AlertType.RenewalCritical, portfolioEntryId: testInput.portfolioEntryId });
+      insertSampleAlert(repo, {
+        alertType: AlertType.RenewalImminent,
+        portfolioEntryId: testInput.portfolioEntryId,
+      });
+      insertSampleAlert(repo, {
+        alertType: AlertType.RenewalCritical,
+        portfolioEntryId: testInput.portfolioEntryId,
+      });
       const otherId = makePortfolioEntry(db, 'other.com', '2026-08-01');
       insertSampleAlert(repo, { domain: 'other.com', portfolioEntryId: otherId });
 
