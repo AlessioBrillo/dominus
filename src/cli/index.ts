@@ -9,6 +9,9 @@ import type { OutcomeRepository } from '../db/repositories/outcome-repository.js
 import type { Config } from '../config.js';
 import { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
 import { TrademarkRepository } from '../db/repositories/trademark-repository.js';
+import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
+import type { RenewalAlertRepository } from '../db/repositories/renewal-alert-repository.js';
+import type { SchedulerService } from '../scheduler/scheduler-service.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
@@ -19,6 +22,7 @@ import { registerMaintenanceCommand } from './commands/maintenance-command.js';
 import { registerProvidersCommand } from './commands/providers-command.js';
 import { registerCandidatesCommand } from './commands/candidates-command.js';
 import { registerHealthCommand } from './commands/health-command.js';
+import { registerSchedulerCommand } from './commands/scheduler-command.js';
 
 export function createCli(
   db: Database.Database,
@@ -28,6 +32,9 @@ export function createCli(
   outcomeRepo: OutcomeRepository,
   config: Config,
   gate?: TrademarkGate,
+  alertEngine?: RenewalAlertEngine,
+  alertRepo?: RenewalAlertRepository,
+  scheduler?: SchedulerService,
 ): Command {
   const program = new Command();
 
@@ -38,7 +45,7 @@ export function createCli(
 
   registerRunCommand(program, runService);
   registerCandidatesCommand(program, { candidateRepo: new CandidateRepository(db) });
-  registerPortfolioCommand(program, manager);
+  registerPortfolioCommand(program, { manager, alertEngine, alertRepo });
   registerScoreCommand(program, engine, gate);
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo });
@@ -50,6 +57,9 @@ export function createCli(
   });
   registerProvidersCommand(program, { config });
   registerHealthCommand(program, { db, config });
+  if (scheduler) {
+    registerSchedulerCommand(program, { scheduler });
+  }
 
   return program;
 }

@@ -25,8 +25,11 @@ import {
   ScoringStage,
   TrademarkGateStage,
 } from './pipeline/index.js';
-import { PortfolioManager } from './portfolio/index.js';
+import { PortfolioManager, RenewalAlertEngine } from './portfolio/index.js';
 import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
+import { RenewalAlertRepository } from './db/index.js';
+import { buildNotifiers } from './notifiers/index.js';
+import { SchedulerService } from './scheduler/index.js';
 import {
   PipelineRunService,
   CachedTrademarkProvider,
@@ -100,5 +103,19 @@ portfolioManager.setRescoreService(
   new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
 );
 
-const cli = createCli(db, runService, portfolioManager, engine, outcomeRepo, config, trademarkGate);
+const portfolioRepo = new PortfolioRepository(db);
+const alertRepo = new RenewalAlertRepository(db);
+const notifiers = buildNotifiers(config);
+const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
+
+let scheduler: SchedulerService | undefined;
+if (config.SCHEDULER_ENABLED) {
+  scheduler = new SchedulerService(config, alertEngine);
+  scheduler.start();
+}
+
+const cli = createCli(
+  db, runService, portfolioManager, engine, outcomeRepo, config, trademarkGate,
+  alertEngine, alertRepo, scheduler,
+);
 cli.parse(process.argv);
