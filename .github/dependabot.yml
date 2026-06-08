@@ -6,6 +6,13 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    ignore:
+      # @types/psl ≥ 1.4.0 is a stub that delegates to psl's own types,
+      # but psl's package.json "exports" doesn't expose them under
+      # NodeNext resolution — the types become unresolvable.
+      # Pin at 1.1.3 which ships real declarations.
+      - dependency-name: "@types/psl"
+        versions: [">=1.4.0"]
     groups:
       production:
         dependency-type: "production"
