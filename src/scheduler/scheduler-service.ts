@@ -1,5 +1,8 @@
 import cron from 'node-cron';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
+import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
+import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
+import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
 import type { Config } from '../config.js';
 import { getLogger } from '../logger.js';
 
@@ -13,15 +16,31 @@ export interface ScheduledJob {
   lastResult: string | null;
 }
 
+export interface SchedulerOptions {
+  config: Config;
+  alertEngine: RenewalAlertEngine;
+  portfolioManager?: PortfolioManager;
+  trademarkRepo?: TrademarkRepository;
+  runsRepo?: PipelineRunsRepository;
+}
+
 export class SchedulerService {
   private readonly jobs: Map<string, cron.ScheduledTask> = new Map();
   private readonly status: Map<string, { lastRunAt: string | null; lastResult: string | null }> = new Map();
+  private readonly config: Config;
+  private readonly alertEngine: RenewalAlertEngine;
+  private readonly portfolioManager: PortfolioManager | undefined;
+  private readonly trademarkRepo: TrademarkRepository | undefined;
+  private readonly runsRepo: PipelineRunsRepository | undefined;
   private running = false;
 
-  constructor(
-    private readonly config: Config,
-    private readonly alertEngine: RenewalAlertEngine,
-  ) {}
+  constructor(options: SchedulerOptions) {
+    this.config = options.config;
+    this.alertEngine = options.alertEngine;
+    this.portfolioManager = options.portfolioManager;
+    this.trademarkRepo = options.trademarkRepo;
+    this.runsRepo = options.runsRepo;
+  }
 
   start(): void {
     if (this.running) return;
@@ -38,6 +57,39 @@ export class SchedulerService {
         return msg;
       },
     );
+
+    if (this.portfolioManager) {
+      this.#register(
+        'portfolio-rescore',
+        this.config.SCHEDULER_RESCORE_CRON,
+        'Re-score all portfolio entries against current engine and trademark gate',
+        async () => {
+          const summary = await this.portfolioManager!.rescoreAll();
+          const msg = `Rescored ${summary.results.length} domain(s) in ${summary.totalDurationMs}ms`;
+          logger.info(msg);
+          return msg;
+        },
+      );
+    } else {
+      logger.warn('portfolio-rescore job disabled (PortfolioManager not provided)');
+    }
+
+    if (this.trademarkRepo && this.runsRepo) {
+      this.#register(
+        'data-prune',
+        this.config.SCHEDULER_PRUNE_CRON,
+        'Prune expired trademark cache and pipeline run history',
+        async () => {
+          const tmRemoved = this.trademarkRepo!.pruneExpired();
+          const runsRemoved = this.runsRepo!.prune();
+          const msg = `Pruned ${tmRemoved} trademark cache + ${runsRemoved} pipeline run(s)`;
+          logger.info(msg);
+          return msg;
+        },
+      );
+    } else {
+      logger.warn('data-prune job disabled (TrademarkRepository or PipelineRunsRepository not provided)');
+    }
 
     logger.info(
       `Scheduler started with ${this.jobs.size} job(s)`,

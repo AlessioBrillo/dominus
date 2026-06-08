@@ -147,7 +147,13 @@ export function createDependencies(config: Config): DominusDependencies {
 
   let scheduler: SchedulerService | undefined;
   if (config.SCHEDULER_ENABLED) {
-    scheduler = new SchedulerService(config, alertEngine);
+    scheduler = new SchedulerService({
+      config,
+      alertEngine,
+      portfolioManager,
+      trademarkRepo,
+      runsRepo: pipelineRunsRepo,
+    });
     scheduler.start();
   }
 

@@ -60,20 +60,20 @@ describe('SchedulerService', () => {
   });
 
   it('starts and stops without error', () => {
-    const scheduler = new SchedulerService(config, alertEngine);
+    const scheduler = new SchedulerService({ config, alertEngine });
     expect(() => scheduler.start()).not.toThrow();
     expect(() => scheduler.stop()).not.toThrow();
   });
 
   it('start is idempotent', () => {
-    const scheduler = new SchedulerService(config, alertEngine);
+    const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
     expect(() => scheduler.start()).not.toThrow();
     scheduler.stop();
   });
 
   it('reports initial status with no runs after start', () => {
-    const scheduler = new SchedulerService(config, alertEngine);
+    const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
     const status = scheduler.getStatus();
     expect(status).toHaveLength(1); // renewal-check registered in start
@@ -83,7 +83,7 @@ describe('SchedulerService', () => {
   });
 
   it('reports status after start includes all registered jobs', () => {
-    const scheduler = new SchedulerService(config, alertEngine);
+    const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
     const status = scheduler.getStatus();
     expect(status.length).toBeGreaterThanOrEqual(1);
@@ -95,7 +95,7 @@ describe('SchedulerService', () => {
     const mockEngine = {
       checkAll: vi.fn().mockResolvedValue({ generated: 3, alerts: [] }),
     } as unknown as RenewalAlertEngine;
-    const scheduler = new SchedulerService(config, mockEngine);
+    const scheduler = new SchedulerService({ config, alertEngine: mockEngine });
     scheduler.start();
 
     const result = await scheduler.runOnce('renewal-check');
@@ -105,7 +105,7 @@ describe('SchedulerService', () => {
   });
 
   it('runOnce throws for unknown job', async () => {
-    const scheduler = new SchedulerService(config, alertEngine);
+    const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
     await expect(scheduler.runOnce('nonexistent')).rejects.toThrow('Unknown job');
     scheduler.stop();
