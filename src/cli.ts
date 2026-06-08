@@ -1,121 +1,23 @@
 #!/usr/bin/env node
 import { loadConfig } from './config.js';
-import {
-  openDatabase,
-  runMigrations,
-  CandidateRepository,
-  ScoringRepository,
-  PortfolioRepository,
-  TrademarkRepository,
-  OutcomeRepository,
-} from './db/index.js';
-import { ManualKeywordProvider } from './providers/keyword/index.js';
-import { ManualCompsProvider } from './providers/comps/index.js';
-import { NodeDnsProvider } from './providers/dns/index.js';
-import { PublicRdapProvider } from './providers/rdap/index.js';
-import { NodeWhoisProviderWithIanaFallback } from './providers/whois/index.js';
-import { UsptoCasesProvider, EuipoProvider } from './providers/trademark/index.js';
-import { ScoringEngine, loadWeights } from './scoring/index.js';
-import { TrademarkGate } from './trademark/index.js';
-import {
-  PipelineOrchestrator,
-  CandidateGenerationStage,
-  DnsPreFilterStage,
-  RdapConfirmationStage,
-  ScoringStage,
-  TrademarkGateStage,
-} from './pipeline/index.js';
-import { PortfolioManager, RenewalAlertEngine } from './portfolio/index.js';
-import { PortfolioRescoreService } from './portfolio/portfolio-rescore-service.js';
-import { RenewalAlertRepository } from './db/index.js';
-import { buildNotifiers } from './notifiers/index.js';
-import { SchedulerService } from './scheduler/index.js';
-import {
-  PipelineRunService,
-  CachedTrademarkProvider,
-  RetryingTrademarkProvider,
-  warnEuipoIfMissing,
-} from './app/index.js';
+import { createDependencies } from './app/composition-root.js';
 import { createCli } from './cli/index.js';
 
 const config = loadConfig();
-const db = openDatabase(config.DATABASE_PATH);
-runMigrations(db);
-warnEuipoIfMissing(config);
-
-const candidateRepo = new CandidateRepository(db);
-const scoringRepo = new ScoringRepository(db);
-const trademarkRepo = new TrademarkRepository(db);
-const outcomeRepo = new OutcomeRepository(db);
-
-const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
-const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
-const engine = new ScoringEngine(
-  keywordProvider,
-  compsProvider,
-  loadWeights(config.SCORING_WEIGHTS_OVERRIDE),
-  config.BUY_MAX_ABSOLUTE_CAP,
-  config.SCORING_RECOMMEND_THRESHOLD,
-);
-
-const trademarkGate = new TrademarkGate(
-  new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
-    trademarkRepo,
-    'USPTO',
-    config.TM_CACHE_TTL_DAYS,
-  ),
-  new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(
-      new EuipoProvider({
-        clientId: config.EUIPO_CLIENT_ID,
-        clientSecret: config.EUIPO_CLIENT_SECRET,
-        authUrl: config.EUIPO_AUTH_URL,
-        apiUrl: config.EUIPO_API_URL,
-      }),
-    ),
-    trademarkRepo,
-    'EUIPO',
-    config.TM_CACHE_TTL_DAYS,
-  ),
-);
-
-const whoisProvider = new NodeWhoisProviderWithIanaFallback({
-  timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
+const deps = createDependencies(config);
+const cli = createCli({
+  db: deps.db,
+  runService: deps.runService,
+  manager: deps.portfolioManager,
+  engine: deps.engine,
+  outcomeRepo: deps.outcomeRepo,
+  config: deps.config,
+  candidateRepo: deps.candidateRepo,
+  trademarkRepo: deps.trademarkRepo,
+  runsRepo: deps.pipelineRunsRepo,
+  gate: deps.trademarkGate,
+  alertEngine: deps.alertEngine,
+  alertRepo: deps.alertRepo,
+  scheduler: deps.scheduler,
 });
-
-const orchestrator = new PipelineOrchestrator(
-  new CandidateGenerationStage(),
-  new DnsPreFilterStage(new NodeDnsProvider()),
-  new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
-  new ScoringStage(engine),
-  new TrademarkGateStage(trademarkGate),
-);
-
-const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
-
-const portfolioManager = new PortfolioManager(
-  new PortfolioRepository(db),
-  config.DROP_SCORE_THRESHOLD,
-  config.DROP_RENEWAL_HORIZON_DAYS,
-);
-portfolioManager.setRescoreService(
-  new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
-);
-
-const portfolioRepo = new PortfolioRepository(db);
-const alertRepo = new RenewalAlertRepository(db);
-const notifiers = buildNotifiers(config);
-const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
-
-let scheduler: SchedulerService | undefined;
-if (config.SCHEDULER_ENABLED) {
-  scheduler = new SchedulerService(config, alertEngine);
-  scheduler.start();
-}
-
-const cli = createCli(
-  db, runService, portfolioManager, engine, outcomeRepo, config, trademarkGate,
-  alertEngine, alertRepo, scheduler,
-);
 cli.parse(process.argv);
