@@ -22,6 +22,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     BUY_MAX_ABSOLUTE_CAP: 500,
+    SCORING_RECOMMEND_THRESHOLD: 0.4,
     HOST: '127.0.0.1',
     ...overrides,
   };

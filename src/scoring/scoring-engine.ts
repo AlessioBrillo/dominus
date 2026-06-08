@@ -17,6 +17,7 @@ export class ScoringEngine {
     private readonly compsProvider: CompsProvider,
     private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
+    private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
   ) {}
 
   async score(input: ScoringInput): Promise<ScoreResult> {
@@ -49,7 +50,7 @@ export class ScoringEngine {
     const suggestedBuyMax = Math.min(expectedValue * BUY_MAX_RATIO, this.buyMaxAbsoluteCap);
     const suggestedListPrice = expectedValue * LIST_PRICE_MULTIPLIER;
 
-    const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= WEIGHT_RECOMMEND_THRESHOLD;
+    const recommended = confidence >= CONFIDENCE_THRESHOLD && weightedScore >= this.recommendThreshold;
 
     return {
       domain: input.domain,
