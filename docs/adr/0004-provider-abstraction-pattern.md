@@ -32,7 +32,7 @@ latency, and reliability profiles:
 - **Comparables**: NameBio manual CSV export (free), NameBio API (paid),
   DNJournal (free, HTML scrape), Afternic DLS data (paid).
 
-The project budget is zero-cost for the MVP, but the architecture must support
+The project budget is zero-cost for the initial implementation, but the architecture must support
 future upgrades to paid APIs without changing business logic. Every external
 data interaction must be behind an interface so that swapping the
 implementation is a one-file change.
