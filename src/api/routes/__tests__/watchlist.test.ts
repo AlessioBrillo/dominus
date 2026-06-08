@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import express from 'express';
+import type { Application } from 'express';
 import request from 'supertest';
 import { createWatchlistRouter } from '../watchlist.js';
 import { errorHandler } from '../../middleware/error-handler.js';
@@ -27,7 +28,7 @@ function makeStubService(): WatchlistService {
   } as unknown as WatchlistService;
 }
 
-function buildApp(service?: WatchlistService) {
+function buildApp(service?: WatchlistService): Application {
   const app = express();
   app.use(express.json());
   app.use('/api/watchlist', createWatchlistRouter(service ?? makeStubService()));

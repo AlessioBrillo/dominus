@@ -43,7 +43,7 @@ export class WatchlistRepository {
 
   list(): WatchlistEntry[] {
     const rows = this.db
-      .prepare(`SELECT ${ROW_MAPPER} FROM watchlist_entries ORDER BY created_at DESC`)
+      .prepare(`SELECT ${ROW_MAPPER} FROM watchlist_entries ORDER BY created_at DESC, id DESC`)
       .all();
     return (rows as unknown[]).map(parseRow);
   }
