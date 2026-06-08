@@ -1,6 +1,6 @@
 {
   "name": "dominus",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Decision-support engine for buying and reselling DNS domains on the aftermarket",
   "private": false,
   "license": "MIT",

@@ -33,7 +33,7 @@ export function createCli(
   program
     .name('dominus')
     .description('Personal DNS domain investment decision-support tool')
-    .version('0.1.0');
+    .version('0.2.0');
 
   registerRunCommand(program, runService);
   registerCandidatesCommand(program, { candidateRepo: new CandidateRepository(db) });
