@@ -3,6 +3,7 @@ import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
+import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { Config } from '../config.js';
 import { getLogger } from '../logger.js';
 
@@ -22,6 +23,7 @@ export interface SchedulerOptions {
   portfolioManager?: PortfolioManager;
   trademarkRepo?: TrademarkRepository;
   runsRepo?: PipelineRunsRepository;
+  watchlistService?: WatchlistService;
 }
 
 export class SchedulerService {
@@ -32,6 +34,7 @@ export class SchedulerService {
   private readonly portfolioManager: PortfolioManager | undefined;
   private readonly trademarkRepo: TrademarkRepository | undefined;
   private readonly runsRepo: PipelineRunsRepository | undefined;
+  private readonly watchlistService: WatchlistService | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -40,6 +43,7 @@ export class SchedulerService {
     this.portfolioManager = options.portfolioManager;
     this.trademarkRepo = options.trademarkRepo;
     this.runsRepo = options.runsRepo;
+    this.watchlistService = options.watchlistService;
   }
 
   start(): void {
@@ -89,6 +93,22 @@ export class SchedulerService {
       );
     } else {
       logger.warn('data-prune job disabled (TrademarkRepository or PipelineRunsRepository not provided)');
+    }
+
+    if (this.watchlistService) {
+      this.#register(
+        'watchlist-poll',
+        this.config.SCHEDULER_WATCHLIST_CRON,
+        'Poll watchlist entries for domain availability via RDAP',
+        async () => {
+          const result = await this.watchlistService!.poll();
+          const msg = `Watchlist poll: checked ${result.checked}, available ${result.available}, notified ${result.notified}, errors ${result.errors}`;
+          logger.info(msg);
+          return msg;
+        },
+      );
+    } else {
+      logger.warn('watchlist-poll job disabled (WatchlistService not provided)');
     }
 
     logger.info(

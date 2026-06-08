@@ -164,6 +164,7 @@ export function createDependencies(config: Config): DominusDependencies {
       portfolioManager,
       trademarkRepo,
       runsRepo: pipelineRunsRepo,
+      watchlistService,
     });
     scheduler.start();
   }
