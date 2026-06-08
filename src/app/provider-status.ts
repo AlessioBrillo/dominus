@@ -9,7 +9,7 @@ import { getLogger } from '../logger.js';
  * across releases so the JSON output is safe for dashboards.
  */
 export interface ProviderStatus {
-  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio' | 'WHOIS';
+  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio' | 'WHOIS' | 'CloudflareRegistrar';
   configured: boolean;
   note: string;
 }
@@ -55,6 +55,21 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
           ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
           : 'COMPS_DATA_PATH is unset — the market signal will produce zero comparables.',
     },
+    {
+      name: 'CloudflareRegistrar',
+      configured:
+        config.CLOUDFLARE_API_TOKEN !== undefined &&
+        config.CLOUDFLARE_API_TOKEN !== '' &&
+        config.CLOUDFLARE_ACCOUNT_ID !== undefined &&
+        config.CLOUDFLARE_ACCOUNT_ID !== '',
+      note:
+        config.CLOUDFLARE_API_TOKEN !== undefined &&
+        config.CLOUDFLARE_API_TOKEN !== '' &&
+        config.CLOUDFLARE_ACCOUNT_ID !== undefined &&
+        config.CLOUDFLARE_ACCOUNT_ID !== ''
+          ? `Account ${config.CLOUDFLARE_ACCOUNT_ID?.slice(0, 6)}… via API token.`
+          : 'CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are unset — registrar operations use the manual (no-op) provider.',
+    },
   ];
 }
 
@@ -66,6 +81,24 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
  * `logger` is injected for testability; production code can call with
  * no argument and the default logger is used.
  */
+export function warnCloudflareIfMissing(
+  config: Config,
+  logger: { warn: (msg: string) => void } = getLogger(),
+): void {
+  const cfConfigured =
+    config.CLOUDFLARE_API_TOKEN !== undefined &&
+    config.CLOUDFLARE_API_TOKEN !== '' &&
+    config.CLOUDFLARE_ACCOUNT_ID !== undefined &&
+    config.CLOUDFLARE_ACCOUNT_ID !== '';
+  if (cfConfigured) return;
+
+  logger.warn(
+    'Cloudflare Registrar credentials are missing (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID). ' +
+      'Registrar operations will use the manual (no-op) provider. ' +
+      'Run `dominus providers status` for details.',
+  );
+}
+
 export function warnEuipoIfMissing(
   config: Config,
   logger: { warn: (msg: string) => void } = getLogger(),

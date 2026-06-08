@@ -35,6 +35,7 @@ import {
   CachedTrademarkProvider,
   RetryingTrademarkProvider,
   warnEuipoIfMissing,
+  warnCloudflareIfMissing,
 } from './app/index.js';
 import {
   createCandidatesRouter,
@@ -58,6 +59,7 @@ const logger = getLogger();
 const db = openDatabase(config.DATABASE_PATH);
 runMigrations(db);
 warnEuipoIfMissing(config);
+warnCloudflareIfMissing(config);
 
 const candidateRepo = new CandidateRepository(db);
 const scoringRepo = new ScoringRepository(db);

@@ -33,6 +33,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     SCHEDULER_RENEWAL_CHECK_CRON: '0 8 * * *',
     SCHEDULER_RESCORE_CRON: '0 9 * * 1',
     SCHEDULER_PRUNE_CRON: '0 10 1 * *',
+    CLOUDFLARE_API_TOKEN: undefined,
+    CLOUDFLARE_ACCOUNT_ID: undefined,
     ...overrides,
   };
 }
@@ -90,7 +92,7 @@ describe('health command', () => {
     expect(output).toMatch(/Uptime:/);
   });
 
-  it('reports all five providers in the table', async () => {
+  it('reports all six providers in the table', async () => {
     const output = await runHealth();
     expect(output).toMatch(/USPTO/);
     expect(output).toMatch(/EUIPO/);
@@ -107,7 +109,7 @@ describe('health command', () => {
     expect(parsed).toHaveProperty('uptime');
     expect(parsed).toHaveProperty('database', 'connected');
     expect(parsed).toHaveProperty('providers');
-    expect(parsed.providers).toHaveLength(5);
+    expect(parsed.providers).toHaveLength(6);
   });
 
   it('includes provider configured status in JSON output', async () => {

@@ -4,7 +4,7 @@ import { Command } from 'commander';
 import { runMigrations } from '../../db/migrator.js';
 import { registerProvidersCommand } from '../commands/providers-command.js';
 import type { Config } from '../../config.js';
-import { reportProviderStatuses, warnEuipoIfMissing } from '../../app/provider-status.js';
+import { reportProviderStatuses, warnEuipoIfMissing, warnCloudflareIfMissing } from '../../app/provider-status.js';
 
 function buildConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -34,6 +34,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     SCHEDULER_RENEWAL_CHECK_CRON: '0 8 * * *',
     SCHEDULER_RESCORE_CRON: '0 9 * * 1',
     SCHEDULER_PRUNE_CRON: '0 10 1 * *',
+    CLOUDFLARE_API_TOKEN: undefined,
+    CLOUDFLARE_ACCOUNT_ID: undefined,
     ...overrides,
   };
 }
@@ -109,6 +111,27 @@ describe('reportProviderStatuses', () => {
     const uspto = rows.find((r) => r.name === 'USPTO');
     expect(uspto?.configured).toBe(true);
   });
+
+  it('reports CloudflareRegistrar as not configured when credentials missing', () => {
+    const rows = reportProviderStatuses(buildConfig());
+    const cf = rows.find((r) => r.name === 'CloudflareRegistrar');
+    expect(cf?.configured).toBe(false);
+    expect(cf?.note).toMatch(/CLOUDFLARE_API_TOKEN/);
+  });
+
+  it('reports CloudflareRegistrar as configured when both credentials present', () => {
+    const rows = reportProviderStatuses(
+      buildConfig({ CLOUDFLARE_API_TOKEN: 'token123', CLOUDFLARE_ACCOUNT_ID: 'acc456' }),
+    );
+    const cf = rows.find((r) => r.name === 'CloudflareRegistrar');
+    expect(cf?.configured).toBe(true);
+    expect(cf?.note).toContain('acc456');
+  });
+
+  it('reports 6 provider status rows', () => {
+    const rows = reportProviderStatuses(buildConfig());
+    expect(rows).toHaveLength(6);
+  });
 });
 
 describe('warnEuipoIfMissing', () => {
@@ -141,6 +164,30 @@ describe('warnEuipoIfMissing', () => {
   });
 });
 
+describe('warnCloudflareIfMissing', () => {
+  it('logs a warning when Cloudflare credentials are missing', () => {
+    const warn = vi.fn();
+    const stubLogger = { warn };
+
+    warnCloudflareIfMissing(buildConfig(), stubLogger);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/Cloudflare/);
+  });
+
+  it('is silent when Cloudflare credentials are present', () => {
+    const warn = vi.fn();
+    const stubLogger = { warn };
+
+    warnCloudflareIfMissing(
+      buildConfig({ CLOUDFLARE_API_TOKEN: 'token', CLOUDFLARE_ACCOUNT_ID: 'acc' }),
+      stubLogger,
+    );
+
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
 describe('CLI: dominus providers', () => {
   beforeEach(() => {
     const db = new Database(':memory:');
@@ -166,6 +213,7 @@ describe('CLI: dominus providers', () => {
     expect(out).toContain('KeywordPlanner');
     expect(out).toContain('NameBio');
     expect(out).toContain('WHOIS');
+    expect(out).toContain('CloudflareRegistrar');
   });
 
   it('status --json emits a JSON array', async () => {
@@ -181,8 +229,10 @@ describe('CLI: dominus providers', () => {
 
     // Assert
     const parsed = JSON.parse(out) as ProviderRow[];
-    expect(parsed).toHaveLength(5);
+    expect(parsed).toHaveLength(6);
     const euipo = parsed.find((r) => r.name === 'EUIPO');
     expect(euipo?.configured).toBe(true);
+    const cf = parsed.find((r) => r.name === 'CloudflareRegistrar');
+    expect(cf?.configured).toBe(false);
   });
 });

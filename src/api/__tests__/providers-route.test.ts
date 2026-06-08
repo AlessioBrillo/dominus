@@ -38,20 +38,21 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
 }
 
 describe('GET /api/providers/status', () => {
-  it('returns provider statuses for all 5 providers', async () => {
+  it('returns provider statuses for all 6 providers', async () => {
     const app = express();
     app.use('/api/providers', createProvidersRouter(buildConfig()));
     app.use(errorHandler);
 
     const res = await request(app).get('/api/providers/status');
     expect(res.status).toBe(200);
-    expect(res.body.providers).toHaveLength(5);
+    expect(res.body.providers).toHaveLength(6);
     const names = res.body.providers.map((p: { name: string }) => p.name) as string[];
     expect(names).toContain('USPTO');
     expect(names).toContain('EUIPO');
     expect(names).toContain('KeywordPlanner');
     expect(names).toContain('NameBio');
     expect(names).toContain('WHOIS');
+    expect(names).toContain('CloudflareRegistrar');
   });
 
   it('reports EUIPO as not configured when credentials are missing', async () => {
