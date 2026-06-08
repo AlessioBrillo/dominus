@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.git/
+.gitignore
+*.md
+.eslintrc*
+.prettierrc*
+tsconfig.json
+vitest.config.ts
+docker-compose.yml
+data/
+.env*
