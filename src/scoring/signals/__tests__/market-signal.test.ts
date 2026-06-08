@@ -50,4 +50,31 @@ describe('MarketSignal', () => {
     );
     expect(result.medianSalePrice).toBe(1500);
   });
+
+  it('median is correct for odd list', async () => {
+    const result = await computeMarketScore(
+      { domain: 'test.com', tld: '.com', sld: 'test', isCloseout: false },
+      mockComps([1000, 2000, 3000]),
+      1,
+    );
+    expect(result.medianSalePrice).toBe(2000);
+  });
+
+  it('score is capped at 1 for very high comps', async () => {
+    const result = await computeMarketScore(
+      { domain: 'premium.com', tld: '.com', sld: 'premium', isCloseout: false },
+      mockComps([50000]),
+      1,
+    );
+    expect(result.score).toBe(1);
+  });
+
+  it('low-priced comparables produce low score', async () => {
+    const result = await computeMarketScore(
+      { domain: 'cheap.com', tld: '.com', sld: 'cheap', isCloseout: false },
+      mockComps([600]),
+      1,
+    );
+    expect(result.score).toBeLessThanOrEqual(0.5);
+  });
 });
