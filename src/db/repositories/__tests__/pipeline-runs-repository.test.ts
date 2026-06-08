@@ -250,6 +250,48 @@ describe('PipelineRunsRepository', () => {
     });
   });
 
+  describe('pruneBefore', () => {
+    it('removes runs started before the cutoff', () => {
+      // Arrange
+      makeStartedRun(repo, { runId: 'old', startedAt: '2026-01-01T00:00:00.000Z' });
+      makeStartedRun(repo, { runId: 'recent', startedAt: '2026-06-07T10:00:00.000Z' });
+
+      // Act
+      const deleted = repo.pruneBefore('2026-06-01T00:00:00.000Z');
+
+      // Assert
+      expect(deleted).toBe(1);
+      expect(repo.findById('old')).toBeNull();
+      expect(repo.findById('recent')).not.toBeNull();
+    });
+
+    it('is idempotent on a second call', () => {
+      // Arrange
+      makeStartedRun(repo, { runId: 'old', startedAt: '2025-01-01T00:00:00.000Z' });
+      repo.pruneBefore('2026-06-01T00:00:00.000Z');
+
+      // Act
+      const second = repo.pruneBefore('2026-06-01T00:00:00.000Z');
+
+      // Assert
+      expect(second).toBe(0);
+    });
+  });
+
+  describe('countBefore', () => {
+    it('counts runs started before the cutoff', () => {
+      // Arrange
+      makeStartedRun(repo, { runId: 'old', startedAt: '2025-01-01T00:00:00.000Z' });
+      makeStartedRun(repo, { runId: 'recent', startedAt: '2026-06-07T10:00:00.000Z' });
+
+      // Act
+      const n = repo.countBefore('2026-06-01T00:00:00.000Z');
+
+      // Assert
+      expect(n).toBe(1);
+    });
+  });
+
   describe('count', () => {
     it('reports the number of runs in the table', () => {
       // Arrange

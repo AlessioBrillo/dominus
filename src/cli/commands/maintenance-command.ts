@@ -35,15 +35,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
       }
       deps.db.exec(`VACUUM INTO '${absPath}'`);
 
-      const size = ((): string => {
-        try {
-          const { size: s } = (deps.db.prepare("SELECT size FROM pragma_database_size").get() ?? {}) as { size?: number };
-          return s !== undefined ? `${(s / 1024 / 1024).toFixed(1)} MB` : 'unknown';
-        } catch {
-          return 'unknown';
-        }
-      })();
-      process.stdout.write(`Backup written to ${absPath} (database size: ${size})\n`);
+      process.stdout.write(`Backup written to ${absPath}\n`);
     });
 
   maintenance

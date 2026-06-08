@@ -157,6 +157,54 @@ describe('CLI: dominus maintenance', () => {
     expect(runsRepo.count()).toBe(runsBefore);
   });
 
+  it('prune --before removes runs started before N days ago', async () => {
+    // Arrange
+    const oldDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString(); // 200 days ago
+    runsRepo.insert({
+      runId: 'r-old',
+      startedAt: oldDate,
+      hostVersion: '0.1.0',
+      retainedUntil: '2099-01-01T00:00:00.000Z',
+    });
+    runsRepo.insert({
+      runId: 'r-new',
+      startedAt: new Date().toISOString(),
+      hostVersion: '0.1.0',
+      retainedUntil: '2099-01-01T00:00:00.000Z',
+    });
+    const before = runsRepo.count();
+
+    // Act
+    const out = await captureStdout(async () => {
+      await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--runs-only', '--before', '180']);
+    });
+
+    // Assert
+    expect(out).toMatch(/Pruned 1 pipeline_runs row\(s\) started before/);
+    expect(runsRepo.count()).toBe(before - 1);
+    expect(runsRepo.findById('r-old')).toBeNull();
+  });
+
+  it('prune --before --dry-run does not delete', async () => {
+    // Arrange
+    const oldDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    runsRepo.insert({
+      runId: 'r-old',
+      startedAt: oldDate,
+      hostVersion: '0.1.0',
+      retainedUntil: '2099-01-01T00:00:00.000Z',
+    });
+
+    // Act
+    const out = await captureStdout(async () => {
+      await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--runs-only', '--before', '180', '--dry-run']);
+    });
+
+    // Assert
+    expect(out).toMatch(/Would prune/);
+    expect(runsRepo.findById('r-old')).not.toBeNull();
+  });
+
   it('rejects mutually exclusive --cache-only and --runs-only', async () => {
     // Act
     const err = await captureStderr(async () => {
