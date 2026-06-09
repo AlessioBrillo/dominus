@@ -27,7 +27,34 @@ const configSchema = z.object({
    *   2. Adding the type to the union below
    *   3. Adding the factory case in src/providers/keyword/index.ts
    */
-  KEYWORD_PROVIDER: z.enum(['manual']).default('manual'),
+  KEYWORD_PROVIDER: z.enum(['manual', 'google-ads']).default('manual'),
+  /**
+   * Google Ads OAuth2 client ID for the Keyword Planner API.
+   * Required when KEYWORD_PROVIDER=google-ads.
+   * Create credentials at https://console.cloud.google.com/apis/credentials
+   */
+  GOOGLE_ADS_CLIENT_ID: z.string().optional(),
+  /**
+   * Google Ads OAuth2 client secret.
+   */
+  GOOGLE_ADS_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Google Ads OAuth2 refresh token.
+   * Generated via the OAuth2 offline access flow.
+   */
+  GOOGLE_ADS_REFRESH_TOKEN: z.string().optional(),
+  /**
+   * Google Ads developer token.
+   * Apply at https://developers.google.com/google-ads/api/docs/first-call/dev-token
+   * Approval can take 1-4 weeks.
+   */
+  GOOGLE_ADS_DEVELOPER_TOKEN: z.string().optional(),
+  /**
+   * Google Ads customer ID (without hyphens).
+   * Found in the Google Ads dashboard under Settings > Account > Account ID.
+   * Format: 1234567890 (10 digits).
+   */
+  GOOGLE_ADS_CUSTOMER_ID: z.string().optional(),
   /**
    * Optional path to a CSV file of NameBio comparable sales.
    * Columns: domain,price,date,venue

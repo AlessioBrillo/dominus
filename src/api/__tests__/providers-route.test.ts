@@ -90,7 +90,7 @@ describe('GET /api/providers/status', () => {
 
     const res = await request(app).get('/api/providers/status');
     expect(res.status).toBe(200);
-    expect(res.body.providers).toHaveLength(6);
+    expect(res.body.providers).toHaveLength(7);
     const names = res.body.providers.map((p: { name: string }) => p.name) as string[];
     expect(names).toContain('USPTO');
     expect(names).toContain('EUIPO');
@@ -98,6 +98,7 @@ describe('GET /api/providers/status', () => {
     expect(names).toContain('NameBio');
     expect(names).toContain('WHOIS');
     expect(names).toContain('CloudflareRegistrar');
+    expect(names).toContain('GoogleAds');
   });
 
   it('reports EUIPO as not configured when credentials are missing', async () => {

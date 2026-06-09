@@ -14,7 +14,11 @@ import {
   BacktestSignalsRepository,
   WeightSnapshotRepository,
 } from '../db/index.js';
-import { createKeywordProvider, type KeywordProvider } from '../providers/keyword/index.js';
+import {
+  createKeywordProvider,
+  type KeywordProvider,
+  type KeywordMetrics,
+} from '../providers/keyword/index.js';
 import { createCompsProvider, type CompsProvider } from '../providers/comps/index.js';
 import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
@@ -106,7 +110,23 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const keywordProvider = createKeywordProvider(config.KEYWORD_PROVIDER, {
     dataFilePath: config.KEYWORD_DATA_PATH,
+    googleAdsClientId: config.GOOGLE_ADS_CLIENT_ID,
+    googleAdsClientSecret: config.GOOGLE_ADS_CLIENT_SECRET,
+    googleAdsRefreshToken: config.GOOGLE_ADS_REFRESH_TOKEN,
+    googleAdsDeveloperToken: config.GOOGLE_ADS_DEVELOPER_TOKEN,
+    googleAdsCustomerId: config.GOOGLE_ADS_CUSTOMER_ID,
   });
+
+  // Cache the keyword provider to avoid redundant API calls for the same term
+  const keywordCache = new CachedProvider<KeywordMetrics>(
+    (term) => keywordProvider.getMetrics(term),
+    providerCacheRepo,
+    'keyword',
+    config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+  );
+  const cachedKeywordProvider: KeywordProvider = {
+    getMetrics: (term: string) => keywordCache.get(term),
+  };
   const compsProvider = createCompsProvider(config.COMPS_PROVIDER, {
     csvFilePath: config.COMPS_DATA_PATH,
     namebioApiKey: config.NAMEBIO_API_KEY,
@@ -160,7 +180,7 @@ export function createDependencies(config: Config): DominusDependencies {
   };
 
   const engine = new ScoringEngine(
-    keywordProvider,
+    cachedKeywordProvider,
     cachedCompsProvider,
     currentWeights,
     config.BUY_MAX_ABSOLUTE_CAP,

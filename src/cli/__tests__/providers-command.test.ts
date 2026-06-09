@@ -172,7 +172,7 @@ describe('reportProviderStatuses', () => {
 
   it('reports 6 provider status rows', () => {
     const rows = reportProviderStatuses(buildConfig());
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
   });
 });
 
@@ -271,7 +271,7 @@ describe('CLI: dominus providers', () => {
 
     // Assert
     const parsed = JSON.parse(out) as ProviderRow[];
-    expect(parsed).toHaveLength(6);
+    expect(parsed).toHaveLength(7);
     const euipo = parsed.find((r) => r.name === 'EUIPO');
     expect(euipo?.configured).toBe(true);
     const cf = parsed.find((r) => r.name === 'CloudflareRegistrar');
