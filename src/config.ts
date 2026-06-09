@@ -35,14 +35,20 @@ const configSchema = z.object({
    */
   COMPS_DATA_PATH: z.string().optional(),
   /**
+   * API key for the NameBio API (namebio.com/api).
+   * When absent, NameBioProvider returns zero comparable sales (graceful degrade).
+   */
+  NAMEBIO_API_KEY: z.string().optional(),
+  /**
    * Comparable-sales provider implementation to use.
-   * Supported values: 'manual' (reads from COMPS_DATA_PATH CSV file).
-   * Adding a new provider (e.g. 'namebio-api') requires:
+   * Supported values: 'manual' (reads from COMPS_DATA_PATH CSV file),
+   *                    'namebio' (uses the NameBio REST API).
+   * Adding a new provider requires:
    *   1. Creating a new implementation of CompsProvider interface
    *   2. Adding the type to the union below
    *   3. Adding the factory case in src/providers/comps/index.ts
    */
-  COMPS_PROVIDER: z.enum(['manual']).default('manual'),
+  COMPS_PROVIDER: z.enum(['manual', 'namebio']).default('manual'),
   /**
    * USPTO public trademark search base URL (no API key required).
    * Default: the official US tmsearch.uspto.gov JSON backend.
@@ -84,6 +90,11 @@ const configSchema = z.object({
    * Avoids re-hitting rate-limited free APIs on repeat pipeline runs.
    */
   TM_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
+  /**
+   * Default TTL in days for generic provider cache entries (comps, keyword).
+   * Each provider may override this individually. Default: 7.
+   */
+  PROVIDER_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
   /**
    * Optional path to a JSON file with operator-approved weight overrides.
    * When set, the scoring engine reads this file at startup and uses the

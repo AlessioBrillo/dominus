@@ -16,6 +16,8 @@ import {
 } from '../db/index.js';
 import { createKeywordProvider, type KeywordProvider } from '../providers/keyword/index.js';
 import { createCompsProvider, type CompsProvider } from '../providers/comps/index.js';
+import type { ComparableSale } from '../providers/comps/comps-provider.js';
+import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
@@ -107,7 +109,20 @@ export function createDependencies(config: Config): DominusDependencies {
   });
   const compsProvider = createCompsProvider(config.COMPS_PROVIDER, {
     csvFilePath: config.COMPS_DATA_PATH,
+    namebioApiKey: config.NAMEBIO_API_KEY,
   });
+
+  // Cache the comps provider to avoid repeated API calls for the same term.
+  // The adapter preserves the CompsProvider interface expected by the engine.
+  const compsCache = new CachedProvider<ComparableSale[]>(
+    (term) => compsProvider.getSales(term),
+    providerCacheRepo,
+    'comps',
+    config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+  );
+  const cachedCompsProvider: CompsProvider = {
+    getSales: (term: string) => compsCache.get(term),
+  };
 
   const weightsOverridePath =
     config.SCORING_WEIGHTS_OVERRIDE ||
@@ -146,7 +161,7 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const engine = new ScoringEngine(
     keywordProvider,
-    compsProvider,
+    cachedCompsProvider,
     currentWeights,
     config.BUY_MAX_ABSOLUTE_CAP,
     config.SCORING_RECOMMEND_THRESHOLD,

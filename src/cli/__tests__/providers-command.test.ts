@@ -76,6 +76,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MIN_TOKEN_LENGTH_FUZZY: 4,
     TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: 3,
     TRADEMARK_MAX_LEVENSHTEIN: 1,
+    PROVIDER_CACHE_TTL_DAYS: 7,
+    NAMEBIO_API_KEY: undefined,
     ...overrides,
   };
 }

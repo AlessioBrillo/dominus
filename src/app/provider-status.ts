@@ -49,11 +49,13 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     },
     {
       name: 'NameBio',
-      configured: config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== '',
+      configured: config.NAMEBIO_API_KEY !== undefined && config.NAMEBIO_API_KEY !== '',
       note:
-        config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== ''
-          ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
-          : 'COMPS_DATA_PATH is unset — the market signal will produce zero comparables.',
+        config.NAMEBIO_API_KEY !== undefined && config.NAMEBIO_API_KEY !== ''
+          ? `Live API (namebio.com) with key ${config.NAMEBIO_API_KEY.slice(0, 6)}…`
+          : config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== ''
+            ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
+            : 'NAMEBIO_API_KEY and COMPS_DATA_PATH are unset — the market signal will produce zero comparables.',
     },
     {
       name: 'CloudflareRegistrar',
