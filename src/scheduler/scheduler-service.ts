@@ -4,6 +4,7 @@ import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
+import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
 import type { Config } from '../config.js';
 import { getLogger } from '../logger.js';
 
@@ -24,6 +25,7 @@ export interface SchedulerOptions {
   trademarkRepo?: TrademarkRepository;
   runsRepo?: PipelineRunsRepository;
   watchlistService?: WatchlistService;
+  autoTuner?: AutoWeightTuner;
 }
 
 export class SchedulerService {
@@ -36,6 +38,7 @@ export class SchedulerService {
   private readonly trademarkRepo: TrademarkRepository | undefined;
   private readonly runsRepo: PipelineRunsRepository | undefined;
   private readonly watchlistService: WatchlistService | undefined;
+  private readonly autoTuner: AutoWeightTuner | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -45,6 +48,7 @@ export class SchedulerService {
     this.trademarkRepo = options.trademarkRepo;
     this.runsRepo = options.runsRepo;
     this.watchlistService = options.watchlistService;
+    this.autoTuner = options.autoTuner;
   }
 
   start(): void {
@@ -95,6 +99,20 @@ export class SchedulerService {
     } else {
       logger.warn(
         'data-prune job disabled (TrademarkRepository or PipelineRunsRepository not provided)',
+      );
+    }
+
+    if (this.autoTuner) {
+      this.#register(
+        'weight-tune',
+        this.config.AUTO_TUNE_CRON,
+        'Run auto-weight-tuning cycle (backtest + suggest + safety + apply)',
+        async () => {
+          const outcome = this.autoTuner!.tune();
+          const msg = `Weight tune: sample=${outcome.sampleSize}, safety=${outcome.safety.passed ? 'passed' : 'failed'}, applied=${outcome.applied}`;
+          logger.info(msg);
+          return msg;
+        },
       );
     }
 

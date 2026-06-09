@@ -120,7 +120,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'snapshot']);
       } catch {
@@ -139,7 +139,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'report']);
       } catch {
@@ -163,7 +163,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'run']);
       } catch {
@@ -187,7 +187,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'run', '--json']);
       } catch {
@@ -209,7 +209,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'snapshot']);
       } catch {
@@ -221,7 +221,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'run', '--no-snapshot']);
       } catch {
@@ -242,7 +242,7 @@ describe('dominus backtest CLI', () => {
       const program = new Command();
       program.exitOverride();
       const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo });
+      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'suggest-weights']);
       } catch {

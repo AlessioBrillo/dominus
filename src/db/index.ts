@@ -9,6 +9,7 @@ export { BacktestSignalsRepository } from './repositories/backtest-signals-repos
 export { PipelineRunsRepository } from './repositories/pipeline-runs-repository.js';
 export { RenewalAlertRepository } from './repositories/renewal-alert-repository.js';
 export { WatchlistRepository } from './repositories/watchlist-repository.js';
+export { WeightSnapshotRepository } from './repositories/weight-snapshot-repository.js';
 export type {
   PipelineRun,
   PipelineRunInputs,

@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS scoring_runs (
   commercial_score REAL NOT NULL,
   market_score REAL NOT NULL,
   expiry_score REAL NOT NULL,
-  weights_snapshot TEXT NOT NULL,
+  signal_scores TEXT NOT NULL,
   scored_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
 `;
@@ -279,4 +279,30 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_checked_at
 export const WATCHLIST_NOTIFIED_IDX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_watchlist_notified
   ON watchlist_entries(notified)
+`;
+
+export const WEIGHT_SNAPSHOTS_DDL = `
+CREATE TABLE IF NOT EXISTS weight_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  snapshot_at TEXT NOT NULL DEFAULT (datetime('now')),
+  intrinsic REAL NOT NULL,
+  commercial REAL NOT NULL,
+  market REAL NOT NULL,
+  expiry REAL NOT NULL,
+  source TEXT NOT NULL
+    CHECK(source IN ('init', 'manual', 'auto-tune', 'cli-override')),
+  backtest_generated_at TEXT,
+  sample_size INTEGER,
+  notes TEXT
+)
+`;
+
+export const WEIGHT_SNAPSHOTS_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_weight_snapshots_snapshot_at
+  ON weight_snapshots(snapshot_at DESC)
+`;
+
+export const WEIGHT_SNAPSHOTS_SOURCE_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_weight_snapshots_source
+  ON weight_snapshots(source)
 `;

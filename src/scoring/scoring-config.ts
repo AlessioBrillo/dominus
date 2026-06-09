@@ -24,6 +24,12 @@ export interface ScoringConstants {
   listPriceMultiplier: number;
   baseMarketValueEur: number;
   confidenceBase: number;
+  /**
+   * @deprecated Unused since v0.2.1. The scoring engine computes
+   * confidence via a weight-covered-proportion formula instead.
+   * Kept in the interface for backward compatibility with existing
+   * .env files — the value is parsed but ignored.
+   */
   confidencePerSignal: number;
   confidenceCap: number;
   /**

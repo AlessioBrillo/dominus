@@ -23,6 +23,9 @@ re-running the original arguments.
 | [0014](0014-euipo-api-migration.md) | EUIPO provider migration to Trademark Search 1.1.0 (RSQL + X-IBM-Client-Id) | 2026-06-07 | Accepted |
 | [0015](0015-psl-parser-adoption.md) | Adopt full Public Suffix List via `psl` npm Package | 2026-06-07 | Accepted |
 | [0016](0016-registrar-abstraction.md) | Registrar provider abstraction | 2026-06-08 | Accepted |
+| [0017](0017-api-authentication.md) | API authentication | 2026-06-08 | Accepted |
+| [0018](0018-open-source-architecture.md) | Open-source architecture and forkability | 2026-06-09 | Accepted |
+| [0019](0019-auto-weight-tuning-loop.md) | Closed-loop auto weight tuning | 2026-06-09 | Accepted |
 
 ## Conventions
 

@@ -38,24 +38,78 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
  * transient backend failures and HTTP 429 on rate-limit bursts; both
  * are retried. Network errors (DNS, ECONNRESET, fetch failures) are
  * also retried. 4xx other than 429 — and any error with a structured
- * payload — bubble up unchanged.
+ * payload — bubble up immediately.
+ *
+ * Detection strategy (in order of reliability):
+ *  1. Numeric `status` or `statusCode` property (HTTP response).
+ *  2. System `code` property (e.g. ECONNRESET, ETIMEDOUT).
+ *  3. Message substring (fallback for wrapped/bare errors).
+ *  4. Walks `cause` chain for wrapped errors that carry the above.
  */
 export function isTransient(err: unknown): boolean {
+  return isTransientInternal(err, new Set());
+}
+
+function isTransientInternal(err: unknown, seen: Set<unknown>): boolean {
+  if (err === null || err === undefined || typeof err !== 'object' || seen.has(err)) {
+    return false;
+  }
+  seen.add(err);
+
+  const status =
+    ((err as Record<string, unknown>).status as number | undefined) ??
+    ((err as Record<string, unknown>).statusCode as number | undefined);
+
+  if (typeof status === 'number') {
+    if (status === 429 || (status >= 500 && status < 600)) return true;
+  }
+
+  const code = (err as Record<string, unknown>).code;
+  if (typeof code === 'string') {
+    const c = code.toUpperCase();
+    if (
+      c === 'ECONNRESET' ||
+      c === 'ETIMEDOUT' ||
+      c === 'ENOTFOUND' ||
+      c === 'EAI_AGAIN' ||
+      c === 'ECONNREFUSED' ||
+      c === 'ENETUNREACH'
+    ) {
+      return true;
+    }
+  }
+
   if (err instanceof Error) {
     const msg = err.message.toLowerCase();
-    if (msg.includes('429')) return true;
-    if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504'))
+    const wordBound = (s: string): boolean => {
+      const re = new RegExp(`\\b${s}\\b`, 'i');
+      return re.test(msg);
+    };
+    if (
+      wordBound('429') ||
+      wordBound('500') ||
+      wordBound('502') ||
+      wordBound('503') ||
+      wordBound('504')
+    )
       return true;
     if (
       msg.includes('econnreset') ||
       msg.includes('etimedout') ||
       msg.includes('enotfound') ||
-      msg.includes('eai_again')
+      msg.includes('eai_again') ||
+      msg.includes('econnrefused') ||
+      msg.includes('enetunreach')
     )
       return true;
     if (msg.includes('fetch failed') || msg.includes('network') || msg.includes('timeout'))
       return true;
+
+    if ('cause' in err && err.cause !== undefined && err.cause !== null) {
+      return isTransientInternal(err.cause, seen);
+    }
   }
+
   return false;
 }
 

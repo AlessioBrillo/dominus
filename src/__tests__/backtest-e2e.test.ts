@@ -63,7 +63,7 @@ function seedScenario(db: Database.Database): void {
     `INSERT INTO scoring_runs
        (run_id, candidate_id, expected_value, confidence, suggested_buy_max,
         suggested_list_price, intrinsic_score, commercial_score, market_score,
-        expiry_score, weights_snapshot, scored_at)
+        expiry_score, signal_scores, scored_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     'run-1',
@@ -94,7 +94,7 @@ function seedScenario(db: Database.Database): void {
     `INSERT INTO scoring_runs
        (run_id, candidate_id, expected_value, confidence, suggested_buy_max,
         suggested_list_price, intrinsic_score, commercial_score, market_score,
-        expiry_score, weights_snapshot, scored_at)
+        expiry_score, signal_scores, scored_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     'run-1',
@@ -117,7 +117,7 @@ function seedScenario(db: Database.Database): void {
     `INSERT INTO scoring_runs
        (run_id, candidate_id, expected_value, confidence, suggested_buy_max,
         suggested_list_price, intrinsic_score, commercial_score, market_score,
-        expiry_score, weights_snapshot, scored_at)
+        expiry_score, signal_scores, scored_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     'run-2',

@@ -13,7 +13,7 @@ interface ScoringRow {
   commercial_score: number;
   market_score: number;
   expiry_score: number;
-  weights_snapshot: string;
+  signal_scores: string;
   scored_at: string;
 }
 
@@ -26,7 +26,7 @@ export class ScoringRepository {
         `INSERT INTO scoring_runs
          (candidate_id, run_id, expected_value, confidence, suggested_buy_max,
           suggested_list_price, intrinsic_score, commercial_score, market_score,
-          expiry_score, weights_snapshot)
+          expiry_score, signal_scores)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(

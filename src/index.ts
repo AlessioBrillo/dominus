@@ -67,7 +67,7 @@ const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);
 protectedRouter.use(
   '/backtest',
-  createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights),
+  createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
 );
 protectedRouter.use('/providers', createProvidersRouter(deps.config));
 protectedRouter.use('/outcomes', createOutcomesRouter(deps.outcomeRepo));

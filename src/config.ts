@@ -130,7 +130,12 @@ const configSchema = z.object({
   SCORING_BASE_MARKET_VALUE: z.coerce.number().min(1).default(500),
   /** Confidence base for zero-signal fallback (default: 0.2). */
   SCORING_CONFIDENCE_BASE: z.coerce.number().min(0).max(1).default(0.2),
-  /** Confidence increment per additional signal (default: 0.3). */
+  /**
+   * @deprecated No longer used since v0.2.1 — the scoring engine
+   * computes confidence via a weight-covered-proportion formula.
+   * Kept in the schema for backward compatibility with existing
+   * .env files; parsing succeeds but the value is ignored.
+   */
   SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).default(0.3),
   /** Absolute cap on confidence score (default: 0.8). */
   SCORING_CONFIDENCE_CAP: z.coerce.number().min(0).max(1).default(0.8),
@@ -239,6 +244,64 @@ const configSchema = z.object({
    * Example: API_KEYS=admin=sk-admin-key,ro=sk-readonly
    */
   API_KEYS: z.string().optional(),
+
+  // ── Auto-weight-tuning config ────────────────────────────────────
+
+  /**
+   * Enable automatic weight tuning loop. When true, the AutoWeightTuner
+   * runs on schedule and writes tuned weights to AUTO_TUNE_WEIGHTS_PATH.
+   * The engine picks up auto-tuned weights automatically when no explicit
+   * SCORING_WEIGHTS_OVERRIDE is set. Two-gate policy (ADR-0009) still
+   * applies when SCORING_WEIGHTS_OVERRIDE is explicitly configured.
+   * Default: false (conservative).
+   */
+  AUTO_TUNE_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+
+  /**
+   * Path where the AutoWeightTuner writes the tuned weights JSON file.
+   * Only used when AUTO_TUNE_ENABLED=true. The engine loads from this path
+   * automatically (no need to set SCORING_WEIGHTS_OVERRIDE).
+   * Default: ./data/weights-override.json
+   */
+  AUTO_TUNE_WEIGHTS_PATH: z.string().default('./data/weights-override.json'),
+
+  /**
+   * Minimum number of sold outcomes in the backtest sample before the
+   * auto-tuner considers a weight adjustment. Prevents over-fitting on
+   * tiny samples. Default: 20.
+   */
+  AUTO_TUNE_MIN_SAMPLE: z.coerce.number().int().min(5).max(1000).default(20),
+
+  /**
+   * Maximum absolute delta per signal weight in a single tuning pass.
+   * A signal weight cannot move more than this in one go (±5% default).
+   * Prevents runaway weight changes from a single noisy batch. Default: 0.05.
+   */
+  AUTO_TUNE_MAX_DELTA: z.coerce.number().min(0.01).max(0.2).default(0.05),
+
+  /**
+   * Maximum total drift (sum of absolute per-signal deltas from DEFAULT_WEIGHTS)
+   * before the auto-tuner refuses to apply. This guardrail prevents the weight
+   * vector from drifting into operator-unapproved territory. Default: 0.20.
+   */
+  AUTO_TUNE_MAX_DRIFT: z.coerce.number().min(0.05).max(0.5).default(0.2),
+
+  /**
+   * When true, the auto-tuner runs through the full pipeline (validate, suggest,
+   * record) but does NOT write the weight override file. Use for monitoring and
+   * preview before enabling live tuning. Default: true (safe default).
+   */
+  AUTO_TUNE_DRY_RUN: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
+
+  /**
+   * Cron expression for the auto-weight-tuning job in the scheduler.
+   * Default: first day of each month at 06:00.
+   */
+  AUTO_TUNE_CRON: z.string().default('0 6 1 * *'),
 
   /** Cloudflare API token with Zone:Read, Registrar:Read, Registrar:Write permissions. */
   CLOUDFLARE_API_TOKEN: z.string().optional(),
