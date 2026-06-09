@@ -33,6 +33,40 @@ describe('RetryingTrademarkProvider', () => {
       expect(isTransient(new Error('404 Not Found'))).toBe(false);
       expect(isTransient(new Error('unauthorized'))).toBe(false);
     });
+
+    it('flags transient via numeric status property', () => {
+      expect(isTransient(Object.assign(new Error('upstream error'), { status: 503 }))).toBe(true);
+      expect(isTransient(Object.assign(new Error('rate limited'), { status: 429 }))).toBe(true);
+    });
+
+    it('does not flag non-transient status codes', () => {
+      expect(isTransient(Object.assign(new Error('bad request'), { status: 400 }))).toBe(false);
+      expect(isTransient(Object.assign(new Error('forbidden'), { status: 403 }))).toBe(false);
+    });
+
+    it('flags transient via system code property', () => {
+      expect(
+        isTransient(Object.assign(new Error('connection refused'), { code: 'ECONNREFUSED' })),
+      ).toBe(true);
+      expect(
+        isTransient(Object.assign(new Error('network unreachable'), { code: 'ENETUNREACH' })),
+      ).toBe(true);
+      expect(isTransient(Object.assign(new Error('DNS not found'), { code: 'ENOTFOUND' }))).toBe(
+        true,
+      );
+    });
+
+    it('walks cause chain for wrapped transient errors', () => {
+      const inner = Object.assign(new Error('underlying'), { status: 502 });
+      const outer = new Error('wrapper', { cause: inner });
+      expect(isTransient(outer)).toBe(true);
+    });
+
+    it('uses word-boundary matching on message to avoid false positives', () => {
+      expect(isTransient(new Error('error 4290'))).toBe(false);
+      expect(isTransient(new Error('status 9429'))).toBe(false);
+      expect(isTransient(new Error('port 5000'))).toBe(false);
+    });
   });
 
   it('returns the first successful result without retrying', async () => {
