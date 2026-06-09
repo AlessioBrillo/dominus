@@ -4,11 +4,13 @@ import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
 import type { TrademarkRepository } from '../../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
+import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 
 export interface MaintenanceCommandDeps {
   db: Database.Database;
   trademarkRepo: TrademarkRepository;
   runsRepo: PipelineRunsRepository;
+  candidateRepo: CandidateRepository;
 }
 
 export function registerMaintenanceCommand(program: Command, deps: MaintenanceCommandDeps): void {
@@ -25,12 +27,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
       const absPath = resolve(process.cwd(), path);
       mkdirSync(dirname(absPath), { recursive: true });
 
-      // Flush the WAL so VACUUM INTO gets a fully consistent snapshot.
-      // In single-user mode there is no concurrent writer, so checkpoint
-      // is guaranteed to complete immediately.
       deps.db.pragma('wal_checkpoint(TRUNCATE)');
-      // Parameterise the path via a pragma-safe approach: SQLite VACUUM
-      // INTO does not accept bound parameters, so we escape single quotes.
       if (absPath.includes("'")) {
         process.stderr.write('Error: backup path must not contain single quotes\n');
         process.exit(1);
@@ -42,23 +39,42 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
 
   maintenance
     .command('prune')
-    .description('Delete expired rows from the TM cache and/or the pipeline_runs history')
+    .description(
+      'Delete expired rows from the TM cache, pipeline_runs history, and rescore candidates',
+    )
     .option('--cache-only', 'Prune only the trademark_results cache')
     .option('--runs-only', 'Prune only the pipeline_runs history')
+    .option('--rescore-only', 'Prune only synthetic portfolio_rescore candidates')
     .option(
       '--before <days>',
-      'Prune pipeline_runs older than N days (overrides retained_until)',
+      'Prune pipeline_runs or rescore candidates older than N days (default: 90)',
       parseInt,
     )
     .option('--dry-run', 'Print counts of rows that would be removed without writing')
     .action(
-      (options: { cacheOnly?: boolean; runsOnly?: boolean; before?: number; dryRun?: boolean }) => {
-        const pruneCache = options.runsOnly !== true;
-        const pruneRuns = options.cacheOnly !== true;
+      (options: {
+        cacheOnly?: boolean;
+        runsOnly?: boolean;
+        rescoreOnly?: boolean;
+        before?: number;
+        dryRun?: boolean;
+      }) => {
         if (options.cacheOnly === true && options.runsOnly === true) {
           process.stderr.write('Error: --cache-only and --runs-only are mutually exclusive\n');
           process.exit(1);
         }
+        if (
+          (options.cacheOnly === true || options.runsOnly === true) &&
+          options.rescoreOnly === true
+        ) {
+          process.stderr.write('Error: --rescore-only is mutually exclusive with other flags\n');
+          process.exit(1);
+        }
+
+        const pruneCache = options.runsOnly !== true && options.rescoreOnly !== true;
+        const pruneRuns = options.cacheOnly !== true && options.rescoreOnly !== true;
+        const pruneRescore = options.rescoreOnly === true;
+        const retentionDays = options.before ?? 90;
 
         if (pruneCache) {
           const before = deps.trademarkRepo.count();
@@ -73,7 +89,6 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
 
         if (pruneRuns) {
           if (options.before !== undefined) {
-            // --before overrides: prune rows started before N days ago
             const cutoff = new Date(
               Date.now() - options.before * 24 * 60 * 60 * 1000,
             ).toISOString();
@@ -91,7 +106,6 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
               );
             }
           } else {
-            // Default: prune based on retained_until
             const before = deps.runsRepo.count();
             if (options.dryRun === true) {
               process.stdout.write(
@@ -102,6 +116,22 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
               const after = deps.runsRepo.count();
               process.stdout.write(`Pruned ${removed} pipeline_runs row(s); ${after} remain.\n`);
             }
+          }
+        }
+
+        if (pruneRescore) {
+          const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+          const before = deps.candidateRepo.countRescoreCandidates(cutoff);
+          if (options.dryRun === true) {
+            process.stdout.write(
+              `Would prune ${before} portfolio_rescore candidate(s) created before ${cutoff}.\n`,
+            );
+          } else {
+            const removed = deps.candidateRepo.pruneRescoreCandidates(cutoff);
+            const after = deps.candidateRepo.countRescoreCandidates(cutoff);
+            process.stdout.write(
+              `Pruned ${removed} portfolio_rescore candidate(s) created before ${cutoff}; ${after} remain.\n`,
+            );
           }
         }
       },

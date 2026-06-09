@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
-import { TrademarkRepository } from '../../db/repositories/trademark-repository.js';
+import { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { CachedTrademarkProvider } from '../cached-trademark-provider.js';
 import type { TrademarkProvider } from '../../providers/trademark/trademark-provider.js';
 import { ProviderError } from '../../types/errors.js';
@@ -28,17 +28,17 @@ function makeErrorDelegate(): TrademarkProvider & { search: ReturnType<typeof vi
 
 describe('CachedTrademarkProvider', () => {
   let db: Database.Database;
-  let repo: TrademarkRepository;
+  let cacheRepo: ProviderCacheRepository;
 
   beforeEach(() => {
     db = openTestDb();
-    repo = new TrademarkRepository(db);
+    cacheRepo = new ProviderCacheRepository(db);
   });
 
   it('calls the delegate on cache miss and returns its results', async () => {
     const matches = [{ markName: 'NIKE', owner: 'Nike', status: '6-REGISTERED', source: 'USPTO' }];
     const delegate = makeDelegate(matches);
-    const provider = new CachedTrademarkProvider(delegate, repo, 'USPTO', 7);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
 
     const results = await provider.search('nike');
 
@@ -50,21 +50,20 @@ describe('CachedTrademarkProvider', () => {
   it('writes results to the cache after a delegate call', async () => {
     const matches = [{ markName: 'NIKE', owner: 'Nike', status: '6-REGISTERED', source: 'USPTO' }];
     const delegate = makeDelegate(matches);
-    const provider = new CachedTrademarkProvider(delegate, repo, 'USPTO', 7);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
 
     await provider.search('nike');
 
-    const cached = repo.findValidByTerm('nike', 'USPTO');
+    const cached = cacheRepo.get('nike', 'trademark:USPTO');
     expect(cached).not.toBeNull();
-    expect(cached!.match_found).toBe(1);
-    expect(cached!.search_term).toBe('nike');
-    expect(cached!.source).toBe('USPTO');
+    const parsed = JSON.parse(cached!);
+    expect(parsed).toEqual(matches);
   });
 
   it('returns cached result and does NOT call the delegate on a cache hit', async () => {
     const matches = [{ markName: 'NIKE', owner: 'Nike', status: '6-REGISTERED', source: 'USPTO' }];
     const delegate = makeDelegate(matches);
-    const provider = new CachedTrademarkProvider(delegate, repo, 'USPTO', 7);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
 
     // First call: cache miss → delegate called
     await provider.search('nike');
@@ -78,32 +77,32 @@ describe('CachedTrademarkProvider', () => {
 
   it('caches an empty match array as a negative result', async () => {
     const delegate = makeDelegate([]);
-    const provider = new CachedTrademarkProvider(delegate, repo, 'USPTO', 7);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
 
     await provider.search('brandablexy');
     await provider.search('brandablexy');
 
     // Delegate only called once; second call from cache
     expect(delegate.search).toHaveBeenCalledOnce();
-    const cached = repo.findValidByTerm('brandablexy', 'USPTO');
+    const cached = cacheRepo.get('brandablexy', 'trademark:USPTO');
     expect(cached).not.toBeNull();
-    expect(cached!.match_found).toBe(0);
+    expect(JSON.parse(cached!)).toEqual([]);
   });
 
   it('propagates delegate errors (so the gate counts the source as down)', async () => {
     const delegate = makeErrorDelegate();
-    const provider = new CachedTrademarkProvider(delegate, repo, 'USPTO', 7);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
 
     await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
   });
 
   it('does NOT write to cache when the delegate errors', async () => {
     const delegate = makeErrorDelegate();
-    const provider = new CachedTrademarkProvider(delegate, repo, 'USPTO', 7);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
 
     await provider.search('test').catch(() => undefined);
 
-    const cached = repo.findValidByTerm('test', 'USPTO');
+    const cached = cacheRepo.get('test', 'trademark:USPTO');
     expect(cached).toBeNull();
   });
 
@@ -118,8 +117,8 @@ describe('CachedTrademarkProvider', () => {
     const usptoDelegate = makeDelegate(usptoMatches);
     const euipoDelegate = makeDelegate(euipoMatches);
 
-    const usptoProvider = new CachedTrademarkProvider(usptoDelegate, repo, 'USPTO', 7);
-    const euipoProvider = new CachedTrademarkProvider(euipoDelegate, repo, 'EUIPO', 7);
+    const usptoProvider = new CachedTrademarkProvider(usptoDelegate, cacheRepo, 'USPTO', 7);
+    const euipoProvider = new CachedTrademarkProvider(euipoDelegate, cacheRepo, 'EUIPO', 7);
 
     await usptoProvider.search('testbrand');
     await euipoProvider.search('testbrand');

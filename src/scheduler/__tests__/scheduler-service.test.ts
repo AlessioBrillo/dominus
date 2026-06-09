@@ -29,6 +29,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     SCORING_WEIGHTS_OVERRIDE: undefined,
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
+    RDAP_RATE_LIMIT_TOKENS: 10,
+    RDAP_RATE_LIMIT_INTERVAL_MS: 1000,
+    WHOIS_RATE_LIMIT_TOKENS: 1,
+    WHOIS_RATE_LIMIT_INTERVAL_MS: 2000,
     BUY_MAX_ABSOLUTE_CAP: 500,
     HOST: '127.0.0.1',
     RENEWAL_WARNING_DAYS: 30,
@@ -74,6 +78,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MIN_TOKEN_LENGTH_FUZZY: 4,
     TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: 3,
     TRADEMARK_MAX_LEVENSHTEIN: 1,
+    PROVIDER_CACHE_TTL_DAYS: 7,
+    NAMEBIO_API_KEY: undefined,
     ...overrides,
   };
 }

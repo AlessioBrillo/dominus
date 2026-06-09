@@ -56,4 +56,20 @@ describe('PublicRdapProvider', () => {
     const result = await provider.confirm('example.com');
     expect(result.status).toBe(DomainStatus.Unknown);
   });
+
+  it('handles notices with missing description gracefully', async () => {
+    mockFetch.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          ldhName: 'example.com',
+          status: ['active'],
+          notices: [{ description: ['Regular text'] }, { otherField: 'value' }],
+        }),
+    });
+    const result = await provider.confirm('example.com');
+    expect(result.status).toBe(DomainStatus.Registered);
+    expect(result.isPremium).toBe(false);
+  });
 });

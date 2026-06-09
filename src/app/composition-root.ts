@@ -6,6 +6,7 @@ import {
   ScoringRepository,
   PortfolioRepository,
   TrademarkRepository,
+  ProviderCacheRepository,
   OutcomeRepository,
   RenewalAlertRepository,
   PipelineRunsRepository,
@@ -13,9 +14,16 @@ import {
   BacktestSignalsRepository,
   WeightSnapshotRepository,
 } from '../db/index.js';
-import { createKeywordProvider, type KeywordProvider } from '../providers/keyword/index.js';
+import {
+  createKeywordProvider,
+  type KeywordProvider,
+  type KeywordMetrics,
+} from '../providers/keyword/index.js';
 import { createCompsProvider, type CompsProvider } from '../providers/comps/index.js';
+import type { ComparableSale } from '../providers/comps/comps-provider.js';
+import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
+import { RateLimiter } from '../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
 import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
@@ -95,6 +103,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const candidateRepo = new CandidateRepository(db);
   const scoringRepo = new ScoringRepository(db);
   const trademarkRepo = new TrademarkRepository(db);
+  const providerCacheRepo = new ProviderCacheRepository(db);
   const outcomeRepo = new OutcomeRepository(db);
   const portfolioRepo = new PortfolioRepository(db);
   const alertRepo = new RenewalAlertRepository(db);
@@ -102,10 +111,39 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const keywordProvider = createKeywordProvider(config.KEYWORD_PROVIDER, {
     dataFilePath: config.KEYWORD_DATA_PATH,
+    googleAdsClientId: config.GOOGLE_ADS_CLIENT_ID,
+    googleAdsClientSecret: config.GOOGLE_ADS_CLIENT_SECRET,
+    googleAdsRefreshToken: config.GOOGLE_ADS_REFRESH_TOKEN,
+    googleAdsDeveloperToken: config.GOOGLE_ADS_DEVELOPER_TOKEN,
+    googleAdsCustomerId: config.GOOGLE_ADS_CUSTOMER_ID,
   });
+
+  // Cache the keyword provider to avoid redundant API calls for the same term
+  const keywordCache = new CachedProvider<KeywordMetrics>(
+    (term) => keywordProvider.getMetrics(term),
+    providerCacheRepo,
+    'keyword',
+    config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+  );
+  const cachedKeywordProvider: KeywordProvider = {
+    getMetrics: (term: string) => keywordCache.get(term),
+  };
   const compsProvider = createCompsProvider(config.COMPS_PROVIDER, {
     csvFilePath: config.COMPS_DATA_PATH,
+    namebioApiKey: config.NAMEBIO_API_KEY,
   });
+
+  // Cache the comps provider to avoid repeated API calls for the same term.
+  // The adapter preserves the CompsProvider interface expected by the engine.
+  const compsCache = new CachedProvider<ComparableSale[]>(
+    (term) => compsProvider.getSales(term),
+    providerCacheRepo,
+    'comps',
+    config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+  );
+  const cachedCompsProvider: CompsProvider = {
+    getSales: (term: string) => compsCache.get(term),
+  };
 
   const weightsOverridePath =
     config.SCORING_WEIGHTS_OVERRIDE ||
@@ -143,8 +181,8 @@ export function createDependencies(config: Config): DominusDependencies {
   };
 
   const engine = new ScoringEngine(
-    keywordProvider,
-    compsProvider,
+    cachedKeywordProvider,
+    cachedCompsProvider,
     currentWeights,
     config.BUY_MAX_ABSOLUTE_CAP,
     config.SCORING_RECOMMEND_THRESHOLD,
@@ -162,7 +200,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const trademarkGate = new TrademarkGate(
     new CachedTrademarkProvider(
       new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
-      trademarkRepo,
+      providerCacheRepo,
       'USPTO',
       config.TM_CACHE_TTL_DAYS,
     ),
@@ -175,21 +213,33 @@ export function createDependencies(config: Config): DominusDependencies {
           apiUrl: config.EUIPO_API_URL,
         }),
       ),
-      trademarkRepo,
+      providerCacheRepo,
       'EUIPO',
       config.TM_CACHE_TTL_DAYS,
     ),
     matchDetectorConfig,
   );
 
+  const rdapRateLimiter = new RateLimiter({
+    maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
+    intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
+  });
+  const whoisRateLimiter = new RateLimiter({
+    maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
+    intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
+  });
+
   const whoisProvider = new NodeWhoisProviderWithIanaFallback({
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
+    rateLimiter: whoisRateLimiter,
   });
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(new NodeDnsProvider()),
-    new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
+    new RdapConfirmationStage(new PublicRdapProvider(rdapRateLimiter), whoisProvider),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate),
   );
@@ -211,7 +261,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const watchlistService = new WatchlistService(
     new WatchlistRepository(db),
     new NodeDnsProvider(),
-    new PublicRdapProvider(),
+    new PublicRdapProvider(rdapRateLimiter),
     notifiers,
     config,
   );

@@ -28,6 +28,10 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     COMPS_PROVIDER: 'manual',
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
+    RDAP_RATE_LIMIT_TOKENS: 10,
+    RDAP_RATE_LIMIT_INTERVAL_MS: 1000,
+    WHOIS_RATE_LIMIT_TOKENS: 1,
+    WHOIS_RATE_LIMIT_INTERVAL_MS: 2000,
     BUY_MAX_ABSOLUTE_CAP: 500,
     SCORING_RECOMMEND_THRESHOLD: 0.4,
     HOST: '127.0.0.1',
@@ -76,6 +80,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MIN_TOKEN_LENGTH_FUZZY: 4,
     TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: 3,
     TRADEMARK_MAX_LEVENSHTEIN: 1,
+    PROVIDER_CACHE_TTL_DAYS: 7,
+    NAMEBIO_API_KEY: undefined,
     ...overrides,
   };
 }
@@ -170,7 +176,7 @@ describe('reportProviderStatuses', () => {
 
   it('reports 6 provider status rows', () => {
     const rows = reportProviderStatuses(buildConfig());
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(7);
   });
 });
 
@@ -269,7 +275,7 @@ describe('CLI: dominus providers', () => {
 
     // Assert
     const parsed = JSON.parse(out) as ProviderRow[];
-    expect(parsed).toHaveLength(6);
+    expect(parsed).toHaveLength(7);
     const euipo = parsed.find((r) => r.name === 'EUIPO');
     expect(euipo?.configured).toBe(true);
     const cf = parsed.find((r) => r.name === 'CloudflareRegistrar');

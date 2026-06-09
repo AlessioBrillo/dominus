@@ -27,7 +27,34 @@ const configSchema = z.object({
    *   2. Adding the type to the union below
    *   3. Adding the factory case in src/providers/keyword/index.ts
    */
-  KEYWORD_PROVIDER: z.enum(['manual']).default('manual'),
+  KEYWORD_PROVIDER: z.enum(['manual', 'google-ads']).default('manual'),
+  /**
+   * Google Ads OAuth2 client ID for the Keyword Planner API.
+   * Required when KEYWORD_PROVIDER=google-ads.
+   * Create credentials at https://console.cloud.google.com/apis/credentials
+   */
+  GOOGLE_ADS_CLIENT_ID: z.string().optional(),
+  /**
+   * Google Ads OAuth2 client secret.
+   */
+  GOOGLE_ADS_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Google Ads OAuth2 refresh token.
+   * Generated via the OAuth2 offline access flow.
+   */
+  GOOGLE_ADS_REFRESH_TOKEN: z.string().optional(),
+  /**
+   * Google Ads developer token.
+   * Apply at https://developers.google.com/google-ads/api/docs/first-call/dev-token
+   * Approval can take 1-4 weeks.
+   */
+  GOOGLE_ADS_DEVELOPER_TOKEN: z.string().optional(),
+  /**
+   * Google Ads customer ID (without hyphens).
+   * Found in the Google Ads dashboard under Settings > Account > Account ID.
+   * Format: 1234567890 (10 digits).
+   */
+  GOOGLE_ADS_CUSTOMER_ID: z.string().optional(),
   /**
    * Optional path to a CSV file of NameBio comparable sales.
    * Columns: domain,price,date,venue
@@ -35,14 +62,20 @@ const configSchema = z.object({
    */
   COMPS_DATA_PATH: z.string().optional(),
   /**
+   * API key for the NameBio API (namebio.com/api).
+   * When absent, NameBioProvider returns zero comparable sales (graceful degrade).
+   */
+  NAMEBIO_API_KEY: z.string().optional(),
+  /**
    * Comparable-sales provider implementation to use.
-   * Supported values: 'manual' (reads from COMPS_DATA_PATH CSV file).
-   * Adding a new provider (e.g. 'namebio-api') requires:
+   * Supported values: 'manual' (reads from COMPS_DATA_PATH CSV file),
+   *                    'namebio' (uses the NameBio REST API).
+   * Adding a new provider requires:
    *   1. Creating a new implementation of CompsProvider interface
    *   2. Adding the type to the union below
    *   3. Adding the factory case in src/providers/comps/index.ts
    */
-  COMPS_PROVIDER: z.enum(['manual']).default('manual'),
+  COMPS_PROVIDER: z.enum(['manual', 'namebio']).default('manual'),
   /**
    * USPTO public trademark search base URL (no API key required).
    * Default: the official US tmsearch.uspto.gov JSON backend.
@@ -85,6 +118,11 @@ const configSchema = z.object({
    */
   TM_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
   /**
+   * Default TTL in days for generic provider cache entries (comps, keyword).
+   * Each provider may override this individually. Default: 7.
+   */
+  PROVIDER_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
+  /**
    * Optional path to a JSON file with operator-approved weight overrides.
    * When set, the scoring engine reads this file at startup and uses the
    * weights inside it instead of DEFAULT_WEIGHTS. The CLI's
@@ -104,6 +142,22 @@ const configSchema = z.object({
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */
   WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(10_000),
+  /**
+   * Rate limiting: max tokens (burst capacity) for RDAP requests.
+   * Token bucket refills at RDAP_RATE_LIMIT_TOKENS per RDAP_RATE_LIMIT_INTERVAL_MS.
+   * Default: 10 req/sec with burst up to 10.
+   */
+  RDAP_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(10),
+  /** Rate limiting: refill interval in ms for RDAP requests (default: 1000). */
+  RDAP_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
+   * WHOIS servers are generally more restrictive than RDAP.
+   * Default: 1 req/2 sec.
+   */
+  WHOIS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(1),
+  /** Rate limiting: refill interval in ms for WHOIS requests (default: 2000). */
+  WHOIS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(2000),
   /**
    * Absolute cap on suggestedBuyMax in EUR. Prevents the scoring engine
    * from recommending purchases beyond the operator's stated ~500€ budget,

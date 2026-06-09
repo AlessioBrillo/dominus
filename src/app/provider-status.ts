@@ -9,7 +9,14 @@ import { getLogger } from '../logger.js';
  * across releases so the JSON output is safe for dashboards.
  */
 export interface ProviderStatus {
-  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio' | 'WHOIS' | 'CloudflareRegistrar';
+  name:
+    | 'USPTO'
+    | 'EUIPO'
+    | 'KeywordPlanner'
+    | 'NameBio'
+    | 'GoogleAds'
+    | 'WHOIS'
+    | 'CloudflareRegistrar';
   configured: boolean;
   note: string;
 }
@@ -45,15 +52,37 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
       note:
         config.KEYWORD_DATA_PATH !== undefined && config.KEYWORD_DATA_PATH !== ''
           ? `Manual file at ${config.KEYWORD_DATA_PATH}.`
-          : 'KEYWORD_DATA_PATH is unset — commercial-signal search volume and CPC will be zero for every term.',
+          : config.GOOGLE_ADS_CLIENT_ID !== undefined && config.GOOGLE_ADS_CLIENT_ID !== ''
+            ? 'Google Ads API configured (KEYWORD_PROVIDER=google-ads).'
+            : 'KEYWORD_DATA_PATH and GOOGLE_ADS_CLIENT_ID are unset — commercial-signal search volume and CPC will be zero.',
+    },
+    {
+      name: 'GoogleAds',
+      configured:
+        config.GOOGLE_ADS_CLIENT_ID !== undefined &&
+        config.GOOGLE_ADS_CLIENT_ID !== '' &&
+        config.GOOGLE_ADS_CLIENT_SECRET !== undefined &&
+        config.GOOGLE_ADS_CLIENT_SECRET !== '' &&
+        config.GOOGLE_ADS_REFRESH_TOKEN !== undefined &&
+        config.GOOGLE_ADS_REFRESH_TOKEN !== '' &&
+        config.GOOGLE_ADS_DEVELOPER_TOKEN !== undefined &&
+        config.GOOGLE_ADS_DEVELOPER_TOKEN !== '' &&
+        config.GOOGLE_ADS_CUSTOMER_ID !== undefined &&
+        config.GOOGLE_ADS_CUSTOMER_ID !== '',
+      note:
+        config.GOOGLE_ADS_CLIENT_ID !== undefined && config.GOOGLE_ADS_CLIENT_ID !== ''
+          ? `OAuth2 client ${config.GOOGLE_ADS_CLIENT_ID.slice(0, 6)}… against Google Ads API.`
+          : 'GOOGLE_ADS_CLIENT_ID and related credentials are missing — the commercial signal will return zero volume (graceful degrade).',
     },
     {
       name: 'NameBio',
-      configured: config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== '',
+      configured: config.NAMEBIO_API_KEY !== undefined && config.NAMEBIO_API_KEY !== '',
       note:
-        config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== ''
-          ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
-          : 'COMPS_DATA_PATH is unset — the market signal will produce zero comparables.',
+        config.NAMEBIO_API_KEY !== undefined && config.NAMEBIO_API_KEY !== ''
+          ? `Live API (namebio.com) with key ${config.NAMEBIO_API_KEY.slice(0, 6)}…`
+          : config.COMPS_DATA_PATH !== undefined && config.COMPS_DATA_PATH !== ''
+            ? `Manual CSV at ${config.COMPS_DATA_PATH}.`
+            : 'NAMEBIO_API_KEY and COMPS_DATA_PATH are unset — the market signal will produce zero comparables.',
     },
     {
       name: 'CloudflareRegistrar',

@@ -21,6 +21,10 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     TM_CACHE_TTL_DAYS: 7,
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
+    RDAP_RATE_LIMIT_TOKENS: 10,
+    RDAP_RATE_LIMIT_INTERVAL_MS: 1000,
+    WHOIS_RATE_LIMIT_TOKENS: 1,
+    WHOIS_RATE_LIMIT_INTERVAL_MS: 2000,
     BUY_MAX_ABSOLUTE_CAP: 500,
     SCORING_RECOMMEND_THRESHOLD: 0.4,
     HOST: '127.0.0.1',
@@ -76,6 +80,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MIN_TOKEN_LENGTH_FUZZY: 4,
     TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: 3,
     TRADEMARK_MAX_LEVENSHTEIN: 1,
+    PROVIDER_CACHE_TTL_DAYS: 7,
+    NAMEBIO_API_KEY: undefined,
     ...overrides,
   };
 }
@@ -88,7 +94,7 @@ describe('GET /api/providers/status', () => {
 
     const res = await request(app).get('/api/providers/status');
     expect(res.status).toBe(200);
-    expect(res.body.providers).toHaveLength(6);
+    expect(res.body.providers).toHaveLength(7);
     const names = res.body.providers.map((p: { name: string }) => p.name) as string[];
     expect(names).toContain('USPTO');
     expect(names).toContain('EUIPO');
@@ -96,6 +102,7 @@ describe('GET /api/providers/status', () => {
     expect(names).toContain('NameBio');
     expect(names).toContain('WHOIS');
     expect(names).toContain('CloudflareRegistrar');
+    expect(names).toContain('GoogleAds');
   });
 
   it('reports EUIPO as not configured when credentials are missing', async () => {

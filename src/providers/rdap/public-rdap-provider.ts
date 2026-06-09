@@ -2,6 +2,7 @@ import { DomainStatus } from '../../types/domain-status.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
+import { RateLimiter } from '../rate-limiter.js';
 
 const RDAP_BOOTSTRAP_URL = 'https://rdap.org/domain/';
 
@@ -12,7 +13,17 @@ interface RdapResponse {
 }
 
 export class PublicRdapProvider implements RdapProvider {
+  readonly #rateLimiter: RateLimiter;
+
+  constructor(rateLimiter?: RateLimiter) {
+    this.#rateLimiter = rateLimiter ?? RateLimiter.unlimited();
+  }
+
   async confirm(domain: string): Promise<RdapResult> {
+    return this.#rateLimiter.throttle(() => this.#doConfirm(domain));
+  }
+
+  async #doConfirm(domain: string): Promise<RdapResult> {
     const url = `${RDAP_BOOTSTRAP_URL}${encodeURIComponent(domain)}`;
     let response: Response;
 

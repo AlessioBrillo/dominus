@@ -36,6 +36,55 @@ describe('ManualCompsProvider — word-boundary matching', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('returns empty array when CSV has only a header', async () => {
+    const path = writeCsv('domain,price,date,venue\n');
+    const provider = new ManualCompsProvider(path);
+    const sales = await provider.getSales('anything');
+    expect(sales).toEqual([]);
+  });
+
+  it('skips rows with non-numeric price', async () => {
+    const path = writeCsv(
+      'domain,price,date,venue\napp.com,not-a-number,2025-01-01,sedo\nmyapp.com,500,2025-01-01,sedo\n',
+    );
+    const provider = new ManualCompsProvider(path);
+    const sales = await provider.getSales('myapp');
+    expect(sales).toHaveLength(1);
+    expect(sales[0]?.salePrice).toBe(500);
+  });
+
+  it('handles non-existent CSV file gracefully', async () => {
+    const provider = new ManualCompsProvider('/nonexistent/path.csv');
+    const sales = await provider.getSales('anything');
+    expect(sales).toEqual([]);
+  });
+
+  it('skips CSV rows with fewer than 4 columns', async () => {
+    const path = writeCsv('domain,price,date,venue\napp.com,1000\nmyapp.com,500,2025-01-01,sedo\n');
+    const provider = new ManualCompsProvider(path);
+    const sales = await provider.getSales('myapp');
+    expect(sales).toHaveLength(1);
+    expect(sales[0]?.salePrice).toBe(500);
+  });
+
+  it('handles CSV row with empty domain name gracefully', async () => {
+    const path = writeCsv(
+      'domain,price,date,venue\n,1000,2025-01-01,sedo\napp.com,500,2025-01-01,namecheap\n',
+    );
+    const provider = new ManualCompsProvider(path);
+    const sales = await provider.getSales('app');
+    expect(sales).toHaveLength(1);
+    expect(sales[0]?.domain).toBe('app.com');
+  });
+
+  it('handles domain without a dot (single label)', async () => {
+    const path = writeCsv('domain,price,date,venue\nlocalhost,500,2025-01-01,sedo\n');
+    const provider = new ManualCompsProvider(path);
+    const sales = await provider.getSales('localhost');
+    expect(sales).toHaveLength(1);
+    expect(sales[0]?.domain).toBe('localhost');
+  });
+
   it('matches an exact SLD token (app matches app.com)', async () => {
     // Arrange
     const path = writeCsv('domain,price,date,venue\napp.com,1000,2025-01-01,namecheap\n');
