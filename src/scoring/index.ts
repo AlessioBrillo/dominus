@@ -1,10 +1,5 @@
 export { ScoringEngine } from './scoring-engine.js';
-export {
-  DEFAULT_WEIGHTS,
-  CONFIDENCE_THRESHOLD,
-  WEIGHT_RECOMMEND_THRESHOLD,
-  DEFAULT_TLD_BONUS,
-} from './weights.js';
+export { DEFAULT_WEIGHTS, WEIGHT_RECOMMEND_THRESHOLD, DEFAULT_TLD_BONUS } from './weights.js';
 export type { ScoringWeights } from './weights.js';
 export { loadWeights, WeightsOverrideError } from './weights-loader.js';
 export { loadTldBonuses } from './tld-bonus-loader.js';

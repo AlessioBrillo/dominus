@@ -12,8 +12,6 @@ export const DEFAULT_WEIGHTS: ScoringWeights = {
   expiry: 0.1,
 };
 
-export const CONFIDENCE_THRESHOLD = 0.3;
-
 export const WEIGHT_RECOMMEND_THRESHOLD = 0.4;
 
 export const DEFAULT_TLD_BONUS: Record<string, number> = {

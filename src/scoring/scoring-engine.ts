@@ -8,7 +8,6 @@ import { computeExpiryScore } from './signals/expiry-signal.js';
 import {
   DEFAULT_WEIGHTS,
   DEFAULT_TLD_BONUS,
-  CONFIDENCE_THRESHOLD,
   WEIGHT_RECOMMEND_THRESHOLD,
   type ScoringWeights,
 } from './weights.js';
@@ -22,6 +21,7 @@ export class ScoringEngine {
     private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
     private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
+    private readonly confidenceThreshold: number = 0.3,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
     private readonly tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
   ) {}
@@ -80,7 +80,7 @@ export class ScoringEngine {
     const suggestedListPrice = expectedValue * listPriceMultiplier;
 
     const recommended =
-      confidence >= CONFIDENCE_THRESHOLD && weightedScore >= this.recommendThreshold;
+      confidence >= this.confidenceThreshold && weightedScore >= this.recommendThreshold;
 
     return {
       domain: input.domain,
