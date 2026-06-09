@@ -23,3 +23,7 @@ export { computeIntrinsicScore } from './signals/intrinsic-signal.js';
 export { computeCommercialScore } from './signals/commercial-signal.js';
 export { computeMarketScore } from './signals/market-signal.js';
 export { computeExpiryScore } from './signals/expiry-signal.js';
+export { AutoWeightTuner } from './auto-tuner.js';
+export type { AutoTuneOutcome } from './auto-tuner.js';
+export { DEFAULT_AUTO_TUNER_CONFIG } from './auto-tuner-config.js';
+export type { AutoTunerConfig } from './auto-tuner-config.js';
