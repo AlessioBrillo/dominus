@@ -6,6 +6,7 @@ import {
   ScoringRepository,
   PortfolioRepository,
   TrademarkRepository,
+  ProviderCacheRepository,
   OutcomeRepository,
   RenewalAlertRepository,
   PipelineRunsRepository,
@@ -95,6 +96,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const candidateRepo = new CandidateRepository(db);
   const scoringRepo = new ScoringRepository(db);
   const trademarkRepo = new TrademarkRepository(db);
+  const providerCacheRepo = new ProviderCacheRepository(db);
   const outcomeRepo = new OutcomeRepository(db);
   const portfolioRepo = new PortfolioRepository(db);
   const alertRepo = new RenewalAlertRepository(db);
@@ -162,7 +164,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const trademarkGate = new TrademarkGate(
     new CachedTrademarkProvider(
       new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
-      trademarkRepo,
+      providerCacheRepo,
       'USPTO',
       config.TM_CACHE_TTL_DAYS,
     ),
@@ -175,7 +177,7 @@ export function createDependencies(config: Config): DominusDependencies {
           apiUrl: config.EUIPO_API_URL,
         }),
       ),
-      trademarkRepo,
+      providerCacheRepo,
       'EUIPO',
       config.TM_CACHE_TTL_DAYS,
     ),
