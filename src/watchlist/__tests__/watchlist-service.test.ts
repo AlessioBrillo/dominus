@@ -19,6 +19,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     LOG_LEVEL: 'silent',
     LOG_PRETTY: false,
     SCORING_CONFIDENCE_THRESHOLD: 0.3,
+    SCORING_HOLDING_YEARS: 3,
     SCORING_RECOMMEND_THRESHOLD: 0.4,
     DROP_SCORE_THRESHOLD: 25,
     DROP_RENEWAL_HORIZON_DAYS: 60,

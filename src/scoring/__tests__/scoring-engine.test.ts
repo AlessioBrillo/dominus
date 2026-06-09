@@ -80,6 +80,56 @@ describe('ScoringEngine', () => {
     expect(result.confidence).toBeLessThanOrEqual(1);
   });
 
+  it('intrinsic-only domain gets base confidence, not zero', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'example.com',
+      tld: '.com',
+      sld: 'example',
+      isCloseout: false,
+    });
+    expect(result.confidence).toBeGreaterThanOrEqual(0.15);
+    expect(result.confidence).toBeLessThan(0.3);
+  });
+
+  it('expiry signal data increases confidence for closeout domains', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const withoutExpiry = await engine.score({
+      domain: 'example.com',
+      tld: '.com',
+      sld: 'example',
+      isCloseout: false,
+    });
+    const withExpiry = await engine.score({
+      domain: 'aged.com',
+      tld: '.com',
+      sld: 'aged',
+      isCloseout: true,
+      domainAge: 15,
+      backlinks: 500,
+      waybackSnapshots: 200,
+    });
+    expect(withExpiry.confidence).toBeGreaterThan(withoutExpiry.confidence);
+  });
+
+  it('expiry signal alone (no other external data) keeps domain below recommend threshold', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'aged.com',
+      tld: '.com',
+      sld: 'aged',
+      isCloseout: true,
+      domainAge: 15,
+      backlinks: 500,
+      waybackSnapshots: 200,
+    });
+    expect(result.confidence).toBeLessThan(0.3);
+    expect(result.recommended).toBe(false);
+  });
+
   it('respects BUY_MAX_ABSOLUTE_CAP when expectedValue suggests a higher buy max', async () => {
     const { keyword, comps } = makeProviders(1_000_000, 50, [200_000]);
     const engine = new ScoringEngine(keyword, comps, undefined, 250);
@@ -102,6 +152,43 @@ describe('ScoringEngine', () => {
       sld: 'premium',
       isCloseout: false,
     });
+    expect(result.suggestedBuyMax).toBe(0);
+  });
+
+  it('renewal cost penalty reduces suggestedBuyMax', async () => {
+    const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const withoutRenewal = await engine.score({
+      domain: 'nova.com',
+      tld: '.com',
+      sld: 'nova',
+      isCloseout: false,
+    });
+    const withRenewal = await engine.score({
+      domain: 'nova.com',
+      tld: '.com',
+      sld: 'nova',
+      isCloseout: false,
+      renewalCost: 12,
+    });
+    // Default holdingYears is 3, so renewalCost * 3 = 36 should be subtracted
+    expect(withRenewal.suggestedBuyMax).toBeLessThan(withoutRenewal.suggestedBuyMax);
+    expect(withRenewal.suggestedBuyMax).toBeLessThanOrEqual(
+      withoutRenewal.suggestedBuyMax - 36 + 0.01,
+    );
+  });
+
+  it('high renewal cost can reduce suggestedBuyMax to zero', async () => {
+    const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'nova.com',
+      tld: '.com',
+      sld: 'nova',
+      isCloseout: false,
+      renewalCost: 9999,
+    });
+    // Raw buyMax = expectedValue * 0.5 - 9999 * 3 < 0, so clamped to 0
     expect(result.suggestedBuyMax).toBe(0);
   });
 

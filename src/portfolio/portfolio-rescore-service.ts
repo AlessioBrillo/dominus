@@ -94,6 +94,7 @@ export class PortfolioRescoreService {
         tld: entry.tld,
         sld: parseDomain(entry.domain).sld,
         isCloseout: false,
+        renewalCost: entry.renewalCost,
       });
 
       const gate = await this.gate.check(entry.domain);

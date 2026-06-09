@@ -26,6 +26,12 @@ export interface ScoringConstants {
   confidenceBase: number;
   confidencePerSignal: number;
   confidenceCap: number;
+  /**
+   * Number of years of renewal costs to subtract from the raw
+   * buy-max calculation. A holding period of 3 years means
+   * `suggestedBuyMax` is reduced by `renewalCost × 3`.
+   */
+  holdingYears: number;
 }
 
 export interface ScoringConfig {
@@ -64,6 +70,7 @@ export const DEFAULT_SCORING_CONSTANTS: ScoringConstants = {
   confidenceBase: 0.2,
   confidencePerSignal: 0.3,
   confidenceCap: 0.8,
+  holdingYears: 3,
 };
 
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {

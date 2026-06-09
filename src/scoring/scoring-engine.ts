@@ -8,7 +8,6 @@ import { computeExpiryScore } from './signals/expiry-signal.js';
 import {
   DEFAULT_WEIGHTS,
   DEFAULT_TLD_BONUS,
-  CONFIDENCE_THRESHOLD,
   WEIGHT_RECOMMEND_THRESHOLD,
   type ScoringWeights,
 } from './weights.js';
@@ -22,6 +21,7 @@ export class ScoringEngine {
     private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
     private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
+    private readonly confidenceThreshold: number = 0.3,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
     private readonly tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
   ) {}
@@ -53,34 +53,47 @@ export class ScoringEngine {
       market.score * market.weight +
       expiry.score * expiry.weight;
 
-    const signalsWithData = [
-      commercial.details.monthlySearchVolume !== 0,
-      market.details.comparables !== 0,
-    ].filter(Boolean).length;
+    const hasCommercialData = commercial.details.monthlySearchVolume !== 0;
+    const hasMarketData = market.details.comparables !== 0;
+    const expiryHasData =
+      input.isCloseout &&
+      (input.domainAge ?? 0) + (input.backlinks ?? 0) + (input.waybackSnapshots ?? 0) > 0;
 
-    const {
-      baseMarketValueEur,
-      buyMaxRatio,
-      listPriceMultiplier,
-      confidenceBase,
-      confidencePerSignal,
-      confidenceCap,
-    } = this.scoringConfig.constants;
+    const coveredWeight =
+      intrinsic.weight +
+      (hasCommercialData ? commercial.weight : 0) +
+      (hasMarketData ? market.weight : 0) +
+      (expiryHasData ? expiry.weight : 0);
+
+    const { baseMarketValueEur, buyMaxRatio, listPriceMultiplier, confidenceBase, confidenceCap } =
+      this.scoringConfig.constants;
+
+    const minCovered = intrinsic.weight;
+    const variableRange = 1 - minCovered;
+    const extraCovered = Math.max(0, coveredWeight - minCovered);
 
     const confidence =
-      signalsWithData === 0
-        ? 0
-        : Math.min(confidenceCap, confidenceBase + (signalsWithData - 1) * confidencePerSignal);
+      variableRange > 0
+        ? Math.min(
+            confidenceCap,
+            confidenceBase + (extraCovered / variableRange) * (confidenceCap - confidenceBase),
+          )
+        : confidenceBase;
 
     const expectedValue =
       weightedScore *
       baseMarketValueEur *
       (1 + (market.medianSalePrice / baseMarketValueEur) * 0.5);
-    const suggestedBuyMax = Math.min(expectedValue * buyMaxRatio, this.buyMaxAbsoluteCap);
+
+    let buyMax = expectedValue * buyMaxRatio;
+    if (input.renewalCost !== undefined) {
+      buyMax = Math.max(0, buyMax - input.renewalCost * this.scoringConfig.constants.holdingYears);
+    }
+    const suggestedBuyMax = Math.min(buyMax, this.buyMaxAbsoluteCap);
     const suggestedListPrice = expectedValue * listPriceMultiplier;
 
     const recommended =
-      confidence >= CONFIDENCE_THRESHOLD && weightedScore >= this.recommendThreshold;
+      confidence >= this.confidenceThreshold && weightedScore >= this.recommendThreshold;
 
     return {
       domain: input.domain,

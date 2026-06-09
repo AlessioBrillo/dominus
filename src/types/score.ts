@@ -47,4 +47,12 @@ export interface ScoringInput {
   domainAge?: number | undefined;
   backlinks?: number | undefined;
   waybackSnapshots?: number | undefined;
+  /**
+   * Annual renewal cost in EUR. When provided, the scoring engine
+   * subtracts `renewalCost × holdingYears` from the raw buy-max
+   * before applying the absolute cap. This prevents recommending
+   * domains whose renewal costs erode the expected profit.
+   * Default: no penalty (undefined).
+   */
+  renewalCost?: number | undefined;
 }

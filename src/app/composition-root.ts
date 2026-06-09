@@ -124,6 +124,7 @@ export function createDependencies(config: Config): DominusDependencies {
       confidenceBase: config.SCORING_CONFIDENCE_BASE,
       confidencePerSignal: config.SCORING_CONFIDENCE_PER_SIGNAL,
       confidenceCap: config.SCORING_CONFIDENCE_CAP,
+      holdingYears: config.SCORING_HOLDING_YEARS,
     },
   };
 
@@ -133,6 +134,7 @@ export function createDependencies(config: Config): DominusDependencies {
     currentWeights,
     config.BUY_MAX_ABSOLUTE_CAP,
     config.SCORING_RECOMMEND_THRESHOLD,
+    config.SCORING_CONFIDENCE_THRESHOLD,
     scoringConfig,
     tldBonuses,
   );
