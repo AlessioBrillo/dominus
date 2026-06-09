@@ -1,5 +1,10 @@
 import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
-import { detectMatch, extractSld } from './match-detector.js';
+import {
+  detectMatch,
+  extractSld,
+  DEFAULT_MATCH_DETECTOR_CONFIG,
+  type MatchDetectorConfig,
+} from './match-detector.js';
 
 export enum GateVerdict {
   Clear = 'clear',
@@ -65,6 +70,7 @@ export class TrademarkGate {
   constructor(
     private readonly usptoProvider: TrademarkProvider,
     private readonly euipoProvider: TrademarkProvider,
+    private readonly matchConfig: MatchDetectorConfig = DEFAULT_MATCH_DETECTOR_CONFIG,
   ) {}
 
   async check(domain: string): Promise<GateResult> {
@@ -86,7 +92,7 @@ export class TrademarkGate {
     if (euipoResult.ok) verifiedSources.push('EUIPO');
 
     const allMatches = [...usptoResult.matches, ...euipoResult.matches];
-    const detected = detectMatch(sld, allMatches);
+    const detected = detectMatch(sld, allMatches, this.matchConfig);
 
     if (detected !== null) {
       return {

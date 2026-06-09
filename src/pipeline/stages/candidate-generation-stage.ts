@@ -16,6 +16,8 @@ export interface CandidateGenerationInput {
 export class CandidateGenerationStage implements Stage<CandidateGenerationInput, DomainCandidate> {
   readonly name = 'CandidateGenerationStage';
 
+  constructor(private readonly defaultKeywordTld: string = '.com') {}
+
   process(inputs: CandidateGenerationInput[]): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
     const passed: DomainCandidate[] = [];
@@ -23,7 +25,7 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
 
     for (const input of inputs) {
       for (const domain of input.keywords ?? []) {
-        const tld = '.com';
+        const tld = this.defaultKeywordTld;
         passed.push({
           domain: `${domain}${tld}`,
           tld,

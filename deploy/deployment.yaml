@@ -1,0 +1,69 @@
+# DOMINUS — Kubernetes Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dominus
+  labels:
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dominus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dominus
+        app.kubernetes.io/component: server
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: dominus
+          image: ghcr.io/alessiobrillo/dominus:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: dominus-config
+            - secretRef:
+                name: dominus-secrets
+                optional: true
+          env:
+            - name: DATABASE_PATH
+              value: /data/dominus.db
+            - name: HOST
+              value: 0.0.0.0
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: dominus-data
