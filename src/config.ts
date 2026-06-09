@@ -130,7 +130,12 @@ const configSchema = z.object({
   SCORING_BASE_MARKET_VALUE: z.coerce.number().min(1).default(500),
   /** Confidence base for zero-signal fallback (default: 0.2). */
   SCORING_CONFIDENCE_BASE: z.coerce.number().min(0).max(1).default(0.2),
-  /** Confidence increment per additional signal (default: 0.3). */
+  /**
+   * @deprecated No longer used since v0.2.1 — the scoring engine
+   * computes confidence via a weight-covered-proportion formula.
+   * Kept in the schema for backward compatibility with existing
+   * .env files; parsing succeeds but the value is ignored.
+   */
   SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).default(0.3),
   /** Absolute cap on confidence score (default: 0.8). */
   SCORING_CONFIDENCE_CAP: z.coerce.number().min(0).max(1).default(0.8),
