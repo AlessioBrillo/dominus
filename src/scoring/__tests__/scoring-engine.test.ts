@@ -80,6 +80,56 @@ describe('ScoringEngine', () => {
     expect(result.confidence).toBeLessThanOrEqual(1);
   });
 
+  it('intrinsic-only domain gets base confidence, not zero', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'example.com',
+      tld: '.com',
+      sld: 'example',
+      isCloseout: false,
+    });
+    expect(result.confidence).toBeGreaterThanOrEqual(0.15);
+    expect(result.confidence).toBeLessThan(0.3);
+  });
+
+  it('expiry signal data increases confidence for closeout domains', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const withoutExpiry = await engine.score({
+      domain: 'example.com',
+      tld: '.com',
+      sld: 'example',
+      isCloseout: false,
+    });
+    const withExpiry = await engine.score({
+      domain: 'aged.com',
+      tld: '.com',
+      sld: 'aged',
+      isCloseout: true,
+      domainAge: 15,
+      backlinks: 500,
+      waybackSnapshots: 200,
+    });
+    expect(withExpiry.confidence).toBeGreaterThan(withoutExpiry.confidence);
+  });
+
+  it('expiry signal alone (no other external data) keeps domain below recommend threshold', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'aged.com',
+      tld: '.com',
+      sld: 'aged',
+      isCloseout: true,
+      domainAge: 15,
+      backlinks: 500,
+      waybackSnapshots: 200,
+    });
+    expect(result.confidence).toBeLessThan(0.3);
+    expect(result.recommended).toBe(false);
+  });
+
   it('respects BUY_MAX_ABSOLUTE_CAP when expectedValue suggests a higher buy max', async () => {
     const { keyword, comps } = makeProviders(1_000_000, 50, [200_000]);
     const engine = new ScoringEngine(keyword, comps, undefined, 250);

@@ -53,24 +53,32 @@ export class ScoringEngine {
       market.score * market.weight +
       expiry.score * expiry.weight;
 
-    const signalsWithData = [
-      commercial.details.monthlySearchVolume !== 0,
-      market.details.comparables !== 0,
-    ].filter(Boolean).length;
+    const hasCommercialData = commercial.details.monthlySearchVolume !== 0;
+    const hasMarketData = market.details.comparables !== 0;
+    const expiryHasData =
+      input.isCloseout &&
+      (input.domainAge ?? 0) + (input.backlinks ?? 0) + (input.waybackSnapshots ?? 0) > 0;
 
-    const {
-      baseMarketValueEur,
-      buyMaxRatio,
-      listPriceMultiplier,
-      confidenceBase,
-      confidencePerSignal,
-      confidenceCap,
-    } = this.scoringConfig.constants;
+    const coveredWeight =
+      intrinsic.weight +
+      (hasCommercialData ? commercial.weight : 0) +
+      (hasMarketData ? market.weight : 0) +
+      (expiryHasData ? expiry.weight : 0);
+
+    const { baseMarketValueEur, buyMaxRatio, listPriceMultiplier, confidenceBase, confidenceCap } =
+      this.scoringConfig.constants;
+
+    const minCovered = intrinsic.weight;
+    const variableRange = 1 - minCovered;
+    const extraCovered = Math.max(0, coveredWeight - minCovered);
 
     const confidence =
-      signalsWithData === 0
-        ? 0
-        : Math.min(confidenceCap, confidenceBase + (signalsWithData - 1) * confidencePerSignal);
+      variableRange > 0
+        ? Math.min(
+            confidenceCap,
+            confidenceBase + (extraCovered / variableRange) * (confidenceCap - confidenceBase),
+          )
+        : confidenceBase;
 
     const expectedValue =
       weightedScore *
