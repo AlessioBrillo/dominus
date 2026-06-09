@@ -1,22 +1,25 @@
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
+import type { ExpirySignalConfig } from '../scoring-config.js';
+import { DEFAULT_EXPIRY_CONFIG } from '../scoring-config.js';
 
-const MAX_AGE_YEARS = 20;
-const MAX_BACKLINKS = 1000;
-const MAX_WAYBACK_SNAPSHOTS = 500;
-
-export function computeExpiryScore(input: ScoringInput, weight: number): SignalOutput {
+export function computeExpiryScore(
+  input: ScoringInput,
+  weight: number,
+  config: ExpirySignalConfig = DEFAULT_EXPIRY_CONFIG,
+): SignalOutput {
   if (!input.isCloseout) {
     return { score: 0, weight, details: { isCloseout: false } };
   }
 
-  const ageScore = input.domainAge !== undefined ? Math.min(1, input.domainAge / MAX_AGE_YEARS) : 0;
+  const ageScore =
+    input.domainAge !== undefined ? Math.min(1, input.domainAge / config.maxAgeYears) : 0;
 
   const backlinkScore =
-    input.backlinks !== undefined ? Math.min(1, input.backlinks / MAX_BACKLINKS) : 0;
+    input.backlinks !== undefined ? Math.min(1, input.backlinks / config.maxBacklinks) : 0;
 
   const waybackScore =
     input.waybackSnapshots !== undefined
-      ? Math.min(1, input.waybackSnapshots / MAX_WAYBACK_SNAPSHOTS)
+      ? Math.min(1, input.waybackSnapshots / config.maxWaybackSnapshots)
       : 0;
 
   const score = Math.min(1, Math.max(0, ageScore * 0.4 + backlinkScore * 0.4 + waybackScore * 0.2));

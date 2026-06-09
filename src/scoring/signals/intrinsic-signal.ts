@@ -1,27 +1,27 @@
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
-import { PREMIUM_TLD_BONUS } from '../weights.js';
+import { DEFAULT_TLD_BONUS } from '../weights.js';
+import type { IntrinsicSignalConfig } from '../scoring-config.js';
+import { DEFAULT_INTRINSIC_CONFIG } from '../scoring-config.js';
 
-const IDEAL_LENGTH = 7;
-const MAX_LENGTH = 20;
-
-export function computeIntrinsicScore(input: ScoringInput, weight: number): SignalOutput {
-  // SLD is supplied by the caller (via parseDomain). For multi-part TLDs
-  // reconstructing it from `input.domain.replace(input.tld, '')` would
-  // leave the public-suffix prefix in the SLD (e.g. 'nike.co' for
-  // nike.co.uk). The canonical SLD is the caller's responsibility.
+export function computeIntrinsicScore(
+  input: ScoringInput,
+  weight: number,
+  config: IntrinsicSignalConfig = DEFAULT_INTRINSIC_CONFIG,
+  tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
+): SignalOutput {
   const sld = input.sld;
   const length = sld.length;
 
   const lengthScore =
-    length <= IDEAL_LENGTH
+    length <= config.idealLength
       ? 1.0
-      : Math.max(0, 1 - (length - IDEAL_LENGTH) / (MAX_LENGTH - IDEAL_LENGTH));
+      : Math.max(0, 1 - (length - config.idealLength) / (config.maxLength - config.idealLength));
 
   const hyphenCount = (sld.match(/-/g) ?? []).length;
   const digitCount = (sld.match(/[0-9]/g) ?? []).length;
   const penaltyScore = Math.max(0, 1 - hyphenCount * 0.25 - digitCount * 0.15);
 
-  const tldMultiplier = PREMIUM_TLD_BONUS[input.tld] ?? 0.3;
+  const tldMultiplier = tldBonuses[input.tld] ?? 0.3;
 
   const pronounceabilityScore = computePronouncability(sld);
 

@@ -1,0 +1,32 @@
+# DOMINUS — Production Docker Compose profile.
+# Extends the base compose.yml for production deployments.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Override with your own .env file:
+#   docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  dominus:
+    image: ghcr.io/alessiobrillo/dominus:latest
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "node", "dist/app/healthcheck-cli.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

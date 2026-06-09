@@ -1,13 +1,13 @@
 import type { CompsProvider } from '../../providers/comps/comps-provider.js';
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
-
-const FLOOR_VALUE = 500;
-const HIGH_VALUE = 10_000;
+import type { MarketSignalConfig } from '../scoring-config.js';
+import { DEFAULT_MARKET_CONFIG } from '../scoring-config.js';
 
 export async function computeMarketScore(
   input: ScoringInput,
   provider: CompsProvider,
   weight: number,
+  config: MarketSignalConfig = DEFAULT_MARKET_CONFIG,
 ): Promise<SignalOutput & { medianSalePrice: number }> {
   const sld = input.sld;
   const sales = await provider.getSales(sld);
@@ -28,7 +28,10 @@ export async function computeMarketScore(
       ? ((prices[mid - 1] ?? 0) + (prices[mid] ?? 0)) / 2
       : (prices[mid] ?? 0);
 
-  const score = Math.min(1, Math.max(0, (median - FLOOR_VALUE) / (HIGH_VALUE - FLOOR_VALUE)));
+  const score = Math.min(
+    1,
+    Math.max(0, (median - config.floorValue) / (config.highValue - config.floorValue)),
+  );
 
   return {
     score,

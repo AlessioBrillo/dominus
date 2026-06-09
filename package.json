@@ -1,7 +1,7 @@
 {
   "name": "dominus",
   "version": "0.2.0",
-  "description": "Decision-support engine for buying and reselling DNS domains on the aftermarket",
+  "description": "Open-source decision-support engine for buying and reselling DNS domains on the aftermarket",
   "private": false,
   "license": "MIT",
   "author": "AlessioBrillo",
@@ -13,6 +13,13 @@
     "url": "https://github.com/AlessioBrillo/dominus/issues"
   },
   "homepage": "https://github.com/AlessioBrillo/dominus#readme",
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/AlessioBrillo"
+  },
+  "contributors": [
+    "AlessioBrillo"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -48,7 +55,11 @@
     "investment",
     "domaining",
     "scoring",
-    "aftermarket"
+    "aftermarket",
+    "open-source",
+    "fork",
+    "portfolio",
+    "trademark"
   ],
   "dependencies": {
     "@types/cors": "^2.8.19",

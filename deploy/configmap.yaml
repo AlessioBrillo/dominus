@@ -1,0 +1,56 @@
+# DOMINUS — Kubernetes ConfigMap
+#
+# Environment variables for the DOMINUS server.
+# Sensitive values (API keys, secrets) should be in a Secret, not here.
+#
+# Usage:
+#   kubectl create configmap dominus-config --from-env-file=.env
+#   kubectl create secret generic dominus-secrets --from-env-file=.env.secret
+#
+# Or edit this file directly for non-sensitive defaults.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dominus-config
+  labels:
+    app.kubernetes.io/component: config
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  HOST: "0.0.0.0"
+  LOG_LEVEL: "info"
+  LOG_PRETTY: "false"
+  SCORING_RECOMMEND_THRESHOLD: "0.4"
+  SCORING_CONFIDENCE_THRESHOLD: "0.3"
+  BUY_MAX_ABSOLUTE_CAP: "500"
+  DROP_SCORE_THRESHOLD: "25"
+  DROP_RENEWAL_HORIZON_DAYS: "60"
+  DNS_BULK_CONCURRENCY: "10"
+  WHOIS_LOOKUP_TIMEOUT: "10000"
+  TM_CACHE_TTL_DAYS: "7"
+  CORS_ORIGIN: "*"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX: "100"
+  USPTO_SEARCH_URL: "https://tmsearch.uspto.gov/tmsearch"
+  EUIPO_AUTH_URL: "https://euipo.europa.eu/oauth2/token"
+  EUIPO_API_URL: "https://api.euipo.europa.eu/trademark-search/trademarks"
+  DEFAULT_KEYWORD_TLD: ".com"
+  SCORING_IDEAL_LENGTH: "7"
+  SCORING_MAX_LENGTH: "20"
+  SCORING_MAX_VOLUME: "1000000"
+  SCORING_MAX_CPC: "50"
+  SCORING_FLOOR_VALUE: "500"
+  SCORING_HIGH_VALUE: "10000"
+  SCORING_MAX_AGE_YEARS: "20"
+  SCORING_MAX_BACKLINKS: "1000"
+  SCORING_MAX_WAYBACK: "500"
+  SCORING_BUY_MAX_RATIO: "0.5"
+  SCORING_LIST_PRICE_MULTIPLIER: "2.5"
+  SCORING_BASE_MARKET_VALUE: "500"
+  SCORING_CONFIDENCE_BASE: "0.2"
+  SCORING_CONFIDENCE_PER_SIGNAL: "0.3"
+  SCORING_CONFIDENCE_CAP: "0.8"
+  TRADEMARK_MIN_TOKEN_LENGTH_FUZZY: "4"
+  TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: "3"
+  TRADEMARK_MAX_LEVENSHTEIN: "1"

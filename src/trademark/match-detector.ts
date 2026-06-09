@@ -45,14 +45,17 @@ const DIGIT_WORDS: Record<string, string> = {
   '9': 'nine',
 };
 
-/** Below this length we do not allow Levenshtein-1 matching. */
-const MIN_TOKEN_LENGTH_FOR_FUZZY = 4;
+export interface MatchDetectorConfig {
+  minTokenLengthForFuzzy: number;
+  minMarkTokenLengthForSubstring: number;
+  maxLevenshteinDistance: number;
+}
 
-/** Below this length we do not allow substring matching of a mark token. */
-const MIN_MARK_TOKEN_LENGTH_FOR_SUBSTRING = 3;
-
-/** Allow at most 1 substitution/insertion/deletion. */
-const MAX_LEVENSHTEIN_DISTANCE = 1;
+export const DEFAULT_MATCH_DETECTOR_CONFIG: MatchDetectorConfig = {
+  minTokenLengthForFuzzy: 4,
+  minMarkTokenLengthForSubstring: 3,
+  maxLevenshteinDistance: 1,
+};
 
 /**
  * SLD extraction is delegated to `extractSld` from `src/utils/domain.js`
@@ -93,20 +96,24 @@ function levenshtein(a: string, b: string): number {
   return prev[bLen] ?? 0;
 }
 
-function isTokenClose(sldToken: string, markToken: string): boolean {
+function isTokenClose(
+  sldToken: string,
+  markToken: string,
+  config: MatchDetectorConfig = DEFAULT_MATCH_DETECTOR_CONFIG,
+): boolean {
   if (sldToken === markToken) return true;
   if (
     sldToken.length > markToken.length &&
     sldToken.includes(markToken) &&
-    markToken.length >= MIN_MARK_TOKEN_LENGTH_FOR_SUBSTRING
+    markToken.length >= config.minMarkTokenLengthForSubstring
   ) {
     return true;
   }
   if (
-    sldToken.length >= MIN_TOKEN_LENGTH_FOR_FUZZY &&
-    markToken.length >= MIN_TOKEN_LENGTH_FOR_FUZZY &&
-    Math.abs(sldToken.length - markToken.length) <= MAX_LEVENSHTEIN_DISTANCE &&
-    levenshtein(sldToken, markToken) <= MAX_LEVENSHTEIN_DISTANCE
+    sldToken.length >= config.minTokenLengthForFuzzy &&
+    markToken.length >= config.minTokenLengthForFuzzy &&
+    Math.abs(sldToken.length - markToken.length) <= config.maxLevenshteinDistance &&
+    levenshtein(sldToken, markToken) <= config.maxLevenshteinDistance
   ) {
     return true;
   }
@@ -121,7 +128,11 @@ function isTokenClose(sldToken: string, markToken: string): boolean {
  * volumes we deal with (≤ 50 hits per provider per SLD) this is well
  * within budget — no pre-indexing needed.
  */
-export function detectMatch(domainSld: string, marks: MatchCandidate[]): MatchCandidate | null {
+export function detectMatch(
+  domainSld: string,
+  marks: MatchCandidate[],
+  config: MatchDetectorConfig = DEFAULT_MATCH_DETECTOR_CONFIG,
+): MatchCandidate | null {
   const sldTokens = tokenise(domainSld);
   if (sldTokens.length === 0) return null;
 
@@ -133,7 +144,7 @@ export function detectMatch(domainSld: string, marks: MatchCandidate[]): MatchCa
     for (const mt of markTokens) {
       let covered = false;
       for (const st of sldTokens) {
-        if (isTokenClose(st, mt)) {
+        if (isTokenClose(st, mt, config)) {
           covered = true;
           break;
         }

@@ -7,14 +7,13 @@ import { computeMarketScore } from './signals/market-signal.js';
 import { computeExpiryScore } from './signals/expiry-signal.js';
 import {
   DEFAULT_WEIGHTS,
+  DEFAULT_TLD_BONUS,
   CONFIDENCE_THRESHOLD,
   WEIGHT_RECOMMEND_THRESHOLD,
   type ScoringWeights,
 } from './weights.js';
-
-const BUY_MAX_RATIO = 0.5;
-const LIST_PRICE_MULTIPLIER = 2.5;
-const BASE_MARKET_VALUE_EUR = 500;
+import type { ScoringConfig } from './scoring-config.js';
+import { DEFAULT_SCORING_CONFIG } from './scoring-config.js';
 
 export class ScoringEngine {
   constructor(
@@ -23,17 +22,30 @@ export class ScoringEngine {
     private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
     private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
+    private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
+    private readonly tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
   ) {}
 
   async score(input: ScoringInput): Promise<ScoreResult> {
-    const intrinsic = computeIntrinsicScore(input, this.weights.intrinsic);
+    const intrinsic = computeIntrinsicScore(
+      input,
+      this.weights.intrinsic,
+      this.scoringConfig.intrinsic,
+      this.tldBonuses,
+    );
     const commercial = await computeCommercialScore(
       input,
       this.keywordProvider,
       this.weights.commercial,
+      this.scoringConfig.commercial,
     );
-    const market = await computeMarketScore(input, this.compsProvider, this.weights.market);
-    const expiry = computeExpiryScore(input, this.weights.expiry);
+    const market = await computeMarketScore(
+      input,
+      this.compsProvider,
+      this.weights.market,
+      this.scoringConfig.market,
+    );
+    const expiry = computeExpiryScore(input, this.weights.expiry, this.scoringConfig.expiry);
 
     const weightedScore =
       intrinsic.score * intrinsic.weight +
@@ -46,19 +58,26 @@ export class ScoringEngine {
       market.details.comparables !== 0,
     ].filter(Boolean).length;
 
-    // Conservative confidence (Principle 5): each present signal adds
-    // 0.3, starting from 0.2 for the first signal, with an absolute
-    // cap at 0.8. Zero signals → confidence = 0. This is intentionally
-    // more conservative than the prior formula (min(1, n * 0.4 + 0.2))
-    // which reached 100% confidence with only 2 signals.
-    const confidence = signalsWithData === 0 ? 0 : Math.min(0.8, 0.2 + (signalsWithData - 1) * 0.3);
+    const {
+      baseMarketValueEur,
+      buyMaxRatio,
+      listPriceMultiplier,
+      confidenceBase,
+      confidencePerSignal,
+      confidenceCap,
+    } = this.scoringConfig.constants;
+
+    const confidence =
+      signalsWithData === 0
+        ? 0
+        : Math.min(confidenceCap, confidenceBase + (signalsWithData - 1) * confidencePerSignal);
 
     const expectedValue =
       weightedScore *
-      BASE_MARKET_VALUE_EUR *
-      (1 + (market.medianSalePrice / BASE_MARKET_VALUE_EUR) * 0.5);
-    const suggestedBuyMax = Math.min(expectedValue * BUY_MAX_RATIO, this.buyMaxAbsoluteCap);
-    const suggestedListPrice = expectedValue * LIST_PRICE_MULTIPLIER;
+      baseMarketValueEur *
+      (1 + (market.medianSalePrice / baseMarketValueEur) * 0.5);
+    const suggestedBuyMax = Math.min(expectedValue * buyMaxRatio, this.buyMaxAbsoluteCap);
+    const suggestedListPrice = expectedValue * listPriceMultiplier;
 
     const recommended =
       confidence >= CONFIDENCE_THRESHOLD && weightedScore >= this.recommendThreshold;

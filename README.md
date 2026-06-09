@@ -1,15 +1,24 @@
 # DOMINUS
 
-> Decision-support engine for buying and reselling DNS domains on the aftermarket.
+> Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios on the aftermarket.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](package.json)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+[![Open Source](https://img.shields.io/badge/open-source-first-333333)](#)
 
-DOMINUS is a personal domain-investment tool that helps you make better purchase and portfolio decisions than the market average. It is **single-user**, **zero-cost on APIs**, and designed for a tight budget (~500&euro;).
+DOMINUS is an **open-source domain investment tool** that helps you make better purchase, portfolio, and pricing decisions than the market average. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost**.
 
-The core asset is a **heuristic scoring engine** that evaluates domain candidates and outputs buy/pass recommendations. The engine is deliberately more conservative than commercial appraisal tools.
+## Why Open-Source?
+
+Every aspect of DOMINUS is transparent, forkable, and customizable:
+
+- **No vendor lock-in**: you own your data (SQLite file), your configuration (`.env`), and your fork
+- **No black-box algorithms**: the scoring engine is heuristic — every weight, threshold, and signal is visible and tunable
+- **No paid APIs**: all data sources are free (public RDAP, USPTO, EUIPO) or file-based (keyword CSVs, comparable sales)
+- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a Kubernetes cluster
 
 ## Pipeline Architecture
 
@@ -19,284 +28,154 @@ Candidates → DNS pre-filter → RDAP confirmation → Scoring → Trademark ga
 
 Five sequential stages, each feeding the next:
 
-1. **Candidate generation** &mdash; keyword combos, brandable names, closeout CSV imports
-2. **DNS pre-filter** &mdash; fast bulk check via Node `dns` module
-3. **RDAP confirmation** &mdash; precise availability + premium detection via public RDAP
-4. **Scoring** &mdash; heuristic engine using intrinsic/commercial/market signals
-5. **Trademark gate** &mdash; mandatory USPTO/EUIPO check (non-negotiable)
+1. **Candidate generation** — keyword combos, brandable names, closeout CSV imports
+2. **DNS pre-filter** — fast bulk check via Node `dns` module
+3. **RDAP confirmation** — precise availability + premium detection via public RDAP
+4. **Scoring** — heuristic engine using intrinsic/commercial/market/expiry signals
+5. **Trademark gate** — mandatory USPTO + EUIPO check (non-negotiable)
 
-Plus a **portfolio tracker** with renewal clock and monthly keep/drop verdicts.
+Plus a **portfolio tracker** with renewal clock and monthly keep/drop/reprice verdicts.
 
-## Current Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Backend** | Node.js 20+, Express 5 |
-| **Database** | SQLite (better-sqlite3, WAL mode) |
-| **CLI** | Commander (8 commands) |
-| **API** | Express REST (8 route modules) |
-| **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
-| **Infrastructure** | CI via GitHub Actions, zero-cost hosting |
-
-See [ADR-0001](docs/adr/0001-project-architecture.md) for the rationale
-behind the technology choices. A future frontend dashboard (React + Vite +
-Tailwind) is planned as a separate project phase but is not required for
-daily operation.
-
-## Key Design Decisions
-
-- **Decision-first UX**: one question per candidate &mdash; *buy or pass*; one question per portfolio domain &mdash; *keep, drop, or reprice*
-- **Trademark gate is non-negotiable**: never skippable, never optional
-  (see [ADR-0006](docs/adr/0006-trademark-gate-mandate.md))
-- **Provider abstraction is non-negotiable**: never hardcode an API client
-  into core logic (see [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md))
-- **Cost discipline**: no paid API is used; every feature runs at &euro;0 infra
-  cost (see [ADR-0001](docs/adr/0001-project-architecture.md))
-- **Renewal clock > acquisition volume**: a domain that doesn't sell is a recurring liability
-
-## Getting Started
+## Quick Start
 
 ```bash
-# Install dependencies
+# Clone anywhere, no registration required
+git clone https://github.com/AlessioBrillo/dominus.git
+cd dominus
 npm install
-
-# Build
 npm run build
 
-# Development (with hot-reload)
-npm run dev
-
-# Type checking
-npm run typecheck
-
-# Run tests
-npm test
-
-# Lint
-npm run lint
-```
-
-## Quick start with sample data
-
-Skip the configuration hassle and see DOMINUS running immediately:
-
-```bash
-# Score some candidates with sample keyword volume and comparable sales
+# Score some candidates with sample data (no config needed)
 KEYWORD_DATA_PATH=examples/keywords-sample.json \
 COMPS_DATA_PATH=examples/comps-sample.csv \
 node dist/cli.js run --closeout-csv examples/closeout-sample.csv
 ```
 
-Sample files live in [`examples/`](examples/) alongside the closeout import:
-
-| File | Format | Purpose |
-|------|--------|---------|
-| `keywords-sample.json` | `[{ term, monthlySearchVolume, cpc, competition }]` | Feeds the commercial signal (search volume × CPC) |
-| `comps-sample.csv` | `domain,price,date,venue` | Feeds the market signal (NameBio comparable sales) |
-| `closeout-sample.csv` | header-driven CSV | Feeds the acquisition pipeline mid-flight |
-
-## Importing closeout candidates
-
-The pipeline's first segment is **economic closeouts**. Feed a CSV of closeout/expiry
-domains to the `run` command:
+Or with Docker:
 
 ```bash
-node dist/cli.js run --closeout-csv examples/closeout-sample.csv
+docker build -t dominus .
+docker run -d -p 3000:3000 -v ./data:/app/data dominus
 ```
 
-The CSV is header-driven (column order is free; unknown columns ignored):
+## Current Stack
 
-| Column | Required | Meaning |
-|--------|----------|---------|
-| `domain` | yes | the closeout domain name |
-| `age` | no | domain age in years |
-| `backlinks` | no | referring/backlink count |
-| `wayback` | no | number of Wayback Machine snapshots |
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| **Backend** | Node.js 20+, Express 5 | Zero-cost, universally forkable, massive ecosystem |
+| **Database** | SQLite (better-sqlite3, WAL mode) | Single file, zero ops, portable anywhere |
+| **CLI** | Commander (12 commands) | Full functionality without a browser |
+| **API** | Express REST (14 route modules) | Dashboard-ready, swappable frontend |
+| **Trademark** | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance |
+| **Infrastructure** | Docker, Docker Compose, GitHub Actions | Deploy anywhere, CI built-in |
 
-`age`, `backlinks`, and `wayback` feed the **expiry signal** of the scoring engine. Rows
-with a missing/invalid domain are skipped, so one bad line never aborts an import.
+## Fork & Customize
 
-## Portfolio re-score and outcomes
+DOMINUS is designed from the ground up to be forked and personalized. Here's what you can change without touching core code:
 
-The portfolio's drop verdicts only make sense when each entry has a fresh score. The
-rescore command re-runs the scoring engine and the trademark gate against every owned
-domain, writes the new calibrated 0-100 score and suggested list price, and refreshes
-the verdicts:
+### Scoring Engine
+
+Every tunable parameter is exposed via environment variables:
+
+- **Signal strengths**: weights for intrinsic, commercial, market, expiry signals (`SCORING_WEIGHTS_OVERRIDE`)
+- **Signal calibrations**: ideal length, volume caps, floor values (see `src/config.ts`)
+- **TLD bonuses**: override `.com=1.0, .io=0.85` via JSON file (`TLD_BONUSES_PATH`)
+- **Budget caps**: `BUY_MAX_ABSOLUTE_CAP`, `SCORING_RECOMMEND_THRESHOLD`
+- **Drop logic**: `DROP_SCORE_THRESHOLD`, `DROP_RENEWAL_HORIZON_DAYS`
+
+### Providers
+
+Every external dependency is behind a TypeScript interface. Swap any provider in **one file** (`src/app/composition-root.ts`):
+
+| Interface | Default | Swap to |
+|-----------|---------|---------|
+| `DnsProvider` | Node DNS (std lib) | Any DNS API |
+| `RdapProvider` | rdap.org (free) | Custom RDAP bootstrap |
+| `TrademarkProvider` | USPTO + EUIPO (free) | Commercial TM API |
+| `KeywordProvider` | Local JSON file | Google Ads API, Ahrefs |
+| `CompsProvider` | Local CSV file | NameBio API, Estibot |
+| `WhoisProvider` | Port-43 (free) | WhoisXML API |
+| `RegistrarProvider` | Manual (no-op) | Namecheap, GoDaddy, Cloudflare API |
+
+See [Customization Guide](docs/customization/README.md) for step-by-step examples.
+
+### Custom Signals
+
+The scoring engine accepts four signals. To add a fifth (e.g. social media presence, PageRank):
+
+1. Create `src/scoring/signals/social-signal.ts` implementing the signal contract
+2. Wire it in `src/scoring/scoring-engine.ts`
+3. Add its weight to `SCORING_WEIGHTS_OVERRIDE`
+
+## Deployment Options
+
+DOMINUS scales from a personal CLI tool to a containerized service managing thousands of domains:
+
+| Scenario | Stack | Command |
+|----------|-------|---------|
+| **Personal** (1-50 domains) | CLI only | `npx dominus run --closeout-csv ./candidates.csv` |
+| **Growing** (50-500) | Docker | `docker compose up -d` |
+| **Large** (500+) | Docker + reverse proxy + scheduler | `docker compose -f compose.yml -f compose.prod.yml up -d` |
+| **Enterprise** (5000+) | Kubernetes + PostgreSQL adapter | `kubectl apply -f deploy/` |
+
+See [Deployment Guide](docs/deployment/README.md).
+
+## Configuration
+
+All configuration is via environment variables. Copy `.env.example` to `.env` and customize:
 
 ```bash
-# Re-score the whole portfolio
-node dist/cli.js portfolio rescore
-
-# Same, but only print the summary line (no per-domain table)
-node dist/cli.js portfolio rescore --quiet
+cp .env.example .env
+# Edit .env with your preferences
 ```
 
-DNS and RDAP stages are intentionally skipped: an owned domain is already registered,
-so DNS would just drop it. The trademark gate is rerun because new marks may have been
-registered after acquisition; keyword/comps data may have drifted and the engine's
-weights will be tuned over time.
+Key variables:
 
-Recorded outcomes are the data the engine will eventually be retrained against:
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DATABASE_PATH` | `./data/dominus.db` | SQLite database location |
+| `KEYWORD_DATA_PATH` | (optional) | Google Keyword Planner JSON export |
+| `COMPS_DATA_PATH` | (optional) | NameBio comparable sales CSV |
+| `BUY_MAX_ABSOLUTE_CAP` | `500` | Max recommended purchase price (EUR) |
+| `SCORING_WEIGHTS_OVERRIDE` | (optional) | Custom scoring weights JSON |
+| `TLD_BONUSES_PATH` | (optional) | Custom TLD multiplier bonuses JSON |
+| `EUIPO_CLIENT_ID` | (optional) | EUIPO trademark search (free registration) |
+| `API_KEYS` | (optional) | REST API authentication |
 
-```bash
-# Record a sale
-node dist/cli.js outcome record --domain alpha.com --type sold --occurred-at 2026-04-15 \
-  --sale-price 1500 --venue sedo --days-listed 240
+See [full reference](docs/customization/configuration.md).
 
-# Record a drop
-node dist/cli.js outcome record --domain beta.io --type dropped --occurred-at 2026-06-01
-
-# List every recorded outcome
-node dist/cli.js outcome list
-
-# List a single domain's history
-node dist/cli.js outcome list --domain alpha.com
-
-# Aggregate stats for a domain
-node dist/cli.js outcome stats --domain alpha.com
-```
-
-## Backtest & calibration
-
-The backtest command closes the loop between scoring predictions and the
-realised `sold` outcomes you have recorded. It pairs each sale with the
-scoring snapshot that was available *at the time of the sale* (point-in-time
-correct), aggregates the pairs into MAE / bias / buy-max hit rate, and breaks
-the metrics down by confidence bucket.
-
-```bash
-# Snapshot + report in one call (typical workflow)
-node dist/cli.js backtest run
-
-# Just rebuild the snapshot table (idempotent)
-node dist/cli.js backtest snapshot
-
-# Just print the report against the current snapshot
-node dist/cli.js backtest report
-
-# Machine-readable output for piping into other tools
-node dist/cli.js backtest run --json
-
-# Report without rebuilding (e.g. to compare against a saved snapshot)
-node dist/cli.js backtest run --no-snapshot
-```
-
-Sample output:
+## Commands
 
 ```
-DOMINUS backtest — generated 2026-06-06T14:32:11.000Z
-Sample: 8 sold outcome(s)
+Usage: dominus <command> [options]
 
-Error on expected_value:
-  MAE      €487
-  Median   €312
-  Bias     -€204  (over-predicting by 11% on average)
-
-Buy-max accuracy (the metric that matters for capital):
-  MAE         €212
-  Hit rate    75.0%  (sale_price > suggested_buy_max)
-
-Confidence calibration:
-  bucket  n     MAE    realised   predicted
-  low     2   €820       €310       €400
-  mid     3   €445      €1180      €1050
-  high    3   €210      €2450      €2300
+Commands:
+  run                 Run the full pipeline
+  score               Score a single domain
+  portfolio           Manage portfolio (CRUD + rescore)
+  outcome             Record outcomes (sold/dropped/expired)
+  backtest            Run backtest + suggest weight adjustments
+  runs                List/inspect pipeline runs
+  candidates          List pipeline candidates
+  providers           Show provider status
+  scheduler           Run scheduled jobs manually
+  watchlist           Monitor domains for availability
+  maintenance         Prune cache, DB maintenance
+  health              System health check
 ```
 
-The `backtest_signals` table is migration 0007 and is unique on
-`(outcome_id, scoring_run_id)`, so re-running `backtest run` is safe and
-idempotent. The point-in-time join (last `scoring_runs.scored_at <= outcome.occurred_at`)
-is what makes the bias number honest — a re-run of the pipeline after a sale
-will not retroactively inflate the engine's apparent accuracy.
+## Documentation
 
-### Calibrating engine weights from the backtest
-
-The backtest report tells you *how* the engine is wrong (over-predicting,
-under-predicting on high-confidence picks, etc.). The
-`dominus backtest suggest-weights` command turns that report into a
-proposed weight adjustment — and crucially, does **not** apply it
-automatically:
-
-```bash
-# Propose weight adjustments based on the current backtest snapshot
-node dist/cli.js backtest suggest-weights
-
-# Same, but machine-readable
-node dist/cli.js backtest suggest-weights --json
-
-# Persist the suggestion to data/weights-override.json (no auto-activation)
-node dist/cli.js backtest suggest-weights --apply
-```
-
-The algorithm splits each signal's sample into "high" (score ≥ 0.5) and
-"low" (score < 0.5), computes the lift in mean realised price between
-the two buckets, and proposes a `±0.02` weight delta (capped at
-`±0.05`) when the lift exceeds `€50` in absolute value. With fewer than
-5 sold outcomes in the sample, the suggester returns "hold" for every
-signal — the engine will not act on insufficient evidence.
-
-Activation is a **two-gate process** that satisfies Principle 5
-(conservatism):
-
-1. `dominus backtest suggest-weights --apply` writes
-   `data/weights-override.json` with the proposed weights.
-2. The engine reads the file **only** when you set
-   `SCORING_WEIGHTS_OVERRIDE=./data/weights-override.json` in `.env`.
-
-Touching one without the other is a no-op. The override file is validated
-on every engine startup; an invalid JSON or a non-1.0 weight sum falls
-back to the defaults with a stderr warning — the engine never crashes
-on a malformed override.
-
-The REST equivalents:
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/portfolio/rescore` | Re-score the whole portfolio |
-| `GET`  | `/api/portfolio/:domain/outcomes` | List outcomes for a domain |
-| `POST` | `/api/portfolio/:domain/outcomes` | Record a new outcome |
-| `GET`  | `/api/portfolio/:domain/outcomes/stats` | Aggregate counts and realised revenue |
-| `GET`  | `/api/candidates?runId=<id>` | List candidates for a pipeline run |
-
-## Pipeline runs history
-
-Every `dominus run` (or `POST /api/candidates/run`) writes a row to
-`pipeline_runs` *before* the orchestrator runs and completes it (with
-duration, stage summary, results summary, and any error) when the run
-ends. Rows are retained for **180 days** by default; pass a custom value
-to `new PipelineRunService(..., retentionDays)` to override.
-
-CLI:
-
-```bash
-dominus runs list [--since ISO] [--limit N] [--json]
-dominus runs show <runId> [--json]
-dominus runs prune [--dry-run]
-```
-
-REST:
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET`  | `/api/runs` | List runs (newest first; `?since`, `?until`, `?limit`) |
-| `GET`  | `/api/runs/:runId` | One run with stage + result summary |
-| `GET`  | `/api/runs/:runId/candidates` | Candidates persisted during that run |
-| `POST` | `/api/runs/prune` | Delete expired runs; returns `{ deleted, remaining }` |
-
-Candidates persisted by a run share the same `pipeline_run_id` as the
-`pipeline_runs.run_id`, so the join `pipeline_runs → candidates` is a
-direct equality. See `docs/adr/0011-pipeline-runs-schema.md` for the
-design rationale.
+- [Architecture Decision Records](docs/adr/README.md) — full architectural rationale
+- [Customization Guide](docs/customization/README.md) — how to adapt for your needs
+- [Deployment Guide](docs/deployment/README.md) — infrastructure options
+- [Contributing Guide](CONTRIBUTING.md) — how to contribute
+- [Security Policy](SECURITY.md) — vulnerability reporting
 
 ## Project Status
 
-DOMINUS v0.2.0 &mdash; production-ready, tested, and running end-to-end.
-
-All five pipeline stages, the heuristic scoring engine, the mandatory trademark
-gate (real USPTO/EUIPO providers + caching), the portfolio tracker with rescore
-and outcomes, and the backtest engine are in place and tested. See the
-[ADR series](docs/adr/README.md) for the full architecture documentation.
+DOMINUS v0.2.0 — production-ready, tested, and running end-to-end. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker, outcomes, and backtest engine are implemented and tested.
 
 ## License
 
-[MIT](LICENSE) &mdash; &copy; 2026 AlessioBrillo
+[MIT](LICENSE) — © 2026 AlessioBrillo. Use freely, fork openly, build anything.

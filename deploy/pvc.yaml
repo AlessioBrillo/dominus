@@ -1,0 +1,20 @@
+# DOMINUS — PersistentVolumeClaim for SQLite database
+#
+# Requires a StorageClass that supports ReadWriteOnce (most cloud providers).
+# Adjust storage size based on portfolio volume.
+#
+#   kubectl apply -f deploy/pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dominus-data
+  labels:
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: standard  # uncomment to specify a StorageClass

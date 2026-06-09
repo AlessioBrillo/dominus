@@ -93,6 +93,58 @@ const configSchema = z.object({
    * Default: 500. Set to 0 for unlimited (not recommended).
    */
   BUY_MAX_ABSOLUTE_CAP: z.coerce.number().min(0).default(500),
+
+  // ── Scoring signal calibration (fork-friendly overrides) ──────────
+
+  /** Ideal SLD length for intrinsic signal (default: 7). */
+  SCORING_IDEAL_LENGTH: z.coerce.number().int().min(1).max(50).default(7),
+  /** Maximum SLD length for intrinsic signal (default: 20). */
+  SCORING_MAX_LENGTH: z.coerce.number().int().min(1).max(100).default(20),
+  /** Maximum monthly search volume for commercial signal (default: 1,000,000). */
+  SCORING_MAX_VOLUME: z.coerce.number().int().min(1).default(1_000_000),
+  /** Maximum CPC for commercial signal (default: 50). */
+  SCORING_MAX_CPC: z.coerce.number().min(0.01).default(50),
+  /** Floor market value in EUR for market signal (default: 500). */
+  SCORING_FLOOR_VALUE: z.coerce.number().min(0).default(500),
+  /** High market value in EUR for market signal (default: 10,000). */
+  SCORING_HIGH_VALUE: z.coerce.number().min(1).default(10_000),
+  /** Maximum domain age in years for expiry signal (default: 20). */
+  SCORING_MAX_AGE_YEARS: z.coerce.number().int().min(1).default(20),
+  /** Maximum backlinks for expiry signal (default: 1000). */
+  SCORING_MAX_BACKLINKS: z.coerce.number().int().min(1).default(1000),
+  /** Maximum Wayback snapshots for expiry signal (default: 500). */
+  SCORING_MAX_WAYBACK: z.coerce.number().int().min(1).default(500),
+  /** Buy-max ratio: suggestedBuyMax = expectedValue * this (default: 0.5). */
+  SCORING_BUY_MAX_RATIO: z.coerce.number().min(0).max(1).default(0.5),
+  /** List price multiplier: suggestedListPrice = expectedValue * this (default: 2.5). */
+  SCORING_LIST_PRICE_MULTIPLIER: z.coerce.number().min(1).default(2.5),
+  /** Base market value in EUR for expected value calculation (default: 500). */
+  SCORING_BASE_MARKET_VALUE: z.coerce.number().min(1).default(500),
+  /** Confidence base for zero-signal fallback (default: 0.2). */
+  SCORING_CONFIDENCE_BASE: z.coerce.number().min(0).max(1).default(0.2),
+  /** Confidence increment per additional signal (default: 0.3). */
+  SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).default(0.3),
+  /** Absolute cap on confidence score (default: 0.8). */
+  SCORING_CONFIDENCE_CAP: z.coerce.number().min(0).max(1).default(0.8),
+
+  /**
+   * Optional path to a JSON file mapping TLDs to their multiplier bonuses.
+   * Format: { ".com": 1.0, ".io": 0.85, ... }
+   * Merged with defaults; unknown TLDs fall back to 0.3.
+   */
+  TLD_BONUSES_PATH: z.string().optional(),
+
+  /** Default TLD appended to bare keywords in candidate generation (default: .com). */
+  DEFAULT_KEYWORD_TLD: z.string().default('.com'),
+
+  // ── Trademark matching calibration ─────────────────────────────────
+
+  /** Minimum token length for Levenshtein fuzzy matching (default: 4). */
+  TRADEMARK_MIN_TOKEN_LENGTH_FUZZY: z.coerce.number().int().min(1).default(4),
+  /** Minimum mark token length for substring matching (default: 3). */
+  TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: z.coerce.number().int().min(1).default(3),
+  /** Maximum Levenshtein distance for fuzzy matching (default: 1). */
+  TRADEMARK_MAX_LEVENSHTEIN: z.coerce.number().int().min(0).default(1),
   /**
    * Network interface to bind the Express server to.
    * '127.0.0.1' listens on localhost only (safe default).

@@ -17,7 +17,13 @@ import { NodeDnsProvider } from '../providers/dns/index.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
 import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
-import { ScoringEngine, loadWeights, type ScoringWeights } from '../scoring/index.js';
+import {
+  ScoringEngine,
+  loadWeights,
+  loadTldBonuses,
+  type ScoringWeights,
+  type ScoringConfig,
+} from '../scoring/index.js';
 import { TrademarkGate } from '../trademark/index.js';
 import {
   PipelineOrchestrator,
@@ -91,6 +97,35 @@ export function createDependencies(config: Config): DominusDependencies {
   const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
 
   const currentWeights = loadWeights(config.SCORING_WEIGHTS_OVERRIDE);
+  const tldBonuses = loadTldBonuses(config.TLD_BONUSES_PATH);
+
+  const scoringConfig: ScoringConfig = {
+    intrinsic: {
+      idealLength: config.SCORING_IDEAL_LENGTH,
+      maxLength: config.SCORING_MAX_LENGTH,
+    },
+    commercial: {
+      maxVolume: config.SCORING_MAX_VOLUME,
+      maxCpc: config.SCORING_MAX_CPC,
+    },
+    market: {
+      floorValue: config.SCORING_FLOOR_VALUE,
+      highValue: config.SCORING_HIGH_VALUE,
+    },
+    expiry: {
+      maxAgeYears: config.SCORING_MAX_AGE_YEARS,
+      maxBacklinks: config.SCORING_MAX_BACKLINKS,
+      maxWaybackSnapshots: config.SCORING_MAX_WAYBACK,
+    },
+    constants: {
+      buyMaxRatio: config.SCORING_BUY_MAX_RATIO,
+      listPriceMultiplier: config.SCORING_LIST_PRICE_MULTIPLIER,
+      baseMarketValueEur: config.SCORING_BASE_MARKET_VALUE,
+      confidenceBase: config.SCORING_CONFIDENCE_BASE,
+      confidencePerSignal: config.SCORING_CONFIDENCE_PER_SIGNAL,
+      confidenceCap: config.SCORING_CONFIDENCE_CAP,
+    },
+  };
 
   const engine = new ScoringEngine(
     keywordProvider,
@@ -98,7 +133,15 @@ export function createDependencies(config: Config): DominusDependencies {
     currentWeights,
     config.BUY_MAX_ABSOLUTE_CAP,
     config.SCORING_RECOMMEND_THRESHOLD,
+    scoringConfig,
+    tldBonuses,
   );
+
+  const matchDetectorConfig = {
+    minTokenLengthForFuzzy: config.TRADEMARK_MIN_TOKEN_LENGTH_FUZZY,
+    minMarkTokenLengthForSubstring: config.TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING,
+    maxLevenshteinDistance: config.TRADEMARK_MAX_LEVENSHTEIN,
+  };
 
   const trademarkGate = new TrademarkGate(
     new CachedTrademarkProvider(
@@ -120,6 +163,7 @@ export function createDependencies(config: Config): DominusDependencies {
       'EUIPO',
       config.TM_CACHE_TTL_DAYS,
     ),
+    matchDetectorConfig,
   );
 
   const whoisProvider = new NodeWhoisProviderWithIanaFallback({
@@ -127,7 +171,7 @@ export function createDependencies(config: Config): DominusDependencies {
   });
 
   const orchestrator = new PipelineOrchestrator(
-    new CandidateGenerationStage(),
+    new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(new NodeDnsProvider()),
     new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
     new ScoringStage(engine),

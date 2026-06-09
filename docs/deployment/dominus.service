@@ -1,0 +1,50 @@
+# DOMINUS — systemd service unit for bare-metal deployment.
+# Place in /etc/systemd/system/dominus.service, then:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable dominus
+#   sudo systemctl start dominus
+#
+# Environment files are read from /etc/dominus/env or ~/.dominus/env.
+# Adjust WorkingDirectory, User, and EnvironmentFile paths as needed.
+
+[Unit]
+Description=DOMINUS — DNS domain investment decision-support engine
+Documentation=https://github.com/AlessioBrillo/dominus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dominus
+Group=dominus
+WorkingDirectory=/opt/dominus
+
+# Load configuration from .env file (create your own with env vars)
+EnvironmentFile=/etc/dominus/env
+# Alternatively, use the project's default .env path:
+# EnvironmentFile=/opt/dominus/.env
+
+ExecStart=/usr/bin/node /opt/dominus/dist/index.js
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/dominus/data
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+CPUQuota=100%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dominus
+
+[Install]
+WantedBy=multi-user.target

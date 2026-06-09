@@ -1,0 +1,24 @@
+# DOMINUS — Kubernetes deployment (Kustomize)
+#
+# Apply with:
+#   kubectl apply -k deploy/
+#
+# Or with an overlay for production customisation:
+#   kubectl apply -k deploy/overlays/production/
+#
+# Prerequisites:
+#   - A PersistentVolumeClaim for the SQLite database
+#   - A ConfigMap or Secret for environment variables
+#   - (Optional) Ingress controller for HTTP access
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - configmap.yaml
+
+commonLabels:
+  app.kubernetes.io/name: dominus
+  app.kubernetes.io/version: 0.2.0
