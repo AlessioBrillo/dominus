@@ -109,6 +109,22 @@ describe('detectMatch', () => {
     const result = detectMatch('nike', [APPLE, NIKE, APP_STORE]);
     expect(result?.markName).toBe('Nike');
   });
+
+  it('returns null when SLD contains no letter tokens', () => {
+    const result = detectMatch('123', [NIKE, APPLE]);
+    expect(result).toBeNull();
+  });
+
+  it('skips marks with non-letter-only names (e.g. numeric marks)', () => {
+    const NUMERIC_MARK: MatchCandidate = {
+      markName: '007',
+      owner: 'Eon Productions',
+      status: 'registered',
+      source: 'uspto',
+    };
+    const result = detectMatch('nike', [NUMERIC_MARK, NIKE]);
+    expect(result?.markName).toBe('Nike');
+  });
 });
 
 describe('extractSld', () => {

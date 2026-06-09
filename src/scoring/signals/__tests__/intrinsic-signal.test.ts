@@ -86,4 +86,9 @@ describe('IntrinsicSignal', () => {
       expect(result.details['sld']).toBe('foo');
     });
   });
+
+  it('returns pronounceability score 0 for empty SLD', () => {
+    const result = computeIntrinsicScore(makeInput('.com', '.com', ''), 1);
+    expect(result.details['pronounceabilityScore']).toBe(0);
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -124,5 +124,52 @@ describe('Standalone outcomes API', () => {
     expect(res.status).toBe(200);
     expect(res.body.stats).toHaveProperty('sold');
     expect(res.body.stats).toHaveProperty('totalRealisedEur');
+  });
+
+  it('POST /api/outcomes returns 404 for domain not in portfolio', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use(errorHandler);
+
+    const res = await request(app)
+      .post('/api/outcomes')
+      .send({ domain: 'nonexistent.com', type: 'sold', occurredAt: '2025-06-01' });
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('DOMAIN_NOT_FOUND');
+  });
+
+  it('GET /api/outcomes/stats/:domain returns 500 when repository throws', async () => {
+    const brokenRepo = {
+      findAll: vi.fn(),
+      findByType: vi.fn(),
+      insert: vi.fn(),
+      statsByDomain: vi.fn().mockImplementation(() => {
+        throw new Error('DB error');
+      }),
+    } as unknown as OutcomeRepository;
+    const app = express();
+    app.use('/api/outcomes', createOutcomesRouter(brokenRepo));
+    app.use(errorHandler);
+
+    const res = await request(app).get('/api/outcomes/stats/alpha.com');
+    expect(res.status).toBe(500);
+  });
+
+  it('GET /api/outcomes returns 500 when repository findAll throws', async () => {
+    const brokenRepo = {
+      findAll: vi.fn().mockImplementation(() => {
+        throw new Error('DB error');
+      }),
+      findByType: vi.fn(),
+      insert: vi.fn(),
+      statsByDomain: vi.fn(),
+    } as unknown as OutcomeRepository;
+    const app = express();
+    app.use('/api/outcomes', createOutcomesRouter(brokenRepo));
+    app.use(errorHandler);
+
+    const res = await request(app).get('/api/outcomes');
+    expect(res.status).toBe(500);
   });
 });

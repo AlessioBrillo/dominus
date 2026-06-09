@@ -89,6 +89,35 @@ export class CandidateRepository {
    * mutable field so that re-running the pipeline reflects the latest status.
    * Returns the persisted candidate including the resolved `id`.
    */
+  /**
+   * Prune portfolio_rescore candidates created before the given cutoff date.
+   * These synthetic candidates accumulate on every rescore run and are not
+   * needed for pipeline history. Returns the number of rows removed.
+   */
+  pruneRescoreCandidates(before: string): number {
+    const result = this.db
+      .prepare(
+        `DELETE FROM candidates
+         WHERE source = 'portfolio_rescore' AND created_at < ?
+           AND id NOT IN (
+             SELECT candidate_id FROM scoring_runs WHERE candidate_id IS NOT NULL
+           )`,
+      )
+      .run(before);
+    return Number(result.changes);
+  }
+
+  /** Count of portfolio_rescore candidates created before the given date. */
+  countRescoreCandidates(before: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM candidates
+         WHERE source = 'portfolio_rescore' AND created_at < ?`,
+      )
+      .get(before) as { n: number };
+    return row.n;
+  }
+
   upsert(candidate: DomainCandidate): DomainCandidate {
     const row = this.db
       .prepare(

@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { TrademarkRepository } from '../../db/repositories/trademark-repository.js';
 import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
+import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { registerMaintenanceCommand } from '../commands/maintenance-command.js';
 import { Command } from 'commander';
 
@@ -18,12 +19,14 @@ function buildProgram(db: Database.Database): {
   program: Command;
   tmRepo: TrademarkRepository;
   runsRepo: PipelineRunsRepository;
+  candidateRepo: CandidateRepository;
 } {
   const tmRepo = new TrademarkRepository(db);
   const runsRepo = new PipelineRunsRepository(db);
+  const candidateRepo = new CandidateRepository(db);
   const program = new Command();
-  registerMaintenanceCommand(program, { db, trademarkRepo: tmRepo, runsRepo });
-  return { program, tmRepo, runsRepo };
+  registerMaintenanceCommand(program, { db, trademarkRepo: tmRepo, runsRepo, candidateRepo });
+  return { program, tmRepo, runsRepo, candidateRepo };
 }
 
 function captureStdout(fn: () => Promise<void> | void): Promise<string> {

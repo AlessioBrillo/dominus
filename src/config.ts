@@ -143,6 +143,22 @@ const configSchema = z.object({
    */
   WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(10_000),
   /**
+   * Rate limiting: max tokens (burst capacity) for RDAP requests.
+   * Token bucket refills at RDAP_RATE_LIMIT_TOKENS per RDAP_RATE_LIMIT_INTERVAL_MS.
+   * Default: 10 req/sec with burst up to 10.
+   */
+  RDAP_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(10),
+  /** Rate limiting: refill interval in ms for RDAP requests (default: 1000). */
+  RDAP_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
+   * WHOIS servers are generally more restrictive than RDAP.
+   * Default: 1 req/2 sec.
+   */
+  WHOIS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(1),
+  /** Rate limiting: refill interval in ms for WHOIS requests (default: 2000). */
+  WHOIS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(2000),
+  /**
    * Absolute cap on suggestedBuyMax in EUR. Prevents the scoring engine
    * from recommending purchases beyond the operator's stated ~500€ budget,
    * even when comparable sales suggest extreme values.

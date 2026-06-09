@@ -78,7 +78,7 @@ export function createCli(options: CreateCliOptions): Command {
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
   registerRunsCommand(program, { runsRepo });
-  registerMaintenanceCommand(program, { db, trademarkRepo, runsRepo });
+  registerMaintenanceCommand(program, { db, trademarkRepo, runsRepo, candidateRepo });
   registerProvidersCommand(program, { config });
   registerHealthCommand(program, { db, config });
   if (scheduler) {

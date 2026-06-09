@@ -246,4 +246,21 @@ describe('ScoringEngine', () => {
     expect(result.weightedScore).toBeGreaterThanOrEqual(0);
     expect(result.weightedScore).toBeLessThanOrEqual(1);
   });
+
+  it('uses confidenceBase when intrinsic weight covers the full range', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps, {
+      intrinsic: 1,
+      commercial: 0,
+      market: 0,
+      expiry: 0,
+    });
+    const result = await engine.score({
+      domain: 'test.com',
+      tld: '.com',
+      sld: 'test',
+      isCloseout: false,
+    });
+    expect(result.confidence).toBe(0.2);
+  });
 });

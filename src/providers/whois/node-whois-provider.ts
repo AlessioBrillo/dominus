@@ -4,6 +4,7 @@ import { extractTld } from '../../utils/domain.js';
 import { ProviderError } from '../../types/errors.js';
 import type { WhoisProvider, WhoisResult } from './whois-provider.js';
 import { resolveWhoisServer } from './iana-server-lookup.js';
+import { RateLimiter } from '../rate-limiter.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 65_536;
@@ -61,6 +62,8 @@ export interface NodeWhoisProviderConfig {
   serverOverrides?: Record<string, string>;
   /** Override the socket factory for testing. Defaults to `node:net.connect`. */
   connect?: ((port: number, host: string, callback?: () => void) => Socket) | undefined;
+  /** Rate limiter for WHOIS requests. Defaults to unlimited. */
+  rateLimiter?: RateLimiter | undefined;
 }
 
 function isAvailable(raw: string): boolean {
@@ -165,14 +168,20 @@ export class NodeWhoisProvider implements WhoisProvider {
   readonly #timeoutMs: number;
   readonly #serverOverrides: Record<string, string>;
   readonly #connectFn: (port: number, host: string, callback?: () => void) => Socket;
+  readonly #rateLimiter: RateLimiter;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#serverOverrides = config.serverOverrides ?? {};
     this.#connectFn = config.connect ?? netConnect;
+    this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
   }
 
   async checkAvailability(domain: string): Promise<WhoisResult> {
+    return this.#rateLimiter.throttle(() => this.#doCheckAvailability(domain));
+  }
+
+  async #doCheckAvailability(domain: string): Promise<WhoisResult> {
     const tld = extractTld(domain);
     if (tld === '') {
       throw new ProviderError(

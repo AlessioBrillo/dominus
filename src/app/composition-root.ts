@@ -23,6 +23,7 @@ import { createCompsProvider, type CompsProvider } from '../providers/comps/inde
 import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
+import { RateLimiter } from '../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
 import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
@@ -219,14 +220,26 @@ export function createDependencies(config: Config): DominusDependencies {
     matchDetectorConfig,
   );
 
+  const rdapRateLimiter = new RateLimiter({
+    maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
+    intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
+  });
+  const whoisRateLimiter = new RateLimiter({
+    maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
+    intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
+  });
+
   const whoisProvider = new NodeWhoisProviderWithIanaFallback({
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
+    rateLimiter: whoisRateLimiter,
   });
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(new NodeDnsProvider()),
-    new RdapConfirmationStage(new PublicRdapProvider(), whoisProvider),
+    new RdapConfirmationStage(new PublicRdapProvider(rdapRateLimiter), whoisProvider),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate),
   );
@@ -248,7 +261,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const watchlistService = new WatchlistService(
     new WatchlistRepository(db),
     new NodeDnsProvider(),
-    new PublicRdapProvider(),
+    new PublicRdapProvider(rdapRateLimiter),
     notifiers,
     config,
   );
