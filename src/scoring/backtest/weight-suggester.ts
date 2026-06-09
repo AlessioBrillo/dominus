@@ -126,7 +126,8 @@ export class WeightSuggester {
     let totalCurrent = 0;
     for (const s of SIGNAL_NAMES) totalCurrent += this.currentWeights[s];
 
-    const renormScale = totalCurrent === 0 ? 0 : totalCurrent / (totalCurrent + totalRawDelta);
+    const denom = totalCurrent + totalRawDelta;
+    const renormScale = denom > 0 ? totalCurrent / denom : 1;
 
     const suggestions: WeightSuggestion[] = rawSuggestions.map((s) => {
       const suggested = Math.max(0, this.currentWeights[s.signal] + s.delta) * renormScale;
