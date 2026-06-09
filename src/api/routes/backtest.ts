@@ -7,11 +7,13 @@ import { BacktestSignalsRepository } from '../../db/repositories/backtest-signal
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import type { ScoringWeights } from '../../scoring/weights.js';
 import { DEFAULT_WEIGHTS } from '../../scoring/weights.js';
+import type { AutoWeightTuner } from '../../scoring/auto-tuner.js';
 
 export function createBacktestRouter(
   db: Database.Database,
   outcomeRepo: OutcomeRepository,
   currentWeights: ScoringWeights = DEFAULT_WEIGHTS,
+  autoTuner?: AutoWeightTuner,
 ): Router {
   const router = Router();
   const backtestSignalsRepo = new BacktestSignalsRepository(db);
@@ -46,6 +48,17 @@ export function createBacktestRouter(
       next(err);
     }
   });
+
+  if (autoTuner) {
+    router.post('/auto-tune', (_req: Request, res: Response, next: NextFunction): void => {
+      try {
+        const outcome = autoTuner.tune();
+        res.json(outcome);
+      } catch (err: unknown) {
+        next(err);
+      }
+    });
+  }
 
   return router;
 }

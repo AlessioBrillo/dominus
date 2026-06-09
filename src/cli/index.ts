@@ -12,6 +12,7 @@ import type { Config } from '../config.js';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { RenewalAlertRepository } from '../db/repositories/renewal-alert-repository.js';
 import type { SchedulerService } from '../scheduler/scheduler-service.js';
+import type { ScoringWeights } from '../scoring/weights.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
@@ -41,6 +42,7 @@ export interface CreateCliOptions {
   alertRepo?: RenewalAlertRepository;
   scheduler: SchedulerService | undefined;
   watchlistService?: WatchlistService;
+  currentWeights?: ScoringWeights;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -59,6 +61,7 @@ export function createCli(options: CreateCliOptions): Command {
     alertRepo,
     scheduler,
     watchlistService,
+    currentWeights,
   } = options;
 
   const program = new Command();
@@ -73,7 +76,7 @@ export function createCli(options: CreateCliOptions): Command {
   registerPortfolioCommand(program, { manager, alertEngine, alertRepo });
   registerScoreCommand(program, engine, gate);
   registerOutcomeCommand(program, outcomeRepo);
-  registerBacktestCommand(program, { db, outcomeRepo });
+  registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
   registerRunsCommand(program, { runsRepo });
   registerMaintenanceCommand(program, { db, trademarkRepo, runsRepo });
   registerProvidersCommand(program, { config });

@@ -10,6 +10,8 @@ import {
   RenewalAlertRepository,
   PipelineRunsRepository,
   WatchlistRepository,
+  BacktestSignalsRepository,
+  WeightSnapshotRepository,
 } from '../db/index.js';
 import { ManualKeywordProvider } from '../providers/keyword/index.js';
 import { ManualCompsProvider } from '../providers/comps/index.js';
@@ -21,9 +23,12 @@ import {
   ScoringEngine,
   loadWeights,
   loadTldBonuses,
+  AutoWeightTuner,
   type ScoringWeights,
   type ScoringConfig,
+  type AutoTunerConfig,
 } from '../scoring/index.js';
+import { BacktestEngine, WeightSuggester } from '../scoring/backtest/index.js';
 import { TrademarkGate } from '../trademark/index.js';
 import {
   PipelineOrchestrator,
@@ -77,6 +82,8 @@ export interface DominusDependencies {
 
   watchlistService: WatchlistService;
   scheduler: SchedulerService | undefined;
+
+  autoTuner: AutoWeightTuner | undefined;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -96,7 +103,10 @@ export function createDependencies(config: Config): DominusDependencies {
   const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
   const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
 
-  const currentWeights = loadWeights(config.SCORING_WEIGHTS_OVERRIDE);
+  const weightsOverridePath =
+    config.SCORING_WEIGHTS_OVERRIDE ||
+    (config.AUTO_TUNE_ENABLED ? config.AUTO_TUNE_WEIGHTS_PATH : undefined);
+  const currentWeights = loadWeights(weightsOverridePath);
   const tldBonuses = loadTldBonuses(config.TLD_BONUSES_PATH);
 
   const scoringConfig: ScoringConfig = {
@@ -202,6 +212,38 @@ export function createDependencies(config: Config): DominusDependencies {
     config,
   );
 
+  // ── Auto-weight-tuner (optional) ───────────────────────────────────
+  let autoTuner: AutoWeightTuner | undefined;
+  if (config.AUTO_TUNE_ENABLED) {
+    const backtestSignalsRepo = new BacktestSignalsRepository(db);
+    const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+    const weightSuggester = new WeightSuggester(
+      db,
+      backtestSignalsRepo,
+      scoringRepo,
+      currentWeights,
+    );
+    const weightSnapshotRepo = new WeightSnapshotRepository(db);
+
+    const autoTunerConfig: AutoTunerConfig = {
+      enabled: config.AUTO_TUNE_ENABLED,
+      minSampleSize: config.AUTO_TUNE_MIN_SAMPLE,
+      maxDeltaPerSignal: config.AUTO_TUNE_MAX_DELTA,
+      maxTotalDriftFromDefaults: config.AUTO_TUNE_MAX_DRIFT,
+      dryRun: config.AUTO_TUNE_DRY_RUN,
+    };
+
+    autoTuner = new AutoWeightTuner(
+      backtestEngine,
+      weightSuggester,
+      weightSnapshotRepo,
+      currentWeights,
+      autoTunerConfig,
+      config.AUTO_TUNE_WEIGHTS_PATH,
+    );
+  }
+
+  // ── Scheduler ─────────────────────────────────────────────────────
   let scheduler: SchedulerService | undefined;
   if (config.SCHEDULER_ENABLED) {
     scheduler = new SchedulerService({
@@ -211,6 +253,7 @@ export function createDependencies(config: Config): DominusDependencies {
       trademarkRepo,
       runsRepo: pipelineRunsRepo,
       watchlistService,
+      autoTuner,
     });
     scheduler.start();
   }
@@ -238,5 +281,6 @@ export function createDependencies(config: Config): DominusDependencies {
     alertEngine,
     watchlistService,
     scheduler,
+    autoTuner,
   };
 }

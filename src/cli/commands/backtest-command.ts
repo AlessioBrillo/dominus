@@ -3,15 +3,20 @@ import type Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
+import { AutoWeightTuner } from '../../scoring/auto-tuner.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { BacktestSignalsRepository } from '../../db/repositories/backtest-signals-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import { WeightSnapshotRepository } from '../../db/repositories/weight-snapshot-repository.js';
 import { loadConfig } from '../../config.js';
+import type { ScoringWeights } from '../../scoring/weights.js';
+import { DEFAULT_WEIGHTS } from '../../scoring/weights.js';
 import type { BacktestReport, WeightSuggestionReport } from '../../scoring/backtest/index.js';
 
 export interface BacktestCommandDeps {
   db: Database.Database;
   outcomeRepo: OutcomeRepository;
+  currentWeights?: ScoringWeights;
 }
 
 const DEFAULT_OVERRIDE_PATH = './data/weights-override.json';
@@ -21,6 +26,8 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .command('backtest')
     .description('Backtest the scoring engine against realised outcomes (sold only)');
 
+  const weights = deps.currentWeights ?? DEFAULT_WEIGHTS;
+
   const makeEngine = (): BacktestEngine =>
     new BacktestEngine(deps.db, deps.outcomeRepo, new BacktestSignalsRepository(deps.db));
 
@@ -29,7 +36,29 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
       deps.db,
       new BacktestSignalsRepository(deps.db),
       new ScoringRepository(deps.db),
+      weights,
     );
+
+  const makeAutoTuner = (): AutoWeightTuner | null => {
+    const config = loadConfig();
+    if (!config.AUTO_TUNE_ENABLED) return null;
+    const backtestSignalsRepo = new BacktestSignalsRepository(deps.db);
+    const scoringRepo = new ScoringRepository(deps.db);
+    return new AutoWeightTuner(
+      new BacktestEngine(deps.db, deps.outcomeRepo, backtestSignalsRepo),
+      new WeightSuggester(deps.db, backtestSignalsRepo, scoringRepo, weights),
+      new WeightSnapshotRepository(deps.db),
+      weights,
+      {
+        enabled: config.AUTO_TUNE_ENABLED,
+        minSampleSize: config.AUTO_TUNE_MIN_SAMPLE,
+        maxDeltaPerSignal: config.AUTO_TUNE_MAX_DELTA,
+        maxTotalDriftFromDefaults: config.AUTO_TUNE_MAX_DRIFT,
+        dryRun: config.AUTO_TUNE_DRY_RUN,
+      },
+      config.AUTO_TUNE_WEIGHTS_PATH,
+    );
+  };
 
   backtest
     .command('snapshot')
@@ -135,6 +164,22 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
         );
       }
     });
+
+  backtest
+    .command('auto-tune')
+    .description('Run the closed-loop weight tuning cycle (backtest + safety + apply)')
+    .option('--dry-run', 'preview only — do not write override file', undefined)
+    .action((_options: { dryRun?: boolean }) => {
+      const tuner = makeAutoTuner();
+      if (!tuner) {
+        process.stderr.write(
+          'Auto-tuner is disabled. Set AUTO_TUNE_ENABLED=true in .env to enable.\n',
+        );
+        process.exit(1);
+      }
+      const outcome = tuner.tune();
+      process.stdout.write(formatAutoTuneOutcome(outcome));
+    });
 }
 
 function formatSuggestionReport(r: WeightSuggestionReport): string {
@@ -204,5 +249,54 @@ function formatReport(r: BacktestReport): string {
   }
   lines.push('');
   lines.push(`Report MAE: ${eur2(r.meanAbsoluteErrorEur)}`);
+  return lines.join('\n');
+}
+
+function formatAutoTuneOutcome(o: {
+  tunedAt: string;
+  dryRun: boolean;
+  sampleSize: number;
+  snapshot: { scanned: number; inserted: number; skipped: number };
+  suggestions: Array<{
+    signal: string;
+    currentWeight: number;
+    suggestedWeight: number;
+    delta: number;
+    action: string;
+  }>;
+  safety: { passed: boolean; checks: string[]; failures: string[] };
+  applied: boolean;
+  snapshotId: number | null;
+  warnings: string[];
+}): string {
+  const lines: string[] = [];
+  lines.push(`DOMINUS auto-tune — ${o.tunedAt}`);
+  lines.push(`Mode: ${o.dryRun ? 'DRY RUN (preview)' : 'LIVE'}`);
+  lines.push(`Backtest snapshot: scanned ${o.snapshot.scanned}, inserted ${o.snapshot.inserted}`);
+  lines.push(`Sample: ${o.sampleSize} sold outcome(s)`);
+  lines.push('');
+  lines.push(`Safety checks: ${o.safety.passed ? 'PASSED' : 'FAILED'}`);
+  for (const c of o.safety.checks) {
+    lines.push(`  [PASS] ${c}`);
+  }
+  for (const f of o.safety.failures) {
+    lines.push(`  [FAIL] ${f}`);
+  }
+  lines.push('');
+  lines.push(
+    `  ${'signal'.padEnd(11)}  ${'current'.padStart(8)}  ${'suggested'.padStart(9)}  ${'delta'.padStart(8)}  ${'action'.padEnd(7)}`,
+  );
+  for (const s of o.suggestions) {
+    const deltaStr = `${s.delta >= 0 ? '+' : ''}${(s.delta * 100).toFixed(1)}%`;
+    lines.push(
+      `  ${s.signal.padEnd(11)}  ${(s.currentWeight * 100).toFixed(1).padStart(7)}%  ${(s.suggestedWeight * 100).toFixed(1).padStart(8)}%  ${deltaStr.padStart(8)}  ${s.action.padEnd(7)}`,
+    );
+  }
+  lines.push('');
+  lines.push(`Applied: ${o.applied ? 'Yes (weights override written)' : 'No'}`);
+  if (o.warnings.length > 0) {
+    lines.push('');
+    lines.push(`Warnings:\n${o.warnings.map((w) => `  - ${w}`).join('\n')}`);
+  }
   return lines.join('\n');
 }

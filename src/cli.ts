@@ -15,6 +15,7 @@ const cli = createCli({
   candidateRepo: deps.candidateRepo,
   trademarkRepo: deps.trademarkRepo,
   runsRepo: deps.pipelineRunsRepo,
+  currentWeights: deps.currentWeights,
   gate: deps.trademarkGate,
   alertEngine: deps.alertEngine,
   alertRepo: deps.alertRepo,
