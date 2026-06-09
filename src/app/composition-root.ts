@@ -13,8 +13,8 @@ import {
   BacktestSignalsRepository,
   WeightSnapshotRepository,
 } from '../db/index.js';
-import { ManualKeywordProvider } from '../providers/keyword/index.js';
-import { ManualCompsProvider } from '../providers/comps/index.js';
+import { createKeywordProvider, type KeywordProvider } from '../providers/keyword/index.js';
+import { createCompsProvider, type CompsProvider } from '../providers/comps/index.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
@@ -64,8 +64,8 @@ export interface DominusDependencies {
   alertRepo: RenewalAlertRepository;
   pipelineRunsRepo: PipelineRunsRepository;
 
-  keywordProvider: ManualKeywordProvider;
-  compsProvider: ManualCompsProvider;
+  keywordProvider: KeywordProvider;
+  compsProvider: CompsProvider;
   whoisProvider: NodeWhoisProviderWithIanaFallback;
 
   currentWeights: ScoringWeights;
@@ -100,8 +100,12 @@ export function createDependencies(config: Config): DominusDependencies {
   const alertRepo = new RenewalAlertRepository(db);
   const pipelineRunsRepo = new PipelineRunsRepository(db);
 
-  const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
-  const compsProvider = new ManualCompsProvider(config.COMPS_DATA_PATH);
+  const keywordProvider = createKeywordProvider(config.KEYWORD_PROVIDER, {
+    dataFilePath: config.KEYWORD_DATA_PATH,
+  });
+  const compsProvider = createCompsProvider(config.COMPS_PROVIDER, {
+    csvFilePath: config.COMPS_DATA_PATH,
+  });
 
   const weightsOverridePath =
     config.SCORING_WEIGHTS_OVERRIDE ||

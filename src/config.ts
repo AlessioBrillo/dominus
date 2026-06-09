@@ -20,11 +20,29 @@ const configSchema = z.object({
    */
   KEYWORD_DATA_PATH: z.string().optional(),
   /**
+   * Keyword provider implementation to use.
+   * Supported values: 'manual' (reads from KEYWORD_DATA_PATH JSON file).
+   * Adding a new provider (e.g. 'google-keyword-planner') requires:
+   *   1. Creating a new implementation of KeywordProvider interface
+   *   2. Adding the type to the union below
+   *   3. Adding the factory case in src/providers/keyword/index.ts
+   */
+  KEYWORD_PROVIDER: z.enum(['manual']).default('manual'),
+  /**
    * Optional path to a CSV file of NameBio comparable sales.
    * Columns: domain,price,date,venue
    * When absent, ManualCompsProvider returns no comparables.
    */
   COMPS_DATA_PATH: z.string().optional(),
+  /**
+   * Comparable-sales provider implementation to use.
+   * Supported values: 'manual' (reads from COMPS_DATA_PATH CSV file).
+   * Adding a new provider (e.g. 'namebio-api') requires:
+   *   1. Creating a new implementation of CompsProvider interface
+   *   2. Adding the type to the union below
+   *   3. Adding the factory case in src/providers/comps/index.ts
+   */
+  COMPS_PROVIDER: z.enum(['manual']).default('manual'),
   /**
    * USPTO public trademark search base URL (no API key required).
    * Default: the official US tmsearch.uspto.gov JSON backend.

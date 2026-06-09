@@ -39,11 +39,12 @@ describe('TelegramNotifier', () => {
     await notifier.send(makeAlert());
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const callUrl = fetchMock.mock.calls[0][0];
+    const callUrl = fetchMock.mock.calls[0]![0];
     expect(callUrl).toContain('api.telegram.org/bot');
     expect(callUrl).toContain('test-token/sendMessage');
 
-    const callBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const callOptions = fetchMock.mock.calls[0]![1] as { body: string };
+    const callBody = JSON.parse(callOptions.body);
     expect(callBody.chat_id).toBe('test-chat');
     expect(callBody.text).toContain('example.com');
     expect(callBody.parse_mode).toBe('Markdown');
@@ -83,7 +84,8 @@ describe('TelegramNotifier', () => {
     const notifier = new TelegramNotifier({ botToken: 'test-token', chatId: 'test-chat' });
     await notifier.send(makeAlert({ severity: AlertSeverity.Critical }));
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const options = fetchMock.mock.calls[0]![1] as { body: string };
+    const body = JSON.parse(options.body);
     expect(body.text).toContain('DOMINUS Alert');
     expect(body.text).toContain('renewal_imminent');
     expect(body.text).toContain('example.com');

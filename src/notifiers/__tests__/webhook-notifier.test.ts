@@ -39,9 +39,13 @@ describe('WebhookNotifier', () => {
     await notifier.send(makeAlert());
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe('https://hooks.example.com/alerts');
+    expect(fetchMock.mock.calls[0]![0]).toBe('https://hooks.example.com/alerts');
 
-    const callOptions = fetchMock.mock.calls[0][1];
+    const callOptions = fetchMock.mock.calls[0]![1] as {
+      method: string;
+      headers: Record<string, string>;
+      body: string;
+    };
     expect(callOptions.method).toBe('POST');
     expect(callOptions.headers['Content-Type']).toBe('application/json');
 

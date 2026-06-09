@@ -19,6 +19,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_AUTH_URL: 'https://euipo.europa.eu/oauth2/token',
     EUIPO_API_URL: 'https://api.euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
+    KEYWORD_PROVIDER: 'manual',
+    COMPS_PROVIDER: 'manual',
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     BUY_MAX_ABSOLUTE_CAP: 500,
@@ -151,7 +153,9 @@ describe('health command', () => {
       EUIPO_CLIENT_ID: 'test-client',
       EUIPO_CLIENT_SECRET: 'test-secret',
       KEYWORD_DATA_PATH: './keywords.json',
+      KEYWORD_PROVIDER: 'manual',
       COMPS_DATA_PATH: './comps.csv',
+      COMPS_PROVIDER: 'manual',
     });
     const output = await runHealth('--json');
     const parsed = JSON.parse(output.trim());
