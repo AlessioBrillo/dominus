@@ -11,6 +11,7 @@ import * as m0008 from './migrations/0008_create_pipeline_runs.js';
 import * as m0009 from './migrations/0009_create_renewal_alerts.js';
 import * as m0010 from './migrations/0010_create_watchlist.js';
 import * as m0011 from './migrations/0011_rename_weights_snapshot.js';
+import * as m0012 from './migrations/0012_create_weight_snapshots.js';
 
 interface Migration {
   name: string;
@@ -29,6 +30,7 @@ const MIGRATIONS: Migration[] = [
   m0009,
   m0010,
   m0011,
+  m0012,
 ];
 
 export function runMigrations(db: Database.Database): void {
