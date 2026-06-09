@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS scoring_runs (
   commercial_score REAL NOT NULL,
   market_score REAL NOT NULL,
   expiry_score REAL NOT NULL,
-  weights_snapshot TEXT NOT NULL,
+  signal_scores TEXT NOT NULL,
   scored_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
 `;
