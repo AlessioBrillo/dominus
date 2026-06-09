@@ -24,6 +24,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_AUTH_URL: 'https://euipo.europa.eu/oauth2/token',
     EUIPO_API_URL: 'https://euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
+    KEYWORD_PROVIDER: 'manual',
+    COMPS_PROVIDER: 'manual',
     DNS_BULK_CONCURRENCY: 10,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     BUY_MAX_ABSOLUTE_CAP: 500,
