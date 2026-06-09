@@ -17,6 +17,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     LOG_LEVEL: 'info',
     LOG_PRETTY: false,
     SCORING_CONFIDENCE_THRESHOLD: 0.3,
+    SCORING_HOLDING_YEARS: 3,
     DROP_SCORE_THRESHOLD: 25,
     DROP_RENEWAL_HORIZON_DAYS: 60,
     USPTO_SEARCH_URL: 'https://tmsearch.uspto.gov/tmsearch',

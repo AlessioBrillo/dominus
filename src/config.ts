@@ -93,6 +93,14 @@ const configSchema = z.object({
    * Default: 500. Set to 0 for unlimited (not recommended).
    */
   BUY_MAX_ABSOLUTE_CAP: z.coerce.number().min(0).default(500),
+  /**
+   * Number of years of renewal costs to subtract from the raw buy-max.
+   * suggestedBuyMax = max(0, expectedValue × buyMaxRatio − renewalCost ×
+   * holdingYears). A holding period of 3 means a €12/yr renewal reduces
+   * buy-max by €36. Only applies when renewalCost is provided (portfolio
+   * rescore). Default: 3.
+   */
+  SCORING_HOLDING_YEARS: z.coerce.number().int().min(1).max(20).default(3),
 
   // ── Scoring signal calibration (fork-friendly overrides) ──────────
 

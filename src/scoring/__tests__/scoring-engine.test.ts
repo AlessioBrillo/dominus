@@ -155,6 +155,43 @@ describe('ScoringEngine', () => {
     expect(result.suggestedBuyMax).toBe(0);
   });
 
+  it('renewal cost penalty reduces suggestedBuyMax', async () => {
+    const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const withoutRenewal = await engine.score({
+      domain: 'nova.com',
+      tld: '.com',
+      sld: 'nova',
+      isCloseout: false,
+    });
+    const withRenewal = await engine.score({
+      domain: 'nova.com',
+      tld: '.com',
+      sld: 'nova',
+      isCloseout: false,
+      renewalCost: 12,
+    });
+    // Default holdingYears is 3, so renewalCost * 3 = 36 should be subtracted
+    expect(withRenewal.suggestedBuyMax).toBeLessThan(withoutRenewal.suggestedBuyMax);
+    expect(withRenewal.suggestedBuyMax).toBeLessThanOrEqual(
+      withoutRenewal.suggestedBuyMax - 36 + 0.01,
+    );
+  });
+
+  it('high renewal cost can reduce suggestedBuyMax to zero', async () => {
+    const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'nova.com',
+      tld: '.com',
+      sld: 'nova',
+      isCloseout: false,
+      renewalCost: 9999,
+    });
+    // Raw buyMax = expectedValue * 0.5 - 9999 * 3 < 0, so clamped to 0
+    expect(result.suggestedBuyMax).toBe(0);
+  });
+
   it('recommended is false when confidence is below threshold (no signals)', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);

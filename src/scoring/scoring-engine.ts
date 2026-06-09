@@ -84,7 +84,12 @@ export class ScoringEngine {
       weightedScore *
       baseMarketValueEur *
       (1 + (market.medianSalePrice / baseMarketValueEur) * 0.5);
-    const suggestedBuyMax = Math.min(expectedValue * buyMaxRatio, this.buyMaxAbsoluteCap);
+
+    let buyMax = expectedValue * buyMaxRatio;
+    if (input.renewalCost !== undefined) {
+      buyMax = Math.max(0, buyMax - input.renewalCost * this.scoringConfig.constants.holdingYears);
+    }
+    const suggestedBuyMax = Math.min(buyMax, this.buyMaxAbsoluteCap);
     const suggestedListPrice = expectedValue * listPriceMultiplier;
 
     const recommended =
