@@ -26,9 +26,10 @@ export class RenewalAlertEngine {
 
     for (const entry of entries) {
       if (!entry.renewalDate) continue;
+      if (entry.id === undefined) continue;
 
       const clock = computeRenewalClock(entry);
-      const input = this.#buildAlertInput(entry.domain, entry.id!, clock.daysUntilRenewal);
+      const input = this.#buildAlertInput(entry.domain, entry.id, clock.daysUntilRenewal);
       if (input === null) continue;
 
       const persisted = this.alertRepo.upsert(input, []);
