@@ -253,7 +253,7 @@ export function createDependencies(config: Config): DominusDependencies {
       trademarkRepo,
       runsRepo: pipelineRunsRepo,
       watchlistService,
-      autoTuner,
+      ...(autoTuner ? { autoTuner } : {}),
     });
     scheduler.start();
   }

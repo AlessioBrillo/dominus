@@ -16,7 +16,7 @@ import type { BacktestReport, WeightSuggestionReport } from '../../scoring/backt
 export interface BacktestCommandDeps {
   db: Database.Database;
   outcomeRepo: OutcomeRepository;
-  currentWeights?: ScoringWeights;
+  currentWeights: ScoringWeights | undefined;
 }
 
 const DEFAULT_OVERRIDE_PATH = './data/weights-override.json';
