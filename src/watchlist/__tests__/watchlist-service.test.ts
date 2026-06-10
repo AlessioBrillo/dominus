@@ -89,6 +89,11 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: 3,
     TRADEMARK_MAX_LEVENSHTEIN: 1,
     PROVIDER_CACHE_TTL_DAYS: 7,
+    TRADEMARK_BATCH_CONCURRENCY: 3,
+    RESCORE_BATCH_CONCURRENCY: 5,
+    REQUEST_TIMEOUT_MS: 30000,
+    FRONTEND_DIST_PATH: './frontend/dist',
+    FRONTEND_BASE_PATH: '',
     NAMEBIO_API_KEY: undefined,
     ...overrides,
   };

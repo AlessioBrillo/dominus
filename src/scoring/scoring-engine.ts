@@ -15,37 +15,57 @@ import type { ScoringConfig } from './scoring-config.js';
 import { DEFAULT_SCORING_CONFIG } from './scoring-config.js';
 
 export class ScoringEngine {
+  #weights: ScoringWeights;
+  #tldBonuses: Record<string, number>;
+
   constructor(
     private readonly keywordProvider: KeywordProvider,
     private readonly compsProvider: CompsProvider,
-    private readonly weights: ScoringWeights = DEFAULT_WEIGHTS,
+    weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
     private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
     private readonly confidenceThreshold: number = 0.3,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
-    private readonly tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
-  ) {}
+    tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
+  ) {
+    this.#weights = weights;
+    this.#tldBonuses = tldBonuses;
+  }
+
+  /** Hot-reload: swap weights at runtime without restarting the engine. */
+  updateWeights(weights: ScoringWeights): void {
+    this.#weights = weights;
+  }
+
+  /** Hot-reload: swap TLD bonuses at runtime. */
+  updateTldBonuses(bonuses: Record<string, number>): void {
+    this.#tldBonuses = bonuses;
+  }
+
+  get currentWeights(): ScoringWeights {
+    return this.#weights;
+  }
 
   async score(input: ScoringInput): Promise<ScoreResult> {
     const intrinsic = computeIntrinsicScore(
       input,
-      this.weights.intrinsic,
+      this.#weights.intrinsic,
       this.scoringConfig.intrinsic,
-      this.tldBonuses,
+      this.#tldBonuses,
     );
     const commercial = await computeCommercialScore(
       input,
       this.keywordProvider,
-      this.weights.commercial,
+      this.#weights.commercial,
       this.scoringConfig.commercial,
     );
     const market = await computeMarketScore(
       input,
       this.compsProvider,
-      this.weights.market,
+      this.#weights.market,
       this.scoringConfig.market,
     );
-    const expiry = computeExpiryScore(input, this.weights.expiry, this.scoringConfig.expiry);
+    const expiry = computeExpiryScore(input, this.#weights.expiry, this.scoringConfig.expiry);
 
     const weightedScore =
       intrinsic.score * intrinsic.weight +

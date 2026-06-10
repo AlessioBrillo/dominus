@@ -258,7 +258,7 @@ export function createDependencies(config: Config): DominusDependencies {
       config.RDAP_BATCH_CONCURRENCY,
     ),
     new ScoringStage(engine),
-    new TrademarkGateStage(trademarkGate),
+    new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
   );
 
   const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
@@ -269,7 +269,13 @@ export function createDependencies(config: Config): DominusDependencies {
     config.DROP_RENEWAL_HORIZON_DAYS,
   );
   portfolioManager.setRescoreService(
-    new PortfolioRescoreService(engine, trademarkGate, candidateRepo, scoringRepo),
+    new PortfolioRescoreService(
+      engine,
+      trademarkGate,
+      candidateRepo,
+      scoringRepo,
+      config.RESCORE_BATCH_CONCURRENCY,
+    ),
   );
 
   const notifiers = buildNotifiers(config);
