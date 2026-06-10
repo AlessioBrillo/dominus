@@ -12,3 +12,5 @@ export { createAlertsRouter } from './routes/alerts.js';
 export { createSchedulerRouter } from './routes/scheduler.js';
 export { createWatchlistRouter } from './routes/watchlist.js';
 export { createAuthMiddleware } from './middleware/auth.js';
+export { validate } from './middleware/validate.js';
+export type { ValidationSchemas } from './middleware/validate.js';
