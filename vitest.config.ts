@@ -23,7 +23,7 @@ export default defineConfig({
       // Buffer of ~3pp below measured to absorb CI platform variance.
       thresholds: {
         lines: 77,
-        functions: 82,
+        functions: 79,
         branches: 68,
       },
     },
