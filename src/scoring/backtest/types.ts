@@ -21,6 +21,7 @@ export interface BacktestReport {
   buyMaxMeanAbsoluteErrorEur: number;
   buyMaxHitRate: number;
   calibration: Record<ConfidenceBucket, CalibrationBucketStat>;
+  warnings: string[];
 }
 
 export interface SnapshotSummary {

@@ -23,6 +23,8 @@ interface CandidateLookupRow {
   domain: string;
 }
 
+const SMALL_BUCKET_WARN_THRESHOLD = 10;
+
 const ZERO_CALIBRATION: CalibrationBucketStat = {
   n: 0,
   meanAbsError: 0,
@@ -130,6 +132,7 @@ export class BacktestEngine {
           mid: { ...ZERO_CALIBRATION },
           high: { ...ZERO_CALIBRATION },
         },
+        warnings: ['No backtest signals — run `dominus backtest snapshot` first'],
       };
     }
 
@@ -142,17 +145,24 @@ export class BacktestEngine {
     const biasEur = mean(signedErrors);
     const biasPct = meanActual === 0 ? 0 : (biasEur / meanActual) * 100;
 
+    const warnings: string[] = [];
     const calibration: Record<string, CalibrationBucketStat> = {};
     for (const bucket of CONFIDENCE_BUCKETS) {
       const subset = signals.filter((s) => s.confidenceBucket === bucket);
+      const n = subset.length;
       calibration[bucket] = {
-        n: subset.length,
+        n,
         meanAbsError: mean(
           subset.map((s) => Math.abs(s.predictedExpectedValue - s.actualSalePriceEur)),
         ),
         meanRealised: mean(subset.map((s) => s.actualSalePriceEur)),
         meanPredicted: mean(subset.map((s) => s.predictedExpectedValue)),
       };
+      if (n > 0 && n < SMALL_BUCKET_WARN_THRESHOLD) {
+        warnings.push(
+          `Bucket '${bucket}': ${n} samples < ${SMALL_BUCKET_WARN_THRESHOLD} — calibration metrics are not statistically significant`,
+        );
+      }
     }
 
     return {
@@ -167,6 +177,7 @@ export class BacktestEngine {
       buyMaxMeanAbsoluteErrorEur: mean(buyMaxAbsErrors),
       buyMaxHitRate: buyMaxHits.length / sampleSize,
       calibration: calibration as Record<'low' | 'mid' | 'high', CalibrationBucketStat>,
+      warnings,
     };
   }
 

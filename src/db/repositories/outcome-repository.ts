@@ -50,12 +50,19 @@ export class OutcomeRepository {
 
   /** Insert a new outcome. Throws if `domain` is not in the portfolio. */
   insert(input: RecordOutcomeInput): Outcome {
+    const exists = this.db
+      .prepare('SELECT 1 FROM portfolio_entries WHERE domain = ?')
+      .get(input.domain);
+    if (exists === undefined) {
+      throw new DomainNotFoundError(input.domain);
+    }
+
     const stmt = this.db.prepare(
       `INSERT INTO outcomes
          (domain, type, occurred_at, sale_price_eur, listing_price_eur,
           days_listed, venue, commission_pct, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING id`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id`,
     );
     try {
       const row = stmt.get(
@@ -74,10 +81,9 @@ export class OutcomeRepository {
         .get(row.id) as OutcomeRow;
       return rowToOutcome(inserted);
     } catch (err: unknown) {
+      // SQLite FK violation as safety net — should not trigger since we
+      // already checked, but kept as defence-in-depth.
       const message = err instanceof Error ? err.message : String(err);
-      // SQLite FK violation surfaces as SQLITE_CONSTRAINT with the
-      // index 'sqlite_autoindex_outcomes_1' or simply a FOREIGN KEY
-      // constraint failed message.
       if (/FOREIGN KEY/i.test(message) || /constraint failed/i.test(message)) {
         throw new DomainNotFoundError(input.domain);
       }

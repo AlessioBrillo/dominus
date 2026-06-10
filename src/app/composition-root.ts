@@ -115,14 +115,18 @@ export function createDependencies(config: Config): DominusDependencies {
   const alertRepo = new RenewalAlertRepository(db);
   const pipelineRunsRepo = new PipelineRunsRepository(db);
 
-  const keywordProvider = createKeywordProvider(config.KEYWORD_PROVIDER, {
-    dataFilePath: config.KEYWORD_DATA_PATH,
-    googleAdsClientId: config.GOOGLE_ADS_CLIENT_ID,
-    googleAdsClientSecret: config.GOOGLE_ADS_CLIENT_SECRET,
-    googleAdsRefreshToken: config.GOOGLE_ADS_REFRESH_TOKEN,
-    googleAdsDeveloperToken: config.GOOGLE_ADS_DEVELOPER_TOKEN,
-    googleAdsCustomerId: config.GOOGLE_ADS_CUSTOMER_ID,
-  });
+  const keywordProvider = createKeywordProvider(
+    config.KEYWORD_PROVIDER,
+    {
+      dataFilePath: config.KEYWORD_DATA_PATH,
+      googleAdsClientId: config.GOOGLE_ADS_CLIENT_ID,
+      googleAdsClientSecret: config.GOOGLE_ADS_CLIENT_SECRET,
+      googleAdsRefreshToken: config.GOOGLE_ADS_REFRESH_TOKEN,
+      googleAdsDeveloperToken: config.GOOGLE_ADS_DEVELOPER_TOKEN,
+      googleAdsCustomerId: config.GOOGLE_ADS_CUSTOMER_ID,
+    },
+    providerCacheRepo,
+  );
 
   // Cache the keyword provider to avoid redundant API calls for the same term
   const keywordCache = new CachedProvider<KeywordMetrics>(

@@ -16,7 +16,7 @@ import type {
 import { SIGNAL_NAMES } from './types.js';
 
 const HIGH_THRESHOLD = 0.5;
-const MIN_BUCKET_SIZE = 2;
+const MIN_BUCKET_SIZE = 10;
 const DELTA_STEP = 0.02;
 const MAX_ABS_DELTA = 0.05;
 const MIN_LIFT_EUR = 50;

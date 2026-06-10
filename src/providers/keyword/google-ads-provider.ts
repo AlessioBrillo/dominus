@@ -1,5 +1,8 @@
 import type { KeywordMetrics, KeywordProvider } from './keyword-provider.js';
+import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { getLogger } from '../../logger.js';
+
+const QUOTA_CACHE_PREFIX = 'google_ads_quota';
 
 export interface GoogleAdsProviderConfig {
   clientId: string | undefined;
@@ -9,6 +12,13 @@ export interface GoogleAdsProviderConfig {
   customerId: string | undefined;
   /** Max queries per day (free tier: 10,000). Default: 9,500 to stay under limit. */
   dailyQuota?: number;
+  /** Optional cache repository for persisting the daily quota counter across restarts. */
+  cacheRepo?: ProviderCacheRepository | undefined;
+}
+
+interface SerialisedQuotaState {
+  queriesToday: number;
+  quotaDate: string; // ISO-8601 date (YYYY-MM-DD) — the day this counter applies to
 }
 
 interface GoogleAdsTokenResponse {
@@ -35,7 +45,13 @@ interface GoogleAdsSearchResult {
 }
 
 export class GoogleAdsProvider implements KeywordProvider {
-  private readonly config: Required<GoogleAdsProviderConfig>;
+  private readonly clientId: string | undefined;
+  private readonly clientSecret: string | undefined;
+  private readonly refreshToken: string | undefined;
+  private readonly developerToken: string | undefined;
+  private readonly customerId: string | undefined;
+  private readonly dailyQuota: number;
+  private readonly cacheRepo: ProviderCacheRepository | null;
   private warned: boolean = false;
   private queriesToday: number = 0;
   private quotaResetAt: number = Date.now() + 86_400_000;
@@ -44,14 +60,14 @@ export class GoogleAdsProvider implements KeywordProvider {
   #tokenExpiresAt: number = 0;
 
   constructor(config: GoogleAdsProviderConfig) {
-    this.config = {
-      clientId: config.clientId,
-      clientSecret: config.clientSecret,
-      refreshToken: config.refreshToken,
-      developerToken: config.developerToken,
-      customerId: config.customerId,
-      dailyQuota: config.dailyQuota ?? 9_500,
-    };
+    this.clientId = config.clientId;
+    this.clientSecret = config.clientSecret;
+    this.refreshToken = config.refreshToken;
+    this.developerToken = config.developerToken;
+    this.customerId = config.customerId;
+    this.dailyQuota = config.dailyQuota ?? 9_500;
+    this.cacheRepo = config.cacheRepo ?? null;
+    this.#restoreQuota();
   }
 
   async getMetrics(term: string): Promise<KeywordMetrics> {
@@ -70,12 +86,18 @@ export class GoogleAdsProvider implements KeywordProvider {
 
     const metrics = this.#extractMetrics(results, term);
     this.queriesToday++;
+    this.#persistQuota();
     return metrics;
   }
 
   private isConfigured(): boolean {
-    const c = this.config;
-    return !!(c.clientId && c.clientSecret && c.refreshToken && c.developerToken && c.customerId);
+    return !!(
+      this.clientId &&
+      this.clientSecret &&
+      this.refreshToken &&
+      this.developerToken &&
+      this.customerId
+    );
   }
 
   private isQuotaExhausted(): boolean {
@@ -85,7 +107,48 @@ export class GoogleAdsProvider implements KeywordProvider {
       this.quotaResetAt = now + 86_400_000;
       return false;
     }
-    return this.queriesToday >= this.config.dailyQuota;
+    return this.queriesToday >= this.dailyQuota;
+  }
+
+  /**
+   * Restore the daily quota counter from the provider cache.
+   * If the cached state is from a previous calendar day, it is discarded
+   * (fresh start for a new day).
+   */
+  #restoreQuota(): void {
+    if (this.cacheRepo === null || !this.customerId) return;
+
+    const cached = this.cacheRepo.get(this.#quotaCacheKey(), 'google-ads');
+    if (cached === null) return;
+
+    try {
+      const state: SerialisedQuotaState = JSON.parse(cached) as SerialisedQuotaState;
+      const today = new Date().toISOString().slice(0, 10);
+      if (state.quotaDate === today && typeof state.queriesToday === 'number') {
+        this.queriesToday = state.queriesToday;
+        getLogger().debug(
+          { queriesToday: this.queriesToday },
+          'Google Ads quota counter restored from cache',
+        );
+      }
+    } catch {
+      // Malformed cache entry — ignore and start fresh
+    }
+  }
+
+  /** Persist the current quota counter to the provider cache (7-day TTL). */
+  #persistQuota(): void {
+    if (this.cacheRepo === null || !this.customerId) return;
+
+    const state: SerialisedQuotaState = {
+      queriesToday: this.queriesToday,
+      quotaDate: new Date().toISOString().slice(0, 10),
+    };
+    this.cacheRepo.set(this.#quotaCacheKey(), 'google-ads', JSON.stringify(state), 7);
+  }
+
+  #quotaCacheKey(): string {
+    return `${QUOTA_CACHE_PREFIX}_${this.customerId ?? 'unknown'}`;
   }
 
   private warnOnce(): void {
@@ -103,7 +166,7 @@ export class GoogleAdsProvider implements KeywordProvider {
   }
 
   async #getToken(): Promise<string> {
-    if (!this.config.clientId || !this.config.clientSecret || !this.config.refreshToken) {
+    if (!this.clientId || !this.clientSecret || !this.refreshToken) {
       throw new Error('Google Ads OAuth2 credentials not configured');
     }
 
@@ -114,9 +177,9 @@ export class GoogleAdsProvider implements KeywordProvider {
 
     const body = new URLSearchParams({
       grant_type: 'refresh_token',
-      client_id: this.config.clientId,
-      client_secret: this.config.clientSecret,
-      refresh_token: this.config.refreshToken,
+      client_id: this.clientId,
+      client_secret: this.clientSecret,
+      refresh_token: this.refreshToken,
     });
 
     let response: Response;
@@ -152,7 +215,7 @@ export class GoogleAdsProvider implements KeywordProvider {
   }
 
   async #searchKeywordVolume(term: string, token: string): Promise<GoogleAdsSearchResult> {
-    const url = `https://googleads.googleapis.com/v19/customers/${this.config.customerId}/googleAds:searchStream`;
+    const url = `https://googleads.googleapis.com/v19/customers/${this.customerId}/googleAds:searchStream`;
 
     const gaql = `
       SELECT
@@ -171,9 +234,9 @@ export class GoogleAdsProvider implements KeywordProvider {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
-          'developer-token': this.config.developerToken ?? '',
+          'developer-token': this.developerToken ?? '',
           'Content-Type': 'application/json',
-          'login-customer-id': this.config.customerId ?? '',
+          'login-customer-id': this.customerId ?? '',
         },
         body: JSON.stringify({ query: gaql }),
         signal: AbortSignal.timeout(15_000),
