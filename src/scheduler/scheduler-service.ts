@@ -6,6 +6,7 @@ import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-re
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
 import type { Config } from '../config.js';
+import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -26,12 +27,11 @@ export interface SchedulerOptions {
   runsRepo?: PipelineRunsRepository;
   watchlistService?: WatchlistService;
   autoTuner?: AutoWeightTuner;
+  jobRepo?: SchedulerJobRepository;
 }
 
 export class SchedulerService {
   private readonly jobs: Map<string, cron.ScheduledTask> = new Map();
-  private readonly status: Map<string, { lastRunAt: string | null; lastResult: string | null }> =
-    new Map();
   private readonly config: Config;
   private readonly alertEngine: RenewalAlertEngine;
   private readonly portfolioManager: PortfolioManager | undefined;
@@ -39,6 +39,7 @@ export class SchedulerService {
   private readonly runsRepo: PipelineRunsRepository | undefined;
   private readonly watchlistService: WatchlistService | undefined;
   private readonly autoTuner: AutoWeightTuner | undefined;
+  private readonly jobRepo: SchedulerJobRepository | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -49,6 +50,7 @@ export class SchedulerService {
     this.runsRepo = options.runsRepo;
     this.watchlistService = options.watchlistService;
     this.autoTuner = options.autoTuner;
+    this.jobRepo = options.jobRepo;
   }
 
   start(): void {
@@ -153,14 +155,16 @@ export class SchedulerService {
   }
 
   getStatus(): ScheduledJob[] {
+    const dbJobs = this.jobRepo?.findAll() ?? [];
+    const dbMap = new Map(dbJobs.map((j) => [j.jobName, j]));
     return this.#availableJobs().map((name) => {
-      const s = this.status.get(name);
+      const db = dbMap.get(name);
       return {
         name,
         cronExpression: this.#getCron(name),
         description: this.#getDescription(name),
-        lastRunAt: s?.lastRunAt ?? null,
-        lastResult: s?.lastResult ?? null,
+        lastRunAt: db?.lastRunAt ?? null,
+        lastResult: db?.lastResult ?? null,
       };
     });
   }
@@ -173,18 +177,35 @@ export class SchedulerService {
   ): void {
     this.#setJobDefinition(name, cronExpression, description, execute);
 
+    // Persist job definition to DB
+    try {
+      this.jobRepo?.upsert({ jobName: name, cronExpression, description });
+    } catch {
+      // DB persistence is best-effort
+    }
+
     if (cron.validate(cronExpression)) {
       const task = cron.schedule(cronExpression, () => {
+        const started = Date.now();
         execute()
           .then((result) => {
-            this.status.set(name, { lastRunAt: new Date().toISOString(), lastResult: result });
+            const durationMs = Date.now() - started;
+            this.jobRepo?.updateResult(name, {
+              lastRunAt: new Date().toISOString(),
+              lastResult: result,
+              durationMs,
+              isError: false,
+            });
           })
           .catch((err: unknown) => {
+            const durationMs = Date.now() - started;
             const errorMsg = err instanceof Error ? err.message : String(err);
             logger.error(`Job ${name} failed: ${errorMsg}`);
-            this.status.set(name, {
+            this.jobRepo?.updateResult(name, {
               lastRunAt: new Date().toISOString(),
               lastResult: `Error: ${errorMsg}`,
+              durationMs,
+              isError: true,
             });
           });
       });

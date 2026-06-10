@@ -5,6 +5,7 @@ import type {
   RegistrarPurchaseResult,
   RegistrarDomainInfo,
 } from './registrar-provider.js';
+import type { RegistrarRegistration } from './registrar-registry.js';
 
 /**
  * ManualRegistrarProvider is the default registrar implementation for
@@ -22,6 +23,27 @@ import type {
  */
 export class ManualRegistrarProvider implements RegistrarProvider {
   readonly name = 'manual';
+
+  static readonly registration: RegistrarRegistration = {
+    name: 'manual',
+    displayName: 'Manual (No Automation)',
+    descriptor: {
+      name: 'manual',
+      displayName: 'Manual (No Automation)',
+      description:
+        'Safe default — all registrar operations must be performed manually by the operator. DOMINUS tracks the portfolio but does not automate registration, renewal, or transfers.',
+      website: '',
+      docsUrl: '',
+      configFields: [],
+      supportedTlds: ['*'],
+      features: [
+        'No API key required',
+        'Operator handles all registrar interactions manually',
+        'Zero risk of accidental purchases',
+      ],
+    },
+    create: () => new ManualRegistrarProvider(),
+  };
 
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {
     return domains.map((domain) => ({

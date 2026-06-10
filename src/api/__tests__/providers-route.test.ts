@@ -51,6 +51,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_CLIENT_ID: undefined,
     EUIPO_CLIENT_SECRET: undefined,
     SCORING_WEIGHTS_OVERRIDE: undefined,
+    RDAP_BATCH_CONCURRENCY: 5,
+    REGISTRAR_PROVIDER: 'manual',
+    PURCHASE_AUTO_APPROVAL: 'never',
     CLOUDFLARE_API_TOKEN: undefined,
     CLOUDFLARE_ACCOUNT_ID: undefined,
     AUTO_TUNE_ENABLED: false,
@@ -101,7 +104,7 @@ describe('GET /api/providers/status', () => {
     expect(names).toContain('KeywordPlanner');
     expect(names).toContain('NameBio');
     expect(names).toContain('WHOIS');
-    expect(names).toContain('CloudflareRegistrar');
+    expect(names).toContain('Registrar');
     expect(names).toContain('GoogleAds');
   });
 

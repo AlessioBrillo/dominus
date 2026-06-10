@@ -6,6 +6,7 @@ import type {
   RegistrarPurchaseResult,
   RegistrarDomainInfo,
 } from './registrar-provider.js';
+import type { RegistrarRegistration } from './registrar-registry.js';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 
@@ -87,6 +88,48 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
   readonly name = 'cloudflare';
   readonly #apiToken: string | undefined;
   readonly #accountId: string | undefined;
+
+  static readonly registration: RegistrarRegistration = {
+    name: 'cloudflare',
+    displayName: 'Cloudflare',
+    descriptor: {
+      name: 'cloudflare',
+      displayName: 'Cloudflare',
+      description:
+        'Cloudflare Registrar offers domain registration at cost price with built-in DNS, DDoS protection, and SSL.',
+      website: 'https://www.cloudflare.com/products/registrar/',
+      docsUrl: 'https://developers.cloudflare.com/api/operations/registrar-domains-list-domains',
+      configFields: [
+        {
+          key: 'apiToken',
+          label: 'API Token',
+          type: 'password',
+          required: true,
+          description: 'Cloudflare API token with Zone:Read and Registrar:Write permissions',
+        },
+        {
+          key: 'accountId',
+          label: 'Account ID',
+          type: 'string',
+          required: true,
+          description: 'Cloudflare account ID from the dashboard overview page',
+        },
+      ],
+      supportedTlds: Object.keys(CLOUDFLARE_PRICING_EUR),
+      features: [
+        'Registration at cost price (no markup)',
+        'Integrated DNS, DDoS protection, and SSL',
+        'Auto-renewal management',
+        'Free WHOIS redaction',
+      ],
+    },
+    create: (config: Record<string, string>) => {
+      return new CloudflareRegistrarProvider({
+        apiToken: config['apiToken'] ?? config['api_key'] ?? config['APIToken'],
+        accountId: config['accountId'] ?? config['account_id'] ?? config['AccountID'],
+      });
+    },
+  };
 
   constructor(config: CloudflareRegistrarConfig) {
     this.#apiToken = config.apiToken;

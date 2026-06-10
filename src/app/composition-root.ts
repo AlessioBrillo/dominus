@@ -13,6 +13,7 @@ import {
   WatchlistRepository,
   BacktestSignalsRepository,
   WeightSnapshotRepository,
+  SchedulerJobRepository,
 } from '../db/index.js';
 import {
   createKeywordProvider,
@@ -60,6 +61,8 @@ import {
   warnEuipoIfMissing,
   warnCloudflareIfMissing,
 } from './index.js';
+import { registrarRegistry } from '../providers/registrar/registrar-registry.js';
+import { PurchaseService, AutoApprovalPolicy } from '../services/purchase-service.js';
 
 export interface DominusDependencies {
   db: Database.Database;
@@ -94,6 +97,7 @@ export interface DominusDependencies {
   scheduler: SchedulerService | undefined;
 
   autoTuner: AutoWeightTuner | undefined;
+  purchaseService: PurchaseService;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -248,7 +252,11 @@ export function createDependencies(config: Config): DominusDependencies {
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(new NodeDnsProvider()),
-    new RdapConfirmationStage(new PublicRdapProvider(rdapRateLimiter), whoisProvider),
+    new RdapConfirmationStage(
+      new PublicRdapProvider(rdapRateLimiter),
+      whoisProvider,
+      config.RDAP_BATCH_CONCURRENCY,
+    ),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate),
   );
@@ -303,8 +311,48 @@ export function createDependencies(config: Config): DominusDependencies {
       currentWeights,
       autoTunerConfig,
       config.AUTO_TUNE_WEIGHTS_PATH,
+      notifiers,
     );
   }
+
+  // ── Registrar / Purchase Service ────────────────────────────────────
+
+  // Build registrar config map from prefixed env vars
+  const registrarConfig: Record<string, string> = {};
+  const registrarEnvPrefix = `REGISTRAR_${config.REGISTRAR_PROVIDER.replace(/-/g, '_').toUpperCase()}_`;
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith(registrarEnvPrefix) && value !== undefined) {
+      const fieldKey = key.slice(registrarEnvPrefix.length).toLowerCase();
+      registrarConfig[fieldKey] = value;
+    }
+  }
+  // Also pass legacy Cloudflare vars for backward compat
+  if (config.REGISTRAR_PROVIDER === 'cloudflare') {
+    registrarConfig['apiToken'] = config.CLOUDFLARE_API_TOKEN ?? registrarConfig['apitoken'] ?? '';
+    registrarConfig['accountId'] =
+      config.CLOUDFLARE_ACCOUNT_ID ?? registrarConfig['accountid'] ?? '';
+  }
+
+  const registrarProvider = registrarRegistry.createActive(
+    config.REGISTRAR_PROVIDER,
+    registrarConfig,
+  );
+
+  const autoApprovalMap: Record<string, AutoApprovalPolicy> = {
+    never: AutoApprovalPolicy.Never,
+    under_buy_max: AutoApprovalPolicy.UnderBuyMax,
+    always: AutoApprovalPolicy.Always,
+  };
+
+  const purchaseService = new PurchaseService({
+    registrar: registrarProvider,
+    portfolioManager,
+    outcomeRepo,
+    engine,
+    gate: trademarkGate,
+    autoApproval: autoApprovalMap[config.PURCHASE_AUTO_APPROVAL] ?? AutoApprovalPolicy.Never,
+    buyMaxAbsoluteCap: config.BUY_MAX_ABSOLUTE_CAP,
+  });
 
   // ── Scheduler ─────────────────────────────────────────────────────
   let scheduler: SchedulerService | undefined;
@@ -316,6 +364,7 @@ export function createDependencies(config: Config): DominusDependencies {
       trademarkRepo,
       runsRepo: pipelineRunsRepo,
       watchlistService,
+      jobRepo: new SchedulerJobRepository(db),
       ...(autoTuner ? { autoTuner } : {}),
     });
     scheduler.start();
@@ -346,5 +395,6 @@ export function createDependencies(config: Config): DominusDependencies {
     watchlistService,
     scheduler,
     autoTuner,
+    purchaseService,
   };
 }

@@ -13,6 +13,8 @@ import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { RenewalAlertRepository } from '../db/repositories/renewal-alert-repository.js';
 import type { SchedulerService } from '../scheduler/scheduler-service.js';
 import type { ScoringWeights } from '../scoring/weights.js';
+import type { PurchaseService } from '../services/purchase-service.js';
+import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
@@ -25,7 +27,8 @@ import { registerCandidatesCommand } from './commands/candidates-command.js';
 import { registerHealthCommand } from './commands/health-command.js';
 import { registerSchedulerCommand } from './commands/scheduler-command.js';
 import { registerWatchlistCommand } from './commands/watchlist-command.js';
-import type { WatchlistService } from '../watchlist/watchlist-service.js';
+import { registerBuyCommand } from './commands/buy-command.js';
+import { registerRegistrarsCommand } from './commands/registrars-command.js';
 
 export interface CreateCliOptions {
   db: Database.Database;
@@ -43,6 +46,7 @@ export interface CreateCliOptions {
   scheduler: SchedulerService | undefined;
   watchlistService?: WatchlistService;
   currentWeights?: ScoringWeights;
+  purchaseService?: PurchaseService;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -62,6 +66,7 @@ export function createCli(options: CreateCliOptions): Command {
     scheduler,
     watchlistService,
     currentWeights,
+    purchaseService,
   } = options;
 
   const program = new Command();
@@ -87,6 +92,11 @@ export function createCli(options: CreateCliOptions): Command {
 
   if (watchlistService) {
     registerWatchlistCommand(program, { watchlistService });
+  }
+
+  if (purchaseService) {
+    registerBuyCommand(program, { purchaseService });
+    registerRegistrarsCommand(program, { activeRegistrar: purchaseService.registrarName });
   }
 
   return program;

@@ -13,6 +13,7 @@ import * as m0010 from './migrations/0010_create_watchlist.js';
 import * as m0011 from './migrations/0011_rename_weights_snapshot.js';
 import * as m0012 from './migrations/0012_create_weight_snapshots.js';
 import * as m0013 from './migrations/0013_create_provider_cache.js';
+import * as m0014 from './migrations/0014_create_scheduler_jobs.js';
 
 interface Migration {
   name: string;
@@ -33,6 +34,7 @@ const MIGRATIONS: Migration[] = [
   m0011,
   m0012,
   m0013,
+  m0014,
 ];
 
 export function runMigrations(db: Database.Database): void {

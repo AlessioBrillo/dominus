@@ -51,6 +51,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     CORS_ORIGIN: '*',
     RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
     RATE_LIMIT_MAX: 100,
+    RDAP_BATCH_CONCURRENCY: 5,
+    REGISTRAR_PROVIDER: 'manual',
+    PURCHASE_AUTO_APPROVAL: 'never',
     CLOUDFLARE_API_TOKEN: undefined,
     CLOUDFLARE_ACCOUNT_ID: undefined,
     AUTO_TUNE_ENABLED: false,
@@ -158,23 +161,33 @@ describe('reportProviderStatuses', () => {
     expect(uspto?.configured).toBe(true);
   });
 
-  it('reports CloudflareRegistrar as not configured when credentials missing', () => {
-    const rows = reportProviderStatuses(buildConfig());
-    const cf = rows.find((r) => r.name === 'CloudflareRegistrar');
-    expect(cf?.configured).toBe(false);
-    expect(cf?.note).toMatch(/CLOUDFLARE_API_TOKEN/);
-  });
-
-  it('reports CloudflareRegistrar as configured when both credentials present', () => {
+  it('reports Registrar as configured when REGISTRAR_PROVIDER is set', () => {
     const rows = reportProviderStatuses(
-      buildConfig({ CLOUDFLARE_API_TOKEN: 'token123', CLOUDFLARE_ACCOUNT_ID: 'acc456' }),
+      buildConfig({
+        REGISTRAR_PROVIDER: 'cloudflare',
+        CLOUDFLARE_API_TOKEN: 'token123',
+        CLOUDFLARE_ACCOUNT_ID: 'acc456',
+      }),
     );
-    const cf = rows.find((r) => r.name === 'CloudflareRegistrar');
-    expect(cf?.configured).toBe(true);
-    expect(cf?.note).toContain('acc456');
+    const reg = rows.find((r) => r.name === 'Registrar');
+    expect(reg?.configured).toBe(true);
+    expect(reg?.note).toContain('cloudflare');
   });
 
-  it('reports 6 provider status rows', () => {
+  it('reports Registrar as configured when a non-manual provider is selected', () => {
+    const rows = reportProviderStatuses(
+      buildConfig({
+        REGISTRAR_PROVIDER: 'cloudflare',
+        CLOUDFLARE_API_TOKEN: 'token123',
+        CLOUDFLARE_ACCOUNT_ID: 'acc456',
+      }),
+    );
+    const reg = rows.find((r) => r.name === 'Registrar');
+    expect(reg?.configured).toBe(true);
+    expect(reg?.note).toContain('cloudflare');
+  });
+
+  it('reports 7 provider status rows', () => {
     const rows = reportProviderStatuses(buildConfig());
     expect(rows).toHaveLength(7);
   });
@@ -259,7 +272,7 @@ describe('CLI: dominus providers', () => {
     expect(out).toContain('KeywordPlanner');
     expect(out).toContain('NameBio');
     expect(out).toContain('WHOIS');
-    expect(out).toContain('CloudflareRegistrar');
+    expect(out).toContain('Registrar');
   });
 
   it('status --json emits a JSON array', async () => {
@@ -278,7 +291,7 @@ describe('CLI: dominus providers', () => {
     expect(parsed).toHaveLength(7);
     const euipo = parsed.find((r) => r.name === 'EUIPO');
     expect(euipo?.configured).toBe(true);
-    const cf = parsed.find((r) => r.name === 'CloudflareRegistrar');
-    expect(cf?.configured).toBe(false);
+    const reg = parsed.find((r) => r.name === 'Registrar');
+    expect(reg?.configured).toBe(false);
   });
 });

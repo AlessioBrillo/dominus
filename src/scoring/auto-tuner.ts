@@ -7,6 +7,11 @@ import { DEFAULT_WEIGHTS } from './weights.js';
 import type { WeightSnapshotRepository } from '../db/repositories/weight-snapshot-repository.js';
 import type { AutoTunerConfig } from './auto-tuner-config.js';
 import { DEFAULT_AUTO_TUNER_CONFIG } from './auto-tuner-config.js';
+import type { Notifier } from '../notifiers/notifier.js';
+import { AlertType, AlertSeverity } from '../types/alert.js';
+import { getLogger } from '../logger.js';
+
+const logger = getLogger();
 
 export interface AutoTuneOutcome {
   tunedAt: string;
@@ -34,6 +39,8 @@ export interface AutoTuneOutcome {
 const DEFAULT_OVERRIDE_PATH = './data/weights-override.json';
 
 export class AutoWeightTuner {
+  readonly #notifiers: Notifier[];
+
   constructor(
     private readonly backtestEngine: BacktestEngine,
     private readonly weightSuggester: WeightSuggester,
@@ -41,7 +48,10 @@ export class AutoWeightTuner {
     private readonly currentWeights: ScoringWeights,
     private readonly config: AutoTunerConfig = DEFAULT_AUTO_TUNER_CONFIG,
     private readonly overridePath: string = DEFAULT_OVERRIDE_PATH,
-  ) {}
+    notifiers: Notifier[] = [],
+  ) {
+    this.#notifiers = notifiers;
+  }
 
   tune(): AutoTuneOutcome {
     const tunedAt = new Date().toISOString();
@@ -119,6 +129,7 @@ export class AutoWeightTuner {
     if (safetyPassed && !this.config.dryRun) {
       this.writeOverrideFile(suggestionReport);
       applied = true;
+      this.#notifyApplied(suggestionReport);
     }
 
     // 5. Record in weight_snapshots (always — even dry runs)
@@ -210,5 +221,36 @@ export class AutoWeightTuner {
       parts.push(`warnings: ${warnings.join('; ')}`);
     }
     return parts.join('. ');
+  }
+
+  #notifyApplied(report: {
+    suggestions: Array<{
+      signal: string;
+      currentWeight: number;
+      suggestedWeight: number;
+      delta: number;
+    }>;
+    sampleSize?: number;
+  }): void {
+    if (this.#notifiers.length === 0) return;
+    const changes = report.suggestions
+      .filter((s) => s.delta !== 0)
+      .map((s) => `${s.signal}: ${s.currentWeight.toFixed(3)} → ${s.suggestedWeight.toFixed(3)}`)
+      .join(', ');
+    const message = `Auto-tuner applied weight changes: ${changes}`;
+    logger.info(message);
+    for (const notifier of this.#notifiers) {
+      notifier
+        .send({
+          domain: 'auto-tuner',
+          alertType: AlertType.ScoreDropped,
+          severity: AlertSeverity.Info,
+          message,
+          details: `Sample size: ${report.sampleSize ?? '?'}. Weights written to ${this.overridePath}`,
+        })
+        .catch((err: unknown) => {
+          logger.error({ err, channel: notifier.channel }, 'Failed to send auto-tune notification');
+        });
+    }
   }
 }
