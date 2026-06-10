@@ -27,6 +27,7 @@ import { RateLimiter } from '../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
 import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
+import { ProviderHealthCheck } from '../providers/provider-health.js';
 import {
   ScoringEngine,
   loadWeights,
@@ -82,6 +83,7 @@ export interface DominusDependencies {
 
   orchestrator: PipelineOrchestrator;
   runService: PipelineRunService;
+  healthCheck: ProviderHealthCheck;
 
   portfolioManager: PortfolioManager;
 
@@ -197,28 +199,27 @@ export function createDependencies(config: Config): DominusDependencies {
     maxLevenshteinDistance: config.TRADEMARK_MAX_LEVENSHTEIN,
   };
 
-  const trademarkGate = new TrademarkGate(
-    new CachedTrademarkProvider(
-      new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
-      providerCacheRepo,
-      'USPTO',
-      config.TM_CACHE_TTL_DAYS,
-    ),
-    new CachedTrademarkProvider(
-      new RetryingTrademarkProvider(
-        new EuipoProvider({
-          clientId: config.EUIPO_CLIENT_ID,
-          clientSecret: config.EUIPO_CLIENT_SECRET,
-          authUrl: config.EUIPO_AUTH_URL,
-          apiUrl: config.EUIPO_API_URL,
-        }),
-      ),
-      providerCacheRepo,
-      'EUIPO',
-      config.TM_CACHE_TTL_DAYS,
-    ),
-    matchDetectorConfig,
+  const usptoTmProvider = new CachedTrademarkProvider(
+    new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
+    providerCacheRepo,
+    'USPTO',
+    config.TM_CACHE_TTL_DAYS,
   );
+  const euipoTmProvider = new CachedTrademarkProvider(
+    new RetryingTrademarkProvider(
+      new EuipoProvider({
+        clientId: config.EUIPO_CLIENT_ID,
+        clientSecret: config.EUIPO_CLIENT_SECRET,
+        authUrl: config.EUIPO_AUTH_URL,
+        apiUrl: config.EUIPO_API_URL,
+      }),
+    ),
+    providerCacheRepo,
+    'EUIPO',
+    config.TM_CACHE_TTL_DAYS,
+  );
+
+  const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
   const rdapRateLimiter = new RateLimiter({
     maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
@@ -235,6 +236,14 @@ export function createDependencies(config: Config): DominusDependencies {
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
     rateLimiter: whoisRateLimiter,
   });
+
+  const healthCheck = new ProviderHealthCheck(
+    usptoTmProvider,
+    euipoTmProvider,
+    new PublicRdapProvider(rdapRateLimiter),
+    whoisProvider,
+    cachedKeywordProvider,
+  );
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
@@ -330,6 +339,7 @@ export function createDependencies(config: Config): DominusDependencies {
     trademarkGate,
     orchestrator,
     runService,
+    healthCheck,
     portfolioManager,
     notifiers,
     alertEngine,

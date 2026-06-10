@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
@@ -60,9 +62,8 @@ app.use((_req, res, next) => {
 app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
-app.use('/api/health', createHealthRouter());
+app.use('/api/health', createHealthRouter(deps.healthCheck));
 
-// Protected routes — require authentication when API_KEYS is configured.
 const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);
 protectedRouter.use(
@@ -89,6 +90,20 @@ protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate)
 app.use('/api', protectedRouter);
 
 app.use(errorHandler);
+
+const frontendDir = resolve(process.cwd(), 'frontend', 'dist');
+if (existsSync(frontendDir)) {
+  app.use(express.static(frontendDir));
+  app.get('*', (_req, res) => {
+    res.sendFile(join(frontendDir, 'index.html'));
+  });
+  logger.info({ dir: frontendDir }, 'Serving SPA frontend from disk');
+} else {
+  logger.info(
+    { dir: frontendDir },
+    'Frontend dist not found — API-only mode (run `cd frontend && npm run build` to enable)',
+  );
+}
 
 app.listen(config.PORT, config.HOST, () => {
   logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');

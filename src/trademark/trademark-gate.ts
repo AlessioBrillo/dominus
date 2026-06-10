@@ -1,3 +1,4 @@
+import { getLogger } from '../logger.js';
 import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
 import {
   detectMatch,
@@ -5,6 +6,8 @@ import {
   DEFAULT_MATCH_DETECTOR_CONFIG,
   type MatchDetectorConfig,
 } from './match-detector.js';
+
+const logger = getLogger();
 
 export enum GateVerdict {
   Clear = 'clear',
@@ -105,10 +108,15 @@ export class TrademarkGate {
       };
     }
 
-    // Strict-TLD rule: a US-jurisdiction TLD must have a USPTO answer
-    // before we issue any verdict. If USPTO is down, we degrade to
-    // Unverified even if EUIPO was clean.
     if (!usptoResult.ok && isStrictTld(domain)) {
+      logger.warn(
+        {
+          domain,
+          verifiedSources,
+          usptoFailed: true,
+        },
+        'Trademark gate: USPTO unreachable for strict-TLD domain — verdict: Unverified',
+      );
       return {
         domain,
         verdict: GateVerdict.Unverified,
@@ -118,11 +126,24 @@ export class TrademarkGate {
     }
 
     if (verifiedSources.length === 0) {
-      // All sources failed — cannot confirm clearance (Principle 6)
+      logger.error(
+        { domain },
+        'Trademark gate: all trademark sources failed — verdict: Unverified',
+      );
       return { domain, verdict: GateVerdict.Unverified, verifiedSources };
     }
 
     const partial = verifiedSources.length < 2;
+    if (partial) {
+      logger.warn(
+        {
+          domain,
+          sources: verifiedSources,
+          partial: true,
+        },
+        'Trademark gate: only one source responded — verdict: Clear (partial)',
+      );
+    }
     return { domain, verdict: GateVerdict.Clear, verifiedSources, partial };
   }
 }

@@ -37,6 +37,8 @@
     "lint:fix": "eslint src/ --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('coverage',{recursive:true,force:true})\"",
     "prepare": "husky"
   },
@@ -44,6 +46,9 @@
     "*.ts": [
       "prettier --write",
       "eslint --fix"
+    ],
+    "frontend/**/*.{ts,tsx}": [
+      "prettier --write"
     ]
   },
   "engines": {
