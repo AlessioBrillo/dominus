@@ -97,12 +97,13 @@ const configSchema = z.object({
   EUIPO_CLIENT_SECRET: z.string().optional(),
   /**
    * EUIPO OAuth2 token endpoint for the client_credentials grant.
-   * Default points at the production EUIPO CAS endpoint; the operator can
-   * switch to the sandbox (`https://auth-sandbox.euipo.europa.eu/oidc/access_token`)
-   * by overriding this variable. EUIPO periodically rotates the exact path,
-   * so the default is a placeholder until a verified current URL is known.
+   * Default: the verified TMview production endpoint. The operator can
+   * switch to the sandbox
+   * (`https://auth-sandbox.euipo.europa.eu/oidc/access_token`)
+   * by overriding this variable. If EUIPO rotates the endpoint in the
+   * future, check https://www.tmdn.org/ for the current URL.
    */
-  EUIPO_AUTH_URL: z.string().url().default('https://euipo.europa.eu/oauth2/token'),
+  EUIPO_AUTH_URL: z.string().url().default('https://auth.tmdn.org/oidc/access_token'),
   /**
    * EUIPO Trademark Search 1.1.0 endpoint (RSQL-based, `X-IBM-Client-Id` required).
    * The legacy COPLA endpoint (`copla/trademark/data-capture/V1/trademarks`) was

@@ -1,4 +1,5 @@
 import { ProviderError } from '../../types/errors.js';
+import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { KeywordMetrics, KeywordProvider } from './keyword-provider.js';
 import { ManualKeywordProvider } from './manual-keyword-provider.js';
 import { GoogleAdsProvider } from './google-ads-provider.js';
@@ -17,6 +18,7 @@ export interface KeywordProviderConfig {
 export function createKeywordProvider(
   type: string,
   config: KeywordProviderConfig,
+  cacheRepo?: ProviderCacheRepository,
 ): KeywordProvider {
   switch (type) {
     case 'manual':
@@ -28,6 +30,7 @@ export function createKeywordProvider(
         refreshToken: config.googleAdsRefreshToken,
         developerToken: config.googleAdsDeveloperToken,
         customerId: config.googleAdsCustomerId,
+        cacheRepo,
       });
     default:
       throw new ProviderError(

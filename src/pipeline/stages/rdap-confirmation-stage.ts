@@ -5,6 +5,7 @@ import type { RdapResult } from '../../types/domain-status.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
 import type { Stage, StageResult } from '../stage.js';
+import { getLogger } from '../../logger.js';
 
 interface AvailabilityResult {
   domain: string;
@@ -13,7 +14,7 @@ interface AvailabilityResult {
   registrar?: string | undefined;
   expiresAt?: string | undefined;
   checkedAt: string;
-  source: 'rdap' | 'whois';
+  source: 'rdap' | 'whois' | 'cross-validated';
 }
 
 function rdapToResult(r: RdapResult): AvailabilityResult {
@@ -116,6 +117,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       this.whoisProvider.checkAvailability(domain),
     ]);
 
+    if (rdapSettled.status === 'fulfilled' && whoisSettled.status === 'fulfilled') {
+      return this.#crossValidate(domain, rdapSettled.value, whoisSettled.value);
+    }
+
     if (rdapSettled.status === 'fulfilled') {
       return rdapToResult(rdapSettled.value);
     }
@@ -125,5 +130,47 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     }
 
     throw rdapSettled.reason;
+  }
+
+  /**
+   * Cross-validate RDAP and WHOIS results. When the two sources disagree
+   * on availability status, WHOIS is preferred as the tiebreaker because
+   * it queries the registry directly and is generally more up-to-date for
+   * recent changes (expiry, redemption, pendingDelete). RDAP data can lag
+   * behind by hours to days depending on the registry.
+   *
+   * Cross-validation is conservative: when in doubt, mark as Registered.
+   * A false-positive Available (buying a taken domain) costs money;
+   * a false-negative (missing an available domain) costs nothing.
+   */
+  #crossValidate(domain: string, rdap: RdapResult, whois: WhoisResult): AvailabilityResult {
+    const rdapAvailable = rdap.status === DomainStatus.Available && !rdap.isPremium;
+    const whoisAvailable = whois.available;
+
+    if (rdapAvailable === whoisAvailable) {
+      return {
+        ...rdapToResult(rdap),
+        source: 'cross-validated',
+      };
+    }
+
+    // Disagreement: use WHOIS (more real-time), mark source as cross-validated
+    getLogger().warn(
+      {
+        domain,
+        rdapStatus: rdap.status,
+        rdapIsPremium: rdap.isPremium,
+        whoisAvailable,
+        resolver: whoisAvailable ? 'whois' : 'rdap',
+      },
+      `RDAP/WHOIS cross-validation disagreement for ${domain} — ` +
+        `RDAP says ${rdapAvailable ? 'available' : 'registered'}, ` +
+        `WHOIS says ${whoisAvailable ? 'available' : 'registered'}. ` +
+        `Using ${whoisAvailable ? 'WHOIS' : 'RDAP'} (conservative) result.`,
+    );
+
+    const result = whoisAvailable ? whoisToResult(whois) : rdapToResult(rdap);
+    result.source = 'cross-validated';
+    return result;
   }
 }

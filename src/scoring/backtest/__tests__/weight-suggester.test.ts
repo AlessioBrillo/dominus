@@ -124,9 +124,9 @@ describe('WeightSuggester', () => {
   });
 
   it('proposes a positive weight delta when a signal is predictive (high > low)', () => {
-    // 6 rows: 3 with high intrinsic, 3 with low intrinsic.
+    // 20 rows: 10 with high intrinsic, 10 with low intrinsic.
     // high-intrinsic sold for €1500+ on average, low-intrinsic for €500.
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
@@ -138,7 +138,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
@@ -159,7 +159,7 @@ describe('WeightSuggester', () => {
   });
 
   it('proposes a negative weight delta when high signal underperforms (anti-predictive)', () => {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
@@ -171,7 +171,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
@@ -191,7 +191,7 @@ describe('WeightSuggester', () => {
   });
 
   it('renormalises so the suggested weights still sum to ~1.0', () => {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
@@ -203,7 +203,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
@@ -253,8 +253,8 @@ describe('WeightSuggester', () => {
   });
 
   it('caps individual deltas at ±0.05 (anti-jump safety rail)', () => {
-    // 3 high sold for €5000, 3 low sold for €10. lift = €4990.
-    for (let i = 0; i < 3; i++) {
+    // 10 high sold for €5000, 10 low sold for €10. lift = €4990.
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `hi${i}.com`,
         intrinsic: 0.9,
@@ -266,7 +266,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `lo${i}.com`,
         intrinsic: 0.1,
@@ -292,7 +292,7 @@ describe('WeightSuggester', () => {
       market: 0.2,
       expiry: 0.1,
     };
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `hi${i}.com`,
         intrinsic: 0.8,
@@ -304,7 +304,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `lo${i}.com`,
         intrinsic: 0.2,
@@ -323,7 +323,7 @@ describe('WeightSuggester', () => {
   });
 
   it('uses the default weights when none are provided', () => {
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `hi${i}.com`,
         intrinsic: 0.8,
@@ -335,7 +335,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 10; i++) {
       seedSignalRow(db, {
         domain: `lo${i}.com`,
         intrinsic: 0.2,
