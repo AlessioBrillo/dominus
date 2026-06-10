@@ -24,3 +24,12 @@ export function closeDatabase(): void {
     _db = null;
   }
 }
+
+export function resetDatabase(): void {
+  closeDatabase();
+}
+
+export function forceReopen(path: string): Database.Database {
+  closeDatabase();
+  return openDatabase(path);
+}

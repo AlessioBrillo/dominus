@@ -54,6 +54,15 @@ export function loadWeights(overridePath: string | undefined): ScoringWeights {
   return validateOverrideOrDefault(parsed);
 }
 
+/**
+ * Re-read the weights override file at runtime. Returns the parsed weights
+ * or DEFAULT_WEIGHTS on any error (fail-soft). Used by the auto-tuner after
+ * writing a new override, so the scoring engine picks it up without restart.
+ */
+export function reloadWeights(overridePath: string | undefined): ScoringWeights {
+  return loadWeights(overridePath);
+}
+
 function validateOverrideOrDefault(parsed: unknown): ScoringWeights {
   if (typeof parsed !== 'object' || parsed === null) {
     process.stderr.write('[dominus] SCORING_WEIGHTS_OVERRIDE is not an object; using defaults\n');

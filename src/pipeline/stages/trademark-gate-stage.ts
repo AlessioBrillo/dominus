@@ -4,42 +4,53 @@ import { GateVerdict } from '../../trademark/trademark-gate.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { Stage, StageResult } from '../stage.js';
 
-/**
- * Principle 6 enforcement: no candidate reaches `recommended` without a
- * confirmed trademark clearance. A provider error counts as "cannot clear" —
- * the candidate is routed to `filtered` with status `Unscored`, never surfaced
- * as a buy recommendation.
- *
- * Generic over T extends DomainCandidate so that ScoredCandidate (which carries
- * `scoreResult`) passes through the gate unmodified except for `status`.
- */
+function toBatches<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
+  }
+  return batches;
+}
+
 export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
   readonly name = 'TrademarkGateStage';
 
-  constructor(private readonly gate: TrademarkGate) {}
+  constructor(
+    private readonly gate: TrademarkGate,
+    private readonly concurrency: number = 3,
+  ) {}
 
   async process(candidates: T[]): Promise<StageResult<T>> {
     const start = Date.now();
     const passed: T[] = [];
     const filtered: T[] = [];
 
-    for (const candidate of candidates) {
-      try {
-        const result = await this.gate.check(candidate.domain);
-        if (result.verdict === GateVerdict.Blocked) {
-          // Confirmed trademark match — never recommend (Principle 6).
-          filtered.push({ ...candidate, status: CandidateStatus.TrademarkBlocked });
-        } else if (result.verdict === GateVerdict.Unverified) {
-          // All trademark sources failed — cannot confirm clearance (Principle 6).
-          // Do NOT recommend even though no explicit match was found.
-          filtered.push({ ...candidate, status: CandidateStatus.Unscored });
+    const batches = toBatches(candidates, this.concurrency);
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async (candidate) => {
+          const result = await this.gate.check(candidate.domain);
+          return { candidate, verdict: result.verdict };
+        }),
+      );
+
+      for (const settled of results) {
+        if (settled.status === 'fulfilled') {
+          const { candidate, verdict } = settled.value;
+          if (verdict === GateVerdict.Blocked) {
+            filtered.push({ ...candidate, status: CandidateStatus.TrademarkBlocked });
+          } else if (verdict === GateVerdict.Unverified) {
+            filtered.push({ ...candidate, status: CandidateStatus.Unscored });
+          } else {
+            passed.push(candidate);
+          }
         } else {
-          // GateVerdict.Clear (possibly partial) — trademark clearance confirmed.
-          passed.push(candidate);
+          const idx = results.indexOf(settled);
+          const failed = batch[idx];
+          if (failed) {
+            filtered.push({ ...failed, status: CandidateStatus.Unscored });
+          }
         }
-      } catch {
-        // Unexpected error from gate.check() itself → conservative filter.
-        filtered.push({ ...candidate, status: CandidateStatus.Unscored });
       }
     }
 

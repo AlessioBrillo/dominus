@@ -8,6 +8,7 @@ import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
 import { EnvApiKeyProvider } from './providers/auth/env-api-key-provider.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
+import { requestTimeout } from './api/middleware/timeout.js';
 import {
   createCandidatesRouter,
   createPortfolioRouter,
@@ -60,6 +61,10 @@ app.use((_req, res, next) => {
   next();
 });
 
+if (config.REQUEST_TIMEOUT_MS > 0) {
+  app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
+}
+
 app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
@@ -91,21 +96,36 @@ protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate)
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
 app.use('/api', protectedRouter);
 
-app.use(errorHandler);
+// ── SPA catch-all with base path isolation ─────────────────────────
+// The SPA middleware is mounted AFTER all API routes to prevent path
+// conflicts. The catch-all only matches non-API paths. When
+// FRONTEND_BASE_PATH is set (e.g. "/dominus"), the catch-all only
+// fires for paths under that prefix — enabling deployment behind a
+// reverse proxy that rewrites the prefix away from upstream.
+const frontendDir = resolve(process.cwd(), config.FRONTEND_DIST_PATH);
+const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*` : '*';
 
-const frontendDir = resolve(process.cwd(), 'frontend', 'dist');
 if (existsSync(frontendDir)) {
   app.use(express.static(frontendDir));
-  app.get('*', (_req, res) => {
+  app.get(spaPattern, (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'API route not found' } });
+      return;
+    }
     res.sendFile(join(frontendDir, 'index.html'));
   });
-  logger.info({ dir: frontendDir }, 'Serving SPA frontend from disk');
+  logger.info(
+    { dir: frontendDir, basePath: config.FRONTEND_BASE_PATH || '/' },
+    'Serving SPA frontend from disk',
+  );
 } else {
   logger.info(
     { dir: frontendDir },
     'Frontend dist not found — API-only mode (run `cd frontend && npm run build` to enable)',
   );
 }
+
+app.use(errorHandler);
 
 app.listen(config.PORT, config.HOST, () => {
   logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');

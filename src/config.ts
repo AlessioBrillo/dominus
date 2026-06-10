@@ -237,6 +237,21 @@ const configSchema = z.object({
    */
   HOST: z.string().default('127.0.0.1'),
 
+  /**
+   * Base path for the frontend SPA assets relative to process.cwd().
+   * Default: './frontend/dist'. Deployments with a custom frontend build
+   * path (e.g. Docker with multi-stage build) should set this.
+   */
+  FRONTEND_DIST_PATH: z.string().default('./frontend/dist'),
+
+  /**
+   * URL base path for serving the SPA. When the application is behind a
+   * reverse proxy that strips a prefix (e.g. /dominus/), set this so the
+   * catch-all route only matches paths starting with the prefix.
+   * Empty string means the SPA catch-all matches all non-API paths.
+   */
+  FRONTEND_BASE_PATH: z.string().default(''),
+
   // ── Renewal monitoring & notifier config ──────────────────────────
 
   RENEWAL_WARNING_DAYS: z.coerce.number().int().min(1).default(30),
@@ -284,6 +299,18 @@ const configSchema = z.object({
   /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
    *  speed up batch processing but may trigger rate limits. Default: 5. */
   RDAP_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+
+  /** Maximum concurrent trademark gate checks (USPTO/EUIPO) per pipeline stage run.
+   *  These are rate-limited APIs so keep this low. Default: 3. */
+  TRADEMARK_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(3),
+
+  /** Maximum concurrent domains to rescore in a single portfolio rescore operation.
+   *  Each domain hits scoring engine + trademark gate. Default: 5. */
+  RESCORE_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(5),
+
+  /** HTTP request timeout in milliseconds for Express routes.
+   *  Set to 0 to disable. Default: 30000 (30s). */
+  REQUEST_TIMEOUT_MS: z.coerce.number().int().min(0).max(300000).default(30000),
 
   // ── API hardening config ──────────────────────────────────────────
 
