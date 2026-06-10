@@ -45,26 +45,43 @@ export function computeIntrinsicScore(
   };
 }
 
-function computePronouncability(sld: string): number {
-  if (sld.length === 0) return 0;
+const STRICT_VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 
-  const vowels = new Set(['a', 'e', 'i', 'o', 'u']);
+function computePronouncability(sld: string): number {
+  const normalized = sld.toLowerCase();
+  if (normalized.length === 0) return 0;
+
+  const letters = [...normalized].filter((c) => /[a-z\u00C0-\u024F]/.test(c));
+  if (letters.length === 0) return 0;
+
   let vowelCount = 0;
   let consonantClusterLength = 0;
   let maxCluster = 0;
 
-  for (const char of sld.toLowerCase()) {
-    if (vowels.has(char)) {
+  for (let i = 0; i < letters.length; i++) {
+    const char = letters[i]!;
+    const prev = i > 0 ? (letters[i - 1] ?? null) : null;
+
+    if (STRICT_VOWELS.has(char)) {
       vowelCount++;
       consonantClusterLength = 0;
-    } else if (/[a-z]/.test(char)) {
+    } else if (char === 'y') {
+      const precededByConsonant = prev !== null && !STRICT_VOWELS.has(prev) && prev !== 'y';
+      if (precededByConsonant) {
+        vowelCount++;
+        consonantClusterLength = 0;
+      } else {
+        consonantClusterLength++;
+        maxCluster = Math.max(maxCluster, consonantClusterLength);
+      }
+    } else {
       consonantClusterLength++;
       maxCluster = Math.max(maxCluster, consonantClusterLength);
     }
   }
 
-  const vowelRatio = vowelCount / sld.length;
+  const vowelRatio = vowelCount / letters.length;
   const clusterPenalty = Math.max(0, (maxCluster - 3) * 0.2);
-  const score = Math.min(1, Math.max(0, vowelRatio * 2 - clusterPenalty));
+  const score = Math.min(1, Math.max(0, vowelRatio * 1.8 - clusterPenalty));
   return score;
 }

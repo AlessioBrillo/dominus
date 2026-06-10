@@ -76,7 +76,10 @@ export class ScoringEngine {
     const hasCommercialData = commercial.details.monthlySearchVolume !== 0;
     const hasMarketData = market.details.comparables !== 0;
     const expiryHasData =
-      input.isCloseout &&
+      (input.isCloseout ||
+        input.domainAge !== undefined ||
+        input.backlinks !== undefined ||
+        input.waybackSnapshots !== undefined) &&
       (input.domainAge ?? 0) + (input.backlinks ?? 0) + (input.waybackSnapshots ?? 0) > 0;
 
     const coveredWeight =
@@ -92,13 +95,16 @@ export class ScoringEngine {
     const variableRange = 1 - minCovered;
     const extraCovered = Math.max(0, coveredWeight - minCovered);
 
-    const confidence =
+    const intrinsicQualityInfluence = 0.12;
+    const signalConfidence =
       variableRange > 0
-        ? Math.min(
-            confidenceCap,
-            confidenceBase + (extraCovered / variableRange) * (confidenceCap - confidenceBase),
-          )
-        : confidenceBase;
+        ? (extraCovered / variableRange) *
+          (confidenceCap - confidenceBase) *
+          (1 - intrinsicQualityInfluence)
+        : 0;
+    const qualityBoost =
+      intrinsic.score * intrinsicQualityInfluence * (confidenceCap - confidenceBase);
+    const confidence = Math.min(confidenceCap, confidenceBase + signalConfidence + qualityBoost);
 
     const expectedValue =
       weightedScore *
