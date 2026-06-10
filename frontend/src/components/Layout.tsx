@@ -1,5 +1,6 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
+import { LoginForm } from './LoginForm.js';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '◈' },
@@ -18,6 +19,10 @@ export function Layout() {
         <div className="text-gray-400 animate-pulse">Loading...</div>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginForm />;
   }
 
   return (

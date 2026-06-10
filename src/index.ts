@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
+import { closeDatabase } from './db/database.js';
 import { EnvApiKeyProvider } from './providers/auth/env-api-key-provider.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
 import { requestTimeout } from './api/middleware/timeout.js';
@@ -30,7 +31,7 @@ const config = loadConfig();
 const logger = getLogger();
 const deps = createDependencies(config);
 
-const authProvider = new EnvApiKeyProvider(config.API_KEYS);
+const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
 if (!authProvider.isActive) {
   logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
 }
@@ -127,6 +128,29 @@ if (existsSync(frontendDir)) {
 
 app.use(errorHandler);
 
-app.listen(config.PORT, config.HOST, () => {
+const server = app.listen(config.PORT, config.HOST, () => {
   logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
 });
+
+function shutdown(signal: string): void {
+  logger.info({ signal }, 'Shutdown signal received — draining connections');
+  server.close(() => {
+    if (deps.scheduler) {
+      deps.scheduler.stop();
+      logger.info('Scheduler stopped');
+    }
+    closeDatabase();
+    logger.info('Database closed');
+    process.exit(0);
+  });
+
+  // Force exit after hard timeout (respects K8s terminationGracePeriodSeconds)
+  const forceExitMs = 30_000;
+  setTimeout(() => {
+    logger.error('Forced exit after shutdown timeout');
+    process.exit(1);
+  }, forceExitMs).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

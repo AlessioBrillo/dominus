@@ -317,9 +317,10 @@ const configSchema = z.object({
   /**
    * Allowed CORS origin for the REST API.
    * Set to the URL of your frontend (e.g. http://localhost:5173).
-   * Default '*' allows any origin (safe for local-only / reverse-proxy setups).
+   * Default 'http://localhost:5173' matches the Vite dev server.
+   * Set to '*' to allow any origin (use only behind a reverse proxy).
    */
-  CORS_ORIGIN: z.string().default('*'),
+  CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   /**
    * Rate limiting: window duration in milliseconds (default: 15 minutes).
@@ -345,8 +346,20 @@ const configSchema = z.object({
    * Format: `name=key` or just `key` (name defaults to 'default').
    * When empty or unset, authentication is disabled (backward-compatible).
    * Example: API_KEYS=admin=sk-admin-key,ro=sk-readonly
+   *
+   * WARNING: API keys in environment variables are visible in process
+   * listings (/proc/self/environ). For production, prefer FILE_API_KEYS
+   * which reads keys from a file with restricted permissions (0600).
    */
   API_KEYS: z.string().optional(),
+  /**
+   * Path to a file containing API keys (one per line in `name=key` format).
+   * When set, this takes precedence over API_KEYS env var.
+   * Recommended for production to avoid exposing keys in process env.
+   * File should have permissions 0600.
+   * Format: name=key (one per line), or just `key` to use 'default' as name.
+   */
+  FILE_API_KEYS: z.string().optional(),
 
   // ── Auto-weight-tuning config ────────────────────────────────────
 
@@ -466,6 +479,15 @@ export function loadConfig(): Config {
     throw new ConfigError(`Invalid environment configuration: ${issues}`);
   }
   _config = result.data;
+
+  // When AUTO_TUNE_ENABLED is true and no explicit AUTO_TUNE_DRY_RUN was
+  // set by the operator, flip dry-run to false so the tuner actually applies
+  // weights. The zod default of true means the env var must be set to
+  // "false" explicitly, which is non-obvious for a new user enabling tuning.
+  if (_config.AUTO_TUNE_ENABLED && process.env.AUTO_TUNE_DRY_RUN === undefined) {
+    _config.AUTO_TUNE_DRY_RUN = false;
+  }
+
   return _config;
 }
 

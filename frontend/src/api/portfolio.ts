@@ -28,5 +28,5 @@ export function rescorePortfolio(): Promise<RescoreResponse> {
 }
 
 export function refreshVerdicts(): Promise<{ ok: boolean }> {
-  return api.post<{ ok: boolean }>('/api/portfolio/some/verdict');
+  return api.post<{ ok: boolean }>('/api/portfolio/verdicts');
 }
