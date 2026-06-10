@@ -46,6 +46,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
   constructor(
     private readonly rdapProvider: RdapProvider,
     private readonly whoisProvider?: WhoisProvider,
+    private readonly concurrency: number = 5,
   ) {}
 
   async process(candidates: DomainCandidate[]): Promise<StageResult<DomainCandidate>> {
@@ -53,40 +54,58 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     const passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
 
-    for (const candidate of candidates) {
-      try {
-        const result = await this.#checkAvailability(candidate.domain);
-        if (result.status === DomainStatus.Available && !result.isPremium) {
-          passed.push({
-            ...candidate,
-            rdapStatus: result.status,
-            isPremium: false,
-            status: CandidateStatus.Pending,
-          });
+    // Process in batches to control concurrency while allowing parallel RDAP lookups
+    const batches = this.#toBatches(candidates, this.concurrency);
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async (candidate) => {
+          const result = await this.#checkAvailability(candidate.domain);
+          return { candidate, result };
+        }),
+      );
+      for (const settled of results) {
+        if (settled.status === 'fulfilled') {
+          const { candidate, result } = settled.value;
+          if (result.status === DomainStatus.Available && !result.isPremium) {
+            passed.push({
+              ...candidate,
+              rdapStatus: result.status,
+              isPremium: false,
+              status: CandidateStatus.Pending,
+            });
+          } else {
+            filtered.push({
+              ...candidate,
+              rdapStatus: result.status,
+              isPremium: result.isPremium,
+              status: CandidateStatus.RdapFiltered,
+            });
+          }
         } else {
-          filtered.push({
-            ...candidate,
-            rdapStatus: result.status,
-            isPremium: result.isPremium,
-            status: CandidateStatus.RdapFiltered,
-          });
+          const failed = batch[candidates.indexOf(settled.reason?.candidate ?? batch[0]!)];
+          if (failed) {
+            filtered.push({
+              ...failed,
+              rdapStatus: 'error',
+              status: CandidateStatus.RdapFiltered,
+            });
+          }
         }
-      } catch {
-        filtered.push({
-          ...candidate,
-          rdapStatus: 'error',
-          status: CandidateStatus.RdapFiltered,
-        });
       }
     }
 
     return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
   }
 
+  #toBatches<T>(items: T[], size: number): T[][] {
+    const batches: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      batches.push(items.slice(i, i + size));
+    }
+    return batches;
+  }
+
   async #checkAvailability(domain: string): Promise<AvailabilityResult> {
-    // Run RDAP and WHOIS in parallel when WHOIS is configured.
-    // RDAP is preferred (has premium detection, richer metadata).
-    // WHOIS is the fallback for ccTLDs and registries that block RDAP.
     if (this.whoisProvider === undefined) {
       const rdap = await this.rdapProvider.confirm(domain);
       return rdapToResult(rdap);
@@ -97,17 +116,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       this.whoisProvider.checkAvailability(domain),
     ]);
 
-    // RDAP success → prefer RDAP (better metadata, premium detection)
     if (rdapSettled.status === 'fulfilled') {
       return rdapToResult(rdapSettled.value);
     }
 
-    // RDAP failed → fall back to WHOIS
     if (whoisSettled.status === 'fulfilled') {
       return whoisToResult(whoisSettled.value);
     }
 
-    // Both failed → rethrow the RDAP error for consistent messaging
     throw rdapSettled.reason;
   }
 }

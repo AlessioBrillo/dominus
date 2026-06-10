@@ -11,6 +11,7 @@ export { PipelineRunsRepository } from './repositories/pipeline-runs-repository.
 export { RenewalAlertRepository } from './repositories/renewal-alert-repository.js';
 export { WatchlistRepository } from './repositories/watchlist-repository.js';
 export { WeightSnapshotRepository } from './repositories/weight-snapshot-repository.js';
+export { SchedulerJobRepository } from './repositories/scheduler-job-repository.js';
 export type {
   PipelineRun,
   PipelineRunInputs,

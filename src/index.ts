@@ -20,6 +20,7 @@ import {
   createAlertsRouter,
   createSchedulerRouter,
   createWatchlistRouter,
+  createPurchaseRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -87,6 +88,7 @@ if (deps.scheduler) {
 }
 protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
 protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
+protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
 app.use('/api', protectedRouter);
 
 app.use(errorHandler);

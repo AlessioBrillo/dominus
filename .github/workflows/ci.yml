@@ -28,13 +28,13 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - name: Install dependencies
+      - name: Install backend dependencies
         run: npm ci
 
-      - name: Type check
+      - name: Type check (backend)
         run: npm run typecheck
 
-      - name: Build
+      - name: Build backend
         run: npm run build
 
       - name: Lint
@@ -43,5 +43,17 @@ jobs:
       - name: Format check
         run: npm run format:check
 
-      - name: Test
+      - name: Test backend
         run: npm test -- --coverage
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Type check (frontend)
+        working-directory: ./frontend
+        run: npm run typecheck
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build

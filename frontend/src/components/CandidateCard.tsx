@@ -1,5 +1,7 @@
 import type { Candidate } from '../types/domain.js';
 import { ScoreGauge } from './ScoreGauge.js';
+import { preflightPurchase, executePurchase } from '../api/purchase.js';
+import { useState } from 'react';
 
 interface CandidateCardProps {
   candidate: Candidate;
@@ -7,7 +9,45 @@ interface CandidateCardProps {
 }
 
 export function CandidateCard({ candidate, onScore }: CandidateCardProps) {
+  const [buying, setBuying] = useState(false);
+  const [buyResult, setBuyResult] = useState<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  } | null>(null);
+
   const score = candidate.scoreResult;
+
+  const handleBuy = async () => {
+    if (!confirm(`Buy ${candidate.domain}? Check the price and proceed with purchase.`)) return;
+    setBuying(true);
+    setBuyResult(null);
+    try {
+      const check = await preflightPurchase(candidate.domain);
+      if (!check.check.available) {
+        setBuyResult({ success: false, error: 'Domain is not available for registration' });
+        setBuying(false);
+        return;
+      }
+      if (!check.check.trademarkClear) {
+        setBuyResult({ success: false, error: 'Domain did not pass trademark gate' });
+        setBuying(false);
+        return;
+      }
+      const price = check.check.registerPriceEur ?? 0;
+      if (!confirm(`Purchase ${candidate.domain} for €${price.toFixed(2)}?`)) {
+        setBuying(false);
+        return;
+      }
+      const result = await executePurchase(candidate.domain, 1, true);
+      setBuyResult(result);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Purchase failed';
+      setBuyResult({ success: false, error: message });
+    } finally {
+      setBuying(false);
+    }
+  };
 
   return (
     <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 hover:border-gray-700 transition-colors">
@@ -64,6 +104,24 @@ export function CandidateCard({ candidate, onScore }: CandidateCardProps) {
             <ScoreGauge value={score.breakdown.market.score} label="Market" />
             <ScoreGauge value={score.breakdown.expiry.score} label="Expiry" />
           </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleBuy}
+              disabled={buying}
+              className="flex-1 px-3 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {buying ? 'Processing...' : 'Buy'}
+            </button>
+          </div>
+
+          {buyResult && (
+            <div
+              className={`text-xs px-3 py-2 rounded-lg ${buyResult.success ? 'bg-emerald-900/30 text-emerald-400' : 'bg-red-900/30 text-red-400'}`}
+            >
+              {buyResult.success ? buyResult.message : buyResult.error}
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex items-center justify-between">

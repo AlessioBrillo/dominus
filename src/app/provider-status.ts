@@ -9,14 +9,7 @@ import { getLogger } from '../logger.js';
  * across releases so the JSON output is safe for dashboards.
  */
 export interface ProviderStatus {
-  name:
-    | 'USPTO'
-    | 'EUIPO'
-    | 'KeywordPlanner'
-    | 'NameBio'
-    | 'GoogleAds'
-    | 'WHOIS'
-    | 'CloudflareRegistrar';
+  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio' | 'GoogleAds' | 'WHOIS' | 'Registrar';
   configured: boolean;
   note: string;
 }
@@ -85,19 +78,12 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
             : 'NAMEBIO_API_KEY and COMPS_DATA_PATH are unset — the market signal will produce zero comparables.',
     },
     {
-      name: 'CloudflareRegistrar',
-      configured:
-        config.CLOUDFLARE_API_TOKEN !== undefined &&
-        config.CLOUDFLARE_API_TOKEN !== '' &&
-        config.CLOUDFLARE_ACCOUNT_ID !== undefined &&
-        config.CLOUDFLARE_ACCOUNT_ID !== '',
+      name: 'Registrar',
+      configured: config.REGISTRAR_PROVIDER !== 'manual',
       note:
-        config.CLOUDFLARE_API_TOKEN !== undefined &&
-        config.CLOUDFLARE_API_TOKEN !== '' &&
-        config.CLOUDFLARE_ACCOUNT_ID !== undefined &&
-        config.CLOUDFLARE_ACCOUNT_ID !== ''
-          ? `Account ${config.CLOUDFLARE_ACCOUNT_ID?.slice(0, 6)}… via API token.`
-          : 'CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are unset — registrar operations use the manual (no-op) provider.',
+        config.REGISTRAR_PROVIDER !== 'manual'
+          ? `Active provider: ${config.REGISTRAR_PROVIDER}.`
+          : 'REGISTRAR_PROVIDER is unset or set to "manual" — use `dominus registrars list` to see available providers.',
     },
   ];
 }

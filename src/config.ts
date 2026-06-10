@@ -281,6 +281,10 @@ const configSchema = z.object({
   /** Delay in ms between RDAP requests during watchlist polling (rate limiting). */
   WATCHLIST_RDAP_DELAY_MS: z.coerce.number().int().min(50).max(5000).default(200),
 
+  /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
+   *  speed up batch processing but may trigger rate limits. Default: 5. */
+  RDAP_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+
   // ── API hardening config ──────────────────────────────────────────
 
   /**
@@ -380,6 +384,46 @@ const configSchema = z.object({
 
   /** Cloudflare Account ID (found in the Cloudflare dashboard overview). */
   CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
+
+  // ── Registrar / Purchase config ────────────────────────────────────
+
+  /**
+   * Active registrar provider name. Set to one of: cloudflare, namecheap,
+   * godaddy, porkbun, namesilo, dynadot. Default: manual (no automation).
+   * Run `dominus registrars list` to see all available providers.
+   */
+  REGISTRAR_PROVIDER: z.string().default('manual'),
+
+  /**
+   * Auto-approval policy for domain purchases.
+   * - 'never' — always require operator confirmation (CLI prompt or API flag)
+   * - 'under_buy_max' — auto-approve when price <= suggestedBuyMax
+   * - 'always' — auto-approve every purchase (use with caution)
+   */
+  PURCHASE_AUTO_APPROVAL: z.enum(['never', 'under_buy_max', 'always']).default('never'),
+
+  /** Namecheap API key (REGISTRAR_PROVIDER=namecheap). */
+  REGISTRAR_NAMECHEAP_API_KEY: z.string().optional(),
+  /** Namecheap account username. */
+  REGISTRAR_NAMECHEAP_USERNAME: z.string().optional(),
+  /** Namecheap whitelisted client IP. */
+  REGISTRAR_NAMECHEAP_CLIENT_IP: z.string().optional(),
+
+  /** GoDaddy API key (REGISTRAR_PROVIDER=godaddy). */
+  REGISTRAR_GODADDY_API_KEY: z.string().optional(),
+  /** GoDaddy API secret. */
+  REGISTRAR_GODADDY_API_SECRET: z.string().optional(),
+
+  /** Porkbun API key (REGISTRAR_PROVIDER=porkbun). */
+  REGISTRAR_PORKBUN_API_KEY: z.string().optional(),
+  /** Porkbun secret API key. */
+  REGISTRAR_PORKBUN_SECRET_API_KEY: z.string().optional(),
+
+  /** NameSilo API key (REGISTRAR_PROVIDER=namesilo). */
+  REGISTRAR_NAMESILO_API_KEY: z.string().optional(),
+
+  /** Dynadot API key (REGISTRAR_PROVIDER=dynadot). */
+  REGISTRAR_DYNADOT_API_KEY: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

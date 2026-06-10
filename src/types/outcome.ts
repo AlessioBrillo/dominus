@@ -26,13 +26,14 @@
  * layer validates `type` against this enum at the boundary.
  */
 
-export type OutcomeType = 'sold' | 'dropped' | 'expired' | 'renewed';
+export type OutcomeType = 'sold' | 'dropped' | 'expired' | 'renewed' | 'purchased';
 
 export const OUTCOME_TYPES: readonly OutcomeType[] = [
   'sold',
   'dropped',
   'expired',
   'renewed',
+  'purchased',
 ] as const;
 
 export function isOutcomeType(value: unknown): value is OutcomeType {
