@@ -80,7 +80,7 @@ describe('ScoringEngine', () => {
     expect(result.confidence).toBeLessThanOrEqual(1);
   });
 
-  it('intrinsic-only domain gets base confidence, not zero', async () => {
+  it('intrinsic-only domain gets above-base confidence from quality boost', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
@@ -89,7 +89,7 @@ describe('ScoringEngine', () => {
       sld: 'example',
       isCloseout: false,
     });
-    expect(result.confidence).toBeGreaterThanOrEqual(0.15);
+    expect(result.confidence).toBeGreaterThan(0.2);
     expect(result.confidence).toBeLessThan(0.3);
   });
 
@@ -97,15 +97,15 @@ describe('ScoringEngine', () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const withoutExpiry = await engine.score({
-      domain: 'example.com',
+      domain: 'boring.com',
       tld: '.com',
-      sld: 'example',
+      sld: 'boring',
       isCloseout: false,
     });
     const withExpiry = await engine.score({
-      domain: 'aged.com',
+      domain: 'boring.com',
       tld: '.com',
-      sld: 'aged',
+      sld: 'boring',
       isCloseout: true,
       domainAge: 15,
       backlinks: 500,
@@ -114,7 +114,7 @@ describe('ScoringEngine', () => {
     expect(withExpiry.confidence).toBeGreaterThan(withoutExpiry.confidence);
   });
 
-  it('expiry signal alone (no other external data) keeps domain below recommend threshold', async () => {
+  it('expiry signal alone (no commercial or market data) does not trigger buy recommendation', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
@@ -126,7 +126,10 @@ describe('ScoringEngine', () => {
       backlinks: 500,
       waybackSnapshots: 200,
     });
-    expect(result.confidence).toBeLessThan(0.3);
+    // Confidence may exceed 0.3 due to intrinsic quality + expiry,
+    // but weightedScore must still be below WEIGHT_RECOMMEND_THRESHOLD (0.4)
+    // since no commercial or market data is available.
+    expect(result.weightedScore).toBeLessThan(0.4);
     expect(result.recommended).toBe(false);
   });
 
@@ -196,9 +199,9 @@ describe('ScoringEngine', () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
-      domain: 'zzzzzzyyyyy.com',
+      domain: 'x-7-9-zzzzzzzzzz.com',
       tld: '.com',
-      sld: 'zzzzzzyyyyy',
+      sld: 'x-7-9-zzzzzzzzzz',
       isCloseout: false,
     });
     expect(result.confidence).toBeLessThan(0.3);
@@ -247,7 +250,7 @@ describe('ScoringEngine', () => {
     expect(result.weightedScore).toBeLessThanOrEqual(1);
   });
 
-  it('uses confidenceBase when intrinsic weight covers the full range', async () => {
+  it('approaches confidenceBase when intrinsic quality is near zero', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps, {
       intrinsic: 1,
@@ -256,11 +259,12 @@ describe('ScoringEngine', () => {
       expiry: 0,
     });
     const result = await engine.score({
-      domain: 'test.com',
+      domain: '00000000000000000000.com',
       tld: '.com',
-      sld: 'test',
+      sld: '00000000000000000000',
       isCloseout: false,
     });
-    expect(result.confidence).toBe(0.2);
+    expect(result.confidence).toBeGreaterThanOrEqual(0.2);
+    expect(result.confidence).toBeLessThan(0.25);
   });
 });

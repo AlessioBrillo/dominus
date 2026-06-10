@@ -7,8 +7,13 @@ export function computeExpiryScore(
   weight: number,
   config: ExpirySignalConfig = DEFAULT_EXPIRY_CONFIG,
 ): SignalOutput {
-  if (!input.isCloseout) {
-    return { score: 0, weight, details: { isCloseout: false } };
+  const hasExpiryData =
+    input.domainAge !== undefined ||
+    input.backlinks !== undefined ||
+    input.waybackSnapshots !== undefined;
+
+  if (!input.isCloseout && !hasExpiryData) {
+    return { score: 0, weight, details: { isCloseout: false, hasExpiryData: false } };
   }
 
   const ageScore =
@@ -28,7 +33,8 @@ export function computeExpiryScore(
     score,
     weight,
     details: {
-      isCloseout: true,
+      isCloseout: input.isCloseout,
+      hasExpiryData: true,
       domainAge: input.domainAge,
       backlinks: input.backlinks,
       waybackSnapshots: input.waybackSnapshots,

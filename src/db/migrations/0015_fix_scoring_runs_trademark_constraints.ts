@@ -20,7 +20,7 @@ interface ForeignKeyInfo {
   match: string;
 }
 
-export const name = '0014_fix_scoring_runs_trademark_constraints';
+export const name = '0015_fix_scoring_runs_trademark_constraints';
 
 export function up(db: Database.Database): void {
   const scoringRunsTableInfo = db.pragma('table_info(scoring_runs)') as ColumnInfo[];
