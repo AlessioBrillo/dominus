@@ -16,6 +16,17 @@ export const USPTO_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
   cooldownMs: 60_000,
 };
 
+/**
+ * EUIPO has a more aggressive rate-limiter (X-IBM-Client-Id quota)
+ * and higher latency (OAuth2 token exchange before each search).
+ * A more conservative breaker protects the free-tier quota.
+ */
+export const EUIPO_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
+  failureThreshold: 4,
+  windowMs: 60_000,
+  cooldownMs: 120_000,
+};
+
 type CircuitState = 'closed' | 'open' | 'half-open';
 
 export class CircuitBreaker {
