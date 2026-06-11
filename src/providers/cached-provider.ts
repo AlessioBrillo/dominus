@@ -11,6 +11,9 @@ export const JSON_SERIALIZER: CacheSerializer<unknown> = {
 };
 
 export class CachedProvider<T> {
+  /** In-flight requests keyed by term — deduplicates concurrent fetches. */
+  readonly #inflight = new Map<string, Promise<T>>();
+
   constructor(
     private readonly fetchFn: (term: string) => Promise<T>,
     private readonly repo: ProviderCacheRepository,
@@ -29,14 +32,26 @@ export class CachedProvider<T> {
       }
     }
 
-    const result = await this.fetchFn(term);
+    // Request coalescing: when the same term is requested concurrently
+    // (e.g. multiple pipeline branches checking the same keyword/comps),
+    // reuse the in-flight promise to avoid N simultaneous provider calls.
+    const existing = this.#inflight.get(term);
+    if (existing !== undefined) return existing;
 
-    try {
-      this.repo.set(term, this.providerName, this.serializer.serialize(result), this.ttlDays);
-    } catch {
-      // Non-fatal: cache write failure never blocks pipeline progress
-    }
+    const promise = this.fetchFn(term)
+      .then((result) => {
+        try {
+          this.repo.set(term, this.providerName, this.serializer.serialize(result), this.ttlDays);
+        } catch {
+          // Non-fatal: cache write failure never blocks pipeline progress
+        }
+        return result;
+      })
+      .finally(() => {
+        this.#inflight.delete(term);
+      });
 
-    return result;
+    this.#inflight.set(term, promise);
+    return promise;
   }
 }
