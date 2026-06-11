@@ -72,4 +72,24 @@ export class ScoringRepository {
       .get(runId, candidateId) as ScoringRow | undefined;
     return row ?? null;
   }
+
+  /**
+   * Delete scoring_runs rows whose run_id matches the given LIKE prefix
+   * and whose scored_at is older than the provided cutoff (ISO-8601).
+   * Returns the number of deleted rows.
+   *
+   * Designed for pruning stale portfolio-rescore entries (see
+   * PortfolioRescoreService.pruneRetention). Uses a LIKE filter so
+   * the caller controls the prefix scope.
+   */
+  pruneByRunIdPrefix(prefix: string, scoredBefore: string): number {
+    const info = this.db
+      .prepare(
+        `DELETE FROM scoring_runs
+          WHERE run_id LIKE ?
+            AND scored_at < ?`,
+      )
+      .run(prefix, scoredBefore);
+    return info.changes;
+  }
 }

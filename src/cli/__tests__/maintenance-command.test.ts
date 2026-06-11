@@ -4,6 +4,7 @@ import { runMigrations } from '../../db/migrator.js';
 import { TrademarkRepository } from '../../db/repositories/trademark-repository.js';
 import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
+import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import { registerMaintenanceCommand } from '../commands/maintenance-command.js';
 import { Command } from 'commander';
 
@@ -20,13 +21,21 @@ function buildProgram(db: Database.Database): {
   tmRepo: TrademarkRepository;
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
+  scoringRepo: ScoringRepository;
 } {
   const tmRepo = new TrademarkRepository(db);
   const runsRepo = new PipelineRunsRepository(db);
   const candidateRepo = new CandidateRepository(db);
+  const scoringRepo = new ScoringRepository(db);
   const program = new Command();
-  registerMaintenanceCommand(program, { db, trademarkRepo: tmRepo, runsRepo, candidateRepo });
-  return { program, tmRepo, runsRepo, candidateRepo };
+  registerMaintenanceCommand(program, {
+    db,
+    trademarkRepo: tmRepo,
+    runsRepo,
+    candidateRepo,
+    scoringRepo,
+  });
+  return { program, tmRepo, runsRepo, candidateRepo, scoringRepo };
 }
 
 function captureStdout(fn: () => Promise<void> | void): Promise<string> {
