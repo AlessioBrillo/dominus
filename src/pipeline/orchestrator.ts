@@ -5,6 +5,9 @@ import type { DnsPreFilterStage } from './stages/dns-prefilter-stage.js';
 import type { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 import type { ScoringStage, ScoredCandidate } from './stages/scoring-stage.js';
 import type { TrademarkGateStage } from './stages/trademark-gate-stage.js';
+import { getLogger } from '../logger.js';
+
+const logger = getLogger();
 
 export interface PipelineResult {
   runId: string;
@@ -127,19 +130,31 @@ export class PipelineOrchestrator {
     };
   }
 
-  async #withTimeout<T>(_label: string, fn: () => Promise<T>, startMs: number): Promise<T> {
+  async #withTimeout<T>(label: string, fn: () => Promise<T>, startMs: number): Promise<T> {
     if (this.timeoutMs <= 0) return fn();
 
-    const remaining = this.timeoutMs - (Date.now() - startMs);
-    if (remaining <= 0) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - startMs);
+    const elapsed = Date.now() - startMs;
+    const remaining = this.timeoutMs - elapsed;
+    if (remaining <= 0) throw new PipelineTimeoutError(this.timeoutMs, elapsed);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), remaining).unref();
-
-    try {
-      return await fn();
-    } finally {
-      clearTimeout(timer);
-    }
+    return raceWithTimeout(fn(), remaining, label);
   }
+}
+
+function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = Date.now() + timeoutMs;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const elapsed = Date.now() - (deadline - timeoutMs);
+      logger.warn({ label, timeoutMs, elapsed }, 'Pipeline stage timed out');
+      reject(new PipelineTimeoutError(timeoutMs, elapsed));
+    }, timeoutMs).unref();
+  });
+  return Promise.race([
+    promise.finally(() => {
+      clearTimeout(timer);
+    }),
+    timeout,
+  ]);
 }
