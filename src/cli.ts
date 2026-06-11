@@ -13,6 +13,7 @@ const cli = createCli({
   outcomeRepo: deps.outcomeRepo,
   config: deps.config,
   candidateRepo: deps.candidateRepo,
+  scoringRepo: deps.scoringRepo,
   trademarkRepo: deps.trademarkRepo,
   providerCacheRepo: deps.providerCacheRepo,
   runsRepo: deps.pipelineRunsRepo,

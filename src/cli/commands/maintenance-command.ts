@@ -6,6 +6,8 @@ import type { TrademarkRepository } from '../../db/repositories/trademark-reposi
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
+import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import { RESCORE_RUN_ID_PREFIX } from '../../portfolio/portfolio-rescore-service.js';
 
 export interface MaintenanceCommandDeps {
   db: Database.Database;
@@ -13,6 +15,7 @@ export interface MaintenanceCommandDeps {
   providerCacheRepo?: ProviderCacheRepository | undefined;
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
+  scoringRepo?: ScoringRepository | undefined;
 }
 
 export function registerMaintenanceCommand(program: Command, deps: MaintenanceCommandDeps): void {
@@ -145,6 +148,17 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
 
         if (pruneRescore) {
           const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+          const prefix = `${RESCORE_RUN_ID_PREFIX}%`;
+
+          // Prune orphaned scoring_runs first (run_id LIKE 'portfolio-rescore-%').
+          if (deps.scoringRepo) {
+            const scoringBefore = deps.scoringRepo.pruneByRunIdPrefix(prefix, cutoff);
+            process.stdout.write(
+              `Pruned ${scoringBefore} portfolio_rescore scoring_runs row(s).\n`,
+            );
+          }
+
+          // Then prune candidates that are no longer referenced.
           const before = deps.candidateRepo.countRescoreCandidates(cutoff);
           if (options.dryRun === true) {
             process.stdout.write(

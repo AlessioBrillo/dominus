@@ -5,6 +5,7 @@ import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
+import type { ScoringRepository } from '../db/repositories/scoring-repository.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
 import type { ProviderCacheRepository } from '../db/repositories/provider-cache-repository.js';
@@ -41,6 +42,7 @@ export interface CreateCliOptions {
   outcomeRepo: OutcomeRepository;
   config: Config;
   candidateRepo: CandidateRepository;
+  scoringRepo: ScoringRepository;
   trademarkRepo: TrademarkRepository;
   providerCacheRepo?: ProviderCacheRepository;
   runsRepo: PipelineRunsRepository;
@@ -63,6 +65,7 @@ export function createCli(options: CreateCliOptions): Command {
     outcomeRepo,
     config,
     candidateRepo,
+    scoringRepo,
     trademarkRepo,
     providerCacheRepo,
     runsRepo,
@@ -95,6 +98,7 @@ export function createCli(options: CreateCliOptions): Command {
     providerCacheRepo,
     runsRepo,
     candidateRepo,
+    scoringRepo,
   });
   registerProvidersCommand(program, { config });
   registerHealthCommand(program, { db, config });

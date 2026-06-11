@@ -6,6 +6,7 @@ import type { CandidateRepository } from '../db/repositories/candidate-repositor
 import type { ScoringRepository } from '../db/repositories/scoring-repository.js';
 import { CandidateSource, CandidateStatus } from '../types/candidate.js';
 import { parseDomain } from '../utils/domain.js';
+import { getLogger } from '../logger.js';
 
 export interface RescoreOutcome {
   domain: string;
@@ -28,6 +29,9 @@ export interface RescoreSummary {
 
 export const RESCORE_RUN_ID_PREFIX = 'portfolio-rescore-';
 
+/** Default retention: rescore entries older than this are pruned. */
+export const RESCORE_RETENTION_DAYS = 180;
+
 function toBatches<T>(items: T[], size: number): T[][] {
   const batches: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -43,18 +47,20 @@ export class PortfolioRescoreService {
     private readonly candidateRepo: CandidateRepository,
     private readonly scoringRepo: ScoringRepository,
     private readonly concurrency: number = 5,
+    private readonly retentionDays: number = RESCORE_RETENTION_DAYS,
   ) {}
 
   async rescore(entries: PortfolioEntry[]): Promise<RescoreSummary> {
     const start = Date.now();
     const results: RescoreOutcome[] = [];
+    const runId = `${RESCORE_RUN_ID_PREFIX}${randomUUID()}`;
 
     const batches = toBatches(entries, this.concurrency);
     for (const batch of batches) {
       const entryByIndex = new Map<number, PortfolioEntry>();
       const promises = batch.map((entry, idx) => {
         entryByIndex.set(idx, entry);
-        return this.rescoreOne(entry);
+        return this.rescoreOne(entry, runId);
       });
       const settled = await Promise.allSettled(promises);
 
@@ -87,7 +93,23 @@ export class PortfolioRescoreService {
     return { results, totalDurationMs: Date.now() - start };
   }
 
-  private async rescoreOne(entry: PortfolioEntry): Promise<RescoreOutcome> {
+  /**
+   * Prune scoring_runs rows older than the configured retention window
+   * whose run_id starts with the rescore prefix. Called on scheduler or
+   * explicitly via CLI maintenance.
+   */
+  pruneRetention(): number {
+    const cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const prefix = `${RESCORE_RUN_ID_PREFIX}%`;
+    const pruned = this.scoringRepo.pruneByRunIdPrefix(prefix, cutoff);
+    getLogger().info(
+      { pruned, retentionDays: this.retentionDays },
+      'Pruned stale rescore scoring_runs',
+    );
+    return pruned;
+  }
+
+  private async rescoreOne(entry: PortfolioEntry, runId: string): Promise<RescoreOutcome> {
     try {
       const score = await this.engine.score({
         domain: entry.domain,
@@ -100,7 +122,6 @@ export class PortfolioRescoreService {
       const gate = await this.gate.check(entry.domain);
 
       const candidateId = this.ensureRescoreCandidate(entry);
-      const runId = `${RESCORE_RUN_ID_PREFIX}${entry.domain}-${randomUUID()}`;
       this.scoringRepo.insert(candidateId, runId, score);
 
       return {

@@ -69,7 +69,7 @@ import {
   warnEuipoIfMissing,
   warnCloudflareIfMissing,
 } from './index.js';
-import { USPTO_CIRCUIT_BREAKER } from './circuit-breaker.js';
+import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { registrarRegistry } from '../providers/registrar/registrar-registry.js';
 import { PurchaseService, AutoApprovalPolicy } from '../services/purchase-service.js';
 
@@ -237,6 +237,8 @@ export function createDependencies(config: Config): DominusDependencies {
         authUrl: config.EUIPO_AUTH_URL,
         apiUrl: config.EUIPO_API_URL,
       }),
+      {},
+      EUIPO_CIRCUIT_BREAKER,
     ),
     providerCacheRepo,
     'EUIPO',
