@@ -6,7 +6,7 @@ import globals from 'globals';
 
 export default [
   {
-    ignores: ['dist/', 'coverage/', '*.cjs', 'vitest.config.ts'],
+    ignores: ['dist/', 'coverage/', '*.cjs', 'vitest.config.ts', 'vitest.setup.ts'],
   },
   eslint.configs.recommended,
   {

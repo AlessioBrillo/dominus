@@ -75,6 +75,7 @@ export interface DominusDependencies {
   portfolioRepo: PortfolioRepository;
   alertRepo: RenewalAlertRepository;
   pipelineRunsRepo: PipelineRunsRepository;
+  providerCacheRepo: ProviderCacheRepository;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -184,8 +185,9 @@ export function createDependencies(config: Config): DominusDependencies {
       listPriceMultiplier: config.SCORING_LIST_PRICE_MULTIPLIER,
       baseMarketValueEur: config.SCORING_BASE_MARKET_VALUE,
       confidenceBase: config.SCORING_CONFIDENCE_BASE,
-      confidencePerSignal: config.SCORING_CONFIDENCE_PER_SIGNAL,
+      confidencePerSignal: config.SCORING_CONFIDENCE_PER_SIGNAL ?? 0.3,
       confidenceCap: config.SCORING_CONFIDENCE_CAP,
+      intrinsicQualityInfluence: config.SCORING_INTRINSIC_QUALITY_INFLUENCE,
       holdingYears: config.SCORING_HOLDING_YEARS,
     },
   };
@@ -255,7 +257,7 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
-    new DnsPreFilterStage(new NodeDnsProvider()),
+    new DnsPreFilterStage(new NodeDnsProvider(), config.DNS_BULK_CONCURRENCY),
     new RdapConfirmationStage(
       new PublicRdapProvider(rdapRateLimiter),
       whoisProvider,
@@ -390,6 +392,7 @@ export function createDependencies(config: Config): DominusDependencies {
     portfolioRepo,
     alertRepo,
     pipelineRunsRepo,
+    providerCacheRepo,
     keywordProvider,
     compsProvider,
     whoisProvider,

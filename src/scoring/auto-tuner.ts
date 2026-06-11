@@ -127,7 +127,7 @@ export class AutoWeightTuner {
 
     // 4. Apply if safe and not dry run
     if (safetyPassed && !this.config.dryRun) {
-      this.writeOverrideFile(suggestionReport);
+      this.writeOverrideFile(suggestionReport, sampleSize);
       applied = true;
       this.#notifyApplied(suggestionReport);
     }
@@ -170,16 +170,19 @@ export class AutoWeightTuner {
     };
   }
 
-  private writeOverrideFile(report: {
-    suggestions: Array<{ signal: string; suggestedWeight: number }>;
-  }): void {
+  private writeOverrideFile(
+    report: {
+      suggestions: Array<{ signal: string; suggestedWeight: number }>;
+    },
+    sampleSize: number,
+  ): void {
     const absPath = resolve(process.cwd(), this.overridePath);
     if (!absPath.startsWith(resolve(process.cwd(), './data'))) {
       return;
     }
     const payload = {
       generatedAt: new Date().toISOString(),
-      sampleSize: report.suggestions.reduce((acc, s) => acc + (s.suggestedWeight > 0 ? 1 : 0), 0),
+      sampleSize,
       weights: Object.fromEntries(report.suggestions.map((s) => [s.signal, s.suggestedWeight])),
     };
     mkdirSync(dirname(absPath), { recursive: true });

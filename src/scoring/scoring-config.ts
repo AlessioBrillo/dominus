@@ -24,14 +24,17 @@ export interface ScoringConstants {
   listPriceMultiplier: number;
   baseMarketValueEur: number;
   confidenceBase: number;
-  /**
-   * @deprecated Unused since v0.2.1. The scoring engine computes
-   * confidence via a weight-covered-proportion formula instead.
-   * Kept in the interface for backward compatibility with existing
-   * .env files — the value is parsed but ignored.
-   */
   confidencePerSignal: number;
   confidenceCap: number;
+  /**
+   * Influence of the intrinsic quality score on the final confidence.
+   * The confidence formula splits into a signal-coverage portion
+   * (weight-covered proportion) and a quality-boost portion driven by
+   * intrinsic.score. A value of 0.12 means 12% of the confidence range
+   * is reserved for intrinsic quality, reducing the signal-coverage
+   * contribution proportionally. Default: 0.12.
+   */
+  intrinsicQualityInfluence: number;
   /**
    * Number of years of renewal costs to subtract from the raw
    * buy-max calculation. A holding period of 3 years means
@@ -76,6 +79,7 @@ export const DEFAULT_SCORING_CONSTANTS: ScoringConstants = {
   confidenceBase: 0.2,
   confidencePerSignal: 0.3,
   confidenceCap: 0.8,
+  intrinsicQualityInfluence: 0.12,
   holdingYears: 3,
 };
 

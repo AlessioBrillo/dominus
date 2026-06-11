@@ -88,14 +88,19 @@ export class ScoringEngine {
       (hasMarketData ? market.weight : 0) +
       (expiryHasData ? expiry.weight : 0);
 
-    const { baseMarketValueEur, buyMaxRatio, listPriceMultiplier, confidenceBase, confidenceCap } =
-      this.scoringConfig.constants;
+    const {
+      baseMarketValueEur,
+      buyMaxRatio,
+      listPriceMultiplier,
+      confidenceBase,
+      confidenceCap,
+      intrinsicQualityInfluence,
+    } = this.scoringConfig.constants;
 
     const minCovered = intrinsic.weight;
     const variableRange = 1 - minCovered;
     const extraCovered = Math.max(0, coveredWeight - minCovered);
 
-    const intrinsicQualityInfluence = 0.12;
     const signalConfidence =
       variableRange > 0
         ? (extraCovered / variableRange) *
