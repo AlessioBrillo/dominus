@@ -14,12 +14,18 @@ const UNLIMITED_CONFIG: RateLimiterConfig = {
   intervalMs: 1,
 };
 
+interface QueuedAcquire {
+  resolve: () => void;
+}
+
 export class RateLimiter {
   readonly #maxTokens: number;
   readonly #tokensPerInterval: number;
   readonly #intervalMs: number;
   #tokens: number;
   #lastRefill: number;
+  #queue: QueuedAcquire[] = [];
+  #processing = false;
 
   constructor(config: RateLimiterConfig) {
     this.#maxTokens = config.maxTokens;
@@ -38,15 +44,31 @@ export class RateLimiter {
       return;
     }
 
-    while (true) {
-      this.#refill();
-      if (this.#tokens >= 1) {
-        this.#tokens -= 1;
-        return;
+    return new Promise<void>((resolve) => {
+      this.#queue.push({ resolve });
+      if (!this.#processing) {
+        void this.#processQueue();
       }
-      const deficit = 1 - this.#tokens;
-      const waitMs = Math.ceil((deficit / this.#tokensPerInterval) * this.#intervalMs);
-      await sleep(Math.max(waitMs, 1));
+    });
+  }
+
+  async #processQueue(): Promise<void> {
+    this.#processing = true;
+    try {
+      while (this.#queue.length > 0) {
+        this.#refill();
+        if (this.#tokens >= 1) {
+          this.#tokens -= 1;
+          const entry = this.#queue.shift()!;
+          entry.resolve();
+        } else {
+          const deficit = 1 - this.#tokens;
+          const waitMs = Math.ceil((deficit / this.#tokensPerInterval) * this.#intervalMs);
+          await sleep(Math.max(waitMs, 1));
+        }
+      }
+    } finally {
+      this.#processing = false;
     }
   }
 

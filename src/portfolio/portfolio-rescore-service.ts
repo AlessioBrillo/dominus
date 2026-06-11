@@ -51,17 +51,22 @@ export class PortfolioRescoreService {
 
     const batches = toBatches(entries, this.concurrency);
     for (const batch of batches) {
-      const batchResults = await Promise.allSettled(batch.map((entry) => this.rescoreOne(entry)));
+      const entryByIndex = new Map<number, PortfolioEntry>();
+      const promises = batch.map((entry, idx) => {
+        entryByIndex.set(idx, entry);
+        return this.rescoreOne(entry);
+      });
+      const settled = await Promise.allSettled(promises);
 
-      for (const settled of batchResults) {
-        if (settled.status === 'fulfilled') {
-          results.push(settled.value);
+      for (let idx = 0; idx < settled.length; idx++) {
+        const result = settled[idx]!;
+        if (result.status === 'fulfilled') {
+          results.push(result.value);
         } else {
           const errMsg =
-            settled.reason instanceof Error ? settled.reason.message : String(settled.reason);
-          const idx = batchResults.indexOf(settled);
-          const entry = batch[idx];
-          if (entry) {
+            result.reason instanceof Error ? result.reason.message : String(result.reason);
+          const entry = entryByIndex.get(idx);
+          if (entry !== undefined) {
             results.push({
               domain: entry.domain,
               weightedScore: 0,
@@ -128,11 +133,7 @@ export class PortfolioRescoreService {
   }
 
   private ensureRescoreCandidate(entry: PortfolioEntry): number {
-    const existing = this.candidateRepo.findByDomain(entry.domain);
-    if (existing !== null && existing.id !== undefined) {
-      return existing.id;
-    }
-    const inserted = this.candidateRepo.upsert({
+    this.candidateRepo.upsert({
       domain: entry.domain,
       tld: entry.tld,
       source: CandidateSource.PortfolioRescore,
@@ -140,9 +141,12 @@ export class PortfolioRescoreService {
       isPremium: false,
       pipelineRunId: RESCORE_RUN_ID_PREFIX + entry.domain,
     });
-    if (inserted.id === undefined) {
-      throw new Error(`Failed to upsert rescore candidate for ${entry.domain}`);
+    const row = this.candidateRepo.findByDomain(entry.domain);
+    if (row === null || row.id === undefined) {
+      throw new Error(
+        `Failed to upsert rescore candidate for ${entry.domain} — upsert succeeded but no row found`,
+      );
     }
-    return inserted.id;
+    return row.id;
   }
 }

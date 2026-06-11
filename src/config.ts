@@ -203,13 +203,15 @@ const configSchema = z.object({
   SCORING_BASE_MARKET_VALUE: z.coerce.number().min(1).default(500),
   /** Confidence base for zero-signal fallback (default: 0.2). */
   SCORING_CONFIDENCE_BASE: z.coerce.number().min(0).max(1).default(0.2),
+  SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).optional(),
   /**
-   * @deprecated No longer used since v0.2.1 — the scoring engine
-   * computes confidence via a weight-covered-proportion formula.
-   * Kept in the schema for backward compatibility with existing
-   * .env files; parsing succeeds but the value is ignored.
+   * Influence of intrinsic quality score on confidence (default: 0.12).
+   * 12% of the confidence range is reserved for intrinsic quality;
+   * the remaining 88% is driven by the proportion of signal weight
+   * covered by actual data. Set lower to reduce intrinsic bias,
+   * higher to penalise short/pronounceable names more heavily.
    */
-  SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).default(0.3),
+  SCORING_INTRINSIC_QUALITY_INFLUENCE: z.coerce.number().min(0).max(1).default(0.12),
   /** Absolute cap on confidence score (default: 0.8). */
   SCORING_CONFIDENCE_CAP: z.coerce.number().min(0).max(1).default(0.8),
 

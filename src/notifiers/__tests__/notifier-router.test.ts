@@ -88,6 +88,7 @@ const baseConfig: Config = {
   FRONTEND_DIST_PATH: './frontend/dist',
   FRONTEND_BASE_PATH: '',
   NAMEBIO_API_KEY: undefined,
+  SCORING_INTRINSIC_QUALITY_INFLUENCE: 0.12,
 };
 
 describe('buildNotifiers', () => {

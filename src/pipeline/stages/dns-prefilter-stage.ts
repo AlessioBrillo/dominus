@@ -11,7 +11,10 @@ const logger = getLogger();
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
   readonly name = 'DnsPreFilterStage';
 
-  constructor(private readonly dnsProvider: DnsProvider) {}
+  constructor(
+    private readonly dnsProvider: DnsProvider,
+    private readonly fallbackConcurrency: number = 10,
+  ) {}
 
   async process(candidates: DomainCandidate[]): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
@@ -63,15 +66,23 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       logger.warn({ err }, 'DNS bulk check threw — falling back to per-domain checks');
     }
 
-    return Promise.all(
-      domains.map(async (c) => {
-        try {
-          return await this.dnsProvider.checkAvailability(c.domain);
-        } catch {
-          logger.error({ domain: c.domain }, 'DNS per-domain check failed');
-          return undefined;
-        }
-      }),
-    );
+    const results: (DnsCheckResult | undefined)[] = new Array(domains.length);
+    for (let i = 0; i < domains.length; i += this.fallbackConcurrency) {
+      const batch = domains.slice(i, i + this.fallbackConcurrency);
+      const batchResults = await Promise.all(
+        batch.map(async (c) => {
+          try {
+            return await this.dnsProvider.checkAvailability(c.domain);
+          } catch {
+            logger.error({ domain: c.domain }, 'DNS per-domain check failed');
+            return undefined;
+          }
+        }),
+      );
+      for (let j = 0; j < batchResults.length; j++) {
+        results[i + j] = batchResults[j];
+      }
+    }
+    return results;
   }
 }

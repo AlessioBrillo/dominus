@@ -5,6 +5,7 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     include: ['src/**/*.test.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
@@ -19,12 +20,12 @@ export default defineConfig({
         'src/types/**',
       ],
       // Baseline after including previously-excluded db/ and api/ modules.
-      // Measured: lines 80.52%, branches 71.98%, functions 85.08%.
+      // Measured: lines 80.76%, branches 72.31%, functions 85.62%.
       // Buffer of ~3pp below measured to absorb CI platform variance.
       thresholds: {
         lines: 77,
         functions: 79,
-        branches: 68,
+        branches: 69,
       },
     },
   },
