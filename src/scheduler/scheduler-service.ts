@@ -3,6 +3,7 @@ import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
+import type { ProviderCacheRepository } from '../db/repositories/provider-cache-repository.js';
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
 import type { Config } from '../config.js';
@@ -24,6 +25,7 @@ export interface SchedulerOptions {
   alertEngine: RenewalAlertEngine;
   portfolioManager?: PortfolioManager;
   trademarkRepo?: TrademarkRepository;
+  providerCacheRepo?: ProviderCacheRepository;
   runsRepo?: PipelineRunsRepository;
   watchlistService?: WatchlistService;
   autoTuner?: AutoWeightTuner;
@@ -36,6 +38,7 @@ export class SchedulerService {
   private readonly alertEngine: RenewalAlertEngine;
   private readonly portfolioManager: PortfolioManager | undefined;
   private readonly trademarkRepo: TrademarkRepository | undefined;
+  private readonly providerCacheRepo: ProviderCacheRepository | undefined;
   private readonly runsRepo: PipelineRunsRepository | undefined;
   private readonly watchlistService: WatchlistService | undefined;
   private readonly autoTuner: AutoWeightTuner | undefined;
@@ -47,6 +50,7 @@ export class SchedulerService {
     this.alertEngine = options.alertEngine;
     this.portfolioManager = options.portfolioManager;
     this.trademarkRepo = options.trademarkRepo;
+    this.providerCacheRepo = options.providerCacheRepo;
     this.runsRepo = options.runsRepo;
     this.watchlistService = options.watchlistService;
     this.autoTuner = options.autoTuner;
@@ -89,11 +93,12 @@ export class SchedulerService {
       this.#register(
         'data-prune',
         this.config.SCHEDULER_PRUNE_CRON,
-        'Prune expired trademark cache and pipeline run history',
+        'Prune expired trademark cache, provider cache, and pipeline run history',
         async () => {
           const tmRemoved = this.trademarkRepo!.pruneExpired();
+          const pcRemoved = this.providerCacheRepo?.pruneExpired() ?? 0;
           const runsRemoved = this.runsRepo!.prune();
-          const msg = `Pruned ${tmRemoved} trademark cache + ${runsRemoved} pipeline run(s)`;
+          const msg = `Pruned ${tmRemoved} trademark cache + ${pcRemoved} provider cache + ${runsRemoved} pipeline run(s)`;
           logger.info(msg);
           return msg;
         },

@@ -14,6 +14,7 @@ const cli = createCli({
   config: deps.config,
   candidateRepo: deps.candidateRepo,
   trademarkRepo: deps.trademarkRepo,
+  providerCacheRepo: deps.providerCacheRepo,
   runsRepo: deps.pipelineRunsRepo,
   currentWeights: deps.currentWeights,
   gate: deps.trademarkGate,

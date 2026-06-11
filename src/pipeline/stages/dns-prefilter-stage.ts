@@ -1,6 +1,6 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
-import type { DomainCandidate } from '../../types/candidate.js';
+import type { CandidateSource, DomainCandidate } from '../../types/candidate.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { Stage, StageResult } from '../stage.js';
@@ -14,18 +14,30 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
   constructor(
     private readonly dnsProvider: DnsProvider,
     private readonly fallbackConcurrency: number = 10,
+    private readonly skipSources: CandidateSource[] = [],
   ) {}
 
   async process(candidates: DomainCandidate[]): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
+    const toFilter: DomainCandidate[] = [];
+    const toSkip: DomainCandidate[] = [];
+    const skipSet = new Set(this.skipSources);
 
-    const perDomainResults = await this.#resolveBulkWithFallback(candidates);
+    for (const c of candidates) {
+      if (skipSet.has(c.source)) {
+        toSkip.push({ ...c, dnsStatus: 'skipped', status: CandidateStatus.Pending });
+      } else {
+        toFilter.push(c);
+      }
+    }
 
-    const passed: DomainCandidate[] = [];
+    const perDomainResults = await this.#resolveBulkWithFallback(toFilter);
+
+    const passed: DomainCandidate[] = [...toSkip];
     const filtered: DomainCandidate[] = [];
 
-    for (let i = 0; i < candidates.length; i++) {
-      const candidate = candidates[i];
+    for (let i = 0; i < toFilter.length; i++) {
+      const candidate = toFilter[i];
       const result = perDomainResults[i];
       if (candidate === undefined) continue;
 
@@ -55,6 +67,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
   async #resolveBulkWithFallback(
     domains: DomainCandidate[],
   ): Promise<(DnsCheckResult | undefined)[]> {
+    if (domains.length === 0) return [];
+
     try {
       const results = await this.dnsProvider.checkBulk(domains.map((c) => c.domain));
       if (results.length === domains.length) return results;

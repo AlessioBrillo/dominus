@@ -77,6 +77,7 @@ export class EuipoProvider implements TrademarkProvider {
 
   #token: string | null = null;
   #tokenExpiresAt: number = 0;
+  #tokenPromise: Promise<string> | null = null;
 
   constructor(config: EuipoProviderConfig) {
     this.#clientId = config.clientId;
@@ -172,10 +173,23 @@ export class EuipoProvider implements TrademarkProvider {
       return this.#token;
     }
 
+    if (this.#tokenPromise !== null) {
+      return this.#tokenPromise;
+    }
+
+    this.#tokenPromise = this.#acquireToken();
+    try {
+      return await this.#tokenPromise;
+    } finally {
+      this.#tokenPromise = null;
+    }
+  }
+
+  async #acquireToken(): Promise<string> {
     const body = new URLSearchParams({
       grant_type: 'client_credentials',
-      client_id: this.#clientId,
-      client_secret: this.#clientSecret,
+      client_id: this.#clientId!,
+      client_secret: this.#clientSecret!,
     });
 
     let response: Response;
@@ -222,7 +236,7 @@ export class EuipoProvider implements TrademarkProvider {
     }
 
     this.#token = tokenData.access_token;
-    this.#tokenExpiresAt = now + tokenData.expires_in * 1_000;
+    this.#tokenExpiresAt = Date.now() + tokenData.expires_in * 1_000;
     return this.#token;
   }
 

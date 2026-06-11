@@ -4,11 +4,35 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from './dns-provider.js';
 import { loadConfig } from '../../config.js';
 
+const RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'NS'] as const;
+
+async function resolvesAny(domain: string): Promise<boolean | undefined> {
+  for (const recordType of RECORD_TYPES) {
+    try {
+      await dnsPromises.resolve(domain, recordType);
+      return true;
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code;
+      if (code !== 'ENOTFOUND' && code !== 'ENODATA') {
+        return undefined;
+      }
+    }
+  }
+  return false;
+}
+
 export class NodeDnsProvider implements DnsProvider {
   async checkAvailability(domain: string): Promise<DnsCheckResult> {
     try {
-      await dnsPromises.resolve(domain, 'A');
-      return { domain, status: DomainStatus.Registered, checkedAt: new Date().toISOString() };
+      const result = await resolvesAny(domain);
+      if (result === undefined) {
+        return { domain, status: DomainStatus.Unknown, checkedAt: new Date().toISOString() };
+      }
+      return {
+        domain,
+        status: result ? DomainStatus.Registered : DomainStatus.Available,
+        checkedAt: new Date().toISOString(),
+      };
     } catch (err: unknown) {
       const code = (err as { code?: string }).code;
       if (code === 'ENOTFOUND' || code === 'ENODATA') {

@@ -43,4 +43,35 @@ describe('requestTimeout', () => {
       error: { code: 'REQUEST_TIMEOUT', message: 'Request timed out after 500ms' },
     });
   });
+
+  it('sets req.signal to an AbortSignal', () => {
+    const req = {} as Request;
+    const res = { setTimeout: vi.fn() } as unknown as Response;
+    const next = vi.fn();
+
+    requestTimeout(500)(req, res, next);
+
+    expect((req as unknown as Record<string, unknown>).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('aborts the signal on timeout', () => {
+    let timeoutCb: () => void = () => {};
+    const setTimeout = vi.fn((_ms: number, cb: () => void) => {
+      timeoutCb = cb;
+    });
+    const status = vi.fn().mockReturnThis();
+    const json = vi.fn();
+    const req = {} as Request;
+    const res = { setTimeout, writableEnded: false, status, json } as unknown as Response;
+    const next = vi.fn();
+
+    requestTimeout(500)(req, res, next);
+
+    const signal = (req as unknown as Record<string, unknown>).signal as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    timeoutCb();
+
+    expect(signal.aborted).toBe(true);
+  });
 });

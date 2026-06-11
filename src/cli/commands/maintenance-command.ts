@@ -4,11 +4,13 @@ import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
 import type { TrademarkRepository } from '../../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
+import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 
 export interface MaintenanceCommandDeps {
   db: Database.Database;
   trademarkRepo: TrademarkRepository;
+  providerCacheRepo?: ProviderCacheRepository | undefined;
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
 }
@@ -40,9 +42,10 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
   maintenance
     .command('prune')
     .description(
-      'Delete expired rows from the TM cache, pipeline_runs history, and rescore candidates',
+      'Delete expired rows from TM cache, provider cache, pipeline_runs history, and rescore candidates',
     )
     .option('--cache-only', 'Prune only the trademark_results cache')
+    .option('--provider-cache-only', 'Prune only the provider cache')
     .option('--runs-only', 'Prune only the pipeline_runs history')
     .option('--rescore-only', 'Prune only synthetic portfolio_rescore candidates')
     .option(
@@ -54,11 +57,18 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     .action(
       (options: {
         cacheOnly?: boolean;
+        providerCacheOnly?: boolean;
         runsOnly?: boolean;
         rescoreOnly?: boolean;
         before?: number;
         dryRun?: boolean;
       }) => {
+        if (options.cacheOnly === true && options.providerCacheOnly === true) {
+          process.stderr.write(
+            'Error: --cache-only and --provider-cache-only are mutually exclusive\n',
+          );
+          process.exit(1);
+        }
         if (options.cacheOnly === true && options.runsOnly === true) {
           process.stderr.write('Error: --cache-only and --runs-only are mutually exclusive\n');
           process.exit(1);
@@ -72,9 +82,23 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
         }
 
         const pruneCache = options.runsOnly !== true && options.rescoreOnly !== true;
+        const pruneProviderCache =
+          options.providerCacheOnly === true ||
+          (options.runsOnly !== true && options.cacheOnly !== true && options.rescoreOnly !== true);
         const pruneRuns = options.cacheOnly !== true && options.rescoreOnly !== true;
         const pruneRescore = options.rescoreOnly === true;
         const retentionDays = options.before ?? 90;
+
+        if (pruneProviderCache && deps.providerCacheRepo) {
+          const before = deps.providerCacheRepo.count();
+          if (options.dryRun === true) {
+            process.stdout.write(`Would prune ${before} provider_cache row(s).\n`);
+          } else {
+            const removed = deps.providerCacheRepo.pruneExpired();
+            const after = deps.providerCacheRepo.count();
+            process.stdout.write(`Pruned ${removed} provider_cache row(s); ${after} remain.\n`);
+          }
+        }
 
         if (pruneCache) {
           const before = deps.trademarkRepo.count();

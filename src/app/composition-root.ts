@@ -26,7 +26,10 @@ import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
 import { RateLimiter } from '../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
-import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
+import {
+  NodeWhoisProviderWithIanaFallback,
+  buildPerTldWhoisRateLimiters,
+} from '../providers/whois/index.js';
 import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
 import { ProviderHealthCheck } from '../providers/provider-health.js';
 import {
@@ -40,6 +43,7 @@ import {
 } from '../scoring/index.js';
 import { BacktestEngine, WeightSuggester } from '../scoring/backtest/index.js';
 import { TrademarkGate } from '../trademark/index.js';
+import { CandidateSource } from '../types/candidate.js';
 import {
   PipelineOrchestrator,
   CandidateGenerationStage,
@@ -61,6 +65,7 @@ import {
   warnEuipoIfMissing,
   warnCloudflareIfMissing,
 } from './index.js';
+import { USPTO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { registrarRegistry } from '../providers/registrar/registrar-registry.js';
 import { PurchaseService, AutoApprovalPolicy } from '../services/purchase-service.js';
 
@@ -210,7 +215,11 @@ export function createDependencies(config: Config): DominusDependencies {
   };
 
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL })),
+    new RetryingTrademarkProvider(
+      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+      {},
+      USPTO_CIRCUIT_BREAKER,
+    ),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
@@ -236,7 +245,12 @@ export function createDependencies(config: Config): DominusDependencies {
     tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
     intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
   });
-  const whoisRateLimiter = new RateLimiter({
+  const whoisDefaultLimiter = new RateLimiter({
+    maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
+    intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
+  });
+  const whoisPerTldLimiters = buildPerTldWhoisRateLimiters(config.WHOIS_RATE_LIMIT_OVERRIDES, {
     maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
     tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
     intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
@@ -244,7 +258,8 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const whoisProvider = new NodeWhoisProviderWithIanaFallback({
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
-    rateLimiter: whoisRateLimiter,
+    defaultRateLimiter: whoisDefaultLimiter,
+    perTldRateLimiters: whoisPerTldLimiters,
   });
 
   const healthCheck = new ProviderHealthCheck(
@@ -257,7 +272,9 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
-    new DnsPreFilterStage(new NodeDnsProvider(), config.DNS_BULK_CONCURRENCY),
+    new DnsPreFilterStage(new NodeDnsProvider(), config.DNS_BULK_CONCURRENCY, [
+      CandidateSource.CloseoutCsv,
+    ]),
     new RdapConfirmationStage(
       new PublicRdapProvider(rdapRateLimiter),
       whoisProvider,
@@ -374,6 +391,7 @@ export function createDependencies(config: Config): DominusDependencies {
       alertEngine,
       portfolioManager,
       trademarkRepo,
+      providerCacheRepo,
       runsRepo: pipelineRunsRepo,
       watchlistService,
       jobRepo: new SchedulerJobRepository(db),

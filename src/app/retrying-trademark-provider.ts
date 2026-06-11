@@ -2,95 +2,11 @@ import type {
   TrademarkMatch,
   TrademarkProvider,
 } from '../providers/trademark/trademark-provider.js';
-
-/**
- * Circuit breaker state machine for trademark provider calls.
- *
- * Protects rate-limited free APIs (USPTO, EUIPO) from being hammered
- * when they are degraded or down. After `failureThreshold` consecutive
- * transient failures within `windowMs`, the circuit opens and all
- * subsequent calls fail fast for `cooldownMs`. After cooldown, the
- * circuit transitions to half-open — a single test request determines
- * whether to close (success) or reopen (failure).
- */
-export interface CircuitBreakerPolicy {
-  failureThreshold: number;
-  windowMs: number;
-  cooldownMs: number;
-}
-
-const DEFAULT_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
-  failureThreshold: 5,
-  windowMs: 60_000,
-  cooldownMs: 120_000,
-};
-
-type CircuitState = 'closed' | 'open' | 'half-open';
-
-class CircuitBreaker {
-  #state: CircuitState = 'closed';
-  #failureCount = 0;
-  #windowStart = 0;
-  #openedAt = 0;
-  readonly #policy: CircuitBreakerPolicy;
-
-  constructor(policy: Partial<CircuitBreakerPolicy> = {}) {
-    this.#policy = { ...DEFAULT_CIRCUIT_BREAKER, ...policy };
-  }
-
-  /** Returns true when the call should proceed. */
-  allow(): boolean {
-    if (this.#state === 'closed') return true;
-
-    if (this.#state === 'open') {
-      if (Date.now() - this.#openedAt >= this.#policy.cooldownMs) {
-        this.#state = 'half-open';
-        return true;
-      }
-      return false;
-    }
-
-    // half-open — allow exactly one test request
-    return true;
-  }
-
-  onSuccess(): void {
-    this.#state = 'closed';
-    this.#failureCount = 0;
-    this.#windowStart = 0;
-  }
-
-  onFailure(): void {
-    const now = Date.now();
-
-    if (this.#windowStart === 0 || now - this.#windowStart > this.#policy.windowMs) {
-      this.#failureCount = 1;
-      this.#windowStart = now;
-    } else {
-      this.#failureCount++;
-    }
-
-    if (this.#failureCount >= this.#policy.failureThreshold) {
-      this.#state = 'open';
-      this.#openedAt = now;
-    } else if (this.#state === 'half-open') {
-      this.#state = 'open';
-      this.#openedAt = now;
-    }
-  }
-
-  get state(): CircuitState {
-    return this.#state;
-  }
-
-  /** Exposed for testing — resets to clean state. */
-  reset(): void {
-    this.#state = 'closed';
-    this.#failureCount = 0;
-    this.#windowStart = 0;
-    this.#openedAt = 0;
-  }
-}
+import {
+  CircuitBreaker,
+  DEFAULT_CIRCUIT_BREAKER,
+  type CircuitBreakerPolicy,
+} from './circuit-breaker.js';
 
 /**
  * Configurable retry policy for {@link RetryingTrademarkProvider}.

@@ -7,6 +7,7 @@ import type { PipelineRunService } from '../app/pipeline-run-service.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
 import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
+import type { ProviderCacheRepository } from '../db/repositories/provider-cache-repository.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
 import type { Config } from '../config.js';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
@@ -39,6 +40,7 @@ export interface CreateCliOptions {
   config: Config;
   candidateRepo: CandidateRepository;
   trademarkRepo: TrademarkRepository;
+  providerCacheRepo?: ProviderCacheRepository;
   runsRepo: PipelineRunsRepository;
   gate?: TrademarkGate;
   alertEngine?: RenewalAlertEngine;
@@ -59,6 +61,7 @@ export function createCli(options: CreateCliOptions): Command {
     config,
     candidateRepo,
     trademarkRepo,
+    providerCacheRepo,
     runsRepo,
     gate,
     alertEngine,
@@ -83,7 +86,13 @@ export function createCli(options: CreateCliOptions): Command {
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
   registerRunsCommand(program, { runsRepo });
-  registerMaintenanceCommand(program, { db, trademarkRepo, runsRepo, candidateRepo });
+  registerMaintenanceCommand(program, {
+    db,
+    trademarkRepo,
+    providerCacheRepo,
+    runsRepo,
+    candidateRepo,
+  });
   registerProvidersCommand(program, { config });
   registerHealthCommand(program, { db, config });
   if (scheduler) {

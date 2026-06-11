@@ -160,6 +160,12 @@ const configSchema = z.object({
   /** Rate limiting: refill interval in ms for WHOIS requests (default: 2000). */
   WHOIS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(2000),
   /**
+   * Optional JSON string mapping TLDs to per-registry WHOIS rate limiter configs.
+   * Each entry overrides the global WHOIS_RATE_LIMIT_TOKENS/INTERVAL for that TLD.
+   * Example: {"de":{"tokensPerInterval":1,"intervalMs":20000},"com":{"maxTokens":5,"tokensPerInterval":5,"intervalMs":1000}}
+   */
+  WHOIS_RATE_LIMIT_OVERRIDES: z.string().optional(),
+  /**
    * Absolute cap on suggestedBuyMax in EUR. Prevents the scoring engine
    * from recommending purchases beyond the operator's stated ~500€ budget,
    * even when comparable sales suggest extreme values.

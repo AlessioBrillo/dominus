@@ -5,6 +5,7 @@ import { ProviderError } from '../../types/errors.js';
 import type { WhoisProvider, WhoisResult } from './whois-provider.js';
 import { resolveWhoisServer } from './iana-server-lookup.js';
 import { RateLimiter } from '../rate-limiter.js';
+import type { RateLimiterConfig } from '../rate-limiter.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 65_536;
@@ -60,10 +61,9 @@ const NOT_FOUND_PATTERNS = [
 export interface NodeWhoisProviderConfig {
   timeoutMs?: number;
   serverOverrides?: Record<string, string>;
-  /** Override the socket factory for testing. Defaults to `node:net.connect`. */
   connect?: ((port: number, host: string, callback?: () => void) => Socket) | undefined;
-  /** Rate limiter for WHOIS requests. Defaults to unlimited. */
-  rateLimiter?: RateLimiter | undefined;
+  defaultRateLimiter?: RateLimiter | undefined;
+  perTldRateLimiters?: Record<string, RateLimiter> | undefined;
 }
 
 function isAvailable(raw: string): boolean {
@@ -168,17 +168,26 @@ export class NodeWhoisProvider implements WhoisProvider {
   readonly #timeoutMs: number;
   readonly #serverOverrides: Record<string, string>;
   readonly #connectFn: (port: number, host: string, callback?: () => void) => Socket;
-  readonly #rateLimiter: RateLimiter;
+  readonly #defaultRateLimiter: RateLimiter;
+  readonly #perTldRateLimiters: Record<string, RateLimiter>;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#serverOverrides = config.serverOverrides ?? {};
     this.#connectFn = config.connect ?? netConnect;
-    this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
+    this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
+    this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
+  }
+
+  #rateLimiterFor(tld: string): RateLimiter {
+    const cleanTld = tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`;
+    return this.#perTldRateLimiters[cleanTld] ?? this.#defaultRateLimiter;
   }
 
   async checkAvailability(domain: string): Promise<WhoisResult> {
-    return this.#rateLimiter.throttle(() => this.#doCheckAvailability(domain));
+    const tld = extractTld(domain);
+    const limiter = this.#rateLimiterFor(tld);
+    return limiter.throttle(() => this.#doCheckAvailability(domain));
   }
 
   async #doCheckAvailability(domain: string): Promise<WhoisResult> {
@@ -256,4 +265,29 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
       throw err;
     }
   }
+}
+
+export function buildPerTldWhoisRateLimiters(
+  overridesJson: string | undefined,
+  defaultConfig: RateLimiterConfig,
+): Record<string, RateLimiter> {
+  const limiters: Record<string, RateLimiter> = {};
+
+  if (!overridesJson) return limiters;
+
+  try {
+    const parsed = JSON.parse(overridesJson) as Record<string, Partial<RateLimiterConfig>>;
+    for (const [tld, cfg] of Object.entries(parsed)) {
+      const cleanTld = tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`;
+      limiters[cleanTld] = new RateLimiter({
+        maxTokens: cfg.maxTokens ?? defaultConfig.maxTokens,
+        tokensPerInterval: cfg.tokensPerInterval ?? defaultConfig.tokensPerInterval,
+        intervalMs: cfg.intervalMs ?? defaultConfig.intervalMs,
+      });
+    }
+  } catch {
+    // Invalid JSON — silently fall back to defaults
+  }
+
+  return limiters;
 }
