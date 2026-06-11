@@ -20,11 +20,29 @@ export function computeDropVerdict(
   const clock = computeRenewalClock(entry);
   const score = entry.currentScore ?? 0;
 
+  const breakEvenRenewals =
+    entry.acquisitionCost > 0 ? entry.acquisitionCost / (entry.renewalCost || 1) : 0;
+  const daysSinceAcquisition =
+    clock.daysUntilRenewal < 365
+      ? 365 - clock.daysUntilRenewal
+      : entry.acquiredAt
+        ? Math.floor((Date.now() - new Date(entry.acquiredAt).getTime()) / 86400000)
+        : 0;
+  const renewalsPaid = Math.max(1, Math.ceil(daysSinceAcquisition / 365));
+  const sunkCostRecouped = renewalsPaid >= breakEvenRenewals;
+
   if (score < config.scoreThreshold && clock.daysUntilRenewal <= config.renewalHorizonDays) {
+    if (!sunkCostRecouped && entry.acquisitionCost > 0) {
+      return {
+        domain: entry.domain,
+        verdict: Verdict.Reprice,
+        reason: `Score ${score.toFixed(1)} below threshold but acquisition cost (€${entry.acquisitionCost}) not yet recouped — consider holding until break-even`,
+      };
+    }
     return {
       domain: entry.domain,
       verdict: Verdict.Drop,
-      reason: `Score ${score.toFixed(1)} < threshold ${config.scoreThreshold} and renewal in ${clock.daysUntilRenewal} days`,
+      reason: `Score ${score.toFixed(1)} < threshold ${config.scoreThreshold} and renewal in ${clock.daysUntilRenewal} days (acquisition cost recouped: ${sunkCostRecouped})`,
     };
   }
 

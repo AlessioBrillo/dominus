@@ -15,6 +15,7 @@ import * as m0012 from './migrations/0012_create_weight_snapshots.js';
 import * as m0013 from './migrations/0013_create_provider_cache.js';
 import * as m0014 from './migrations/0014_create_scheduler_jobs.js';
 import * as m0015 from './migrations/0015_fix_scoring_runs_trademark_constraints.js';
+import * as m0016 from './migrations/0016_add_backtest_costs.js';
 
 interface Migration {
   name: string;
@@ -37,6 +38,7 @@ const MIGRATIONS: Migration[] = [
   m0013,
   m0014,
   m0015,
+  m0016,
 ];
 
 export function runMigrations(db: Database.Database): void {

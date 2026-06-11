@@ -1,4 +1,4 @@
-export { PipelineOrchestrator } from './orchestrator.js';
+export { PipelineOrchestrator, PipelineTimeoutError } from './orchestrator.js';
 export type { PipelineResult } from './orchestrator.js';
 export type { Stage, StageResult } from './stage.js';
 export { CandidateGenerationStage } from './stages/candidate-generation-stage.js';

@@ -162,9 +162,47 @@ const configSchema = z.object({
   /**
    * Optional JSON string mapping TLDs to per-registry WHOIS rate limiter configs.
    * Each entry overrides the global WHOIS_RATE_LIMIT_TOKENS/INTERVAL for that TLD.
-   * Example: {"de":{"tokensPerInterval":1,"intervalMs":20000},"com":{"maxTokens":5,"tokensPerInterval":5,"intervalMs":1000}}
+   * Example:
+   *   {"de":{"tokensPerInterval":1,"intervalMs":20000},"com":{"maxTokens":5,"tokensPerInterval":5,"intervalMs":1000}}
+   *
+   * Validated at startup — invalid JSON or structure causes a ConfigError.
    */
-  WHOIS_RATE_LIMIT_OVERRIDES: z.string().optional(),
+  WHOIS_RATE_LIMIT_OVERRIDES: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined) return true;
+        try {
+          const parsed = JSON.parse(val) as unknown;
+          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
+          for (const [tld, cfg] of Object.entries(parsed)) {
+            if (typeof tld !== 'string' || !tld.startsWith('.')) return false;
+            if (typeof cfg !== 'object' || cfg === null) return false;
+            const c = cfg as Record<string, unknown>;
+            if (
+              typeof c.maxTokens !== 'undefined' &&
+              (typeof c.maxTokens !== 'number' || c.maxTokens < 1)
+            )
+              return false;
+            if (
+              typeof c.tokensPerInterval !== 'undefined' &&
+              (typeof c.tokensPerInterval !== 'number' || c.tokensPerInterval < 1)
+            )
+              return false;
+            if (
+              typeof c.intervalMs !== 'undefined' &&
+              (typeof c.intervalMs !== 'number' || c.intervalMs < 100)
+            )
+              return false;
+          }
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Must be a valid JSON object mapping TLDs (e.g. ".com") to rate limiter configs' },
+    ),
   /**
    * Absolute cap on suggestedBuyMax in EUR. Prevents the scoring engine
    * from recommending purchases beyond the operator's stated ~500€ budget,
@@ -305,6 +343,14 @@ const configSchema = z.object({
   /** Delay in ms between RDAP requests during watchlist polling (rate limiting). */
   WATCHLIST_RDAP_DELAY_MS: z.coerce.number().int().min(50).max(5000).default(200),
 
+  /**
+   * Maximum wall-clock time for a single pipeline run in milliseconds.
+   * When exceeded, the orchestrator aborts all in-flight work and the
+   * run is recorded with an error. Set to 0 to disable.
+   * Default: 3_600_000 (1 hour) — enough for ~5000 domains at 10 RDAP/s.
+   */
+  PIPELINE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
+
   /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
    *  speed up batch processing but may trigger rate limits. Default: 5. */
   RDAP_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
@@ -324,10 +370,12 @@ const configSchema = z.object({
   // ── API hardening config ──────────────────────────────────────────
 
   /**
-   * Allowed CORS origin for the REST API.
-   * Set to the URL of your frontend (e.g. http://localhost:5173).
+   * Comma-separated list of allowed CORS origins for the REST API.
+   * Set to the URL(s) of your frontend (e.g. http://localhost:5173).
    * Default 'http://localhost:5173' matches the Vite dev server.
-   * Set to '*' to allow any origin (use only behind a reverse proxy).
+   * In production with same-origin SPA serving, add your public URL
+   * or set to '*' only behind a trusted reverse proxy.
+   * Multiple origins: http://localhost:5173,https://dominus.example.com
    */
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 

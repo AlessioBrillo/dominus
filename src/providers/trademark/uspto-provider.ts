@@ -93,6 +93,18 @@ export class UsptoCasesProvider implements TrademarkProvider {
       );
     }
 
+    const contentType = response.headers?.get?.('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      const text = await response.text().catch(() => '');
+      const snippet = text.length > 200 ? text.slice(0, 200) : text;
+      throw new ProviderError(
+        `USPTO returned non-JSON response for term "${term}" (content-type: ${contentType}). ` +
+          `This may indicate AWS WAF blocking. Response: ${snippet}`,
+        'UsptoCasesProvider',
+        'USPTO_WAF_BLOCK',
+      );
+    }
+
     let data: unknown;
     try {
       data = await response.json();

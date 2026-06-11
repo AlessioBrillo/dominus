@@ -16,6 +16,7 @@ import type { SchedulerService } from '../scheduler/scheduler-service.js';
 import type { ScoringWeights } from '../scoring/weights.js';
 import type { PurchaseService } from '../services/purchase-service.js';
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
+import type { PortfolioReportService } from '../portfolio/portfolio-report-service.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
@@ -30,6 +31,7 @@ import { registerSchedulerCommand } from './commands/scheduler-command.js';
 import { registerWatchlistCommand } from './commands/watchlist-command.js';
 import { registerBuyCommand } from './commands/buy-command.js';
 import { registerRegistrarsCommand } from './commands/registrars-command.js';
+import { registerReportCommand } from './commands/report-command.js';
 
 export interface CreateCliOptions {
   db: Database.Database;
@@ -49,6 +51,7 @@ export interface CreateCliOptions {
   watchlistService?: WatchlistService;
   currentWeights?: ScoringWeights;
   purchaseService?: PurchaseService;
+  reportService?: PortfolioReportService;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -106,6 +109,10 @@ export function createCli(options: CreateCliOptions): Command {
   if (purchaseService) {
     registerBuyCommand(program, { purchaseService });
     registerRegistrarsCommand(program, { activeRegistrar: purchaseService.registrarName });
+  }
+
+  if (options.reportService) {
+    registerReportCommand(program, { reportService: options.reportService });
   }
 
   return program;

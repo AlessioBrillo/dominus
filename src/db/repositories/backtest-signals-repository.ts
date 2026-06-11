@@ -27,6 +27,8 @@ export interface BacktestSignal {
   absoluteErrorEur: number;
   signedErrorEur: number;
   confidenceBucket: ConfidenceBucket;
+  acquisitionCostEur: number;
+  totalRenewalCostPaidEur: number;
   recordedAt?: string;
 }
 
@@ -44,6 +46,8 @@ interface BacktestRow {
   signed_error_eur: number;
   confidence_bucket: string;
   recorded_at: string;
+  acquisition_cost_eur: number;
+  total_renewal_cost_paid_eur: number;
 }
 
 function rowToSignal(row: BacktestRow): BacktestSignal {
@@ -63,6 +67,8 @@ function rowToSignal(row: BacktestRow): BacktestSignal {
     absoluteErrorEur: row.absolute_error_eur,
     signedErrorEur: row.signed_error_eur,
     confidenceBucket: bucket,
+    acquisitionCostEur: row.acquisition_cost_eur,
+    totalRenewalCostPaidEur: row.total_renewal_cost_paid_eur,
     recordedAt: row.recorded_at,
   };
 }
@@ -76,6 +82,8 @@ export interface InsertBacktestSignalInput {
   predictedListPrice: number;
   predictedConfidence: number;
   actualSalePriceEur: number;
+  acquisitionCostEur?: number;
+  totalRenewalCostPaidEur?: number;
 }
 
 /**
@@ -108,8 +116,8 @@ export class BacktestSignalsRepository {
            (domain, outcome_id, scoring_run_id, predicted_expected_value,
             predicted_buy_max, predicted_list_price, predicted_confidence,
             actual_sale_price_eur, absolute_error_eur, signed_error_eur,
-            confidence_bucket)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            confidence_bucket, acquisition_cost_eur, total_renewal_cost_paid_eur)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(outcome_id, scoring_run_id) DO UPDATE SET
            domain                    = excluded.domain,
            predicted_expected_value  = excluded.predicted_expected_value,
@@ -120,6 +128,8 @@ export class BacktestSignalsRepository {
            absolute_error_eur        = excluded.absolute_error_eur,
            signed_error_eur          = excluded.signed_error_eur,
            confidence_bucket         = excluded.confidence_bucket,
+           acquisition_cost_eur      = excluded.acquisition_cost_eur,
+           total_renewal_cost_paid_eur = excluded.total_renewal_cost_paid_eur,
            recorded_at               = datetime('now')
          RETURNING id`,
       )
@@ -135,6 +145,8 @@ export class BacktestSignalsRepository {
         absErr,
         signedErr,
         bucket,
+        input.acquisitionCostEur ?? 0,
+        input.totalRenewalCostPaidEur ?? 0,
       ) as { id: number };
 
     const stored = this.db

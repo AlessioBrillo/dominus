@@ -178,6 +178,9 @@ describe('Backtest — end-to-end', () => {
     expect(summary.scanned).toBe(1);
     expect(summary.inserted).toBe(1);
     expect(summary.skipped).toBe(0);
+    expect(summary.scanned).toBe(1);
+    expect(summary.inserted).toBe(1);
+    expect(summary.skipped).toBe(0);
 
     // Act — report
     const report = engine.report();

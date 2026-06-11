@@ -113,13 +113,34 @@ export class EuipoProvider implements TrademarkProvider {
     if (response.status === 401 || response.status === 403) {
       this.#token = null;
       this.#tokenExpiresAt = 0;
-      throw new ProviderError(
-        `EUIPO search unauthorised (HTTP ${response.status}) for term "${term}". ` +
-          'Verify EUIPO_CLIENT_ID (OAuth2 client_id is reused as X-IBM-Client-Id) ' +
-          'and that the subscription to Trademark Search 1.1.0 is active.',
-        'EuipoProvider',
-        'EUIPO_UNAUTHORIZED',
-      );
+      // Retry once with a fresh token — E!
+      const freshToken = await this.#getToken();
+      try {
+        response = await fetch(url.toString(), {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${freshToken}`,
+            'X-IBM-Client-Id': this.#clientId ?? '',
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (err: unknown) {
+        throw new ProviderError(
+          `EUIPO request failed for term "${term}": ${String(err)}`,
+          'EuipoProvider',
+          'EUIPO_REQUEST_FAILED',
+        );
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new ProviderError(
+          `EUIPO search unauthorised (HTTP ${response.status}) for term "${term}". ` +
+            'Verify EUIPO_CLIENT_ID (OAuth2 client_id is reused as X-IBM-Client-Id) ' +
+            'and that the subscription to Trademark Search 1.1.0 is active.',
+          'EuipoProvider',
+          'EUIPO_UNAUTHORIZED',
+        );
+      }
     }
 
     if (!response.ok) {

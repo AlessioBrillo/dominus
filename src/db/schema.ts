@@ -149,6 +149,8 @@ CREATE TABLE IF NOT EXISTS backtest_signals (
   absolute_error_eur REAL NOT NULL,
   signed_error_eur REAL NOT NULL,
   confidence_bucket TEXT NOT NULL,
+  acquisition_cost_eur REAL NOT NULL DEFAULT 0,
+  total_renewal_cost_paid_eur REAL NOT NULL DEFAULT 0,
   recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
 `;

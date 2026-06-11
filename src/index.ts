@@ -9,6 +9,7 @@ import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
 import { EnvApiKeyProvider } from './providers/auth/env-api-key-provider.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
+import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import {
   createCandidatesRouter,
@@ -23,6 +24,7 @@ import {
   createSchedulerRouter,
   createWatchlistRouter,
   createPurchaseRouter,
+  createReportRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -33,13 +35,36 @@ const deps = createDependencies(config);
 
 const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
 if (!authProvider.isActive) {
-  logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
+  if (config.HOST === '0.0.0.0' || config.HOST === '::') {
+    logger.error(
+      'CRITICAL: API authentication is DISABLED but server is bound to 0.0.0.0 (all interfaces). ' +
+        'Set API_KEYS env var to enable authentication, or bind to 127.0.0.1 for local-only access. ' +
+        'Override with DISABLE_AUTH_WARNING=true only if behind a trusted reverse proxy.',
+    );
+  } else {
+    logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
+  }
 }
 const authMiddleware = createAuthMiddleware(authProvider);
 
 const app = express();
 
-app.use(cors({ origin: config.CORS_ORIGIN }));
+const corsOrigins = config.CORS_ORIGIN.split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || corsOrigins.includes('*') || corsOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    credentials: true,
+  }),
+);
 
 if (config.RATE_LIMIT_MAX > 0) {
   app.use(
@@ -55,12 +80,7 @@ if (config.RATE_LIMIT_MAX > 0) {
   );
 }
 
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '0');
-  next();
-});
+app.use(securityHeaders);
 
 if (config.REQUEST_TIMEOUT_MS > 0) {
   app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
@@ -95,6 +115,7 @@ if (deps.scheduler) {
 protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
 protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
+protectedRouter.use('/report', createReportRouter(deps.reportService));
 app.use('/api', protectedRouter);
 
 // ── SPA catch-all with base path isolation ─────────────────────────

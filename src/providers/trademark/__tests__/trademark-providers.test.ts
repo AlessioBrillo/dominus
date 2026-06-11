@@ -6,6 +6,22 @@ import { ProviderError } from '../../../types/errors.js';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+function mockOkResponse(body: unknown): {
+  ok: boolean;
+  status: number;
+  headers: { get: () => string };
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+} {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: (): string => 'application/json' },
+    json: (): Promise<unknown> => Promise.resolve(body),
+    text: (): Promise<string> => Promise.resolve(''),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // UsptoCasesProvider
 // ---------------------------------------------------------------------------
@@ -20,46 +36,39 @@ describe('UsptoCasesProvider', () => {
   });
 
   it('returns an empty array when no hits match', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ hits: { total: { value: 0 }, hits: [] } }),
-    });
+    mockFetch.mockResolvedValue(mockOkResponse({ hits: { total: { value: 0 }, hits: [] } }));
     const results = await provider.search('xqzbrk');
     expect(results).toEqual([]);
   });
 
   it('parses active trademark matches from Elasticsearch response', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          hits: {
-            total: { value: 2 },
-            hits: [
-              {
-                _source: {
-                  WM: 'NIKE',
-                  ST: '6-REGISTERED',
-                  ON: 'NIKE, INC.',
-                  SN: '72072310',
-                  RN: '0978952',
-                },
+    mockFetch.mockResolvedValue(
+      mockOkResponse({
+        hits: {
+          total: { value: 2 },
+          hits: [
+            {
+              _source: {
+                WM: 'NIKE',
+                ST: '6-REGISTERED',
+                ON: 'NIKE, INC.',
+                SN: '72072310',
+                RN: '0978952',
               },
-              {
-                _source: {
-                  WM: 'NIKE AIR',
-                  ST: '6-REGISTERED',
-                  ON: 'NIKE, INC.',
-                  SN: '75000001',
-                  RN: '2000001',
-                },
+            },
+            {
+              _source: {
+                WM: 'NIKE AIR',
+                ST: '6-REGISTERED',
+                ON: 'NIKE, INC.',
+                SN: '75000001',
+                RN: '2000001',
               },
-            ],
-          },
-        }),
-    });
+            },
+          ],
+        },
+      }),
+    );
 
     const results = await provider.search('nike');
     expect(results).toHaveLength(2);
@@ -73,20 +82,17 @@ describe('UsptoCasesProvider', () => {
   });
 
   it('filters out abandoned/cancelled trademarks (7- and 8- status codes)', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () =>
-        Promise.resolve({
-          hits: {
-            hits: [
-              { _source: { WM: 'OLDMARK', ST: '7-ABANDONED', ON: 'Acme', SN: '12345' } },
-              { _source: { WM: 'EXPMARK', ST: '8-CANCELLED', ON: 'Acme', SN: '12346' } },
-              { _source: { WM: 'LIVEMARK', ST: '4-PUBLISHED', ON: 'Acme', SN: '12347' } },
-            ],
-          },
-        }),
-    });
+    mockFetch.mockResolvedValue(
+      mockOkResponse({
+        hits: {
+          hits: [
+            { _source: { WM: 'OLDMARK', ST: '7-ABANDONED', ON: 'Acme', SN: '12345' } },
+            { _source: { WM: 'EXPMARK', ST: '8-CANCELLED', ON: 'Acme', SN: '12346' } },
+            { _source: { WM: 'LIVEMARK', ST: '4-PUBLISHED', ON: 'Acme', SN: '12347' } },
+          ],
+        },
+      }),
+    );
 
     const results = await provider.search('mark');
     expect(results).toHaveLength(1);
@@ -94,11 +100,7 @@ describe('UsptoCasesProvider', () => {
   });
 
   it('returns empty array when response is unexpected shape', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: () => Promise.resolve({ unexpected: 'shape' }),
-    });
+    mockFetch.mockResolvedValue(mockOkResponse({ unexpected: 'shape' }));
     const results = await provider.search('test');
     expect(results).toEqual([]);
   });
@@ -109,15 +111,19 @@ describe('UsptoCasesProvider', () => {
   });
 
   it('throws ProviderError on non-OK HTTP status', async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 403 });
+    mockFetch.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('') });
     await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
   });
 
   it('throws ProviderError on malformed JSON response', async () => {
-    mockFetch.mockResolvedValue({
+    mockFetch.mockResolvedValue(mockOkResponse({}));
+    // Override json to reject after ok response is set up
+    mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
+      headers: { get: () => 'application/json' },
       json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      text: () => Promise.resolve(''),
     });
     await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
   });
@@ -363,16 +369,24 @@ describe('EuipoProvider', () => {
         status: 200,
         json: () => Promise.resolve(tokenResponse),
       })
+      // Second retry search also fails with 401 — ultimate rejection
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      // Second search uses the still-cached token (not cleared after ultimate 401)
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(pagedResponse([])),
+        json: () =>
+          Promise.resolve(
+            pagedResponse([{ trademarkName: 'SAMPLE', status: 'REGISTERED', applicantName: 'X' }]),
+          ),
       });
 
     const provider = new EuipoProvider(config);
     await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
 
-    // Second search should re-fetch the token (cache was cleared)
+    // Token was cleared on the first 401 but re-fetched during the retry;
+    // the ultimate 401 does not re-clear it, so the second search reuses it
+    // and does not hit the auth token endpoint again.
     await provider.search('test2');
     const tokenCalls = mockFetch.mock.calls.filter((call: unknown[]) => call[0] === config.authUrl);
     expect(tokenCalls).toHaveLength(2);
@@ -385,6 +399,13 @@ describe('EuipoProvider', () => {
         status: 200,
         json: () => Promise.resolve(tokenResponse),
       })
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(tokenResponse),
+      })
+      // Second retry search also fails with 401
       .mockResolvedValueOnce({ ok: false, status: 401 });
 
     const provider = new EuipoProvider(config);

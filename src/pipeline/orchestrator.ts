@@ -15,6 +15,18 @@ export interface PipelineResult {
   totalDurationMs: number;
 }
 
+export class PipelineTimeoutError extends Error {
+  readonly timeoutMs: number;
+  readonly elapsedMs: number;
+
+  constructor(timeoutMs: number, elapsedMs: number) {
+    super(`Pipeline aborted after ${elapsedMs}ms (timeout: ${timeoutMs}ms)`);
+    this.name = 'PipelineTimeoutError';
+    this.timeoutMs = timeoutMs;
+    this.elapsedMs = elapsedMs;
+  }
+}
+
 export class PipelineOrchestrator {
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -22,42 +34,68 @@ export class PipelineOrchestrator {
     private readonly rdapStage: RdapConfirmationStage,
     private readonly scoringStage: ScoringStage,
     private readonly trademarkStage: TrademarkGateStage<ScoredCandidate>,
+    private readonly timeoutMs: number = 3_600_000,
   ) {}
 
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
     const start = Date.now();
     const stageSummary: PipelineResult['stageSummary'] = {};
+    const aborted = (): boolean => this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs;
 
-    const gen = await this.generationStage.process([input]);
+    const gen = await this.#withTimeout(
+      'CandidateGeneration',
+      () => this.generationStage.process([input]),
+      start,
+    );
     stageSummary[gen.stageName] = {
       passed: gen.passed.length,
       filtered: gen.filtered.length,
       durationMs: gen.durationMs,
     };
     const runId = gen.passed[0]?.pipelineRunId ?? 'unknown';
+    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const dns = await this.dnsStage.process(gen.passed);
+    const dns = await this.#withTimeout(
+      'DnsPreFilter',
+      () => this.dnsStage.process(gen.passed),
+      start,
+    );
     stageSummary[dns.stageName] = {
       passed: dns.passed.length,
       filtered: dns.filtered.length,
       durationMs: dns.durationMs,
     };
+    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const rdap = await this.rdapStage.process(dns.passed);
+    const rdap = await this.#withTimeout(
+      'RdapConfirmation',
+      () => this.rdapStage.process(dns.passed),
+      start,
+    );
     stageSummary[rdap.stageName] = {
       passed: rdap.passed.length,
       filtered: rdap.filtered.length,
       durationMs: rdap.durationMs,
     };
+    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const scoring = await this.scoringStage.process(rdap.passed);
+    const scoring = await this.#withTimeout(
+      'Scoring',
+      () => this.scoringStage.process(rdap.passed),
+      start,
+    );
     stageSummary[scoring.stageName] = {
       passed: scoring.passed.length,
       filtered: scoring.filtered.length,
       durationMs: scoring.durationMs,
     };
+    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const trademark = await this.trademarkStage.process(scoring.passed);
+    const trademark = await this.#withTimeout(
+      'TrademarkGate',
+      () => this.trademarkStage.process(scoring.passed),
+      start,
+    );
     stageSummary[trademark.stageName] = {
       passed: trademark.passed.length,
       filtered: trademark.filtered.length,
@@ -87,5 +125,21 @@ export class PipelineOrchestrator {
       stageSummary,
       totalDurationMs: Date.now() - start,
     };
+  }
+
+  async #withTimeout<T>(_label: string, fn: () => Promise<T>, startMs: number): Promise<T> {
+    if (this.timeoutMs <= 0) return fn();
+
+    const remaining = this.timeoutMs - (Date.now() - startMs);
+    if (remaining <= 0) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - startMs);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining).unref();
+
+    try {
+      return await fn();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

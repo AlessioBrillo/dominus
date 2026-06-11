@@ -5,7 +5,12 @@ import type {
   BacktestSignal,
 } from '../../db/repositories/backtest-signals-repository.js';
 import type { Outcome } from '../../types/outcome.js';
-import type { BacktestReport, CalibrationBucketStat, SnapshotSummary } from './types.js';
+import type {
+  BacktestReport,
+  CalibrationBucketStat,
+  SnapshotSummary,
+  DomainCostInfo,
+} from './types.js';
 import { CONFIDENCE_BUCKETS } from '../../db/repositories/backtest-signals-repository.js';
 
 interface ScoringSnapshotRow {
@@ -194,6 +199,8 @@ export class BacktestEngine {
       return false;
     }
 
+    const costs = this.#computeDomainCosts(outcome.domain, outcome.occurredAt);
+
     this.backtestRepo.upsert({
       domain: outcome.domain,
       outcomeId: outcome.id,
@@ -203,8 +210,40 @@ export class BacktestEngine {
       predictedListPrice: snapshot.suggested_list_price,
       predictedConfidence: snapshot.confidence,
       actualSalePriceEur: outcome.salePriceEur,
+      acquisitionCostEur: costs.acquisitionCostEur,
+      totalRenewalCostPaidEur: costs.totalRenewalCostPaidEur,
     });
     return true;
+  }
+
+  #computeDomainCosts(domain: string, occurredAt: string): DomainCostInfo {
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT acquisition_cost, renewal_cost, acquired_at
+             FROM portfolio_entries WHERE domain = ?`,
+        )
+        .get(domain) as
+        | { acquisition_cost: number; renewal_cost: number; acquired_at: string }
+        | undefined;
+
+      if (!row) {
+        return { acquisitionCostEur: 0, totalRenewalCostPaidEur: 0 };
+      }
+
+      const acquiredAt = new Date(row.acquired_at).getTime();
+      const soldAt = new Date(occurredAt).getTime();
+      const daysHeld = Math.max(1, Math.floor((soldAt - acquiredAt) / 86_400_000));
+      const yearsHeld = Math.max(1, Math.ceil(daysHeld / 365));
+      const totalRenewalsPaid = Math.max(0, yearsHeld - 1);
+
+      return {
+        acquisitionCostEur: row.acquisition_cost,
+        totalRenewalCostPaidEur: totalRenewalsPaid * row.renewal_cost,
+      };
+    } catch {
+      return { acquisitionCostEur: 0, totalRenewalCostPaidEur: 0 };
+    }
   }
 
   /**

@@ -52,7 +52,11 @@ import {
   ScoringStage,
   TrademarkGateStage,
 } from '../pipeline/index.js';
-import { PortfolioManager, RenewalAlertEngine } from '../portfolio/index.js';
+import {
+  PortfolioManager,
+  RenewalAlertEngine,
+  PortfolioReportService,
+} from '../portfolio/index.js';
 import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.js';
 import { buildNotifiers } from '../notifiers/index.js';
 import type { Notifier } from '../notifiers/notifier.js';
@@ -104,6 +108,7 @@ export interface DominusDependencies {
 
   autoTuner: AutoWeightTuner | undefined;
   purchaseService: PurchaseService;
+  reportService: PortfolioReportService;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -282,6 +287,7 @@ export function createDependencies(config: Config): DominusDependencies {
     ),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
+    config.PIPELINE_TIMEOUT_MS,
   );
 
   const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
@@ -303,6 +309,12 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const notifiers = buildNotifiers(config);
   const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
+  const reportService = new PortfolioReportService(
+    portfolioRepo,
+    outcomeRepo,
+    config.DROP_SCORE_THRESHOLD,
+    config.RENEWAL_WARNING_DAYS,
+  );
 
   const watchlistService = new WatchlistService(
     new WatchlistRepository(db),
@@ -427,5 +439,6 @@ export function createDependencies(config: Config): DominusDependencies {
     scheduler,
     autoTuner,
     purchaseService,
+    reportService,
   };
 }

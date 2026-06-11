@@ -24,6 +24,11 @@ export interface BacktestReport {
   warnings: string[];
 }
 
+export interface DomainCostInfo {
+  acquisitionCostEur: number;
+  totalRenewalCostPaidEur: number;
+}
+
 export interface SnapshotSummary {
   scanned: number;
   inserted: number;

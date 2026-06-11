@@ -6,6 +6,12 @@ const logger = getLogger();
 
 export function createAuthMiddleware(provider: AuthProvider) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const isActive = (provider as { isActive?: boolean }).isActive ?? true;
+    if (!isActive) {
+      next();
+      return;
+    }
+
     const header = req.headers['authorization'];
     if (!header || typeof header !== 'string') {
       res.status(401).json({

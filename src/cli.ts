@@ -21,5 +21,6 @@ const cli = createCli({
   alertEngine: deps.alertEngine,
   alertRepo: deps.alertRepo,
   scheduler: deps.scheduler,
+  reportService: deps.reportService,
 });
 cli.parse(process.argv);
