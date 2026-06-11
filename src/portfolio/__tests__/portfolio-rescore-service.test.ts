@@ -138,8 +138,11 @@ describe('PortfolioRescoreService', () => {
       expect(summary.results).toHaveLength(2);
       expect(summary.results[0]?.error).toBeUndefined();
       expect(summary.results[1]?.error).toContain('keyword provider down');
-      expect(summary.results[1]?.calibratedScore).toBe(0);
-      expect(summary.results[1]?.trademarkVerdict).toBe(GateVerdict.Unverified);
+      // Engine degrades gracefully when a provider fails: intrinsic-only score.
+      // The trademark gate still runs (engine no longer throws) and finds
+      // no matches, so the verdict is Clear.
+      expect(summary.results[1]?.calibratedScore).toBeGreaterThan(0);
+      expect(summary.results[1]?.trademarkVerdict).toBe(GateVerdict.Clear);
     });
   });
 

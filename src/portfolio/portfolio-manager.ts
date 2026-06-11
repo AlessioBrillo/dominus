@@ -4,7 +4,8 @@ import type {
   RenewalClockData,
 } from '../types/portfolio.js';
 import type { PortfolioRepository } from '../db/repositories/portfolio-repository.js';
-import { computeDropVerdict } from './drop-verdict-engine.js';
+import { computeDropVerdict, DEFAULT_DROP_VERDICT_CONFIG } from './drop-verdict-engine.js';
+import type { DropVerdictConfig } from './drop-verdict-engine.js';
 import { computeRenewalClock } from './renewal-clock.js';
 import type { PortfolioRescoreService, RescoreSummary } from './portfolio-rescore-service.js';
 
@@ -15,12 +16,21 @@ export interface PortfolioSummary {
 
 export class PortfolioManager {
   #rescoreService: PortfolioRescoreService | null = null;
+  readonly #dropConfig: DropVerdictConfig;
 
   constructor(
     private readonly repo: PortfolioRepository,
-    private readonly scoreThreshold: number = 25,
-    private readonly renewalHorizonDays: number = 60,
-  ) {}
+    scoreThreshold: number = 25,
+    renewalHorizonDays: number = 60,
+    dropConfig: Partial<DropVerdictConfig> = {},
+  ) {
+    this.#dropConfig = {
+      ...DEFAULT_DROP_VERDICT_CONFIG,
+      scoreThreshold,
+      renewalHorizonDays,
+      ...dropConfig,
+    };
+  }
 
   /**
    * Inject the rescore service. The split is intentional: the manager's
@@ -50,12 +60,13 @@ export class PortfolioManager {
 
   refreshVerdicts(): void {
     for (const entry of this.repo.findAll()) {
-      const result = computeDropVerdict(entry, {
-        scoreThreshold: this.scoreThreshold,
-        renewalHorizonDays: this.renewalHorizonDays,
-      });
+      const result = computeDropVerdict(entry, this.#dropConfig);
       if (result.verdict !== entry.verdict) {
-        this.repo.updateVerdict(entry.domain, result.verdict, result.reason);
+        const reasonWithNpv =
+          result.npv !== undefined
+            ? `${result.reason} (NPV: €${result.npv.toFixed(2)})`
+            : result.reason;
+        this.repo.updateVerdict(entry.domain, result.verdict, reasonWithNpv);
       }
     }
   }

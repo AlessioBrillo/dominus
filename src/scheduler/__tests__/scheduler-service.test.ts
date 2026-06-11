@@ -90,6 +90,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     FRONTEND_BASE_PATH: '',
     NAMEBIO_API_KEY: undefined,
     SCORING_INTRINSIC_QUALITY_INFLUENCE: 0.12,
+    DROP_METHOD: 'threshold',
+    DROP_NPV_DISCOUNT_RATE: 0.05,
+    DROP_NPV_HORIZON_YEARS: 5,
+    FILE_REGISTRAR_CONFIG: undefined,
     ...overrides,
   };
 }

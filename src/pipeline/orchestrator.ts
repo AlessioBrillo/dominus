@@ -16,6 +16,13 @@ export interface PipelineResult {
   allCandidates: DomainCandidate[];
   stageSummary: Record<string, { passed: number; filtered: number; durationMs: number }>;
   totalDurationMs: number;
+  stageErrors: StageError[];
+}
+
+export interface StageError {
+  stageName: string;
+  message: string;
+  candidateCount: number;
 }
 
 export class PipelineTimeoutError extends Error {
@@ -43,13 +50,39 @@ export class PipelineOrchestrator {
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
     const start = Date.now();
     const stageSummary: PipelineResult['stageSummary'] = {};
+    const stageErrors: StageError[] = [];
     const aborted = (): boolean => this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs;
 
-    const gen = await this.#withTimeout(
-      'CandidateGeneration',
-      () => this.generationStage.process([input]),
-      start,
-    );
+    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+
+    let gen: {
+      passed: DomainCandidate[];
+      filtered: DomainCandidate[];
+      stageName: string;
+      durationMs: number;
+    };
+    try {
+      gen = await this.#withTimeout(
+        'CandidateGeneration',
+        () => this.generationStage.process([input]),
+        start,
+      );
+    } catch (err) {
+      logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
+      return {
+        runId: 'unknown',
+        recommended: [],
+        scored: [],
+        allCandidates: [],
+        stageSummary: {
+          CandidateGeneration: { passed: 0, filtered: 0, durationMs: Date.now() - start },
+        },
+        totalDurationMs: Date.now() - start,
+        stageErrors: [
+          { stageName: 'CandidateGeneration', message: String(err), candidateCount: 0 },
+        ],
+      };
+    }
     stageSummary[gen.stageName] = {
       passed: gen.passed.length,
       filtered: gen.filtered.length,
@@ -58,52 +91,44 @@ export class PipelineOrchestrator {
     const runId = gen.passed[0]?.pipelineRunId ?? 'unknown';
     if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const dns = await this.#withTimeout(
+    const dns = await this.#runStageSafe(
       'DnsPreFilter',
       () => this.dnsStage.process(gen.passed),
       start,
+      stageSummary,
+      stageErrors,
     );
-    stageSummary[dns.stageName] = {
-      passed: dns.passed.length,
-      filtered: dns.filtered.length,
-      durationMs: dns.durationMs,
-    };
+    if (dns === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const rdap = await this.#withTimeout(
+    const rdap = await this.#runStageSafe(
       'RdapConfirmation',
       () => this.rdapStage.process(dns.passed),
       start,
+      stageSummary,
+      stageErrors,
     );
-    stageSummary[rdap.stageName] = {
-      passed: rdap.passed.length,
-      filtered: rdap.filtered.length,
-      durationMs: rdap.durationMs,
-    };
+    if (rdap === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const scoring = await this.#withTimeout(
+    const scoring = await this.#runStageSafe(
       'Scoring',
       () => this.scoringStage.process(rdap.passed),
       start,
+      stageSummary,
+      stageErrors,
     );
-    stageSummary[scoring.stageName] = {
-      passed: scoring.passed.length,
-      filtered: scoring.filtered.length,
-      durationMs: scoring.durationMs,
-    };
+    if (scoring === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
-    const trademark = await this.#withTimeout(
+    const trademark = await this.#runStageSafe(
       'TrademarkGate',
       () => this.trademarkStage.process(scoring.passed),
       start,
+      stageSummary,
+      stageErrors,
     );
-    stageSummary[trademark.stageName] = {
-      passed: trademark.passed.length,
-      filtered: trademark.filtered.length,
-      durationMs: trademark.durationMs,
-    };
+    if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
 
     const scored: ScoredCandidate[] = [
       ...scoring.filtered,
@@ -127,6 +152,51 @@ export class PipelineOrchestrator {
       allCandidates,
       stageSummary,
       totalDurationMs: Date.now() - start,
+      stageErrors,
+    };
+  }
+
+  async #runStageSafe<T>(
+    label: string,
+    fn: () => Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number }>,
+    startMs: number,
+    summary: PipelineResult['stageSummary'],
+    errors: StageError[],
+  ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
+    try {
+      const result = await this.#withTimeout(label, fn, startMs);
+      summary[result.stageName] = {
+        passed: result.passed.length,
+        filtered: result.filtered.length,
+        durationMs: result.durationMs,
+      };
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { err, label },
+        `Pipeline: ${label} stage fatally failed — recovering with empty result`,
+      );
+      errors.push({ stageName: label, message: msg, candidateCount: 0 });
+      summary[label] = { passed: 0, filtered: 0, durationMs: Date.now() - startMs };
+      return { passed: [], filtered: [], stageName: label, durationMs: Date.now() - startMs };
+    }
+  }
+
+  #abortWithError(
+    runId: string,
+    stageSummary: PipelineResult['stageSummary'],
+    stageErrors: StageError[],
+    start: number,
+  ): PipelineResult {
+    return {
+      runId,
+      recommended: [],
+      scored: [],
+      allCandidates: [],
+      stageSummary,
+      totalDurationMs: Date.now() - start,
+      stageErrors,
     };
   }
 

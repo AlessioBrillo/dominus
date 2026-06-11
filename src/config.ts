@@ -247,6 +247,12 @@ const configSchema = z.object({
   SCORING_BASE_MARKET_VALUE: z.coerce.number().min(1).default(500),
   /** Confidence base for zero-signal fallback (default: 0.2). */
   SCORING_CONFIDENCE_BASE: z.coerce.number().min(0).max(1).default(0.2),
+  /**
+   * @deprecated since ADR-0020 — no longer used in the weight-covered
+   * proportion formula. Kept in schema for backward compatibility only.
+   * Setting this value has no effect on scoring. Remove from env config
+   * to silence the deprecation warning.
+   */
   SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).optional(),
   /**
    * Influence of intrinsic quality score on confidence (default: 0.12).
@@ -516,11 +522,46 @@ const configSchema = z.object({
   /** Porkbun secret API key. */
   REGISTRAR_PORKBUN_SECRET_API_KEY: z.string().optional(),
 
+  // ── Drop verdict / NPV config ──────────────────────────────────────
+
+  /**
+   * Drop verdict method: 'threshold' (legacy, score-based) or 'npv'
+   * (net-present-value based). When 'npv', the drop verdict engine
+   * computes NPV = sum(EV * conf / (1+r)^t) - sum(renewal / (1+r)^t)
+   * over the horizon and drops domains with negative NPV.
+   * Default: 'threshold' (backward-compatible).
+   */
+  DROP_METHOD: z.enum(['threshold', 'npv']).default('threshold'),
+
+  /**
+   * Annual discount rate for NPV calculation (decimal, e.g. 0.05 = 5%).
+   * Used to discount future expected value and renewal costs. Higher
+   * values make the engine more conservative (lower NPV). Default: 0.05.
+   */
+  DROP_NPV_DISCOUNT_RATE: z.coerce.number().min(0).max(1).default(0.05),
+
+  /**
+   * Number of years to project forward in NPV calculation.
+   * Longer horizons increase the weight of renewal costs vs expected
+   * value. Default: 5.
+   */
+  DROP_NPV_HORIZON_YEARS: z.coerce.number().int().min(1).max(20).default(5),
+
   /** NameSilo API key (REGISTRAR_PROVIDER=namesilo). */
   REGISTRAR_NAMESILO_API_KEY: z.string().optional(),
 
   /** Dynadot API key (REGISTRAR_PROVIDER=dynadot). */
   REGISTRAR_DYNADOT_API_KEY: z.string().optional(),
+
+  /**
+   * Optional path to a file containing registrar API keys in `key=value` format.
+   * The file config is used as a fallback when the corresponding env var is not set.
+   * File keys follow the pattern: `registrar_{provider}_{field}` (lowercase).
+   * Example for Namecheap: `registrar_namecheap_api_key=sk-xxx`
+   * More secure than env vars (not visible in /proc/self/environ).
+   * File should have permissions 0600.
+   */
+  FILE_REGISTRAR_CONFIG: z.string().optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -543,6 +584,18 @@ export function loadConfig(): Config {
   // "false" explicitly, which is non-obvious for a new user enabling tuning.
   if (_config.AUTO_TUNE_ENABLED && process.env.AUTO_TUNE_DRY_RUN === undefined) {
     _config.AUTO_TUNE_DRY_RUN = false;
+  }
+
+  // Deprecation warning for SCORING_CONFIDENCE_PER_SIGNAL (ADR-0020)
+  if (
+    process.env.SCORING_CONFIDENCE_PER_SIGNAL !== undefined &&
+    process.env.SCORING_CONFIDENCE_PER_SIGNAL !== '' &&
+    _config.SCORING_CONFIDENCE_PER_SIGNAL !== undefined
+  ) {
+    process.stderr.write(
+      '[WARN] SCORING_CONFIDENCE_PER_SIGNAL is deprecated since ADR-0020 and has no effect. ' +
+        'Remove it from your environment configuration.\n',
+    );
   }
 
   return _config;

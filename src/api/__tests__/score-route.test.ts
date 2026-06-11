@@ -28,6 +28,7 @@ function makeScoreResult(overrides: Partial<ScoreResult> = {}): ScoreResult {
       expiry: { score: 0, weight: 0.1, details: { isCloseout: false } },
     },
     scoredAt: new Date().toISOString(),
+    signalStatus: [],
     ...overrides,
   };
 }

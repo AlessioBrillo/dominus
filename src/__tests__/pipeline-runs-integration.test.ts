@@ -47,6 +47,7 @@ function makeScoreResult(domain: string): ScoreResult {
     },
     recommended: true,
     scoredAt: new Date().toISOString(),
+    signalStatus: [],
   };
 }
 
@@ -104,6 +105,7 @@ function buildIntegration(db: Database.Database): IntegrationDeps {
       ScoringStage: { passed: 2, filtered: 0, durationMs: 5 },
       TrademarkGateStage: { passed: 1, filtered: 1, durationMs: 3 },
     },
+    stageErrors: [],
     totalDurationMs: 12,
   };
 

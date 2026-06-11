@@ -9,6 +9,7 @@ import type {
   DomainRiskItem,
 } from '../types/portfolio-report.js';
 import { computeRenewalClock } from './renewal-clock.js';
+import { computeNpv } from './npv-calculator.js';
 
 export class PortfolioReportService {
   constructor(
@@ -38,6 +39,8 @@ export class PortfolioReportService {
         totalRenewalCostPaid: 0,
         netProfit: 0,
         roiPct: 0,
+        aggregateNpv: 0,
+        aggregateProjectedAnnualReturn: 0,
         breakdownByVerdict: [],
         breakdownByTld: [],
         domainsAtRisk: [],
@@ -60,6 +63,25 @@ export class PortfolioReportService {
       (s, e) => s + (e.suggestedListPrice ?? 0),
       0,
     );
+
+    // Compute aggregate NPV across all scored domains
+    let aggregateNpv = 0;
+    let aggregateProjectedAnnualReturn = 0;
+    for (const e of scored) {
+      const normalisedScore = Math.min(1, Math.max(0, (e.currentScore ?? 0) / 100));
+      const npvResult = computeNpv(
+        {
+          expectedValue: e.suggestedListPrice ?? (e.currentScore ?? 0) * 5,
+          confidence: normalisedScore,
+          acquisitionCost: e.acquisitionCost,
+          renewalCost: e.renewalCost,
+        },
+        0.05,
+        5,
+      );
+      aggregateNpv += npvResult.npv;
+      aggregateProjectedAnnualReturn += npvResult.projectedAnnualReturn;
+    }
 
     const soldOutcomes = this.outcomeRepo.findByType('sold');
     const totalRealisedRevenue = soldOutcomes.reduce((s, o) => s + (o.salePriceEur ?? 0), 0);
@@ -148,6 +170,8 @@ export class PortfolioReportService {
       totalRenewalCostPaid: +totalRenewalCostPaid.toFixed(2),
       netProfit: +netProfit.toFixed(2),
       roiPct: +roiPct.toFixed(2),
+      aggregateNpv: +aggregateNpv.toFixed(2),
+      aggregateProjectedAnnualReturn: +aggregateProjectedAnnualReturn.toFixed(2),
       breakdownByVerdict,
       breakdownByTld,
       domainsAtRisk,
@@ -228,7 +252,25 @@ export class PortfolioReportService {
 
     for (const entry of entries) {
       const roi = await this.domainRoi(entry.domain);
-      if (roi) domainDetails.push(roi);
+      if (roi) {
+        // Compute NPV for holding domains
+        if (roi.status === 'holding' && entry.currentScore !== undefined) {
+          const normalisedScore = Math.min(1, Math.max(0, entry.currentScore / 100));
+          const npvResult = computeNpv(
+            {
+              expectedValue: entry.suggestedListPrice ?? entry.currentScore * 5,
+              confidence: normalisedScore,
+              acquisitionCost: entry.acquisitionCost,
+              renewalCost: entry.renewalCost,
+            },
+            0.05,
+            5,
+          );
+          roi.npv = npvResult.npv;
+          roi.projectedAnnualReturn = npvResult.projectedAnnualReturn;
+        }
+        domainDetails.push(roi);
+      }
     }
 
     const soldDomains = domainDetails.filter((d) => d.status === 'sold');
@@ -244,6 +286,8 @@ export class PortfolioReportService {
     const netProfit = totalRevenue - totalCost;
     const roiPct = totalCost > 0 ? +((netProfit / totalCost) * 100).toFixed(2) : 0;
 
+    const aggregateNpv = domainDetails.reduce((s, d) => s + (d.npv ?? 0), 0);
+
     return {
       generatedAt: new Date().toISOString(),
       totalDomains: entries.length,
@@ -256,6 +300,7 @@ export class PortfolioReportService {
       totalRevenue,
       netProfit,
       roiPct,
+      aggregateNpv: +aggregateNpv.toFixed(2),
       domainDetails: domainDetails.sort((a, b) => a.roiPct - b.roiPct),
     };
   }

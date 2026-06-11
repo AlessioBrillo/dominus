@@ -1,8 +1,10 @@
 export { PortfolioManager } from './portfolio-manager.js';
 export type { PortfolioSummary } from './portfolio-manager.js';
 export { computeRenewalClock, isRenewalImminent } from './renewal-clock.js';
-export { computeDropVerdict } from './drop-verdict-engine.js';
-export type { DropVerdictResult, DropVerdictConfig } from './drop-verdict-engine.js';
+export { computeDropVerdict, DEFAULT_DROP_VERDICT_CONFIG } from './drop-verdict-engine.js';
+export type { DropVerdictResult, DropVerdictConfig, DropMethod } from './drop-verdict-engine.js';
+export { computeNpv } from './npv-calculator.js';
+export type { NpvInput, NpvResult } from './npv-calculator.js';
 export { RenewalAlertEngine } from './renewal-alert-engine.js';
 export type { AlertEngineResult } from './renewal-alert-engine.js';
 export { PortfolioReportService } from './portfolio-report-service.js';

@@ -10,12 +10,22 @@ export async function computeMarketScore(
   config: MarketSignalConfig = DEFAULT_MARKET_CONFIG,
 ): Promise<SignalOutput & { medianSalePrice: number }> {
   const sld = input.sld;
-  const sales = await provider.getSales(sld);
+  let sales: { salePrice: number }[];
+  let providerError: string | undefined;
+
+  try {
+    sales = await provider.getSales(sld);
+  } catch (err) {
+    providerError = err instanceof Error ? err.message : String(err);
+    sales = [];
+  }
 
   if (sales.length === 0) {
     return {
       score: 0,
       weight,
+      dataAvailable: false,
+      providerError,
       details: { comparables: 0, medianSalePrice: 0 },
       medianSalePrice: 0,
     };
@@ -36,6 +46,8 @@ export async function computeMarketScore(
   return {
     score,
     weight,
+    dataAvailable: true,
+    providerError,
     details: { comparables: sales.length, medianSalePrice: median },
     medianSalePrice: median,
   };

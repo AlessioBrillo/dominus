@@ -32,6 +32,7 @@ export function computeIntrinsicScore(
   return {
     score,
     weight,
+    dataAvailable: true,
     details: {
       sld,
       length,

@@ -24,8 +24,11 @@ import { createCompsProvider, type CompsProvider } from '../providers/comps/inde
 import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
+import { type DnsProvider } from '../providers/dns/dns-provider.js';
 import { RateLimiter } from '../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../providers/rdap/index.js';
+import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
+import type { RdapResult } from '../types/domain-status.js';
 import {
   NodeWhoisProviderWithIanaFallback,
   buildPerTldWhoisRateLimiters,
@@ -72,6 +75,8 @@ import {
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { registrarRegistry } from '../providers/registrar/registrar-registry.js';
 import { PurchaseService, AutoApprovalPolicy } from '../services/purchase-service.js';
+import { withRetry } from '../providers/retryable-provider.js';
+import { loadFileConfig } from '../providers/file-config-loader.js';
 
 export interface DominusDependencies {
   db: Database.Database;
@@ -269,24 +274,53 @@ export function createDependencies(config: Config): DominusDependencies {
     perTldRateLimiters: whoisPerTldLimiters,
   });
 
+  // RDAP provider: raw for health-check/watchlist (needs real-time data),
+  // cached + retryable for pipeline (idempotent lookups benefit from caching)
+  const rawRdapProvider = new PublicRdapProvider(rdapRateLimiter);
+  const rdapWithRetry: RdapProvider = {
+    confirm: (domain: string) =>
+      withRetry(() => rawRdapProvider.confirm(domain), `rdap:${domain}`, {
+        maxAttempts: 2,
+        baseDelayMs: 200,
+        maxDelayMs: 1000,
+      }),
+  };
+  const rdapCache = new CachedProvider<RdapResult>(
+    (domain) => rdapWithRetry.confirm(domain),
+    providerCacheRepo,
+    'rdap',
+    config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+  );
+  const cachedRdapProvider: RdapProvider = {
+    confirm: (domain: string) => rdapCache.get(domain),
+  };
+
+  // DNS provider with retry for resilience
+  const dnsWithRetry: DnsProvider = {
+    checkAvailability: (domain: string) =>
+      withRetry(() => new NodeDnsProvider().checkAvailability(domain), `dns:${domain}`, {
+        maxAttempts: 2,
+        baseDelayMs: 100,
+        maxDelayMs: 500,
+      }),
+    checkBulk: async (domains: string[]) => {
+      const dns = new NodeDnsProvider();
+      return dns.checkBulk(domains);
+    },
+  };
+
   const healthCheck = new ProviderHealthCheck(
     usptoTmProvider,
     euipoTmProvider,
-    new PublicRdapProvider(rdapRateLimiter),
+    rawRdapProvider,
     whoisProvider,
     cachedKeywordProvider,
   );
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
-    new DnsPreFilterStage(new NodeDnsProvider(), config.DNS_BULK_CONCURRENCY, [
-      CandidateSource.CloseoutCsv,
-    ]),
-    new RdapConfirmationStage(
-      new PublicRdapProvider(rdapRateLimiter),
-      whoisProvider,
-      config.RDAP_BATCH_CONCURRENCY,
-    ),
+    new DnsPreFilterStage(dnsWithRetry, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
+    new RdapConfirmationStage(cachedRdapProvider, whoisProvider, config.RDAP_BATCH_CONCURRENCY),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
@@ -298,6 +332,11 @@ export function createDependencies(config: Config): DominusDependencies {
     portfolioRepo,
     config.DROP_SCORE_THRESHOLD,
     config.DROP_RENEWAL_HORIZON_DAYS,
+    {
+      method: config.DROP_METHOD,
+      npvDiscountRate: config.DROP_NPV_DISCOUNT_RATE,
+      npvHorizonYears: config.DROP_NPV_HORIZON_YEARS,
+    },
   );
   portfolioManager.setRescoreService(
     new PortfolioRescoreService(
@@ -320,8 +359,8 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const watchlistService = new WatchlistService(
     new WatchlistRepository(db),
-    new NodeDnsProvider(),
-    new PublicRdapProvider(rdapRateLimiter),
+    dnsWithRetry,
+    rawRdapProvider,
     notifiers,
     config,
   );
@@ -360,26 +399,46 @@ export function createDependencies(config: Config): DominusDependencies {
 
   // ── Registrar / Purchase Service ────────────────────────────────────
 
-  // Build registrar config map from prefixed env vars
+  // Build registrar config map from env vars with file-based fallback
   const registrarConfig: Record<string, string> = {};
-  const registrarEnvPrefix = `REGISTRAR_${config.REGISTRAR_PROVIDER.replace(/-/g, '_').toUpperCase()}_`;
+  const registrarProviderName = config.REGISTRAR_PROVIDER;
+  const registrarEnvPrefix = `REGISTRAR_${registrarProviderName.replace(/-/g, '_').toUpperCase()}_`;
+
+  // 1. Load from env vars (primary)
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith(registrarEnvPrefix) && value !== undefined) {
       const fieldKey = key.slice(registrarEnvPrefix.length).toLowerCase();
       registrarConfig[fieldKey] = value;
     }
   }
-  // Also pass legacy Cloudflare vars for backward compat
-  if (config.REGISTRAR_PROVIDER === 'cloudflare') {
+
+  // 2. Load from file-based config as fallback (more secure — not in /proc/self/environ)
+  const filePath = config.FILE_REGISTRAR_CONFIG;
+  if (filePath) {
+    try {
+      const fileConfig = loadFileConfig(filePath);
+      const filePrefix = `registrar_${registrarProviderName.toLowerCase()}_`;
+      for (const [key, value] of Object.entries(fileConfig)) {
+        if (key.startsWith(filePrefix)) {
+          const fieldKey = key.slice(filePrefix.length);
+          if (registrarConfig[fieldKey] === undefined) {
+            registrarConfig[fieldKey] = value;
+          }
+        }
+      }
+    } catch {
+      // File read error is non-fatal
+    }
+  }
+
+  // 3. Also pass legacy Cloudflare vars for backward compat
+  if (registrarProviderName === 'cloudflare') {
     registrarConfig['apiToken'] = config.CLOUDFLARE_API_TOKEN ?? registrarConfig['apitoken'] ?? '';
     registrarConfig['accountId'] =
       config.CLOUDFLARE_ACCOUNT_ID ?? registrarConfig['accountid'] ?? '';
   }
 
-  const registrarProvider = registrarRegistry.createActive(
-    config.REGISTRAR_PROVIDER,
-    registrarConfig,
-  );
+  const registrarProvider = registrarRegistry.createActive(registrarProviderName, registrarConfig);
 
   const autoApprovalMap: Record<string, AutoApprovalPolicy> = {
     never: AutoApprovalPolicy.Never,
