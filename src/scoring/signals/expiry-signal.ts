@@ -13,7 +13,12 @@ export function computeExpiryScore(
     input.waybackSnapshots !== undefined;
 
   if (!input.isCloseout && !hasExpiryData) {
-    return { score: 0, weight, details: { isCloseout: false, hasExpiryData: false } };
+    return {
+      score: 0,
+      weight,
+      dataAvailable: false,
+      details: { isCloseout: false, hasExpiryData: false },
+    };
   }
 
   const ageScore =
@@ -32,6 +37,7 @@ export function computeExpiryScore(
   return {
     score,
     weight,
+    dataAvailable: true,
     details: {
       isCloseout: input.isCloseout,
       hasExpiryData: true,

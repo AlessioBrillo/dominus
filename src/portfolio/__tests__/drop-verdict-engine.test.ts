@@ -19,7 +19,13 @@ function makeEntry(daysUntilRenewal: number, score?: number, listPrice?: number)
   };
 }
 
-const config = { scoreThreshold: 25, renewalHorizonDays: 60 };
+const config = {
+  scoreThreshold: 25,
+  renewalHorizonDays: 60,
+  method: 'threshold' as const,
+  npvDiscountRate: 0.05,
+  npvHorizonYears: 5,
+};
 
 describe('DropVerdictEngine', () => {
   it('returns Drop when score < threshold AND renewal within horizon', () => {

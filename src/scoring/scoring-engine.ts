@@ -1,6 +1,6 @@
 import type { KeywordProvider } from '../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../providers/comps/comps-provider.js';
-import type { ScoreResult, ScoringInput } from '../types/score.js';
+import type { ScoreResult, ScoringInput, SignalStatusItem } from '../types/score.js';
 import { computeIntrinsicScore } from './signals/intrinsic-signal.js';
 import { computeCommercialScore } from './signals/commercial-signal.js';
 import { computeMarketScore } from './signals/market-signal.js';
@@ -75,12 +75,25 @@ export class ScoringEngine {
 
     const hasCommercialData = commercial.details.monthlySearchVolume !== 0;
     const hasMarketData = market.details.comparables !== 0;
-    const expiryHasData =
-      (input.isCloseout ||
-        input.domainAge !== undefined ||
-        input.backlinks !== undefined ||
-        input.waybackSnapshots !== undefined) &&
-      (input.domainAge ?? 0) + (input.backlinks ?? 0) + (input.waybackSnapshots ?? 0) > 0;
+    const expiryHasData = expiry.dataAvailable === true;
+
+    const signalStatus: SignalStatusItem[] = [
+      { name: 'intrinsic', available: true },
+      {
+        name: 'commercial',
+        available: hasCommercialData,
+        ...(commercial.providerError ? { error: commercial.providerError } : {}),
+      },
+      {
+        name: 'market',
+        available: hasMarketData,
+        ...(market.providerError ? { error: market.providerError } : {}),
+      },
+      {
+        name: 'expiry',
+        available: expiryHasData,
+      },
+    ];
 
     const coveredWeight =
       intrinsic.weight +
@@ -136,6 +149,7 @@ export class ScoringEngine {
       breakdown: { intrinsic, commercial, market, expiry },
       recommended,
       scoredAt: new Date().toISOString(),
+      signalStatus,
     };
   }
 }

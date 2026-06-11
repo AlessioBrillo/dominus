@@ -69,6 +69,7 @@ function seedScoringSnapshot(
     },
     recommended: true,
     scoredAt,
+    signalStatus: [],
   };
 
   // Manually set scored_at via direct update (the repo does not accept a custom timestamp).

@@ -1,7 +1,26 @@
+export interface SignalStatusItem {
+  name: string;
+  available: boolean;
+  error?: string | undefined;
+}
+
 export interface SignalOutput {
   score: number;
   weight: number;
   details: Record<string, unknown>;
+  /**
+   * When true, the signal was computed from real provider data.
+   * When false, the signal fell back to default (zero) because
+   * the provider was unavailable, returned no data, or the
+   * input had no relevant data for this signal type.
+   */
+  dataAvailable?: boolean | undefined;
+  /**
+   * When set, the provider call failed and the signal was computed
+   * with fallback values. The error message is captured for
+   * observability but never blocks scoring.
+   */
+  providerError?: string | undefined;
 }
 
 export interface ScoreBreakdown {
@@ -29,6 +48,7 @@ export interface ScoreResult {
   breakdown: ScoreBreakdown;
   recommended: boolean;
   scoredAt: string;
+  signalStatus: SignalStatusItem[];
 }
 
 export interface ScoringInput {

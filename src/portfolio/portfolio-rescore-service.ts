@@ -119,6 +119,11 @@ export class PortfolioRescoreService {
         renewalCost: entry.renewalCost,
       });
 
+      // Collect provider errors from signal status for observability
+      const providerErrors = score.signalStatus
+        .filter((s) => !s.available && s.error !== undefined)
+        .map((s) => `${s.name}: ${s.error}`);
+
       const gate = await this.gate.check(entry.domain);
 
       const candidateId = this.ensureRescoreCandidate(entry);
@@ -135,6 +140,7 @@ export class PortfolioRescoreService {
         trademarkVerdict: gate.verdict,
         verifiedSources: gate.verifiedSources,
         matchedMark: gate.matchedMark,
+        ...(providerErrors.length > 0 ? { error: providerErrors.join('; ') } : {}),
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

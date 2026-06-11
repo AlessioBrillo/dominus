@@ -10,16 +10,27 @@ export async function computeCommercialScore(
   config: CommercialSignalConfig = DEFAULT_COMMERCIAL_CONFIG,
 ): Promise<SignalOutput> {
   const sld = input.sld;
-  const metrics = await provider.getMetrics(sld);
+  let metrics: { monthlySearchVolume: number; cpc: number };
+  let providerError: string | undefined;
+
+  try {
+    metrics = await provider.getMetrics(sld);
+  } catch (err) {
+    providerError = err instanceof Error ? err.message : String(err);
+    metrics = { monthlySearchVolume: 0, cpc: 0 };
+  }
 
   const volumeScore = Math.min(1, metrics.monthlySearchVolume / config.maxVolume);
   const cpcScore = Math.min(1, metrics.cpc / config.maxCpc);
 
   const score = Math.min(1, Math.max(0, volumeScore * 0.6 + cpcScore * 0.4));
+  const dataAvailable = metrics.monthlySearchVolume > 0 || metrics.cpc > 0;
 
   return {
     score,
     weight,
+    dataAvailable,
+    providerError,
     details: {
       term: sld,
       monthlySearchVolume: metrics.monthlySearchVolume,

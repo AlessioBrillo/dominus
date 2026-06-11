@@ -69,6 +69,7 @@ function seedScoringSnapshot(
     },
     recommended: true,
     scoredAt,
+    signalStatus: [],
   };
   scoringRepo.insert(candidate.id!, 'test', result);
   db.prepare(

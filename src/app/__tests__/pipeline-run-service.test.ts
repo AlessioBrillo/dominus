@@ -39,6 +39,7 @@ function makeScoreResult(domain: string): ScoreResult {
     },
     recommended: true,
     scoredAt: new Date().toISOString(),
+    signalStatus: [],
   };
 }
 
@@ -80,6 +81,7 @@ describe('PipelineRunService', () => {
       scored: [recommended],
       allCandidates: [recommended],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
@@ -108,6 +110,7 @@ describe('PipelineRunService', () => {
       scored: [recommended],
       allCandidates: [recommended],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
@@ -139,6 +142,7 @@ describe('PipelineRunService', () => {
       scored: [scored],
       allCandidates: [scored],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
@@ -166,6 +170,7 @@ describe('PipelineRunService', () => {
       scored: [candidate],
       allCandidates: [candidate],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 5,
     };
 
@@ -212,6 +217,7 @@ describe('PipelineRunService', () => {
       scored: [recommended],
       allCandidates: [dnsFiltered, recommended],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
@@ -239,6 +245,7 @@ describe('PipelineRunService', () => {
       scored: [], // no scored candidates
       allCandidates: [dnsFiltered],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 5,
     };
     const service = new PipelineRunService(
@@ -270,6 +277,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       scored: [candidate],
       allCandidates: [candidate],
       stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 5 } },
+      stageErrors: [],
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
@@ -313,6 +321,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       scored: [candidate],
       allCandidates: [candidate],
       stageSummary: {},
+      stageErrors: [],
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
@@ -345,6 +354,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       scored: [candidate],
       allCandidates: [candidate],
       stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 3 } },
+      stageErrors: [],
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(

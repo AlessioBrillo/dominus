@@ -23,6 +23,22 @@ export interface DomainRiskItem {
   verdict: string;
 }
 
+export interface DomainFinancialProjection {
+  domain: string;
+  expectedValue: number;
+  confidence: number;
+  acquisitionCost: number;
+  renewalCost: number;
+  /** Net Present Value of holding: sum(expectedValue * confidence / (1+r)^t - renewalCost / (1+r)^t) over horizon */
+  npv: number;
+  /** Annual renewal burn rate */
+  annualRenewalCost: number;
+  /** Projected annual return (EV * confidence / holdingYears - renewalCost) */
+  projectedAnnualReturn: number;
+  /** Expected recovery: how many years of renewal costs the expected value covers */
+  breakEvenYears: number;
+}
+
 export interface DomainRoi {
   domain: string;
   acquisitionCost: number;
@@ -34,6 +50,8 @@ export interface DomainRoi {
   roiPct: number;
   status: 'sold' | 'holding' | 'dropped' | 'expired';
   daysHeld: number;
+  npv?: number | undefined;
+  projectedAnnualReturn?: number | undefined;
 }
 
 export interface PortfolioReport {
@@ -51,6 +69,10 @@ export interface PortfolioReport {
   totalRenewalCostPaid: number;
   netProfit: number;
   roiPct: number;
+  /** Aggregate NPV of all scored domains in the portfolio */
+  aggregateNpv: number;
+  /** Total projected annual return across all domains */
+  aggregateProjectedAnnualReturn: number;
   breakdownByVerdict: VerdictBreakdown[];
   breakdownByTld: TldBreakdown[];
   domainsAtRisk: DomainRiskItem[];
@@ -68,5 +90,6 @@ export interface RoiReport {
   totalRevenue: number;
   netProfit: number;
   roiPct: number;
+  aggregateNpv: number;
   domainDetails: DomainRoi[];
 }

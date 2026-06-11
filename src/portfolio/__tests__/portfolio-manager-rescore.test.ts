@@ -160,6 +160,8 @@ describe('PortfolioManager.rescoreAll', () => {
     // Assert — summary captures the error AND the first entry is persisted
     expect(summary.results).toHaveLength(2);
     expect(summary.results[1]?.error).toContain('upstream down');
+    // Engine degrades gracefully: intrinsic-only weighted score >= 0
+    expect(summary.results[1]?.calibratedScore).toBeGreaterThanOrEqual(0);
     const alpha = repo.findByDomain('alpha.com');
     expect(alpha?.currentScore).toBeDefined();
   });
