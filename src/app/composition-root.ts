@@ -278,9 +278,14 @@ export function createDependencies(config: Config): DominusDependencies {
   // rdap.org → verisign → google (or custom order from config).
   // Raw for health-check/watchlist (needs real-time data), cached +
   // retryable for pipeline (idempotent lookups benefit from caching).
-  const rdapBootstrapUrls: string[] = config.RDAP_BOOTSTRAP_URLS
-    ? (JSON.parse(config.RDAP_BOOTSTRAP_URLS) as string[])
-    : [];
+  const rdapBootstrapUrls: string[] = ((): string[] => {
+    if (!config.RDAP_BOOTSTRAP_URLS) return [];
+    try {
+      return JSON.parse(config.RDAP_BOOTSTRAP_URLS) as string[];
+    } catch {
+      return [];
+    }
+  })();
   const rawRdapProvider: RdapProvider =
     rdapBootstrapUrls.length > 0
       ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, rdapRateLimiter)
