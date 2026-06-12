@@ -224,7 +224,7 @@ describe('Dependency Injection — composition-root wiring', () => {
       tokensPerInterval: 10,
       intervalMs: 1000,
     });
-    const rdapProvider = new PublicRdapProvider(rateLimiter);
+    const rdapProvider = new PublicRdapProvider(undefined, undefined, rateLimiter);
 
     const whoisProvider = new NodeWhoisProviderWithIanaFallback({
       timeoutMs: 5000,
@@ -325,6 +325,8 @@ describe('Dependency Injection — composition-root wiring', () => {
     const whoisProvider = new NodeWhoisProviderWithIanaFallback({ timeoutMs: 5000 });
     const dnsProvider = makeDnsProvider();
     const rdapProvider = new PublicRdapProvider(
+      undefined,
+      undefined,
       new RateLimiter({ maxTokens: 10, tokensPerInterval: 10, intervalMs: 1000 }),
     );
 
@@ -460,6 +462,8 @@ describe('Dependency Injection — composition-root wiring', () => {
     const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
     const dnsProvider = new NodeDnsProvider();
     const rdapProvider = new PublicRdapProvider(
+      undefined,
+      undefined,
       new RateLimiter({ maxTokens: 10, tokensPerInterval: 10, intervalMs: 1000 }),
     );
     const watchlistService = new WatchlistService(
