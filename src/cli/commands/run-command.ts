@@ -55,6 +55,16 @@ export function registerRunCommand(program: Command, runService: PipelineRunServ
             process.stdout.write(`\nPipeline run: ${result.runId}\n`);
             process.stdout.write(`Duration: ${result.totalDurationMs}ms\n\n`);
 
+            if (result.stageErrors.length > 0) {
+              for (const err of result.stageErrors) {
+                const providerTag = err.provider ? ` [provider: ${err.provider}]` : '';
+                process.stderr.write(
+                  `\x1b[33m⚠ ${err.stageName}: ${err.message}${providerTag}\x1b[0m\n`,
+                );
+              }
+              process.stderr.write('\n');
+            }
+
             if (result.recommended.length === 0) {
               process.stdout.write('No recommended candidates found.\n');
             } else {

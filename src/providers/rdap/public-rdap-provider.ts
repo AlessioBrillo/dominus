@@ -4,7 +4,7 @@ import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
 import { RateLimiter } from '../rate-limiter.js';
 
-const RDAP_BOOTSTRAP_URL = 'https://rdap.org/domain/';
+const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
 interface RdapResponse {
   ldhName?: string;
@@ -13,10 +13,21 @@ interface RdapResponse {
 }
 
 export class PublicRdapProvider implements RdapProvider {
+  readonly name: string;
+  readonly #baseUrl: string;
   readonly #rateLimiter: RateLimiter;
+  readonly #timeoutMs: number;
 
-  constructor(rateLimiter?: RateLimiter) {
+  constructor(
+    baseUrl = 'https://rdap.org/domain/',
+    name?: string,
+    rateLimiter?: RateLimiter,
+    timeoutMs = DEFAULT_RDAP_TIMEOUT_MS,
+  ) {
+    this.#baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+    this.name = name ?? 'PublicRdapProvider';
     this.#rateLimiter = rateLimiter ?? RateLimiter.unlimited();
+    this.#timeoutMs = timeoutMs;
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
@@ -24,20 +35,17 @@ export class PublicRdapProvider implements RdapProvider {
   }
 
   async #doConfirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
-    const url = `${RDAP_BOOTSTRAP_URL}${encodeURIComponent(domain)}`;
+    const url = `${this.#baseUrl}${encodeURIComponent(domain)}`;
     let response: Response;
 
     try {
       response = await fetch(url, {
         signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
-          : AbortSignal.timeout(10_000),
+          ? AbortSignal.any([signal, AbortSignal.timeout(this.#timeoutMs)])
+          : AbortSignal.timeout(this.#timeoutMs),
       });
     } catch (err: unknown) {
-      throw new ProviderError(
-        `RDAP request failed for ${domain}: ${String(err)}`,
-        'PublicRdapProvider',
-      );
+      throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
     }
 
     if (response.status === 404) {

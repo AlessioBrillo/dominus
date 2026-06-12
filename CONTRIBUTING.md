@@ -30,11 +30,10 @@ DOMINUS follows **trunk-based development** on the `master` branch.
    docs(adr): add ADR-0016 on registrar abstraction
    ```
 
-3. Run the quality gate before pushing:
+3. Run the quality gate before pushing (backend + frontend):
    ```bash
-   npm run typecheck
-   npm run lint
-   npm test
+   npm run ci:backend    # typecheck, build, lint, format, test with coverage
+   npm run ci:frontend   # typecheck, lint, test, build
    ```
 
 4. Push, create a PR, wait for CI to pass, then squash-merge.

@@ -25,6 +25,7 @@ function makeMockDns(status = DomainStatus.Available): DnsProvider {
 
 function makeMockRdap(available = true): RdapProvider {
   return {
+    name: 'mock-rdap',
     confirm: vi.fn().mockResolvedValue({
       domain: 'x',
       status: available ? DomainStatus.Available : DomainStatus.Registered,

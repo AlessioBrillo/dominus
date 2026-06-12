@@ -26,7 +26,7 @@ import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider } from '../providers/dns/index.js';
 import { type DnsProvider } from '../providers/dns/dns-provider.js';
 import { RateLimiter } from '../providers/rate-limiter.js';
-import { PublicRdapProvider } from '../providers/rdap/index.js';
+import { FailoverRdapProvider } from '../providers/rdap/index.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { RdapResult } from '../types/domain-status.js';
 import {
@@ -273,10 +273,25 @@ export function createDependencies(config: Config): DominusDependencies {
     perTldRateLimiters: whoisPerTldLimiters,
   });
 
-  // RDAP provider: raw for health-check/watchlist (needs real-time data),
-  // cached + retryable for pipeline (idempotent lookups benefit from caching)
-  const rawRdapProvider = new PublicRdapProvider(rdapRateLimiter);
+  // RDAP provider: multi-server failover for resilience against
+  // individual bootstrap server outages. Tries servers in sequence:
+  // rdap.org → verisign → google (or custom order from config).
+  // Raw for health-check/watchlist (needs real-time data), cached +
+  // retryable for pipeline (idempotent lookups benefit from caching).
+  const rdapBootstrapUrls: string[] = ((): string[] => {
+    if (!config.RDAP_BOOTSTRAP_URLS) return [];
+    try {
+      return JSON.parse(config.RDAP_BOOTSTRAP_URLS) as string[];
+    } catch {
+      return [];
+    }
+  })();
+  const rawRdapProvider: RdapProvider =
+    rdapBootstrapUrls.length > 0
+      ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, rdapRateLimiter)
+      : new FailoverRdapProvider();
   const rdapWithRetry: RdapProvider = {
+    name: `${rawRdapProvider.name}(retry)`,
     confirm: (domain: string, signal?: AbortSignal) =>
       withRetry(
         (s) => rawRdapProvider.confirm(domain, s),
@@ -292,6 +307,7 @@ export function createDependencies(config: Config): DominusDependencies {
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
   );
   const cachedRdapProvider: RdapProvider = {
+    name: `${rdapWithRetry.name}(cache)`,
     confirm: (domain: string, signal?: AbortSignal) => rdapCache.get(domain, signal),
   };
 

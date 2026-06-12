@@ -23,6 +23,7 @@ function makeCandidate(domain: string): DomainCandidate {
 
 function makeRdap(available: boolean, error?: Error): RdapProvider {
   return {
+    name: 'mock-rdap',
     confirm: error
       ? vi.fn().mockRejectedValue(error)
       : vi.fn().mockResolvedValue({
@@ -103,6 +104,7 @@ describe('RdapConfirmationStage — integration (RDAP + WHOIS parallel fallback)
 
   it('parallel: RDAP premium domains go to filtered (not passed)', async () => {
     const rdap: RdapProvider = {
+      name: 'mock-rdap',
       confirm: vi.fn().mockResolvedValue({
         domain: 'example.com',
         status: DomainStatus.Available,

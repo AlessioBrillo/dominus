@@ -5,12 +5,15 @@
 ## Related
 
 - Closes: #<issue-number> (if applicable)
+- Refs: ADR-NNNN (if applicable)
 
 ## Checklist
 
-- [ ] All CI checks pass
-- [ ] Architecture principles satisfied (see architecture-guardian)
+- [ ] `npm run ci:backend` passes (typecheck, build, lint, format, test)
+- [ ] `npm run ci:frontend` passes (typecheck, lint, test, build)
+- [ ] Architecture principles satisfied (provider abstraction, trademark gate, scoring conservatism)
 - [ ] Security checklist verified (no secrets, no injection vectors)
+- [ ] Provider resilience tested (multi-RDAP failover, circuit breaker, health history)
 - [ ] Tests added or updated for the change
-- [ ] Documentation updated as needed
+- [ ] Documentation updated (ADR, README, .env.example if new config)
 - [ ] Branch is rebased on latest master

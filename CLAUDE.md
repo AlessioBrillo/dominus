@@ -71,7 +71,7 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v0.2.0 — production-ready, tested, and running end-to-end.
+DOMINUS v0.3.0 — provider resilience, observability, and production hardening.
 
 All five pipeline stages, the heuristic scoring engine, the trademark gate
 (real USPTO/EUIPO providers + caching), the portfolio tracker, portfolio

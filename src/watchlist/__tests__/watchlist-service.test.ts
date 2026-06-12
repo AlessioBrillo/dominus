@@ -122,6 +122,7 @@ function makeDnsMock(results: Record<string, DomainStatus>): DnsProvider {
 
 function makeRdapMock(results: Record<string, RdapResult>): RdapProvider {
   return {
+    name: 'mock-rdap',
     confirm: vi.fn().mockImplementation((domain: string) => {
       const existing = results[domain];
       if (existing) return Promise.resolve(existing);

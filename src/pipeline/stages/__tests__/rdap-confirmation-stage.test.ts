@@ -24,6 +24,7 @@ function makeMockRdap(
   isPremium = false,
 ): RdapProvider {
   return {
+    name: 'mock-rdap',
     confirm: vi.fn().mockResolvedValue({
       domain,
       status,
@@ -74,6 +75,7 @@ describe('RdapConfirmationStage (RDAP-only)', () => {
 
   it('filters domains on RDAP error', async () => {
     const rdap: RdapProvider = {
+      name: 'mock-rdap',
       confirm: vi.fn().mockRejectedValue(new Error('RDAP timeout')),
     };
     const stage = new RdapConfirmationStage(rdap);
@@ -91,6 +93,7 @@ describe('RdapConfirmationStage (RDAP + WHOIS parallel fallback)', () => {
 
   it('prefers RDAP result when both RDAP and WHOIS succeed', async () => {
     const rdap: RdapProvider = {
+      name: 'mock-rdap',
       confirm: vi.fn().mockResolvedValue({
         domain: 'example.com',
         status: DomainStatus.Available,
@@ -108,6 +111,7 @@ describe('RdapConfirmationStage (RDAP + WHOIS parallel fallback)', () => {
 
   it('falls back to WHOIS when RDAP fails', async () => {
     const rdap: RdapProvider = {
+      name: 'mock-rdap',
       confirm: vi.fn().mockRejectedValue(new Error('RDAP timeout')),
     };
     const whois = makeMockWhois(true);
@@ -119,6 +123,7 @@ describe('RdapConfirmationStage (RDAP + WHOIS parallel fallback)', () => {
 
   it('filters domain when WHOIS says registered', async () => {
     const rdap: RdapProvider = {
+      name: 'mock-rdap',
       confirm: vi.fn().mockRejectedValue(new Error('RDAP timeout')),
     };
     const whois = makeMockWhois(false);
@@ -130,6 +135,7 @@ describe('RdapConfirmationStage (RDAP + WHOIS parallel fallback)', () => {
 
   it('filters domain when both RDAP and WHOIS fail', async () => {
     const rdap: RdapProvider = {
+      name: 'mock-rdap',
       confirm: vi.fn().mockRejectedValue(new Error('RDAP timeout')),
     };
     const whois: WhoisProvider = {

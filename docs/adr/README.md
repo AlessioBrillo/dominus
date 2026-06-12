@@ -27,6 +27,7 @@ re-running the original arguments.
 | [0018](0018-open-source-architecture.md) | Open-source architecture and forkability | 2026-06-09 | Accepted |
 | [0019](0019-auto-weight-tuning-loop.md) | Closed-loop auto weight tuning | 2026-06-09 | Accepted |
 | [0020](0020-scoring-confidence-formula.md) | Scoring confidence formula and intrinsic quality coupling | 2026-06-11 | Accepted |
+| [0021](0021-provider-resilience-and-observability.md) | Provider resilience and observability layer | 2026-06-12 | Accepted |
 
 ## Conventions
 

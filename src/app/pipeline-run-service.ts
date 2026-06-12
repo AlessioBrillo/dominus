@@ -209,7 +209,7 @@ function buildResultsSummary(
     recommended: result.recommended.length,
     trademarkBlocked,
     unscored,
-    errors: 0,
+    errors: result.stageErrors.length,
   };
 }
 

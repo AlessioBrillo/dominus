@@ -152,6 +152,33 @@ const configSchema = z.object({
   /** Rate limiting: refill interval in ms for RDAP requests (default: 1000). */
   RDAP_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
   /**
+   * JSON array of RDAP bootstrap server base URLs for multi-provider failover.
+   * The FailoverRdapProvider tries each server in sequence; first success wins.
+   * When the first server fails (timeout, network error), it falls back to the
+   * next after a brief delay. When all servers fail, a ProviderError is thrown.
+   * Default: rdap.org, Verisign COM RDAP, Google Registry RDAP.
+   * Example: ["https://rdap.org/domain/","https://rdap.verisign.com/com/domain/"]
+   */
+  RDAP_BOOTSTRAP_URLS: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined) return true;
+        try {
+          const parsed = JSON.parse(val) as unknown;
+          if (!Array.isArray(parsed)) return false;
+          return parsed.every((u: unknown) => typeof u === 'string' && u.startsWith('http'));
+        } catch {
+          return false;
+        }
+      },
+      {
+        message:
+          'Must be a JSON array of RDAP bootstrap URL strings, e.g. ["https://rdap.org/domain/"]',
+      },
+    ),
+  /**
    * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
    * WHOIS servers are generally more restrictive than RDAP.
    * Default: 1 req/2 sec.

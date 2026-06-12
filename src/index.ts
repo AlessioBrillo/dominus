@@ -170,12 +170,18 @@ const server = app.listen(config.PORT, config.HOST, () => {
     setTimeout(() => {
       deps.scheduler!.start();
       logger.info({ warmupMs }, 'Background scheduler started after warmup');
-    }, warmupMs).unref();
+    }, warmupMs);
   }
 });
 
 function shutdown(signal: string): void {
   logger.info({ signal }, 'Shutdown signal received — draining connections');
+
+  // Express 5: close idle keep-alive connections first, then active ones.
+  // This lets in-flight requests complete while preventing new ones.
+  if (typeof server.closeIdleConnections === 'function') {
+    server.closeIdleConnections();
+  }
   server.close(() => {
     if (deps.scheduler) {
       deps.scheduler.stop();
@@ -186,8 +192,17 @@ function shutdown(signal: string): void {
     process.exit(0);
   });
 
+  // Force-close remaining active connections after drain timeout.
+  const drainMs = 5_000;
+  const graceMs = 25_000;
+  setTimeout(() => {
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+  }, drainMs).unref();
+
   // Force exit after hard timeout (respects K8s terminationGracePeriodSeconds)
-  const forceExitMs = 30_000;
+  const forceExitMs = drainMs + graceMs;
   setTimeout(() => {
     logger.error('Forced exit after shutdown timeout');
     process.exit(1);
