@@ -241,10 +241,14 @@ export class NodeWhoisProvider implements WhoisProvider {
 export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
   readonly #delegate: NodeWhoisProvider;
   readonly #connectFn: ((port: number, host: string, callback?: () => void) => Socket) | undefined;
+  readonly #defaultRateLimiter: RateLimiter;
+  readonly #perTldRateLimiters: Record<string, RateLimiter>;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#delegate = new NodeWhoisProvider(config);
     this.#connectFn = config.connect;
+    this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
+    this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
   }
 
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
@@ -258,9 +262,13 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
       if (err instanceof ProviderError && err.code === 'WHOIS_NO_SERVER') {
         const ianaServer = await resolveWhoisServer(cleanTld, this.#connectFn);
         if (ianaServer !== null) {
+          // Pass rate limiters to the fallback provider too — the original
+          // bug was that IANA-fallback lookups bypassed all rate limiting.
           const providerWithIana = new NodeWhoisProvider({
             connect: this.#connectFn,
             serverOverrides: { [`.${cleanTld}`]: ianaServer },
+            defaultRateLimiter: this.#defaultRateLimiter,
+            perTldRateLimiters: this.#perTldRateLimiters,
           });
           return providerWithIana.checkAvailability(domain, signal);
         }

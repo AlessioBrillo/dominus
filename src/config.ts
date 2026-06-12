@@ -343,6 +343,14 @@ const configSchema = z.object({
   /** Cron expression for watchlist RDAP polling. Default: every 6 hours. */
   SCHEDULER_WATCHLIST_CRON: z.string().default('0 */6 * * *'),
 
+  /**
+   * Warmup delay in milliseconds before the scheduler starts its first job
+   * after the HTTP server boots. Allows the database connection, provider
+   * caches, and rate-limiters to stabilise before any scheduled task fires.
+   * Default: 5000ms (5 seconds). Set to 0 to disable warmup (immediate start).
+   */
+  SCHEDULER_WARMUP_MS: z.coerce.number().int().min(0).max(300_000).default(5000),
+
   /** Hours since last check before a watchlist entry is re-polled. */
   WATCHLIST_POLL_INTERVAL_HOURS: z.coerce.number().int().min(1).default(6),
 

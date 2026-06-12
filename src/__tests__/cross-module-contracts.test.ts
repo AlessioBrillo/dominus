@@ -7,11 +7,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 describe('cross-module contracts', () => {
   describe('parseDomain (ADR-0013, ADR-0015)', () => {
-    it('portfolio-rescore-service imports parseDomain from utils/domain', () => {
-      const source = readFileSync(
-        resolve(here, '../portfolio/portfolio-rescore-service.ts'),
-        'utf-8',
-      );
+    it('scoring-engine imports parseDomain from utils/domain (canonical SLD source)', () => {
+      const source = readFileSync(resolve(here, '../scoring/scoring-engine.ts'), 'utf-8');
       const imports = source
         .split('\n')
         .filter((l) => l.includes('from') && l.includes('domain'))
@@ -25,8 +22,11 @@ describe('cross-module contracts', () => {
       expect(source).toMatch(/\bextractSld\b/);
     });
 
-    it('scoring-engine does NOT import parseDomain (receives pre-parsed input)', () => {
-      const source = readFileSync(resolve(here, '../scoring/scoring-engine.ts'), 'utf-8');
+    it('portfolio-rescore-service does NOT import parseDomain (delegates to ScoringEngine)', () => {
+      const source = readFileSync(
+        resolve(here, '../portfolio/portfolio-rescore-service.ts'),
+        'utf-8',
+      );
       const domainImports = source
         .split('\n')
         .filter((l) => l.includes('from') && l.includes('domain') && !l.includes('types'));
@@ -35,7 +35,7 @@ describe('cross-module contracts', () => {
 
     it('both modules that consume SLD import from the same @psl-based source', () => {
       const consumers = [
-        { name: 'portfolio-rescore-service', path: '../portfolio/portfolio-rescore-service.ts' },
+        { name: 'scoring-engine', path: '../scoring/scoring-engine.ts' },
         { name: 'match-detector', path: '../trademark/match-detector.ts' },
       ];
       for (const { name: _name, path } of consumers) {

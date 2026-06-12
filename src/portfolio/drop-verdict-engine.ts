@@ -33,7 +33,20 @@ export function computeDropVerdict(
   config: DropVerdictConfig,
 ): DropVerdictResult {
   const clock = computeRenewalClock(entry);
-  const score = entry.currentScore ?? 0;
+
+  // Guard: if the domain has never been scored (currentScore is null/undefined),
+  // we cannot issue a Drop verdict — doing so would treat an unscored domain
+  // as a zero-scored one, causing false positives. The operator must rescore
+  // before any drop decision.
+  if (entry.currentScore === undefined || entry.currentScore === null) {
+    return {
+      domain: entry.domain,
+      verdict: Verdict.Reprice,
+      reason: 'Domain has not been scored yet — run portfolio rescore before any drop decision',
+    };
+  }
+
+  const score = entry.currentScore;
 
   if (config.method === 'npv') {
     return computeNpvBasedDropVerdict(entry, config, clock);
@@ -48,6 +61,7 @@ function computeThresholdBasedDropVerdict(
   clock: ReturnType<typeof computeRenewalClock>,
   score: number,
 ): DropVerdictResult {
+  // Caller guarantees score is defined — the public function handles null.
   const breakEvenRenewals =
     entry.acquisitionCost > 0 ? entry.acquisitionCost / (entry.renewalCost || 1) : 0;
   const daysSinceAcquisition =
@@ -94,11 +108,12 @@ function computeNpvBasedDropVerdict(
   config: DropVerdictConfig,
   clock: ReturnType<typeof computeRenewalClock>,
 ): DropVerdictResult {
-  const score = entry.currentScore ?? 0;
-  const currentScoreNormalised = Math.min(1, Math.max(0, score / 100));
+  // Caller guarantees score is defined — the public function handles null.
+  const safeScore = entry.currentScore!;
+  const currentScoreNormalised = Math.min(1, Math.max(0, safeScore / 100));
 
   const npvInput: NpvInput = {
-    expectedValue: entry.suggestedListPrice ?? score * 5,
+    expectedValue: entry.suggestedListPrice ?? safeScore * 5,
     confidence: currentScoreNormalised,
     acquisitionCost: entry.acquisitionCost,
     renewalCost: entry.renewalCost,
@@ -109,11 +124,11 @@ function computeNpvBasedDropVerdict(
   const approachingRenewal = clock.daysUntilRenewal <= config.renewalHorizonDays;
 
   if (npvResult.npv < 0 && approachingRenewal) {
-    if (entry.acquisitionCost > 0 && score >= config.scoreThreshold) {
+    if (entry.acquisitionCost > 0 && safeScore >= config.scoreThreshold) {
       return {
         domain: entry.domain,
         verdict: Verdict.Reprice,
-        reason: `NPV negative (€${npvResult.npv.toFixed(2)}) but score ${score.toFixed(1)} ≥ threshold — consider repricing before drop`,
+        reason: `NPV negative (€${npvResult.npv.toFixed(2)}) but score ${safeScore.toFixed(1)} ≥ threshold — consider repricing before drop`,
         npv: npvResult.npv,
       };
     }
@@ -134,11 +149,11 @@ function computeNpvBasedDropVerdict(
     };
   }
 
-  if (npvResult.npv >= 0 && approachingRenewal && score < config.scoreThreshold) {
+  if (npvResult.npv >= 0 && approachingRenewal && safeScore < config.scoreThreshold) {
     return {
       domain: entry.domain,
       verdict: Verdict.Reprice,
-      reason: `NPV positive (€${npvResult.npv.toFixed(2)}) but score ${score.toFixed(1)} < threshold — reprice before renewal`,
+      reason: `NPV positive (€${npvResult.npv.toFixed(2)}) but score ${safeScore.toFixed(1)} < threshold — reprice before renewal`,
       npv: npvResult.npv,
     };
   }

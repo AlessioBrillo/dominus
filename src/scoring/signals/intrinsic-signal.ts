@@ -9,7 +9,9 @@ export function computeIntrinsicScore(
   config: IntrinsicSignalConfig = DEFAULT_INTRINSIC_CONFIG,
   tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
 ): SignalOutput {
-  const sld = input.sld;
+  // Engine always sets sld and tld before calling signal functions;
+  // non-null assertion is safe here (see ScoringEngine.score()).
+  const sld = input.sld!;
   const length = sld.length;
 
   const lengthScore =
@@ -21,7 +23,7 @@ export function computeIntrinsicScore(
   const digitCount = (sld.match(/[0-9]/g) ?? []).length;
   const penaltyScore = Math.max(0, 1 - hyphenCount * 0.25 - digitCount * 0.15);
 
-  const tldMultiplier = tldBonuses[input.tld] ?? 0.3;
+  const tldMultiplier = tldBonuses[input.tld!] ?? 0.3;
 
   const pronounceabilityScore = computePronouncability(sld);
 

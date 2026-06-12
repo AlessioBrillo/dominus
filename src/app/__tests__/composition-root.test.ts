@@ -360,6 +360,7 @@ describe('Dependency Injection — composition-root wiring', () => {
       SCHEDULER_RESCORE_CRON: '0 9 * * 1',
       SCHEDULER_PRUNE_CRON: '0 10 1 * *',
       SCHEDULER_WATCHLIST_CRON: '0 */6 * * *',
+      SCHEDULER_WARMUP_MS: 5000,
       RENEWAL_WARNING_DAYS: 30,
       RENEWAL_CRITICAL_DAYS: 7,
       DROP_SCORE_THRESHOLD: 25,
