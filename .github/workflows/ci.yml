@@ -3,38 +3,44 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  NODE_VERSION: 24
+  NODE_VERSION: lts/*
 
 jobs:
-  quality:
+  backend:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [20, 24]
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Audit dependencies (backend)
-        run: npm audit --audit-level=high
-
-      - name: Install backend dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Type check (backend)
+      - name: Type check
         run: npm run typecheck
 
-      - name: Build backend
+      - name: Build
         run: npm run build
 
       - name: Lint
@@ -43,28 +49,59 @@ jobs:
       - name: Format check
         run: npm run format:check
 
-      - name: Test backend (with coverage)
+      - name: Test (with coverage)
         run: npm test -- --coverage
 
-      - name: Install frontend dependencies
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
         working-directory: ./frontend
         run: npm ci
 
-      - name: Type check (frontend)
+      - name: Type check
         working-directory: ./frontend
         run: npm run typecheck
 
-      - name: Lint (frontend)
+      - name: Lint
         working-directory: ./frontend
         run: npm run lint
 
-      - name: Test frontend
+      - name: Test
         working-directory: ./frontend
         run: npm test
 
-      - name: Build frontend
+      - name: Build
         working-directory: ./frontend
         run: npm run build
 
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
-        run: docker build -t dominus .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

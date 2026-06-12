@@ -6,6 +6,12 @@ export default defineConfig({
     globals: false,
     include: ['src/**/*.test.ts'],
     setupFiles: ['./vitest.setup.ts'],
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
