@@ -15,14 +15,14 @@ export class CachedProvider<T> {
   readonly #inflight = new Map<string, Promise<T>>();
 
   constructor(
-    private readonly fetchFn: (term: string) => Promise<T>,
+    private readonly fetchFn: (term: string, signal?: AbortSignal) => Promise<T>,
     private readonly repo: ProviderCacheRepository,
     private readonly providerName: string,
     private readonly ttlDays: number,
     private readonly serializer: CacheSerializer<T> = JSON_SERIALIZER as unknown as CacheSerializer<T>,
   ) {}
 
-  async get(term: string): Promise<T> {
+  async get(term: string, signal?: AbortSignal): Promise<T> {
     const cached = this.repo.get(term, this.providerName);
     if (cached !== null) {
       try {
@@ -38,7 +38,7 @@ export class CachedProvider<T> {
     const existing = this.#inflight.get(term);
     if (existing !== undefined) return existing;
 
-    const promise = this.fetchFn(term)
+    const promise = this.fetchFn(term, signal)
       .then((result) => {
         try {
           this.repo.set(term, this.providerName, this.serializer.serialize(result), this.ttlDays);

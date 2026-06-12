@@ -14,7 +14,10 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
 
   constructor(private readonly engine: ScoringEngine) {}
 
-  async process(candidates: DomainCandidate[]): Promise<StageResult<ScoredCandidate>> {
+  async process(
+    candidates: DomainCandidate[],
+    _signal?: AbortSignal,
+  ): Promise<StageResult<ScoredCandidate>> {
     const start = Date.now();
     const passed: ScoredCandidate[] = [];
     const filtered: ScoredCandidate[] = [];

@@ -7,5 +7,5 @@ export interface StageResult<T> {
 
 export interface Stage<TIn, TOut = TIn> {
   readonly name: string;
-  process(items: TIn[]): Promise<StageResult<TOut>>;
+  process(items: TIn[], signal?: AbortSignal): Promise<StageResult<TOut>>;
 }

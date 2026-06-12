@@ -50,7 +50,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     private readonly concurrency: number = 5,
   ) {}
 
-  async process(candidates: DomainCandidate[]): Promise<StageResult<DomainCandidate>> {
+  async process(
+    candidates: DomainCandidate[],
+    _signal?: AbortSignal,
+  ): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
     const passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];

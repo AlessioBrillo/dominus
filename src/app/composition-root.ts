@@ -146,13 +146,13 @@ export function createDependencies(config: Config): DominusDependencies {
 
   // Cache the keyword provider to avoid redundant API calls for the same term
   const keywordCache = new CachedProvider<KeywordMetrics>(
-    (term) => keywordProvider.getMetrics(term),
+    (term, signal) => keywordProvider.getMetrics(term, signal),
     providerCacheRepo,
     'keyword',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
   );
   const cachedKeywordProvider: KeywordProvider = {
-    getMetrics: (term: string) => keywordCache.get(term),
+    getMetrics: (term: string, signal?: AbortSignal) => keywordCache.get(term, signal),
   };
   const compsProvider = createCompsProvider(config.COMPS_PROVIDER, {
     csvFilePath: config.COMPS_DATA_PATH,
@@ -162,13 +162,13 @@ export function createDependencies(config: Config): DominusDependencies {
   // Cache the comps provider to avoid repeated API calls for the same term.
   // The adapter preserves the CompsProvider interface expected by the engine.
   const compsCache = new CachedProvider<ComparableSale[]>(
-    (term) => compsProvider.getSales(term),
+    (term, signal) => compsProvider.getSales(term, signal),
     providerCacheRepo,
     'comps',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
   );
   const cachedCompsProvider: CompsProvider = {
-    getSales: (term: string) => compsCache.get(term),
+    getSales: (term: string, signal?: AbortSignal) => compsCache.get(term, signal),
   };
 
   const weightsOverridePath =
@@ -200,7 +200,6 @@ export function createDependencies(config: Config): DominusDependencies {
       listPriceMultiplier: config.SCORING_LIST_PRICE_MULTIPLIER,
       baseMarketValueEur: config.SCORING_BASE_MARKET_VALUE,
       confidenceBase: config.SCORING_CONFIDENCE_BASE,
-      confidencePerSignal: config.SCORING_CONFIDENCE_PER_SIGNAL ?? 0.3,
       confidenceCap: config.SCORING_CONFIDENCE_CAP,
       intrinsicQualityInfluence: config.SCORING_INTRINSIC_QUALITY_INFLUENCE,
       holdingYears: config.SCORING_HOLDING_YEARS,
@@ -278,34 +277,36 @@ export function createDependencies(config: Config): DominusDependencies {
   // cached + retryable for pipeline (idempotent lookups benefit from caching)
   const rawRdapProvider = new PublicRdapProvider(rdapRateLimiter);
   const rdapWithRetry: RdapProvider = {
-    confirm: (domain: string) =>
-      withRetry(() => rawRdapProvider.confirm(domain), `rdap:${domain}`, {
-        maxAttempts: 2,
-        baseDelayMs: 200,
-        maxDelayMs: 1000,
-      }),
+    confirm: (domain: string, signal?: AbortSignal) =>
+      withRetry(
+        (s) => rawRdapProvider.confirm(domain, s),
+        `rdap:${domain}`,
+        { maxAttempts: 2, baseDelayMs: 200, maxDelayMs: 1000 },
+        signal,
+      ),
   };
   const rdapCache = new CachedProvider<RdapResult>(
-    (domain) => rdapWithRetry.confirm(domain),
+    (domain, signal) => rdapWithRetry.confirm(domain, signal),
     providerCacheRepo,
     'rdap',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
   );
   const cachedRdapProvider: RdapProvider = {
-    confirm: (domain: string) => rdapCache.get(domain),
+    confirm: (domain: string, signal?: AbortSignal) => rdapCache.get(domain, signal),
   };
 
   // DNS provider with retry for resilience
   const dnsWithRetry: DnsProvider = {
-    checkAvailability: (domain: string) =>
-      withRetry(() => new NodeDnsProvider().checkAvailability(domain), `dns:${domain}`, {
-        maxAttempts: 2,
-        baseDelayMs: 100,
-        maxDelayMs: 500,
-      }),
-    checkBulk: async (domains: string[]) => {
+    checkAvailability: (domain: string, signal?: AbortSignal) =>
+      withRetry(
+        (s) => new NodeDnsProvider().checkAvailability(domain, s),
+        `dns:${domain}`,
+        { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+        signal,
+      ),
+    checkBulk: async (domains: string[], signal?: AbortSignal) => {
       const dns = new NodeDnsProvider();
-      return dns.checkBulk(domains);
+      return dns.checkBulk(domains, signal);
     },
   };
 
