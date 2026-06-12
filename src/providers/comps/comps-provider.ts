@@ -6,5 +6,5 @@ export interface ComparableSale {
 }
 
 export interface CompsProvider {
-  getSales(term: string): Promise<ComparableSale[]>;
+  getSales(term: string, signal?: AbortSignal): Promise<ComparableSale[]>;
 }

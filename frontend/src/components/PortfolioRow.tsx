@@ -2,6 +2,7 @@ import type { PortfolioEntry } from '../types/domain.js';
 
 interface PortfolioRowProps {
   entry: PortfolioEntry;
+  onDelete?: (domain: string) => void;
 }
 
 const verdictColors: Record<string, string> = {
@@ -10,7 +11,7 @@ const verdictColors: Record<string, string> = {
   reprice: 'bg-amber-900/50 text-amber-400 border border-amber-800',
 };
 
-export function PortfolioRow({ entry }: PortfolioRowProps) {
+export function PortfolioRow({ entry, onDelete }: PortfolioRowProps) {
   const renewalDate = new Date(entry.renewalDate);
   const daysUntilRenewal = Math.ceil(
     (renewalDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
@@ -59,6 +60,17 @@ export function PortfolioRow({ entry }: PortfolioRowProps) {
         >
           {entry.verdict}
         </span>
+      </td>
+      <td className="py-3 px-4">
+        {onDelete && (
+          <button
+            onClick={() => onDelete(entry.domain)}
+            className="text-gray-600 hover:text-red-400 transition-colors text-xs"
+            title="Remove from portfolio"
+          >
+            ✕
+          </button>
+        )}
       </td>
     </tr>
   );

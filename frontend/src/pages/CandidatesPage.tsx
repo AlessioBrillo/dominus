@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../api/client.js';
-import { runPipeline } from '../api/candidates.js';
+import { fetchCandidates, runPipeline, fetchRuns, deleteCandidate } from '../api/candidates.js';
 import { scoreDomain } from '../api/score.js';
 import type { Candidate, PipelineRun } from '../types/domain.js';
 import { CandidateCard } from '../components/CandidateCard.js';
@@ -11,44 +10,52 @@ export function CandidatesPage() {
   const [selectedRunId, setSelectedRunId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .get<{ runs: PipelineRun[] }>('/api/runs')
+    fetchRuns()
       .then((data) => {
-        setRuns(data.runs);
-        if (data.runs.length > 0 && !selectedRunId) {
-          setSelectedRunId(data.runs[0]!.runId);
+        setRuns(data);
+        if (data.length > 0 && !selectedRunId) {
+          setSelectedRunId(data[0]!.runId);
         }
       })
+      .catch(() => setError('Failed to load pipeline runs'))
       .finally(() => setLoading(false));
-  }, [selectedRunId]);
+  }, []);
 
   useEffect(() => {
-    if (!selectedRunId) return;
-    api
-      .get<{ candidates: Candidate[] }>(
-        `/api/candidates?runId=${encodeURIComponent(selectedRunId)}`,
-      )
-      .then((data) => setCandidates(data.candidates))
-      .catch(() => setCandidates([]));
+    if (!selectedRunId) {
+      setCandidates([]);
+      return;
+    }
+    setLoading(true);
+    fetchCandidates(selectedRunId)
+      .then((data) => setCandidates(data))
+      .catch(() => setError('Failed to load candidates'))
+      .finally(() => setLoading(false));
   }, [selectedRunId]);
 
   const handleRun = async () => {
     setRunning(true);
+    setError(null);
     try {
-      const result = await runPipeline({ keywords: [], brandableNames: [], closeoutDomains: [] });
-      setRuns((prev) => [
-        {
-          runId: result.runId,
-          startedAt: new Date().toISOString(),
-          stageSummary: result.stageSummary,
-          totalDurationMs: result.totalDurationMs,
-          resultsSummary: {},
-        },
-        ...prev,
-      ]);
+      const result = await runPipeline({
+        keywords: [],
+        brandableNames: [],
+        closeoutDomains: [],
+      });
+      const newRun: PipelineRun = {
+        runId: result.runId,
+        startedAt: new Date().toISOString(),
+        stageSummary: result.stageSummary,
+        totalDurationMs: result.totalDurationMs,
+        resultsSummary: {},
+      };
+      setRuns((prev) => [newRun, ...prev]);
       setSelectedRunId(result.runId);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Pipeline run failed');
     } finally {
       setRunning(false);
     }
@@ -59,12 +66,23 @@ export function CandidatesPage() {
       const result = await scoreDomain(domain);
       setCandidates((prev) =>
         prev.map((c) =>
-          c.domain === domain ? { ...c, scoreResult: result.score, status: result.score.recommended ? 'recommended' : 'scored' } : c,
+          c.domain === domain
+            ? { ...c, scoreResult: result.score, status: result.score.recommended ? 'recommended' : 'scored' }
+            : c,
         ),
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Score failed';
-      alert(`Failed to score ${domain}: ${message}`);
+      setError(`Failed to score ${domain}: ${message}`);
+    }
+  };
+
+  const handleDelete = async (domain: string) => {
+    try {
+      await deleteCandidate(domain);
+      setCandidates((prev) => prev.filter((c) => c.domain !== domain));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
     }
   };
 
@@ -76,7 +94,7 @@ export function CandidatesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-100">Candidates</h2>
-          <p className="text-sm text-gray-500 mt-1">Buy / Pass decision board</p>
+          <p className="text-sm text-gray-500 mt-1">Buy / Pass decision board — {candidates.length} candidates</p>
         </div>
         <button
           onClick={handleRun}
@@ -93,6 +111,13 @@ export function CandidatesPage() {
         </button>
       </div>
 
+      {error && (
+        <div className="bg-red-950/50 border border-red-900 text-red-400 px-4 py-3 rounded-lg text-sm">
+          {error}
+          <button onClick={() => setError(null)} className="ml-3 underline">Dismiss</button>
+        </div>
+      )}
+
       {runs.length > 0 && (
         <div className="flex gap-2 overflow-x-auto pb-2">
           {runs.map((run) => (
@@ -105,8 +130,8 @@ export function CandidatesPage() {
                   : 'bg-gray-900 text-gray-400 border border-gray-800 hover:border-gray-700'
               }`}
             >
-              {new Date(run.startedAt).toLocaleDateString()} —{' '}
-              {run.totalDurationMs ? `${(run.totalDurationMs / 1000).toFixed(1)}s` : '...'}
+              {new Date(run.startedAt).toLocaleDateString()} —
+              {run.totalDurationMs ? ` ${(run.totalDurationMs / 1000).toFixed(1)}s` : ' ...'}
             </button>
           ))}
         </div>
@@ -114,24 +139,50 @@ export function CandidatesPage() {
 
       {loading ? (
         <div className="text-gray-500 animate-pulse text-center py-12">Loading candidates...</div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-          {recommended.map((c) => (
-            <CandidateCard key={c.id ?? c.domain} candidate={c} onScore={handleScore} />
-          ))}
-          {scored.map((c) => (
-            <CandidateCard key={c.id ?? c.domain} candidate={c} onScore={handleScore} />
-          ))}
-        </div>
-      )}
-
-      {!loading && candidates.length === 0 && (
+      ) : candidates.length === 0 ? (
         <div className="text-center py-12">
           <div className="text-gray-600 text-lg mb-2">No candidates found</div>
           <p className="text-gray-700 text-sm">
-            Run a pipeline to generate candidates, or select a previous run.
+            {selectedRunId ? 'This run has no candidates.' : 'Run a pipeline to generate candidates.'}
           </p>
         </div>
+      ) : (
+        <>
+          {recommended.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Recommended ({recommended.length})
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {recommended.map((c) => (
+                  <CandidateCard
+                    key={c.id ?? c.domain}
+                    candidate={c}
+                    onScore={handleScore}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          {scored.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                Scored / Pass ({scored.length})
+              </h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {scored.map((c) => (
+                  <CandidateCard
+                    key={c.id ?? c.domain}
+                    candidate={c}
+                    onScore={handleScore}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
