@@ -5,6 +5,7 @@ import type { DnsPreFilterStage } from './stages/dns-prefilter-stage.js';
 import type { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 import type { ScoringStage, ScoredCandidate } from './stages/scoring-stage.js';
 import type { TrademarkGateStage } from './stages/trademark-gate-stage.js';
+import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -23,6 +24,8 @@ export interface StageError {
   stageName: string;
   message: string;
   candidateCount: number;
+  provider?: string;
+  isTransient?: boolean;
 }
 
 export class PipelineTimeoutError extends Error {
@@ -208,7 +211,16 @@ export class PipelineOrchestrator {
         { err, label },
         `Pipeline: ${label} stage fatally failed — recovering with empty result`,
       );
-      errors.push({ stageName: label, message: msg, candidateCount: 0 });
+      const stageError: StageError = {
+        stageName: label,
+        message: msg,
+        candidateCount: 0,
+      };
+      if (err instanceof ProviderError) {
+        stageError.provider = err.provider;
+        stageError.isTransient = true;
+      }
+      errors.push(stageError);
       summary[label] = { passed: 0, filtered: 0, durationMs: Date.now() - startMs };
       return { passed: [], filtered: [], stageName: label, durationMs: Date.now() - startMs };
     }
