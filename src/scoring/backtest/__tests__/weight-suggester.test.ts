@@ -68,6 +68,7 @@ function seedSignalRow(db: Database.Database, s: SeedSignal): void {
     recommended: true,
     scoredAt: s.scoredAt,
     signalStatus: [],
+    bidRange: { conservative: 250, aggressive: 500 },
   };
   scoringRepo.insert(candidate.id!, 'test', result);
   db.prepare(

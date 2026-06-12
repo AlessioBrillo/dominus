@@ -97,9 +97,9 @@ export function CandidateCard({ candidate, onScore, onDelete }: CandidateCardPro
               </div>
             </div>
             <div className="bg-gray-950 rounded-lg p-3">
-              <div className="text-gray-500 text-xs">Buy Max</div>
+              <div className="text-gray-500 text-xs">Bid Range</div>
               <div className="font-mono text-amber-400 font-bold">
-                €{score.suggestedBuyMax.toFixed(2)}
+                €{score.bidRange.conservative.toFixed(2)} – €{score.bidRange.aggressive.toFixed(2)}
               </div>
             </div>
             <div className="bg-gray-950 rounded-lg p-3">

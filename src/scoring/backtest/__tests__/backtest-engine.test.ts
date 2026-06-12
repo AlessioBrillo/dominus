@@ -70,6 +70,7 @@ function seedScoringSnapshot(
     recommended: true,
     scoredAt,
     signalStatus: [],
+    bidRange: { conservative: 250, aggressive: 500 },
   };
 
   // Manually set scored_at via direct update (the repo does not accept a custom timestamp).

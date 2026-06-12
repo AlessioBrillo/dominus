@@ -4,6 +4,10 @@ export interface ScoreResult {
   confidence: number;
   suggestedBuyMax: number;
   suggestedListPrice: number;
+  bidRange: {
+    conservative: number;
+    aggressive: number;
+  };
   weightedScore: number;
   recommended: boolean;
   scoredAt: string;

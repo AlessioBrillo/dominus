@@ -7,17 +7,14 @@ on:
     branches: [master]
 
 env:
-  # Opt in to Node.js 24 runner ahead of the June 16, 2026 forced migration.
-  # Remove this once actions/checkout and actions/setup-node ship with
-  # Node.js 24 by default.
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NODE_VERSION: 24
 
 jobs:
   quality:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20]
+        node-version: [20, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +24,9 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+
+      - name: Audit dependencies (backend)
+        run: npm audit --audit-level=high
 
       - name: Install backend dependencies
         run: npm ci
@@ -43,7 +43,7 @@ jobs:
       - name: Format check
         run: npm run format:check
 
-      - name: Test backend
+      - name: Test backend (with coverage)
         run: npm test -- --coverage
 
       - name: Install frontend dependencies
@@ -54,6 +54,17 @@ jobs:
         working-directory: ./frontend
         run: npm run typecheck
 
+      - name: Lint (frontend)
+        working-directory: ./frontend
+        run: npm run lint
+
+      - name: Test frontend
+        working-directory: ./frontend
+        run: npm test
+
       - name: Build frontend
         working-directory: ./frontend
         run: npm run build
+
+      - name: Build Docker image
+        run: docker build -t dominus .

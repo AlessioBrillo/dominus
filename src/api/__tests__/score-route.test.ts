@@ -29,6 +29,7 @@ function makeScoreResult(overrides: Partial<ScoreResult> = {}): ScoreResult {
     },
     scoredAt: new Date().toISOString(),
     signalStatus: [],
+    bidRange: { conservative: 25, aggressive: 50 },
     ...overrides,
   };
 }

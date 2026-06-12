@@ -70,6 +70,7 @@ function seedScoringSnapshot(
     recommended: true,
     scoredAt,
     signalStatus: [],
+    bidRange: { conservative: 250, aggressive: 500 },
   };
   scoringRepo.insert(candidate.id!, 'test', result);
   db.prepare(

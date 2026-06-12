@@ -39,6 +39,8 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build",
+    "audit": "npm audit --audit-level=high",
+    "prepush": "npm run typecheck && npm run build && npm run lint && npm run format:check && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('coverage',{recursive:true,force:true})\"",
     "prepare": "husky"
   },

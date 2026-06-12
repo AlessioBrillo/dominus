@@ -40,6 +40,7 @@ function makeScoreResult(domain: string): ScoreResult {
     recommended: true,
     scoredAt: new Date().toISOString(),
     signalStatus: [],
+    bidRange: { conservative: 50, aggressive: 100 },
   };
 }
 
