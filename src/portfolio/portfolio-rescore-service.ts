@@ -126,7 +126,7 @@ export class PortfolioRescoreService {
 
       const gate = await this.gate.check(entry.domain);
 
-      const candidateId = this.ensureRescoreCandidate(entry);
+      const candidateId = this.ensureRescoreCandidate(entry, runId);
       this.scoringRepo.insert(candidateId, runId, score);
 
       return {
@@ -159,14 +159,14 @@ export class PortfolioRescoreService {
     }
   }
 
-  private ensureRescoreCandidate(entry: PortfolioEntry): number {
+  private ensureRescoreCandidate(entry: PortfolioEntry, runId: string): number {
     this.candidateRepo.upsert({
       domain: entry.domain,
       tld: entry.tld,
       source: CandidateSource.PortfolioRescore,
       status: CandidateStatus.Scored,
       isPremium: false,
-      pipelineRunId: RESCORE_RUN_ID_PREFIX + entry.domain,
+      pipelineRunId: runId,
     });
     const row = this.candidateRepo.findByDomain(entry.domain);
     if (row === null || row.id === undefined) {
