@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useAuth } from '../hooks/useAuth.js';
 import { verifyAndStoreKey } from '../api/auth.js';
 
@@ -8,7 +8,7 @@ export function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -43,9 +43,7 @@ export function LoginForm() {
               />
             </div>
 
-            {error && (
-              <div className="text-red-400 text-xs text-center">{error}</div>
-            )}
+            {error && <div className="text-red-400 text-xs text-center">{error}</div>}
 
             <button
               type="submit"

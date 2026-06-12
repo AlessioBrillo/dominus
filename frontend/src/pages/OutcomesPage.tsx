@@ -67,7 +67,9 @@ export function OutcomesPage() {
                     {o.type}
                   </span>
                 </td>
-                <td className="py-3 px-4 text-gray-400">{new Date(o.occurredAt).toLocaleDateString()}</td>
+                <td className="py-3 px-4 text-gray-400">
+                  {new Date(o.occurredAt).toLocaleDateString()}
+                </td>
                 <td className="py-3 px-4 font-mono text-gray-300">
                   {o.salePriceEur ? `€${o.salePriceEur.toFixed(2)}` : '—'}
                 </td>

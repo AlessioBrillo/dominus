@@ -457,7 +457,9 @@ export function createDependencies(config: Config): DominusDependencies {
     buyMaxAbsoluteCap: config.BUY_MAX_ABSOLUTE_CAP,
   });
 
-  // ── Scheduler ─────────────────────────────────────────────────────
+  // ── Scheduler (constructed but NOT auto-started) ──────────────────
+  // Scheduler must be explicitly started by the entry point (Express server)
+  // after all dependencies are ready. CLI mode must NOT auto-start jobs.
   let scheduler: SchedulerService | undefined;
   if (config.SCHEDULER_ENABLED) {
     scheduler = new SchedulerService({
@@ -471,7 +473,6 @@ export function createDependencies(config: Config): DominusDependencies {
       jobRepo: new SchedulerJobRepository(db),
       ...(autoTuner ? { autoTuner } : {}),
     });
-    scheduler.start();
   }
 
   return {

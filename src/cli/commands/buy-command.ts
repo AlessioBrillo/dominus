@@ -73,7 +73,7 @@ export function registerBuyCommand(program: Command, deps: BuyCommandDeps): void
         process.stdout.write(`  Registrar:     ${purchaseService.registrarName}\n`);
         if (check.expectedValue !== null) {
           process.stdout.write(`  Expected Val:  €${check.expectedValue.toFixed(2)}\n`);
-          process.stdout.write(`  Confidence:    ${(check.confidence ?? 0 * 100).toFixed(0)}%\n`);
+          process.stdout.write(`  Confidence:    ${((check.confidence ?? 0) * 100).toFixed(0)}%\n`);
           process.stdout.write(`  Buy Max:       €${(check.suggestedBuyMax ?? 0).toFixed(2)}\n`);
         }
         process.stdout.write(

@@ -6,8 +6,7 @@ interface ScoreGaugeProps {
 
 export function ScoreGauge({ value, label, max = 1 }: ScoreGaugeProps) {
   const pct = Math.min(100, Math.max(0, (value / max) * 100));
-  const color =
-    pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+  const color = pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
     <div className="flex flex-col gap-1">

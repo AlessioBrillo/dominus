@@ -153,6 +153,11 @@ app.use(errorHandler);
 
 const server = app.listen(config.PORT, config.HOST, () => {
   logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
+  // Start the scheduler only after the HTTP server is ready
+  deps.scheduler?.start();
+  if (deps.scheduler) {
+    logger.info('Background scheduler started');
+  }
 });
 
 function shutdown(signal: string): void {

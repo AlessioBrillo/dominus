@@ -19,7 +19,7 @@ export function CandidateCard({ candidate, onScore, onDelete }: CandidateCardPro
 
   const score = candidate.scoreResult;
 
-  const handleBuy = async () => {
+  const handleBuy = async (): Promise<void> => {
     if (!confirm(`Buy ${candidate.domain}? Check the price and proceed with purchase.`)) return;
     setBuying(true);
     setBuyResult(null);

@@ -1,1 +1,3 @@
+npm run typecheck
+cd frontend && npm run typecheck && cd ..
 npx lint-staged

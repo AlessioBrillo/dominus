@@ -36,7 +36,7 @@ export function CandidatesPage() {
       .finally(() => setLoading(false));
   }, [selectedRunId]);
 
-  const handleRun = async () => {
+  const handleRun = async (): Promise<void> => {
     setRunning(true);
     setError(null);
     try {
@@ -61,7 +61,7 @@ export function CandidatesPage() {
     }
   };
 
-  const handleScore = async (domain: string) => {
+  const handleScore = async (domain: string): Promise<void> => {
     try {
       const result = await scoreDomain(domain);
       setCandidates((prev) =>
@@ -81,7 +81,7 @@ export function CandidatesPage() {
     }
   };
 
-  const handleDelete = async (domain: string) => {
+  const handleDelete = async (domain: string): Promise<void> => {
     try {
       await deleteCandidate(domain);
       setCandidates((prev) => prev.filter((c) => c.domain !== domain));

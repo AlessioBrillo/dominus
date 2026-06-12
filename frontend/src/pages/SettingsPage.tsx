@@ -21,7 +21,7 @@ export function SettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = (): void => {
     logout();
     window.location.href = '/';
   };
@@ -104,9 +104,7 @@ export function SettingsPage() {
                   />
                   <span className="text-sm text-gray-200 font-medium">{p.name}</span>
                 </div>
-                <span className="text-xs text-gray-500 max-w-96 text-right truncate">
-                  {p.note}
-                </span>
+                <span className="text-xs text-gray-500 max-w-96 text-right truncate">{p.note}</span>
               </div>
             ))}
           </div>

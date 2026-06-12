@@ -13,16 +13,16 @@ export function PortfolioPage() {
   useEffect(() => {
     api
       .get<{ portfolio: PortfolioEntry[] }>('/portfolio')
-      .then((data) => setEntries(data.portfolio))
+      .then((data: { portfolio: PortfolioEntry[] }) => setEntries(data.portfolio))
       .catch(() => setError('Failed to load portfolio'))
       .finally(() => setLoading(false));
   }, []);
 
-  const handleRescore = async () => {
+  const handleRescore = async (): Promise<void> => {
     setRescoring(true);
     setError(null);
     try {
-      const result = await rescorePortfolio();
+      await rescorePortfolio();
       const updated = await api.get<{ portfolio: PortfolioEntry[] }>('/portfolio');
       setEntries(updated.portfolio);
     } catch (err: unknown) {
@@ -32,7 +32,7 @@ export function PortfolioPage() {
     }
   };
 
-  const handleRefreshVerdicts = async () => {
+  const handleRefreshVerdicts = async (): Promise<void> => {
     try {
       await api.post('/portfolio/verdicts');
       const updated = await api.get<{ portfolio: PortfolioEntry[] }>('/portfolio');
@@ -42,11 +42,13 @@ export function PortfolioPage() {
     }
   };
 
-  const handleDelete = async (domain: string) => {
+  const handleDelete = async (domain: string): Promise<void> => {
     if (!confirm(`Remove ${domain} from portfolio?`)) return;
     try {
       await api.delete(`/portfolio/${encodeURIComponent(domain)}`);
-      setEntries((prev) => prev.filter((e) => e.domain !== domain));
+      setEntries((prev: PortfolioEntry[]) =>
+        prev.filter((e: PortfolioEntry) => e.domain !== domain),
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Delete failed');
     }
