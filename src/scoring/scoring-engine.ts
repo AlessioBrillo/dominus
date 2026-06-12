@@ -5,6 +5,7 @@ import { computeIntrinsicScore } from './signals/intrinsic-signal.js';
 import { computeCommercialScore } from './signals/commercial-signal.js';
 import { computeMarketScore } from './signals/market-signal.js';
 import { computeExpiryScore } from './signals/expiry-signal.js';
+import { parseDomain } from '../utils/domain.js';
 import {
   DEFAULT_WEIGHTS,
   DEFAULT_TLD_BONUS,
@@ -47,25 +48,38 @@ export class ScoringEngine {
   }
 
   async score(input: ScoringInput): Promise<ScoreResult> {
+    // Always derive SLD and TLD from the authoritative domain parser.
+    // The input fields are accepted for backward compatibility
+    // but internal computation is the canonical path (principle:
+    // one source of truth for domain parsing across all consumers).
+    const parsed = parseDomain(input.domain);
+    const sld = input.sld ?? parsed.sld;
+    const tld = input.tld ?? parsed.tld;
+    const inputWithSld: ScoringInput = { ...input, sld, tld };
+
     const intrinsic = computeIntrinsicScore(
-      input,
+      inputWithSld,
       this.#weights.intrinsic,
       this.scoringConfig.intrinsic,
       this.#tldBonuses,
     );
     const commercial = await computeCommercialScore(
-      input,
+      inputWithSld,
       this.keywordProvider,
       this.#weights.commercial,
       this.scoringConfig.commercial,
     );
     const market = await computeMarketScore(
-      input,
+      inputWithSld,
       this.compsProvider,
       this.#weights.market,
       this.scoringConfig.market,
     );
-    const expiry = computeExpiryScore(input, this.#weights.expiry, this.scoringConfig.expiry);
+    const expiry = computeExpiryScore(
+      inputWithSld,
+      this.#weights.expiry,
+      this.scoringConfig.expiry,
+    );
 
     const weightedScore =
       intrinsic.score * intrinsic.weight +

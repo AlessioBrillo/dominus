@@ -4,6 +4,19 @@ export interface RateLimiterConfig {
   intervalMs: number;
 }
 
+export interface RateLimiterMetrics {
+  /** Maximum burst capacity. */
+  maxTokens: number;
+  /** Current available tokens. */
+  currentTokens: number;
+  /** Number of requests waiting in the queue. */
+  queueLength: number;
+  /** Tokens added per interval. */
+  tokensPerInterval: number;
+  /** Refill interval in milliseconds. */
+  intervalMs: number;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -37,6 +50,24 @@ export class RateLimiter {
 
   static unlimited(): RateLimiter {
     return new RateLimiter(UNLIMITED_CONFIG);
+  }
+
+  /**
+   * Return current operational metrics for monitoring and health-check.
+   * Exposes queue depth and token state so operators can detect
+   * bottlenecks (e.g. RDAP/WHOIS queue backing up during a large
+   * pipeline run) without instrumenting every provider call.
+   */
+  metrics(): RateLimiterMetrics {
+    this.#refill();
+    return {
+      maxTokens: this.#maxTokens === Number.POSITIVE_INFINITY ? -1 : this.#maxTokens,
+      currentTokens: this.#tokens === Number.POSITIVE_INFINITY ? -1 : this.#tokens,
+      queueLength: this.#queue.length,
+      tokensPerInterval:
+        this.#tokensPerInterval === Number.POSITIVE_INFINITY ? -1 : this.#tokensPerInterval,
+      intervalMs: this.#intervalMs,
+    };
   }
 
   async acquire(): Promise<void> {

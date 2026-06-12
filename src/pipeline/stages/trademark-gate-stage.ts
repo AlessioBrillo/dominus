@@ -27,16 +27,22 @@ export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
 
     const batches = toBatches(candidates, this.concurrency);
     for (const batch of batches) {
-      const results = await Promise.allSettled(
-        batch.map(async (candidate) => {
-          const result = await this.gate.check(candidate.domain);
-          return { candidate, verdict: result.verdict };
-        }),
-      );
+      // Placeholder array: results[i] corresponds to batch[i].
+      // Promise.allSettled preserves input order, so we can safely
+      // iterate by index without relying on Promise identity.
+      const tasks = batch.map(async (candidate) => {
+        const result = await this.gate.check(candidate.domain);
+        return { candidate, verdict: result.verdict };
+      });
 
-      for (const settled of results) {
-        if (settled.status === 'fulfilled') {
-          const { candidate, verdict } = settled.value;
+      const settled = await Promise.allSettled(tasks);
+
+      for (let i = 0; i < settled.length; i++) {
+        const result = settled[i]!;
+        const candidate = batch[i]!;
+
+        if (result.status === 'fulfilled') {
+          const { verdict } = result.value;
           if (verdict === GateVerdict.Blocked) {
             filtered.push({ ...candidate, status: CandidateStatus.TrademarkBlocked });
           } else if (verdict === GateVerdict.Unverified) {
@@ -45,11 +51,7 @@ export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
             passed.push(candidate);
           }
         } else {
-          const idx = results.indexOf(settled);
-          const failed = batch[idx];
-          if (failed) {
-            filtered.push({ ...failed, status: CandidateStatus.Unscored });
-          }
+          filtered.push({ ...candidate, status: CandidateStatus.Unscored });
         }
       }
     }

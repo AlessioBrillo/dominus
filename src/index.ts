@@ -54,6 +54,13 @@ const corsOrigins = config.CORS_ORIGIN.split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 
+if (corsOrigins.includes('*')) {
+  logger.warn(
+    'CORS is configured with wildcard origin (*). This allows any website to call the API. ' +
+      'Restrict CORS_ORIGIN to specific origins in production.',
+  );
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -153,10 +160,17 @@ app.use(errorHandler);
 
 const server = app.listen(config.PORT, config.HOST, () => {
   logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
-  // Start the scheduler only after the HTTP server is ready
-  deps.scheduler?.start();
+  // Warmup delay before starting background jobs: allows the DB connection
+  // to stabilise, provider caches to initialise, and rate-limiters to
+  // calibrate before the first scheduled job fires. Particularly important
+  // on cold start where multiple jobs (renewal-check, rescore, watchlist)
+  // could all queue their first execution within seconds.
+  const warmupMs = config.SCHEDULER_WARMUP_MS;
   if (deps.scheduler) {
-    logger.info('Background scheduler started');
+    setTimeout(() => {
+      deps.scheduler!.start();
+      logger.info({ warmupMs }, 'Background scheduler started after warmup');
+    }, warmupMs).unref();
   }
 });
 

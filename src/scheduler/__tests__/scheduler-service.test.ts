@@ -47,6 +47,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     SCHEDULER_RESCORE_CRON: '0 9 * * 1',
     SCHEDULER_PRUNE_CRON: '0 10 1 * *',
     SCHEDULER_WATCHLIST_CRON: '0 */6 * * *',
+    SCHEDULER_WARMUP_MS: 5000,
     WATCHLIST_POLL_INTERVAL_HOURS: 6,
     WATCHLIST_RDAP_DELAY_MS: 200,
     CORS_ORIGIN: '*',

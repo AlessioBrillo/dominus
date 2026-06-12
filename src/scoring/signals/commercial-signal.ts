@@ -9,7 +9,9 @@ export async function computeCommercialScore(
   weight: number,
   config: CommercialSignalConfig = DEFAULT_COMMERCIAL_CONFIG,
 ): Promise<SignalOutput> {
-  const sld = input.sld;
+  // Engine always sets sld before calling signal functions;
+  // non-null assertion is safe here (see ScoringEngine.score()).
+  const sld = input.sld!;
   let metrics: { monthlySearchVolume: number; cpc: number };
   let providerError: string | undefined;
 

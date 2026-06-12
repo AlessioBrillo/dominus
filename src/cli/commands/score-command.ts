@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
-import { isValidDomain, parseDomain } from '../../utils/domain.js';
+import { isValidDomain } from '../../utils/domain.js';
 
 export function registerScoreCommand(
   program: Command,
@@ -30,13 +30,11 @@ export function registerScoreCommand(
           process.exit(1);
         }
 
-        const parsed = parseDomain(domain);
-
         engine
           .score({
             domain,
-            tld: parsed.tld,
-            sld: parsed.sld,
+            // TLD and SLD are derived internally by ScoringEngine
+            // from the authoritative PSL-based domain parser.
             isCloseout: options.closeout,
             domainAge: options.age,
             backlinks: options.backlinks,

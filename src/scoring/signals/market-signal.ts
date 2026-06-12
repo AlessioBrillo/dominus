@@ -9,7 +9,9 @@ export async function computeMarketScore(
   weight: number,
   config: MarketSignalConfig = DEFAULT_MARKET_CONFIG,
 ): Promise<SignalOutput & { medianSalePrice: number }> {
-  const sld = input.sld;
+  // Engine always sets sld before calling signal functions;
+  // non-null assertion is safe here (see ScoringEngine.score()).
+  const sld = input.sld!;
   let sales: { salePrice: number }[];
   let providerError: string | undefined;
 
