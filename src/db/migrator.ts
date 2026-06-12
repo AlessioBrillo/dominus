@@ -20,6 +20,10 @@ import * as m0016 from './migrations/0016_add_backtest_costs.js';
 interface Migration {
   name: string;
   up: (db: Database.Database) => void;
+  /** Optional rollback function. Must reverse the up() DDL exactly.
+   *  Only supported for forward-only environments (single-user).
+   *  Not available in shared/HA deployments — use backup-restore instead. */
+  down?: (db: Database.Database) => void;
 }
 
 const MIGRATIONS: Migration[] = [
