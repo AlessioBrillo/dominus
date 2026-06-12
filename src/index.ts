@@ -20,6 +20,7 @@ import {
   createBacktestRouter,
   createProvidersRouter,
   createOutcomesRouter,
+  createAuthRouter,
   createAlertsRouter,
   createSchedulerRouter,
   createWatchlistRouter,
@@ -90,6 +91,7 @@ app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter(deps.healthCheck));
+app.use('/api/auth', createAuthRouter(authProvider));
 
 const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);

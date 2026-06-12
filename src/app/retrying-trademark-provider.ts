@@ -155,7 +155,7 @@ export class RetryingTrademarkProvider implements TrademarkProvider {
     this.#circuitBreaker = new CircuitBreaker(this.#circuitBreakerPolicy);
   }
 
-  async search(term: string): Promise<TrademarkMatch[]> {
+  async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
     // Fast-fail when the circuit is open
     if (!this.#circuitBreaker.allow()) {
       throw new CircuitOpenError(this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
@@ -168,7 +168,8 @@ export class RetryingTrademarkProvider implements TrademarkProvider {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= max; attempt++) {
       try {
-        const result = await this.#delegate.search(term);
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        const result = await this.#delegate.search(term, signal);
         this.#circuitBreaker.onSuccess();
         return result;
       } catch (err) {

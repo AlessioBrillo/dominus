@@ -20,7 +20,7 @@ export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
     private readonly concurrency: number = 3,
   ) {}
 
-  async process(candidates: T[]): Promise<StageResult<T>> {
+  async process(candidates: T[], _signal?: AbortSignal): Promise<StageResult<T>> {
     const start = Date.now();
     const passed: T[] = [];
     const filtered: T[] = [];

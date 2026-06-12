@@ -7,5 +7,5 @@ export interface WhoisResult {
 }
 
 export interface WhoisProvider {
-  checkAvailability(domain: string): Promise<WhoisResult>;
+  checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult>;
 }

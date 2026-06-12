@@ -19,16 +19,20 @@ export class PublicRdapProvider implements RdapProvider {
     this.#rateLimiter = rateLimiter ?? RateLimiter.unlimited();
   }
 
-  async confirm(domain: string): Promise<RdapResult> {
-    return this.#rateLimiter.throttle(() => this.#doConfirm(domain));
+  async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
+    return this.#rateLimiter.throttle(() => this.#doConfirm(domain, signal));
   }
 
-  async #doConfirm(domain: string): Promise<RdapResult> {
+  async #doConfirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
     const url = `${RDAP_BOOTSTRAP_URL}${encodeURIComponent(domain)}`;
     let response: Response;
 
     try {
-      response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      response = await fetch(url, {
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+          : AbortSignal.timeout(10_000),
+      });
     } catch (err: unknown) {
       throw new ProviderError(
         `RDAP request failed for ${domain}: ${String(err)}`,

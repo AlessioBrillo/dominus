@@ -33,7 +33,7 @@ describe('CachedProvider', () => {
 
     expect(result).toEqual({ id: 1, name: 'test' });
     expect(fetchFn).toHaveBeenCalledOnce();
-    expect(fetchFn).toHaveBeenCalledWith('key1');
+    expect(fetchFn).toHaveBeenCalledWith('key1', undefined);
   });
 
   it('writes to cache after fetchFn succeeds', async () => {

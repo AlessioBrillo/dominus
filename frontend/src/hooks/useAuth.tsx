@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { getStoredApiKey, clearApiKey, storeApiKey } from '../api/client.js';
+import { getStoredApiKey, clearApiKey, storeApiKey, setOnUnauthorized } from '../api/client.js';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -18,6 +18,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const stored = getStoredApiKey();
     setIsAuthenticated(stored !== null);
     setIsLoading(false);
+
+    setOnUnauthorized(() => {
+      setIsAuthenticated(false);
+    });
   }, []);
 
   const login = useCallback((key: string) => {

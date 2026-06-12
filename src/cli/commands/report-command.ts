@@ -1,6 +1,10 @@
 import { type Command } from 'commander';
 import type { PortfolioReportService } from '../../portfolio/portfolio-report-service.js';
 
+/* eslint-disable no-console */
+/* CLI reporting commands legitimately output to stdout — pino would obscure
+ * tabular data. The rule is disabled file-wide so report output stays readable. */
+
 export function registerReportCommand(
   program: Command,
   deps: { reportService: PortfolioReportService },

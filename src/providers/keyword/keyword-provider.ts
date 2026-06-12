@@ -6,5 +6,5 @@ export interface KeywordMetrics {
 }
 
 export interface KeywordProvider {
-  getMetrics(term: string): Promise<KeywordMetrics>;
+  getMetrics(term: string, signal?: AbortSignal): Promise<KeywordMetrics>;
 }

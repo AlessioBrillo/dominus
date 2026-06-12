@@ -30,7 +30,7 @@ export class CachedTrademarkProvider implements TrademarkProvider {
     );
   }
 
-  async search(term: string): Promise<TrademarkMatch[]> {
-    return this.cache.get(term);
+  async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
+    return this.cache.get(term, signal);
   }
 }

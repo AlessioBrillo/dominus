@@ -38,6 +38,8 @@ export class PipelineTimeoutError extends Error {
 }
 
 export class PipelineOrchestrator {
+  #abortController: AbortController | null = null;
+
   constructor(
     private readonly generationStage: CandidateGenerationStage,
     private readonly dnsStage: DnsPreFilterStage,
@@ -48,12 +50,19 @@ export class PipelineOrchestrator {
   ) {}
 
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
+    this.#abortController = new AbortController();
+    const signal = this.#abortController.signal;
     const start = Date.now();
     const stageSummary: PipelineResult['stageSummary'] = {};
     const stageErrors: StageError[] = [];
-    const aborted = (): boolean => this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs;
+    const aborted = (): boolean =>
+      signal.aborted || (this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs);
 
     if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+
+    if (signal.aborted) {
+      return this.#abortWithError('unknown', stageSummary, stageErrors, start);
+    }
 
     let gen: {
       passed: DomainCandidate[];
@@ -64,8 +73,9 @@ export class PipelineOrchestrator {
     try {
       gen = await this.#withTimeout(
         'CandidateGeneration',
-        () => this.generationStage.process([input]),
+        (s) => this.generationStage.process([input], s),
         start,
+        signal,
       );
     } catch (err) {
       logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
@@ -89,44 +99,60 @@ export class PipelineOrchestrator {
       durationMs: gen.durationMs,
     };
     const runId = gen.passed[0]?.pipelineRunId ?? 'unknown';
-    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    if (aborted()) {
+      this.#abortController.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    }
 
     const dns = await this.#runStageSafe(
       'DnsPreFilter',
-      () => this.dnsStage.process(gen.passed),
+      (s) => this.dnsStage.process(gen.passed, s),
       start,
       stageSummary,
       stageErrors,
+      signal,
     );
     if (dns === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    if (aborted()) {
+      this.#abortController.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    }
 
     const rdap = await this.#runStageSafe(
       'RdapConfirmation',
-      () => this.rdapStage.process(dns.passed),
+      (s) => this.rdapStage.process(dns.passed, s),
       start,
       stageSummary,
       stageErrors,
+      signal,
     );
     if (rdap === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    if (aborted()) {
+      this.#abortController.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    }
 
     const scoring = await this.#runStageSafe(
       'Scoring',
-      () => this.scoringStage.process(rdap.passed),
+      (s) => this.scoringStage.process(rdap.passed, s),
       start,
       stageSummary,
       stageErrors,
+      signal,
     );
     if (scoring === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    if (aborted()) {
+      this.#abortController.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    }
 
     const trademark = await this.#runStageSafe(
       'TrademarkGate',
-      () => this.trademarkStage.process(scoring.passed),
+      (s) => this.trademarkStage.process(scoring.passed, s),
       start,
       stageSummary,
       stageErrors,
+      signal,
     );
     if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
 
@@ -145,6 +171,8 @@ export class PipelineOrchestrator {
       ...trademark.passed,
     ];
 
+    this.#abortController = null;
+
     return {
       runId,
       recommended: trademark.passed,
@@ -158,13 +186,16 @@ export class PipelineOrchestrator {
 
   async #runStageSafe<T>(
     label: string,
-    fn: () => Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number }>,
+    fn: (
+      signal: AbortSignal,
+    ) => Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number }>,
     startMs: number,
     summary: PipelineResult['stageSummary'],
     errors: StageError[],
+    signal: AbortSignal,
   ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
     try {
-      const result = await this.#withTimeout(label, fn, startMs);
+      const result = await this.#withTimeout(label, fn, startMs, signal);
       summary[result.stageName] = {
         passed: result.passed.length,
         filtered: result.filtered.length,
@@ -200,22 +231,47 @@ export class PipelineOrchestrator {
     };
   }
 
-  async #withTimeout<T>(label: string, fn: () => Promise<T>, startMs: number): Promise<T> {
-    if (this.timeoutMs <= 0) return fn();
+  async #withTimeout<T>(
+    label: string,
+    fn: (signal: AbortSignal) => Promise<T>,
+    startMs: number,
+    signal: AbortSignal,
+  ): Promise<T> {
+    if (this.timeoutMs <= 0) return fn(signal);
 
     const elapsed = Date.now() - startMs;
     const remaining = this.timeoutMs - elapsed;
-    if (remaining <= 0) throw new PipelineTimeoutError(this.timeoutMs, elapsed);
+    if (remaining <= 0) {
+      this.#abortController?.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, elapsed);
+    }
 
-    return raceWithTimeout(fn(), remaining, label);
+    return raceWithTimeout(fn(signal), remaining, label, signal, this.#abortController);
   }
 }
 
-function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+function raceWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+  signal: AbortSignal,
+  abortController: AbortController | null,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = Date.now() + timeoutMs;
   const timeout = new Promise<never>((_, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new PipelineTimeoutError(timeoutMs, Date.now() - (deadline - timeoutMs)));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
     timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      abortController?.abort();
       const elapsed = Date.now() - (deadline - timeoutMs);
       logger.warn({ label, timeoutMs, elapsed }, 'Pipeline stage timed out');
       reject(new PipelineTimeoutError(timeoutMs, elapsed));

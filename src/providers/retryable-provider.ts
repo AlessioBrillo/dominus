@@ -77,9 +77,10 @@ export function isTransientError(err: unknown): boolean {
 }
 
 export async function withRetry<T>(
-  fn: () => Promise<T>,
+  fn: (signal?: AbortSignal) => Promise<T>,
   label: string,
   policy: Partial<RetryPolicy> = {},
+  signal?: AbortSignal,
 ): Promise<T> {
   const p: RetryPolicy = { ...DEFAULT_RETRY_POLICY, ...policy };
   const random = p.random ?? Math.random;
@@ -88,8 +89,9 @@ export async function withRetry<T>(
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= max; attempt++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     try {
-      return await fn();
+      return await fn(signal);
     } catch (err) {
       lastErr = err;
       if (attempt >= max || !isTransientError(err)) {
@@ -104,7 +106,19 @@ export async function withRetry<T>(
         { err, label, attempt, max, delayMs: delay },
         `RetryableProvider: ${label} attempt ${attempt}/${max} failed, retrying in ${delay}ms`,
       );
-      await sleep(delay);
+      await Promise.race([
+        sleep(delay),
+        signal
+          ? new Promise<never>((_, reject) => {
+              if (signal.aborted) reject(new DOMException('Aborted', 'AbortError'));
+              signal.addEventListener(
+                'abort',
+                () => reject(new DOMException('Aborted', 'AbortError')),
+                { once: true },
+              );
+            })
+          : Promise.resolve(),
+      ]);
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));

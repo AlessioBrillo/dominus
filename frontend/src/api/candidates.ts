@@ -1,5 +1,5 @@
 import { api } from './client.js';
-import type { Candidate } from '../types/domain.js';
+import type { Candidate, PipelineRun } from '../types/domain.js';
 
 export interface CandidateListResponse {
   candidates: Candidate[];
@@ -18,10 +18,21 @@ export interface RunPipelineResponse {
   totalDurationMs: number;
 }
 
-export function fetchCandidates(runId: string): Promise<CandidateListResponse> {
-  return api.get<CandidateListResponse>(`/api/candidates?runId=${encodeURIComponent(runId)}`);
+export async function fetchCandidates(runId?: string): Promise<Candidate[]> {
+  const query = runId ? `?runId=${encodeURIComponent(runId)}` : '';
+  const data = await api.get<CandidateListResponse>(`/candidates${query}`);
+  return data.candidates;
 }
 
-export function runPipeline(input: RunPipelineRequest): Promise<RunPipelineResponse> {
-  return api.post<RunPipelineResponse>('/api/candidates/run', input);
+export async function runPipeline(input: RunPipelineRequest): Promise<RunPipelineResponse> {
+  return api.post<RunPipelineResponse>('/candidates/run', input);
+}
+
+export async function deleteCandidate(domain: string): Promise<void> {
+  await api.delete(`/candidates/${encodeURIComponent(domain)}`);
+}
+
+export async function fetchRuns(): Promise<PipelineRun[]> {
+  const data = await api.get<{ runs: PipelineRun[] }>('/runs');
+  return data.runs;
 }

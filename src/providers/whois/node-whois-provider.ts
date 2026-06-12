@@ -184,13 +184,15 @@ export class NodeWhoisProvider implements WhoisProvider {
     return this.#perTldRateLimiters[cleanTld] ?? this.#defaultRateLimiter;
   }
 
-  async checkAvailability(domain: string): Promise<WhoisResult> {
+  async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const tld = extractTld(domain);
     const limiter = this.#rateLimiterFor(tld);
-    return limiter.throttle(() => this.#doCheckAvailability(domain));
+    return limiter.throttle(() => this.#doCheckAvailability(domain, signal));
   }
 
-  async #doCheckAvailability(domain: string): Promise<WhoisResult> {
+  async #doCheckAvailability(domain: string, _signal?: AbortSignal): Promise<WhoisResult> {
+    if (_signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const tld = extractTld(domain);
     if (tld === '') {
       throw new ProviderError(
@@ -245,12 +247,13 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
     this.#connectFn = config.connect;
   }
 
-  async checkAvailability(domain: string): Promise<WhoisResult> {
+  async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const tld = domain.includes('.') ? domain.slice(domain.lastIndexOf('.')) : '';
     const cleanTld = tld.startsWith('.') ? tld.slice(1) : tld;
 
     try {
-      return await this.#delegate.checkAvailability(domain);
+      return await this.#delegate.checkAvailability(domain, signal);
     } catch (err) {
       if (err instanceof ProviderError && err.code === 'WHOIS_NO_SERVER') {
         const ianaServer = await resolveWhoisServer(cleanTld, this.#connectFn);
@@ -259,7 +262,7 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
             connect: this.#connectFn,
             serverOverrides: { [`.${cleanTld}`]: ianaServer },
           });
-          return providerWithIana.checkAvailability(domain);
+          return providerWithIana.checkAvailability(domain, signal);
         }
       }
       throw err;

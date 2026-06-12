@@ -24,7 +24,6 @@ export interface ScoringConstants {
   listPriceMultiplier: number;
   baseMarketValueEur: number;
   confidenceBase: number;
-  confidencePerSignal: number;
   confidenceCap: number;
   /**
    * Influence of the intrinsic quality score on the final confidence.
@@ -77,7 +76,6 @@ export const DEFAULT_SCORING_CONSTANTS: ScoringConstants = {
   listPriceMultiplier: 2.5,
   baseMarketValueEur: 500,
   confidenceBase: 0.2,
-  confidencePerSignal: 0.3,
   confidenceCap: 0.8,
   intrinsicQualityInfluence: 0.12,
   holdingYears: 3,

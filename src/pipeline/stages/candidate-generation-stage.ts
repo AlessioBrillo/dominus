@@ -18,7 +18,10 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
 
   constructor(private readonly defaultKeywordTld: string = '.com') {}
 
-  process(inputs: CandidateGenerationInput[]): Promise<StageResult<DomainCandidate>> {
+  process(
+    inputs: CandidateGenerationInput[],
+    _signal?: AbortSignal,
+  ): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
     const passed: DomainCandidate[] = [];
     const runId = randomUUID();

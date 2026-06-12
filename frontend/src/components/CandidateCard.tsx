@@ -6,9 +6,10 @@ import { useState } from 'react';
 interface CandidateCardProps {
   candidate: Candidate;
   onScore?: (domain: string) => void;
+  onDelete?: (domain: string) => void;
 }
 
-export function CandidateCard({ candidate, onScore }: CandidateCardProps) {
+export function CandidateCard({ candidate, onScore, onDelete }: CandidateCardProps) {
   const [buying, setBuying] = useState(false);
   const [buyResult, setBuyResult] = useState<{
     success: boolean;
@@ -56,17 +57,28 @@ export function CandidateCard({ candidate, onScore }: CandidateCardProps) {
           <h3 className="text-lg font-semibold text-gray-100">{candidate.domain}</h3>
           <span className="text-xs text-gray-500">Source: {candidate.source}</span>
         </div>
-        <span
-          className={`px-2 py-0.5 rounded text-xs font-medium ${
-            candidate.status === 'recommended'
-              ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-800'
-              : candidate.status === 'scored'
-                ? 'bg-amber-900/50 text-amber-400 border border-amber-800'
-                : 'bg-gray-800 text-gray-500'
-          }`}
-        >
-          {candidate.status}
-        </span>
+        <div className="flex items-center gap-2">
+          {onDelete && (
+            <button
+              onClick={() => onDelete(candidate.domain)}
+              className="text-gray-600 hover:text-red-400 transition-colors text-xs"
+              title="Remove candidate"
+            >
+              ✕
+            </button>
+          )}
+          <span
+            className={`px-2 py-0.5 rounded text-xs font-medium ${
+              candidate.status === 'recommended'
+                ? 'bg-emerald-900/50 text-emerald-400 border border-emerald-800'
+                : candidate.status === 'scored'
+                  ? 'bg-amber-900/50 text-amber-400 border border-amber-800'
+                  : 'bg-gray-800 text-gray-500'
+            }`}
+          >
+            {candidate.status}
+          </span>
+        </div>
       </div>
 
       {score ? (

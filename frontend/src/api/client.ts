@@ -1,15 +1,28 @@
 const STORAGE_KEY = 'dominus_api_key';
+const BASE_URL = '/api';
 
 export function getStoredApiKey(): string | null {
-  return localStorage.getItem(STORAGE_KEY);
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function storeApiKey(key: string): void {
-  localStorage.setItem(STORAGE_KEY, key);
+  try {
+    localStorage.setItem(STORAGE_KEY, key);
+  } catch {
+    /* non-fatal */
+  }
 }
 
 export function clearApiKey(): void {
-  localStorage.removeItem(STORAGE_KEY);
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* non-fatal */
+  }
 }
 
 export class ApiError extends Error {
@@ -23,10 +36,13 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<T> {
+let onUnauthorized: (() => void) | null = null;
+
+export function setOnUnauthorized(handler: () => void): void {
+  onUnauthorized = handler;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const apiKey = getStoredApiKey();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -37,16 +53,19 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  const res = await fetch(path, { ...options, headers });
+  const url = path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+  const res = await fetch(url, { ...options, headers });
 
   if (res.status === 401 || res.status === 403) {
     clearApiKey();
-    window.location.href = '/settings';
+    onUnauthorized?.();
     throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
   }
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
+    const body = await res
+      .json()
+      .catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
     throw new ApiError(
       res.status,
       body?.error?.code ?? 'UNKNOWN',

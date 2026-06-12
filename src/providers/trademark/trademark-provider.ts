@@ -7,5 +7,5 @@ export interface TrademarkMatch {
 }
 
 export interface TrademarkProvider {
-  search(term: string): Promise<TrademarkMatch[]>;
+  search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]>;
 }
