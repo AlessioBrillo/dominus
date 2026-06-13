@@ -43,6 +43,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     SCHEDULER_PRUNE_CRON: '0 10 1 * *',
     SCHEDULER_WATCHLIST_CRON: '0 */6 * * *',
     SCHEDULER_WARMUP_MS: 5000,
+    BACKUP_DIR: './data/backup',
+    BACKUP_RETENTION_DAYS: 30,
+    SCHEDULER_BACKUP_CRON: '0 4 * * *',
     WATCHLIST_POLL_INTERVAL_HOURS: 6,
     WATCHLIST_RDAP_DELAY_MS: 200,
     CORS_ORIGIN: '*',
@@ -138,7 +141,7 @@ describe('health command', () => {
   it('reports healthy state when database is connected', async () => {
     const output = await runHealth();
     expect(output).toMatch(/Status:\s+ok/);
-    expect(output).toMatch(/DOMINUS v0\.2\.0/);
+    expect(output).toMatch(/DOMINUS v0\.3\.0/);
     expect(output).toMatch(/Database:\s+connected/);
     expect(output).toMatch(/Providers:/);
   });
@@ -162,7 +165,7 @@ describe('health command', () => {
     const output = await runHealth('--json');
     const parsed = JSON.parse(output.trim());
     expect(parsed).toHaveProperty('status', 'ok');
-    expect(parsed).toHaveProperty('version', '0.2.0');
+    expect(parsed).toHaveProperty('version', '0.3.0');
     expect(parsed).toHaveProperty('uptime');
     expect(parsed).toHaveProperty('database', 'connected');
     expect(parsed).toHaveProperty('providers');

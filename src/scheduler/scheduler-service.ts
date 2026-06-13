@@ -6,6 +6,7 @@ import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-re
 import type { ProviderCacheRepository } from '../db/repositories/provider-cache-repository.js';
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
+import type { BackupService } from './backup-service.js';
 import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
 import { getLogger } from '../logger.js';
@@ -30,6 +31,7 @@ export interface SchedulerOptions {
   watchlistService?: WatchlistService;
   autoTuner?: AutoWeightTuner;
   jobRepo?: SchedulerJobRepository;
+  backupService?: BackupService;
 }
 
 export class SchedulerService {
@@ -42,6 +44,7 @@ export class SchedulerService {
   private readonly runsRepo: PipelineRunsRepository | undefined;
   private readonly watchlistService: WatchlistService | undefined;
   private readonly autoTuner: AutoWeightTuner | undefined;
+  private readonly backupService: BackupService | undefined;
   private readonly jobRepo: SchedulerJobRepository | undefined;
   private running = false;
 
@@ -54,6 +57,7 @@ export class SchedulerService {
     this.runsRepo = options.runsRepo;
     this.watchlistService = options.watchlistService;
     this.autoTuner = options.autoTuner;
+    this.backupService = options.backupService;
     this.jobRepo = options.jobRepo;
   }
 
@@ -137,6 +141,23 @@ export class SchedulerService {
       );
     } else {
       logger.warn('watchlist-poll job disabled (WatchlistService not provided)');
+    }
+
+    if (this.backupService) {
+      this.#register(
+        'backup',
+        this.config.SCHEDULER_BACKUP_CRON,
+        'Create a consistent database backup via VACUUM INTO and prune expired backups',
+        async () => {
+          const result = await this.backupService!.create();
+          const pruned = this.backupService!.prune();
+          const sizeKb = (result.sizeBytes / 1024).toFixed(1);
+          const msg = `Backup created: ${result.path} (${sizeKb}KB, ${result.durationMs}ms), pruned ${pruned} old backup(s)`;
+          return msg;
+        },
+      );
+    } else {
+      logger.warn('backup job disabled (BackupService not provided)');
     }
 
     logger.info(`Scheduler started with ${this.jobs.size} job(s)`);

@@ -63,7 +63,7 @@ import {
 import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.js';
 import { buildNotifiers } from '../notifiers/index.js';
 import type { Notifier } from '../notifiers/notifier.js';
-import { SchedulerService } from '../scheduler/index.js';
+import { SchedulerService, BackupService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
 import {
   PipelineRunService,
@@ -473,6 +473,14 @@ export function createDependencies(config: Config): DominusDependencies {
     buyMaxAbsoluteCap: config.BUY_MAX_ABSOLUTE_CAP,
   });
 
+  // ── Backup service (used by scheduler and CLI) ─────────────────────
+  const backupService = new BackupService({
+    db,
+    dbPath: config.DATABASE_PATH,
+    backupDir: config.BACKUP_DIR,
+    retentionDays: config.BACKUP_RETENTION_DAYS,
+  });
+
   // ── Scheduler (constructed but NOT auto-started) ──────────────────
   // Scheduler must be explicitly started by the entry point (Express server)
   // after all dependencies are ready. CLI mode must NOT auto-start jobs.
@@ -486,6 +494,7 @@ export function createDependencies(config: Config): DominusDependencies {
       providerCacheRepo,
       runsRepo: pipelineRunsRepo,
       watchlistService,
+      backupService,
       jobRepo: new SchedulerJobRepository(db),
       ...(autoTuner ? { autoTuner } : {}),
     });

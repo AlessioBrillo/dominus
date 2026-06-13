@@ -20,10 +20,10 @@ The core asset is the **scoring engine**: a heuristic valuator that outputs `exp
 |-------|-----------|
 | **Backend** | Node.js 20+, Express 5 |
 | **Database** | SQLite (better-sqlite3, WAL mode) |
-| **CLI** | Commander (8 commands) |
-| **API** | Express REST (8 route modules) |
+| **CLI** | Commander (15 commands) |
+| **API** | Express REST (15 route modules) |
 | **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
-| **Infrastructure** | CI via GitHub Actions, zero-cost hosting |
+| **Infrastructure** | Pre-push local quality gate (typecheck, build, lint, format, test) + optional Docker |
 
 See [ADR-0001](docs/adr/0001-project-architecture.md) for the rationale
 behind the technology choices. A future frontend dashboard (React + Vite +
@@ -69,6 +69,15 @@ for the backtest-driven tuning loop.
 - **Renewal clock matters more than acquisition volume**: a domain that doesn't
   sell is a recurring liability. Drop logic is a first-class feature.
 
+## Production operations
+
+- **Backup**: Automatic daily backup via scheduler (`SCHEDULER_BACKUP_CRON`, default: 04:00).
+  Manual backup: `dominus maintenance backup`. See [ADR-0022](docs/adr/0022-backup-and-operations.md).
+- **Database maintenance**: `dominus maintenance vacuum` runs integrity check + VACUUM.
+- **Pruning**: `dominus maintenance prune` removes expired cache/runs data.
+- **Local CI**: Pre-push hook runs full quality gate (typecheck, build, lint, format, test)
+  before every push. No GitHub Actions minutes required.
+
 ## Project status
 
 DOMINUS v0.3.0 — provider resilience, observability, and production hardening.
@@ -86,7 +95,7 @@ Resolved design decisions:
    CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the
    expiry signal. See [ADR-0003](docs/adr/0003-pipeline-stage-separation.md).
 2. **Interface: CLI** — the React dashboard is deferred to a future phase.
-   Current CLI has 8 commands covering all operations.
+   Current CLI has 15 commands covering all operations.
 3. **Registrar**: manual purchases. A [RegistrarProvider]
    (src/providers/registrar/registrar-provider.ts) interface is available for
    future API integration with Namecheap, GoDaddy, or Cloudflare.
