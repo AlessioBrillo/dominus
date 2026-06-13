@@ -370,6 +370,27 @@ const configSchema = z.object({
   /** Cron expression for watchlist RDAP polling. Default: every 6 hours. */
   SCHEDULER_WATCHLIST_CRON: z.string().default('0 */6 * * *'),
 
+  // ── Backup config ─────────────────────────────────────────────────
+
+  /**
+   * Directory for automatic database backups via VACUUM INTO.
+   * Default: ./data/backup. Created automatically if it does not exist.
+   */
+  BACKUP_DIR: z.string().default('./data/backup'),
+
+  /**
+   * Number of days to retain database backups. Backups older than this
+   * are pruned automatically by the scheduler's backup job.
+   * Default: 30 days. Set to 0 to disable auto-prune.
+   */
+  BACKUP_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+
+  /**
+   * Cron expression for automatic database backup.
+   * Default: daily at 04:00 (off-peak hours).
+   */
+  SCHEDULER_BACKUP_CRON: z.string().default('0 4 * * *'),
+
   /**
    * Warmup delay in milliseconds before the scheduler starts its first job
    * after the HTTP server boots. Allows the database connection, provider

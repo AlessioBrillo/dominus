@@ -1,16 +1,27 @@
 export class DominusError extends Error {
   readonly code: string;
-  constructor(message: string, code: string) {
+  readonly context: Record<string, unknown>;
+  override readonly cause: Error | undefined;
+
+  constructor(message: string, code: string, context: Record<string, unknown> = {}, cause?: Error) {
     super(message);
     this.name = 'DominusError';
     this.code = code;
+    this.context = context;
+    this.cause = cause;
   }
 }
 
 export class ProviderError extends DominusError {
   readonly provider: string;
-  constructor(message: string, provider: string, code = 'PROVIDER_ERROR') {
-    super(message, code);
+  constructor(
+    message: string,
+    provider: string,
+    code = 'PROVIDER_ERROR',
+    context: Record<string, unknown> = {},
+    cause?: Error,
+  ) {
+    super(message, code, { provider, ...context }, cause);
     this.name = 'ProviderError';
     this.provider = provider;
   }

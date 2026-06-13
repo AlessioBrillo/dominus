@@ -57,6 +57,15 @@ export class AutoWeightTuner {
     const tunedAt = new Date().toISOString();
     const warnings: string[] = [];
 
+    if (this.config.dryRun) {
+      const msg =
+        'Auto-tuner is in dry-run mode — weights will be computed and validated ' +
+        'but NOT applied. Set AUTO_TUNE_DRY_RUN=false in your environment to ' +
+        'activate weight tuning. Until then, the backtest loop is an open circuit.';
+      logger.warn(msg);
+      warnings.push(msg);
+    }
+
     // 1. Snapshot backtest signals
     const snapshot = this.backtestEngine.snapshot();
 

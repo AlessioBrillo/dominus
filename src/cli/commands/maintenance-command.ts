@@ -7,6 +7,7 @@ import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import type { BackupService } from '../../scheduler/backup-service.js';
 import { RESCORE_RUN_ID_PREFIX } from '../../portfolio/portfolio-rescore-service.js';
 
 export interface MaintenanceCommandDeps {
@@ -16,19 +17,39 @@ export interface MaintenanceCommandDeps {
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
   scoringRepo?: ScoringRepository | undefined;
+  backupService?: BackupService | undefined;
 }
 
 export function registerMaintenanceCommand(program: Command, deps: MaintenanceCommandDeps): void {
   const maintenance = program
     .command('maintenance')
-    .description('Prune ephemeral data, backup the database');
+    .description('Prune ephemeral data, backup, and vacuum the database');
 
   maintenance
     .command('backup')
     .description('Create a safe, consistent SQLite backup via VACUUM INTO')
-    .argument('[path]', 'Output path for the backup file (default: ./data/dominus-<YYYY-MM-DD>.db)')
-    .action((backupPath?: string) => {
-      const path = backupPath ?? `./data/dominus-${new Date().toISOString().slice(0, 10)}.db`;
+    .argument(
+      '[path]',
+      'Output path for the backup file (default: ./data/backup/dominus-<YYYY-MM-DD>.db)',
+    )
+    .option('--list', 'List existing backups (ignores [path] argument)')
+    .action((backupPath?: string, options?: { list?: boolean }) => {
+      if (options?.list && deps.backupService) {
+        const backups = deps.backupService.list();
+        if (backups.length === 0) {
+          process.stdout.write('No backups found.\n');
+          return;
+        }
+        process.stdout.write('Backups:\n');
+        for (const b of backups) {
+          const sizeKb = (b.sizeBytes / 1024).toFixed(1);
+          process.stdout.write(`  ${b.path}  (${sizeKb}KB, ${b.createdAt.toISOString()})\n`);
+        }
+        return;
+      }
+
+      const path =
+        backupPath ?? `./data/backup/dominus-${new Date().toISOString().slice(0, 10)}.db`;
       const absPath = resolve(process.cwd(), path);
       mkdirSync(dirname(absPath), { recursive: true });
 
@@ -37,9 +58,30 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
         process.stderr.write('Error: backup path must not contain single quotes\n');
         process.exit(1);
       }
-      deps.db.exec(`VACUUM INTO '${absPath}'`);
+      deps.db.exec(`VACUUM INTO '${absPath.replace(/'/g, "''")}'`);
 
       process.stdout.write(`Backup written to ${absPath}\n`);
+    });
+
+  maintenance
+    .command('vacuum')
+    .description('Run integrity_check, WAL checkpoint, and VACUUM to reclaim space')
+    .action(() => {
+      process.stdout.write('Running integrity_check...\n');
+      const integrity = deps.db.pragma('integrity_check') as unknown as string;
+      if (integrity !== 'ok') {
+        process.stderr.write(`INTEGRITY CHECK FAILED: ${integrity}\n`);
+        process.exit(1);
+      }
+      process.stdout.write('Integrity check passed.\n');
+
+      process.stdout.write('Checkpointing WAL...\n');
+      deps.db.pragma('wal_checkpoint(TRUNCATE)');
+
+      process.stdout.write('Running VACUUM...\n');
+      deps.db.exec('VACUUM');
+
+      process.stdout.write('Database vacuumed successfully.\n');
     });
 
   maintenance

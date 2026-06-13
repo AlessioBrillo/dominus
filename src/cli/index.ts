@@ -13,6 +13,7 @@ import type { OutcomeRepository } from '../db/repositories/outcome-repository.js
 import type { Config } from '../config.js';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { RenewalAlertRepository } from '../db/repositories/renewal-alert-repository.js';
+import { BackupService } from '../scheduler/backup-service.js';
 import type { SchedulerService } from '../scheduler/scheduler-service.js';
 import type { ScoringWeights } from '../scoring/weights.js';
 import type { PurchaseService } from '../services/purchase-service.js';
@@ -83,7 +84,7 @@ export function createCli(options: CreateCliOptions): Command {
   program
     .name('dominus')
     .description('Personal DNS domain investment decision-support tool')
-    .version('0.2.0');
+    .version('0.3.0');
 
   registerRunCommand(program, runService);
   registerCandidatesCommand(program, { candidateRepo });
@@ -92,6 +93,12 @@ export function createCli(options: CreateCliOptions): Command {
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
   registerRunsCommand(program, { runsRepo });
+  const backupService = new BackupService({
+    db,
+    dbPath: config.DATABASE_PATH,
+    backupDir: config.BACKUP_DIR,
+    retentionDays: config.BACKUP_RETENTION_DAYS,
+  });
   registerMaintenanceCommand(program, {
     db,
     trademarkRepo,
@@ -99,6 +106,7 @@ export function createCli(options: CreateCliOptions): Command {
     runsRepo,
     candidateRepo,
     scoringRepo,
+    backupService,
   });
   registerProvidersCommand(program, { config });
   registerHealthCommand(program, { db, config });
