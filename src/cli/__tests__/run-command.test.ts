@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -21,6 +21,10 @@ function makeMockRunService(): PipelineRunService {
 }
 
 describe('registerRunCommand', () => {
+  beforeEach(() => {
+    vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+  });
+
   it('registers a "run" command on the program', () => {
     const program = new Command();
     registerRunCommand(program, makeMockRunService());
@@ -44,6 +48,7 @@ describe('registerRunCommand', () => {
   afterEach(() => {
     for (const f of tmpFiles) rmSync(f, { force: true });
     tmpFiles.length = 0;
+    vi.restoreAllMocks();
   });
 
   it('parses --closeout-csv and forwards closeoutEntries', async () => {
