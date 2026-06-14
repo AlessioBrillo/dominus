@@ -132,7 +132,11 @@ export function createDependencies(config: Config): DominusDependencies {
   // â”€â”€ Providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, providerCacheRepo);
-  const { rdap: rdapRateLimiter } = buildRateLimiters(config);
+  const {
+    rdap: rdapRateLimiter,
+    uspto: usptoRateLimiter,
+    euipo: euipoRateLimiter,
+  } = buildRateLimiters(config);
   const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
     config,
     rdapRateLimiter,
@@ -144,7 +148,7 @@ export function createDependencies(config: Config): DominusDependencies {
   // â”€â”€ Trademark providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const usptoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
-      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
       {},
       USPTO_CIRCUIT_BREAKER,
     ),
@@ -159,6 +163,7 @@ export function createDependencies(config: Config): DominusDependencies {
         clientSecret: config.EUIPO_CLIENT_SECRET,
         authUrl: config.EUIPO_AUTH_URL,
         apiUrl: config.EUIPO_API_URL,
+        rateLimiter: euipoRateLimiter,
       }),
       {},
       EUIPO_CIRCUIT_BREAKER,

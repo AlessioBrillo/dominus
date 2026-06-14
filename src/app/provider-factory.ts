@@ -191,6 +191,8 @@ export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
 
 export interface BuiltRateLimiters {
   rdap: RateLimiter;
+  uspto: RateLimiter;
+  euipo: RateLimiter;
 }
 
 export function buildRateLimiters(config: Config): BuiltRateLimiters {
@@ -199,5 +201,15 @@ export function buildRateLimiters(config: Config): BuiltRateLimiters {
     tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
     intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
   });
-  return { rdap };
+  const uspto = new RateLimiter({
+    maxTokens: config.USPTO_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.USPTO_RATE_LIMIT_TOKENS,
+    intervalMs: config.USPTO_RATE_LIMIT_INTERVAL_MS,
+  });
+  const euipo = new RateLimiter({
+    maxTokens: config.EUIPO_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.EUIPO_RATE_LIMIT_TOKENS,
+    intervalMs: config.EUIPO_RATE_LIMIT_INTERVAL_MS,
+  });
+  return { rdap, uspto, euipo };
 }

@@ -1,5 +1,6 @@
 import { ProviderError } from '../../types/errors.js';
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
+import { RateLimiter } from '../rate-limiter.js';
 
 /**
  * EUIPO trademark search provider using the Trademark Search 1.1.0
@@ -66,6 +67,7 @@ export interface EuipoProviderConfig {
   apiUrl: string;
   /** Page size requested from EUIPO (default: 50, EUIPO max is 100). */
   pageSize?: number;
+  rateLimiter?: RateLimiter;
 }
 
 export class EuipoProvider implements TrademarkProvider {
@@ -74,6 +76,7 @@ export class EuipoProvider implements TrademarkProvider {
   readonly #authUrl: string;
   readonly #apiUrl: string;
   readonly #pageSize: number;
+  readonly #rateLimiter: RateLimiter;
 
   #token: string | null = null;
   #tokenExpiresAt: number = 0;
@@ -85,6 +88,7 @@ export class EuipoProvider implements TrademarkProvider {
     this.#authUrl = config.authUrl;
     this.#apiUrl = config.apiUrl;
     this.#pageSize = config.pageSize ?? 50;
+    this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
   }
 
   async search(term: string): Promise<TrademarkMatch[]> {
@@ -93,15 +97,17 @@ export class EuipoProvider implements TrademarkProvider {
 
     let response: Response;
     try {
-      response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'X-IBM-Client-Id': this.#clientId ?? '',
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(15_000),
-      });
+      response = await this.#rateLimiter.throttle(() =>
+        fetch(url.toString(), {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'X-IBM-Client-Id': this.#clientId ?? '',
+            Accept: 'application/json',
+          },
+          signal: AbortSignal.timeout(15_000),
+        }),
+      );
     } catch (err: unknown) {
       throw new ProviderError(
         `EUIPO request failed for term "${term}": ${String(err)}`,
@@ -113,18 +119,20 @@ export class EuipoProvider implements TrademarkProvider {
     if (response.status === 401 || response.status === 403) {
       this.#token = null;
       this.#tokenExpiresAt = 0;
-      // Retry once with a fresh token — E!
+      // Retry once with a fresh token
       const freshToken = await this.#getToken();
       try {
-        response = await fetch(url.toString(), {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${freshToken}`,
-            'X-IBM-Client-Id': this.#clientId ?? '',
-            Accept: 'application/json',
-          },
-          signal: AbortSignal.timeout(15_000),
-        });
+        response = await this.#rateLimiter.throttle(() =>
+          fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${freshToken}`,
+              'X-IBM-Client-Id': this.#clientId ?? '',
+              Accept: 'application/json',
+            },
+            signal: AbortSignal.timeout(15_000),
+          }),
+        );
       } catch (err: unknown) {
         throw new ProviderError(
           `EUIPO request failed for term "${term}": ${String(err)}`,
@@ -215,12 +223,14 @@ export class EuipoProvider implements TrademarkProvider {
 
     let response: Response;
     try {
-      response = await fetch(this.#authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-        signal: AbortSignal.timeout(10_000),
-      });
+      response = await this.#rateLimiter.throttle(() =>
+        fetch(this.#authUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+          signal: AbortSignal.timeout(10_000),
+        }),
+      );
     } catch (err: unknown) {
       throw new ProviderError(
         `EUIPO token request failed: ${String(err)}`,
