@@ -26,6 +26,11 @@ export const CANDIDATES_INDEX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_candidates_domain ON candidates(domain)
 `;
 
+export const CANDIDATES_PIPELINE_RUN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_candidates_pipeline_run
+ON candidates(pipeline_run_id)
+`;
+
 export const SCORING_RUNS_DDL = `
 CREATE TABLE IF NOT EXISTS scoring_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
