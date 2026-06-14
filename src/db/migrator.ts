@@ -19,6 +19,7 @@ import * as m0016 from './migrations/0016_add_backtest_costs.js';
 import * as m0017 from './migrations/0017_add_pipeline_run_index.js';
 import * as m0018 from './migrations/0018_create_pipeline_metrics.js';
 import * as m0019 from './migrations/0019_add_scoring_run_recommended.js';
+import * as m0020 from './migrations/0020_create_outcome_scores.js';
 
 interface Migration {
   name: string;
@@ -49,6 +50,7 @@ const MIGRATIONS: Migration[] = [
   m0017,
   m0018,
   m0019,
+  m0020,
 ];
 
 export function runMigrations(db: Database.Database): void {
