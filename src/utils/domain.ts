@@ -81,3 +81,26 @@ export function extractTld(raw: string): string {
 export function extractSld(raw: string): string {
   return parseDomain(raw).sld;
 }
+
+/**
+ * Normalise a TLD for registrar pricing map lookups.
+ *
+ * Registrar pricing maps use underscores for multi-label TLDs
+ * (e.g. `co_uk`, `org_uk`, `com_au`) because dots are used as
+ * key separators in flat maps. This function:
+ *  1. Parses the domain via the full Public Suffix List (psl)
+ *  2. Strips the leading dot
+ *  3. Replaces remaining dots with underscores
+ *
+ * Examples:
+ *  `example.co.uk`  →  `co_uk`
+ *  `example.com.au` →  `com_au`
+ *  `example.com`    →  `com`
+ *  `example.io`     →  `io`
+ */
+export function extractRegistrarTld(domain: string): string {
+  const tld = extractTld(domain);
+  if (tld === '' || tld === '.') return '';
+  // Strip leading dot, then replace remaining dots with underscores
+  return tld.slice(1).replace(/\./g, '_');
+}

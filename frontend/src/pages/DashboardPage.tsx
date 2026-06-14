@@ -1,28 +1,127 @@
-import { useEffect, useState } from 'react';
-import { fetchDashboardStats, type DashboardStats } from '../api/dashboard.js';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  fetchDashboardStats,
+  type DashboardStats,
+  type DashboardResult,
+} from '../api/dashboard.js';
 
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [partialFailure, setPartialFailure] = useState(false);
+  const [failureReasons, setFailureReasons] = useState<string[]>([]);
 
-  useEffect(() => {
-    fetchDashboardStats()
-      .then(setStats)
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setPartialFailure(false);
+    setFailureReasons([]);
+    try {
+      const result: DashboardResult = await fetchDashboardStats();
+      setStats(result.stats);
+      if (result.partialFailure) {
+        setPartialFailure(true);
+        setFailureReasons(result.failureReasons);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
+        <div className="bg-red-950/50 border border-red-900 text-red-400 px-4 py-6 rounded-xl text-center">
+          <div className="text-lg font-medium mb-2">Failed to load dashboard</div>
+          <p className="text-sm text-red-400/70 mb-4">{error}</p>
+          <button
+            onClick={load}
+            className="px-4 py-2 bg-red-800 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
-    return <div className="text-gray-500 animate-pulse">Loading dashboard...</div>;
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
+          <p className="text-sm text-gray-500 mt-1 animate-pulse">Loading system data...</p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-gray-900 rounded-xl border border-gray-800 p-4 animate-pulse"
+            >
+              <div className="h-3 bg-gray-800 rounded w-20 mb-3" />
+              <div className="h-7 bg-gray-800 rounded w-24" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 animate-pulse">
+            <div className="h-3 bg-gray-800 rounded w-32 mb-4" />
+            <div className="space-y-3">
+              <div className="h-8 bg-gray-800 rounded" />
+              <div className="h-8 bg-gray-800 rounded" />
+              <div className="h-8 bg-gray-800 rounded" />
+            </div>
+          </div>
+          <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 animate-pulse">
+            <div className="h-3 bg-gray-800 rounded w-24 mb-4" />
+            <div className="space-y-2">
+              <div className="h-4 bg-gray-800 rounded" />
+              <div className="h-4 bg-gray-800 rounded" />
+              <div className="h-4 bg-gray-800 rounded" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          DOMINUS v{stats?.health?.version ?? '?'} — {stats?.health?.status ?? 'unknown'}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            DOMINUS v{stats?.health?.version ?? '?'} — {stats?.health?.status ?? 'unknown'}
+          </p>
+        </div>
+        <button
+          onClick={load}
+          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors"
+          title="Refresh dashboard data"
+        >
+          ↻ Refresh
+        </button>
       </div>
+
+      {partialFailure && (
+        <div className="bg-amber-950/40 border border-amber-900/50 text-amber-400 px-4 py-3 rounded-lg text-sm flex items-center justify-between">
+          <span>
+            Some data sources unavailable: {failureReasons.map((r) => `/api/${r}`).join(', ')}.
+            Displaying partial data.
+          </span>
+          <button onClick={load} className="ml-3 underline whitespace-nowrap">
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

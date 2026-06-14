@@ -1,4 +1,5 @@
 import { ProviderError } from '../../types/errors.js';
+import { extractRegistrarTld } from '../../utils/domain.js';
 import type {
   RegistrarProvider,
   RegistrarPriceCheck,
@@ -148,7 +149,7 @@ export class NameSiloRegistrarProvider implements RegistrarProvider {
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {
     this.#validate();
     return domains.map((domain) => {
-      const tld = domain.split('.').slice(1).join('.');
+      const tld = extractRegistrarTld(domain);
       const pricing = getTldPricing(tld);
       return {
         domain,
@@ -164,7 +165,7 @@ export class NameSiloRegistrarProvider implements RegistrarProvider {
   async purchase(request: RegistrarPurchaseRequest): Promise<RegistrarPurchaseResult> {
     try {
       this.#validate();
-      const tld = request.domain.split('.').slice(1).join('.');
+      const tld = extractRegistrarTld(request.domain);
       const pricing = getTldPricing(tld);
       const result = await this.#apiCall('registerDomain', {
         domain: request.domain,
@@ -205,11 +206,11 @@ export class NameSiloRegistrarProvider implements RegistrarProvider {
 
   async getRenewalCost(domain: string): Promise<number> {
     this.#validate();
-    const tld = domain.split('.').slice(1).join('.');
+    const tld = extractRegistrarTld(domain);
     const pricing = getTldPricing(tld);
     if (pricing) return pricing.renew;
     throw new ProviderError(
-      `Unknown renewal pricing for TLD .${tld} of domain ${domain}`,
+      `Unknown renewal pricing for TLD ${tld} of domain ${domain}`,
       'NameSiloRegistrarProvider',
       'NS_UNKNOWN_TLD',
     );

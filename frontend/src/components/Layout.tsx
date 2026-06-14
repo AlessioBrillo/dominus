@@ -1,4 +1,4 @@
-import { Outlet, NavLink } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth.js';
 import { LoginForm } from './LoginForm.js';
 
@@ -11,7 +11,13 @@ const navItems = [
 ] as const;
 
 export function Layout() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, logout: authLogout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = (): void => {
+    authLogout();
+    navigate('/', { replace: true });
+  };
 
   if (isLoading) {
     return (
@@ -51,13 +57,17 @@ export function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t border-gray-800">
+        <div className="p-4 border-t border-gray-800 space-y-3">
           <div className="flex items-center gap-2 text-xs text-gray-600">
-            <span
-              className={`inline-block w-2 h-2 rounded-full ${isAuthenticated ? 'bg-green-500' : 'bg-red-500'}`}
-            />
-            {isAuthenticated ? 'API Connected' : 'Not Authenticated'}
+            <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
+            API Connected
           </div>
+          <button
+            onClick={handleLogout}
+            className="w-full px-3 py-1.5 bg-gray-800 hover:bg-red-900/50 text-gray-400 hover:text-red-400 rounded-lg text-xs font-medium transition-colors"
+          >
+            Logout
+          </button>
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto p-6">

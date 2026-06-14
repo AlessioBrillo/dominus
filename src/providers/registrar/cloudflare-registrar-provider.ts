@@ -1,4 +1,5 @@
 import { ProviderError } from '../../types/errors.js';
+import { extractRegistrarTld } from '../../utils/domain.js';
 import type {
   RegistrarProvider,
   RegistrarPriceCheck,
@@ -141,7 +142,7 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
     const managedSet = new Set(managed.map((d) => d.domain.toLowerCase()));
 
     return domains.map((domain) => {
-      const tld = domain.split('.').pop() ?? '';
+      const tld = extractRegistrarTld(domain);
       const pricing = getTldPricing(tld);
       const lower = domain.toLowerCase();
       const isManaged = managedSet.has(lower);
@@ -208,7 +209,7 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
         };
       }
 
-      const tld = request.domain.split('.').pop() ?? '';
+      const tld = extractRegistrarTld(request.domain);
       const pricing = getTldPricing(tld);
 
       return {
@@ -272,13 +273,13 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
         );
       }
 
-      const tld = domain.split('.').pop() ?? '';
+      const tld = extractRegistrarTld(domain);
       const pricing = getTldPricing(tld);
 
       if (pricing) return pricing.renew;
 
       throw new ProviderError(
-        `Unknown renewal pricing for TLD .${tld} of domain ${domain}`,
+        `Unknown renewal pricing for TLD ${tld} of domain ${domain}`,
         'CloudflareRegistrarProvider',
         'CF_UNKNOWN_TLD',
       );

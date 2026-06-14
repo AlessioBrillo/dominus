@@ -1,4 +1,5 @@
 import { ProviderError } from '../../types/errors.js';
+import { extractRegistrarTld } from '../../utils/domain.js';
 import type {
   RegistrarProvider,
   RegistrarPriceCheck,
@@ -143,7 +144,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
         { available: boolean; price?: number; currency?: string }
       >;
       return domains.map((domain) => {
-        const tld = domain.split('.').slice(1).join('.');
+        const tld = extractRegistrarTld(domain);
         const pricing = getTldPricing(tld);
         const result = body[domain];
         const available = result?.available ?? false;
@@ -164,7 +165,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
 
   #priceFallback(domains: string[]): RegistrarPriceCheck[] {
     return domains.map((domain) => {
-      const tld = domain.split('.').slice(1).join('.');
+      const tld = extractRegistrarTld(domain);
       const pricing = getTldPricing(tld);
       return {
         domain,
@@ -180,7 +181,7 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
   async purchase(request: RegistrarPurchaseRequest): Promise<RegistrarPurchaseResult> {
     try {
       this.#validate();
-      const tld = request.domain.split('.').slice(1).join('.');
+      const tld = extractRegistrarTld(request.domain);
       const pricing = getTldPricing(tld);
       const response = await fetch(`${GODADDY_API_BASE}/domains/purchase`, {
         method: 'POST',
@@ -255,11 +256,11 @@ export class GoDaddyRegistrarProvider implements RegistrarProvider {
 
   async getRenewalCost(domain: string): Promise<number> {
     this.#validate();
-    const tld = domain.split('.').slice(1).join('.');
+    const tld = extractRegistrarTld(domain);
     const pricing = getTldPricing(tld);
     if (pricing) return pricing.renew;
     throw new ProviderError(
-      `Unknown renewal pricing for TLD .${tld} of domain ${domain}`,
+      `Unknown renewal pricing for TLD ${tld} of domain ${domain}`,
       'GoDaddyRegistrarProvider',
       'GD_UNKNOWN_TLD',
     );

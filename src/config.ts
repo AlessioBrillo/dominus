@@ -634,14 +634,6 @@ export function loadConfig(): Config {
   }
   _config = result.data;
 
-  // When AUTO_TUNE_ENABLED is true and no explicit AUTO_TUNE_DRY_RUN was
-  // set by the operator, flip dry-run to false so the tuner actually applies
-  // weights. The zod default of true means the env var must be set to
-  // "false" explicitly, which is non-obvious for a new user enabling tuning.
-  if (_config.AUTO_TUNE_ENABLED && process.env.AUTO_TUNE_DRY_RUN === undefined) {
-    _config.AUTO_TUNE_DRY_RUN = false;
-  }
-
   // Deprecation warning for SCORING_CONFIDENCE_PER_SIGNAL (ADR-0020)
   if (
     process.env.SCORING_CONFIDENCE_PER_SIGNAL !== undefined &&

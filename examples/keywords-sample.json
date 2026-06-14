@@ -1,62 +1,27 @@
 [
-  {
-    "term": "coffee",
-    "monthlySearchVolume": 550000,
-    "cpc": 3.45,
-    "competition": 0.85
-  },
-  {
-    "term": "vintage",
-    "monthlySearchVolume": 135000,
-    "cpc": 1.20,
-    "competition": 0.45
-  },
-  {
-    "term": "maps",
-    "monthlySearchVolume": 420000,
-    "cpc": 0.80,
-    "competition": 0.30
-  },
-  {
-    "term": "organic",
-    "monthlySearchVolume": 89000,
-    "cpc": 2.10,
-    "competition": 0.60
-  },
-  {
-    "term": "harvest",
-    "monthlySearchVolume": 42000,
-    "cpc": 1.75,
-    "competition": 0.55
-  },
-  {
-    "term": "green",
-    "monthlySearchVolume": 310000,
-    "cpc": 0.95,
-    "competition": 0.40
-  },
-  {
-    "term": "old",
-    "monthlySearchVolume": 680000,
-    "cpc": 0.50,
-    "competition": 0.20
-  },
-  {
-    "term": "maps",
-    "monthlySearchVolume": 420000,
-    "cpc": 0.80,
-    "competition": 0.30
-  },
-  {
-    "term": "cloud",
-    "monthlySearchVolume": 210000,
-    "cpc": 4.20,
-    "competition": 0.75
-  },
-  {
-    "term": "data",
-    "monthlySearchVolume": 780000,
-    "cpc": 1.50,
-    "competition": 0.50
-  }
+  { "term": "ai", "monthlySearchVolume": 5200000, "cpc": 8.50, "competition": 0.92 },
+  { "term": "crypto", "monthlySearchVolume": 1800000, "cpc": 5.20, "competition": 0.88 },
+  { "term": "health", "monthlySearchVolume": 3100000, "cpc": 5.20, "competition": 0.80 },
+  { "term": "finance", "monthlySearchVolume": 2100000, "cpc": 7.50, "competition": 0.88 },
+  { "term": "cloud", "monthlySearchVolume": 2100000, "cpc": 6.80, "competition": 0.85 },
+  { "term": "shop", "monthlySearchVolume": 2500000, "cpc": 4.50, "competition": 0.72 },
+  { "term": "travel", "monthlySearchVolume": 2500000, "cpc": 5.20, "competition": 0.78 },
+  { "term": "data", "monthlySearchVolume": 3800000, "cpc": 5.20, "competition": 0.80 },
+  { "term": "security", "monthlySearchVolume": 1800000, "cpc": 8.20, "competition": 0.88 },
+  { "term": "blockchain", "monthlySearchVolume": 890000, "cpc": 7.20, "competition": 0.85 },
+  { "term": "saas", "monthlySearchVolume": 480000, "cpc": 8.50, "competition": 0.88 },
+  { "term": "marketing", "monthlySearchVolume": 1800000, "cpc": 7.20, "competition": 0.85 },
+  { "term": "software", "monthlySearchVolume": 1500000, "cpc": 6.20, "competition": 0.82 },
+  { "term": "hosting", "monthlySearchVolume": 780000, "cpc": 7.80, "competition": 0.88 },
+  { "term": "insurance", "monthlySearchVolume": 1400000, "cpc": 15.20, "competition": 0.93 },
+  { "term": "hotel", "monthlySearchVolume": 3200000, "cpc": 6.50, "competition": 0.85 },
+  { "term": "energy", "monthlySearchVolume": 1800000, "cpc": 7.20, "competition": 0.85 },
+  { "term": "startup", "monthlySearchVolume": 780000, "cpc": 6.80, "competition": 0.82 },
+  { "term": "casino", "monthlySearchVolume": 1800000, "cpc": 8.50, "competition": 0.90 },
+  { "term": "seo", "monthlySearchVolume": 920000, "cpc": 8.50, "competition": 0.88 },
+  { "term": "mortgage", "monthlySearchVolume": 850000, "cpc": 12.50, "competition": 0.95 },
+  { "term": "marketplace", "monthlySearchVolume": 650000, "cpc": 6.20, "competition": 0.82 },
+  { "term": "analytics", "monthlySearchVolume": 680000, "cpc": 8.50, "competition": 0.88 },
+  { "term": "consulting", "monthlySearchVolume": 420000, "cpc": 8.50, "competition": 0.88 },
+  { "term": "capital", "monthlySearchVolume": 680000, "cpc": 8.50, "competition": 0.88 }
 ]
