@@ -1,4 +1,5 @@
 import { ProviderError } from '../../types/errors.js';
+import { extractRegistrarTld } from '../../utils/domain.js';
 import type {
   RegistrarProvider,
   RegistrarPriceCheck,
@@ -128,8 +129,7 @@ export class NamecheapRegistrarProvider implements RegistrarProvider {
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {
     this.#validate();
     return domains.map((domain) => {
-      const labels = domain.split('.');
-      const tld = labels.length >= 2 ? labels.slice(1).join('.') : '';
+      const tld = extractRegistrarTld(domain);
       const pricing = getTldPricing(tld);
       const available = pricing !== null;
       if (!available) {
@@ -156,7 +156,7 @@ export class NamecheapRegistrarProvider implements RegistrarProvider {
   async purchase(request: RegistrarPurchaseRequest): Promise<RegistrarPurchaseResult> {
     try {
       this.#validate();
-      const pricing = getTldPricing(request.domain.split('.').slice(1).join('.'));
+      const pricing = getTldPricing(extractRegistrarTld(request.domain));
       const ncxResponse = await this.#apiCall('namecheap.domains.create', {
         DomainName: request.domain,
         Years: String(request.years),
@@ -211,7 +211,7 @@ export class NamecheapRegistrarProvider implements RegistrarProvider {
 
   async getRenewalCost(domain: string): Promise<number> {
     this.#validate();
-    const tld = domain.split('.').slice(1).join('.');
+    const tld = extractRegistrarTld(domain);
     const pricing = getTldPricing(tld);
     if (pricing) return pricing.renew;
     throw new ProviderError(
