@@ -13,3 +13,4 @@ export {
   warnCloudflareIfMissing,
 } from './provider-status.js';
 export type { ProviderStatus } from './provider-status.js';
+export { MetricsCollector } from './metrics-collector.js';

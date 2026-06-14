@@ -9,6 +9,17 @@ import type { WhoisStage } from './stages/whois-stage.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 
+export interface PipelineMetricsDelegate {
+  recordStage(
+    stageName: string,
+    passed: number,
+    filtered: number,
+    durationMs: number,
+    error: boolean,
+  ): void;
+  recordPipelineRun(totalCandidates: number, recommended: number, durationMs: number): void;
+}
+
 const logger = getLogger();
 
 export interface PipelineResult {
@@ -52,6 +63,7 @@ export class PipelineOrchestrator {
     private readonly scoringStage: ScoringStage,
     private readonly trademarkStage: TrademarkGateStage<ScoredCandidate>,
     private readonly timeoutMs: number = 3_600_000,
+    private readonly metrics?: PipelineMetricsDelegate,
   ) {}
 
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
@@ -103,6 +115,13 @@ export class PipelineOrchestrator {
       filtered: gen.filtered.length,
       durationMs: gen.durationMs,
     };
+    this.metrics?.recordStage(
+      gen.stageName,
+      gen.passed.length,
+      gen.filtered.length,
+      gen.durationMs,
+      false,
+    );
     const runId = gen.passed[0]?.pipelineRunId ?? 'unknown';
     if (aborted()) {
       this.#abortController.abort();
@@ -193,6 +212,12 @@ export class PipelineOrchestrator {
 
     this.#abortController = null;
 
+    this.metrics?.recordPipelineRun(
+      allCandidates.length,
+      trademark.passed.length,
+      Date.now() - start,
+    );
+
     return {
       runId,
       recommended: trademark.passed,
@@ -221,6 +246,13 @@ export class PipelineOrchestrator {
         filtered: result.filtered.length,
         durationMs: result.durationMs,
       };
+      this.metrics?.recordStage(
+        result.stageName,
+        result.passed.length,
+        result.filtered.length,
+        result.durationMs,
+        false,
+      );
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -238,8 +270,10 @@ export class PipelineOrchestrator {
         stageError.isTransient = true;
       }
       errors.push(stageError);
-      summary[label] = { passed: 0, filtered: 0, durationMs: Date.now() - startMs };
-      return { passed: [], filtered: [], stageName: label, durationMs: Date.now() - startMs };
+      const durationMs = Date.now() - startMs;
+      summary[label] = { passed: 0, filtered: 0, durationMs };
+      this.metrics?.recordStage(label, 0, 0, durationMs, true);
+      return { passed: [], filtered: [], stageName: label, durationMs };
     }
   }
 

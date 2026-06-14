@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { ProviderHealthCheck } from '../../providers/provider-health.js';
+import type { MetricsCollector } from '../../app/metrics-collector.js';
 
 let cachedVersion: string | undefined;
 
@@ -21,16 +22,23 @@ function readVersion(): string {
   return cachedVersion;
 }
 
-export function createHealthRouter(healthCheck?: ProviderHealthCheck): Router {
+export function createHealthRouter(
+  healthCheck?: ProviderHealthCheck,
+  metrics?: MetricsCollector,
+): Router {
   const router = Router();
 
   router.get('/', (_req: Request, res: Response): void => {
-    res.json({
+    const payload: Record<string, unknown> = {
       status: 'ok',
       uptime: process.uptime(),
       version: readVersion(),
       timestamp: new Date().toISOString(),
-    });
+    };
+    if (metrics) {
+      payload.metrics = metrics.snapshot();
+    }
+    res.json(payload);
   });
 
   if (healthCheck) {

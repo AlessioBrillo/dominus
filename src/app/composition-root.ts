@@ -54,6 +54,7 @@ import {
   RetryingTrademarkProvider,
   warnEuipoIfMissing,
   warnCloudflareIfMissing,
+  MetricsCollector,
 } from './index.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -104,6 +105,7 @@ export interface DominusDependencies {
   autoTuner: AutoWeightTuner | undefined;
   purchaseService: PurchaseServiceType;
   reportService: PortfolioReportService;
+  metrics: MetricsCollector;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -185,6 +187,9 @@ export function createDependencies(config: Config): DominusDependencies {
   );
 
   // â”€â”€ Pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Metrics ─────────────────────────────────────────────────────────────────
+  const metrics = new MetricsCollector();
+
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
@@ -193,6 +198,7 @@ export function createDependencies(config: Config): DominusDependencies {
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
+    metrics,
   );
   const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
 
@@ -331,5 +337,6 @@ export function createDependencies(config: Config): DominusDependencies {
     autoTuner,
     purchaseService,
     reportService,
+    metrics,
   };
 }
