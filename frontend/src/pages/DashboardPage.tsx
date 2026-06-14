@@ -141,7 +141,7 @@ export function DashboardPage() {
       {partialFailure && (
         <div className="bg-amber-950/40 border border-amber-900/50 text-amber-400 px-4 py-3 rounded-lg text-sm flex items-center justify-between">
           <span>
-            Some data sources unavailable: {failureReasons.map((r) => `/api/${r}`).join(', ')}.
+            Some data sources unavailable: {failureReasons.map((r) => `/api/v1/${r}`).join(', ')}.
             Displaying partial data.
           </span>
           <button onClick={load} className="ml-3 underline whitespace-nowrap">

@@ -110,13 +110,13 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-describe('GET /api/providers/status', () => {
+describe('GET /api/v1/providers/status', () => {
   it('returns provider statuses for all 6 providers', async () => {
     const app = express();
-    app.use('/api/providers', createProvidersRouter(buildConfig()));
+    app.use('/api/v1/providers', createProvidersRouter(buildConfig()));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/providers/status');
+    const res = await request(app).get('/api/v1/providers/status');
     expect(res.status).toBe(200);
     expect(res.body.providers).toHaveLength(7);
     const names = res.body.providers.map((p: { name: string }) => p.name) as string[];
@@ -131,10 +131,10 @@ describe('GET /api/providers/status', () => {
 
   it('reports EUIPO as not configured when credentials are missing', async () => {
     const app = express();
-    app.use('/api/providers', createProvidersRouter(buildConfig()));
+    app.use('/api/v1/providers', createProvidersRouter(buildConfig()));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/providers/status');
+    const res = await request(app).get('/api/v1/providers/status');
     const euipo = res.body.providers.find((p: { name: string }) => p.name === 'EUIPO');
     expect(euipo.configured).toBe(false);
   });
@@ -142,12 +142,12 @@ describe('GET /api/providers/status', () => {
   it('reports EUIPO as configured when credentials are present', async () => {
     const app = express();
     app.use(
-      '/api/providers',
+      '/api/v1/providers',
       createProvidersRouter(buildConfig({ EUIPO_CLIENT_ID: 'abc', EUIPO_CLIENT_SECRET: 'xyz' })),
     );
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/providers/status');
+    const res = await request(app).get('/api/v1/providers/status');
     const euipo = res.body.providers.find((p: { name: string }) => p.name === 'EUIPO');
     expect(euipo.configured).toBe(true);
   });

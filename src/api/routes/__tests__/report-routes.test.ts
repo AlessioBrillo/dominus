@@ -17,7 +17,7 @@ function openTestDb(): Database.Database {
   return db;
 }
 
-describe('GET /api/report', () => {
+describe('GET /api/v1/report', () => {
   let db: Database.Database;
   let reportService: PortfolioReportService;
 
@@ -30,10 +30,10 @@ describe('GET /api/report', () => {
 
   it('returns empty report when portfolio is empty', async () => {
     const app = express();
-    app.use('/api/report', createReportRouter(reportService));
+    app.use('/api/v1/report', createReportRouter(reportService));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/report');
+    const res = await request(app).get('/api/v1/report');
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('totalDomains', 0);
@@ -41,34 +41,34 @@ describe('GET /api/report', () => {
     expect(res.body).toHaveProperty('domainsAtRisk');
   });
 
-  it('GET /api/report/tld returns breakdown by TLD', async () => {
+  it('GET /api/v1/report/tld returns breakdown by TLD', async () => {
     const app = express();
-    app.use('/api/report', createReportRouter(reportService));
+    app.use('/api/v1/report', createReportRouter(reportService));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/report/tld');
+    const res = await request(app).get('/api/v1/report/tld');
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });
 
-  it('GET /api/report/risk returns domains at risk', async () => {
+  it('GET /api/v1/report/risk returns domains at risk', async () => {
     const app = express();
-    app.use('/api/report', createReportRouter(reportService));
+    app.use('/api/v1/report', createReportRouter(reportService));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/report/risk');
+    const res = await request(app).get('/api/v1/report/risk');
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
   });
 
-  it('GET /api/report/roi returns ROI report', async () => {
+  it('GET /api/v1/report/roi returns ROI report', async () => {
     const app = express();
-    app.use('/api/report', createReportRouter(reportService));
+    app.use('/api/v1/report', createReportRouter(reportService));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/report/roi');
+    const res = await request(app).get('/api/v1/report/roi');
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('totalDomains', 0);

@@ -48,6 +48,7 @@ import { buildNotifiers } from '../notifiers/index.js';
 import type { Notifier } from '../notifiers/notifier.js';
 import { SchedulerService, BackupService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
+import { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
 import {
   PipelineRunService,
@@ -110,6 +111,7 @@ export interface DominusDependencies {
   metrics: MetricsCollector;
   metricsRepo: MetricsRepository;
   progressService: PipelineProgressService;
+  accuracyAnalyzer: PredictionAccuracyAnalyzer;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -246,6 +248,7 @@ export function createDependencies(config: Config): DominusDependencies {
 
   const notifiers = buildNotifiers(config);
   const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
+  const accuracyAnalyzer = new PredictionAccuracyAnalyzer(db, outcomeRepo);
   const reportService = new PortfolioReportService(
     portfolioRepo,
     outcomeRepo,
@@ -361,5 +364,6 @@ export function createDependencies(config: Config): DominusDependencies {
     metrics,
     metricsRepo,
     progressService,
+    accuracyAnalyzer,
   };
 }

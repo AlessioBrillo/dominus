@@ -9,7 +9,7 @@ function buildApp(authProvider: AuthProvider): express.Express {
   app.use('/api/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
-  app.use('/api/protected', createAuthMiddleware(authProvider), (_req, res) => {
+  app.use('/api/v1/protected', createAuthMiddleware(authProvider), (_req, res) => {
     res.json({ data: 'secret' });
   });
   app.use((_req, res) => {
@@ -39,7 +39,9 @@ describe('auth middleware', () => {
 
     it('returns 200 with valid API key in Bearer token', async () => {
       const app = buildApp(provider);
-      const res = await request(app).get('/api/protected').set('Authorization', 'Bearer valid-key');
+      const res = await request(app)
+        .get('/api/v1/protected')
+        .set('Authorization', 'Bearer valid-key');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ data: 'secret' });
     });
@@ -47,7 +49,7 @@ describe('auth middleware', () => {
     it('returns 403 with invalid API key', async () => {
       const app = buildApp(provider);
       const res = await request(app)
-        .get('/api/protected')
+        .get('/api/v1/protected')
         .set('Authorization', 'Bearer invalid-key');
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('FORBIDDEN');
@@ -55,21 +57,21 @@ describe('auth middleware', () => {
 
     it('returns 401 without Authorization header', async () => {
       const app = buildApp(provider);
-      const res = await request(app).get('/api/protected');
+      const res = await request(app).get('/api/v1/protected');
       expect(res.status).toBe(401);
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 with malformed Authorization header', async () => {
       const app = buildApp(provider);
-      const res = await request(app).get('/api/protected').set('Authorization', 'Basic token');
+      const res = await request(app).get('/api/v1/protected').set('Authorization', 'Basic token');
       expect(res.status).toBe(401);
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 with empty Bearer token', async () => {
       const app = buildApp(provider);
-      const res = await request(app).get('/api/protected').set('Authorization', 'Bearer ');
+      const res = await request(app).get('/api/v1/protected').set('Authorization', 'Bearer ');
       expect(res.status).toBe(401);
       expect(res.body.error.code).toBe('UNAUTHORIZED');
     });

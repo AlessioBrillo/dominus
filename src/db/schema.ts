@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS scoring_runs (
   commercial_score REAL NOT NULL,
   market_score REAL NOT NULL,
   expiry_score REAL NOT NULL,
+  weighted_score REAL NOT NULL DEFAULT 0,
+  recommended INTEGER NOT NULL DEFAULT 0,
   signal_scores TEXT NOT NULL,
   scored_at TEXT NOT NULL DEFAULT (datetime('now'))
 )

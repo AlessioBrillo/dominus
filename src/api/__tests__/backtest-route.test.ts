@@ -15,7 +15,7 @@ function openTestDb(): Database.Database {
   return db;
 }
 
-describe('POST /api/backtest', () => {
+describe('POST /api/v1/backtest', () => {
   let db: Database.Database;
   let outcomeRepo: OutcomeRepository;
 
@@ -27,10 +27,10 @@ describe('POST /api/backtest', () => {
   it('snapshot returns scanned/inserted/skipped counters', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/backtest', createBacktestRouter(db, outcomeRepo));
+    app.use('/api/v1/backtest', createBacktestRouter(db, outcomeRepo));
     app.use(errorHandler);
 
-    const res = await request(app).post('/api/backtest/snapshot');
+    const res = await request(app).post('/api/v1/backtest/snapshot');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('scanned');
     expect(res.body).toHaveProperty('inserted');
@@ -41,10 +41,10 @@ describe('POST /api/backtest', () => {
   it('report returns calibration metrics', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/backtest', createBacktestRouter(db, outcomeRepo));
+    app.use('/api/v1/backtest', createBacktestRouter(db, outcomeRepo));
     app.use(errorHandler);
 
-    const res = await request(app).post('/api/backtest/report');
+    const res = await request(app).post('/api/v1/backtest/report');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('sampleSize');
     expect(res.body).toHaveProperty('meanAbsoluteErrorEur');
@@ -55,10 +55,10 @@ describe('POST /api/backtest', () => {
   it('suggest-weights returns weight suggestion report', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/backtest', createBacktestRouter(db, outcomeRepo));
+    app.use('/api/v1/backtest', createBacktestRouter(db, outcomeRepo));
     app.use(errorHandler);
 
-    const res = await request(app).post('/api/backtest/suggest-weights');
+    const res = await request(app).post('/api/v1/backtest/suggest-weights');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('sampleSize');
     expect(res.body).toHaveProperty('suggestions');

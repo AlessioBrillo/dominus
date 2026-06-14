@@ -27,6 +27,7 @@ import {
   createPurchaseRouter,
   createReportRouter,
   createMetricsRouter,
+  createAnalyticsRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -99,8 +100,8 @@ app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
-app.use('/api/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
-app.use('/api/auth', createAuthRouter(authProvider));
+app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
+app.use('/api/v1/auth', createAuthRouter(authProvider));
 
 const protectedRouter = express.Router();
 protectedRouter.use(authMiddleware);
@@ -133,7 +134,8 @@ protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
 protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
 protectedRouter.use('/report', createReportRouter(deps.reportService));
-app.use('/api', protectedRouter);
+protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer));
+app.use('/api/v1', protectedRouter);
 
 // ── SPA catch-all with base path isolation ─────────────────────────
 // The SPA middleware is mounted AFTER all API routes to prevent path

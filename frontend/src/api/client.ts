@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'dominus_api_key';
-const BASE_URL = '/api';
+const BASE_URL = '/api/v1';
 
 export function getStoredApiKey(): string | null {
   try {

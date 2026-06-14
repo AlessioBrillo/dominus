@@ -15,7 +15,7 @@ function createMockPurchaseService(): any {
   };
 }
 
-describe('GET /api/purchase/preflight', () => {
+describe('GET /api/v1/purchase/preflight', () => {
   it('returns check result for a domain', async () => {
     const svc = createMockPurchaseService();
     svc.preflight.mockResolvedValue({
@@ -31,10 +31,10 @@ describe('GET /api/purchase/preflight', () => {
     });
 
     const app = express();
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/purchase/preflight?domain=example.com');
+    const res = await request(app).get('/api/v1/purchase/preflight?domain=example.com');
     expect(res.status).toBe(200);
     expect(res.body.check.available).toBe(true);
     expect(res.body.check.registerPriceEur).toBe(10);
@@ -43,10 +43,10 @@ describe('GET /api/purchase/preflight', () => {
   it('returns 400 with missing domain', async () => {
     const svc = createMockPurchaseService();
     const app = express();
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/purchase/preflight');
+    const res = await request(app).get('/api/v1/purchase/preflight');
     expect(res.status).toBe(400);
   });
 
@@ -55,15 +55,15 @@ describe('GET /api/purchase/preflight', () => {
     svc.preflight.mockRejectedValue(new Error('internal error'));
 
     const app = express();
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/purchase/preflight?domain=example.com');
+    const res = await request(app).get('/api/v1/purchase/preflight?domain=example.com');
     expect(res.status).toBe(500);
   });
 });
 
-describe('POST /api/purchase/execute', () => {
+describe('POST /api/v1/purchase/execute', () => {
   it('executes and returns purchase result', async () => {
     const svc = createMockPurchaseService();
     svc.execute.mockResolvedValue({
@@ -80,11 +80,11 @@ describe('POST /api/purchase/execute', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
     const res = await request(app)
-      .post('/api/purchase/execute')
+      .post('/api/v1/purchase/execute')
       .send({ domain: 'example.com', years: 1 });
 
     expect(res.status).toBe(200);
@@ -98,10 +98,10 @@ describe('POST /api/purchase/execute', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).post('/api/purchase/execute').send({ domain: 'example.com' });
+    const res = await request(app).post('/api/v1/purchase/execute').send({ domain: 'example.com' });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('Domain taken');
@@ -113,10 +113,10 @@ describe('POST /api/purchase/execute', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).post('/api/purchase/execute').send({ domain: 'example.com' });
+    const res = await request(app).post('/api/v1/purchase/execute').send({ domain: 'example.com' });
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('PURCHASE_NOT_APPROVED');
@@ -126,16 +126,16 @@ describe('POST /api/purchase/execute', () => {
     const svc = createMockPurchaseService();
     const app = express();
     app.use(express.json());
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).post('/api/purchase/execute').send({});
+    const res = await request(app).post('/api/v1/purchase/execute').send({});
 
     expect(res.status).toBe(400);
   });
 });
 
-describe('GET /api/purchase/price', () => {
+describe('GET /api/v1/purchase/price', () => {
   it('returns prices for comma-separated domains', async () => {
     const svc = createMockPurchaseService();
     svc.checkPrice.mockResolvedValue([
@@ -158,10 +158,10 @@ describe('GET /api/purchase/price', () => {
     ]);
 
     const app = express();
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/purchase/price?domains=foo.com,bar.io');
+    const res = await request(app).get('/api/v1/purchase/price?domains=foo.com,bar.io');
     expect(res.status).toBe(200);
     expect(res.body.prices).toHaveLength(2);
   });
@@ -169,10 +169,10 @@ describe('GET /api/purchase/price', () => {
   it('validates domains query param', async () => {
     const svc = createMockPurchaseService();
     const app = express();
-    app.use('/api/purchase', createPurchaseRouter(svc));
+    app.use('/api/v1/purchase', createPurchaseRouter(svc));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/purchase/price');
+    const res = await request(app).get('/api/v1/purchase/price');
     expect(res.status).toBe(400);
   });
 });

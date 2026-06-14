@@ -38,15 +38,15 @@ describe('Standalone outcomes API', () => {
     outcomeRepo = new OutcomeRepository(db);
   });
 
-  it('POST /api/outcomes records an outcome (with domain in body)', async () => {
+  it('POST /api/v1/outcomes records an outcome (with domain in body)', async () => {
     seedPortfolio(db, 'example.com');
     const app = express();
     app.use(express.json());
-    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
     app.use(errorHandler);
 
     const res = await request(app)
-      .post('/api/outcomes')
+      .post('/api/v1/outcomes')
       .send({ domain: 'example.com', type: 'sold', occurredAt: '2025-06-01', salePriceEur: 1000 });
 
     expect(res.status).toBe(201);
@@ -54,21 +54,21 @@ describe('Standalone outcomes API', () => {
     expect(res.body.outcome).toHaveProperty('type', 'sold');
   });
 
-  it('POST /api/outcomes returns 400 on invalid body', async () => {
+  it('POST /api/v1/outcomes returns 400 on invalid body', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
     app.use(errorHandler);
 
     const res = await request(app)
-      .post('/api/outcomes')
+      .post('/api/v1/outcomes')
       .send({ domain: 'example.com', type: 'invalid' });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toHaveProperty('code', 'VALIDATION_ERROR');
   });
 
-  it('GET /api/outcomes lists all outcomes', async () => {
+  it('GET /api/v1/outcomes lists all outcomes', async () => {
     seedPortfolio(db, 'alpha.com');
     seedPortfolio(db, 'beta.com');
     outcomeRepo.insert({
@@ -80,15 +80,15 @@ describe('Standalone outcomes API', () => {
     outcomeRepo.insert({ domain: 'beta.com', type: 'renewed', occurredAt: '2025-07-01' });
 
     const app = express();
-    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/outcomes');
+    const res = await request(app).get('/api/v1/outcomes');
     expect(res.status).toBe(200);
     expect(res.body.outcomes).toHaveLength(2);
   });
 
-  it('GET /api/outcomes?type=sold filters by type', async () => {
+  it('GET /api/v1/outcomes?type=sold filters by type', async () => {
     seedPortfolio(db, 'alpha.com');
     outcomeRepo.insert({
       domain: 'alpha.com',
@@ -98,16 +98,16 @@ describe('Standalone outcomes API', () => {
     });
 
     const app = express();
-    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/outcomes?type=sold');
+    const res = await request(app).get('/api/v1/outcomes?type=sold');
     expect(res.status).toBe(200);
     expect(res.body.outcomes).toHaveLength(1);
     expect(res.body.outcomes[0]).toHaveProperty('type', 'sold');
   });
 
-  it('GET /api/outcomes/stats/:domain returns aggregate stats', async () => {
+  it('GET /api/v1/outcomes/stats/:domain returns aggregate stats', async () => {
     seedPortfolio(db, 'alpha.com');
     outcomeRepo.insert({
       domain: 'alpha.com',
@@ -117,29 +117,29 @@ describe('Standalone outcomes API', () => {
     });
 
     const app = express();
-    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/outcomes/stats/alpha.com');
+    const res = await request(app).get('/api/v1/outcomes/stats/alpha.com');
     expect(res.status).toBe(200);
     expect(res.body.stats).toHaveProperty('sold');
     expect(res.body.stats).toHaveProperty('totalRealisedEur');
   });
 
-  it('POST /api/outcomes returns 404 for domain not in portfolio', async () => {
+  it('POST /api/v1/outcomes returns 404 for domain not in portfolio', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/outcomes', createOutcomesRouter(outcomeRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
     app.use(errorHandler);
 
     const res = await request(app)
-      .post('/api/outcomes')
+      .post('/api/v1/outcomes')
       .send({ domain: 'nonexistent.com', type: 'sold', occurredAt: '2025-06-01' });
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('DOMAIN_NOT_FOUND');
   });
 
-  it('GET /api/outcomes/stats/:domain returns 500 when repository throws', async () => {
+  it('GET /api/v1/outcomes/stats/:domain returns 500 when repository throws', async () => {
     const brokenRepo = {
       findAll: vi.fn(),
       findByType: vi.fn(),
@@ -149,14 +149,14 @@ describe('Standalone outcomes API', () => {
       }),
     } as unknown as OutcomeRepository;
     const app = express();
-    app.use('/api/outcomes', createOutcomesRouter(brokenRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(brokenRepo));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/outcomes/stats/alpha.com');
+    const res = await request(app).get('/api/v1/outcomes/stats/alpha.com');
     expect(res.status).toBe(500);
   });
 
-  it('GET /api/outcomes returns 500 when repository findAll throws', async () => {
+  it('GET /api/v1/outcomes returns 500 when repository findAll throws', async () => {
     const brokenRepo = {
       findAll: vi.fn().mockImplementation(() => {
         throw new Error('DB error');
@@ -166,10 +166,10 @@ describe('Standalone outcomes API', () => {
       statsByDomain: vi.fn(),
     } as unknown as OutcomeRepository;
     const app = express();
-    app.use('/api/outcomes', createOutcomesRouter(brokenRepo));
+    app.use('/api/v1/outcomes', createOutcomesRouter(brokenRepo));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/outcomes');
+    const res = await request(app).get('/api/v1/outcomes');
     expect(res.status).toBe(500);
   });
 });

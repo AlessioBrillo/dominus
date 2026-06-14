@@ -39,15 +39,15 @@ function makeStubService(): WatchlistService {
 function buildApp(service?: WatchlistService): Application {
   const app = express();
   app.use(express.json());
-  app.use('/api/watchlist', createWatchlistRouter(service ?? makeStubService()));
+  app.use('/api/v1/watchlist', createWatchlistRouter(service ?? makeStubService()));
   app.use(errorHandler);
   return app;
 }
 
-describe('API: /api/watchlist', () => {
+describe('API: /api/v1/watchlist', () => {
   describe('GET /', () => {
     it('returns an empty list', async () => {
-      const res = await request(buildApp()).get('/api/watchlist');
+      const res = await request(buildApp()).get('/api/v1/watchlist');
       expect(res.status).toBe(200);
       expect(res.body.entries).toEqual([]);
     });
@@ -57,7 +57,7 @@ describe('API: /api/watchlist', () => {
       (service.list as ReturnType<typeof vi.fn>).mockReturnValue([
         { domain: 'example.com', tld: '.com', notified: 0 },
       ] as unknown as WatchlistEntry[]);
-      const res = await request(buildApp(service)).get('/api/watchlist');
+      const res = await request(buildApp(service)).get('/api/v1/watchlist');
       expect(res.status).toBe(200);
       expect(res.body.entries).toHaveLength(1);
       expect(res.body.entries[0]!.domain).toBe('example.com');
@@ -72,33 +72,35 @@ describe('API: /api/watchlist', () => {
         tld: '.com',
         notified: 0,
       } as WatchlistEntry);
-      const res = await request(buildApp(service)).get('/api/watchlist/example.com');
+      const res = await request(buildApp(service)).get('/api/v1/watchlist/example.com');
       expect(res.status).toBe(200);
       expect(res.body.entry.domain).toBe('example.com');
     });
 
     it('returns 404 for missing domain', async () => {
-      const res = await request(buildApp()).get('/api/watchlist/missing.com');
+      const res = await request(buildApp()).get('/api/v1/watchlist/missing.com');
       expect(res.status).toBe(404);
     });
   });
 
   describe('POST /', () => {
     it('creates a new entry', async () => {
-      const res = await request(buildApp()).post('/api/watchlist').send({ domain: 'example.com' });
+      const res = await request(buildApp())
+        .post('/api/v1/watchlist')
+        .send({ domain: 'example.com' });
       expect(res.status).toBe(201);
       expect(res.body.entry.domain).toBe('example.com');
     });
 
     it('accepts optional notes', async () => {
       const res = await request(buildApp())
-        .post('/api/watchlist')
+        .post('/api/v1/watchlist')
         .send({ domain: 'test.io', notes: 'interesting' });
       expect(res.status).toBe(201);
     });
 
     it('returns 400 for missing domain', async () => {
-      const res = await request(buildApp()).post('/api/watchlist').send({});
+      const res = await request(buildApp()).post('/api/v1/watchlist').send({});
       expect(res.status).toBe(400);
     });
 
@@ -110,7 +112,7 @@ describe('API: /api/watchlist', () => {
         throw err;
       });
       const res = await request(buildApp(service))
-        .post('/api/watchlist')
+        .post('/api/v1/watchlist')
         .send({ domain: 'example.com' });
       expect(res.status).toBe(409);
     });
@@ -118,7 +120,7 @@ describe('API: /api/watchlist', () => {
 
   describe('DELETE /:domain', () => {
     it('removes an entry', async () => {
-      const res = await request(buildApp()).delete('/api/watchlist/example.com');
+      const res = await request(buildApp()).delete('/api/v1/watchlist/example.com');
       expect(res.status).toBe(200);
       expect(res.body.removed).toBe(true);
     });
@@ -126,7 +128,7 @@ describe('API: /api/watchlist', () => {
     it('returns 404 for missing entry', async () => {
       const service = makeStubService();
       (service.remove as ReturnType<typeof vi.fn>).mockReturnValue(false);
-      const res = await request(buildApp(service)).delete('/api/watchlist/missing.com');
+      const res = await request(buildApp(service)).delete('/api/v1/watchlist/missing.com');
       expect(res.status).toBe(404);
     });
   });
@@ -140,7 +142,7 @@ describe('API: /api/watchlist', () => {
         notified: 2,
         errors: 0,
       });
-      const res = await request(buildApp(service)).post('/api/watchlist/poll');
+      const res = await request(buildApp(service)).post('/api/v1/watchlist/poll');
       expect(res.status).toBe(200);
       expect(res.body.checked).toBe(10);
       expect(res.body.available).toBe(2);
