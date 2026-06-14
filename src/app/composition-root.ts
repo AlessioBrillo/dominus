@@ -14,6 +14,7 @@ import {
   BacktestSignalsRepository,
   WeightSnapshotRepository,
   SchedulerJobRepository,
+  MetricsRepository,
 } from '../db/index.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
@@ -106,6 +107,7 @@ export interface DominusDependencies {
   purchaseService: PurchaseServiceType;
   reportService: PortfolioReportService;
   metrics: MetricsCollector;
+  metricsRepo: MetricsRepository;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -123,6 +125,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const portfolioRepo = new PortfolioRepository(db);
   const alertRepo = new RenewalAlertRepository(db);
   const pipelineRunsRepo = new PipelineRunsRepository(db);
+  const metricsRepo = new MetricsRepository(db);
 
   // â”€â”€ Providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, providerCacheRepo);
@@ -338,5 +341,6 @@ export function createDependencies(config: Config): DominusDependencies {
     purchaseService,
     reportService,
     metrics,
+    metricsRepo,
   };
 }

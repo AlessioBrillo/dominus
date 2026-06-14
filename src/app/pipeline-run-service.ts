@@ -12,6 +12,7 @@ import {
   type PipelineRunInputs,
   type PipelineRunResults,
 } from '../db/repositories/pipeline-runs-repository.js';
+import { MetricsRepository } from '../db/repositories/metrics-repository.js';
 
 /** Default retention window for pipeline_runs rows, in days (ADR-0011). */
 export const DEFAULT_PIPELINE_RUN_RETENTION_DAYS = 180;
@@ -57,6 +58,8 @@ export class PipelineRunService {
   readonly #hostVersion: string;
   readonly #retentionDays: number;
 
+  readonly #metricsRepo: MetricsRepository;
+
   constructor(
     db: Database.Database,
     orchestrator: PipelineOrchestrator,
@@ -65,6 +68,7 @@ export class PipelineRunService {
     runsRepo: PipelineRunsRepository = new PipelineRunsRepository(db),
     hostVersion: string = readHostVersion(),
     retentionDays: number = DEFAULT_PIPELINE_RUN_RETENTION_DAYS,
+    metricsRepo: MetricsRepository = new MetricsRepository(db),
   ) {
     this.#db = db;
     this.#orchestrator = orchestrator;
@@ -73,6 +77,7 @@ export class PipelineRunService {
     this.#runsRepo = runsRepo;
     this.#hostVersion = hostVersion;
     this.#retentionDays = retentionDays;
+    this.#metricsRepo = metricsRepo;
   }
 
   async run(
@@ -163,6 +168,9 @@ export class PipelineRunService {
       throw err;
     }
 
+    // Persist per-stage metrics for observability.
+    this.#persistStageMetrics(runRowId, result);
+
     const totalDurationMs = Date.now() - startedMs;
 
     // Complete the pipeline_runs row with stage + result summary.
@@ -179,6 +187,31 @@ export class PipelineRunService {
       startedAt,
       runRowId,
     };
+  }
+
+  #persistStageMetrics(runId: string, result: PipelineResult): void {
+    const stages: Array<{
+      stageName: string;
+      passed: number;
+      filtered: number;
+      durationMs: number;
+      error: boolean;
+    }> = [];
+
+    for (const [name, summary] of Object.entries(result.stageSummary)) {
+      const hasError = result.stageErrors.some((e) => e.stageName === name);
+      stages.push({
+        stageName: name,
+        passed: summary.passed,
+        filtered: summary.filtered,
+        durationMs: summary.durationMs,
+        error: hasError,
+      });
+    }
+
+    if (stages.length > 0) {
+      this.#metricsRepo.insertBatch(runId, stages);
+    }
   }
 }
 

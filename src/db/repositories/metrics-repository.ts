@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 
 export interface StageMetricRow {
-  pipelineRunId: string;
+  pipelineRunId?: string;
   stageName: string;
   passed: number;
   filtered: number;

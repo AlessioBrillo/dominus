@@ -26,6 +26,7 @@ import {
   createWatchlistRouter,
   createPurchaseRouter,
   createReportRouter,
+  createMetricsRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -98,6 +99,7 @@ app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
 app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
+app.use('/api/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
 app.use('/api/auth', createAuthRouter(authProvider));
 
 const protectedRouter = express.Router();
