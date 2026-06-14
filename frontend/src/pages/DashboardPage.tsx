@@ -4,6 +4,8 @@ import {
   type DashboardStats,
   type DashboardResult,
 } from '../api/dashboard.js';
+import { runPipeline } from '../api/candidates.js';
+import { RunProgress } from '../components/RunProgress.js';
 
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -11,6 +13,8 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [partialFailure, setPartialFailure] = useState(false);
   const [failureReasons, setFailureReasons] = useState<string[]>([]);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,6 +38,19 @@ export function DashboardPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const startPipeline = useCallback(async () => {
+    setStarting(true);
+    setRunId(null);
+    try {
+      const result = await runPipeline({});
+      setRunId(result.runId);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Pipeline failed to start');
+    } finally {
+      setStarting(false);
+    }
+  }, []);
 
   if (error) {
     return (
@@ -102,13 +119,23 @@ export function DashboardPage() {
             DOMINUS v{stats?.health?.version ?? '?'} — {stats?.health?.status ?? 'unknown'}
           </p>
         </div>
-        <button
-          onClick={load}
-          className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors"
-          title="Refresh dashboard data"
-        >
-          ↻ Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={startPipeline}
+            disabled={starting}
+            className="px-3 py-1.5 bg-cyan-800 hover:bg-cyan-700 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-xs font-medium transition-colors"
+            title="Run a new pipeline"
+          >
+            {starting ? <span className="animate-pulse">Starting...</span> : <>▶ Run Pipeline</>}
+          </button>
+          <button
+            onClick={load}
+            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors"
+            title="Refresh dashboard data"
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       {partialFailure && (
@@ -122,6 +149,8 @@ export function DashboardPage() {
           </button>
         </div>
       )}
+
+      <RunProgress runId={runId} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
