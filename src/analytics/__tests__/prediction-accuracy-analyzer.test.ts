@@ -31,6 +31,29 @@ function createTestDb(): Database.Database {
       signal_scores TEXT NOT NULL DEFAULT '{}',
       scored_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS portfolio_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL UNIQUE,
+      tld TEXT NOT NULL,
+      acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
+      renewal_date TEXT NOT NULL DEFAULT (datetime('now', '+1 year')),
+      acquisition_cost REAL NOT NULL DEFAULT 10,
+      renewal_cost REAL NOT NULL DEFAULT 10,
+      registrar TEXT NOT NULL DEFAULT 'manual',
+      current_score REAL,
+      suggested_list_price REAL,
+      verdict TEXT NOT NULL DEFAULT 'keep',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS outcomes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL REFERENCES portfolio_entries(domain) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      sale_price_eur REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE TABLE IF NOT EXISTS outcome_scores (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       domain TEXT NOT NULL,
@@ -56,7 +79,7 @@ function createTestDb(): Database.Database {
 function insertCandidate(db: Database.Database, domain: string, tld: string): number {
   const info = db
     .prepare('INSERT INTO candidates (domain, tld, source) VALUES (?, ?, ?)')
-    .run(domain, tld);
+    .run(domain, tld, 'manual');
   return info.lastInsertRowid as number;
 }
 
@@ -139,6 +162,13 @@ describe('PredictionAccuracyAnalyzer', () => {
 
   describe('refresh() and generate() — with data', () => {
     beforeEach(() => {
+      for (const d of ['alpha.com', 'beta.com', 'gamma.io', 'delta.io']) {
+        db.prepare('INSERT OR IGNORE INTO portfolio_entries (domain, tld) VALUES (?, ?)').run(
+          d,
+          d.includes('io') ? '.io' : '.com',
+        );
+      }
+
       const candidateId = insertCandidate(db, 'alpha.com', '.com');
       insertScoringRun(db, candidateId, {
         expectedValue: 200,
@@ -247,8 +277,7 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(dotCom!.sampleSize).toBe(2);
 
       const dotIo = report.byTld.find((t) => t.tld === '.io');
-      expect(dotIo).toBeDefined();
-      expect(dotIo!.sampleSize).toBe(0);
+      expect(dotIo).toBeUndefined();
     });
 
     it('generate() returns calibration buckets', () => {
