@@ -27,6 +27,7 @@ import {
   createPurchaseRouter,
   createReportRouter,
   createMetricsRouter,
+  createAnalyticsRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -133,6 +134,7 @@ protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
 protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
 protectedRouter.use('/report', createReportRouter(deps.reportService));
+protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer));
 app.use('/api/v1', protectedRouter);
 
 // ── SPA catch-all with base path isolation ─────────────────────────
