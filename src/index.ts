@@ -114,7 +114,13 @@ protectedRouter.use('/candidates', createCandidatesRouter(deps.runService, deps.
 protectedRouter.use('/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
 protectedRouter.use(
   '/runs',
-  createRunsRouter(deps.pipelineRunsRepo, deps.candidateRepo, deps.scoringRepo, deps.db),
+  createRunsRouter(
+    deps.pipelineRunsRepo,
+    deps.candidateRepo,
+    deps.scoringRepo,
+    deps.db,
+    deps.progressService,
+  ),
 );
 protectedRouter.use(
   '/alerts',

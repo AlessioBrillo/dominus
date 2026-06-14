@@ -3,6 +3,8 @@ import type { Request, Response, NextFunction } from 'express';
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import type { PipelineProgressService } from '../../app/pipeline-progress-service.js';
+import { setupSseResponse } from '../../app/pipeline-progress-service.js';
 import type { Database } from 'better-sqlite3';
 import { getRouteParam } from '../route-utils.js';
 
@@ -13,6 +15,7 @@ import { getRouteParam } from '../route-utils.js';
  *   GET    /                  → list (newest first, ?since, ?until, ?limit)
  *   GET    /:runId            → one run with stage + result summary
  *   GET    /:runId/candidates → candidates persisted during that run
+ *   GET    /:runId/stream     → SSE: live stage progress for a running pipeline
  *   POST   /prune             → delete expired runs; returns { deleted, remaining }
  */
 export function createRunsRouter(
@@ -20,6 +23,7 @@ export function createRunsRouter(
   candidateRepo: CandidateRepository,
   scoringRepo: ScoringRepository,
   db?: Database,
+  progressService?: PipelineProgressService,
 ): Router {
   const router = Router();
 
@@ -79,6 +83,29 @@ export function createRunsRouter(
       }
       const candidates = candidateRepo.findByRunId(runId);
       res.json({ runId, candidates });
+    } catch (err: unknown) {
+      next(err);
+    }
+  });
+
+  router.get('/:runId/stream', (req: Request, res: Response, next: NextFunction): void => {
+    try {
+      const runId = getRouteParam(req, 'runId');
+      if (runId === undefined) {
+        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
+        return;
+      }
+      if (!progressService) {
+        res
+          .status(501)
+          .json({ error: { code: 'SSE_UNAVAILABLE', message: 'SSE progress is not available' } });
+        return;
+      }
+      setupSseResponse(res);
+      progressService.addClient(runId, res);
+      req.on('close', () => {
+        // client disconnected — progressService handles cleanup
+      });
     } catch (err: unknown) {
       next(err);
     }

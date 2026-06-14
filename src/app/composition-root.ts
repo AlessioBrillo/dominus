@@ -56,6 +56,7 @@ import {
   warnEuipoIfMissing,
   warnCloudflareIfMissing,
   MetricsCollector,
+  PipelineProgressService,
 } from './index.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -108,6 +109,7 @@ export interface DominusDependencies {
   reportService: PortfolioReportService;
   metrics: MetricsCollector;
   metricsRepo: MetricsRepository;
+  progressService: PipelineProgressService;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -203,7 +205,18 @@ export function createDependencies(config: Config): DominusDependencies {
     config.PIPELINE_TIMEOUT_MS,
     metrics,
   );
-  const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
+  const progressService = new PipelineProgressService();
+  const runService = new PipelineRunService(
+    db,
+    orchestrator,
+    candidateRepo,
+    scoringRepo,
+    pipelineRunsRepo,
+    undefined,
+    undefined,
+    metricsRepo,
+    progressService,
+  );
 
   // â”€â”€ Portfolio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const portfolioManager = new PortfolioManager(
@@ -342,5 +355,6 @@ export function createDependencies(config: Config): DominusDependencies {
     reportService,
     metrics,
     metricsRepo,
+    progressService,
   };
 }

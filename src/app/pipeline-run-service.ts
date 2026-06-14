@@ -13,6 +13,7 @@ import {
   type PipelineRunResults,
 } from '../db/repositories/pipeline-runs-repository.js';
 import { MetricsRepository } from '../db/repositories/metrics-repository.js';
+import { type PipelineProgressService } from './pipeline-progress-service.js';
 
 /** Default retention window for pipeline_runs rows, in days (ADR-0011). */
 export const DEFAULT_PIPELINE_RUN_RETENTION_DAYS = 180;
@@ -59,6 +60,7 @@ export class PipelineRunService {
   readonly #retentionDays: number;
 
   readonly #metricsRepo: MetricsRepository;
+  readonly #progressService: PipelineProgressService | undefined;
 
   constructor(
     db: Database.Database,
@@ -69,6 +71,7 @@ export class PipelineRunService {
     hostVersion: string = readHostVersion(),
     retentionDays: number = DEFAULT_PIPELINE_RUN_RETENTION_DAYS,
     metricsRepo: MetricsRepository = new MetricsRepository(db),
+    progressService?: PipelineProgressService,
   ) {
     this.#db = db;
     this.#orchestrator = orchestrator;
@@ -78,6 +81,7 @@ export class PipelineRunService {
     this.#hostVersion = hostVersion;
     this.#retentionDays = retentionDays;
     this.#metricsRepo = metricsRepo;
+    this.#progressService = progressService;
   }
 
   async run(
@@ -104,6 +108,20 @@ export class PipelineRunService {
     const startedMs = Date.now();
     let result: PipelineResult;
     try {
+      if (this.#progressService) {
+        const runId = runRowId;
+        this.#orchestrator.setOnStageProgress((stageName, passed, filtered, durationMs, error) => {
+          this.#progressService!.broadcast(runId, {
+            type: 'stage',
+            runId,
+            stageName,
+            passed,
+            filtered,
+            durationMs,
+            error,
+          });
+        });
+      }
       result = await this.#orchestrator.run(input);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -172,6 +190,24 @@ export class PipelineRunService {
     this.#persistStageMetrics(runRowId, result);
 
     const totalDurationMs = Date.now() - startedMs;
+
+    // Broadcast completion to SSE clients.
+    if (this.#progressService) {
+      const totalPassed = Object.values(result.stageSummary).reduce((sum, s) => sum + s.passed, 0);
+      const totalFiltered = Object.values(result.stageSummary).reduce(
+        (sum, s) => sum + s.filtered,
+        0,
+      );
+      this.#progressService.broadcast(runRowId, {
+        type: 'complete',
+        runId: runRowId,
+        totalDurationMs,
+        totalPassed,
+        totalFiltered,
+        stageErrors: result.stageErrors.length,
+      });
+      this.#progressService.removeClient(runRowId);
+    }
 
     // Complete the pipeline_runs row with stage + result summary.
     this.#runsRepo.complete(runRowId, {
