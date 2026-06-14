@@ -19,6 +19,8 @@ import {
   buildPerTldWhoisRateLimiters,
 } from '../providers/whois/index.js';
 import { withRetry } from '../providers/retryable-provider.js';
+import type { DnsCheckResult } from '../types/domain-status.js';
+import { DomainStatus } from '../types/domain-status.js';
 
 export function buildKeywordProvider(
   config: Config,
@@ -122,21 +124,43 @@ export function buildRdapProviders(
   return { raw, withRetry: withRetryProvider, cached };
 }
 
-export function buildDnsProvider(): DnsProvider {
-  const dnsWithRetry: DnsProvider = {
-    checkAvailability: (domain: string, signal?: AbortSignal) =>
-      withRetry(
-        (s) => new NodeDnsProvider().checkAvailability(domain, s),
-        `dns:${domain}`,
-        { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
-        signal,
-      ),
-    checkBulk: async (domains: string[], signal?: AbortSignal) => {
-      const dns = new NodeDnsProvider();
-      return dns.checkBulk(domains, signal);
+export function buildDnsProvider(config: Config): DnsProvider {
+  const inner = new NodeDnsProvider();
+
+  const wrappedCheckAvailability = (
+    domain: string,
+    signal?: AbortSignal,
+  ): Promise<DnsCheckResult> =>
+    withRetry(
+      (s) => inner.checkAvailability(domain, s),
+      `dns:${domain}`,
+      { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      signal,
+    );
+
+  const dnsProvider: DnsProvider = {
+    checkAvailability: wrappedCheckAvailability,
+    checkBulk: async (domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> => {
+      const concurrency = config.DNS_BULK_CONCURRENCY;
+      const results: DnsCheckResult[] = [];
+      for (let i = 0; i < domains.length; i += concurrency) {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        const chunk = domains.slice(i, i + concurrency);
+        const chunkResults = await Promise.all(
+          chunk.map((d) =>
+            wrappedCheckAvailability(d, signal).catch(() => ({
+              domain: d,
+              status: DomainStatus.Unknown,
+              checkedAt: new Date().toISOString(),
+            })),
+          ),
+        );
+        results.push(...chunkResults);
+      }
+      return results;
     },
   };
-  return dnsWithRetry;
+  return dnsProvider;
 }
 
 export interface BuiltWhoisProvider {

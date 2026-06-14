@@ -35,6 +35,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     TM_CACHE_TTL_DAYS: 7,
     SCORING_WEIGHTS_OVERRIDE: undefined,
     DNS_BULK_CONCURRENCY: 10,
+    DNS_LOOKUP_TIMEOUT_MS: 3000,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     RDAP_RATE_LIMIT_TOKENS: 10,
     RDAP_RATE_LIMIT_INTERVAL_MS: 1000,

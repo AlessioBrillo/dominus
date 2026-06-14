@@ -20,6 +20,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_API_URL: 'https://api.euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
     DNS_BULK_CONCURRENCY: 10,
+    DNS_LOOKUP_TIMEOUT_MS: 3000,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     RDAP_RATE_LIMIT_TOKENS: 10,
     RDAP_RATE_LIMIT_INTERVAL_MS: 1000,

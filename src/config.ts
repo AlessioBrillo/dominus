@@ -139,6 +139,13 @@ const configSchema = z.object({
    */
   DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
   /**
+   * Per-domain DNS lookup timeout in milliseconds.
+   * Each individual DNS resolution (A, AAAA, CNAME, NS) has this timeout.
+   * Increase for slow resolvers, decrease to fail fast on unresponsive NS.
+   * Default: 3000ms (3 seconds).
+   */
+  DNS_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).optional().default(3000),
+  /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */

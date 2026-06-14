@@ -131,7 +131,7 @@ export function createDependencies(config: Config): DominusDependencies {
     rdapRateLimiter,
     providerCacheRepo,
   );
-  const dnsProvider = buildDnsProvider();
+  const dnsProvider = buildDnsProvider(config);
   const { provider: whoisProvider } = buildWhoisProviders(config);
 
   // â”€â”€ Trademark providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
