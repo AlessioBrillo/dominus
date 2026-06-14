@@ -52,13 +52,13 @@ function makeStubGate(): TrademarkGate {
   } as unknown as TrademarkGate;
 }
 
-describe('GET /api/score/:domain', () => {
+describe('GET /api/v1/score/:domain', () => {
   it('returns 200 with score result for a valid domain', async () => {
     const app = express();
-    app.use('/api/score', createScoreRouter(makeStubEngine()));
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine()));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/score/example.com');
+    const res = await request(app).get('/api/v1/score/example.com');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('domain', 'example.com');
     expect(res.body).toHaveProperty('score');
@@ -69,10 +69,10 @@ describe('GET /api/score/:domain', () => {
 
   it('returns 400 for an invalid domain', async () => {
     const app = express();
-    app.use('/api/score', createScoreRouter(makeStubEngine()));
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine()));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/score/not-a-domain');
+    const res = await request(app).get('/api/v1/score/not-a-domain');
     expect(res.status).toBe(400);
     expect(res.body.error).toHaveProperty('code', 'INVALID_DOMAIN');
   });
@@ -80,10 +80,12 @@ describe('GET /api/score/:domain', () => {
   it('passes closeout query params to the engine', async () => {
     const engine = makeStubEngine();
     const app = express();
-    app.use('/api/score', createScoreRouter(engine));
+    app.use('/api/v1/score', createScoreRouter(engine));
     app.use(errorHandler);
 
-    await request(app).get('/api/score/expired.com?closeout=true&age=5&backlinks=100&wayback=200');
+    await request(app).get(
+      '/api/v1/score/expired.com?closeout=true&age=5&backlinks=100&wayback=200',
+    );
     expect(engine.score).toHaveBeenCalledWith(
       expect.objectContaining({
         isCloseout: true,
@@ -97,10 +99,10 @@ describe('GET /api/score/:domain', () => {
   it('includes trademark gate result when gate is provided', async () => {
     const gate = makeStubGate();
     const app = express();
-    app.use('/api/score', createScoreRouter(makeStubEngine(), gate));
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine(), gate));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/score/example.com');
+    const res = await request(app).get('/api/v1/score/example.com');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('trademark');
     expect(res.body.trademark).toHaveProperty('verdict', 'clear');
@@ -112,10 +114,10 @@ describe('GET /api/score/:domain', () => {
       check: vi.fn().mockRejectedValue(new Error('Service unavailable')),
     } as unknown as TrademarkGate;
     const app = express();
-    app.use('/api/score', createScoreRouter(makeStubEngine(), gate));
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine(), gate));
     app.use(errorHandler);
 
-    const res = await request(app).get('/api/score/example.com');
+    const res = await request(app).get('/api/v1/score/example.com');
     expect(res.status).toBe(200);
     expect(res.body.trademark).toHaveProperty('verdict', 'unverified');
   });

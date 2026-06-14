@@ -7,7 +7,7 @@ import type { SchedulerService } from '../../scheduler/scheduler-service.js';
 function buildApp(scheduler: SchedulerService): express.Express {
   const app = express();
   app.use(express.json());
-  app.use('/api/scheduler', createSchedulerRouter(scheduler));
+  app.use('/api/v1/scheduler', createSchedulerRouter(scheduler));
   return app;
 }
 
@@ -29,11 +29,11 @@ function mockScheduler(overrides?: Partial<SchedulerService>): SchedulerService 
   } as unknown as SchedulerService;
 }
 
-describe('GET /api/scheduler', () => {
+describe('GET /api/v1/scheduler', () => {
   it('returns 200 with scheduler job status', async () => {
     const scheduler = mockScheduler();
     const app = buildApp(scheduler);
-    const res = await request(app).get('/api/scheduler');
+    const res = await request(app).get('/api/v1/scheduler');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('jobs');
     expect(Array.isArray(res.body.jobs)).toBe(true);
@@ -48,16 +48,16 @@ describe('GET /api/scheduler', () => {
       }),
     });
     const app = buildApp(scheduler);
-    const res = await request(app).get('/api/scheduler');
+    const res = await request(app).get('/api/v1/scheduler');
     expect(res.status).toBe(500);
   });
 });
 
-describe('POST /api/scheduler/run/:job', () => {
+describe('POST /api/v1/scheduler/run/:job', () => {
   it('runs a known job and returns 200 with result', async () => {
     const scheduler = mockScheduler();
     const app = buildApp(scheduler);
-    const res = await request(app).post('/api/scheduler/run/renewal-check');
+    const res = await request(app).post('/api/v1/scheduler/run/renewal-check');
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ job: 'renewal-check', result: 'OK' });
   });
@@ -65,7 +65,7 @@ describe('POST /api/scheduler/run/:job', () => {
   it('returns 404 when job name segment is missing', async () => {
     const scheduler = mockScheduler();
     const app = buildApp(scheduler);
-    const res = await request(app).post('/api/scheduler/run/');
+    const res = await request(app).post('/api/v1/scheduler/run/');
     // Express does not match :job param to an empty segment
     expect(res.status).toBe(404);
   });
@@ -75,7 +75,7 @@ describe('POST /api/scheduler/run/:job', () => {
       runOnce: vi.fn().mockRejectedValue(new Error('Unknown job: bogus')),
     });
     const app = buildApp(scheduler);
-    const res = await request(app).post('/api/scheduler/run/bogus');
+    const res = await request(app).post('/api/v1/scheduler/run/bogus');
     expect(res.status).toBe(404);
     expect(res.body.error.code).toBe('UNKNOWN_JOB');
   });
@@ -85,7 +85,7 @@ describe('POST /api/scheduler/run/:job', () => {
       runOnce: vi.fn().mockRejectedValue(new Error('Unexpected error')),
     });
     const app = buildApp(scheduler);
-    const res = await request(app).post('/api/scheduler/run/test');
+    const res = await request(app).post('/api/v1/scheduler/run/test');
     expect(res.status).toBe(404);
   });
 });

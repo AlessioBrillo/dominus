@@ -53,7 +53,7 @@ function buildApp(db: Database.Database): express.Express {
 
   const app = express();
   app.use(express.json());
-  app.use('/api/candidates', createCandidatesRouter(makeStubRunService(), candidateRepo));
+  app.use('/api/v1/candidates', createCandidatesRouter(makeStubRunService(), candidateRepo));
   app.use(errorHandler);
   return app;
 }
@@ -65,12 +65,15 @@ describe('Candidates API', () => {
     db = openTestDb();
   });
 
-  describe('POST /api/candidates/run', () => {
+  describe('POST /api/v1/candidates/run', () => {
     it('forwards closeoutEntries to the run service', async () => {
       const runService = makeStubRunService();
       const app = express();
       app.use(express.json());
-      app.use('/api/candidates', createCandidatesRouter(runService, new CandidateRepository(db)));
+      app.use(
+        '/api/v1/candidates',
+        createCandidatesRouter(runService, new CandidateRepository(db)),
+      );
       app.use(errorHandler);
 
       const entries: CloseoutEntry[] = [
@@ -78,7 +81,7 @@ describe('Candidates API', () => {
         { domain: 'aged.org', domainAge: 15 },
       ];
 
-      await request(app).post('/api/candidates/run').send({ closeoutEntries: entries });
+      await request(app).post('/api/v1/candidates/run').send({ closeoutEntries: entries });
 
       expect(runService.run).toHaveBeenCalledWith(
         expect.objectContaining({ closeoutEntries: entries }),
@@ -89,11 +92,14 @@ describe('Candidates API', () => {
       const runService = makeStubRunService();
       const app = express();
       app.use(express.json());
-      app.use('/api/candidates', createCandidatesRouter(runService, new CandidateRepository(db)));
+      app.use(
+        '/api/v1/candidates',
+        createCandidatesRouter(runService, new CandidateRepository(db)),
+      );
       app.use(errorHandler);
 
       await request(app)
-        .post('/api/candidates/run')
+        .post('/api/v1/candidates/run')
         .send({
           keywords: ['cloud', 'saas'],
           brandableNames: ['getnova.com'],
@@ -109,10 +115,10 @@ describe('Candidates API', () => {
     });
   });
 
-  describe('GET /api/candidates', () => {
+  describe('GET /api/v1/candidates', () => {
     it('returns 400 with a clear error when runId is missing', async () => {
       const app = buildApp(db);
-      const res = await request(app).get('/api/candidates');
+      const res = await request(app).get('/api/v1/candidates');
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('BAD_REQUEST');
       expect(res.body.error.message).toMatch(/runId/);
@@ -120,7 +126,7 @@ describe('Candidates API', () => {
 
     it('returns the candidates for the requested runId', async () => {
       const app = buildApp(db);
-      const res = await request(app).get('/api/candidates?runId=run-1');
+      const res = await request(app).get('/api/v1/candidates?runId=run-1');
       expect(res.status).toBe(200);
       expect(res.body.candidates).toHaveLength(1);
       expect(res.body.candidates[0].domain).toBe('alpha.com');
@@ -128,7 +134,7 @@ describe('Candidates API', () => {
 
     it('returns an empty array for an unknown runId', async () => {
       const app = buildApp(db);
-      const res = await request(app).get('/api/candidates?runId=does-not-exist');
+      const res = await request(app).get('/api/v1/candidates?runId=does-not-exist');
       expect(res.status).toBe(200);
       expect(res.body.candidates).toEqual([]);
     });

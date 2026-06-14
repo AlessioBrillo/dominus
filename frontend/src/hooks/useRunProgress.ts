@@ -33,7 +33,7 @@ export function useRunProgress(runId: string | null): RunProgressState {
 
     setState({ stages: [], status: 'connecting' });
 
-    const es = new EventSource(`/api/runs/${runId}/stream`);
+    const es = new EventSource(`/api/v1/runs/${runId}/stream`);
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {

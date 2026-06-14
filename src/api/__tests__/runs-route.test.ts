@@ -51,7 +51,7 @@ function buildApp(db: Database.Database): {
 
   const app = express();
   app.use(express.json());
-  app.use('/api/runs', createRunsRouter(runsRepo, candidateRepo, scoringRepo, db));
+  app.use('/api/v1/runs', createRunsRouter(runsRepo, candidateRepo, scoringRepo, db));
   app.use(errorHandler);
   return { app, runsRepo, candidateRepo };
 }
@@ -63,10 +63,10 @@ describe('Runs API', () => {
     db = openTestDb();
   });
 
-  describe('GET /api/runs', () => {
+  describe('GET /api/v1/runs', () => {
     it('returns an empty array on a fresh database', async () => {
       const { app } = buildApp(db);
-      const res = await request(app).get('/api/runs');
+      const res = await request(app).get('/api/v1/runs');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ runs: [] });
     });
@@ -88,7 +88,7 @@ describe('Runs API', () => {
       });
 
       // Act
-      const res = await request(app).get('/api/runs');
+      const res = await request(app).get('/api/v1/runs');
 
       // Assert
       expect(res.status).toBe(200);
@@ -115,7 +115,7 @@ describe('Runs API', () => {
       });
 
       // Act
-      const res = await request(app).get('/api/runs?since=2026-06-01T00:00:00.000Z');
+      const res = await request(app).get('/api/v1/runs?since=2026-06-01T00:00:00.000Z');
 
       // Assert
       expect(res.status).toBe(200);
@@ -124,7 +124,7 @@ describe('Runs API', () => {
     });
   });
 
-  describe('GET /api/runs/:runId', () => {
+  describe('GET /api/v1/runs/:runId', () => {
     it('returns the full run record', async () => {
       // Arrange
       const { app, runsRepo } = buildApp(db);
@@ -148,7 +148,7 @@ describe('Runs API', () => {
       });
 
       // Act
-      const res = await request(app).get('/api/runs/r-1');
+      const res = await request(app).get('/api/v1/runs/r-1');
 
       // Assert
       expect(res.status).toBe(200);
@@ -163,7 +163,7 @@ describe('Runs API', () => {
       const { app } = buildApp(db);
 
       // Act
-      const res = await request(app).get('/api/runs/nope');
+      const res = await request(app).get('/api/v1/runs/nope');
 
       // Assert
       expect(res.status).toBe(404);
@@ -172,7 +172,7 @@ describe('Runs API', () => {
     });
   });
 
-  describe('GET /api/runs/:runId/candidates', () => {
+  describe('GET /api/v1/runs/:runId/candidates', () => {
     it('returns the candidates persisted during that run', async () => {
       // Arrange
       const { app, runsRepo, candidateRepo } = buildApp(db);
@@ -208,7 +208,7 @@ describe('Runs API', () => {
       });
 
       // Act
-      const res = await request(app).get('/api/runs/r-1/candidates');
+      const res = await request(app).get('/api/v1/runs/r-1/candidates');
 
       // Assert
       expect(res.status).toBe(200);
@@ -222,7 +222,7 @@ describe('Runs API', () => {
       const { app } = buildApp(db);
 
       // Act
-      const res = await request(app).get('/api/runs/missing/candidates');
+      const res = await request(app).get('/api/v1/runs/missing/candidates');
 
       // Assert
       expect(res.status).toBe(404);
@@ -231,7 +231,7 @@ describe('Runs API', () => {
     });
   });
 
-  describe('POST /api/runs/prune', () => {
+  describe('POST /api/v1/runs/prune', () => {
     it('deletes expired rows and reports counts', async () => {
       // Arrange
       const { app, runsRepo } = buildApp(db);
@@ -249,7 +249,7 @@ describe('Runs API', () => {
       });
 
       // Act
-      const res = await request(app).post('/api/runs/prune');
+      const res = await request(app).post('/api/v1/runs/prune');
 
       // Assert
       expect(res.status).toBe(200);

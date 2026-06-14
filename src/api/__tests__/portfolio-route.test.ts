@@ -35,7 +35,7 @@ function buildApp(db: Database.Database): {
 
   const app = express();
   app.use(express.json());
-  app.use('/api/portfolio', createPortfolioRouter(manager, outcomeRepo));
+  app.use('/api/v1/portfolio', createPortfolioRouter(manager, outcomeRepo));
   app.use(errorHandler);
   return { app, outcomeRepo, manager };
 }
@@ -47,19 +47,19 @@ describe('Portfolio API', () => {
     db = openTestDb();
   });
 
-  describe('GET /api/portfolio', () => {
+  describe('GET /api/v1/portfolio', () => {
     it('returns an empty array on a fresh database', async () => {
       const { app } = buildApp(db);
-      const res = await request(app).get('/api/portfolio');
+      const res = await request(app).get('/api/v1/portfolio');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ portfolio: [] });
     });
   });
 
-  describe('POST /api/portfolio', () => {
+  describe('POST /api/v1/portfolio', () => {
     it('creates a portfolio entry', async () => {
       const { app } = buildApp(db);
-      const res = await request(app).post('/api/portfolio').send({
+      const res = await request(app).post('/api/v1/portfolio').send({
         domain: 'alpha.com',
         tld: '.com',
         acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -73,7 +73,7 @@ describe('Portfolio API', () => {
     });
   });
 
-  describe('POST /api/portfolio/rescore', () => {
+  describe('POST /api/v1/portfolio/rescore', () => {
     it('returns a per-domain summary for a non-empty portfolio', async () => {
       const { app, manager } = buildApp(db);
       manager.add({
@@ -86,7 +86,7 @@ describe('Portfolio API', () => {
         registrar: 'namecheap',
       });
 
-      const res = await request(app).post('/api/portfolio/rescore');
+      const res = await request(app).post('/api/v1/portfolio/rescore');
       expect(res.status).toBe(200);
       expect(res.body.results).toHaveLength(1);
       expect(res.body.results[0].domain).toBe('alpha.com');
@@ -96,22 +96,22 @@ describe('Portfolio API', () => {
 
     it('returns an empty result list on a fresh portfolio', async () => {
       const { app } = buildApp(db);
-      const res = await request(app).post('/api/portfolio/rescore');
+      const res = await request(app).post('/api/v1/portfolio/rescore');
       expect(res.status).toBe(200);
       expect(res.body.results).toEqual([]);
     });
   });
 
-  describe('GET /api/portfolio/:domain/outcomes', () => {
+  describe('GET /api/v1/portfolio/:domain/outcomes', () => {
     it('returns an empty array when no outcomes exist', async () => {
       const { app } = buildApp(db);
-      const res = await request(app).get('/api/portfolio/alpha.com/outcomes');
+      const res = await request(app).get('/api/v1/portfolio/alpha.com/outcomes');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ outcomes: [] });
     });
   });
 
-  describe('POST /api/portfolio/:domain/outcomes', () => {
+  describe('POST /api/v1/portfolio/:domain/outcomes', () => {
     it('records an outcome and returns 201 with the stored row', async () => {
       const { app, manager, outcomeRepo } = buildApp(db);
       manager.add({
@@ -124,7 +124,7 @@ describe('Portfolio API', () => {
         registrar: 'namecheap',
       });
 
-      const res = await request(app).post('/api/portfolio/alpha.com/outcomes').send({
+      const res = await request(app).post('/api/v1/portfolio/alpha.com/outcomes').send({
         type: 'sold',
         occurredAt: '2026-04-15T00:00:00.000Z',
         salePriceEur: 1500,
@@ -153,7 +153,7 @@ describe('Portfolio API', () => {
       });
 
       const res = await request(app)
-        .post('/api/portfolio/alpha.com/outcomes')
+        .post('/api/v1/portfolio/alpha.com/outcomes')
         .send({ type: 'parachuted', occurredAt: '2026-04-15T00:00:00.000Z' });
 
       expect(res.status).toBe(400);
@@ -163,7 +163,7 @@ describe('Portfolio API', () => {
     it('returns 404 when the domain is not in the portfolio', async () => {
       const { app } = buildApp(db);
       const res = await request(app)
-        .post('/api/portfolio/ghost.com/outcomes')
+        .post('/api/v1/portfolio/ghost.com/outcomes')
         .send({ type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z' });
 
       expect(res.status).toBe(404);
@@ -171,7 +171,7 @@ describe('Portfolio API', () => {
     });
   });
 
-  describe('GET /api/portfolio/:domain/outcomes/stats', () => {
+  describe('GET /api/v1/portfolio/:domain/outcomes/stats', () => {
     it('returns aggregate counts and realised revenue', async () => {
       const { app, manager, outcomeRepo } = buildApp(db);
       manager.add({
@@ -201,7 +201,7 @@ describe('Portfolio API', () => {
         occurredAt: '2025-12-01T00:00:00.000Z',
       });
 
-      const res = await request(app).get('/api/portfolio/alpha.com/outcomes/stats');
+      const res = await request(app).get('/api/v1/portfolio/alpha.com/outcomes/stats');
       expect(res.status).toBe(200);
       expect(res.body.domain).toBe('alpha.com');
       expect(res.body.stats.sold).toBe(2);

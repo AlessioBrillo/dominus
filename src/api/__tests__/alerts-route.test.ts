@@ -43,16 +43,16 @@ function createApp(): { app: express.Express; alertRepo: RenewalAlertRepository 
 
   const app = express();
   app.use(express.json());
-  app.use('/api/alerts', createAlertsRouter({ alertRepo }));
+  app.use('/api/v1/alerts', createAlertsRouter({ alertRepo }));
   app.use(errorHandler);
 
   return { app, alertRepo };
 }
 
-describe('GET /api/alerts', () => {
+describe('GET /api/v1/alerts', () => {
   it('returns all alerts', async () => {
     const { app } = createApp();
-    const res = await request(app).get('/api/alerts');
+    const res = await request(app).get('/api/v1/alerts');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toHaveLength(1);
     expect(res.body.alerts[0]?.domain).toBe('example.com');
@@ -60,54 +60,54 @@ describe('GET /api/alerts', () => {
 
   it('filters by domain', async () => {
     const { app } = createApp();
-    const res = await request(app).get('/api/alerts?domain=example.com');
+    const res = await request(app).get('/api/v1/alerts?domain=example.com');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toHaveLength(1);
   });
 
   it('returns empty array for unknown domain', async () => {
     const { app } = createApp();
-    const res = await request(app).get('/api/alerts?domain=unknown.com');
+    const res = await request(app).get('/api/v1/alerts?domain=unknown.com');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toEqual([]);
   });
 
   it('filters unacknowledged alerts', async () => {
     const { app } = createApp();
-    const res = await request(app).get('/api/alerts?unacknowledged=true');
+    const res = await request(app).get('/api/v1/alerts?unacknowledged=true');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toHaveLength(1);
   });
 });
 
-describe('POST /api/alerts/:id/acknowledge', () => {
+describe('POST /api/v1/alerts/:id/acknowledge', () => {
   it('acknowledges an existing alert', async () => {
     const { app } = createApp();
-    const res = await request(app).post('/api/alerts/1/acknowledge');
+    const res = await request(app).post('/api/v1/alerts/1/acknowledge');
     expect(res.status).toBe(200);
     expect(res.body.alert.acknowledgedAt).toBeDefined();
   });
 
   it('returns 404 for unknown alert', async () => {
     const { app } = createApp();
-    const res = await request(app).post('/api/alerts/999/acknowledge');
+    const res = await request(app).post('/api/v1/alerts/999/acknowledge');
     expect(res.status).toBe(404);
   });
 });
 
-describe('POST /api/alerts/acknowledge-all', () => {
+describe('POST /api/v1/alerts/acknowledge-all', () => {
   it('acknowledges all alerts', async () => {
     const { app } = createApp();
-    const res = await request(app).post('/api/alerts/acknowledge-all').send({});
+    const res = await request(app).post('/api/v1/alerts/acknowledge-all').send({});
     expect(res.status).toBe(200);
     expect(res.body.acknowledged).toBe(1);
   });
 });
 
-describe('POST /api/alerts/run', () => {
+describe('POST /api/v1/alerts/run', () => {
   it('returns 503 when alert engine is not configured', async () => {
     const { app } = createApp();
-    const res = await request(app).post('/api/alerts/run');
+    const res = await request(app).post('/api/v1/alerts/run');
     expect(res.status).toBe(503);
   });
 });
