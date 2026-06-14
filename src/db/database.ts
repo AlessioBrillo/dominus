@@ -20,6 +20,7 @@ export function openDatabase(path: string): Database.Database {
   _db = new Database(path);
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
+  _db.pragma('busy_timeout = 5000');
   _refCount = 1;
   _currentPath = resolve(path);
   return _db;

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+﻿import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { Command } from 'commander';
 import { runMigrations } from '../../db/migrator.js';
@@ -85,6 +85,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MAX_LEVENSHTEIN: 1,
     PROVIDER_CACHE_TTL_DAYS: 7,
     TRADEMARK_BATCH_CONCURRENCY: 3,
+    WHOIS_BATCH_CONCURRENCY: 3,
     RESCORE_BATCH_CONCURRENCY: 5,
     REQUEST_TIMEOUT_MS: 30000,
     FRONTEND_DIST_PATH: './frontend/dist',

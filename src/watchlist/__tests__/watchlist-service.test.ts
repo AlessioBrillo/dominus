@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+﻿import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { WatchlistRepository } from '../../db/repositories/watchlist-repository.js';
@@ -95,6 +95,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MAX_LEVENSHTEIN: 1,
     PROVIDER_CACHE_TTL_DAYS: 7,
     TRADEMARK_BATCH_CONCURRENCY: 3,
+    WHOIS_BATCH_CONCURRENCY: 3,
     RESCORE_BATCH_CONCURRENCY: 5,
     REQUEST_TIMEOUT_MS: 30000,
     FRONTEND_DIST_PATH: './frontend/dist',
@@ -353,7 +354,7 @@ describe('WatchlistService', () => {
       const elapsed = Date.now() - start;
 
       expect(result.checked).toBe(3);
-      expect(elapsed).toBeGreaterThanOrEqual(100); // 2 delays × 50ms
+      expect(elapsed).toBeGreaterThanOrEqual(100); // 2 delays Ã— 50ms
     });
   });
 });

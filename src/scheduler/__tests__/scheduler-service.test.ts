@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SchedulerService } from '../scheduler-service.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
 import type { Config } from '../../config.js';
@@ -88,6 +88,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     TRADEMARK_MAX_LEVENSHTEIN: 1,
     PROVIDER_CACHE_TTL_DAYS: 7,
     TRADEMARK_BATCH_CONCURRENCY: 3,
+    WHOIS_BATCH_CONCURRENCY: 3,
     RESCORE_BATCH_CONCURRENCY: 5,
     REQUEST_TIMEOUT_MS: 30000,
     FRONTEND_DIST_PATH: './frontend/dist',

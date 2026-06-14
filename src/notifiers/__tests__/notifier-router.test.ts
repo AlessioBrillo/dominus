@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import { buildNotifiers } from '../notifier-router.js';
 import { ConsoleNotifier } from '../console-notifier.js';
 import { DesktopNotifier } from '../desktop-notifier.js';
@@ -88,6 +88,7 @@ const baseConfig: Config = {
   TRADEMARK_MAX_LEVENSHTEIN: 1,
   PROVIDER_CACHE_TTL_DAYS: 7,
   TRADEMARK_BATCH_CONCURRENCY: 3,
+  WHOIS_BATCH_CONCURRENCY: 3,
   RESCORE_BATCH_CONCURRENCY: 5,
   REQUEST_TIMEOUT_MS: 30000,
   FRONTEND_DIST_PATH: './frontend/dist',

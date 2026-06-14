@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+﻿import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
 import { openDatabase, runMigrations } from '../db/index.js';
 import {
@@ -35,6 +35,7 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
+  WhoisStage,
 } from '../pipeline/index.js';
 import {
   PortfolioManager,
@@ -111,7 +112,7 @@ export function createDependencies(config: Config): DominusDependencies {
   warnEuipoIfMissing(config);
   warnCloudflareIfMissing(config);
 
-  // ── Repositories ────────────────────────────────────────────────────
+  // â”€â”€ Repositories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const candidateRepo = new CandidateRepository(db);
   const scoringRepo = new ScoringRepository(db);
   const trademarkRepo = new TrademarkRepository(db);
@@ -121,7 +122,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const alertRepo = new RenewalAlertRepository(db);
   const pipelineRunsRepo = new PipelineRunsRepository(db);
 
-  // ── Providers ───────────────────────────────────────────────────────
+  // â”€â”€ Providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, providerCacheRepo);
   const { rdap: rdapRateLimiter } = buildRateLimiters(config);
@@ -133,7 +134,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const dnsProvider = buildDnsProvider();
   const { provider: whoisProvider } = buildWhoisProviders(config);
 
-  // ── Trademark providers ─────────────────────────────────────────────
+  // â”€â”€ Trademark providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const usptoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
       new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
@@ -167,14 +168,14 @@ export function createDependencies(config: Config): DominusDependencies {
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
-  // ── Scoring Engine ──────────────────────────────────────────────────
+  // â”€â”€ Scoring Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { currentWeights, engine } = buildScoringEngine(
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
   );
 
-  // ── Health Check ────────────────────────────────────────────────────
+  // â”€â”€ Health Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const healthCheck = new ProviderHealthCheck(
     usptoTmProvider,
     euipoTmProvider,
@@ -183,18 +184,19 @@ export function createDependencies(config: Config): DominusDependencies {
     cachedKeywordProvider,
   );
 
-  // ── Pipeline ────────────────────────────────────────────────────────
+  // â”€â”€ Pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
-    new RdapConfirmationStage(cachedRdapProvider, whoisProvider, config.RDAP_BATCH_CONCURRENCY),
+    new WhoisStage(whoisProvider, config.WHOIS_BATCH_CONCURRENCY),
+    new RdapConfirmationStage(cachedRdapProvider, undefined, config.RDAP_BATCH_CONCURRENCY),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
   );
   const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
 
-  // ── Portfolio ───────────────────────────────────────────────────────
+  // â”€â”€ Portfolio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const portfolioManager = new PortfolioManager(
     portfolioRepo,
     config.DROP_SCORE_THRESHOLD,
@@ -224,7 +226,7 @@ export function createDependencies(config: Config): DominusDependencies {
     config.RENEWAL_WARNING_DAYS,
   );
 
-  // ── Watchlist ───────────────────────────────────────────────────────
+  // â”€â”€ Watchlist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const watchlistService = new WatchlistService(
     new WatchlistRepository(db),
     dnsProvider,
@@ -233,7 +235,7 @@ export function createDependencies(config: Config): DominusDependencies {
     config,
   );
 
-  // ── Auto-weight-tuner (optional) ───────────────────────────────────
+  // â”€â”€ Auto-weight-tuner (optional) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
     const backtestSignalsRepo = new BacktestSignalsRepository(db);
@@ -265,7 +267,7 @@ export function createDependencies(config: Config): DominusDependencies {
     );
   }
 
-  // ── Registrar / Purchase Service ────────────────────────────────────
+  // â”€â”€ Registrar / Purchase Service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const registrarProvider = buildRegistrarProvider(config);
   const purchaseService = buildPurchaseService(
     registrarProvider,
@@ -276,7 +278,7 @@ export function createDependencies(config: Config): DominusDependencies {
     config,
   );
 
-  // ── Backup service ──────────────────────────────────────────────────
+  // â”€â”€ Backup service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const backupService = new BackupService({
     db,
     dbPath: config.DATABASE_PATH,
@@ -284,7 +286,7 @@ export function createDependencies(config: Config): DominusDependencies {
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
 
-  // ── Scheduler ──────────────────────────────────────────────────────
+  // â”€â”€ Scheduler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let scheduler: SchedulerService | undefined;
   if (config.SCHEDULER_ENABLED) {
     scheduler = new SchedulerService({

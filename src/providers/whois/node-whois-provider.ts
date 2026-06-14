@@ -74,6 +74,7 @@ export function parseWhoisResponse(domain: string, raw: string): WhoisResult {
   const available = isAvailable(raw);
 
   let registrar: string | undefined;
+  let createdDate: string | undefined;
   let expiryDate: string | undefined;
 
   const lines = raw.split('\n');
@@ -89,12 +90,31 @@ export function parseWhoisResponse(domain: string, raw: string): WhoisResult {
     }
 
     if (
+      createdDate === undefined &&
+      (lower.startsWith('creation date:') ||
+        lower.startsWith('created date:') ||
+        lower.startsWith('created:') ||
+        lower.startsWith('domain registration date:') ||
+        lower.startsWith('domain create date:') ||
+        lower.startsWith('created_date:') ||
+        lower.startsWith('domain_created_date:'))
+    ) {
+      const val = trimmed.slice(trimmed.indexOf(':') + 1).trim();
+      if (val.length > 0) {
+        const parsed = new Date(val);
+        if (!isNaN(parsed.getTime())) {
+          createdDate = parsed.toISOString();
+        }
+      }
+    }
+
+    if (
+      expiryDate === undefined &&
       (lower.startsWith('registry expiry date:') ||
         lower.startsWith('expiry date:') ||
         lower.startsWith('expiration date:') ||
         lower.startsWith('domain expiration date:') ||
-        lower.startsWith('paid-till:')) &&
-      expiryDate === undefined
+        lower.startsWith('paid-till:'))
     ) {
       const val = trimmed.slice(trimmed.indexOf(':') + 1).trim();
       if (val.length > 0) {
@@ -110,6 +130,7 @@ export function parseWhoisResponse(domain: string, raw: string): WhoisResult {
     domain,
     available,
     registrar,
+    createdDate,
     expiryDate,
     checkedAt: new Date().toISOString(),
   };

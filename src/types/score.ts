@@ -96,6 +96,7 @@ export interface ScoringInput {
   domainAge?: number | undefined;
   backlinks?: number | undefined;
   waybackSnapshots?: number | undefined;
+  registrar?: string | undefined;
   /**
    * Annual renewal cost in EUR. When provided, the scoring engine
    * subtracts `renewalCost × holdingYears` from the raw buy-max

@@ -25,14 +25,11 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
       try {
         const scoreResult = await this.engine.score({
           domain: candidate.domain,
-          // TLD and SLD are derived internally by ScoringEngine
-          // from the authoritative PSL-based domain parser.
           isCloseout: candidate.source === CandidateSource.CloseoutCsv,
-          // Closeout metadata (when imported) feeds the expiry signal; absent for
-          // keyword/brandable candidates, where the signal stays zero.
-          domainAge: candidate.closeoutMeta?.domainAge,
+          domainAge: candidate.closeoutMeta?.domainAge ?? candidate.whoisMeta?.domainAge,
           backlinks: candidate.closeoutMeta?.backlinks,
           waybackSnapshots: candidate.closeoutMeta?.waybackSnapshots,
+          registrar: candidate.whoisMeta?.registrar,
         });
 
         const status = scoreResult.recommended

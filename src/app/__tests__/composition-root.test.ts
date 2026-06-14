@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+﻿import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import {
@@ -29,6 +29,7 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
+  WhoisStage,
 } from '../../pipeline/index.js';
 import { PortfolioManager, RenewalAlertEngine } from '../../portfolio/index.js';
 import { PortfolioRescoreService } from '../../portfolio/portfolio-rescore-service.js';
@@ -60,7 +61,7 @@ function makeDnsProvider(): DnsProvider {
   };
 }
 
-describe('Dependency Injection — composition-root wiring', () => {
+describe('Dependency Injection â€” composition-root wiring', () => {
   it('opens SQLite database and runs migrations', () => {
     const db = openTestDb();
 
@@ -233,6 +234,7 @@ describe('Dependency Injection — composition-root wiring', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage('.com'),
       new DnsPreFilterStage(makeDnsProvider(), 10, []),
+      new WhoisStage(whoisProvider, 3),
       new RdapConfirmationStage(rdapProvider, whoisProvider, 5),
       new ScoringStage(engine),
       new TrademarkGateStage(gate, 3),
@@ -333,6 +335,7 @@ describe('Dependency Injection — composition-root wiring', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage('.com'),
       new DnsPreFilterStage(dnsProvider, 10, []),
+      new WhoisStage(whoisProvider, 3),
       new RdapConfirmationStage(rdapProvider, whoisProvider, 5),
       new ScoringStage(engine),
       new TrademarkGateStage(gate, 3),
@@ -438,6 +441,7 @@ describe('Dependency Injection — composition-root wiring', () => {
       TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: 3,
       TRADEMARK_MAX_LEVENSHTEIN: 1,
       TRADEMARK_BATCH_CONCURRENCY: 3,
+      WHOIS_BATCH_CONCURRENCY: 3,
       RESCORE_BATCH_CONCURRENCY: 5,
       REQUEST_TIMEOUT_MS: 30000,
       FRONTEND_DIST_PATH: './frontend/dist',

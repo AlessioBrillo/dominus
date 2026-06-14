@@ -8,3 +8,4 @@ export { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 export { ScoringStage } from './stages/scoring-stage.js';
 export type { ScoredCandidate } from './stages/scoring-stage.js';
 export { TrademarkGateStage } from './stages/trademark-gate-stage.js';
+export { WhoisStage } from './stages/whois-stage.js';

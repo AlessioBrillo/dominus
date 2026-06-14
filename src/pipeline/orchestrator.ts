@@ -5,6 +5,7 @@ import type { DnsPreFilterStage } from './stages/dns-prefilter-stage.js';
 import type { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 import type { ScoringStage, ScoredCandidate } from './stages/scoring-stage.js';
 import type { TrademarkGateStage } from './stages/trademark-gate-stage.js';
+import type { WhoisStage } from './stages/whois-stage.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 
@@ -46,6 +47,7 @@ export class PipelineOrchestrator {
   constructor(
     private readonly generationStage: CandidateGenerationStage,
     private readonly dnsStage: DnsPreFilterStage,
+    private readonly whoisStage: WhoisStage,
     private readonly rdapStage: RdapConfirmationStage,
     private readonly scoringStage: ScoringStage,
     private readonly trademarkStage: TrademarkGateStage<ScoredCandidate>,
@@ -121,9 +123,23 @@ export class PipelineOrchestrator {
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
 
+    const whois = await this.#runStageSafe(
+      'WhoisEnrichment',
+      (s) => this.whoisStage.process(dns.passed, s),
+      start,
+      stageSummary,
+      stageErrors,
+      signal,
+    );
+    if (whois === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
+    if (aborted()) {
+      this.#abortController.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    }
+
     const rdap = await this.#runStageSafe(
       'RdapConfirmation',
-      (s) => this.rdapStage.process(dns.passed, s),
+      (s) => this.rdapStage.process(whois.passed, s),
       start,
       stageSummary,
       stageErrors,
@@ -168,6 +184,7 @@ export class PipelineOrchestrator {
     const allCandidates: DomainCandidate[] = [
       ...gen.filtered,
       ...dns.filtered,
+      ...whois.filtered,
       ...rdap.filtered,
       ...scoring.filtered,
       ...trademark.filtered,

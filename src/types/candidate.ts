@@ -26,6 +26,13 @@ export interface CloseoutMeta {
   waybackSnapshots?: number | undefined;
 }
 
+export interface WhoisMeta {
+  domainAge?: number | undefined;
+  registrar?: string | undefined;
+  createdDate?: string | undefined;
+  expiryDate?: string | undefined;
+}
+
 /** One parsed row from a closeout CSV: a domain plus its optional metadata. */
 export interface CloseoutEntry extends CloseoutMeta {
   domain: string;
@@ -45,6 +52,7 @@ export interface DomainCandidate extends RawCandidate {
   rdapStatus?: string | undefined;
   isPremium: boolean;
   closeoutMeta?: CloseoutMeta | undefined;
+  whoisMeta?: WhoisMeta | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }

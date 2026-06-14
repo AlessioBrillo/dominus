@@ -4,6 +4,7 @@ import type { CandidateSource, DomainCandidate } from '../../types/candidate.js'
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { Stage, StageResult } from '../stage.js';
+import { isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -24,11 +25,18 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     const start = Date.now();
     const toFilter: DomainCandidate[] = [];
     const toSkip: DomainCandidate[] = [];
+    const filtered: DomainCandidate[] = [];
     const skipSet = new Set(this.skipSources);
 
     for (const c of candidates) {
       if (skipSet.has(c.source)) {
         toSkip.push({ ...c, dnsStatus: 'skipped', status: CandidateStatus.Pending });
+      } else if (!isValidDomain(c.domain)) {
+        filtered.push({
+          ...c,
+          dnsStatus: 'invalid',
+          status: CandidateStatus.DnsFiltered,
+        });
       } else {
         toFilter.push(c);
       }
@@ -37,7 +45,6 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     const perDomainResults = await this.#resolveBulkWithFallback(toFilter);
 
     const passed: DomainCandidate[] = [...toSkip];
-    const filtered: DomainCandidate[] = [];
 
     for (let i = 0; i < toFilter.length; i++) {
       const candidate = toFilter[i];

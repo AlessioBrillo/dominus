@@ -114,52 +114,54 @@ export class PipelineRunService {
 
     // Persist inside a single transaction. better-sqlite3 transactions are
     // synchronous — the async pipeline work is already done above.
-    const persistence = this.#db.transaction((): PersistenceSummary => {
-      let candidatesPersisted = 0;
-      let scoresPersisted = 0;
+    // The transaction is wrapped in try/catch so that persistence failures
+    // still complete the pipeline_runs row with a meaningful error.
+    let persistence: PersistenceSummary;
+    try {
+      persistence = this.#db.transaction((): PersistenceSummary => {
+        let candidatesPersisted = 0;
+        let scoresPersisted = 0;
 
-      // Upsert every candidate that passed through the pipeline (any status).
-      // The Map keyed by domain lets us look up the persisted id for scoring rows.
-      const idByDomain = new Map<string, number>();
-      for (const candidate of result.allCandidates) {
-        const persisted = this.#candidateRepo.upsert(candidate);
-        if (persisted.id !== undefined) {
-          idByDomain.set(persisted.domain, persisted.id);
+        const idByDomain = new Map<string, number>();
+        for (const candidate of result.allCandidates) {
+          const persisted = this.#candidateRepo.upsert(candidate);
+          if (persisted.id !== undefined) {
+            idByDomain.set(persisted.domain, persisted.id);
+          }
+          candidatesPersisted++;
         }
-        candidatesPersisted++;
-      }
 
-      // Persist scores for every candidate that was evaluated by the scoring engine,
-      // whether recommended, not-recommended, or TM-blocked. Partial history is
-      // valuable for tuning weights against real results.
-      // Candidates that errored during scoring carry scoreResult === null;
-      // skip them rather than writing a null row (the scoring_runs columns
-      // are all NOT NULL, so the INSERT would crash).
-      for (const scored of result.scored) {
-        if (scored.scoreResult === null) continue;
-        const id = idByDomain.get(scored.domain);
-        if (id !== undefined) {
-          this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
-          scoresPersisted++;
+        for (const scored of result.scored) {
+          if (scored.scoreResult === null) continue;
+          const id = idByDomain.get(scored.domain);
+          if (id !== undefined) {
+            this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
+            scoresPersisted++;
+          }
         }
-      }
 
-      // Align the orchestrator-level runId (used inside candidates + scoring_runs)
-      // with the service-level runRowId (used in pipeline_runs). This makes
-      // pipeline_runs the single source of truth for "what ran together" and
-      // lets REST endpoints (e.g. GET /api/runs/:runId/candidates) join on
-      // pipeline_runs.run_id. ADR-0011 §5.3.
-      if (result.runId !== runRowId) {
-        this.#db
-          .prepare('UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?')
-          .run(runRowId, result.runId);
-        this.#db
-          .prepare('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?')
-          .run(runRowId, result.runId);
-      }
+        if (result.runId !== runRowId) {
+          this.#db
+            .prepare('UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?')
+            .run(runRowId, result.runId);
+          this.#db
+            .prepare('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?')
+            .run(runRowId, result.runId);
+        }
 
-      return { candidatesPersisted, scoresPersisted };
-    })();
+        return { candidatesPersisted, scoresPersisted };
+      })();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.#runsRepo.complete(runRowId, {
+        finishedAt: new Date().toISOString(),
+        totalDurationMs: Date.now() - startedMs,
+        stageSummary: result.stageSummary,
+        resultsSummary: emptyResults(),
+        error: `Persistence failed: ${message}`,
+      });
+      throw err;
+    }
 
     const totalDurationMs = Date.now() - startedMs;
 

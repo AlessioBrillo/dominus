@@ -421,6 +421,10 @@ const configSchema = z.object({
    *  These are rate-limited APIs so keep this low. Default: 3. */
   TRADEMARK_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(3),
 
+  /** Maximum concurrent WHOIS lookups per pipeline stage run. WHOIS opens a
+   *  port-43 connection per domain, so keep this low. Default: 3. */
+  WHOIS_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(3),
+
   /** Maximum concurrent domains to rescore in a single portfolio rescore operation.
    *  Each domain hits scoring engine + trademark gate. Default: 5. */
   RESCORE_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(5),
