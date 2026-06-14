@@ -20,6 +20,8 @@ interface ScoringSnapshotRow {
   confidence: number;
   suggested_buy_max: number;
   suggested_list_price: number;
+  weighted_score: number;
+  recommended: number;
   scored_at: string;
 }
 
@@ -260,7 +262,7 @@ export class BacktestEngine {
     const row = this.db
       .prepare(
         `SELECT id, run_id, expected_value, confidence, suggested_buy_max,
-                suggested_list_price, scored_at
+                suggested_list_price, weighted_score, recommended, scored_at
            FROM scoring_runs
           WHERE candidate_id = ?
             AND scored_at <= ?

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { ScoreResult } from '../../types/score.js';
 
-interface ScoringRow {
+export interface ScoringRow {
   id: number;
   candidate_id: number;
   run_id: string;
@@ -13,6 +13,8 @@ interface ScoringRow {
   commercial_score: number;
   market_score: number;
   expiry_score: number;
+  weighted_score: number;
+  recommended: number;
   signal_scores: string;
   scored_at: string;
 }
@@ -26,8 +28,8 @@ export class ScoringRepository {
         `INSERT INTO scoring_runs
          (candidate_id, run_id, expected_value, confidence, suggested_buy_max,
           suggested_list_price, intrinsic_score, commercial_score, market_score,
-          expiry_score, signal_scores)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          expiry_score, weighted_score, recommended, signal_scores)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         candidateId,
@@ -40,6 +42,8 @@ export class ScoringRepository {
         result.breakdown.commercial.score,
         result.breakdown.market.score,
         result.breakdown.expiry.score,
+        result.weightedScore,
+        result.recommended ? 1 : 0,
         JSON.stringify(result.breakdown),
       );
   }
