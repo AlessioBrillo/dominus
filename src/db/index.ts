@@ -12,6 +12,12 @@ export { RenewalAlertRepository } from './repositories/renewal-alert-repository.
 export { WatchlistRepository } from './repositories/watchlist-repository.js';
 export { WeightSnapshotRepository } from './repositories/weight-snapshot-repository.js';
 export { SchedulerJobRepository } from './repositories/scheduler-job-repository.js';
+export { MetricsRepository } from './repositories/metrics-repository.js';
+export type {
+  StageMetricRow,
+  MetricAggregate,
+  MetricsHistory,
+} from './repositories/metrics-repository.js';
 export type {
   PipelineRun,
   PipelineRunInputs,

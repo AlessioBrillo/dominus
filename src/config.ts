@@ -119,6 +119,22 @@ const configSchema = z.object({
    */
   TM_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
   /**
+   * Rate limiting: max tokens (burst capacity) for USPTO trademark requests.
+   * Token bucket refills at USPTO_RATE_LIMIT_TOKENS per USPTO_RATE_LIMIT_INTERVAL_MS.
+   * Default: 5 req/sec with burst up to 5.
+   */
+  USPTO_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(5),
+  /** Rate limiting: refill interval in ms for USPTO requests (default: 1000). */
+  USPTO_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Rate limiting: max tokens (burst capacity) for EUIPO trademark requests.
+   * Token bucket refills at EUIPO_RATE_LIMIT_TOKENS per EUIPO_RATE_LIMIT_INTERVAL_MS.
+   * Default: 5 req/sec with burst up to 5.
+   */
+  EUIPO_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(5),
+  /** Rate limiting: refill interval in ms for EUIPO requests (default: 1000). */
+  EUIPO_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
    * Default TTL in days for generic provider cache entries (comps, keyword).
    * Each provider may override this individually. Default: 7.
    */

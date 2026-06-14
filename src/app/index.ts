@@ -14,3 +14,4 @@ export {
 } from './provider-status.js';
 export type { ProviderStatus } from './provider-status.js';
 export { MetricsCollector } from './metrics-collector.js';
+export { PipelineProgressService, setupSseResponse } from './pipeline-progress-service.js';

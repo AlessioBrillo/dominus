@@ -14,6 +14,7 @@ import {
   BacktestSignalsRepository,
   WeightSnapshotRepository,
   SchedulerJobRepository,
+  MetricsRepository,
 } from '../db/index.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
@@ -55,6 +56,7 @@ import {
   warnEuipoIfMissing,
   warnCloudflareIfMissing,
   MetricsCollector,
+  PipelineProgressService,
 } from './index.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -106,6 +108,8 @@ export interface DominusDependencies {
   purchaseService: PurchaseServiceType;
   reportService: PortfolioReportService;
   metrics: MetricsCollector;
+  metricsRepo: MetricsRepository;
+  progressService: PipelineProgressService;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -123,11 +127,16 @@ export function createDependencies(config: Config): DominusDependencies {
   const portfolioRepo = new PortfolioRepository(db);
   const alertRepo = new RenewalAlertRepository(db);
   const pipelineRunsRepo = new PipelineRunsRepository(db);
+  const metricsRepo = new MetricsRepository(db);
 
   // â”€â”€ Providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, providerCacheRepo);
-  const { rdap: rdapRateLimiter } = buildRateLimiters(config);
+  const {
+    rdap: rdapRateLimiter,
+    uspto: usptoRateLimiter,
+    euipo: euipoRateLimiter,
+  } = buildRateLimiters(config);
   const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
     config,
     rdapRateLimiter,
@@ -139,7 +148,7 @@ export function createDependencies(config: Config): DominusDependencies {
   // â”€â”€ Trademark providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const usptoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
-      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL }),
+      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
       {},
       USPTO_CIRCUIT_BREAKER,
     ),
@@ -154,6 +163,7 @@ export function createDependencies(config: Config): DominusDependencies {
         clientSecret: config.EUIPO_CLIENT_SECRET,
         authUrl: config.EUIPO_AUTH_URL,
         apiUrl: config.EUIPO_API_URL,
+        rateLimiter: euipoRateLimiter,
       }),
       {},
       EUIPO_CIRCUIT_BREAKER,
@@ -200,7 +210,18 @@ export function createDependencies(config: Config): DominusDependencies {
     config.PIPELINE_TIMEOUT_MS,
     metrics,
   );
-  const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
+  const progressService = new PipelineProgressService();
+  const runService = new PipelineRunService(
+    db,
+    orchestrator,
+    candidateRepo,
+    scoringRepo,
+    pipelineRunsRepo,
+    undefined,
+    undefined,
+    metricsRepo,
+    progressService,
+  );
 
   // â”€â”€ Portfolio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const portfolioManager = new PortfolioManager(
@@ -338,5 +359,7 @@ export function createDependencies(config: Config): DominusDependencies {
     purchaseService,
     reportService,
     metrics,
+    metricsRepo,
+    progressService,
   };
 }

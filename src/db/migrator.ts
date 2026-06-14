@@ -17,6 +17,7 @@ import * as m0014 from './migrations/0014_create_scheduler_jobs.js';
 import * as m0015 from './migrations/0015_fix_scoring_runs_trademark_constraints.js';
 import * as m0016 from './migrations/0016_add_backtest_costs.js';
 import * as m0017 from './migrations/0017_add_pipeline_run_index.js';
+import * as m0018 from './migrations/0018_create_pipeline_metrics.js';
 
 interface Migration {
   name: string;
@@ -45,6 +46,7 @@ const MIGRATIONS: Migration[] = [
   m0015,
   m0016,
   m0017,
+  m0018,
 ];
 
 export function runMigrations(db: Database.Database): void {

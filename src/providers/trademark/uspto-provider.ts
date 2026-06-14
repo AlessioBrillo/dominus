@@ -1,5 +1,6 @@
 import { ProviderError } from '../../types/errors.js';
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
+import { RateLimiter } from '../rate-limiter.js';
 
 /**
  * Keyless USPTO trademark search provider.
@@ -39,13 +40,16 @@ const ACTIVE_STATUS_PREFIX = '6-'; // USPTO status codes starting with 6 are reg
 
 export interface UsptoProviderConfig {
   searchUrl: string;
+  rateLimiter?: RateLimiter;
 }
 
 export class UsptoCasesProvider implements TrademarkProvider {
   readonly #searchUrl: string;
+  readonly #rateLimiter: RateLimiter;
 
   constructor(config: UsptoProviderConfig) {
     this.#searchUrl = config.searchUrl;
+    this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
   }
 
   async search(term: string): Promise<TrademarkMatch[]> {
@@ -67,16 +71,18 @@ export class UsptoCasesProvider implements TrademarkProvider {
 
     let response: Response;
     try {
-      response = await fetch(this.#searchUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': 'Mozilla/5.0 (compatible; DOMINUS/1.0 trademark-check)',
-        },
-        body,
-        signal: AbortSignal.timeout(8_000),
-      });
+      response = await this.#rateLimiter.throttle(() =>
+        fetch(this.#searchUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'User-Agent': 'Mozilla/5.0 (compatible; DOMINUS/1.0 trademark-check)',
+          },
+          body,
+          signal: AbortSignal.timeout(8_000),
+        }),
+      );
     } catch (err: unknown) {
       throw new ProviderError(
         `USPTO request failed for term "${term}": ${String(err)}`,

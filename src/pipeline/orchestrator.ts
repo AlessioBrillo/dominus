@@ -54,6 +54,13 @@ export class PipelineTimeoutError extends Error {
 
 export class PipelineOrchestrator {
   #abortController: AbortController | null = null;
+  #onStageProgress?: (
+    stageName: string,
+    passed: number,
+    filtered: number,
+    durationMs: number,
+    error: boolean,
+  ) => void;
 
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -65,6 +72,18 @@ export class PipelineOrchestrator {
     private readonly timeoutMs: number = 3_600_000,
     private readonly metrics?: PipelineMetricsDelegate,
   ) {}
+
+  setOnStageProgress(
+    cb: (
+      stageName: string,
+      passed: number,
+      filtered: number,
+      durationMs: number,
+      error: boolean,
+    ) => void,
+  ): void {
+    this.#onStageProgress = cb;
+  }
 
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
     this.#abortController = new AbortController();
@@ -253,6 +272,13 @@ export class PipelineOrchestrator {
         result.durationMs,
         false,
       );
+      this.#onStageProgress?.(
+        result.stageName,
+        result.passed.length,
+        result.filtered.length,
+        result.durationMs,
+        false,
+      );
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -273,6 +299,7 @@ export class PipelineOrchestrator {
       const durationMs = Date.now() - startMs;
       summary[label] = { passed: 0, filtered: 0, durationMs };
       this.metrics?.recordStage(label, 0, 0, durationMs, true);
+      this.#onStageProgress?.(label, 0, 0, durationMs, true);
       return { passed: [], filtered: [], stageName: label, durationMs };
     }
   }
