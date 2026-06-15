@@ -78,6 +78,26 @@ export interface Alert {
   createdAt: string;
 }
 
+export interface Bid {
+  id?: number;
+  domain: string;
+  venue: string;
+  bidAmountEur: number;
+  maxBidEur?: number;
+  status: string;
+  wonPriceEur?: number;
+  expectedValueAtBid?: number;
+  confidenceAtBid?: number;
+  suggestedBuyMaxAtBid?: number;
+  trademarkClearAtBid?: boolean;
+  bidPlacedAt: string;
+  auctionEndsAt?: string;
+  resolvedAt?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface ProviderStatus {
   name: string;
   configured: boolean;

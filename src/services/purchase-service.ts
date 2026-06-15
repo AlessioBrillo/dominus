@@ -10,6 +10,7 @@ import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import { GateVerdict } from '../trademark/trademark-gate.js';
 import { parseDomain } from '../utils/domain.js';
 import { PurchaseNotApprovedError, type PurchaseRecord } from '../types/registrar.js';
+import { addYearsToDate } from '../types/acquisition.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -158,11 +159,12 @@ export class PurchaseService {
       // but we don't call a registrar API for the actual purchase.
       if (this.#registrar.name === 'manual') {
         const tld = parseDomain(domain).tld ?? '';
+        const now = new Date();
         this.#portfolioManager.add({
           domain,
           tld,
-          acquiredAt: new Date().toISOString(),
-          renewalDate: new Date(Date.now() + years * 365 * 24 * 60 * 60 * 1000).toISOString(),
+          acquiredAt: now.toISOString(),
+          renewalDate: addYearsToDate(now, years).toISOString(),
           acquisitionCost: check.registerPriceEur ?? 0,
           renewalCost: check.renewalPriceEur ?? 0,
           registrar: this.#registrar.name,
@@ -207,11 +209,12 @@ export class PurchaseService {
         return { success: false, error: result.error ?? 'Purchase failed at registrar' };
       }
 
+      const now = new Date();
       this.#portfolioManager.add({
         domain,
         tld,
-        acquiredAt: new Date().toISOString(),
-        renewalDate: new Date(Date.now() + years * 365 * 24 * 60 * 60 * 1000).toISOString(),
+        acquiredAt: now.toISOString(),
+        renewalDate: addYearsToDate(now, years).toISOString(),
         acquisitionCost: result.priceEur,
         renewalCost: result.renewalPriceEur,
         registrar: this.#registrar.name,

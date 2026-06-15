@@ -55,7 +55,14 @@ export interface ResolveBidInput {
   domain: string;
   status: BidStatus.Won | BidStatus.Lost | BidStatus.Cancelled | BidStatus.Outbid;
   wonPriceEur?: number | undefined;
+  registrationYears?: number | undefined;
   notes?: string | undefined;
+}
+
+export function addYearsToDate(date: Date, years: number): Date {
+  const result = new Date(date);
+  result.setFullYear(result.getFullYear() + years);
+  return result;
 }
 
 export interface BidSummary {

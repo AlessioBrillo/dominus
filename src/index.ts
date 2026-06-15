@@ -25,6 +25,7 @@ import {
   createSchedulerRouter,
   createWatchlistRouter,
   createPurchaseRouter,
+  createBidsRouter,
   createReportRouter,
   createMetricsRouter,
   createAnalyticsRouter,
@@ -133,6 +134,7 @@ if (deps.scheduler) {
 protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
 protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
+protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
 protectedRouter.use('/report', createReportRouter(deps.reportService));
 protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer));
 app.use('/api/v1', protectedRouter);
