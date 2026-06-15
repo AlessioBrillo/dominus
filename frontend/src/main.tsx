@@ -6,6 +6,7 @@ import { Layout } from './components/Layout.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { CandidatesPage } from './pages/CandidatesPage.js';
 import { PortfolioPage } from './pages/PortfolioPage.js';
+import { BidsPage } from './pages/BidsPage.js';
 import { OutcomesPage } from './pages/OutcomesPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import './index.css';
@@ -18,6 +19,7 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />
             <Route path="candidates" element={<CandidatesPage />} />
+            <Route path="bids" element={<BidsPage />} />
             <Route path="portfolio" element={<PortfolioPage />} />
             <Route path="outcomes" element={<OutcomesPage />} />
             <Route path="settings" element={<SettingsPage />} />

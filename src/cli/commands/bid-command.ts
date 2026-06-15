@@ -1,6 +1,6 @@
 import type { Command } from 'commander';
 import type { AcquisitionService } from '../../services/acquisition-service.js';
-import { BidStatus, type Bid } from '../../types/acquisition.js';
+import { BidStatus, isBidStatus, type Bid } from '../../types/acquisition.js';
 
 export interface BidCommandDeps {
   acquisitionService: AcquisitionService;
@@ -18,12 +18,13 @@ function formatBid(b: Bid): string {
             ? '\u2191'
             : '\u2716';
   return (
-    `  ${statusIcon} ${b.domain.padEnd(30)} ` +
+    `  ${statusIcon} ${b.domain.padEnd(28)} ` +
     `${b.status.padEnd(10)} ` +
     `bid: \u20AC${b.bidAmountEur.toFixed(0).padStart(5)} ` +
     `${b.wonPriceEur !== undefined ? `won: \u20AC${b.wonPriceEur.toFixed(0).padStart(5)} ` : ''}` +
-    `${b.venue.padEnd(12)} ` +
-    `${b.bidPlacedAt.substring(0, 10)}`
+    `${b.venue.padEnd(10)} ` +
+    `${b.bidPlacedAt.substring(0, 10)}` +
+    `${b.auctionEndsAt !== undefined ? `  ends: ${b.auctionEndsAt.substring(0, 10)}` : ''}`
   );
 }
 
@@ -44,6 +45,10 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
     )
     .option('--max-bid <eur>', 'Maximum auto-bid amount', parseFloat)
     .option('--ends <iso>', 'Auction end time (ISO-8601)')
+    .option('--expected-value <eur>', 'Expected value from latest scoring run', parseFloat)
+    .option('--confidence <pct>', 'Confidence score from latest scoring run (0-1)', parseFloat)
+    .option('--buy-max <eur>', 'Suggested buy max from latest scoring run', parseFloat)
+    .option('--tm-clear', 'Trademark gate passed at bid time', false)
     .option('--notes <text>', 'Optional notes')
     .action(
       async (
@@ -53,6 +58,10 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
           venue: string;
           maxBid?: number;
           ends?: string;
+          expectedValue?: number;
+          confidence?: number;
+          buyMax?: number;
+          tmClear: boolean;
           notes?: string;
         },
       ) => {
@@ -68,11 +77,22 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
             bidAmountEur: options.amount,
             maxBidEur: options.maxBid,
             auctionEndsAt: options.ends,
+            expectedValueAtBid: options.expectedValue,
+            confidenceAtBid: options.confidence,
+            suggestedBuyMaxAtBid: options.buyMax,
+            trademarkClearAtBid: options.tmClear || undefined,
             notes: options.notes,
           });
           process.stdout.write(
             `\u2713 Bid placed: ${bid.domain} at \u20AC${bid.bidAmountEur.toFixed(2)} on ${bid.venue}\n`,
           );
+          if (bid.expectedValueAtBid !== undefined) {
+            process.stdout.write(
+              `    EV: \u20AC${bid.expectedValueAtBid.toFixed(0)}  ` +
+                `Conf: ${((bid.confidenceAtBid ?? 0) * 100).toFixed(0)}%  ` +
+                `Buy max: \u20AC${(bid.suggestedBuyMaxAtBid ?? 0).toFixed(0)}\n`,
+            );
+          }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           process.stderr.write(`Error: ${message}\n`);
@@ -90,6 +110,12 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
     .option('--outbid', 'Mark bid as outbid', false)
     .option('--cancel', 'Cancel bid', false)
     .option('--price <eur>', 'Actual price paid (for won bids)', parseFloat)
+    .option(
+      '--years <n>',
+      'Registration period in years (default: 1)',
+      (v) => Number.parseInt(v, 10),
+      1,
+    )
     .option('--notes <text>', 'Optional notes')
     .action(
       async (
@@ -100,6 +126,7 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
           outbid: boolean;
           cancel: boolean;
           price?: number;
+          years: number;
           notes?: string;
         },
       ) => {
@@ -118,13 +145,20 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
           return;
         }
         try {
-          await acquisitionService.resolve({
+          const bid = await acquisitionService.resolve({
             domain,
             status,
             wonPriceEur: options.price,
+            registrationYears: options.years,
             notes: options.notes,
           });
-          process.stdout.write(`\u2713 Bid for ${domain} resolved as ${status}.\n`);
+          if (status === BidStatus.Won && bid.wonPriceEur !== undefined) {
+            process.stdout.write(
+              `\u2713 Won ${domain} at \u20AC${bid.wonPriceEur.toFixed(2)} (${options.years}yr)\n`,
+            );
+          } else {
+            process.stdout.write(`\u2713 Bid for ${domain} resolved as ${status}.\n`);
+          }
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           process.stderr.write(`Error: ${message}\n`);
@@ -159,8 +193,4 @@ export function registerBidCommand(program: Command, deps: BidCommandDeps): void
         process.exit(1);
       }
     });
-}
-
-function isBidStatus(value: string): value is keyof typeof BidStatus {
-  return Object.values(BidStatus).includes(value as BidStatus);
 }
