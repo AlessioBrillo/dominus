@@ -47,6 +47,10 @@ export class PortfolioManager {
     return this.repo.insert(input);
   }
 
+  updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): void {
+    this.repo.updateCosts(domain, acquisitionCost, renewalCost);
+  }
+
   remove(domain: string): void {
     this.repo.delete(domain);
   }

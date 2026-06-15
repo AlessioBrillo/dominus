@@ -54,8 +54,6 @@ export function buildScoringEngine(
     compsProvider,
     currentWeights,
     config.BUY_MAX_ABSOLUTE_CAP,
-    config.SCORING_RECOMMEND_THRESHOLD,
-    config.SCORING_CONFIDENCE_THRESHOLD,
     scoringConfig,
     tldBonuses,
   );

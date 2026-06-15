@@ -8,11 +8,11 @@ describe('ManualRegistrarProvider', () => {
     expect(provider.name).toBe('manual');
   });
 
-  it('checkPrice returns unavailable for every domain', async () => {
+  it('checkPrice returns undetermined for every domain', async () => {
     const results = await provider.checkPrice(['example.com', 'test.io']);
     expect(results).toHaveLength(2);
     for (const r of results) {
-      expect(r.available).toBe(false);
+      expect(r.available).toBe(true);
       expect(r.registerPriceEur).toBeNull();
       expect(r.renewalPriceEur).toBeNull();
       expect(r.transferPriceEur).toBeNull();
@@ -25,11 +25,10 @@ describe('ManualRegistrarProvider', () => {
     expect(() => new Date(results[0]!.checkedAt)).not.toThrow();
   });
 
-  it('purchase returns failure with manual message', async () => {
+  it('purchase returns recording success with manual message', async () => {
     const result = await provider.purchase({ domain: 'example.com', years: 1 });
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/Manual purchase required/);
-    expect(result.message).toMatch(/registrar dashboard/);
+    expect(result.success).toBe(true);
+    expect(result.message).toMatch(/portfolio update-costs/);
     expect(result.priceEur).toBe(0);
   });
 

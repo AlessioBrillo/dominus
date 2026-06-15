@@ -1,19 +1,20 @@
 import type { KeywordProvider } from '../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../providers/comps/comps-provider.js';
-import type { ScoreResult, ScoringInput, SignalStatusItem } from '../types/score.js';
+import type {
+  ScoreResult,
+  ScoringInput,
+  SignalStatusItem,
+  SignalAvailability,
+} from '../types/score.js';
 import { computeIntrinsicScore } from './signals/intrinsic-signal.js';
 import { computeCommercialScore } from './signals/commercial-signal.js';
 import { computeMarketScore } from './signals/market-signal.js';
 import { computeExpiryScore } from './signals/expiry-signal.js';
 import { parseDomain } from '../utils/domain.js';
-import {
-  DEFAULT_WEIGHTS,
-  DEFAULT_TLD_BONUS,
-  WEIGHT_RECOMMEND_THRESHOLD,
-  type ScoringWeights,
-} from './weights.js';
+import { DEFAULT_WEIGHTS, DEFAULT_TLD_BONUS, type ScoringWeights } from './weights.js';
 import type { ScoringConfig } from './scoring-config.js';
 import { DEFAULT_SCORING_CONFIG } from './scoring-config.js';
+import { resolveEffectiveWeights, computeEffectiveThresholds } from './weights-loader.js';
 
 export class ScoringEngine {
   #weights: ScoringWeights;
@@ -24,8 +25,6 @@ export class ScoringEngine {
     private readonly compsProvider: CompsProvider,
     weights: ScoringWeights = DEFAULT_WEIGHTS,
     private readonly buyMaxAbsoluteCap: number = 500,
-    private readonly recommendThreshold: number = WEIGHT_RECOMMEND_THRESHOLD,
-    private readonly confidenceThreshold: number = 0.3,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
     tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
   ) {
@@ -81,15 +80,26 @@ export class ScoringEngine {
       this.scoringConfig.expiry,
     );
 
-    const weightedScore =
-      intrinsic.score * intrinsic.weight +
-      commercial.score * commercial.weight +
-      market.score * market.weight +
-      expiry.score * expiry.weight;
-
     const hasCommercialData = commercial.details.monthlySearchVolume !== 0;
     const hasMarketData = market.details.comparables !== 0;
     const expiryHasData = expiry.dataAvailable === true;
+
+    const availability: SignalAvailability = {
+      intrinsic: true,
+      commercial: hasCommercialData,
+      market: hasMarketData,
+      expiry: expiryHasData,
+    };
+
+    const effectiveWeights = resolveEffectiveWeights(availability, this.#weights);
+    const { effectiveRecommendThreshold, effectiveConfidenceThreshold } =
+      computeEffectiveThresholds(availability, this.#weights);
+
+    const weightedScore =
+      intrinsic.score * effectiveWeights.intrinsic +
+      commercial.score * effectiveWeights.commercial +
+      market.score * effectiveWeights.market +
+      expiry.score * effectiveWeights.expiry;
 
     const signalStatus: SignalStatusItem[] = [
       { name: 'intrinsic', available: true },
@@ -109,11 +119,13 @@ export class ScoringEngine {
       },
     ];
 
+    // Confidence uses DEFAULT_WEIGHTS for coverage so it accurately
+    // reflects data sparsity even when weights are redistributed.
     const coveredWeight =
-      intrinsic.weight +
-      (hasCommercialData ? commercial.weight : 0) +
-      (hasMarketData ? market.weight : 0) +
-      (expiryHasData ? expiry.weight : 0);
+      this.#weights.intrinsic +
+      (hasCommercialData ? this.#weights.commercial : 0) +
+      (hasMarketData ? this.#weights.market : 0) +
+      (expiryHasData ? this.#weights.expiry : 0);
 
     const {
       baseMarketValueEur,
@@ -124,7 +136,7 @@ export class ScoringEngine {
       intrinsicQualityInfluence,
     } = this.scoringConfig.constants;
 
-    const minCovered = intrinsic.weight;
+    const minCovered = this.#weights.intrinsic;
     const variableRange = 1 - minCovered;
     const extraCovered = Math.max(0, coveredWeight - minCovered);
 
@@ -152,12 +164,13 @@ export class ScoringEngine {
 
     const aggressive = suggestedBuyMax;
     const conservative =
-      this.confidenceThreshold > 0
-        ? Math.round(aggressive * Math.min(confidence / this.confidenceThreshold, 1) * 100) / 100
+      effectiveConfidenceThreshold > 0
+        ? Math.round(aggressive * Math.min(confidence / effectiveConfidenceThreshold, 1) * 100) /
+          100
         : 0;
 
     const recommended =
-      confidence >= this.confidenceThreshold && weightedScore >= this.recommendThreshold;
+      confidence >= effectiveConfidenceThreshold && weightedScore >= effectiveRecommendThreshold;
 
     return {
       domain: input.domain,
@@ -174,6 +187,14 @@ export class ScoringEngine {
       recommended,
       scoredAt: new Date().toISOString(),
       signalStatus,
+      effectiveWeights: {
+        intrinsic: Math.round(effectiveWeights.intrinsic * 100) / 100,
+        commercial: Math.round(effectiveWeights.commercial * 100) / 100,
+        market: Math.round(effectiveWeights.market * 100) / 100,
+        expiry: Math.round(effectiveWeights.expiry * 100) / 100,
+      },
+      effectiveRecommendThreshold: Math.round(effectiveRecommendThreshold * 100) / 100,
+      effectiveConfidenceThreshold: Math.round(effectiveConfidenceThreshold * 100) / 100,
     };
   }
 }

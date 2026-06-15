@@ -48,7 +48,9 @@ export class ManualRegistrarProvider implements RegistrarProvider {
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {
     return domains.map((domain) => ({
       domain,
-      available: false,
+      // Manual registrar cannot determine availability — return true (undetermined)
+      // so the purchase flow can proceed for recording purposes.
+      available: true,
       registerPriceEur: null,
       renewalPriceEur: null,
       transferPriceEur: null,
@@ -56,15 +58,17 @@ export class ManualRegistrarProvider implements RegistrarProvider {
     }));
   }
 
-  async purchase(_request: RegistrarPurchaseRequest): Promise<RegistrarPurchaseResult> {
+  async purchase(request: RegistrarPurchaseRequest): Promise<RegistrarPurchaseResult> {
+    // Manual registrar accepts the recording request. Price is 0 because
+    // the operator pays the external registrar directly. The operator can
+    // set the actual acquisition cost via `dominus portfolio update`.
     return {
-      domain: _request.domain,
-      success: false,
+      domain: request.domain,
+      success: true,
       priceEur: 0,
       renewalPriceEur: 0,
-      error: 'Manual purchase required. DOMINUS does not automate registrar operations.',
       message:
-        'Use your registrar dashboard to register this domain, then record it with `dominus portfolio add`.',
+        'Manual purchase recorded. Use `dominus portfolio update-costs` to set the actual acquisition price.',
     };
   }
 

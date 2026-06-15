@@ -66,10 +66,15 @@ export function registerBuyCommand(program: Command, deps: BuyCommandDeps): void
           }
         }
 
-        const price = check.registerPriceEur ?? 0;
+        const priceStr =
+          check.registerPriceEur !== null
+            ? `€${check.registerPriceEur.toFixed(2)}`
+            : 'Manual (unknown)';
+        const renewalStr =
+          check.renewalPriceEur !== null ? `€${check.renewalPriceEur.toFixed(2)}/yr` : 'unknown';
         process.stdout.write(`\n  Domain:        ${domain}\n`);
-        process.stdout.write(`  Price:         €${price.toFixed(2)}\n`);
-        process.stdout.write(`  Renewal:       €${(check.renewalPriceEur ?? 0).toFixed(2)}/yr\n`);
+        process.stdout.write(`  Price:         ${priceStr}\n`);
+        process.stdout.write(`  Renewal:       ${renewalStr}\n`);
         process.stdout.write(`  Registrar:     ${purchaseService.registrarName}\n`);
         if (check.expectedValue !== null) {
           process.stdout.write(`  Expected Val:  €${check.expectedValue.toFixed(2)}\n`);

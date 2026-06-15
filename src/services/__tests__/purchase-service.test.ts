@@ -254,18 +254,27 @@ describe('PurchaseService', () => {
   });
 
   describe('execute', () => {
-    it('rejects manual registrar immediately', async () => {
+    it('records purchase via manual registrar', async () => {
       const reg = createMockRegistrar();
       reg.name = 'manual';
+      reg.checkPrice.mockResolvedValue([
+        makePriceCheck({ available: false, registerPriceEur: null }),
+      ]);
+      const pm = createMockPortfolioManager();
+      const outcomeRepo = createMockOutcomeRepo();
       const svc = new PurchaseService({
         registrar: reg,
-        portfolioManager: createMockPortfolioManager(),
-        outcomeRepo: createMockOutcomeRepo(),
+        portfolioManager: pm,
+        outcomeRepo,
       });
 
       const result = await svc.execute('example.com');
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Manual registrar');
+      expect(result.success).toBe(true);
+      expect(result.message).toMatch(/portfolio update-costs/);
+      expect(pm.add).toHaveBeenCalledTimes(1);
+      expect(pm.add.mock.calls[0]?.[0]?.domain).toBe('example.com');
+      expect(outcomeRepo.insert).toHaveBeenCalledTimes(1);
+      expect(outcomeRepo.insert.mock.calls[0]?.[0]?.type).toBe('purchased');
     });
 
     it('rejects unavailable domains', async () => {

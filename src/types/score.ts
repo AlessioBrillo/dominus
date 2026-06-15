@@ -1,3 +1,14 @@
+export type SignalName = 'intrinsic' | 'commercial' | 'market' | 'expiry';
+
+export const SIGNAL_NAMES: readonly SignalName[] = [
+  'intrinsic',
+  'commercial',
+  'market',
+  'expiry',
+] as const;
+
+export type SignalAvailability = Record<SignalName, boolean>;
+
 export interface SignalStatusItem {
   name: string;
   available: boolean;
@@ -28,6 +39,13 @@ export interface ScoreBreakdown {
   commercial: SignalOutput;
   market: SignalOutput;
   expiry: SignalOutput;
+}
+
+export interface EffectiveWeights {
+  intrinsic: number;
+  commercial: number;
+  market: number;
+  expiry: number;
 }
 
 export interface ScoreResult {
@@ -68,6 +86,25 @@ export interface ScoreResult {
   recommended: boolean;
   scoredAt: string;
   signalStatus: SignalStatusItem[];
+  /**
+   * The actual weights used for the weightedScore computation.
+   * When some signals lack data, weights from unavailable signals
+   * are redistributed to available ones so the recommendation
+   * threshold remains achievable even with partial data.
+   * Always available in the breakdown for transparency.
+   */
+  effectiveWeights: EffectiveWeights;
+  /**
+   * The dynamically adjusted recommendation threshold based on
+   * signal availability. Lower when data is sparse, equal to
+   * WEIGHT_RECOMMEND_THRESHOLD when all signals are available.
+   */
+  effectiveRecommendThreshold: number;
+  /**
+   * The dynamically adjusted confidence threshold based on
+   * signal availability.
+   */
+  effectiveConfidenceThreshold: number;
 }
 
 export interface ScoringInput {

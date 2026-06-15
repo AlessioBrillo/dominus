@@ -71,6 +71,9 @@ function seedScoringSnapshot(
     scoredAt,
     signalStatus: [],
     bidRange: { conservative: 250, aggressive: 500 },
+    effectiveWeights: { intrinsic: 0.3, commercial: 0.35, market: 0.25, expiry: 0.1 },
+    effectiveRecommendThreshold: 0.4,
+    effectiveConfidenceThreshold: 0.3,
   };
 
   // Manually set scored_at via direct update (the repo does not accept a custom timestamp).

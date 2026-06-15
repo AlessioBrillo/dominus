@@ -151,15 +151,47 @@ export class PurchaseService {
     operatorApproved: boolean = false,
   ): Promise<PurchaseExecutionResult> {
     try {
+      const check = await this.preflight(domain);
+
+      // Manual registrar: allow recording purchases made externally.
+      // The preflight check is still performed for scoring + TM gate,
+      // but we don't call a registrar API for the actual purchase.
       if (this.#registrar.name === 'manual') {
+        const tld = parseDomain(domain).tld ?? '';
+        this.#portfolioManager.add({
+          domain,
+          tld,
+          acquiredAt: new Date().toISOString(),
+          renewalDate: new Date(Date.now() + years * 365 * 24 * 60 * 60 * 1000).toISOString(),
+          acquisitionCost: check.registerPriceEur ?? 0,
+          renewalCost: check.renewalPriceEur ?? 0,
+          registrar: this.#registrar.name,
+        });
+
+        this.#outcomeRepo.insert({
+          domain,
+          type: 'purchased',
+          occurredAt: new Date().toISOString(),
+          venue: 'manual',
+        });
+
+        logger.info({ domain }, 'Manual purchase recorded in portfolio');
+
         return {
-          success: false,
-          error:
-            'Manual registrar provider is active. No API-based purchase available. Set REGISTRAR_PROVIDER to a different registrar.',
+          success: true,
+          message:
+            'Manual purchase recorded in portfolio. ' +
+            'Use `dominus portfolio update-costs` to set the actual acquisition price.',
+          purchase: {
+            domain,
+            registrar: this.#registrar.name,
+            priceEur: check.registerPriceEur ?? 0,
+            renewalPriceEur: check.renewalPriceEur ?? 0,
+            purchasedAt: new Date().toISOString(),
+          },
         };
       }
 
-      const check = await this.preflight(domain);
       if (!check.available) {
         return { success: false, error: `Domain ${domain} is not available for registration` };
       }

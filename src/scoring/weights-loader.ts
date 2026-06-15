@@ -1,8 +1,113 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { DEFAULT_WEIGHTS, type ScoringWeights } from './weights.js';
+import {
+  DEFAULT_WEIGHTS,
+  DEFAULT_FALLBACK_WEIGHTS,
+  SIGNAL_DATA_THRESHOLD,
+  WEIGHT_RECOMMEND_THRESHOLD,
+  MIN_EFFECTIVE_RECOMMEND_THRESHOLD,
+  MIN_EFFECTIVE_CONFIDENCE_THRESHOLD,
+  type ScoringWeights,
+} from './weights.js';
+import type { SignalAvailability, SignalName } from '../types/score.js';
 
 export const WEIGHTS_OVERRIDE_SUM_TOLERANCE = 0.001;
+
+/**
+ * Given a map of which signals have real data, compute the effective
+ * weights to use for weightedScore calculation.
+ *
+ * Algorithm (conservative redistribution):
+ * 1. If ≥70% of default weight has live data, return DEFAULT_WEIGHTS as-is.
+ * 2. Otherwise, zero out unavailable signals and redistribute their weight
+ *    to available intrinsic and/or expiry signals proportionally to the
+ *    DEFAULT_FALLBACK_WEIGHTS ratios.
+ *
+ * This ensures the recommendation threshold remains achievable even when
+ * external data providers (keyword, market) return no data, while never
+ * fabricating signal quality — it simply trusts the available signals more.
+ */
+export function resolveEffectiveWeights(
+  availability: SignalAvailability,
+  weights: ScoringWeights = DEFAULT_WEIGHTS,
+  fallback: ScoringWeights = DEFAULT_FALLBACK_WEIGHTS,
+): ScoringWeights {
+  const availableDefaultWeight = sumAvailable(weights, availability);
+
+  if (availableDefaultWeight >= SIGNAL_DATA_THRESHOLD) {
+    return { ...weights };
+  }
+
+  const result = { ...weights };
+  const unavailableSignals = (Object.keys(availability) as SignalName[]).filter(
+    (s) => !availability[s],
+  );
+
+  for (const signal of unavailableSignals) {
+    result[signal] = 0;
+  }
+
+  const toRedistribute = 1 - availableDefaultWeight;
+  const availableIntrinsic = availability.intrinsic;
+  const availableExpiry = availability.expiry;
+
+  if (availableIntrinsic && availableExpiry) {
+    const fallbackTotal = fallback.intrinsic + fallback.expiry;
+    result.intrinsic += toRedistribute * (fallback.intrinsic / fallbackTotal);
+    result.expiry += toRedistribute * (fallback.expiry / fallbackTotal);
+  } else if (availableIntrinsic) {
+    result.intrinsic += toRedistribute;
+  } else if (availableExpiry) {
+    result.expiry += toRedistribute;
+  }
+
+  return result;
+}
+
+/**
+ * Compute dynamic recommendation and confidence thresholds based on
+ * signal availability.
+ *
+ * When signal data is sparse, the thresholds are lowered proportionally
+ * so that recommendations remain achievable. When all signals have data,
+ * the original thresholds are used.
+ *
+ * Returns { effectiveRecommendThreshold, effectiveConfidenceThreshold }.
+ */
+export function computeEffectiveThresholds(
+  availability: SignalAvailability,
+  weights: ScoringWeights = DEFAULT_WEIGHTS,
+): {
+  effectiveRecommendThreshold: number;
+  effectiveConfidenceThreshold: number;
+} {
+  const availableWeight = sumAvailable(weights, availability);
+  const ratio = Math.min(1, availableWeight / SIGNAL_DATA_THRESHOLD);
+
+  const recommendRange = WEIGHT_RECOMMEND_THRESHOLD - MIN_EFFECTIVE_RECOMMEND_THRESHOLD;
+  const effectiveRecommendThreshold = MIN_EFFECTIVE_RECOMMEND_THRESHOLD + recommendRange * ratio;
+
+  const confidenceRange = 0.3 - MIN_EFFECTIVE_CONFIDENCE_THRESHOLD;
+  const effectiveConfidenceThreshold = MIN_EFFECTIVE_CONFIDENCE_THRESHOLD + confidenceRange * ratio;
+
+  return {
+    effectiveRecommendThreshold: round2(effectiveRecommendThreshold),
+    effectiveConfidenceThreshold: round2(effectiveConfidenceThreshold),
+  };
+}
+
+function sumAvailable(weights: ScoringWeights, availability: SignalAvailability): number {
+  return (
+    (availability.intrinsic ? weights.intrinsic : 0) +
+    (availability.commercial ? weights.commercial : 0) +
+    (availability.market ? weights.market : 0) +
+    (availability.expiry ? weights.expiry : 0)
+  );
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
 export class WeightsOverrideError extends Error {
   constructor(message: string) {

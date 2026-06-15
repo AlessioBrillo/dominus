@@ -105,10 +105,12 @@ describe('PortfolioManager.rescoreAll', () => {
 
   it('keeps the verdict as Drop when the new score is below the threshold', async () => {
     // Arrange — entry where scoring is weak; currentScore should stay low
-    // and verdict should be Drop.
+    // and verdict should be Drop. With weight redistribution (intrinsic=1.0
+    // when all other signals have no data), a domain with poor intrinsic
+    // quality (long, many hyphens/digits, unpronounceable) still scores low.
     const inFifteenDays = new Date(Date.now() + 15 * 86_400_000).toISOString();
     manager.add({
-      domain: 'xyzzzqwerty.com',
+      domain: 'x-1-2-3-4-5.com',
       tld: '.com',
       acquiredAt: '2025-01-01T00:00:00.000Z',
       renewalDate: inFifteenDays,
@@ -119,7 +121,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
     // Act
     await manager.rescoreAll();
-    const after = repo.findByDomain('xyzzzqwerty.com');
+    const after = repo.findByDomain('x-1-2-3-4-5.com');
 
     // Assert
     expect(after?.currentScore).toBeLessThanOrEqual(25);

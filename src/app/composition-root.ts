@@ -71,6 +71,8 @@ import {
 } from './provider-factory.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
+import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
+import { AcquisitionService } from '../services/acquisition-service.js';
 
 export interface DominusDependencies {
   db: Database.Database;
@@ -112,6 +114,7 @@ export interface DominusDependencies {
   metricsRepo: MetricsRepository;
   progressService: PipelineProgressService;
   accuracyAnalyzer: PredictionAccuracyAnalyzer;
+  acquisitionService: AcquisitionService;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -308,6 +311,15 @@ export function createDependencies(config: Config): DominusDependencies {
     config,
   );
 
+  // â”€â”€ Acquisition / Bid Tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const acquisitionRepo = new AcquisitionRepository(db);
+  const acquisitionService = new AcquisitionService(
+    acquisitionRepo,
+    portfolioManager,
+    outcomeRepo,
+    db,
+  );
+
   // â”€â”€ Backup service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const backupService = new BackupService({
     db,
@@ -365,5 +377,6 @@ export function createDependencies(config: Config): DominusDependencies {
     metricsRepo,
     progressService,
     accuracyAnalyzer,
+    acquisitionService,
   };
 }

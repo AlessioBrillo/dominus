@@ -30,8 +30,11 @@ function makeScoreResult(overrides: Partial<ScoreResult> = {}): ScoreResult {
     scoredAt: new Date().toISOString(),
     signalStatus: [],
     bidRange: { conservative: 25, aggressive: 50 },
+    effectiveWeights: { intrinsic: 0.3, commercial: 0.35, market: 0.25, expiry: 0.1 },
+    effectiveRecommendThreshold: 0.4,
+    effectiveConfidenceThreshold: 0.3,
     ...overrides,
-  };
+  } as ScoreResult;
 }
 
 function makeStubEngine(): ScoringEngine {

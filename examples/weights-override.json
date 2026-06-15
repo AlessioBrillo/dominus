@@ -1,6 +1,11 @@
 {
-  "intrinsic": 0.3,
-  "commercial": 0.35,
-  "market": 0.25,
-  "expiry": 0.1
+  "generatedAt": "2026-06-15T00:00:00.000Z",
+  "sampleSize": 0,
+  "note": "Default DOMINUS weights. Use `dominus backtest suggest-weights` to generate data-driven suggestions after accumulating sold outcomes.",
+  "weights": {
+    "intrinsic": 0.3,
+    "commercial": 0.35,
+    "market": 0.25,
+    "expiry": 0.1
+  }
 }

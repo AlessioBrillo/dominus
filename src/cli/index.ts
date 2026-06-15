@@ -20,7 +20,9 @@ import type { PurchaseService } from '../services/purchase-service.js';
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { PortfolioReportService } from '../portfolio/portfolio-report-service.js';
 import type { PredictionAccuracyAnalyzer } from '../analytics/index.js';
+import type { AcquisitionService } from '../services/acquisition-service.js';
 import { registerRunCommand } from './commands/run-command.js';
+import { registerBidCommand } from './commands/bid-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
 import { registerScoreCommand } from './commands/score-command.js';
 import { registerOutcomeCommand } from './commands/outcome-command.js';
@@ -58,6 +60,7 @@ export interface CreateCliOptions {
   purchaseService?: PurchaseService;
   reportService?: PortfolioReportService;
   accuracyAnalyzer?: PredictionAccuracyAnalyzer;
+  acquisitionService?: AcquisitionService;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -132,6 +135,10 @@ export function createCli(options: CreateCliOptions): Command {
 
   if (options.accuracyAnalyzer) {
     registerAnalyticsCommand(program, { accuracyAnalyzer: options.accuracyAnalyzer });
+  }
+
+  if (options.acquisitionService) {
+    registerBidCommand(program, { acquisitionService: options.acquisitionService });
   }
 
   return program;

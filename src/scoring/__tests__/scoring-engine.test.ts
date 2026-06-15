@@ -55,15 +55,18 @@ describe('ScoringEngine', () => {
     expect(result.suggestedListPrice).toBeGreaterThan(result.expectedValue);
   });
 
-  it('domain with no keyword or comps data is not recommended', async () => {
+  it('truly poor domain with no keyword or comps data is not recommended', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
-      domain: 'xyzqwerty123.com',
+      domain: 'x-7-9-zzzzzzzzzz.com',
       tld: '.com',
-      sld: 'xyzqwerty123',
+      sld: 'x-7-9-zzzzzzzzzz',
       isCloseout: false,
     });
+    // intrinsic score is near-zero (long, hyphens, digits, unpronounceable)
+    // so even with full weight redistribution, weightedScore stays below threshold
+    expect(result.weightedScore).toBeLessThan(0.2);
     expect(result.recommended).toBe(false);
   });
 
@@ -114,7 +117,7 @@ describe('ScoringEngine', () => {
     expect(withExpiry.confidence).toBeGreaterThan(withoutExpiry.confidence);
   });
 
-  it('expiry signal alone (no commercial or market data) does not trigger buy recommendation', async () => {
+  it('expiry signal with good intrinsic quality triggers recommendation via weight redistribution', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
@@ -126,11 +129,13 @@ describe('ScoringEngine', () => {
       backlinks: 500,
       waybackSnapshots: 200,
     });
-    // Confidence may exceed 0.3 due to intrinsic quality + expiry,
-    // but weightedScore must still be below WEIGHT_RECOMMEND_THRESHOLD (0.4)
-    // since no commercial or market data is available.
-    expect(result.weightedScore).toBeLessThan(0.4);
-    expect(result.recommended).toBe(false);
+    // With weight redistribution, intrinsic + expiry get the full weight
+    // (commercial=0, market=0 are redistributed). A good closeout domain
+    // with strong intrinsic quality now becomes recommendable.
+    expect(result.weightedScore).toBeGreaterThanOrEqual(0.4);
+    expect(result.recommended).toBe(true);
+    expect(result.effectiveWeights.commercial).toBe(0);
+    expect(result.effectiveWeights.market).toBe(0);
   });
 
   it('respects BUY_MAX_ABSOLUTE_CAP when expectedValue suggests a higher buy max', async () => {
@@ -223,7 +228,7 @@ describe('ScoringEngine', () => {
     expect(result.breakdown).toHaveProperty('expiry');
   });
 
-  it('exposes a 0-1 weightedScore derived from the breakdown', async () => {
+  it('exposes a 0-1 weightedScore derived from effectiveWeights', async () => {
     const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
@@ -233,21 +238,25 @@ describe('ScoringEngine', () => {
       isCloseout: false,
     });
 
-    // Recompute the expected weighted score from the breakdown — proves the
-    // engine is not making the field up.
+    // With all data available, effectiveWeights should equal DEFAULT_WEIGHTS
     const { intrinsic, commercial, market, expiry } = result.breakdown;
+    const ew = result.effectiveWeights;
     const expected =
       Math.round(
-        (intrinsic.score * intrinsic.weight +
-          commercial.score * commercial.weight +
-          market.score * market.weight +
-          expiry.score * expiry.weight) *
+        (intrinsic.score * ew.intrinsic +
+          commercial.score * ew.commercial +
+          market.score * ew.market +
+          expiry.score * ew.expiry) *
           1000,
       ) / 1000;
 
     expect(result.weightedScore).toBe(expected);
     expect(result.weightedScore).toBeGreaterThanOrEqual(0);
     expect(result.weightedScore).toBeLessThanOrEqual(1);
+    expect(ew.intrinsic).toBe(0.3);
+    expect(ew.commercial).toBe(0.35);
+    expect(ew.market).toBe(0.25);
+    expect(ew.expiry).toBe(0.1);
   });
 
   it('approaches confidenceBase when intrinsic quality is near zero', async () => {
@@ -266,5 +275,102 @@ describe('ScoringEngine', () => {
     });
     expect(result.confidence).toBeGreaterThanOrEqual(0.2);
     expect(result.confidence).toBeLessThan(0.25);
+  });
+
+  it('redistributes weights when only intrinsic data is available', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'goodname.com',
+      tld: '.com',
+      sld: 'goodname',
+      isCloseout: false,
+    });
+    expect(result.effectiveWeights.intrinsic).toBeGreaterThan(0.5);
+    expect(result.effectiveWeights.commercial).toBe(0);
+    expect(result.effectiveWeights.market).toBe(0);
+    expect(result.effectiveWeights.expiry).toBe(0);
+  });
+
+  it('partially redistributes weights when expiry is also available', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'aged-good.com',
+      tld: '.com',
+      sld: 'aged-good',
+      isCloseout: true,
+      domainAge: 10,
+      backlinks: 200,
+    });
+    expect(result.effectiveWeights.intrinsic).toBeGreaterThan(0);
+    expect(result.effectiveWeights.commercial).toBe(0);
+    expect(result.effectiveWeights.market).toBe(0);
+    expect(result.effectiveWeights.expiry).toBeGreaterThan(0);
+    expect(
+      Math.abs(result.effectiveWeights.intrinsic + result.effectiveWeights.expiry - 1),
+    ).toBeLessThan(0.01);
+  });
+
+  it('uses default weights unchanged when all signals have data', async () => {
+    const { keyword, comps } = makeProviders(100_000, 10, [5000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'saas.com',
+      tld: '.com',
+      sld: 'saas',
+      isCloseout: true,
+      domainAge: 5,
+    });
+    expect(result.effectiveWeights.intrinsic).toBe(0.3);
+    expect(result.effectiveWeights.commercial).toBe(0.35);
+    expect(result.effectiveWeights.market).toBe(0.25);
+    expect(result.effectiveWeights.expiry).toBe(0.1);
+  });
+
+  it('exposes effectiveRecommendThreshold lower than default when data is sparse', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'sparse.com',
+      tld: '.com',
+      sld: 'sparse',
+      isCloseout: false,
+    });
+    // Only intrinsic available with weight 0.3
+    // effectiveRecommendThreshold = 0.20 + (0.40-0.20) * (0.30/0.70)
+    // = 0.20 + 0.20 * 0.429 = 0.286
+    expect(result.effectiveRecommendThreshold).toBeLessThan(0.4);
+    expect(result.effectiveRecommendThreshold).toBeGreaterThan(0.2);
+  });
+
+  it('exposes effectiveConfidenceThreshold lower than default when data is sparse', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'sparse.com',
+      tld: '.com',
+      sld: 'sparse',
+      isCloseout: false,
+    });
+    expect(result.effectiveConfidenceThreshold).toBeLessThan(0.3);
+    expect(result.effectiveConfidenceThreshold).toBeGreaterThan(0.15);
+  });
+
+  it('good intrinsic domain without market data is recommended via weight redistribution', async () => {
+    const { keyword, comps } = makeProviders(0, 0, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'bright.com',
+      tld: '.com',
+      sld: 'bright',
+      isCloseout: false,
+    });
+    // 'bright' has no hyphens/digits, length 6, good pronounceability
+    // intrinsicScore should be high enough to pass both effective thresholds
+    expect(result.weightedScore).toBeGreaterThan(0.3);
+    expect(result.recommended).toBe(true);
+    expect(result.breakdown.commercial.score).toBe(0);
+    expect(result.breakdown.market.score).toBe(0);
   });
 });

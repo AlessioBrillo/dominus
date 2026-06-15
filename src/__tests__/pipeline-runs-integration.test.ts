@@ -49,6 +49,9 @@ function makeScoreResult(domain: string): ScoreResult {
     scoredAt: new Date().toISOString(),
     signalStatus: [],
     bidRange: { conservative: 60, aggressive: 120 },
+    effectiveWeights: { intrinsic: 0.3, commercial: 0.35, market: 0.25, expiry: 0.1 },
+    effectiveRecommendThreshold: 0.4,
+    effectiveConfidenceThreshold: 0.3,
   };
 }
 

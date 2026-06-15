@@ -39,6 +39,28 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
     });
 
   portfolio
+    .command('update-costs')
+    .description('Update acquisition and/or renewal cost for a portfolio domain')
+    .argument('<domain>', 'Domain to update')
+    .option('--acquisition-cost <eur>', 'New acquisition cost in EUR', parseFloat)
+    .option('--renewal-cost <eur>', 'New annual renewal cost in EUR', parseFloat)
+    .action((domain: string, options: { acquisitionCost?: number; renewalCost?: number }) => {
+      if (options.acquisitionCost === undefined && options.renewalCost === undefined) {
+        process.stderr.write('Specify at least --acquisition-cost or --renewal-cost.\n');
+        process.exit(1);
+        return;
+      }
+      try {
+        manager.updateCosts(domain, options.acquisitionCost, options.renewalCost);
+        process.stdout.write(`Costs updated for ${domain}.\n`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`Error: ${message}\n`);
+        process.exit(1);
+      }
+    });
+
+  portfolio
     .command('rescore')
     .description(
       'Re-score every portfolio entry against the current engine and TM gate, then refresh verdicts',

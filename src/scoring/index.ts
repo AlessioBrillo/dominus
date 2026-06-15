@@ -1,7 +1,21 @@
 export { ScoringEngine } from './scoring-engine.js';
-export { DEFAULT_WEIGHTS, WEIGHT_RECOMMEND_THRESHOLD, DEFAULT_TLD_BONUS } from './weights.js';
+export {
+  DEFAULT_WEIGHTS,
+  WEIGHT_RECOMMEND_THRESHOLD,
+  DEFAULT_TLD_BONUS,
+  DEFAULT_FALLBACK_WEIGHTS,
+  SIGNAL_DATA_THRESHOLD,
+  MIN_EFFECTIVE_RECOMMEND_THRESHOLD,
+  MIN_EFFECTIVE_CONFIDENCE_THRESHOLD,
+} from './weights.js';
 export type { ScoringWeights } from './weights.js';
-export { loadWeights, reloadWeights, WeightsOverrideError } from './weights-loader.js';
+export {
+  loadWeights,
+  reloadWeights,
+  WeightsOverrideError,
+  resolveEffectiveWeights,
+  computeEffectiveThresholds,
+} from './weights-loader.js';
 export { loadTldBonuses } from './tld-bonus-loader.js';
 export {
   DEFAULT_SCORING_CONFIG,
