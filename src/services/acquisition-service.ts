@@ -2,8 +2,10 @@ import type { AcquisitionRepository } from '../db/repositories/acquisition-repos
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
 import type { Bid, PlaceBidInput, ResolveBidInput } from '../types/acquisition.js';
-import { BidStatus } from '../types/acquisition.js';
+import { BidStatus, addYearsToDate } from '../types/acquisition.js';
+import { DuplicateDomainError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
+import { parseDomain } from '../utils/domain.js';
 import type Database from 'better-sqlite3';
 
 const logger = getLogger();
@@ -66,16 +68,16 @@ export class AcquisitionService {
       }
 
       if (input.status === BidStatus.Won) {
-        const tld = input.domain.includes('.')
-          ? input.domain.substring(input.domain.indexOf('.'))
-          : '';
+        const parsed = parseDomain(input.domain);
         const price = input.wonPriceEur ?? existing.bidAmountEur;
+        const now = new Date();
+        const years = input.registrationYears ?? 1;
 
         this.#portfolioManager.add({
           domain: input.domain,
-          tld,
-          acquiredAt: new Date().toISOString(),
-          renewalDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          tld: parsed.tld,
+          acquiredAt: now.toISOString(),
+          renewalDate: addYearsToDate(now, years).toISOString(),
           acquisitionCost: price,
           renewalCost: 0,
           registrar: existing.venue,
@@ -85,7 +87,7 @@ export class AcquisitionService {
         this.#outcomeRepo.insert({
           domain: input.domain,
           type: 'purchased',
-          occurredAt: new Date().toISOString(),
+          occurredAt: now.toISOString(),
           salePriceEur: input.wonPriceEur,
           venue: existing.venue,
           notes: `Won auction on ${existing.venue}, bid €${existing.bidAmountEur}`,
@@ -100,6 +102,13 @@ export class AcquisitionService {
       logger.info({ domain: input.domain, status: input.status }, `Bid resolved: ${input.status}`);
       return result;
     } catch (err: unknown) {
+      if (err instanceof DuplicateDomainError) {
+        const dupError = new Error(
+          `Domain ${input.domain} is already in the portfolio. Resolve the bid as lost/cancelled or remove the portfolio entry first.`,
+        );
+        dupError.cause = err;
+        throw dupError;
+      }
       const message = err instanceof Error ? err.message : String(err);
       logger.error({ domain: input.domain, error: message }, 'Failed to resolve bid');
       throw err;
