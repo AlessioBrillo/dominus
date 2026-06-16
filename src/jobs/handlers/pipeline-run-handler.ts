@@ -14,11 +14,13 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
   constructor(private readonly deps: PipelineRunHandlerDeps) {}
 
   async handle(payload: PipelineRunPayload): Promise<PipelineRunResult> {
-    const { candidateGenerationInput } = payload;
+    const { candidateGenerationInput, runId } = payload;
 
-    logger.info('PipelineRunHandler: starting pipeline run');
+    logger.info({ runId }, 'PipelineRunHandler: starting pipeline run');
 
-    const result = await this.deps.runService.run(candidateGenerationInput);
+    const result = await this.deps.runService.run(candidateGenerationInput, {
+      externalRunId: runId,
+    });
 
     logger.info(
       {

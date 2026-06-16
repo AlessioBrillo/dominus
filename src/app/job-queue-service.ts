@@ -14,8 +14,13 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
+export interface EnqueueResult {
+  jobId: string;
+  runId: string;
+}
+
 export interface JobQueueService {
-  enqueuePipelineRun(input: CandidateGenerationInput): Promise<string>;
+  enqueuePipelineRun(input: CandidateGenerationInput): Promise<EnqueueResult>;
   enqueuePortfolioRescore(domain?: string): Promise<string>;
   enqueueBacktestBuild(minSampleSize?: number): Promise<string>;
   enqueueBackup(retentionDays?: number): Promise<string>;
@@ -50,13 +55,14 @@ export function createJobQueueService(db: Database.Database): JobQueueService {
   }
 
   return {
-    enqueuePipelineRun(input: CandidateGenerationInput): Promise<string> {
+    enqueuePipelineRun(input: CandidateGenerationInput): Promise<EnqueueResult> {
       const runId = generateRunId();
       const payload: PipelineRunPayload = {
         candidateGenerationInput: input,
         runId,
       };
-      return Promise.resolve(enqueue('PIPELINE_RUN', payload, { priority: 10 }));
+      const jobId = enqueue('PIPELINE_RUN', payload, { priority: 10 });
+      return Promise.resolve({ jobId, runId });
     },
 
     enqueuePortfolioRescore(domain?: string): Promise<string> {

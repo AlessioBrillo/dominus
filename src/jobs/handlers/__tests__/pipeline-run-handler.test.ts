@@ -23,7 +23,10 @@ describe('PipelineRunHandler', () => {
 
     const result: PipelineRunResult = await handler.handle(payload);
 
-    expect(runService.run).toHaveBeenCalledWith({ keywords: ['test'] });
+    expect(runService.run).toHaveBeenCalledWith(
+      { keywords: ['test'] },
+      { externalRunId: 'run-abc' },
+    );
     expect(result.runId).toBe('run-abc');
     expect(result.recommended).toBe(1);
     expect(result.scored).toBe(2);
