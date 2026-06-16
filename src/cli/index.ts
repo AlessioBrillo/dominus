@@ -4,6 +4,7 @@ import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
+import type { JobQueueService } from '../app/job-queue-service.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../db/repositories/scoring-repository.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
@@ -55,7 +56,8 @@ export interface CreateCliOptions {
   alertEngine?: RenewalAlertEngine;
   alertRepo?: RenewalAlertRepository;
   scheduler: SchedulerService | undefined;
-  watchlistService?: WatchlistService;
+  jobQueueService?: JobQueueService | undefined;
+  watchlistService?: WatchlistService | undefined;
   currentWeights?: ScoringWeights;
   purchaseService?: PurchaseService;
   reportService?: PortfolioReportService;
@@ -80,6 +82,7 @@ export function createCli(options: CreateCliOptions): Command {
     alertEngine,
     alertRepo,
     scheduler,
+    jobQueueService,
     watchlistService,
     currentWeights,
     purchaseService,
@@ -92,9 +95,9 @@ export function createCli(options: CreateCliOptions): Command {
     .description('Personal DNS domain investment decision-support tool')
     .version('0.3.0');
 
-  registerRunCommand(program, runService);
+  registerRunCommand(program, { runService, jobQueueService, runsRepo });
   registerCandidatesCommand(program, { candidateRepo });
-  registerPortfolioCommand(program, { manager, alertEngine, alertRepo });
+  registerPortfolioCommand(program, { manager, alertEngine, alertRepo, jobQueueService });
   registerScoreCommand(program, engine, gate);
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });

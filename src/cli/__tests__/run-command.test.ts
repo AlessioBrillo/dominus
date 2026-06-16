@@ -27,21 +27,42 @@ describe('registerRunCommand', () => {
 
   it('registers a "run" command on the program', () => {
     const program = new Command();
-    registerRunCommand(program, makeMockRunService());
+    registerRunCommand(program, { runService: makeMockRunService() });
     const cmd = program.commands.find((c) => c.name() === 'run');
     expect(cmd).toBeDefined();
+  });
+
+  it('also registers a "run submit" subcommand', () => {
+    const program = new Command();
+    registerRunCommand(program, { runService: makeMockRunService() });
+    const run = program.commands.find((c) => c.name() === 'run');
+    expect(run).toBeDefined();
+    const submit = run!.commands.find((c) => c.name() === 'submit');
+    expect(submit).toBeDefined();
   });
 
   it('calls runService.run with parsed keywords', async () => {
     const runService = makeMockRunService();
     const program = new Command();
     program.exitOverride();
-    registerRunCommand(program, runService);
+    registerRunCommand(program, { runService });
 
     await program.parseAsync(['node', 'cli', 'run', '--keywords', 'nova,saas']);
     expect(runService.run).toHaveBeenCalledWith(
       expect.objectContaining({ keywords: ['nova', 'saas'] }),
     );
+  });
+
+  it('rejects --async without jobQueueService', async () => {
+    const runService = makeMockRunService();
+    const program = new Command();
+    program.exitOverride();
+    registerRunCommand(program, { runService });
+
+    const exitSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await program.parseAsync(['node', 'cli', 'run', '--keywords', 'test', '--async']);
+    expect(exitSpy).toHaveBeenCalledWith(expect.stringContaining('Job queue is not available'));
+    exitSpy.mockRestore();
   });
 
   const tmpFiles: string[] = [];
@@ -62,7 +83,7 @@ describe('registerRunCommand', () => {
     const runService = makeMockRunService();
     const program = new Command();
     program.exitOverride();
-    registerRunCommand(program, runService);
+    registerRunCommand(program, { runService });
 
     await program.parseAsync(['node', 'cli', 'run', '--closeout-csv', csvPath]);
     expect(runService.run).toHaveBeenCalledWith(

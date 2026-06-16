@@ -2,16 +2,18 @@ import type { Command } from 'commander';
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
 import type { RenewalAlertRepository } from '../../db/repositories/renewal-alert-repository.js';
+import type { JobQueueService } from '../../app/job-queue-service.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 
 export interface PortfolioCommandDeps {
   manager: PortfolioManager;
   alertEngine?: RenewalAlertEngine | undefined;
   alertRepo?: RenewalAlertRepository | undefined;
+  jobQueueService?: JobQueueService | undefined;
 }
 
 export function registerPortfolioCommand(program: Command, deps: PortfolioCommandDeps): void {
-  const { manager, alertEngine, alertRepo } = deps;
+  const { manager, alertEngine, alertRepo, jobQueueService } = deps;
   const portfolio = program.command('portfolio').description('Manage your domain portfolio');
 
   portfolio
@@ -66,10 +68,27 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
       'Re-score every portfolio entry against the current engine and TM gate, then refresh verdicts',
     )
     .option('--quiet', 'Suppress per-domain output, print only the summary', false)
-    .action((options: { quiet: boolean }) => {
+    .option('--async', 'Enqueue via job queue and return immediately', false)
+    .action((options: { quiet: boolean; async: boolean }) => {
       const portfolioEntries = manager.list();
       if (portfolioEntries.length === 0) {
         process.stdout.write('Portfolio is empty — nothing to rescore.\n');
+        return;
+      }
+
+      if (options.async) {
+        if (!jobQueueService) {
+          process.stderr.write(
+            'Error: Job queue is not available. Set WORKER_ENABLED=true in environment.\n',
+          );
+          process.exit(1);
+          return;
+        }
+
+        void jobQueueService.enqueuePortfolioRescore().then((jobId) => {
+          process.stdout.write(`\nRescore enqueued as job ${jobId}.\n`);
+          process.stdout.write('Run `dominus scheduler status` to track progress.\n');
+        });
         return;
       }
 
