@@ -6,7 +6,7 @@ let _db: Database.Database | null = null;
 let _refCount = 0;
 let _currentPath: string | null = null;
 
-export function openDatabase(path: string): Database.Database {
+export function openDatabase(path: string, busyTimeout: number = 30000): Database.Database {
   if (_db !== null) {
     _refCount++;
     return _db;
@@ -20,7 +20,7 @@ export function openDatabase(path: string): Database.Database {
   _db = new Database(path);
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
-  _db.pragma('busy_timeout = 5000');
+  _db.pragma(`busy_timeout = ${busyTimeout}`);
   _refCount = 1;
   _currentPath = resolve(path);
   return _db;

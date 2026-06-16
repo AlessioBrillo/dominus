@@ -135,7 +135,7 @@ export interface DominusDependencies {
 }
 
 export function createDependencies(config: Config): DominusDependencies {
-  const db = openDatabase(config.DATABASE_PATH);
+  const db = openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
   runMigrations(db);
   warnEuipoIfMissing(config);
   warnCloudflareIfMissing(config);

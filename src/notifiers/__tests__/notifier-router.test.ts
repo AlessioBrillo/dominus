@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildNotifiers } from '../notifier-router.js';
 import { ConsoleNotifier } from '../console-notifier.js';
 import { DesktopNotifier } from '../desktop-notifier.js';
@@ -8,6 +8,7 @@ import type { Config } from '../../config.js';
 
 const baseConfig: Config = {
   DATABASE_PATH: ':memory:',
+  DATABASE_BUSY_TIMEOUT: 30000,
   PORT: 3000,
   LOG_LEVEL: 'info',
   LOG_PRETTY: false,

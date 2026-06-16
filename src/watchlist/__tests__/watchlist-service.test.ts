@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { WatchlistRepository } from '../../db/repositories/watchlist-repository.js';
@@ -15,6 +15,7 @@ import { AlertType, AlertSeverity } from '../../types/alert.js';
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     DATABASE_PATH: ':memory:',
+    DATABASE_BUSY_TIMEOUT: 30000,
     PORT: 3000,
     LOG_LEVEL: 'silent',
     LOG_PRETTY: false,

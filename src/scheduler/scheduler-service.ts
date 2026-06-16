@@ -249,7 +249,7 @@ export class SchedulerService {
     if (cron.validate(cronExpression)) {
       const task = cron.schedule(cronExpression, () => {
         const started = Date.now();
-        execute()
+        wrappedExec()
           .then((result) => {
             const durationMs = Date.now() - started;
             this.jobRepo?.updateResult(name, {

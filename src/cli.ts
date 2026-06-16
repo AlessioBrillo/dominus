@@ -22,6 +22,7 @@ const cli = createCli({
   alertEngine: deps.alertEngine,
   alertRepo: deps.alertRepo,
   scheduler: deps.scheduler,
+  jobQueueService: deps.jobQueueService,
   reportService: deps.reportService,
   accuracyAnalyzer: deps.accuracyAnalyzer,
   acquisitionService: deps.acquisitionService,

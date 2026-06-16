@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createProvidersRouter } from '../routes/providers.js';
@@ -8,6 +8,7 @@ import type { Config } from '../../config.js';
 function buildConfig(overrides: Partial<Config> = {}): Config {
   return {
     DATABASE_PATH: ':memory:',
+    DATABASE_BUSY_TIMEOUT: 30000,
     PORT: 3000,
     LOG_LEVEL: 'info',
     LOG_PRETTY: false,
