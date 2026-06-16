@@ -15,6 +15,7 @@ import {
   WeightSnapshotRepository,
   SchedulerJobRepository,
   MetricsRepository,
+  JobQueueRepository,
 } from '../db/index.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
@@ -73,6 +74,18 @@ import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
+import { createJobQueueService } from './job-queue-service.js';
+import {
+  JobWorker,
+  PipelineRunHandler,
+  PortfolioRescoreHandler,
+  BacktestBuildHandler,
+  BackupHandler,
+  PruneHandler,
+  WatchlistPollHandler,
+  RenewalCheckHandler,
+  HANDLERS,
+} from '../jobs/index.js';
 
 export interface DominusDependencies {
   db: Database.Database;
@@ -86,6 +99,7 @@ export interface DominusDependencies {
   alertRepo: RenewalAlertRepository;
   pipelineRunsRepo: PipelineRunsRepository;
   providerCacheRepo: ProviderCacheRepository;
+  jobQueueRepo: JobQueueRepository;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -115,6 +129,9 @@ export interface DominusDependencies {
   progressService: PipelineProgressService;
   accuracyAnalyzer: PredictionAccuracyAnalyzer;
   acquisitionService: AcquisitionService;
+
+  jobQueueService: ReturnType<typeof createJobQueueService>;
+  worker: JobWorker | undefined;
 }
 
 export function createDependencies(config: Config): DominusDependencies {
@@ -123,7 +140,6 @@ export function createDependencies(config: Config): DominusDependencies {
   warnEuipoIfMissing(config);
   warnCloudflareIfMissing(config);
 
-  // â”€â”€ Repositories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const candidateRepo = new CandidateRepository(db);
   const scoringRepo = new ScoringRepository(db);
   const trademarkRepo = new TrademarkRepository(db);
@@ -133,8 +149,8 @@ export function createDependencies(config: Config): DominusDependencies {
   const alertRepo = new RenewalAlertRepository(db);
   const pipelineRunsRepo = new PipelineRunsRepository(db);
   const metricsRepo = new MetricsRepository(db);
+  const jobQueueRepo = new JobQueueRepository(db);
 
-  // â”€â”€ Providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, providerCacheRepo);
   const {
@@ -150,7 +166,6 @@ export function createDependencies(config: Config): DominusDependencies {
   const dnsProvider = buildDnsProvider(config);
   const { provider: whoisProvider } = buildWhoisProviders(config);
 
-  // â”€â”€ Trademark providers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const usptoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
       new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
@@ -185,14 +200,12 @@ export function createDependencies(config: Config): DominusDependencies {
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
-  // â”€â”€ Scoring Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const { currentWeights, engine } = buildScoringEngine(
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
   );
 
-  // â”€â”€ Health Check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const healthCheck = new ProviderHealthCheck(
     usptoTmProvider,
     euipoTmProvider,
@@ -201,8 +214,6 @@ export function createDependencies(config: Config): DominusDependencies {
     cachedKeywordProvider,
   );
 
-  // â”€â”€ Pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // ── Metrics ─────────────────────────────────────────────────────────────────
   const metrics = new MetricsCollector();
 
   const orchestrator = new PipelineOrchestrator(
@@ -228,7 +239,6 @@ export function createDependencies(config: Config): DominusDependencies {
     progressService,
   );
 
-  // â”€â”€ Portfolio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const portfolioManager = new PortfolioManager(
     portfolioRepo,
     config.DROP_SCORE_THRESHOLD,
@@ -259,7 +269,6 @@ export function createDependencies(config: Config): DominusDependencies {
     config.RENEWAL_WARNING_DAYS,
   );
 
-  // â”€â”€ Watchlist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const watchlistService = new WatchlistService(
     new WatchlistRepository(db),
     dnsProvider,
@@ -268,7 +277,6 @@ export function createDependencies(config: Config): DominusDependencies {
     config,
   );
 
-  // â”€â”€ Auto-weight-tuner (optional) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
     const backtestSignalsRepo = new BacktestSignalsRepository(db);
@@ -300,7 +308,6 @@ export function createDependencies(config: Config): DominusDependencies {
     );
   }
 
-  // â”€â”€ Registrar / Purchase Service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const registrarProvider = buildRegistrarProvider(config);
   const purchaseService = buildPurchaseService(
     registrarProvider,
@@ -311,7 +318,6 @@ export function createDependencies(config: Config): DominusDependencies {
     config,
   );
 
-  // â”€â”€ Acquisition / Bid Tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const acquisitionRepo = new AcquisitionRepository(db);
   const acquisitionService = new AcquisitionService(
     acquisitionRepo,
@@ -320,7 +326,6 @@ export function createDependencies(config: Config): DominusDependencies {
     db,
   );
 
-  // â”€â”€ Backup service â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const backupService = new BackupService({
     db,
     dbPath: config.DATABASE_PATH,
@@ -328,7 +333,60 @@ export function createDependencies(config: Config): DominusDependencies {
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
 
-  // â”€â”€ Scheduler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const jobQueueService = createJobQueueService(db);
+
+  let worker: JobWorker | undefined;
+  if (config.WORKER_ENABLED) {
+    const pipelineRunHandler = new PipelineRunHandler({
+      runService,
+    });
+    const portfolioRescoreHandler = new PortfolioRescoreHandler({
+      portfolioManager,
+      rescoreService: portfolioManager.getRescoreService()!,
+    });
+    const backtestSignalsRepo = new BacktestSignalsRepository(db);
+    const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+    const weightSuggester = new WeightSuggester(
+      db,
+      backtestSignalsRepo,
+      scoringRepo,
+      currentWeights,
+    );
+    const backtestHandler = new BacktestBuildHandler({
+      backtestEngine,
+      weightSuggester,
+      currentWeights,
+    });
+    const backupHandler = new BackupHandler({ backupService });
+    const pruneHandler = new PruneHandler({
+      candidateRepo,
+      scoringRepo,
+      pipelineRunsRepo,
+      providerCacheRepo,
+      jobQueueRepo,
+    });
+    const watchlistHandler = new WatchlistPollHandler({ watchlistService });
+    const renewalHandler = new RenewalCheckHandler({ alertEngine });
+    const handlers = [
+      pipelineRunHandler,
+      portfolioRescoreHandler,
+      backtestHandler,
+      backupHandler,
+      pruneHandler,
+      watchlistHandler,
+      renewalHandler,
+    ];
+    for (const handler of handlers) {
+      HANDLERS.set(handler.jobType, handler);
+    }
+    worker = new JobWorker(db, HANDLERS, {
+      concurrency: config.WORKER_CONCURRENCY,
+      pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
+      maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
+    });
+    worker.start();
+  }
+
   let scheduler: SchedulerService | undefined;
   if (config.SCHEDULER_ENABLED) {
     scheduler = new SchedulerService({
@@ -341,6 +399,7 @@ export function createDependencies(config: Config): DominusDependencies {
       watchlistService,
       backupService,
       jobRepo: new SchedulerJobRepository(db),
+      jobQueueService,
       ...(autoTuner ? { autoTuner } : {}),
     });
   }
@@ -356,6 +415,7 @@ export function createDependencies(config: Config): DominusDependencies {
     alertRepo,
     pipelineRunsRepo,
     providerCacheRepo,
+    jobQueueRepo,
     keywordProvider: cachedKeywordProvider,
     compsProvider: cachedCompsProvider,
     whoisProvider,
@@ -378,5 +438,7 @@ export function createDependencies(config: Config): DominusDependencies {
     progressService,
     accuracyAnalyzer,
     acquisitionService,
+    jobQueueService,
+    worker,
   };
 }
