@@ -645,6 +645,39 @@ const configSchema = z.object({
    * File should have permissions 0600.
    */
   FILE_REGISTRAR_CONFIG: z.string().optional(),
+
+  // ── Job Queue / Worker config (ADR-0023) ──────────────────────────
+
+  /**
+   * Enable the in-process job worker. When true, the worker thread polls the
+   * job_queue table and executes handlers for queued jobs. Set WORKER_ENABLED=false
+   * to run jobs synchronously (legacy mode, backward-compatible).
+   * Default: false (safe, opt-in).
+   */
+  WORKER_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+
+  /**
+   * Maximum number of jobs processed concurrently by the worker.
+   * Higher values increase throughput but may trigger SQLite write contention.
+   * Default: 2 (conservative).
+   */
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(2),
+
+  /**
+   * Poll interval in milliseconds for the job queue worker.
+   * Lower values reduce latency but increase CPU usage.
+   * Default: 1000ms (1 second).
+   */
+  JOB_QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+
+  /**
+   * Maximum time a job can stay in 'running' status before being
+   * auto-requeued by the worker (stuck-job recovery).
+   * Default: 300000ms (5 minutes).
+   */
+  JOB_MAX_RUNNING_AGE_MS: z.coerce.number().int().min(10000).max(86400000).default(300000),
 });
 
 export type Config = z.infer<typeof configSchema>;

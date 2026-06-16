@@ -28,6 +28,8 @@ re-running the original arguments.
 | [0019](0019-auto-weight-tuning-loop.md) | Closed-loop auto weight tuning | 2026-06-09 | Accepted |
 | [0020](0020-scoring-confidence-formula.md) | Scoring confidence formula and intrinsic quality coupling | 2026-06-11 | Accepted |
 | [0021](0021-provider-resilience-and-observability.md) | Provider resilience and observability layer | 2026-06-12 | Accepted |
+| [0022](0022-backup-and-operations.md) | Backup and operations | 2026-06-13 | Accepted |
+| [0023](0023-job-queue-worker-pool-architecture.md) | Job queue and worker pool architecture | 2026-06-16 | Proposed |
 
 ## Conventions
 

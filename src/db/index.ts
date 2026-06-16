@@ -13,6 +13,7 @@ export { WatchlistRepository } from './repositories/watchlist-repository.js';
 export { WeightSnapshotRepository } from './repositories/weight-snapshot-repository.js';
 export { SchedulerJobRepository } from './repositories/scheduler-job-repository.js';
 export { MetricsRepository } from './repositories/metrics-repository.js';
+export { JobQueueRepository } from './repositories/job-queue-repository.js';
 export type {
   StageMetricRow,
   MetricAggregate,

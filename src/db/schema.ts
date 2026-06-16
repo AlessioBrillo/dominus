@@ -315,3 +315,81 @@ export const WEIGHT_SNAPSHOTS_SOURCE_IDX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_weight_snapshots_source
   ON weight_snapshots(source)
 `;
+
+/**
+ * job_queue: durable job queue for async pipeline execution.
+ * See ADR-0023 for architecture.
+ *
+ *  - `job_type`          Discriminator: 'PIPELINE_RUN' | 'PORTFOLIO_RESCORE' | 'BACKTEST_BUILD' | 'BACKUP' | 'PRUNE' | 'WATCHLIST_POLL' | 'RENEWAL_CHECK'
+ *  - `payload_json`      JSON payload specific to job_type
+ *  - `status`            'queued' | 'running' | 'completed' | 'failed' | 'dead_letter'
+ *  - `priority`          Higher = more urgent (user jobs > scheduled jobs)
+ *  - `attempts`          Number of processing attempts
+ *  - `max_attempts`      Max retries before dead letter (default: default 3
+ *  - `scheduled_at`      When the job should run (for delayed/scheduled jobs)
+ *  - `started_at`        When worker started processing
+ *  - `finished_at`       When job completed/failed
+ *  - `error`             Error message if failed
+ *  - `result_json`       JSON result on completion
+ */
+export const JOB_QUEUE_DDL = `
+CREATE TABLE IF NOT EXISTS job_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued', 'running', 'completed', 'failed', 'dead_letter')),
+  priority INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 3,
+  scheduled_at TEXT NOT NULL DEFAULT (datetime('now')),
+  started_at TEXT,
+  finished_at TEXT,
+  error TEXT,
+  result_json TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const JOB_QUEUE_STATUS_PRIORITY_SCHEDULED_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_job_queue_status_priority_scheduled
+  ON job_queue(status, priority DESC, scheduled_at)
+`;
+
+export const JOB_QUEUE_JOB_TYPE_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_job_queue_job_type
+  ON job_queue(job_type)
+`;
+
+export const JOB_QUEUE_CREATED_AT_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_job_queue_created_at
+  ON job_queue(created_at DESC)
+`;
+
+/**
+ * dead_letter_jobs: jobs that exceeded max_attempts.
+ * Preserves full payload for manual inspection/replay.
+ */
+export const DEAD_LETTER_JOBS_DDL = `
+CREATE TABLE IF NOT EXISTS dead_letter_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  original_job_id INTEGER NOT NULL,
+  job_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  error TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  failed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  original_created_at TEXT NOT NULL
+)
+`;
+
+export const DEAD_LETTER_JOB_TYPE_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_dead_letter_job_type
+  ON dead_letter_jobs(job_type)
+`;
+
+export const DEAD_LETTER_FAILED_AT_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_dead_letter_failed_at
+  ON dead_letter_jobs(failed_at DESC)
+`;

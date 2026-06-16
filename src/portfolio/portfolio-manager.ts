@@ -43,6 +43,10 @@ export class PortfolioManager {
     this.#rescoreService = service;
   }
 
+  getRescoreService(): PortfolioRescoreService | null {
+    return this.#rescoreService;
+  }
+
   add(input: AddPortfolioEntryInput): PortfolioEntry {
     return this.repo.insert(input);
   }

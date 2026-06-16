@@ -468,6 +468,10 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       WHOIS_RATE_LIMIT_OVERRIDES: undefined,
       SCORING_WEIGHTS_OVERRIDE: undefined,
       PIPELINE_TIMEOUT_MS: 3600000,
+      WORKER_ENABLED: false,
+      WORKER_CONCURRENCY: 2,
+      JOB_QUEUE_POLL_INTERVAL_MS: 1000,
+      JOB_MAX_RUNNING_AGE_MS: 300000,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

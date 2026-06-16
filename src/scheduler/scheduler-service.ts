@@ -9,6 +9,7 @@ import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
 import type { BackupService } from './backup-service.js';
 import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
+import type { JobQueueService } from '../app/job-queue-service.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -32,6 +33,7 @@ export interface SchedulerOptions {
   autoTuner?: AutoWeightTuner;
   jobRepo?: SchedulerJobRepository;
   backupService?: BackupService;
+  jobQueueService?: JobQueueService;
 }
 
 export class SchedulerService {
@@ -46,6 +48,7 @@ export class SchedulerService {
   private readonly autoTuner: AutoWeightTuner | undefined;
   private readonly backupService: BackupService | undefined;
   private readonly jobRepo: SchedulerJobRepository | undefined;
+  private readonly jobQueueService: JobQueueService | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -59,6 +62,7 @@ export class SchedulerService {
     this.autoTuner = options.autoTuner;
     this.backupService = options.backupService;
     this.jobRepo = options.jobRepo;
+    this.jobQueueService = options.jobQueueService;
   }
 
   start(): void {
@@ -75,6 +79,7 @@ export class SchedulerService {
         logger.info(msg);
         return msg;
       },
+      'RENEWAL_CHECK',
     );
 
     if (this.portfolioManager) {
@@ -88,6 +93,7 @@ export class SchedulerService {
           logger.info(msg);
           return msg;
         },
+        'PORTFOLIO_RESCORE',
       );
     } else {
       logger.warn('portfolio-rescore job disabled (PortfolioManager not provided)');
@@ -106,6 +112,7 @@ export class SchedulerService {
           logger.info(msg);
           return msg;
         },
+        'PRUNE',
       );
     } else {
       logger.warn(
@@ -138,6 +145,7 @@ export class SchedulerService {
           logger.info(msg);
           return msg;
         },
+        'WATCHLIST_POLL',
       );
     } else {
       logger.warn('watchlist-poll job disabled (WatchlistService not provided)');
@@ -155,6 +163,7 @@ export class SchedulerService {
           const msg = `Backup created: ${result.path} (${sizeKb}KB, ${result.durationMs}ms), pruned ${pruned} old backup(s)`;
           return msg;
         },
+        'BACKUP',
       );
     } else {
       logger.warn('backup job disabled (BackupService not provided)');
@@ -200,8 +209,35 @@ export class SchedulerService {
     cronExpression: string,
     description: string,
     execute: () => Promise<string>,
+    jobType?: string,
   ): void {
-    this.#setJobDefinition(name, cronExpression, description, execute);
+    const wrappedExec =
+      this.jobQueueService && jobType
+        ? async (): Promise<string> => {
+            let jobId: string;
+            switch (jobType) {
+              case 'RENEWAL_CHECK':
+                jobId = await this.jobQueueService!.enqueueRenewalCheck();
+                break;
+              case 'PORTFOLIO_RESCORE':
+                jobId = await this.jobQueueService!.enqueuePortfolioRescore();
+                break;
+              case 'BACKUP':
+                jobId = await this.jobQueueService!.enqueueBackup();
+                break;
+              case 'WATCHLIST_POLL':
+                jobId = await this.jobQueueService!.enqueueWatchlistPoll();
+                break;
+              case 'PRUNE':
+                jobId = await this.jobQueueService!.enqueuePrune();
+                break;
+              default:
+                return await execute();
+            }
+            return `Job enqueued: ${jobId}`;
+          }
+        : execute;
+    this.#setJobDefinition(name, cronExpression, description, wrappedExec);
 
     // Persist job definition to DB
     try {
