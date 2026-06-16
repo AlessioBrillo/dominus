@@ -61,6 +61,11 @@ export class JobWorker {
       'JobWorker stopping, waiting for active jobs',
     );
 
+    if (this.#activeJobs.size === 0) {
+      logger.info('JobWorker stopped (no active jobs)');
+      return;
+    }
+
     this.#shutdownPromise = new Promise((resolve) => {
       this.#shutdownResolve = resolve;
     });
