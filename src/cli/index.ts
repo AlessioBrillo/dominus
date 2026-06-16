@@ -101,7 +101,7 @@ export function createCli(options: CreateCliOptions): Command {
   registerScoreCommand(program, engine, gate);
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
-  registerRunsCommand(program, { runsRepo });
+  registerRunsCommand(program, { runsRepo, jobQueueService });
   const backupService = new BackupService({
     db,
     dbPath: config.DATABASE_PATH,

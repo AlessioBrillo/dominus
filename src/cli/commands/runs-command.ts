@@ -3,15 +3,57 @@ import type {
   PipelineRun,
   PipelineRunsRepository,
 } from '../../db/repositories/pipeline-runs-repository.js';
+import type { JobQueueService } from '../../app/job-queue-service.js';
 
 export interface RunsCommandDeps {
   runsRepo: PipelineRunsRepository;
+  jobQueueService?: JobQueueService | undefined;
 }
 
 export function registerRunsCommand(program: Command, deps: RunsCommandDeps): void {
   const runs = program
     .command('runs')
-    .description('Browse and prune the pipeline_runs history (ADR-0011)');
+    .description('Browse, submit, and prune the pipeline_runs history (ADR-0011)');
+
+  runs
+    .command('submit')
+    .description('Submit a pipeline run via the job queue and exit immediately')
+    .option('-k, --keywords <keywords>', 'Comma-separated keywords to evaluate as .com names')
+    .option('-b, --brandable <domains>', 'Comma-separated brandable domain names')
+    .option('-c, --closeout <domains>', 'Comma-separated closeout/expired domain names')
+    .action((options: { keywords?: string; brandable?: string; closeout?: string }) => {
+      if (!deps.jobQueueService) {
+        process.stderr.write(
+          'Error: Job queue is not available. Set WORKER_ENABLED=true in environment.\n',
+        );
+        process.exit(1);
+        return;
+      }
+
+      const input = {
+        keywords: options.keywords
+          ?.split(',')
+          .map((k) => k.trim())
+          .filter(Boolean),
+        brandableNames: options.brandable
+          ?.split(',')
+          .map((k) => k.trim())
+          .filter(Boolean),
+        closeoutDomains: options.closeout
+          ?.split(',')
+          .map((k) => k.trim())
+          .filter(Boolean),
+      };
+
+      void deps.jobQueueService.enqueuePipelineRun(input).then((jobId) => {
+        const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        process.stdout.write(`\nPipeline submitted asynchronously.\n`);
+        process.stdout.write(`  Run ID:  ${runId}\n`);
+        process.stdout.write(`  Job ID:  ${jobId}\n`);
+        process.stdout.write(`\nTrack progress:\n`);
+        process.stdout.write(`  dominus runs show ${runId}\n`);
+      });
+    });
 
   runs
     .command('list')
@@ -63,8 +105,6 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
     .action((options: { dryRun: boolean }) => {
       const before = deps.runsRepo.count();
       if (options.dryRun) {
-        // Reuse the same cutoff logic as prune() for a faithful preview.
-        // We do not delete; we just report.
         process.stdout.write(
           `Would prune runs whose retained_until < now (${before} total rows remain in table).\n`,
         );

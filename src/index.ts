@@ -122,6 +122,8 @@ protectedRouter.use(
     deps.scoringRepo,
     deps.db,
     deps.progressService,
+    deps.runService,
+    deps.jobQueueService,
   ),
 );
 protectedRouter.use(
