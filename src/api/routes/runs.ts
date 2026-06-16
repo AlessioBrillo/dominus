@@ -167,9 +167,9 @@ export function createRunsRouter(
 
       if (jobQueueService && runService) {
         // Async path: enqueue and return 202
-        void jobQueueService.enqueuePipelineRun(input).then((jobId) => {
+        void jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
           res.status(202).json({
-            runId: `run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+            runId,
             jobId,
             status: 'queued',
           });

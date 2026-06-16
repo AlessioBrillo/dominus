@@ -35,6 +35,14 @@ export interface PipelineRunResult extends PipelineResult {
 export interface PipelineRunOptions {
   /** Override the host version recorded on the pipeline_runs row. */
   hostVersion?: string;
+  /**
+   * External run ID to use instead of generating a new UUID.
+   * When provided, this ID is used as the pipeline_runs PK and
+   * referenced in candidates/scoring_runs. This lets callers
+   * (e.g. JobQueue handler) keep a consistent run ID across the
+   * enqueue → process → complete lifecycle.
+   */
+  externalRunId?: string;
 }
 
 /**
@@ -89,7 +97,7 @@ export class PipelineRunService {
     options: PipelineRunOptions = {},
   ): Promise<PipelineRunResult> {
     const startedAt = new Date().toISOString();
-    const runRowId = randomUUID();
+    const runRowId = options.externalRunId ?? randomUUID();
     const retainedUntil = computeRetainedUntil(startedAt, this.#retentionDays);
     const inputs = snapshotInputs(input);
     const hostVersion = options.hostVersion ?? this.#hostVersion;

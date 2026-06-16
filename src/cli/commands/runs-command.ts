@@ -45,8 +45,7 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
           .filter(Boolean),
       };
 
-      void deps.jobQueueService.enqueuePipelineRun(input).then((jobId) => {
-        const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      void deps.jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
         process.stdout.write(`\nPipeline submitted asynchronously.\n`);
         process.stdout.write(`  Run ID:  ${runId}\n`);
         process.stdout.write(`  Job ID:  ${jobId}\n`);

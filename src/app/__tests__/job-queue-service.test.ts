@@ -27,15 +27,16 @@ describe('JobQueueService', () => {
 
   describe('enqueuePipelineRun', () => {
     it('enqueues a pipeline run job with priority 10', async () => {
-      const jobIdStr = await service.enqueuePipelineRun({
+      const { jobId, runId } = await service.enqueuePipelineRun({
         keywords: ['test'],
         brandableNames: [],
       });
 
-      const jobId = Number(jobIdStr);
-      expect(jobId).toBeGreaterThan(0);
+      const parsedJobId = Number(jobId);
+      expect(parsedJobId).toBeGreaterThan(0);
+      expect(runId).toMatch(/^run_/);
 
-      const status = await service.getJobStatus(jobId);
+      const status = await service.getJobStatus(parsedJobId);
       expect(status).not.toBeNull();
       expect(status!.job.jobType).toBe('PIPELINE_RUN');
       expect(status!.job.priority).toBe(10);
@@ -122,7 +123,7 @@ describe('JobQueueService', () => {
 
   describe('getQueueStats', () => {
     it('returns stats from the repository', async () => {
-      await service.enqueuePipelineRun({ keywords: ['a'] });
+      await service.enqueuePipelineRun({ keywords: ['a', 'b'] });
       const stats = service.getQueueStats();
       expect(stats.queued).toBe(1);
       expect(stats.total).toBe(1);
@@ -147,7 +148,7 @@ describe('JobQueueService', () => {
 
   describe('dead letter operations', () => {
     it('getDeadLetter and retryDeadLetter work end-to-end', async () => {
-      const jobIdStr = await service.enqueuePipelineRun({ keywords: [] });
+      const { jobId: jobIdStr } = await service.enqueuePipelineRun({ keywords: [] });
       const jobId = Number(jobIdStr);
 
       const repo = new (
