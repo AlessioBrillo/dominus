@@ -70,7 +70,7 @@ export class JobQueueRepository {
       WHERE id = (
         SELECT id FROM job_queue
         WHERE status = 'queued'
-          AND scheduled_at <= datetime('now')
+          AND datetime(scheduled_at) <= datetime('now')
         ORDER BY priority DESC, scheduled_at ASC
         LIMIT 1
       )
