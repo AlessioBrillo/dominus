@@ -1,4 +1,4 @@
-﻿import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import {
@@ -379,6 +379,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       TM_CACHE_TTL_DAYS: 7,
       PROVIDER_CACHE_TTL_DAYS: 7,
       DATABASE_PATH: ':memory:',
+      DATABASE_BUSY_TIMEOUT: 30000,
       PORT: 3000,
       LOG_LEVEL: 'error' as const,
       LOG_PRETTY: false,

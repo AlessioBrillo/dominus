@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
@@ -16,6 +16,7 @@ function daysFromNow(n: number): string {
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     DATABASE_PATH: ':memory:',
+    DATABASE_BUSY_TIMEOUT: 30000,
     PORT: 3000,
     LOG_LEVEL: 'info',
     LOG_PRETTY: false,

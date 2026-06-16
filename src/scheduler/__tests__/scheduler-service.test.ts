@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SchedulerService } from '../scheduler-service.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
 import type { Config } from '../../config.js';
@@ -8,6 +8,7 @@ import { resetLogger } from '../../logger.js';
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     DATABASE_PATH: ':memory:',
+    DATABASE_BUSY_TIMEOUT: 30000,
     PORT: 3000,
     LOG_LEVEL: 'silent',
     LOG_PRETTY: false,

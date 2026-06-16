@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { Command } from 'commander';
 import { runMigrations } from '../../db/migrator.js';
@@ -13,6 +13,7 @@ import {
 function buildConfig(overrides: Partial<Config> = {}): Config {
   return {
     DATABASE_PATH: ':memory:',
+    DATABASE_BUSY_TIMEOUT: 30000,
     PORT: 3000,
     LOG_LEVEL: 'info',
     LOG_PRETTY: false,

@@ -4,6 +4,14 @@ import { ConfigError } from './types/errors.js';
 
 const configSchema = z.object({
   DATABASE_PATH: z.string().min(1).default('./data/dominus.db'),
+
+  /**
+   * SQLite busy timeout in milliseconds (default: 30000 = 30s).
+   * Controls how long better-sqlite3 waits for a locked database before
+   * throwing SQLITE_BUSY. Increase for bulk pipeline writes concurrent
+   * with API reads; decrease to fail fast on contention (ADR-0023).
+   */
+  DATABASE_BUSY_TIMEOUT: z.coerce.number().int().min(0).max(120000).default(30000),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   LOG_PRETTY: z
