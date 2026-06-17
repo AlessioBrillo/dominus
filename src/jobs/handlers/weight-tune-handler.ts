@@ -1,11 +1,14 @@
-import type { AutoWeightTuner } from '../../scoring/auto-tuner.js';
 import type { WeightTunePayload, WeightTuneResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
+export interface TuneableWeightTuner {
+  tune(): { sampleSize: number; safety: { passed: boolean }; applied: boolean; dryRun: boolean };
+}
+
 export interface WeightTuneHandlerDeps {
-  autoTuner: AutoWeightTuner;
+  autoTuner: TuneableWeightTuner;
 }
 
 export class WeightTuneHandler implements JobHandler<WeightTunePayload, WeightTuneResult> {
