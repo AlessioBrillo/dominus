@@ -448,6 +448,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       TRADEMARK_MAX_LEVENSHTEIN: 1,
       TRADEMARK_BATCH_CONCURRENCY: 3,
       WHOIS_BATCH_CONCURRENCY: 3,
+      WHOIS_PER_QUERY_TIMEOUT_MS: 10000,
       RESCORE_BATCH_CONCURRENCY: 5,
       REQUEST_TIMEOUT_MS: 30000,
       FRONTEND_DIST_PATH: './frontend/dist',

@@ -219,7 +219,11 @@ export function createDependencies(config: Config): DominusDependencies {
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
-    new WhoisStage(whoisProvider, config.WHOIS_BATCH_CONCURRENCY),
+    new WhoisStage(
+      whoisProvider,
+      config.WHOIS_BATCH_CONCURRENCY,
+      config.WHOIS_PER_QUERY_TIMEOUT_MS,
+    ),
     new RdapConfirmationStage(cachedRdapProvider, undefined, config.RDAP_BATCH_CONCURRENCY),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
@@ -324,6 +328,8 @@ export function createDependencies(config: Config): DominusDependencies {
     portfolioManager,
     outcomeRepo,
     db,
+    engine,
+    trademarkGate,
   );
 
   const backupService = new BackupService({

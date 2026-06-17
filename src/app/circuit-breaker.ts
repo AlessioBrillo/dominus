@@ -27,6 +27,17 @@ export const EUIPO_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
   cooldownMs: 120_000,
 };
 
+/**
+ * RDAP bootstrap servers (rdap.org, Verisign, Google) are generally reliable
+ * but can rate-limit under sustained load. A moderate circuit breaker prevents
+ * burning through all failover servers during transient degradation.
+ */
+export const RDAP_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
+  failureThreshold: 10,
+  windowMs: 60_000,
+  cooldownMs: 30_000,
+};
+
 type CircuitState = 'closed' | 'open' | 'half-open';
 
 export class CircuitBreaker {

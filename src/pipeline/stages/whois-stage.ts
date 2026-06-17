@@ -2,6 +2,11 @@ import { CandidateStatus } from '../../types/candidate.js';
 import type { DomainCandidate, WhoisMeta } from '../../types/candidate.js';
 import type { WhoisProvider } from '../../providers/whois/whois-provider.js';
 import type { Stage, StageResult } from '../stage.js';
+import { getLogger } from '../../logger.js';
+
+const logger = getLogger();
+
+const DEFAULT_WHOIS_TIMEOUT_MS = 10_000;
 
 export class WhoisStage implements Stage<DomainCandidate> {
   readonly name = 'WhoisStage';
@@ -9,6 +14,7 @@ export class WhoisStage implements Stage<DomainCandidate> {
   constructor(
     private readonly whoisProvider: WhoisProvider,
     private readonly concurrency: number = 3,
+    private readonly queryTimeoutMs: number = DEFAULT_WHOIS_TIMEOUT_MS,
   ) {}
 
   async process(
@@ -54,7 +60,8 @@ export class WhoisStage implements Stage<DomainCandidate> {
       return undefined;
     }
     try {
-      const result = await this.whoisProvider.checkAvailability(candidate.domain);
+      const timeoutSignal = AbortSignal.timeout(this.queryTimeoutMs);
+      const result = await this.whoisProvider.checkAvailability(candidate.domain, timeoutSignal);
       const meta: WhoisMeta = {};
       if (result.createdDate !== undefined) {
         const created = new Date(result.createdDate);
@@ -71,7 +78,8 @@ export class WhoisStage implements Stage<DomainCandidate> {
         meta.expiryDate = result.expiryDate;
       }
       return Object.keys(meta).length > 0 ? meta : undefined;
-    } catch {
+    } catch (err) {
+      logger.debug({ domain: candidate.domain, err }, 'WHOIS enrichment failed — skipping');
       return undefined;
     }
   }
