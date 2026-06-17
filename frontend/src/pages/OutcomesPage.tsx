@@ -8,7 +8,7 @@ export function OutcomesPage() {
 
   useEffect(() => {
     api
-      .get<{ outcomes: Outcome[] }>('/api/v1/outcomes')
+      .get<{ outcomes: Outcome[] }>('/outcomes')
       .then((data) => setOutcomes(data.outcomes))
       .finally(() => setLoading(false));
   }, []);

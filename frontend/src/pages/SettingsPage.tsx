@@ -11,8 +11,8 @@ export function SettingsPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<HealthResponse>('/api/health'),
-      api.get<{ providers: ProviderStatus[] }>('/api/v1/providers/status'),
+      api.get<HealthResponse>('/health'),
+      api.get<{ providers: ProviderStatus[] }>('/providers/status'),
     ])
       .then(([h, p]) => {
         setHealth(h);

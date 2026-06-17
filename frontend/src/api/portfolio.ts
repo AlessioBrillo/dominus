@@ -6,7 +6,7 @@ export interface PortfolioListResponse {
 }
 
 export function fetchPortfolio(): Promise<PortfolioListResponse> {
-  return api.get<PortfolioListResponse>('/api/portfolio');
+  return api.get<PortfolioListResponse>('/portfolio');
 }
 
 export interface RescoreResponse {
@@ -24,9 +24,9 @@ export interface RescoreResponse {
 }
 
 export function rescorePortfolio(): Promise<RescoreResponse> {
-  return api.post<RescoreResponse>('/api/portfolio/rescore');
+  return api.post<RescoreResponse>('/portfolio/rescore');
 }
 
 export function refreshVerdicts(): Promise<{ ok: boolean }> {
-  return api.post<{ ok: boolean }>('/api/portfolio/verdicts');
+  return api.post<{ ok: boolean }>('/portfolio/verdicts');
 }
