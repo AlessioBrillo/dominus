@@ -84,6 +84,7 @@ import {
   PruneHandler,
   WatchlistPollHandler,
   RenewalCheckHandler,
+  WeightTuneHandler,
   HANDLERS,
 } from '../jobs/index.js';
 
@@ -219,7 +220,11 @@ export function createDependencies(config: Config): DominusDependencies {
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
-    new WhoisStage(whoisProvider, config.WHOIS_BATCH_CONCURRENCY),
+    new WhoisStage(
+      whoisProvider,
+      config.WHOIS_BATCH_CONCURRENCY,
+      config.WHOIS_PER_QUERY_TIMEOUT_MS,
+    ),
     new RdapConfirmationStage(cachedRdapProvider, undefined, config.RDAP_BATCH_CONCURRENCY),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
@@ -227,6 +232,8 @@ export function createDependencies(config: Config): DominusDependencies {
     metrics,
   );
   const progressService = new PipelineProgressService();
+  const jobQueueService = createJobQueueService(db);
+
   const runService = new PipelineRunService(
     db,
     orchestrator,
@@ -237,6 +244,8 @@ export function createDependencies(config: Config): DominusDependencies {
     undefined,
     metricsRepo,
     progressService,
+    jobQueueService,
+    config.WORKER_ENABLED,
   );
 
   const portfolioManager = new PortfolioManager(
@@ -324,6 +333,8 @@ export function createDependencies(config: Config): DominusDependencies {
     portfolioManager,
     outcomeRepo,
     db,
+    engine,
+    trademarkGate,
   );
 
   const backupService = new BackupService({
@@ -332,8 +343,6 @@ export function createDependencies(config: Config): DominusDependencies {
     backupDir: config.BACKUP_DIR,
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
-
-  const jobQueueService = createJobQueueService(db);
 
   let worker: JobWorker | undefined;
   if (config.WORKER_ENABLED) {
@@ -367,6 +376,7 @@ export function createDependencies(config: Config): DominusDependencies {
     });
     const watchlistHandler = new WatchlistPollHandler({ watchlistService });
     const renewalHandler = new RenewalCheckHandler({ alertEngine });
+    const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
     const handlers = [
       pipelineRunHandler,
       portfolioRescoreHandler,
@@ -375,6 +385,7 @@ export function createDependencies(config: Config): DominusDependencies {
       pruneHandler,
       watchlistHandler,
       renewalHandler,
+      ...(weightTuneHandler ? [weightTuneHandler] : []),
     ];
     for (const handler of handlers) {
       HANDLERS.set(handler.jobType, handler);

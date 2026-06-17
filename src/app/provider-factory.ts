@@ -21,6 +21,8 @@ import {
 import { withRetry } from '../providers/retryable-provider.js';
 import type { DnsCheckResult } from '../types/domain-status.js';
 import { DomainStatus } from '../types/domain-status.js';
+import { RetryingRdapProvider } from './retrying-rdap-provider.js';
+import { RDAP_CIRCUIT_BREAKER } from './circuit-breaker.js';
 
 export function buildKeywordProvider(
   config: Config,
@@ -99,16 +101,7 @@ export function buildRdapProviders(
       ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, rdapRateLimiter)
       : new FailoverRdapProvider();
 
-  const withRetryProvider: RdapProvider = {
-    name: `${raw.name}(retry)`,
-    confirm: (domain: string, signal?: AbortSignal) =>
-      withRetry(
-        (s) => raw.confirm(domain, s),
-        `rdap:${domain}`,
-        { maxAttempts: 2, baseDelayMs: 200, maxDelayMs: 1000 },
-        signal,
-      ),
-  };
+  const withRetryProvider = new RetryingRdapProvider(raw, {}, RDAP_CIRCUIT_BREAKER);
 
   const rdapCache = new CachedProvider<RdapResult>(
     (domain, signal) => withRetryProvider.confirm(domain, signal),

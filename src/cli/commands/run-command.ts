@@ -53,7 +53,7 @@ function buildInput(options: {
   return { keywords, brandableNames, closeoutDomains, closeoutEntries };
 }
 
-function printResult(result: Awaited<ReturnType<PipelineRunService['run']>>): void {
+function printResult(result: Awaited<ReturnType<PipelineRunService['runSync']>>): void {
   process.stdout.write(`\nPipeline run: ${result.runId}\n`);
   process.stdout.write(`Duration: ${result.totalDurationMs}ms\n\n`);
 
@@ -108,11 +108,15 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       'Path to a closeout CSV (header: domain,age,backlinks,wayback)',
     )
     .option(
-      '--async',
-      'Enqueue via job queue and return immediately instead of running synchronously',
+      '--sync',
+      'Run synchronously and wait for completion (default: async via job queue when available)',
       false,
     )
-    .option('--wait', 'Enqueue via job queue and poll until completion (implies --async)', false);
+    .option(
+      '--wait',
+      'Enqueue and poll until completion (requires job queue). Default when no --sync flag.',
+      false,
+    );
 
   run
     .command('submit')
@@ -152,78 +156,79 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       brandable?: string;
       closeout?: string;
       closeoutCsv?: string;
-      async?: boolean | string;
+      sync?: boolean | string;
       wait?: boolean | string;
     }) => {
       const input = buildInput(options);
+      const useSync = Boolean(options.sync);
+      const useWait = Boolean(options.wait);
+      const canEnqueue = jobQueueService !== undefined;
 
-      const useAsync = Boolean(options.async) || Boolean(options.wait);
-
-      if (useAsync) {
-        if (!jobQueueService) {
-          process.stderr.write(
-            'Error: Job queue is not available. Set WORKER_ENABLED=true in environment.\n',
+      // If --sync is explicitly set, or no job queue available, run sync
+      if (useSync || !canEnqueue) {
+        if (!canEnqueue && !useSync) {
+          process.stdout.write(
+            'Job queue not available — falling back to synchronous execution.\n',
           );
-          process.exit(1);
-          return;
         }
 
-        void jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
-          if (options.wait) {
-            process.stdout.write(`Pipeline enqueued (job ${jobId}). Waiting for completion...\n`);
-            if (deps.runsRepo) {
-              const poll = setInterval(() => {
-                if (!deps.runsRepo) return;
-                const run = deps.runsRepo.findById(runId);
-                if (run !== null && run.finishedAt !== null) {
-                  clearInterval(poll);
-                  if (run.error) {
-                    process.stderr.write(`\nPipeline run ${runId} failed: ${run.error}\n`);
-                    process.exit(1);
-                  } else {
-                    process.stdout.write(`\nPipeline run ${runId} completed successfully.\n`);
-                    process.stdout.write(`  Duration: ${run.totalDurationMs}ms\n`);
-                    process.stdout.write(`  Recommended: ${run.resultsSummary.recommended}\n`);
-                  }
-                }
-              }, 2000);
-            } else {
-              process.stdout.write('(progress tracking unavailable — polling job status)\n');
-              const parsedJobId = Number(jobId);
-              if (!Number.isNaN(parsedJobId)) {
-                const poll = setInterval(() => {
-                  void jobQueueService!.getJobStatus(parsedJobId).then((status) => {
-                    if (!status) return;
-                    if (status.job.status === 'completed') {
-                      clearInterval(poll);
-                      process.stdout.write(`\nPipeline run ${runId} completed.\n`);
-                    } else if (status.job.status === 'failed') {
-                      clearInterval(poll);
-                      process.stderr.write(
-                        `\nPipeline run failed: ${status.job.error ?? 'Unknown error'}\n`,
-                      );
-                      process.exit(1);
-                    }
-                  });
-                }, 2000);
-              }
-            }
-          } else {
-            printAsyncResult(runId, jobId);
-          }
-        });
+        runService
+          .runSync(input)
+          .then((result) => {
+            printResult(result);
+          })
+          .catch((err: unknown) => {
+            process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+            process.exit(1);
+          });
         return;
       }
 
-      runService
-        .run(input)
-        .then((result) => {
-          printResult(result);
-        })
-        .catch((err: unknown) => {
-          process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
-          process.exit(1);
-        });
+      // Default: enqueue via job queue
+      void jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
+        if (useWait) {
+          process.stdout.write(`Pipeline enqueued (job ${jobId}). Waiting for completion...\n`);
+          if (deps.runsRepo) {
+            const poll = setInterval(() => {
+              if (!deps.runsRepo) return;
+              const run = deps.runsRepo.findById(runId);
+              if (run !== null && run.finishedAt !== null) {
+                clearInterval(poll);
+                if (run.error) {
+                  process.stderr.write(`\nPipeline run ${runId} failed: ${run.error}\n`);
+                  process.exit(1);
+                } else {
+                  process.stdout.write(`\nPipeline run ${runId} completed successfully.\n`);
+                  process.stdout.write(`  Duration: ${run.totalDurationMs}ms\n`);
+                  process.stdout.write(`  Recommended: ${run.resultsSummary.recommended}\n`);
+                }
+              }
+            }, 2000);
+          } else {
+            process.stdout.write('(progress tracking unavailable — polling job status)\n');
+            const parsedJobId = Number(jobId);
+            if (!Number.isNaN(parsedJobId)) {
+              const poll = setInterval(() => {
+                void jobQueueService!.getJobStatus(parsedJobId).then((status) => {
+                  if (!status) return;
+                  if (status.job.status === 'completed') {
+                    clearInterval(poll);
+                    process.stdout.write(`\nPipeline run ${runId} completed.\n`);
+                  } else if (status.job.status === 'failed') {
+                    clearInterval(poll);
+                    process.stderr.write(
+                      `\nPipeline run failed: ${status.job.error ?? 'Unknown error'}\n`,
+                    );
+                    process.exit(1);
+                  }
+                });
+              }, 2000);
+            }
+          }
+        } else {
+          printAsyncResult(runId, jobId);
+        }
+      });
     },
   );
 }

@@ -268,4 +268,25 @@ describe('CLI: dominus runs', () => {
     expect(out).toContain('Would prune');
     expect(repo.findById('expired-22222222222222222')).not.toBeNull();
   });
+
+  it('wait without runsRepo prints error and exits', async () => {
+    const noRepoProgram = new Command();
+    registerRunsCommand(noRepoProgram, { runsRepo: null as unknown as PipelineRunsRepository });
+
+    const err = await captureStderr(async () => {
+      const origExit = process.exit;
+      (process as unknown as { exit: (code: number) => never }).exit = ((code: number) => {
+        throw new Error(`__exit:${code}`);
+      }) as never;
+      try {
+        await noRepoProgram.parseAsync(['node', 'dominus', 'runs', 'wait', 'some-run-id']);
+      } catch {
+        // expected
+      } finally {
+        (process as unknown as { exit: (code: number) => never }).exit = origExit;
+      }
+    });
+
+    expect(err).toContain('PipelineRunsRepository not available');
+  });
 });

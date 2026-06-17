@@ -456,6 +456,14 @@ const configSchema = z.object({
    *  port-43 connection per domain, so keep this low. Default: 3. */
   WHOIS_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(3),
 
+  /**
+   * Per-query timeout in milliseconds for WHOIS lookups.
+   * WHOIS port-43 connections can hang on unresponsive servers; this timeout
+   * prevents the pipeline from stalling on a single slow lookup.
+   * Default: 10000 (10 seconds).
+   */
+  WHOIS_PER_QUERY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
+
   /** Maximum concurrent domains to rescore in a single portfolio rescore operation.
    *  Each domain hits scoring engine + trademark gate. Default: 5. */
   RESCORE_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(5),
@@ -660,11 +668,11 @@ const configSchema = z.object({
    * Enable the in-process job worker. When true, the worker thread polls the
    * job_queue table and executes handlers for queued jobs. Set WORKER_ENABLED=false
    * to run jobs synchronously (legacy mode, backward-compatible).
-   * Default: false (safe, opt-in).
+   * Default: true (async default execution, ADR-0023 Phase 2).
    */
   WORKER_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-    .default(false),
+    .default(true),
 
   /**
    * Maximum number of jobs processed concurrently by the worker.

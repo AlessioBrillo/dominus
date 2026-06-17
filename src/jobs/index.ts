@@ -13,6 +13,7 @@ export { BackupHandler, type BackupHandlerDeps } from './handlers/backup-handler
 export { PruneHandler, type PruneHandlerDeps } from './handlers/prune-handler.js';
 export { WatchlistPollHandler, type WatchlistHandlerDeps } from './handlers/watchlist-handler.js';
 export { RenewalCheckHandler, type RenewalHandlerDeps } from './handlers/renewal-handler.js';
+export { WeightTuneHandler, type WeightTuneHandlerDeps } from './handlers/weight-tune-handler.js';
 export type {
   JobType,
   JobStatus,
@@ -36,4 +37,6 @@ export type {
   WatchlistPollResult,
   RenewalCheckPayload,
   RenewalCheckResult,
+  WeightTunePayload,
+  WeightTuneResult,
 } from '../types/job-queue.js';

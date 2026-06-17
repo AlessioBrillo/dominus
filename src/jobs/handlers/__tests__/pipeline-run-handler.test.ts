@@ -4,9 +4,9 @@ import { PipelineRunHandler } from '../pipeline-run-handler.js';
 import type { PipelineRunPayload, PipelineRunResult } from '../../../types/job-queue.js';
 
 describe('PipelineRunHandler', () => {
-  it('calls runService.run and returns formatted result', async () => {
+  it('calls runService.runSync and returns formatted result', async () => {
     const runService = {
-      run: vi.fn().mockResolvedValue({
+      runSync: vi.fn().mockResolvedValue({
         runId: 'run-abc',
         recommended: [{}],
         scored: [{}, {}],
@@ -23,7 +23,7 @@ describe('PipelineRunHandler', () => {
 
     const result: PipelineRunResult = await handler.handle(payload);
 
-    expect(runService.run).toHaveBeenCalledWith(
+    expect(runService.runSync).toHaveBeenCalledWith(
       { keywords: ['test'] },
       { externalRunId: 'run-abc' },
     );
@@ -37,7 +37,7 @@ describe('PipelineRunHandler', () => {
 
   it('stringifies stage errors', async () => {
     const runService = {
-      run: vi.fn().mockResolvedValue({
+      runSync: vi.fn().mockResolvedValue({
         runId: 'run-err',
         recommended: [],
         scored: [],

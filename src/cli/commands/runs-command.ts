@@ -13,7 +13,7 @@ export interface RunsCommandDeps {
 export function registerRunsCommand(program: Command, deps: RunsCommandDeps): void {
   const runs = program
     .command('runs')
-    .description('Browse, submit, and prune the pipeline_runs history (ADR-0011)');
+    .description('Browse, submit, wait for, and prune the pipeline_runs history (ADR-0011)');
 
   runs
     .command('submit')
@@ -52,6 +52,51 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
         process.stdout.write(`\nTrack progress:\n`);
         process.stdout.write(`  dominus runs show ${runId}\n`);
       });
+    });
+
+  runs
+    .command('wait <runId>')
+    .description('Poll a pipeline run until it completes (polling 2s interval)')
+    .option('--timeout <ms>', 'Fail if run does not complete within N milliseconds')
+    .action((runId: string, options: { timeout?: string }) => {
+      if (!deps.runsRepo) {
+        process.stderr.write('Error: PipelineRunsRepository not available.\n');
+        process.exit(1);
+        return;
+      }
+
+      const timeoutMs = options.timeout ? Number.parseInt(options.timeout, 10) : undefined;
+      const started = Date.now();
+
+      process.stdout.write(`Waiting for pipeline run ${runId}...\n`);
+
+      const poll = setInterval(() => {
+        if (!deps.runsRepo) return;
+        const run = deps.runsRepo.findById(runId);
+        if (run === null) {
+          process.stdout.write(`\nPipeline run ${runId} not found yet (still queued?).\n`);
+          return;
+        }
+        if (run.finishedAt !== null) {
+          clearInterval(poll);
+          if (run.error) {
+            process.stderr.write(`\nPipeline run ${runId} failed: ${run.error}\n`);
+            process.exit(1);
+          } else {
+            process.stdout.write(`\nPipeline run ${runId} completed successfully.\n`);
+            process.stdout.write(`  Duration: ${run.totalDurationMs}ms\n`);
+            process.stdout.write(`  Recommended: ${run.resultsSummary.recommended}\n`);
+          }
+          return;
+        }
+        if (timeoutMs !== undefined && Date.now() - started > timeoutMs) {
+          clearInterval(poll);
+          process.stderr.write(
+            `\nTimeout waiting for pipeline run ${runId} after ${timeoutMs}ms.\n`,
+          );
+          process.exit(1);
+        }
+      }, 2000);
     });
 
   runs

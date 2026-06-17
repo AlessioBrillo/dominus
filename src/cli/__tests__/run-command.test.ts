@@ -8,7 +8,7 @@ import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 
 function makeMockRunService(): PipelineRunService {
   return {
-    run: vi.fn().mockResolvedValue({
+    runSync: vi.fn().mockResolvedValue({
       runId: 'test-run-id',
       recommended: [],
       scored: [],
@@ -41,28 +41,30 @@ describe('registerRunCommand', () => {
     expect(submit).toBeDefined();
   });
 
-  it('calls runService.run with parsed keywords', async () => {
+  it('calls runService.runSync with parsed keywords', async () => {
     const runService = makeMockRunService();
     const program = new Command();
     program.exitOverride();
     registerRunCommand(program, { runService });
 
     await program.parseAsync(['node', 'cli', 'run', '--keywords', 'nova,saas']);
-    expect(runService.run).toHaveBeenCalledWith(
+    expect(runService.runSync).toHaveBeenCalledWith(
       expect.objectContaining({ keywords: ['nova', 'saas'] }),
     );
   });
 
-  it('rejects --async without jobQueueService', async () => {
+  it('falls back to sync when job queue is unavailable', async () => {
     const runService = makeMockRunService();
     const program = new Command();
     program.exitOverride();
     registerRunCommand(program, { runService });
 
-    const exitSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    await program.parseAsync(['node', 'cli', 'run', '--keywords', 'test', '--async']);
-    expect(exitSpy).toHaveBeenCalledWith(expect.stringContaining('Job queue is not available'));
-    exitSpy.mockRestore();
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await program.parseAsync(['node', 'cli', 'run', '--keywords', 'test']);
+    expect(runService.runSync).toHaveBeenCalledWith(
+      expect.objectContaining({ keywords: ['test'] }),
+    );
+    writeSpy.mockRestore();
   });
 
   const tmpFiles: string[] = [];
@@ -86,7 +88,7 @@ describe('registerRunCommand', () => {
     registerRunCommand(program, { runService });
 
     await program.parseAsync(['node', 'cli', 'run', '--closeout-csv', csvPath]);
-    expect(runService.run).toHaveBeenCalledWith(
+    expect(runService.runSync).toHaveBeenCalledWith(
       expect.objectContaining({
         closeoutEntries: [
           { domain: 'expired.com', domainAge: 12, backlinks: 340, waybackSnapshots: 87 },

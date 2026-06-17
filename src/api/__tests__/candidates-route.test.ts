@@ -20,7 +20,7 @@ function openTestDb(): Database.Database {
 
 function makeStubRunService(): PipelineRunService {
   return {
-    run: vi.fn().mockResolvedValue({
+    runSync: vi.fn().mockResolvedValue({
       runId: 'stub',
       recommended: [],
       scored: [],
@@ -83,7 +83,7 @@ describe('Candidates API', () => {
 
       await request(app).post('/api/v1/candidates/run').send({ closeoutEntries: entries });
 
-      expect(runService.run).toHaveBeenCalledWith(
+      expect(runService.runSync).toHaveBeenCalledWith(
         expect.objectContaining({ closeoutEntries: entries }),
       );
     });
@@ -106,7 +106,7 @@ describe('Candidates API', () => {
           closeoutDomains: ['lastchance.net'],
         });
 
-      expect(runService.run).toHaveBeenCalledWith({
+      expect(runService.runSync).toHaveBeenCalledWith({
         keywords: ['cloud', 'saas'],
         brandableNames: ['getnova.com'],
         closeoutDomains: ['lastchance.net'],

@@ -20,13 +20,14 @@ export interface EnqueueResult {
 }
 
 export interface JobQueueService {
-  enqueuePipelineRun(input: CandidateGenerationInput): Promise<EnqueueResult>;
+  enqueuePipelineRun(input: CandidateGenerationInput, runId?: string): Promise<EnqueueResult>;
   enqueuePortfolioRescore(domain?: string): Promise<string>;
   enqueueBacktestBuild(minSampleSize?: number): Promise<string>;
   enqueueBackup(retentionDays?: number): Promise<string>;
   enqueuePrune(maxAgeDays?: number): Promise<string>;
   enqueueWatchlistPoll(): Promise<string>;
   enqueueRenewalCheck(): Promise<string>;
+  enqueueWeightTune(): Promise<string>;
   getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null>;
   getQueueStats(): JobQueueStats;
   listJobs(options?: {
@@ -55,14 +56,14 @@ export function createJobQueueService(db: Database.Database): JobQueueService {
   }
 
   return {
-    enqueuePipelineRun(input: CandidateGenerationInput): Promise<EnqueueResult> {
-      const runId = generateRunId();
+    enqueuePipelineRun(input: CandidateGenerationInput, runId?: string): Promise<EnqueueResult> {
+      const id = runId ?? generateRunId();
       const payload: PipelineRunPayload = {
         candidateGenerationInput: input,
-        runId,
+        runId: id,
       };
       const jobId = enqueue('PIPELINE_RUN', payload, { priority: 10 });
-      return Promise.resolve({ jobId, runId });
+      return Promise.resolve({ jobId, runId: id });
     },
 
     enqueuePortfolioRescore(domain?: string): Promise<string> {
@@ -87,6 +88,10 @@ export function createJobQueueService(db: Database.Database): JobQueueService {
 
     enqueueRenewalCheck(): Promise<string> {
       return Promise.resolve(enqueue('RENEWAL_CHECK', {}, { priority: 0 }));
+    },
+
+    enqueueWeightTune(): Promise<string> {
+      return Promise.resolve(enqueue('WEIGHT_TUNE', {}, { priority: 0 }));
     },
 
     getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {

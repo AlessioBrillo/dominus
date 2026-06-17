@@ -20,7 +20,7 @@ The core asset is the **scoring engine**: a heuristic valuator that outputs `exp
 |-------|-----------|
 | **Backend** | Node.js 20+, Express 5 |
 | **Database** | SQLite (better-sqlite3, WAL mode) |
-| **CLI** | Commander (15 commands) |
+| **CLI** | Commander (16 commands) |
 | **API** | Express REST (15 route modules) |
 | **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
 | **Infrastructure** | Pre-push local quality gate (typecheck, build, lint, format, test) + optional Docker |
@@ -32,13 +32,23 @@ daily operation.
 
 ## Pipeline architecture
 
-Five-stage pipeline — acquisition and auto-listing are manual and out of scope:
+Five-stage pipeline with async-first execution — acquisition and auto-listing
+are manual and out of scope:
 
 1. **Candidate generation** — keyword combos, brandable names, closeout CSVs imported manually
 2. **DNS pre-filter** — fast bulk check via Node `dns`; drops obviously registered names
 3. **RDAP confirmation** — precise availability status + premium detection via public RDAP
 4. **Scoring** — heuristic engine (see below)
 5. **Trademark gate** — mandatory USPTO/EUIPO check; any match blocks the candidate
+
+Pipeline runs are **async by default**: the CLI and API enqueue jobs to the
+`job_queue` table and return immediately. The in-process `JobWorker` polls for
+pending jobs and executes handlers asynchronously (configurable via
+`WORKER_ENABLED`, default `true`). Callers can use `--sync` on the CLI,
+`dominus runs wait <runId>` for polling, or the `/api/v1/runs/:id/job`
+endpoint for API status. The `PipelineRunService` exposes both `runSync()`
+and `enqueueRun()` paths; the legacy synchronous path is maintained for
+backward compatibility.
 
 Plus a **portfolio tracker**: renewal clock per domain, monthly keep/drop verdict.
 
@@ -81,6 +91,7 @@ for the backtest-driven tuning loop.
 ## Project status
 
 DOMINUS v0.3.0 — provider resilience, observability, and production hardening.
+Async-default execution (ADR-0023 Phase 2) completed in June 2026.
 
 All five pipeline stages, the heuristic scoring engine, the trademark gate
 (real USPTO/EUIPO providers + caching), the portfolio tracker, portfolio
@@ -95,13 +106,16 @@ Resolved design decisions:
    CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the
    expiry signal. See [ADR-0003](docs/adr/0003-pipeline-stage-separation.md).
 2. **Interface: CLI** — the React dashboard is deferred to a future phase.
-   Current CLI has 15 commands covering all operations.
+   Current CLI has 16 commands covering all operations.
 3. **Registrar**: manual purchases. A [RegistrarProvider]
    (src/providers/registrar/registrar-provider.ts) interface is available for
    future API integration with Namecheap, GoDaddy, or Cloudflare.
    See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
 4. **Drop policy** — defaults live in config (`DROP_SCORE_THRESHOLD`,
    `DROP_RENEWAL_HORIZON_DAYS`); thresholds are tuned via backtest feedback.
+5. **Async-default execution** — pipeline runs enqueue to job_queue by default;
+   call `--sync` for immediate synchronous execution. The worker is enabled
+   by default (`WORKER_ENABLED=true`). See [ADR-0023](docs/adr/0023-async-default-execution.md).
 
 Providers remain on free/manual data by design: `KeywordProvider` and
 `CompsProvider` read optional local files (`KEYWORD_DATA_PATH`,
