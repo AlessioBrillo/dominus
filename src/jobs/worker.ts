@@ -24,6 +24,8 @@ export class JobWorker {
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
   #shutdownPromise: Promise<void> | null = null;
   #shutdownResolve: (() => void) | null = null;
+  /** Consecutive SQLITE_BUSY errors for adaptive poll backoff. */
+  #consecutiveBusy: number = 0;
 
   constructor(
     db: Database.Database,
@@ -34,7 +36,7 @@ export class JobWorker {
     this.#handlers = handlers;
     this.#config = {
       concurrency: config.concurrency ?? 2,
-      pollIntervalMs: config.pollIntervalMs ?? 1000,
+      pollIntervalMs: config.pollIntervalMs ?? 5000,
       maxRunningAgeMs: config.maxRunningAgeMs ?? 300000,
       gracefulShutdownTimeoutMs: config.gracefulShutdownTimeoutMs ?? 30000,
     };
@@ -85,7 +87,8 @@ export class JobWorker {
 
   #schedulePoll(): void {
     if (!this.#running) return;
-    this.#pollTimer = setTimeout(() => this.#poll(), this.#config.pollIntervalMs).unref();
+    const delay = this.#consecutiveBusy > 0 ? this.#pollDelayMs() : this.#config.pollIntervalMs;
+    this.#pollTimer = setTimeout(() => this.#poll(), delay).unref();
   }
 
   async #poll(): Promise<void> {
@@ -93,15 +96,38 @@ export class JobWorker {
 
     const runningCount = this.#activeJobs.size;
     if (runningCount >= this.#config.concurrency) {
+      this.#consecutiveBusy = 0;
       this.#schedulePoll();
       return;
     }
 
     const availableSlots = this.#config.concurrency - runningCount;
+    let dequeued = 0;
     for (let i = 0; i < availableSlots; i++) {
-      const job = this.#repo.dequeue();
-      if (!job) break;
-      void this.#processJob(job);
+      try {
+        const job = this.#repo.dequeue();
+        if (!job) break;
+        dequeued++;
+        void this.#processJob(job);
+      } catch (err) {
+        const isBusy =
+          err instanceof Error &&
+          (err.message.includes('SQLITE_BUSY') || err.message.includes('database is locked'));
+        if (isBusy) {
+          this.#consecutiveBusy++;
+          logger.warn(
+            { consecutiveBusy: this.#consecutiveBusy },
+            'SQLITE_BUSY during dequeue — backing off',
+          );
+          break;
+        }
+        logger.error({ err }, 'Unexpected error during job dequeue');
+        break;
+      }
+    }
+
+    if (dequeued > 0) {
+      this.#consecutiveBusy = 0;
     }
 
     const requeued = this.#repo.requeueStuck(this.#config.maxRunningAgeMs);
@@ -110,6 +136,14 @@ export class JobWorker {
     }
 
     this.#schedulePoll();
+  }
+
+  /** Compute poll delay with adaptive backoff on SQLITE_BUSY. */
+  #pollDelayMs(): number {
+    if (this.#consecutiveBusy === 0) return this.#config.pollIntervalMs;
+    const backoffMs =
+      this.#config.pollIntervalMs * Math.pow(2, Math.min(this.#consecutiveBusy - 1, 5));
+    return Math.min(backoffMs, 30_000);
   }
 
   async #processJob(job: JobQueueRow): Promise<void> {
