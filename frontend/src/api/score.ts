@@ -27,5 +27,5 @@ export function scoreDomain(domain: string, query?: ScoreQuery): Promise<ScoreRe
   if (query?.backlinks !== undefined) params.set('backlinks', String(query.backlinks));
   if (query?.wayback !== undefined) params.set('wayback', String(query.wayback));
   const qs = params.toString();
-  return api.get<ScoreResponse>(`/api/score/${encodeURIComponent(domain)}${qs ? `?${qs}` : ''}`);
+  return api.get<ScoreResponse>(`/score/${encodeURIComponent(domain)}${qs ? `?${qs}` : ''}`);
 }

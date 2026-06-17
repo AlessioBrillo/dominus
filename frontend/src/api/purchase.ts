@@ -39,9 +39,7 @@ export interface PriceCheckResponse {
 }
 
 export function preflightPurchase(domain: string): Promise<PurchaseCheckResponse> {
-  return api.get<PurchaseCheckResponse>(
-    `/api/purchase/preflight?domain=${encodeURIComponent(domain)}`,
-  );
+  return api.get<PurchaseCheckResponse>(`/purchase/preflight?domain=${encodeURIComponent(domain)}`);
 }
 
 export function executePurchase(
@@ -49,7 +47,7 @@ export function executePurchase(
   years: number = 1,
   operatorApproved: boolean = false,
 ): Promise<PurchaseExecuteResponse> {
-  return api.post<PurchaseExecuteResponse>('/api/purchase/execute', {
+  return api.post<PurchaseExecuteResponse>('/purchase/execute', {
     domain,
     years,
     operatorApproved,
@@ -58,6 +56,6 @@ export function executePurchase(
 
 export function checkPrices(domains: string[]): Promise<PriceCheckResponse> {
   return api.get<PriceCheckResponse>(
-    `/api/purchase/price?domains=${domains.map(encodeURIComponent).join(',')}`,
+    `/purchase/price?domains=${domains.map(encodeURIComponent).join(',')}`,
   );
 }
