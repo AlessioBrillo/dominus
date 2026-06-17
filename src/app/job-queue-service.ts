@@ -27,6 +27,7 @@ export interface JobQueueService {
   enqueuePrune(maxAgeDays?: number): Promise<string>;
   enqueueWatchlistPoll(): Promise<string>;
   enqueueRenewalCheck(): Promise<string>;
+  enqueueWeightTune(): Promise<string>;
   getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null>;
   getQueueStats(): JobQueueStats;
   listJobs(options?: {
@@ -87,6 +88,10 @@ export function createJobQueueService(db: Database.Database): JobQueueService {
 
     enqueueRenewalCheck(): Promise<string> {
       return Promise.resolve(enqueue('RENEWAL_CHECK', {}, { priority: 0 }));
+    },
+
+    enqueueWeightTune(): Promise<string> {
+      return Promise.resolve(enqueue('WEIGHT_TUNE', {}, { priority: 0 }));
     },
 
     getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {

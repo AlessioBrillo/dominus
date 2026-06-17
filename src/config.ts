@@ -668,11 +668,11 @@ const configSchema = z.object({
    * Enable the in-process job worker. When true, the worker thread polls the
    * job_queue table and executes handlers for queued jobs. Set WORKER_ENABLED=false
    * to run jobs synchronously (legacy mode, backward-compatible).
-   * Default: false (safe, opt-in).
+   * Default: true (async default execution, ADR-0023 Phase 2).
    */
   WORKER_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-    .default(false),
+    .default(true),
 
   /**
    * Maximum number of jobs processed concurrently by the worker.

@@ -126,11 +126,12 @@ export class SchedulerService {
         this.config.AUTO_TUNE_CRON,
         'Run auto-weight-tuning cycle (backtest + suggest + safety + apply)',
         async () => {
-          const outcome = this.autoTuner!.tune();
+          const outcome = await this.autoTuner!.tune();
           const msg = `Weight tune: sample=${outcome.sampleSize}, safety=${outcome.safety.passed ? 'passed' : 'failed'}, applied=${outcome.applied}`;
           logger.info(msg);
           return msg;
         },
+        'WEIGHT_TUNE',
       );
     }
 
@@ -230,6 +231,9 @@ export class SchedulerService {
                 break;
               case 'PRUNE':
                 jobId = await this.jobQueueService!.enqueuePrune();
+                break;
+              case 'WEIGHT_TUNE':
+                jobId = await this.jobQueueService!.enqueueWeightTune();
                 break;
               default:
                 return await execute();

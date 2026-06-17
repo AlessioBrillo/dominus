@@ -84,6 +84,7 @@ import {
   PruneHandler,
   WatchlistPollHandler,
   RenewalCheckHandler,
+  WeightTuneHandler,
   HANDLERS,
 } from '../jobs/index.js';
 
@@ -375,6 +376,7 @@ export function createDependencies(config: Config): DominusDependencies {
     });
     const watchlistHandler = new WatchlistPollHandler({ watchlistService });
     const renewalHandler = new RenewalCheckHandler({ alertEngine });
+    const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
     const handlers = [
       pipelineRunHandler,
       portfolioRescoreHandler,
@@ -383,6 +385,7 @@ export function createDependencies(config: Config): DominusDependencies {
       pruneHandler,
       watchlistHandler,
       renewalHandler,
+      ...(weightTuneHandler ? [weightTuneHandler] : []),
     ];
     for (const handler of handlers) {
       HANDLERS.set(handler.jobType, handler);
