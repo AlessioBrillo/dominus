@@ -53,16 +53,18 @@ describe('registerRunCommand', () => {
     );
   });
 
-  it('rejects --async without jobQueueService', async () => {
+  it('falls back to sync when job queue is unavailable', async () => {
     const runService = makeMockRunService();
     const program = new Command();
     program.exitOverride();
     registerRunCommand(program, { runService });
 
-    const exitSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    await program.parseAsync(['node', 'cli', 'run', '--keywords', 'test', '--async']);
-    expect(exitSpy).toHaveBeenCalledWith(expect.stringContaining('Job queue is not available'));
-    exitSpy.mockRestore();
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await program.parseAsync(['node', 'cli', 'run', '--keywords', 'test']);
+    expect(runService.runSync).toHaveBeenCalledWith(
+      expect.objectContaining({ keywords: ['test'] }),
+    );
+    writeSpy.mockRestore();
   });
 
   const tmpFiles: string[] = [];
