@@ -231,6 +231,8 @@ export function createDependencies(config: Config): DominusDependencies {
     metrics,
   );
   const progressService = new PipelineProgressService();
+  const jobQueueService = createJobQueueService(db);
+
   const runService = new PipelineRunService(
     db,
     orchestrator,
@@ -241,6 +243,8 @@ export function createDependencies(config: Config): DominusDependencies {
     undefined,
     metricsRepo,
     progressService,
+    jobQueueService,
+    config.WORKER_ENABLED,
   );
 
   const portfolioManager = new PortfolioManager(
@@ -338,8 +342,6 @@ export function createDependencies(config: Config): DominusDependencies {
     backupDir: config.BACKUP_DIR,
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
-
-  const jobQueueService = createJobQueueService(db);
 
   let worker: JobWorker | undefined;
   if (config.WORKER_ENABLED) {

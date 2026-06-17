@@ -14,6 +14,7 @@ import {
 } from '../db/repositories/pipeline-runs-repository.js';
 import { MetricsRepository } from '../db/repositories/metrics-repository.js';
 import { type PipelineProgressService } from './pipeline-progress-service.js';
+import type { JobQueueService } from './job-queue-service.js';
 
 /** Default retention window for pipeline_runs rows, in days (ADR-0011). */
 export const DEFAULT_PIPELINE_RUN_RETENTION_DAYS = 180;
@@ -45,6 +46,11 @@ export interface PipelineRunOptions {
   externalRunId?: string;
 }
 
+export interface EnqueueRunResult {
+  runId: string;
+  jobId: string | null;
+}
+
 /**
  * Application-layer coordinator that runs the pipeline and persists results.
  *
@@ -52,11 +58,18 @@ export interface PipelineRunOptions {
  * above both in the module DAG. `pipeline/` and `scoring/` remain pure and
  * never import from `db/`.
  *
- * All writes happen inside a single better-sqlite3 transaction for atomicity.
- * A row is inserted into `pipeline_runs` BEFORE the orchestrator runs and is
- * completed (with `finishedAt`, `total_duration_ms`, stage/result summary,
- * and optional `error`) when the run ends. Error paths complete the row
- * with `error` set and rethrow the original exception.
+ * SUPPORTED EXECUTION MODES:
+ *
+ * 1. DEFAULT (auto): When `workerEnabled` is true, `run()` enqueues via the
+ *    job queue and returns immediately. When false, it runs synchronously.
+ *
+ * 2. runSync(): Always runs the pipeline synchronously. Used by the job queue
+ *    PipelineRunHandler (which is already inside the worker context) and by
+ *    callers that explicitly request sync execution via --sync flag.
+ *
+ * 3. enqueueRun(): Inserts a pipeline_runs row and enqueues a job via the
+ *    JobQueueService. Returns { runId, jobId } immediately. The job queue
+ *    worker picks it up asynchronously.
  */
 export class PipelineRunService {
   readonly #db: Database.Database;
@@ -69,6 +82,8 @@ export class PipelineRunService {
 
   readonly #metricsRepo: MetricsRepository;
   readonly #progressService: PipelineProgressService | undefined;
+  readonly #jobQueueService: JobQueueService | undefined;
+  readonly #workerEnabled: boolean;
 
   constructor(
     db: Database.Database,
@@ -80,6 +95,8 @@ export class PipelineRunService {
     retentionDays: number = DEFAULT_PIPELINE_RUN_RETENTION_DAYS,
     metricsRepo: MetricsRepository = new MetricsRepository(db),
     progressService?: PipelineProgressService,
+    jobQueueService?: JobQueueService,
+    workerEnabled: boolean = false,
   ) {
     this.#db = db;
     this.#orchestrator = orchestrator;
@@ -90,9 +107,63 @@ export class PipelineRunService {
     this.#retentionDays = retentionDays;
     this.#metricsRepo = metricsRepo;
     this.#progressService = progressService;
+    this.#jobQueueService = jobQueueService;
+    this.#workerEnabled = workerEnabled;
   }
 
+  /**
+   * Default entry point. Behaviour depends on `workerEnabled`:
+   *  - true:  enqueue via job queue, return immediately (async)
+   *  - false: run synchronously (legacy fallback)
+   */
   async run(
+    input: CandidateGenerationInput,
+    options: PipelineRunOptions = {},
+  ): Promise<PipelineRunResult | EnqueueRunResult> {
+    if (this.#workerEnabled && this.#jobQueueService) {
+      return this.enqueueRun(input);
+    }
+    return this.runSync(input, options);
+  }
+
+  /**
+   * Enqueue a pipeline run via the job queue and return immediately.
+   * The pipeline_runs row is created before enqueuing so the operator can
+   * observe a 'stuck' row if the worker crashes (ADR-0011 §5.2).
+   */
+  async enqueueRun(input: CandidateGenerationInput): Promise<EnqueueRunResult> {
+    if (!this.#jobQueueService) {
+      throw new Error(
+        'Cannot enqueue pipeline run: JobQueueService is not available. ' +
+          'Set WORKER_ENABLED=true and ensure job queue is configured.',
+      );
+    }
+
+    const startedAt = new Date().toISOString();
+    const runRowId = randomUUID();
+    const retainedUntil = computeRetainedUntil(startedAt, this.#retentionDays);
+    const hostVersion = this.#hostVersion;
+
+    this.#runsRepo.insert({
+      runId: runRowId,
+      startedAt,
+      hostVersion,
+      retainedUntil,
+      inputs: snapshotInputs(input),
+    });
+
+    const { jobId } = await this.#jobQueueService.enqueuePipelineRun(input, runRowId);
+
+    return { runId: runRowId, jobId };
+  }
+
+  /**
+   * Synchronous execution: runs the full pipeline inline and persists all
+   * results before returning. This is the legacy path used by the job queue
+   * PipelineRunHandler (which is already inside the worker) and by callers
+   * that explicitly request sync mode via the --sync CLI flag.
+   */
+  async runSync(
     input: CandidateGenerationInput,
     options: PipelineRunOptions = {},
   ): Promise<PipelineRunResult> {
@@ -102,9 +173,6 @@ export class PipelineRunService {
     const inputs = snapshotInputs(input);
     const hostVersion = options.hostVersion ?? this.#hostVersion;
 
-    // Pre-insert: a pipeline_runs row is written BEFORE the orchestrator runs.
-    // Operators can observe a "stuck" row if the process crashes, which is
-    // more useful than a missing row (ADR-0011 §5.2).
     this.#runsRepo.insert({
       runId: runRowId,
       startedAt,
@@ -143,10 +211,6 @@ export class PipelineRunService {
       throw err;
     }
 
-    // Persist inside a single transaction. better-sqlite3 transactions are
-    // synchronous — the async pipeline work is already done above.
-    // The transaction is wrapped in try/catch so that persistence failures
-    // still complete the pipeline_runs row with a meaningful error.
     let persistence: PersistenceSummary;
     try {
       persistence = this.#db.transaction((): PersistenceSummary => {
@@ -194,12 +258,10 @@ export class PipelineRunService {
       throw err;
     }
 
-    // Persist per-stage metrics for observability.
     this.#persistStageMetrics(runRowId, result);
 
     const totalDurationMs = Date.now() - startedMs;
 
-    // Broadcast completion to SSE clients.
     if (this.#progressService) {
       const totalPassed = Object.values(result.stageSummary).reduce((sum, s) => sum + s.passed, 0);
       const totalFiltered = Object.values(result.stageSummary).reduce(
@@ -217,7 +279,6 @@ export class PipelineRunService {
       this.#progressService.removeClient(runRowId);
     }
 
-    // Complete the pipeline_runs row with stage + result summary.
     this.#runsRepo.complete(runRowId, {
       finishedAt: new Date().toISOString(),
       totalDurationMs,

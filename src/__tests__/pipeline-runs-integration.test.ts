@@ -135,11 +135,10 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('a run() call writes a complete pipeline_runs row + 3 candidates + 2 scoring_runs', async () => {
     // Act
-    const result = await deps.service.run({
+    const result = await deps.service.runSync({
       closeoutDomains: ['alpha.com', 'beta.io', 'noise.com'],
     });
 
-    // Assert — pipeline_runs row
     const row = deps.runsRepo.findById(result.runRowId);
     expect(row).not.toBeNull();
     expect(row?.finishedAt).not.toBeNull();
@@ -161,7 +160,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('retained_until equals started_at + 180 days', async () => {
     // Act
-    const result = await deps.service.run({});
+    const result = await deps.service.runSync({});
 
     // Assert
     const row = deps.runsRepo.findById(result.runRowId);
@@ -173,7 +172,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('inputs snapshot reflects the call arguments', async () => {
     // Act
-    const result = await deps.service.run({
+    const result = await deps.service.runSync({
       keywords: ['alpha', 'beta'],
       brandableNames: ['zenly'],
       closeoutDomains: ['a.com', 'b.com'],
@@ -191,7 +190,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('results_summary.recommended matches the orchestrator result', async () => {
     // Act
-    const result = await deps.service.run({});
+    const result = await deps.service.runSync({});
 
     // Assert
     const row = deps.runsRepo.findById(result.runRowId);
@@ -201,8 +200,8 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('a second run() creates a second row, leaving the first intact', async () => {
     // Act
-    const r1 = await deps.service.run({});
-    const r2 = await deps.service.run({});
+    const r1 = await deps.service.runSync({});
+    const r2 = await deps.service.runSync({});
 
     // Assert
     expect(deps.runsRepo.count()).toBe(2);
@@ -223,7 +222,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     );
 
     // Act + Assert
-    await expect(failingService.run({})).rejects.toThrow('upstream RDAP timed out');
+    await expect(failingService.runSync({})).rejects.toThrow('upstream RDAP timed out');
 
     // The error row is the newest one
     const all = deps.runsRepo.findAll({ limit: 1 });
@@ -234,7 +233,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
 
   it('CLI + REST share the same pipeline_runs table', async () => {
     // Act — run the service
-    const result = await deps.service.run({});
+    const result = await deps.service.runSync({});
 
     // REST: GET /api/runs
     const app = express();

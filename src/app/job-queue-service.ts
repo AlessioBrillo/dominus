@@ -20,7 +20,7 @@ export interface EnqueueResult {
 }
 
 export interface JobQueueService {
-  enqueuePipelineRun(input: CandidateGenerationInput): Promise<EnqueueResult>;
+  enqueuePipelineRun(input: CandidateGenerationInput, runId?: string): Promise<EnqueueResult>;
   enqueuePortfolioRescore(domain?: string): Promise<string>;
   enqueueBacktestBuild(minSampleSize?: number): Promise<string>;
   enqueueBackup(retentionDays?: number): Promise<string>;
@@ -55,14 +55,14 @@ export function createJobQueueService(db: Database.Database): JobQueueService {
   }
 
   return {
-    enqueuePipelineRun(input: CandidateGenerationInput): Promise<EnqueueResult> {
-      const runId = generateRunId();
+    enqueuePipelineRun(input: CandidateGenerationInput, runId?: string): Promise<EnqueueResult> {
+      const id = runId ?? generateRunId();
       const payload: PipelineRunPayload = {
         candidateGenerationInput: input,
-        runId,
+        runId: id,
       };
       const jobId = enqueue('PIPELINE_RUN', payload, { priority: 10 });
-      return Promise.resolve({ jobId, runId });
+      return Promise.resolve({ jobId, runId: id });
     },
 
     enqueuePortfolioRescore(domain?: string): Promise<string> {

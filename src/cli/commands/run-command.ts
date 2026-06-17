@@ -53,7 +53,7 @@ function buildInput(options: {
   return { keywords, brandableNames, closeoutDomains, closeoutEntries };
 }
 
-function printResult(result: Awaited<ReturnType<PipelineRunService['run']>>): void {
+function printResult(result: Awaited<ReturnType<PipelineRunService['runSync']>>): void {
   process.stdout.write(`\nPipeline run: ${result.runId}\n`);
   process.stdout.write(`Duration: ${result.totalDurationMs}ms\n\n`);
 
@@ -216,7 +216,7 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       }
 
       runService
-        .run(input)
+        .runSync(input)
         .then((result) => {
           printResult(result);
         })

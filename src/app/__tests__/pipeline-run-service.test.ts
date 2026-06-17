@@ -96,7 +96,7 @@ describe('PipelineRunService', () => {
     );
 
     // Act
-    const runResult = await service.run({ closeoutDomains: ['nova.com'] });
+    const runResult = await service.runSync({ closeoutDomains: ['nova.com'] });
 
     // Assert
     expect(runResult.runId).toBe('run-abc');
@@ -125,7 +125,7 @@ describe('PipelineRunService', () => {
     );
 
     // Act
-    await service.run({});
+    await service.runSync({});
 
     // Assert — row exists in candidates table
     const row = db
@@ -157,7 +157,7 @@ describe('PipelineRunService', () => {
     );
 
     // Act
-    await service.run({});
+    await service.runSync({});
 
     // Assert — scoring row exists
     const count = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as { cnt: number };
@@ -187,7 +187,7 @@ describe('PipelineRunService', () => {
       candidateRepo,
       scoringRepo,
     );
-    await service1.run({});
+    await service1.runSync({});
 
     // Second run — same domain, new runId
     const result2: PipelineResult = { ...result, runId: 'run-002' };
@@ -199,7 +199,7 @@ describe('PipelineRunService', () => {
     );
 
     // Act + Assert — no UNIQUE crash
-    await expect(service2.run({})).resolves.toBeDefined();
+    await expect(service2.runSync({})).resolves.toBeDefined();
 
     // One candidate row (upserted), two scoring rows (history preserved)
     const candCount = db.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as { cnt: number };
@@ -232,7 +232,7 @@ describe('PipelineRunService', () => {
     );
 
     // Act
-    await service.run({});
+    await service.runSync({});
 
     // Assert — both rows persisted
     const count = db.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as { cnt: number };
@@ -260,7 +260,7 @@ describe('PipelineRunService', () => {
     );
 
     // Act
-    await service.run({});
+    await service.runSync({});
 
     // Assert — one candidate, zero scores
     const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
@@ -292,7 +292,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     );
 
     // Act
-    const out = await service.run({ closeoutDomains: ['nova.com'] });
+    const out = await service.runSync({ closeoutDomains: ['nova.com'] });
 
     // Assert — pipeline_runs row exists, completed, no error
     const row = db.prepare('SELECT * FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
@@ -336,7 +336,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     );
 
     // Act
-    const out = await service.run({});
+    const out = await service.runSync({});
 
     // Assert
     const row = db
@@ -369,7 +369,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     );
 
     // Act
-    const out = await service.run({});
+    const out = await service.runSync({});
 
     // Assert
     const row = db
@@ -399,7 +399,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     );
 
     // Act + Assert
-    await expect(service.run({})).rejects.toThrow('boom');
+    await expect(service.runSync({})).rejects.toThrow('boom');
 
     const row = db
       .prepare('SELECT error, finished_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 1')

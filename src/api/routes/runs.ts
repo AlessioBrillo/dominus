@@ -190,7 +190,7 @@ export function createRunsRouter(
 
       // Sync path: run synchronously and return 200
       runService
-        .run(input)
+        .runSync(input)
         .then((result) => {
           res.status(200).json({
             runId: result.runId,

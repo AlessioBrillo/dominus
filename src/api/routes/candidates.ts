@@ -51,7 +51,7 @@ export function createCandidatesRouter(
       const body = req.body as z.infer<typeof runBodySchema>;
 
       runService
-        .run({
+        .runSync({
           keywords: body.keywords,
           brandableNames: body.brandableNames,
           closeoutDomains: body.closeoutDomains,

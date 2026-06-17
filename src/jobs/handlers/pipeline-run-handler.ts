@@ -18,7 +18,7 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
 
     logger.info({ runId }, 'PipelineRunHandler: starting pipeline run');
 
-    const result = await this.deps.runService.run(candidateGenerationInput, {
+    const result = await this.deps.runService.runSync(candidateGenerationInput, {
       externalRunId: runId,
     });
 
