@@ -393,3 +393,173 @@ export const DEAD_LETTER_FAILED_AT_IDX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_dead_letter_failed_at
   ON dead_letter_jobs(failed_at DESC)
 `;
+
+/**
+ * provider_cache: durable cache for third-party provider responses (RDAP, WHOIS, trademark).
+ *
+ * Columns:
+ *  - `cache_key`       Unique key per cache entry (e.g. domain name).
+ *  - `provider_name`   Identifies which provider generated the value.
+ *  - `value`           Cached JSON payload.
+ *  - `expires_at`      ISO-8601 TTL; cache is stale past this point.
+ */
+export const PROVIDER_CACHE_DDL = `
+CREATE TABLE IF NOT EXISTS provider_cache (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cache_key TEXT NOT NULL,
+  provider_name TEXT NOT NULL,
+  value TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+)
+`;
+
+export const PROVIDER_CACHE_LOOKUP_IDX_DDL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_cache_lookup
+  ON provider_cache(cache_key, provider_name)
+`;
+
+export const PROVIDER_CACHE_EXPIRES_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_provider_cache_expires
+  ON provider_cache(expires_at)
+`;
+
+/**
+ * scheduler_jobs: persisted definition of each cron-like scheduled job.
+ *
+ * Columns:
+ *  - `job_name`            Primary key, e.g. "weight-tune", "backup", "renewal-check".
+ *  - `cron_expression`     cron schedule string.
+ *  - `enabled`             0/1 — disabled jobs are skipped by the scheduler loop.
+ *  - `last_run_at`         ISO-8601 of most recent execution attempt.
+ *  - `last_result`         Free-text summary returned by the job handler.
+ *  - `last_duration_ms`    Wall-clock duration of the most recent run.
+ *  - `consecutive_failures` Counter; used by the scheduler to alert on repeated failures.
+ */
+export const SCHEDULER_JOBS_DDL = `
+CREATE TABLE IF NOT EXISTS scheduler_jobs (
+  job_name        TEXT PRIMARY KEY,
+  cron_expression TEXT NOT NULL,
+  description     TEXT NOT NULL DEFAULT '',
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  last_run_at     TEXT,
+  last_result     TEXT,
+  last_duration_ms INTEGER,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const SCHEDULER_JOBS_ENABLED_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_enabled
+  ON scheduler_jobs(enabled)
+`;
+
+/**
+ * pipeline_metrics: per-stage breakdown of pipeline execution.
+ *
+ * Each pipeline run emits one row per stage (candidate-generation,
+ * dns-pre-filter, rdap-confirmation, scoring-stage, trademark-gate).
+ * Used by the observability dashboard and backtest analysis.
+ */
+export const PIPELINE_METRICS_DDL = `
+CREATE TABLE IF NOT EXISTS pipeline_metrics (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  pipeline_run_id TEXT    NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+  stage_name      TEXT    NOT NULL,
+  passed          INTEGER NOT NULL DEFAULT 0,
+  filtered        INTEGER NOT NULL DEFAULT 0,
+  duration_ms     INTEGER NOT NULL DEFAULT 0,
+  error           INTEGER NOT NULL DEFAULT 0,
+  recorded_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(pipeline_run_id, stage_name)
+)
+`;
+
+export const PIPELINE_METRICS_RUN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_pipeline_metrics_run
+  ON pipeline_metrics(pipeline_run_id)
+`;
+
+/**
+ * outcome_scores: scoring snapshot at the time an outcome was recorded.
+ *
+ * Records the complete scoring vector (weighted_score, confidence,
+ * expected_value, commercial_score, market_score, expiry_score) for
+ * every outcome (sold / dropped / expired / renewed), enabling
+ * after-the-fact accuracy analysis.
+ */
+export const OUTCOME_SCORES_DDL = `
+CREATE TABLE IF NOT EXISTS outcome_scores (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain            TEXT    NOT NULL,
+  outcome_type      TEXT    NOT NULL,
+  recommended       INTEGER NOT NULL DEFAULT 0,
+  weighted_score    REAL    NOT NULL DEFAULT 0,
+  confidence        REAL    NOT NULL DEFAULT 0,
+  expected_value    REAL    NOT NULL DEFAULT 0,
+  actual_sale_price REAL,
+  tld               TEXT    NOT NULL,
+  scored_at         TEXT    NOT NULL,
+  occurred_at       TEXT    NOT NULL,
+  commercial_score  REAL    NOT NULL DEFAULT 0,
+  market_score      REAL    NOT NULL DEFAULT 0,
+  expiry_score      REAL    NOT NULL DEFAULT 0,
+  created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(domain, occurred_at)
+)
+`;
+
+export const OUTCOME_SCORES_OCCURRED_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_outcome_scores_occurred
+  ON outcome_scores(occurred_at DESC)
+`;
+
+export const OUTCOME_SCORES_TLD_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_outcome_scores_tld
+  ON outcome_scores(tld)
+`;
+
+/**
+ * bids: auction bids placed by the acquisition service.
+ *
+ * Each row tracks one bid from placement to resolution
+ * (won / lost / cancelled / outbid). Scoring snapshots
+ * (expected_value, confidence, suggested_buy_max) and the
+ * trademark verdict at bid time are embedded for audit.
+ */
+export const BIDS_DDL = `
+CREATE TABLE IF NOT EXISTS bids (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL,
+  venue TEXT NOT NULL,
+  bid_amount_eur REAL NOT NULL,
+  max_bid_eur REAL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK(status IN ('pending','won','lost','cancelled','outbid')),
+  won_price_eur REAL,
+  expected_value_at_bid REAL,
+  confidence_at_bid REAL,
+  suggested_buy_max_at_bid REAL,
+  trademark_clear_at_bid INTEGER,
+  bid_placed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  auction_ends_at TEXT,
+  resolved_at TEXT,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const BIDS_DOMAIN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_bids_domain ON bids(domain)
+`;
+
+export const BIDS_STATUS_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_bids_status ON bids(status)
+`;
+
+export const BIDS_PLACED_AT_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_bids_placed_at ON bids(bid_placed_at)
+`;
