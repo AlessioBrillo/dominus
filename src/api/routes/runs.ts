@@ -166,13 +166,20 @@ export function createRunsRouter(
       };
 
       if (jobQueueService && runService) {
-        // Async path: enqueue and return 202
+        // Async path: enqueue and return 202 Accepted
         void jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
-          res.status(202).json({
-            runId,
-            jobId,
-            status: 'queued',
-          });
+          res
+            .status(202)
+            .location(`/api/v1/runs/${runId}`)
+            .json({
+              runId,
+              jobId,
+              status: 'queued',
+              _links: {
+                poll: { href: `/api/v1/runs/${runId}/job` },
+                run: { href: `/api/v1/runs/${runId}` },
+              },
+            });
         });
         return;
       }
