@@ -5,6 +5,54 @@ All notable changes to DOMINUS are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0-dev] — 2026-06-18
+
+### Added
+- ADR-0025: License change — MIT to AGPL v3 + Commercial
+- ADR-0026: Monetization and SaaS model — DOMINUS Community vs DOMINUS Cloud
+- ADR-0027: SaaS architecture — multi-tenancy, PostgreSQL, authentication
+- ADR-0028: Frontend architecture — professional SaaS dashboard
+- CONTRIBUTING.md: CLA requirement, dual-backend guidance (SQLite + PostgreSQL)
+- GOVERNANCE.md: License section, DOMINUS Cloud section, CLA requirement
+- ROADMAP.md with planned releases and feature timeline
+- Architecture diagrams (Mermaid) documenting pipeline, provider abstraction, and SaaS architecture
+
+### Changed
+- License from MIT to AGPL v3 (v0.4.0+). Existing MIT releases (v0.1.0–v0.3.0) remain MIT.
+- README.md: SaaS positioning, editions comparison table, architecture diagram, updated badges, 18 CLI commands
+- CLAUDE.md: Updated for SaaS era with ADR-0025 through ADR-0028 references
+- SECURITY.md: Added DOMINUS Cloud security design (JWT, RLS, bcrypt API keys)
+- SUPPORT.md: Edition-aware support channels, DOMINUS Cloud support for paid plans
+- ADR-0001: Status updated to Superseded (see ADR-0026, ADR-0027)
+- ADR-0018: Status updated to Superseded (see ADR-0025, ADR-0026)
+- Architecture-guardian skill: Updated for multi-tenant and PostgreSQL context
+- package.json: License field → AGPL-3.0-only, added "files" field, version → 0.4.0-dev
+
+## [0.3.0] — 2026-06-16
+
+### Added
+- Job queue and worker pool architecture (ADR-0023)
+- Portfolio P&L tracking and analytics (ADR-0024)
+- Listing manager with marketplace integrations (Dan.com)
+- Bid management service
+- Acquisition tracking service
+- Portfolio report service
+- Closed-loop auto weight tuning (ADR-0019)
+- Provider resilience layer: circuit breakers, retry with jitter, failover providers
+- Provider health check and status reporting
+- Desktop, Telegram, and Webhook notifiers
+- Watchlist with RDAP polling and availability notifications
+- Scheduler service with configurable cron jobs
+- Backup service with retention policy (ADR-0022)
+- Rate-limited token buckets for USPTO, EUIPO, RDAP, WHOIS
+- 723 test files across 36 test directories
+
+### Changed
+- Pipeline execution is async by default (enqueue to job_queue, worker polls)
+- All provider interfaces hardened with timeout, retry, and circuit-breaker decorators
+- Enhanced ScoringEngine with configurable confidence formula (ADR-0020)
+- Improved error handling throughout with typed DominusError hierarchy
+
 ## [0.2.0] — 2026-06-08
 
 ### Added
