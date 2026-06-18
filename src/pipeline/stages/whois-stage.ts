@@ -36,13 +36,21 @@ export class WhoisStage implements Stage<DomainCandidate> {
         if (settled.status === 'fulfilled') {
           enriched.push({ ...settled.value.candidate, whoisMeta: settled.value.whoisMeta });
         } else {
-          const failed =
-            batch[
-              candidates.indexOf(
-                (settled.reason as { candidate?: DomainCandidate })?.candidate ?? batch[0]!,
-              )
-            ]!;
-          enriched.push({ ...failed, status: CandidateStatus.Unscored });
+          const firstCandidate = batch[0];
+          const fallbackCandidate = firstCandidate;
+          const reasonCandidate = (settled.reason as { candidate?: DomainCandidate } | undefined)
+            ?.candidate;
+          const failedCandidate = reasonCandidate ?? fallbackCandidate;
+          let failed = firstCandidate;
+          if (failedCandidate) {
+            const failedIdx = candidates.indexOf(failedCandidate);
+            if (failedIdx >= 0 && failedIdx < batch.length) {
+              failed = batch[failedIdx] ?? failedCandidate;
+            }
+          }
+          if (failed) {
+            enriched.push({ ...failed, status: CandidateStatus.Unscored });
+          }
         }
       }
     }

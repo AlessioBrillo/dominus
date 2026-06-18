@@ -86,7 +86,9 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             });
           }
         } else {
-          const failed = batch[candidates.indexOf(settled.reason?.candidate ?? batch[0]!)];
+          const firstCandidate = batch[0];
+          const fallbackCandidate = firstCandidate ?? candidates[0];
+          const failed = batch[candidates.indexOf(settled.reason?.candidate ?? fallbackCandidate)];
           if (failed) {
             filtered.push({
               ...failed,
