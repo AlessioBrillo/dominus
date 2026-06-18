@@ -5,6 +5,7 @@ import { AuthProvider } from './hooks/useAuth.js';
 import { Layout } from './components/Layout.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { CandidatesPage } from './pages/CandidatesPage.js';
+import { AnalyticsPage } from './pages/AnalyticsPage.js';
 import { PortfolioPage } from './pages/PortfolioPage.js';
 import { BidsPage } from './pages/BidsPage.js';
 import { OutcomesPage } from './pages/OutcomesPage.js';
@@ -19,6 +20,7 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<Layout />}>
             <Route index element={<DashboardPage />} />
             <Route path="candidates" element={<CandidatesPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="bids" element={<BidsPage />} />
             <Route path="portfolio" element={<PortfolioPage />} />
             <Route path="outcomes" element={<OutcomesPage />} />
