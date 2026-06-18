@@ -8,3 +8,5 @@ export type { NpvInput, NpvResult } from './npv-calculator.js';
 export { RenewalAlertEngine } from './renewal-alert-engine.js';
 export type { AlertEngineResult } from './renewal-alert-engine.js';
 export { PortfolioReportService } from './portfolio-report-service.js';
+export { PnlService } from './pnl-service.js';
+export type { PnlSummary, PnlPerDomain, PnlMonthlyTrend, PnlReport } from './pnl-service.js';
