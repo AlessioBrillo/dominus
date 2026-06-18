@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { TrademarkRepository } from '../db/repositories/trademark-repository.js';
@@ -37,7 +37,7 @@ export interface SchedulerOptions {
 }
 
 export class SchedulerService {
-  private readonly jobs: Map<string, cron.ScheduledTask> = new Map();
+  private readonly jobs: Map<string, ScheduledTask> = new Map();
   private readonly config: Config;
   private readonly alertEngine: RenewalAlertEngine;
   private readonly portfolioManager: PortfolioManager | undefined;
