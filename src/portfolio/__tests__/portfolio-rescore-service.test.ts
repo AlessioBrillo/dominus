@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import type { TrademarkMatch } from '../../providers/trademark/trademark-provider.js';
 import {
@@ -23,15 +24,17 @@ function makeBlockedMatch(markName: string): TrademarkMatch {
 
 describe('PortfolioRescoreService', () => {
   let db: Database.Database;
+  let dbProvider: SqliteProvider;
 
   beforeEach(() => {
     db = openTestDb();
+    dbProvider = new SqliteProvider(db);
   });
 
   describe('happy path', () => {
     it('produces a RescoreOutcome for each portfolio entry', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       const { service } = makeServiceFromFakes(deps);
       const entries = [
         makePortfolioEntry({ domain: 'alpha.com' }),
@@ -49,7 +52,7 @@ describe('PortfolioRescoreService', () => {
 
     it('produces a 0-100 calibratedScore from the engine weightedScore', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       const { service } = makeServiceFromFakes(deps);
 
       // Act
@@ -64,7 +67,7 @@ describe('PortfolioRescoreService', () => {
 
     it('sets trademarkClear=true when both providers respond and no match', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       const { service } = makeServiceFromFakes(deps);
 
       // Act
@@ -82,7 +85,7 @@ describe('PortfolioRescoreService', () => {
   describe('trademark gate', () => {
     it('flags a domain as blocked when USPTO finds a matching mark', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       vi.mocked(deps.uspto.search).mockResolvedValue([makeBlockedMatch('alpha')]);
       const { service } = makeServiceFromFakes(deps);
 
@@ -98,7 +101,7 @@ describe('PortfolioRescoreService', () => {
 
     it('reports Unverified when every TM provider errors', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       vi.mocked(deps.uspto.search).mockRejectedValue(new Error('upstream 503'));
       vi.mocked(deps.euipo.search).mockRejectedValue(new Error('upstream 503'));
       const { service } = makeServiceFromFakes(deps);
@@ -117,7 +120,7 @@ describe('PortfolioRescoreService', () => {
   describe('error containment', () => {
     it('captures a per-domain error when scoring throws, without aborting the batch', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       // The keyword provider is async — make the second call fail
       // so the second entry errors but the first succeeds.
       let calls = 0;
@@ -149,7 +152,7 @@ describe('PortfolioRescoreService', () => {
   describe('scoring_runs persistence (ADR-0010 errata)', () => {
     it('creates a synthetic candidate and writes a scoring_runs row per entry', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       const { service } = makeServiceFromFakes(deps);
 
       // Act
@@ -171,7 +174,7 @@ describe('PortfolioRescoreService', () => {
 
     it('reuses an existing candidate row instead of duplicating', async () => {
       // Arrange
-      const deps = makeFakeRescoreDeps(db);
+      const deps = makeFakeRescoreDeps(dbProvider);
       const { service } = makeServiceFromFakes(deps);
       db.prepare(
         'INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id) VALUES (?, ?, ?, ?, 0, ?)',

@@ -3,21 +3,22 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { createOutcomesRouter } from '../routes/outcomes.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function seedPortfolio(db: Database.Database, domain: string): void {
-  const repo = new PortfolioRepository(db);
+function seedPortfolio(provider: SqliteProvider, domain: string): void {
+  const repo = new PortfolioRepository(provider);
   repo.insert({
     domain,
     tld: '.com',
@@ -30,16 +31,16 @@ function seedPortfolio(db: Database.Database, domain: string): void {
 }
 
 describe('Standalone outcomes API', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let outcomeRepo: OutcomeRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    outcomeRepo = new OutcomeRepository(db);
+    provider = openTestDb();
+    outcomeRepo = new OutcomeRepository(provider);
   });
 
   it('POST /api/v1/outcomes records an outcome (with domain in body)', async () => {
-    seedPortfolio(db, 'example.com');
+    seedPortfolio(provider, 'example.com');
     const app = express();
     app.use(express.json());
     app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
@@ -69,8 +70,8 @@ describe('Standalone outcomes API', () => {
   });
 
   it('GET /api/v1/outcomes lists all outcomes', async () => {
-    seedPortfolio(db, 'alpha.com');
-    seedPortfolio(db, 'beta.com');
+    seedPortfolio(provider, 'alpha.com');
+    seedPortfolio(provider, 'beta.com');
     outcomeRepo.insert({
       domain: 'alpha.com',
       type: 'sold',
@@ -89,7 +90,7 @@ describe('Standalone outcomes API', () => {
   });
 
   it('GET /api/v1/outcomes?type=sold filters by type', async () => {
-    seedPortfolio(db, 'alpha.com');
+    seedPortfolio(provider, 'alpha.com');
     outcomeRepo.insert({
       domain: 'alpha.com',
       type: 'sold',
@@ -108,7 +109,7 @@ describe('Standalone outcomes API', () => {
   });
 
   it('GET /api/v1/outcomes/stats/:domain returns aggregate stats', async () => {
-    seedPortfolio(db, 'alpha.com');
+    seedPortfolio(provider, 'alpha.com');
     outcomeRepo.insert({
       domain: 'alpha.com',
       type: 'sold',

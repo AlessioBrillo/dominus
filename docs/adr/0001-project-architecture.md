@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Accepted (retrospective) |
+| **Status** | Superseded (see ADR-0026, ADR-0027) |
 | **Date** | 2026-06-08 |
 | **Authors** | AlessioBrillo |
 | **Deciders** | AlessioBrillo |

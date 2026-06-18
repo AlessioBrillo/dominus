@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import { PipelineRunService } from '../pipeline-run-service.js';
@@ -10,12 +11,12 @@ import type { ScoredCandidate } from '../../pipeline/stages/scoring-stage.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import type { ScoreResult } from '../../types/score.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeScoreResult(domain: string): ScoreResult {
@@ -77,7 +78,7 @@ function makeMockOrchestrator(result: PipelineResult): PipelineOrchestrator {
 describe('PipelineRunService', () => {
   it('returns the pipeline result enriched with persistence summary', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const recommended = makeScoredCandidate('nova.com', true);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -89,10 +90,10 @@ describe('PipelineRunService', () => {
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
@@ -106,7 +107,7 @@ describe('PipelineRunService', () => {
 
   it('persists candidate rows to SQLite', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const recommended = makeScoredCandidate('sol.com', true);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -118,17 +119,17 @@ describe('PipelineRunService', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     await service.runSync({});
 
     // Assert — row exists in candidates table
-    const row = db
+    const row = provider.rawDb
       .prepare('SELECT domain, status FROM candidates WHERE domain = ?')
       .get('sol.com') as { domain: string; status: string } | undefined;
     expect(row).toBeDefined();
@@ -138,7 +139,7 @@ describe('PipelineRunService', () => {
 
   it('persists scoring_runs rows to SQLite', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const scored = makeScoredCandidate('arc.com', true);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -150,23 +151,25 @@ describe('PipelineRunService', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     await service.runSync({});
 
     // Assert — scoring row exists
-    const count = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as { cnt: number };
+    const count = provider.rawDb.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
+      cnt: number;
+    };
     expect(count.cnt).toBe(1);
   });
 
   it('upserts on a second run of the same domains without throwing', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const candidate = makeScoredCandidate('vex.com', true);
     const result: PipelineResult = {
       runId: 'run-001',
@@ -178,11 +181,11 @@ describe('PipelineRunService', () => {
       totalDurationMs: 5,
     };
 
-    const candidateRepo = new CandidateRepository(db);
-    const scoringRepo = new ScoringRepository(db);
+    const candidateRepo = new CandidateRepository(provider);
+    const scoringRepo = new ScoringRepository(provider);
 
     const service1 = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
       candidateRepo,
       scoringRepo,
@@ -192,7 +195,7 @@ describe('PipelineRunService', () => {
     // Second run — same domain, new runId
     const result2: PipelineResult = { ...result, runId: 'run-002' };
     const service2 = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result2),
       candidateRepo,
       scoringRepo,
@@ -202,8 +205,10 @@ describe('PipelineRunService', () => {
     await expect(service2.runSync({})).resolves.toBeDefined();
 
     // One candidate row (upserted), two scoring rows (history preserved)
-    const candCount = db.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as { cnt: number };
-    const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
+    const candCount = provider.rawDb.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as {
+      cnt: number;
+    };
+    const scoreCount = provider.rawDb.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
       cnt: number;
     };
     expect(candCount.cnt).toBe(1);
@@ -212,7 +217,7 @@ describe('PipelineRunService', () => {
 
   it('persists all candidates including dns/rdap-filtered ones', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const dnsFiltered = makeRawCandidate('registered.com', CandidateStatus.DnsFiltered);
     const recommended = makeScoredCandidate('free.com', true);
     const result: PipelineResult = {
@@ -225,23 +230,25 @@ describe('PipelineRunService', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     await service.runSync({});
 
     // Assert — both rows persisted
-    const count = db.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as { cnt: number };
+    const count = provider.rawDb.prepare('SELECT COUNT(*) as cnt FROM candidates').get() as {
+      cnt: number;
+    };
     expect(count.cnt).toBe(2);
   });
 
   it('does not write a scoring row for candidates without a scoreResult', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const dnsFiltered = makeRawCandidate('registered.com', CandidateStatus.DnsFiltered);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -253,17 +260,17 @@ describe('PipelineRunService', () => {
       totalDurationMs: 5,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     await service.runSync({});
 
     // Assert — one candidate, zero scores
-    const scoreCount = db.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
+    const scoreCount = provider.rawDb.prepare('SELECT COUNT(*) as cnt FROM scoring_runs').get() as {
       cnt: number;
     };
     expect(scoreCount.cnt).toBe(0);
@@ -273,7 +280,7 @@ describe('PipelineRunService', () => {
 describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
   it('inserts a pipeline_runs row before orchestrator.run and completes it on success', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const candidate = makeScoredCandidate('nova.com', true);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -285,17 +292,19 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     const out = await service.runSync({ closeoutDomains: ['nova.com'] });
 
     // Assert — pipeline_runs row exists, completed, no error
-    const row = db.prepare('SELECT * FROM pipeline_runs WHERE run_id = ?').get(out.runRowId) as
+    const row = provider.rawDb
+      .prepare('SELECT * FROM pipeline_runs WHERE run_id = ?')
+      .get(out.runRowId) as
       | {
           run_id: string;
           finished_at: string | null;
@@ -317,7 +326,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
   it('computes retained_until as started_at + 180 days', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const candidate = makeScoredCandidate('nova.com', true);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -329,17 +338,17 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     const out = await service.runSync({});
 
     // Assert
-    const row = db
+    const row = provider.rawDb
       .prepare('SELECT started_at, retained_until FROM pipeline_runs WHERE run_id = ?')
       .get(out.runRowId) as { started_at: string; retained_until: string } | undefined;
     expect(row).toBeDefined();
@@ -350,7 +359,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
   it('persists stage_summary and results_summary as JSON', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const candidate = makeScoredCandidate('nova.com', true);
     const result: PipelineResult = {
       runId: 'run-abc',
@@ -362,17 +371,17 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       makeMockOrchestrator(result),
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act
     const out = await service.runSync({});
 
     // Assert
-    const row = db
+    const row = provider.rawDb
       .prepare('SELECT stage_summary, results_summary FROM pipeline_runs WHERE run_id = ?')
       .get(out.runRowId) as { stage_summary: string; results_summary: string } | undefined;
     const stage = JSON.parse(row?.stage_summary ?? '{}') as Record<string, { passed: number }>;
@@ -387,21 +396,21 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
   it('completes the row with error=message and rethrows on orchestrator failure', async () => {
     // Arrange
-    const db = openTestDb();
+    const provider = openTestDb();
     const orchestrator: PipelineOrchestrator = {
       run: vi.fn().mockRejectedValue(new Error('boom')),
     } as unknown as PipelineOrchestrator;
     const service = new PipelineRunService(
-      db,
+      provider.rawDb,
       orchestrator,
-      new CandidateRepository(db),
-      new ScoringRepository(db),
+      new CandidateRepository(provider),
+      new ScoringRepository(provider),
     );
 
     // Act + Assert
     await expect(service.runSync({})).rejects.toThrow('boom');
 
-    const row = db
+    const row = provider.rawDb
       .prepare('SELECT error, finished_at FROM pipeline_runs ORDER BY started_at DESC LIMIT 1')
       .get() as { error: string | null; finished_at: string | null } | undefined;
     expect(row).toBeDefined();

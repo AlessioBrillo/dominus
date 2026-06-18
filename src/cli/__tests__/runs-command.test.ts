@@ -2,19 +2,23 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { Command } from 'commander';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import { registerRunsCommand } from '../commands/runs-command.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function buildProgram(db: Database.Database): { program: Command; repo: PipelineRunsRepository } {
-  const repo = new PipelineRunsRepository(db);
+function buildProgram(provider: SqliteProvider): {
+  program: Command;
+  repo: PipelineRunsRepository;
+} {
+  const repo = new PipelineRunsRepository(provider);
   const program = new Command();
   registerRunsCommand(program, { runsRepo: repo });
   return { program, repo };
@@ -49,13 +53,13 @@ function captureStderr(fn: () => Promise<void> | void): Promise<string> {
 }
 
 describe('CLI: dominus runs', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: PipelineRunsRepository;
   let program: Command;
 
   beforeEach(() => {
-    db = openTestDb();
-    ({ program, repo } = buildProgram(db));
+    provider = openTestDb();
+    ({ program, repo } = buildProgram(provider));
   });
 
   it('list prints "No pipeline runs recorded yet." when empty', async () => {

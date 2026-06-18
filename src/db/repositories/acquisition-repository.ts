@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import { BidStatus, type Bid, type PlaceBidInput } from '../../types/acquisition.js';
 
 interface BidRow {
@@ -49,59 +49,60 @@ function rowToBid(row: BidRow): Bid {
 }
 
 export class AcquisitionRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   insert(input: PlaceBidInput): Bid {
-    const stmt = this.db.prepare(
+    const result = this.db.exec(
       `INSERT INTO bids
        (domain, venue, bid_amount_eur, max_bid_eur, status,
         expected_value_at_bid, confidence_at_bid,
         suggested_buy_max_at_bid, trademark_clear_at_bid,
         auction_ends_at, notes)
        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-    );
-    const result = stmt.run(
-      input.domain,
-      input.venue,
-      input.bidAmountEur,
-      input.maxBidEur ?? null,
-      input.expectedValueAtBid ?? null,
-      input.confidenceAtBid ?? null,
-      input.suggestedBuyMaxAtBid ?? null,
-      input.trademarkClearAtBid === undefined ? null : input.trademarkClearAtBid ? 1 : 0,
-      input.auctionEndsAt ?? null,
-      input.notes ?? null,
+      [
+        input.domain,
+        input.venue,
+        input.bidAmountEur,
+        input.maxBidEur ?? null,
+        input.expectedValueAtBid ?? null,
+        input.confidenceAtBid ?? null,
+        input.suggestedBuyMaxAtBid ?? null,
+        input.trademarkClearAtBid === undefined ? null : input.trademarkClearAtBid ? 1 : 0,
+        input.auctionEndsAt ?? null,
+        input.notes ?? null,
+      ],
     );
     const id = result.lastInsertRowid as number;
-    const row = this.db.prepare('SELECT * FROM bids WHERE id = ?').get(id) as BidRow;
-    return rowToBid(row);
+    const row = this.db.queryOne<BidRow>('SELECT * FROM bids WHERE id = ?', [id]);
+    return rowToBid(row!);
   }
 
   findPending(): Bid[] {
-    const rows = this.db
-      .prepare('SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at ASC')
-      .all(BidStatus.Pending) as BidRow[];
+    const rows = this.db.query<BidRow>(
+      'SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at ASC',
+      [BidStatus.Pending],
+    );
     return rows.map(rowToBid);
   }
 
   findByDomain(domain: string): Bid | null {
-    const row = this.db
-      .prepare('SELECT * FROM bids WHERE domain = ? ORDER BY bid_placed_at DESC LIMIT 1')
-      .get(domain) as BidRow | undefined;
+    const row = this.db.queryOne<BidRow>(
+      'SELECT * FROM bids WHERE domain = ? ORDER BY bid_placed_at DESC LIMIT 1',
+      [domain],
+    );
     return row ? rowToBid(row) : null;
   }
 
   findByStatus(status: BidStatus): Bid[] {
-    const rows = this.db
-      .prepare('SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at DESC')
-      .all(status) as BidRow[];
+    const rows = this.db.query<BidRow>(
+      'SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at DESC',
+      [status],
+    );
     return rows.map(rowToBid);
   }
 
   findAll(): Bid[] {
-    const rows = this.db
-      .prepare('SELECT * FROM bids ORDER BY bid_placed_at DESC')
-      .all() as BidRow[];
+    const rows = this.db.query<BidRow>('SELECT * FROM bids ORDER BY bid_placed_at DESC');
     return rows.map(rowToBid);
   }
 
@@ -114,15 +115,14 @@ export class AcquisitionRepository {
     const existing = this.findByDomain(domain);
     if (existing === null) return null;
 
-    this.db
-      .prepare(
-        `UPDATE bids
-         SET status = ?, won_price_eur = COALESCE(?, won_price_eur),
-             resolved_at = datetime('now'), notes = COALESCE(?, notes),
-             updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(status, wonPriceEur ?? null, notes ?? null, existing.id);
+    this.db.exec(
+      `UPDATE bids
+       SET status = ?, won_price_eur = COALESCE(?, won_price_eur),
+           resolved_at = datetime('now'), notes = COALESCE(?, notes),
+           updated_at = datetime('now')
+       WHERE id = ?`,
+      [status, wonPriceEur ?? null, notes ?? null, existing.id],
+    );
 
     return this.findByDomain(domain);
   }

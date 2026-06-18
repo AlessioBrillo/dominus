@@ -1,10 +1,11 @@
 ---
 name: architecture-guardian
 description: >
-  Architectural governance framework for DOMINUS — personal DNS domain investment tool.
+  Architectural governance framework for DOMINUS — open-source domain investment
+  decision-support tool (self-hosted community edition + managed DOMINUS Cloud).
   Enforces 6 architecture principles, pipeline-stage module separation,
   TypeScript coding conventions, provider abstraction patterns, scoring engine
-  conservatism rules, and testing standards for a single-user Node.js + SQLite stack.
+  conservatism rules, and testing standards for a Node.js + SQLite/PostgreSQL stack.
 when_to_use: >
   Must be loaded when the user discusses any implementation, code generation,
   module scaffolding, database schema design, provider integration, scoring logic,
@@ -81,15 +82,16 @@ Every source file MUST belong to exactly one module. Cross-module dependencies f
 | `src/scoring/` | Heuristic scoring engine: signals, weights, aggregator, price suggestions | ✅ (core asset) | `src/providers/` (for keyword/comps data) |
 | `src/portfolio/` | Domain registry, renewal clock, drop verdict engine | ✅ | `src/db/` |
 | `src/trademark/` | USPTO/EUIPO checker + match detector | ✅ (gate) | `src/providers/` |
-| `src/db/` | SQLite schema, migrations, repository classes | ✅ | None |
+| `src/db/` | Database schema, migrations, repository classes (SQLite community / PostgreSQL cloud) | ✅ | None |
 | `src/cli/` | CLI interface, argument parsing, output formatting | ✅ (or dashboard) | `src/pipeline/`, `src/portfolio/` |
-| `frontend/` | React/Vite/Tailwind dashboard (minimal) | Optional (can be CLI-only) | `src/` (via API routes) |
+| `frontend/` | React/Vite/Tailwind professional SaaS dashboard | ✅ (primary UI for DOMINUS Cloud) | `src/` (via API routes) |
 
 ### Cross-module rules
 - Dependencies MUST NOT create circular references. The dependency graph is a DAG.
 - Inner modules MUST NOT depend on outer modules (e.g., `src/scoring/` never imports from `src/cli/`).
 - Provider implementations within `src/providers/` MUST NOT import from any other module.
-- `src/db/` is the only module that imports `better-sqlite3` or any database driver.
+- `src/db/` is the only module that imports a database driver (`better-sqlite3` for community, `pg` for cloud).
+- All database access goes through the `DatabaseProvider` interface. Repositories never import a database driver directly.
 
 ---
 
@@ -124,7 +126,7 @@ Every code change MUST include tests. Coverage minimum: 70% line coverage.
 | Test Type | Proportion | Scope | Run Frequency |
 |-----------|-----------|-------|---------------|
 | Unit | 80% | Single function/class in isolation | Every commit |
-| Integration | 20% | Module interactions with real SQLite/test doubles | Every PR |
+| Integration | 20% | Module interactions with real database/test doubles | Every PR |
 
 ### Rules
 - **Mock at module boundaries**: Mock provider interfaces, not HTTP calls
@@ -176,7 +178,7 @@ Every error MUST carry:
 
 ---
 
-## 6. Security Compliance Checklist (Single-User Context)
+## 6. Security Compliance Checklist
 
 Every implementation MUST pass this checklist:
 
@@ -188,6 +190,10 @@ Every implementation MUST pass this checklist:
 - [ ] File paths for SQLite database, CSV imports use safe path resolution (no directory traversal)
 - [ ] Dependencies scanned for known vulnerabilities before addition
 - [ ] SQLite WAL mode enabled safely (no concurrent writer issues in single-user mode)
+- [ ] All database access uses the DatabaseProvider interface; no direct database driver imports in business logic
+- [ ] Cloud edition: tenant isolation enforced by PostgreSQL Row-Level Security on every table
+- [ ] Cloud edition: JWT tokens validated on every request; tenant_id extracted from token context, never from user input
+- [ ] Cloud edition: API keys hashed with bcrypt, never stored in plaintext; shown exactly once at creation
 
 ---
 
@@ -222,5 +228,5 @@ The roadmap in §10 of the vision document maps to these phases:
 - **The trademark gate is never optional.** No buy recommendation without a passing trademark check.
 - **The scoring engine must be conservative.** When in doubt, underestimate. Overestimating destroys capital.
 - **Renewal cost is tracked from day one.** A domain without a renewal clock is a bug.
-- **No paid API is allowed.** Every provider implementation must be free/public/self-hosted.
+- **No paid API is required for the community edition.** Every provider implementation in the community edition must be free/public/self-hosted. DOMINUS Cloud may use paid infrastructure services (managed PostgreSQL, monitoring) but the core application itself has zero paid API dependencies.
 - **All identifiers, comments, and documentation must be in English.**

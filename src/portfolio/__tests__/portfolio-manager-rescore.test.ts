@@ -2,22 +2,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { Verdict } from '../../types/portfolio.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import { makeFakeRescoreDeps, makeServiceFromFakes } from './rescore-test-helpers.js';
 import type { PortfolioRescoreService } from '../portfolio-rescore-service.js';
 import { PortfolioManager } from '../portfolio-manager.js';
 
-function openTestDb(): Database.Database {
+function openTestDb(): SqliteProvider {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
+  return new SqliteProvider(db);
 }
 
 describe('PortfolioManager.rescoreAll', () => {
-  let db: Database.Database;
+  let db: SqliteProvider;
   let repo: PortfolioRepository;
   let manager: PortfolioManager;
   let service: PortfolioRescoreService;

@@ -1,9 +1,9 @@
 {
   "name": "dominus",
-  "version": "0.3.0",
-  "description": "Open-source decision-support engine for buying and reselling DNS domains on the aftermarket",
+  "version": "0.4.0-dev",
+  "description": "Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios — self-hosted community edition or managed DOMINUS Cloud",
   "private": false,
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "author": "AlessioBrillo",
   "repository": {
     "type": "git",
@@ -59,6 +59,14 @@
   "engines": {
     "node": ">=20"
   },
+  "files": [
+    "dist/",
+    "frontend/dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "package.json"
+  ],
   "keywords": [
     "dns",
     "domain",
@@ -67,9 +75,10 @@
     "scoring",
     "aftermarket",
     "open-source",
-    "fork",
+    "saas",
     "portfolio",
-    "trademark"
+    "trademark",
+    "agpl"
   ],
   "dependencies": {
     "better-sqlite3": "^12.11.1",

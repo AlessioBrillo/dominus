@@ -10,25 +10,35 @@ a deliberate, separate change.
 
 ## Project
 
-DOMINUS is a personal decision-support tool for buying and reselling DNS domains on the aftermarket. It is single-user, zero-cost on APIs, and budget-constrained (~500€). The goal is not automation of buying/selling but producing better purchase/portfolio decisions than the market average.
+DOMINUS is an open-source domain investment decision-support tool, available as
+a self-hosted community edition (AGPL v3) and a managed cloud service
+(DOMINUS Cloud). The community edition is single-user by default, zero-cost on
+APIs, and runs at €0 infrastructure cost. DOMINUS Cloud adds multi-tenancy,
+managed PostgreSQL, team accounts, and priority support.
 
-The core asset is the **scoring engine**: a heuristic valuator that outputs `expected_value`, `confidence`, `suggested_buy_max`, and `suggested_list_price` per domain candidate. The engine must be more conservative than commercial appraisal tools, not more generous.
+The core asset is the **scoring engine**: a heuristic valuator that outputs
+`expected_value`, `confidence`, `suggested_buy_max`, and `suggested_list_price`
+per domain candidate. The engine must be more conservative than commercial
+appraisal tools, not more generous.
+
+See [ADR-0001](docs/adr/0001-project-architecture.md) for original architecture
+decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 
 ## Current stack
 
 | Layer | Technology |
 |-------|-----------|
 | **Backend** | Node.js 20+, Express 5 |
-| **Database** | SQLite (better-sqlite3, WAL mode) |
-| **CLI** | Commander (16 commands) |
-| **API** | Express REST (15 route modules) |
+| **Database** | SQLite (community) / PostgreSQL (cloud) |
+| **CLI** | Commander (18 commands) |
+| **API** | Express REST (18 route modules) |
+| **Frontend** | React 19 + Vite 6 + Tailwind CSS 4 + Recharts + TanStack Table |
 | **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
-| **Infrastructure** | Pre-push local quality gate (typecheck, build, lint, format, test) + optional Docker |
+| **Infrastructure** | Docker, Docker Compose, GitHub Actions, K8s manifests |
 
-See [ADR-0001](docs/adr/0001-project-architecture.md) for the rationale
-behind the technology choices. A future frontend dashboard (React + Vite +
-Tailwind) is planned as a separate project phase but is not required for
-daily operation.
+See [ADR-0001](docs/adr/0001-project-architecture.md) for the original rationale
+behind the technology choices. ADR-0025 through ADR-0028 document the SaaS
+transition.
 
 ## Pipeline architecture
 
@@ -74,10 +84,16 @@ for the backtest-driven tuning loop.
   buy recommendation. See [ADR-0006](docs/adr/0006-trademark-gate-mandate.md).
 - **Provider abstraction is non-negotiable** — never hardcode a specific API
   client into core logic. See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
-- **Cost discipline**: no paid API is used. Every feature runs at €0 infra cost.
+- **Cost discipline**: no paid API is required for the community edition.
+  Every feature runs at €0 infra cost.
   See [ADR-0001](docs/adr/0001-project-architecture.md).
+- **Community-first**: the AGPL community edition has every feature that
+  DOMINUS Cloud has. Monetisation is on managed infrastructure, not feature gating.
+  See [ADR-0025](docs/adr/0025-license-change-agpl-commercial.md).
 - **Renewal clock matters more than acquisition volume**: a domain that doesn't
   sell is a recurring liability. Drop logic is a first-class feature.
+- **Zero lock-in**: migrate from DOMINUS Cloud to self-hosted with a single
+  database dump. The community edition reads the same schema.
 
 ## Production operations
 
@@ -90,23 +106,18 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v0.3.0 — provider resilience, observability, and production hardening.
-Async-default execution (ADR-0023 Phase 2) completed in June 2026.
-
-All five pipeline stages, the heuristic scoring engine, the trademark gate
-(real USPTO/EUIPO providers + caching), the portfolio tracker, portfolio
-re-score (scoring + TM gate against owned domains), the outcomes table
-(sold / dropped / expired / renewed), and the backtest engine are in place
-and tested. See the [ADR series](docs/adr/README.md) for the full
-architecture documentation.
+DOMINUS v0.4.0-dev — transitioning to open-source SaaS architecture.
+See the [ADR series](docs/adr/README.md) for the full architecture documentation,
+and [ROADMAP.md](ROADMAP.md) for planned releases.
 
 Resolved design decisions:
 
 1. **Starting segment: economic closeouts first** — Stage 1 imports closeout
    CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the
    expiry signal. See [ADR-0003](docs/adr/0003-pipeline-stage-separation.md).
-2. **Interface: CLI** — the React dashboard is deferred to a future phase.
-   Current CLI has 16 commands covering all operations.
+2. **Interface: CLI + Dashboard** — the React dashboard is the primary UI for
+   DOMINUS Cloud; the CLI remains fully functional for automation.
+   See [ADR-0028](docs/adr/0028-frontend-architecture-professional-dashboard.md).
 3. **Registrar**: manual purchases. A [RegistrarProvider]
    (src/providers/registrar/registrar-provider.ts) interface is available for
    future API integration with Namecheap, GoDaddy, or Cloudflare.
@@ -116,6 +127,12 @@ Resolved design decisions:
 5. **Async-default execution** — pipeline runs enqueue to job_queue by default;
    call `--sync` for immediate synchronous execution. The worker is enabled
    by default (`WORKER_ENABLED=true`). See [ADR-0023](docs/adr/0023-async-default-execution.md).
+6. **License**: AGPL v3 + commercial option. Community edition is free forever.
+   See [ADR-0025](docs/adr/0025-license-change-agpl-commercial.md).
+7. **SaaS model**: hosting-only monetisation — no feature gating.
+   See [ADR-0026](docs/adr/0026-monetization-and-saas-model.md).
+8. **Database abstraction**: SQLite for community, PostgreSQL for cloud.
+   See [ADR-0027](docs/adr/0027-saas-architecture-multi-tenant.md).
 
 Providers remain on free/manual data by design: `KeywordProvider` and
 `CompsProvider` read optional local files (`KEYWORD_DATA_PATH`,

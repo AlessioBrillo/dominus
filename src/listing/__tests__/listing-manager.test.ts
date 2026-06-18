@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { ListingRepository } from '../../db/repositories/listing-repository.js';
 import { ManualListingProvider } from '../../providers/listing/manual-listing-provider.js';
 import { ListingManager } from '../listing-manager.js';
@@ -7,7 +8,7 @@ import type { ListingProvider } from '../../providers/listing/listing-provider.j
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 
-function createTestDb(): Database.Database {
+function createTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   const db = new Database(':memory:');
   db.exec(`
     CREATE TABLE IF NOT EXISTS listings (
@@ -37,7 +38,8 @@ function createTestDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
-  return db;
+  const dbProvider = new SqliteProvider(db);
+  return { db, dbProvider };
 }
 
 function createMockEngine(): ScoringEngine {
@@ -74,8 +76,8 @@ function createMockGate(): TrademarkGate {
 
 describe('ListingManager', () => {
   it('creates a listing for a domain', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -91,8 +93,8 @@ describe('ListingManager', () => {
   });
 
   it('creates a listing with auto-priced from scoring engine', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -105,8 +107,8 @@ describe('ListingManager', () => {
   });
 
   it('returns existing listing when re-listing same domain+marketplace', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -120,8 +122,8 @@ describe('ListingManager', () => {
   });
 
   it('updates a listing price and status', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -135,8 +137,8 @@ describe('ListingManager', () => {
   });
 
   it('deletes a listing', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -149,8 +151,8 @@ describe('ListingManager', () => {
   });
 
   it('records an offer and updates listing status', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -168,8 +170,8 @@ describe('ListingManager', () => {
   });
 
   it('accepts an offer and marks listing as sold', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -187,8 +189,8 @@ describe('ListingManager', () => {
   });
 
   it('declines an offer', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();
@@ -204,8 +206,8 @@ describe('ListingManager', () => {
   });
 
   it('lists all listings with optional filter', async () => {
-    const db = createTestDb();
-    const repo = new ListingRepository(db);
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
     const provider: ListingProvider = new ManualListingProvider(repo);
     const engine = createMockEngine();
     const gate = createMockGate();

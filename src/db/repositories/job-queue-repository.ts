@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type { JobQueueRow, JobQueueStats, DeadLetterJobRow } from '../../types/job-queue.js';
 
 export class JobQueueRepository {
-  #db: Database.Database;
+  #db: DatabaseProvider;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseProvider) {
     this.#db = db;
   }
 
@@ -46,50 +46,49 @@ export class JobQueueRepository {
     payload: object,
     options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
   ): number {
-    const stmt = this.#db.prepare(`
-      INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const result = stmt.run(
-      jobType,
-      JSON.stringify(payload),
-      options.priority ?? 0,
-      options.maxAttempts ?? 3,
-      options.scheduledAt ?? new Date().toISOString(),
+    const result = this.#db.exec(
+      `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        jobType,
+        JSON.stringify(payload),
+        options.priority ?? 0,
+        options.maxAttempts ?? 3,
+        options.scheduledAt ?? new Date().toISOString(),
+      ],
     );
     return result.lastInsertRowid as number;
   }
 
   dequeue(): JobQueueRow | null {
-    const stmt = this.#db.prepare(`
-      UPDATE job_queue
-      SET status = 'running',
-          attempts = attempts + 1,
-          started_at = datetime('now'),
-          updated_at = datetime('now')
-      WHERE id = (
-        SELECT id FROM job_queue
-        WHERE status = 'queued'
-          AND datetime(scheduled_at) <= datetime('now')
-        ORDER BY priority DESC, scheduled_at ASC
-        LIMIT 1
-      )
-      RETURNING *
-    `);
-    const row = stmt.get() as any;
+    const row = this.#db.queryOne<any>(
+      `UPDATE job_queue
+       SET status = 'running',
+           attempts = attempts + 1,
+           started_at = datetime('now'),
+           updated_at = datetime('now')
+       WHERE id = (
+         SELECT id FROM job_queue
+         WHERE status = 'queued'
+           AND datetime(scheduled_at) <= datetime('now')
+         ORDER BY priority DESC, scheduled_at ASC
+         LIMIT 1
+       )
+       RETURNING *`,
+    );
     return row ? this.#rowToJob(row) : null;
   }
 
   complete(jobId: number, result: object): void {
-    const stmt = this.#db.prepare(`
-      UPDATE job_queue
-      SET status = 'completed',
-          finished_at = datetime('now'),
-          result_json = ?,
-          updated_at = datetime('now')
-      WHERE id = ?
-    `);
-    stmt.run(JSON.stringify(result), jobId);
+    this.#db.exec(
+      `UPDATE job_queue
+       SET status = 'completed',
+           finished_at = datetime('now'),
+           result_json = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
+      [JSON.stringify(result), jobId],
+    );
   }
 
   fail(jobId: number, error: string): void {
@@ -104,50 +103,47 @@ export class JobQueueRepository {
       return;
     }
 
-    const stmt = this.#db.prepare(`
-      UPDATE job_queue
-      SET status = 'queued',
-          error = ?,
-          updated_at = datetime('now')
-      WHERE id = ?
-    `);
-    stmt.run(error, jobId);
+    this.#db.exec(
+      `UPDATE job_queue
+       SET status = 'queued',
+           error = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
+      [error, jobId],
+    );
   }
 
   private moveToDeadLetter(jobId: number, error: string, attempts: number): void {
     const job = this.getById(jobId);
     if (!job) return;
 
-    const tx = this.#db.transaction(() => {
-      const insert = this.#db.prepare(`
-        INSERT INTO dead_letter_jobs (original_job_id, job_type, payload_json, error, attempts, original_created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      insert.run(job.id, job.jobType, job.payloadJson, error, attempts, job.createdAt);
+    this.#db.transaction(() => {
+      this.#db.exec(
+        `INSERT INTO dead_letter_jobs (original_job_id, job_type, payload_json, error, attempts, original_created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [job.id, job.jobType, job.payloadJson, error, attempts, job.createdAt],
+      );
 
-      const del = this.#db.prepare('DELETE FROM job_queue WHERE id = ?');
-      del.run(jobId);
+      this.#db.exec('DELETE FROM job_queue WHERE id = ?', [jobId]);
     });
-    tx();
   }
 
   requeueStuck(maxRunningAgeMs: number = 300000): number {
-    const stmt = this.#db.prepare(`
-      UPDATE job_queue
-      SET status = 'queued',
-          started_at = NULL,
-          updated_at = datetime('now')
-      WHERE status = 'running'
-        AND started_at IS NOT NULL
-        AND (strftime('%s', 'now') - strftime('%s', started_at)) * 1000 > ?
-    `);
-    const result = stmt.run(maxRunningAgeMs);
+    const result = this.#db.exec(
+      `UPDATE job_queue
+       SET status = 'queued',
+           started_at = NULL,
+           updated_at = datetime('now')
+       WHERE status = 'running'
+         AND started_at IS NOT NULL
+         AND (strftime('%s', 'now') - strftime('%s', started_at)) * 1000 > ?`,
+      [maxRunningAgeMs],
+    );
     return result.changes;
   }
 
   getById(id: number): JobQueueRow | null {
-    const stmt = this.#db.prepare('SELECT * FROM job_queue WHERE id = ?');
-    const row = stmt.get(id) as any;
+    const row = this.#db.queryOne<any>('SELECT * FROM job_queue WHERE id = ?', [id]);
     return row ? this.#rowToJob(row) : null;
   }
 
@@ -181,25 +177,25 @@ export class JobQueueRepository {
     const limit = options.limit ?? 100;
     const offset = options.offset ?? 0;
 
-    const stmt = this.#db.prepare(`
-      SELECT * FROM job_queue
-      ${where}
-      ORDER BY priority DESC, scheduled_at ASC
-      LIMIT ? OFFSET ?
-    `);
     params.push(limit, offset);
-    return stmt.all(...params).map((r: any) => this.#rowToJob(r));
+    const rows = this.#db.query<any>(
+      `SELECT * FROM job_queue
+       ${where}
+       ORDER BY priority DESC, scheduled_at ASC
+       LIMIT ? OFFSET ?`,
+      params,
+    );
+    return rows.map((r) => this.#rowToJob(r));
   }
 
   getStats(): JobQueueStats {
-    const stmt = this.#db.prepare(`
-      SELECT
-        status,
-        COUNT(*) as count
-      FROM job_queue
-      GROUP BY status
-    `);
-    const rows = stmt.all() as { status: string; count: number }[];
+    const rows = this.#db.query<{ status: string; count: number }>(
+      `SELECT
+         status,
+         COUNT(*) as count
+       FROM job_queue
+       GROUP BY status`,
+    );
 
     const stats: JobQueueStats = {
       queued: 0,
@@ -221,18 +217,19 @@ export class JobQueueRepository {
   getDeadLetter(options: { limit?: number; offset?: number } = {}): DeadLetterJobRow[] {
     const limit = options.limit ?? 50;
     const offset = options.offset ?? 0;
-    const stmt = this.#db.prepare(`
-      SELECT * FROM dead_letter_jobs
-      ORDER BY failed_at DESC
-      LIMIT ? OFFSET ?
-    `);
-    return stmt.all(limit, offset).map((r: any) => this.#rowToDeadLetter(r));
+    const rows = this.#db.query<any>(
+      `SELECT * FROM dead_letter_jobs
+       ORDER BY failed_at DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset],
+    );
+    return rows.map((r) => this.#rowToDeadLetter(r));
   }
 
   retryDeadLetter(deadLetterId: number): number | null {
-    const dl = this.#db
-      .prepare('SELECT * FROM dead_letter_jobs WHERE id = ?')
-      .get(deadLetterId) as any;
+    const dl = this.#db.queryOne<any>('SELECT * FROM dead_letter_jobs WHERE id = ?', [
+      deadLetterId,
+    ]);
     if (!dl) return null;
 
     const jobId = this.enqueue(dl.job_type, JSON.parse(dl.payload_json), {
@@ -240,26 +237,26 @@ export class JobQueueRepository {
       maxAttempts: 3,
     });
 
-    this.#db.prepare('DELETE FROM dead_letter_jobs WHERE id = ?').run(deadLetterId);
+    this.#db.exec('DELETE FROM dead_letter_jobs WHERE id = ?', [deadLetterId]);
     return jobId;
   }
 
   deleteCompleted(olderThanDays: number = 7): number {
-    const stmt = this.#db.prepare(`
-      DELETE FROM job_queue
-      WHERE status = 'completed'
-        AND finished_at < datetime('now', ?)
-    `);
-    const result = stmt.run(`-${olderThanDays} days`);
+    const result = this.#db.exec(
+      `DELETE FROM job_queue
+       WHERE status = 'completed'
+         AND finished_at < datetime('now', ?)`,
+      [`-${olderThanDays} days`],
+    );
     return result.changes;
   }
 
   deleteDeadLetter(olderThanDays: number = 30): number {
-    const stmt = this.#db.prepare(`
-      DELETE FROM dead_letter_jobs
-      WHERE failed_at < datetime('now', ?)
-    `);
-    const result = stmt.run(`-${olderThanDays} days`);
+    const result = this.#db.exec(
+      `DELETE FROM dead_letter_jobs
+       WHERE failed_at < datetime('now', ?)`,
+      [`-${olderThanDays} days`],
+    );
     return result.changes;
   }
 }

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type { ScoreResult } from '../../types/score.js';
 
 export interface ScoringRow {
@@ -20,18 +20,16 @@ export interface ScoringRow {
 }
 
 export class ScoringRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   insert(candidateId: number, runId: string, result: ScoreResult): void {
-    this.db
-      .prepare(
-        `INSERT INTO scoring_runs
-         (candidate_id, run_id, expected_value, confidence, suggested_buy_max,
-          suggested_list_price, intrinsic_score, commercial_score, market_score,
-          expiry_score, weighted_score, recommended, signal_scores)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+    this.db.exec(
+      `INSERT INTO scoring_runs
+       (candidate_id, run_id, expected_value, confidence, suggested_buy_max,
+        suggested_list_price, intrinsic_score, commercial_score, market_score,
+        expiry_score, weighted_score, recommended, signal_scores)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         candidateId,
         runId,
         result.expectedValue,
@@ -45,16 +43,14 @@ export class ScoringRepository {
         result.weightedScore,
         result.recommended ? 1 : 0,
         JSON.stringify(result.breakdown),
-      );
+      ],
+    );
   }
 
   findLatestByCandidate(candidateId: number): ScoringRow | null {
-    return (
-      (this.db
-        .prepare(
-          'SELECT * FROM scoring_runs WHERE candidate_id = ? ORDER BY scored_at DESC LIMIT 1',
-        )
-        .get(candidateId) as ScoringRow | undefined) ?? null
+    return this.db.queryOne<ScoringRow>(
+      'SELECT * FROM scoring_runs WHERE candidate_id = ? ORDER BY scored_at DESC LIMIT 1',
+      [candidateId],
     );
   }
 
@@ -69,12 +65,10 @@ export class ScoringRepository {
    * not a unique key on this table.
    */
   findByRunId(runId: string, candidateId: number): ScoringRow | null {
-    const row = this.db
-      .prepare(
-        'SELECT * FROM scoring_runs WHERE run_id = ? AND candidate_id = ? ORDER BY id DESC LIMIT 1',
-      )
-      .get(runId, candidateId) as ScoringRow | undefined;
-    return row ?? null;
+    return this.db.queryOne<ScoringRow>(
+      'SELECT * FROM scoring_runs WHERE run_id = ? AND candidate_id = ? ORDER BY id DESC LIMIT 1',
+      [runId, candidateId],
+    );
   }
 
   /**
@@ -87,13 +81,12 @@ export class ScoringRepository {
    * the caller controls the prefix scope.
    */
   pruneByRunIdPrefix(prefix: string, scoredBefore: string): number {
-    const info = this.db
-      .prepare(
-        `DELETE FROM scoring_runs
-          WHERE run_id LIKE ?
-            AND scored_at < ?`,
-      )
-      .run(prefix, scoredBefore);
+    const info = this.db.exec(
+      `DELETE FROM scoring_runs
+        WHERE run_id LIKE ?
+          AND scored_at < ?`,
+      [prefix, scoredBefore],
+    );
     return info.changes;
   }
 }

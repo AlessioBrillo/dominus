@@ -3,28 +3,29 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../../db/migrator.js';
+import { SqliteProvider } from '../../../db/provider/sqlite-adapter.js';
 import { createReportRouter } from '../report-routes.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import { PortfolioRepository } from '../../../db/repositories/portfolio-repository.js';
 import { OutcomeRepository } from '../../../db/repositories/outcome-repository.js';
 import { PortfolioReportService } from '../../../portfolio/portfolio-report-service.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 describe('GET /api/v1/report', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let reportService: PortfolioReportService;
 
   beforeEach(() => {
-    db = openTestDb();
-    const portfolioRepo = new PortfolioRepository(db);
-    const outcomeRepo = new OutcomeRepository(db);
+    provider = openTestDb();
+    const portfolioRepo = new PortfolioRepository(provider);
+    const outcomeRepo = new OutcomeRepository(provider);
     reportService = new PortfolioReportService(portfolioRepo, outcomeRepo, 25, 30);
   });
 

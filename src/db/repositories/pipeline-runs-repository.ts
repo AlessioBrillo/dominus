@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 /**
  * One row of the `pipeline_runs` table (ADR-0011).
@@ -130,7 +130,7 @@ function rowToRun(row: PipelineRunRow): PipelineRun {
  * `/api/runs` REST endpoint.
  */
 export class PipelineRunsRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   /**
    * Insert a new run. The run is created in a "started" state —
@@ -138,16 +138,14 @@ export class PipelineRunsRepository {
    * the orchestrator calls `complete()`.
    */
   insert(input: InsertPipelineRunInput): PipelineRun {
-    const row = this.db
-      .prepare(
-        `INSERT INTO pipeline_runs
-           (run_id, started_at, finished_at, total_duration_ms,
-            stage_summary, inputs, results_summary, host_version,
-            retained_until, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         RETURNING *`,
-      )
-      .get(
+    const row = this.db.queryOne<PipelineRunRow>(
+      `INSERT INTO pipeline_runs
+         (run_id, started_at, finished_at, total_duration_ms,
+          stage_summary, inputs, results_summary, host_version,
+          retained_until, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING *`,
+      [
         input.runId,
         input.startedAt,
         input.finishedAt ?? null,
@@ -158,7 +156,8 @@ export class PipelineRunsRepository {
         input.hostVersion,
         input.retainedUntil,
         input.error ?? null,
-      ) as PipelineRunRow;
+      ],
+    )!;
     return rowToRun(row);
   }
 
@@ -168,32 +167,31 @@ export class PipelineRunsRepository {
    * the updated row, or null when the run_id is unknown.
    */
   complete(runId: string, input: CompletePipelineRunInput): PipelineRun | null {
-    const result = this.db
-      .prepare(
-        `UPDATE pipeline_runs
-            SET finished_at = ?,
-                total_duration_ms = ?,
-                stage_summary = ?,
-                results_summary = ?,
-                error = ?
-          WHERE run_id = ?
-          RETURNING *`,
-      )
-      .get(
+    const result = this.db.queryOne<PipelineRunRow>(
+      `UPDATE pipeline_runs
+          SET finished_at = ?,
+              total_duration_ms = ?,
+              stage_summary = ?,
+              results_summary = ?,
+              error = ?
+        WHERE run_id = ?
+        RETURNING *`,
+      [
         input.finishedAt,
         input.totalDurationMs,
         JSON.stringify(input.stageSummary),
         JSON.stringify(input.resultsSummary),
         input.error ?? null,
         runId,
-      ) as PipelineRunRow | undefined;
+      ],
+    );
     return result ? rowToRun(result) : null;
   }
 
   findById(runId: string): PipelineRun | null {
-    const row = this.db.prepare('SELECT * FROM pipeline_runs WHERE run_id = ?').get(runId) as
-      | PipelineRunRow
-      | undefined;
+    const row = this.db.queryOne<PipelineRunRow>('SELECT * FROM pipeline_runs WHERE run_id = ?', [
+      runId,
+    ]);
     return row ? rowToRun(row) : null;
   }
 
@@ -218,12 +216,12 @@ export class PipelineRunsRepository {
     const finalParams =
       options.limit !== undefined && options.limit > 0 ? [...params, options.limit] : params;
     const sql = `SELECT * FROM pipeline_runs ${whereClause} ORDER BY started_at DESC ${limitClause}`;
-    const rows = this.db.prepare(sql).all(...finalParams) as PipelineRunRow[];
+    const rows = this.db.query<PipelineRunRow>(sql, finalParams);
     return rows.map(rowToRun);
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM pipeline_runs').get() as { n: number };
+    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM pipeline_runs')!;
     return row.n;
   }
 
@@ -232,9 +230,10 @@ export class PipelineRunsRepository {
    * Used by `prune --before --dry-run` to preview deletions.
    */
   countBefore(cutoff: string): number {
-    const row = this.db
-      .prepare('SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?')
-      .get(cutoff) as { n: number };
+    const row = this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?',
+      [cutoff],
+    )!;
     return row.n;
   }
 
@@ -245,8 +244,8 @@ export class PipelineRunsRepository {
    * of rows deleted.
    */
   pruneBefore(cutoff: string): number {
-    const result = this.db.prepare('DELETE FROM pipeline_runs WHERE started_at < ?').run(cutoff);
-    return Number(result.changes);
+    const result = this.db.exec('DELETE FROM pipeline_runs WHERE started_at < ?', [cutoff]);
+    return result.changes;
   }
 
   /**
@@ -255,12 +254,12 @@ export class PipelineRunsRepository {
    * with the same `now` is a no-op.
    */
   prune(now: string = new Date().toISOString()): number {
-    const result = this.db.prepare('DELETE FROM pipeline_runs WHERE retained_until < ?').run(now);
-    return Number(result.changes);
+    const result = this.db.exec('DELETE FROM pipeline_runs WHERE retained_until < ?', [now]);
+    return result.changes;
   }
 
   /** Test helper: clear every row. Not exposed via CLI. */
   deleteAll(): void {
-    this.db.prepare('DELETE FROM pipeline_runs').run();
+    this.db.exec('DELETE FROM pipeline_runs');
   }
 }

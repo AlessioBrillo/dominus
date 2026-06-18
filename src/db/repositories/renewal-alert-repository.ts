@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';
 import type { RenewalAlert, InsertRenewalAlertInput } from '../../types/alert.js';
 
@@ -38,23 +38,21 @@ function parseRow(row: unknown): RenewalAlert {
 }
 
 export class RenewalAlertRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   upsert(input: InsertRenewalAlertInput, channels: string[]): RenewalAlert {
-    const row = this.db
-      .prepare(
-        `INSERT INTO renewal_alerts
-           (domain, portfolio_entry_id, alert_type, severity, message, details, notified_channels)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(domain, alert_type) DO UPDATE SET
-           severity          = excluded.severity,
-           message           = excluded.message,
-           details           = COALESCE(excluded.details, renewal_alerts.details),
-           notified_channels = excluded.notified_channels,
-           acknowledged_at   = NULL
-         RETURNING *`,
-      )
-      .get(
+    const row = this.db.queryOne<unknown>(
+      `INSERT INTO renewal_alerts
+         (domain, portfolio_entry_id, alert_type, severity, message, details, notified_channels)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(domain, alert_type) DO UPDATE SET
+         severity          = excluded.severity,
+         message           = excluded.message,
+         details           = COALESCE(excluded.details, renewal_alerts.details),
+         notified_channels = excluded.notified_channels,
+         acknowledged_at   = NULL
+       RETURNING *`,
+      [
         input.domain,
         input.portfolioEntryId,
         input.alertType,
@@ -62,7 +60,8 @@ export class RenewalAlertRepository {
         input.message,
         input.details ?? null,
         JSON.stringify(channels),
-      );
+      ],
+    )!;
     return parseRow(row);
   }
 
@@ -79,13 +78,13 @@ export class RenewalAlertRepository {
     }
     sql += ' ORDER BY created_at DESC, id DESC';
 
-    const rows = this.db.prepare(sql).all(...params);
-    return (rows as unknown[]).map(parseRow);
+    const rows = this.db.query<unknown>(sql, params);
+    return rows.map(parseRow);
   }
 
   findById(id: number): RenewalAlert | null {
-    const row = this.db.prepare('SELECT * FROM renewal_alerts WHERE id = ?').get(id);
-    if (row === undefined) return null;
+    const row = this.db.queryOne<unknown>('SELECT * FROM renewal_alerts WHERE id = ?', [id]);
+    if (row === null) return null;
     try {
       return parseRow(row);
     } catch {
@@ -94,9 +93,7 @@ export class RenewalAlertRepository {
   }
 
   acknowledge(id: number): void {
-    this.db
-      .prepare("UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ?")
-      .run(id);
+    this.db.exec("UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ?", [id]);
   }
 
   acknowledgeAll(domain?: string): number {
@@ -107,44 +104,42 @@ export class RenewalAlertRepository {
       sql += ' AND domain = ?';
       params.push(domain);
     }
-    const result = this.db.prepare(sql).run(...params);
+    const result = this.db.exec(sql, params);
     return result.changes;
   }
 
   deleteBefore(date: string): number {
-    const result = this.db
-      .prepare('DELETE FROM renewal_alerts WHERE created_at < ? AND acknowledged_at IS NOT NULL')
-      .run(date);
+    const result = this.db.exec(
+      'DELETE FROM renewal_alerts WHERE created_at < ? AND acknowledged_at IS NOT NULL',
+      [date],
+    );
     return result.changes;
   }
 
   count(domain?: string): number {
     if (domain !== undefined) {
-      const row = this.db
-        .prepare('SELECT COUNT(*) AS n FROM renewal_alerts WHERE domain = ?')
-        .get(domain) as { n: number };
+      const row = this.db.queryOne<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM renewal_alerts WHERE domain = ?',
+        [domain],
+      )!;
       return row.n;
     }
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM renewal_alerts').get() as {
-      n: number;
-    };
+    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM renewal_alerts')!;
     return row.n;
   }
 
   /** Return the most recent alert for each unacknowledged domain. */
   latestPerDomain(): RenewalAlert[] {
-    const rows = this.db
-      .prepare(
-        `SELECT a.* FROM renewal_alerts a
-         INNER JOIN (
-           SELECT domain, MAX(id) AS max_id
-           FROM renewal_alerts
-           WHERE acknowledged_at IS NULL
-           GROUP BY domain
-         ) latest ON a.id = latest.max_id
-         ORDER BY a.created_at DESC`,
-      )
-      .all();
-    return (rows as unknown[]).map(parseRow);
+    const rows = this.db.query<unknown>(
+      `SELECT a.* FROM renewal_alerts a
+       INNER JOIN (
+         SELECT domain, MAX(id) AS max_id
+         FROM renewal_alerts
+         WHERE acknowledged_at IS NULL
+         GROUP BY domain
+       ) latest ON a.id = latest.max_id
+       ORDER BY a.created_at DESC`,
+    );
+    return rows.map(parseRow);
   }
 }

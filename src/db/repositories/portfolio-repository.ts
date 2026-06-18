@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type { PortfolioEntry, AddPortfolioEntryInput, Verdict } from '../../types/portfolio.js';
 import { DuplicateDomainError, DomainNotFoundError } from '../../types/errors.js';
 
@@ -43,7 +43,7 @@ function rowToEntry(row: PortfolioRow): PortfolioEntry {
 }
 
 export class PortfolioRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   insert(input: AddPortfolioEntryInput): PortfolioEntry {
     const existing = this.findByDomain(input.domain);
@@ -51,65 +51,63 @@ export class PortfolioRepository {
       throw new DuplicateDomainError(input.domain);
     }
 
-    const stmt = this.db.prepare(
+    const result = this.db.exec(
       `INSERT INTO portfolio_entries
        (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const result = stmt.run(
-      input.domain,
-      input.tld,
-      input.acquiredAt,
-      input.renewalDate,
-      input.acquisitionCost,
-      input.renewalCost,
-      input.registrar,
-      input.notes ?? null,
+      [
+        input.domain,
+        input.tld,
+        input.acquiredAt,
+        input.renewalDate,
+        input.acquisitionCost,
+        input.renewalCost,
+        input.registrar,
+        input.notes ?? null,
+      ],
     );
     const id = result.lastInsertRowid as number;
-    const row = this.db
-      .prepare('SELECT * FROM portfolio_entries WHERE id = ?')
-      .get(id) as PortfolioRow;
-    return rowToEntry(row);
+    const row = this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE id = ?', [
+      id,
+    ]);
+    return rowToEntry(row!);
   }
 
   findByDomain(domain: string): PortfolioEntry | null {
-    const row = this.db.prepare('SELECT * FROM portfolio_entries WHERE domain = ?').get(domain) as
-      | PortfolioRow
-      | undefined;
+    const row = this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE domain = ?', [
+      domain,
+    ]);
     return row ? rowToEntry(row) : null;
   }
 
   findAll(): PortfolioEntry[] {
-    const rows = this.db
-      .prepare('SELECT * FROM portfolio_entries ORDER BY renewal_date ASC')
-      .all() as PortfolioRow[];
+    const rows = this.db.query<PortfolioRow>(
+      'SELECT * FROM portfolio_entries ORDER BY renewal_date ASC',
+    );
     return rows.map(rowToEntry);
   }
 
   updateVerdict(domain: string, verdict: Verdict, reason?: string): void {
     const existing = this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    this.db
-      .prepare(
-        `UPDATE portfolio_entries
-         SET verdict = ?, verdict_reason = ?, verdict_updated_at = datetime('now'),
-             updated_at = datetime('now')
-         WHERE domain = ?`,
-      )
-      .run(verdict, reason ?? null, domain);
+    this.db.exec(
+      `UPDATE portfolio_entries
+       SET verdict = ?, verdict_reason = ?, verdict_updated_at = datetime('now'),
+           updated_at = datetime('now')
+       WHERE domain = ?`,
+      [verdict, reason ?? null, domain],
+    );
   }
 
   updateScore(domain: string, score: number, listPrice: number): void {
     const existing = this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    this.db
-      .prepare(
-        `UPDATE portfolio_entries
-         SET current_score = ?, suggested_list_price = ?, updated_at = datetime('now')
-         WHERE domain = ?`,
-      )
-      .run(score, listPrice, domain);
+    this.db.exec(
+      `UPDATE portfolio_entries
+       SET current_score = ?, suggested_list_price = ?, updated_at = datetime('now')
+       WHERE domain = ?`,
+      [score, listPrice, domain],
+    );
   }
 
   updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): void {
@@ -128,14 +126,12 @@ export class PortfolioRepository {
     if (sets.length === 0) return;
     sets.push("updated_at = datetime('now')");
     params.push(domain);
-    this.db
-      .prepare(`UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ?`)
-      .run(...params);
+    this.db.exec(`UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ?`, params);
   }
 
   delete(domain: string): void {
     const existing = this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    this.db.prepare('DELETE FROM portfolio_entries WHERE domain = ?').run(domain);
+    this.db.exec('DELETE FROM portfolio_entries WHERE domain = ?', [domain]);
   }
 }

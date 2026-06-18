@@ -1,21 +1,22 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { OutcomeRepository } from '../outcome-repository.js';
 import { PortfolioRepository } from '../portfolio-repository.js';
 import { DomainNotFoundError } from '../../../types/errors.js';
 import type { RecordOutcomeInput } from '../../../types/outcome.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function seedPortfolio(db: Database.Database, domain: string): void {
-  const repo = new PortfolioRepository(db);
+function seedPortfolio(provider: SqliteProvider, domain: string): void {
+  const repo = new PortfolioRepository(provider);
   repo.insert({
     domain,
     tld: '.com',
@@ -37,13 +38,13 @@ function makeInput(overrides: Partial<RecordOutcomeInput> = {}): RecordOutcomeIn
 }
 
 describe('OutcomeRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: OutcomeRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new OutcomeRepository(db);
-    seedPortfolio(db, 'example.com');
+    provider = openTestDb();
+    repo = new OutcomeRepository(provider);
+    seedPortfolio(provider, 'example.com');
   });
 
   describe('insert', () => {
@@ -91,7 +92,7 @@ describe('OutcomeRepository', () => {
   describe('findByDomain', () => {
     it('returns outcomes most recent first', () => {
       // Arrange
-      seedPortfolio(db, 'second.com');
+      seedPortfolio(provider, 'second.com');
       repo.insert(makeInput({ occurredAt: '2025-06-01T00:00:00.000Z' }));
       repo.insert(makeInput({ occurredAt: '2026-03-01T00:00:00.000Z' }));
       repo.insert(
@@ -163,7 +164,7 @@ describe('OutcomeRepository', () => {
 
     it('returns zeros for a domain with no outcomes', () => {
       // Act
-      seedPortfolio(db, 'empty.com');
+      seedPortfolio(provider, 'empty.com');
       const stats = repo.statsByDomain('empty.com');
 
       // Assert
@@ -180,7 +181,7 @@ describe('OutcomeRepository', () => {
   describe('cascading delete', () => {
     it('removes outcomes when the parent portfolio entry is deleted', () => {
       // Arrange
-      const portfolio = new PortfolioRepository(db);
+      const portfolio = new PortfolioRepository(provider);
       repo.insert(makeInput({ type: 'renewed' }));
       expect(repo.findByDomain('example.com')).toHaveLength(1);
 

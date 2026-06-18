@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
+import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
 import type { PipelineOrchestrator, PipelineResult } from '../pipeline/orchestrator.js';
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
@@ -90,10 +91,10 @@ export class PipelineRunService {
     orchestrator: PipelineOrchestrator,
     candidateRepo: CandidateRepository,
     scoringRepo: ScoringRepository,
-    runsRepo: PipelineRunsRepository = new PipelineRunsRepository(db),
+    runsRepo: PipelineRunsRepository = new PipelineRunsRepository(new SqliteProvider(db)),
     hostVersion: string = readHostVersion(),
     retentionDays: number = DEFAULT_PIPELINE_RUN_RETENTION_DAYS,
-    metricsRepo: MetricsRepository = new MetricsRepository(db),
+    metricsRepo: MetricsRepository = new MetricsRepository(new SqliteProvider(db)),
     progressService?: PipelineProgressService,
     jobQueueService?: JobQueueService,
     workerEnabled: boolean = false,

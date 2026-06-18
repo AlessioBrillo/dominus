@@ -1,28 +1,29 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { createJobQueueService } from '../job-queue-service.js';
 import type { JobQueueService } from '../job-queue-service.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 describe('JobQueueService', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let service: JobQueueService;
 
   beforeEach(() => {
-    db = openTestDb();
-    service = createJobQueueService(db);
+    provider = openTestDb();
+    service = createJobQueueService(provider.rawDb);
   });
 
   afterEach(() => {
-    db.close();
+    provider.close();
   });
 
   describe('enqueuePipelineRun', () => {
@@ -112,7 +113,7 @@ describe('JobQueueService', () => {
       const jobId = Number(jobIdStr);
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
-      ).JobQueueRepository(db);
+      ).JobQueueRepository(provider);
       repo.dequeue();
       repo.complete(jobId, { deleted: 5 });
 
@@ -153,7 +154,7 @@ describe('JobQueueService', () => {
 
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
-      ).JobQueueRepository(db);
+      ).JobQueueRepository(provider);
       repo.dequeue();
       repo.fail(jobId, 'permanent error');
       repo.dequeue();
@@ -176,12 +177,12 @@ describe('JobQueueService', () => {
       const jobId = Number(jobIdStr);
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
-      ).JobQueueRepository(db);
+      ).JobQueueRepository(provider);
       repo.dequeue();
       repo.complete(jobId, {});
-      db.prepare("UPDATE job_queue SET finished_at = datetime('now', '-10 days') WHERE id = ?").run(
-        jobId,
-      );
+      provider.rawDb
+        .prepare("UPDATE job_queue SET finished_at = datetime('now', '-10 days') WHERE id = ?")
+        .run(jobId);
 
       const deleted = service.deleteCompletedJobs(7);
       expect(deleted).toBe(1);
@@ -193,7 +194,7 @@ describe('JobQueueService', () => {
 
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
-      ).JobQueueRepository(db);
+      ).JobQueueRepository(provider);
       repo.dequeue();
       repo.fail(jobId, 'boom');
       repo.dequeue();
@@ -201,7 +202,9 @@ describe('JobQueueService', () => {
       repo.dequeue();
       repo.fail(jobId, 'boom 3');
 
-      db.prepare("UPDATE dead_letter_jobs SET failed_at = datetime('now', '-40 days')").run();
+      provider.rawDb
+        .prepare("UPDATE dead_letter_jobs SET failed_at = datetime('now', '-40 days')")
+        .run();
 
       const deleted = service.deleteDeadLetterJobs(30);
       expect(deleted).toBe(1);

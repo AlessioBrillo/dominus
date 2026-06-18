@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type {
   WeightSnapshot,
   WeightSnapshotSource,
@@ -34,18 +34,16 @@ function rowToSnapshot(row: WeightSnapshotRow): WeightSnapshot {
 }
 
 export class WeightSnapshotRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   insert(input: InsertWeightSnapshotInput): WeightSnapshot {
-    const row = this.db
-      .prepare(
-        `INSERT INTO weight_snapshots
-         (intrinsic, commercial, market, expiry, source,
-          backtest_generated_at, sample_size, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         RETURNING id`,
-      )
-      .get(
+    const row = this.db.queryOne<{ id: number }>(
+      `INSERT INTO weight_snapshots
+       (intrinsic, commercial, market, expiry, source,
+        backtest_generated_at, sample_size, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING id`,
+      [
         input.intrinsic,
         input.commercial,
         input.market,
@@ -54,39 +52,41 @@ export class WeightSnapshotRepository {
         input.backtestGeneratedAt ?? null,
         input.sampleSize ?? null,
         input.notes ?? null,
-      ) as { id: number };
+      ],
+    )!;
 
-    const stored = this.db
-      .prepare('SELECT * FROM weight_snapshots WHERE id = ?')
-      .get(row.id) as WeightSnapshotRow;
+    const stored = this.db.queryOne<WeightSnapshotRow>(
+      'SELECT * FROM weight_snapshots WHERE id = ?',
+      [row.id],
+    )!;
     return rowToSnapshot(stored);
   }
 
   findAll(limit = 50): WeightSnapshot[] {
-    const rows = this.db
-      .prepare('SELECT * FROM weight_snapshots ORDER BY snapshot_at DESC LIMIT ?')
-      .all(limit) as WeightSnapshotRow[];
+    const rows = this.db.query<WeightSnapshotRow>(
+      'SELECT * FROM weight_snapshots ORDER BY snapshot_at DESC LIMIT ?',
+      [limit],
+    );
     return rows.map(rowToSnapshot);
   }
 
   findLatest(): WeightSnapshot | null {
-    const row = this.db
-      .prepare('SELECT * FROM weight_snapshots ORDER BY snapshot_at DESC LIMIT 1')
-      .get() as WeightSnapshotRow | undefined;
+    const row = this.db.queryOne<WeightSnapshotRow>(
+      'SELECT * FROM weight_snapshots ORDER BY snapshot_at DESC LIMIT 1',
+    );
     return row ? rowToSnapshot(row) : null;
   }
 
   findBySource(source: WeightSnapshotSource): WeightSnapshot[] {
-    const rows = this.db
-      .prepare('SELECT * FROM weight_snapshots WHERE source = ? ORDER BY snapshot_at DESC')
-      .all(source) as WeightSnapshotRow[];
+    const rows = this.db.query<WeightSnapshotRow>(
+      'SELECT * FROM weight_snapshots WHERE source = ? ORDER BY snapshot_at DESC',
+      [source],
+    );
     return rows.map(rowToSnapshot);
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM weight_snapshots').get() as {
-      n: number;
-    };
+    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM weight_snapshots')!;
     return row.n;
   }
 }

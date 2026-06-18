@@ -7,7 +7,7 @@ re-running the original arguments.
 
 | ADR                                                   | Title                                                                              | Date       | Status                   |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- | ------------------------ |
-| [0001](0001-project-architecture.md)                  | Project architecture and technology decisions                                      | 2026-06-08 | Accepted (retrospective) |
+| [0001](0001-project-architecture.md)                  | Project architecture and technology decisions                                      | 2026-06-08 | Superseded (see ADR-0026, ADR-0027) |
 | [0002](0002-scoring-engine-design.md)                 | Scoring engine design and conservatism principle                                   | 2026-06-08 | Accepted (retrospective) |
 | [0003](0003-pipeline-stage-separation.md)             | Pipeline stage separation                                                          | 2026-06-08 | Accepted (retrospective) |
 | [0004](0004-provider-abstraction-pattern.md)          | Provider abstraction pattern                                                       | 2026-06-08 | Accepted (retrospective) |
@@ -24,13 +24,17 @@ re-running the original arguments.
 | [0015](0015-psl-parser-adoption.md)                   | Adopt full Public Suffix List via `psl` npm Package                                | 2026-06-07 | Accepted                 |
 | [0016](0016-registrar-abstraction.md)                 | Registrar provider abstraction                                                     | 2026-06-08 | Accepted                 |
 | [0017](0017-api-authentication.md)                    | API authentication                                                                 | 2026-06-08 | Accepted                 |
-| [0018](0018-open-source-architecture.md)              | Open-source architecture and forkability                                           | 2026-06-09 | Accepted                 |
+| [0018](0018-open-source-architecture.md)              | Open-source architecture and forkability                                           | 2026-06-09 | Superseded (see ADR-0025, ADR-0026) |
 | [0019](0019-auto-weight-tuning-loop.md)               | Closed-loop auto weight tuning                                                     | 2026-06-09 | Accepted                 |
 | [0020](0020-scoring-confidence-formula.md)            | Scoring confidence formula and intrinsic quality coupling                          | 2026-06-11 | Accepted                 |
 | [0021](0021-provider-resilience-and-observability.md) | Provider resilience and observability layer                                        | 2026-06-12 | Accepted                 |
 | [0022](0022-backup-and-operations.md)                 | Backup and operations                                                              | 2026-06-13 | Accepted                 |
 | [0023](0023-job-queue-worker-pool-architecture.md)    | Job queue and worker pool architecture                                             | 2026-06-16 | Accepted                 |
 | [0024](0024-portfolio-pnl-analytics.md)               | Portfolio P&L tracking and analytics frontend                                      | 2026-06-18 | Accepted                 |
+| [0025](0025-license-change-agpl-commercial.md)        | License change — MIT to AGPL v3 + Commercial                                       | 2026-06-18 | Proposed                 |
+| [0026](0026-monetization-and-saas-model.md)           | Monetization and SaaS model                                                        | 2026-06-18 | Proposed                 |
+| [0027](0027-saas-architecture-multi-tenant.md)        | SaaS architecture — multi-tenancy, database, and authentication                    | 2026-06-18 | Proposed                 |
+| [0028](0028-frontend-architecture-professional-dashboard.md) | Frontend architecture — professional SaaS dashboard                          | 2026-06-18 | Proposed                 |
 
 ## Conventions
 
@@ -40,9 +44,17 @@ re-running the original arguments.
   that supersedes the old one — never an edit in place.
 - The MADR 4.0.0 template is the source of truth for ADR structure.
   See `.claude/skills/adr/template.md` for the canonical form.
-- All ADRs must be consistent with earlier ADRs. The foundational decisions
-  (ADR-0001 through ADR-0006) document the architecture principles that all
-  subsequent ADRs build upon.
+- **ADR-0001 through ADR-0024** document the original single-user, MIT-licensed,
+  SQLite-based architecture. These decisions remain valid for the community
+  edition (self-hosted, single-user).
+- **ADR-0025 through ADR-0028** document the SaaS transition: license change,
+  monetisation, multi-tenancy, PostgreSQL, professional frontend. These
+  decisions build upon the earlier foundation while superseding specific
+  constraints (single-user, MIT, SQLite-only, CLI-first UI).
+- ADR-0025 supersedes ADR-0018 on licensing. ADR-0026 supersedes ADR-0001
+  on monetisation and user model. ADR-0027 supersedes ADR-0001 on database
+  and ADR-0005 on schema strategy. ADR-0028 supersedes ADR-0001 on frontend
+  priority.
 
 ## How to write a new ADR
 

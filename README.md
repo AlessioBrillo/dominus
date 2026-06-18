@@ -1,24 +1,59 @@
 # DOMINUS
 
-> Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios on the aftermarket.
+> Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios — available as self-hosted community edition or managed cloud service.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-0.4.0--dev-blue)](package.json)
+[![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
-[![Open Source](https://img.shields.io/badge/open-source-first-333333)](#)
+[![Open Source](https://img.shields.io/badge/open-source-AGPLv3-333333)](#)
 
-DOMINUS is an **open-source domain investment tool** that helps you make better purchase, portfolio, and pricing decisions than the market average. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost**.
+DOMINUS is an **open-source domain investment tool** that helps you make better purchase, portfolio, and pricing decisions than the market average. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
+
+**DOMINUS Community** (AGPL v3) — self-hosted, all features, unlimited use, forever free.
+
+**DOMINUS Cloud** — managed hosting with multi-tenant support, PostgreSQL, automated backups, and priority support. [Coming soon.](#)
+
+---
+
+## Product Overview
+
+```mermaid
+flowchart LR
+    subgraph Pipeline[5-Stage Pipeline]
+        A[Candidates] --> B[DNS Pre-filter]
+        B --> C[RDAP Confirmation]
+        C --> D[Scoring Engine]
+        D --> E[Trademark Gate]
+        E --> F[Buy / Pass]
+    end
+
+    subgraph Portfolio[Portfolio Tracker]
+        G[Domain List] --> H[Renewal Clock]
+        H --> I[Keep / Drop / Reprice]
+    end
+
+    subgraph Cloud[DOMINUS Cloud]
+        J[Multi-Tenant] --> K[Auth / Team]
+        K --> L[Managed PostgreSQL]
+        L --> M[Backups / Monitoring]
+    end
+
+    Pipeline --> Portfolio
+    Pipeline --> Cloud
+    Portfolio --> Cloud
+```
 
 ## Why Open-Source?
 
 Every aspect of DOMINUS is transparent, forkable, and customizable:
 
-- **No vendor lock-in**: you own your data (SQLite file), your configuration (`.env`), and your fork
-- **No black-box algorithms**: the scoring engine is heuristic — every weight, threshold, and signal is visible and tunable
-- **No paid APIs**: all data sources are free (public RDAP, USPTO, EUIPO) or file-based (keyword CSVs, comparable sales)
-- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a Kubernetes cluster
+- **No vendor lock-in**: you own your data (portable database), your configuration (`.env`), and your fork. Migrate from DOMINUS Cloud to self-hosted with a single database dump.
+- **No black-box algorithms**: the scoring engine is heuristic — every weight, threshold, and signal is visible and tunable.
+- **No paid APIs required**: all data sources are free (public RDAP, USPTO, EUIPO) or file-based (keyword CSVs, comparable sales). The tool itself never requires a paid subscription.
+- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a Kubernetes cluster.
 
 ## Pipeline Architecture
 
@@ -35,6 +70,8 @@ Five sequential stages, each feeding the next:
 5. **Trademark gate** — mandatory USPTO + EUIPO check (non-negotiable)
 
 Plus a **portfolio tracker** with renewal clock and monthly keep/drop/reprice verdicts.
+
+Pipeline runs are **async by default** — enqueued to a job queue and executed by a background worker. Use `--sync` for immediate execution.
 
 ## Quick Start
 
@@ -63,11 +100,30 @@ docker run -d -p 3000:3000 -v ./data:/app/data dominus
 | Layer | Technology | Why |
 |-------|-----------|-----|
 | **Backend** | Node.js 20+, Express 5 | Zero-cost, universally forkable, massive ecosystem |
-| **Database** | SQLite (better-sqlite3, WAL mode) | Single file, zero ops, portable anywhere |
-| **CLI** | Commander (12 commands) | Full functionality without a browser |
-| **API** | Express REST (14 route modules) | Dashboard-ready, swappable frontend |
+| **Database** | SQLite (community) / PostgreSQL (cloud) | Abstraction layer supports both — choose your deployment |
+| **CLI** | Commander (18 commands) | Full functionality without a browser |
+| **API** | Express REST (18 route modules) | Dashboard-ready, swappable frontend |
+| **Frontend** | React 19 + Vite 6 + Tailwind 4 | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark** | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance |
 | **Infrastructure** | Docker, Docker Compose, GitHub Actions | Deploy anywhere, CI built-in |
+
+## Editions
+
+| Feature | DOMINUS Community | DOMINUS Cloud |
+|---------|------------------|---------------|
+| **License** | AGPL v3 — free forever | AGPL v3 + managed hosting |
+| **Scoring engine** | ✓ Full | ✓ Full |
+| **5-stage pipeline** | ✓ Full | ✓ Full |
+| **Trademark gate** | ✓ Full | ✓ Full |
+| **Portfolio tracker** | ✓ Full | ✓ Full |
+| **CLI (18 commands)** | ✓ Full | ✓ Full |
+| **REST API** | ✓ Full | ✓ Full |
+| **Database** | SQLite (single-file) | PostgreSQL (managed) |
+| **Auth** | Static API key (`.env`) | JWT + Auth0/Clerk, team accounts |
+| **Multi-tenancy** | — | ✓ Managed |
+| **Backups** | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
+| **Support** | GitHub Issues | Email/Slack (4h response) |
+| **Cost** | €0 | Free tier + paid plans |
 
 ## Fork & Customize
 
@@ -99,14 +155,6 @@ Every external dependency is behind a TypeScript interface. Swap any provider in
 
 See [Customization Guide](docs/customization/README.md) for step-by-step examples.
 
-### Custom Signals
-
-The scoring engine accepts four signals. To add a fifth (e.g. social media presence, PageRank):
-
-1. Create `src/scoring/signals/social-signal.ts` implementing the signal contract
-2. Wire it in `src/scoring/scoring-engine.ts`
-3. Add its weight to `SCORING_WEIGHTS_OVERRIDE`
-
 ## Deployment Options
 
 DOMINUS scales from a personal CLI tool to a containerized service managing thousands of domains:
@@ -114,9 +162,10 @@ DOMINUS scales from a personal CLI tool to a containerized service managing thou
 | Scenario | Stack | Command |
 |----------|-------|---------|
 | **Personal** (1-50 domains) | CLI only | `npx dominus run --closeout-csv ./candidates.csv` |
-| **Growing** (50-500) | Docker | `docker compose up -d` |
-| **Large** (500+) | Docker + reverse proxy + scheduler | `docker compose -f compose.yml -f compose.prod.yml up -d` |
-| **Enterprise** (5000+) | Kubernetes + PostgreSQL adapter | `kubectl apply -f deploy/` |
+| **Growing** (50-500) | Docker (SQLite) | `docker compose up -d` |
+| **Large** (500+) | Docker + PostgreSQL | `docker compose -f compose.yml -f compose.prod.yml up -d` |
+| **Enterprise** (5000+) | Kubernetes + PostgreSQL | `kubectl apply -f deploy/` |
+| **Managed** | DOMINUS Cloud | Sign up at [dominus.cloud](#) |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -162,6 +211,12 @@ Commands:
   watchlist           Monitor domains for availability
   maintenance         Prune cache, DB maintenance
   health              System health check
+  buy                 Record a purchase
+  registrars          Configure registrar providers
+  report              Generate portfolio reports
+  analytics           Prediction accuracy and P&L analytics
+  bid                 Manage bids
+  listing             Manage marketplace listings
 ```
 
 ## Documentation
@@ -171,11 +226,14 @@ Commands:
 - [Deployment Guide](docs/deployment/README.md) — infrastructure options
 - [Contributing Guide](CONTRIBUTING.md) — how to contribute
 - [Security Policy](SECURITY.md) — vulnerability reporting
+- [Roadmap](ROADMAP.md) — planned features and releases
 
 ## Project Status
 
-DOMINUS v0.2.0 — production-ready, tested, and running end-to-end. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker, outcomes, and backtest engine are implemented and tested.
+DOMINUS v0.4.0-dev — transitioning to open-source SaaS architecture. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker, outcomes, and backtest engine are implemented and tested. The community edition is fully functional and production-ready.
 
 ## License
 
-[MIT](LICENSE) — © 2026 AlessioBrillo. Use freely, fork openly, build anything.
+[AGPL v3](LICENSE) — © 2026 AlessioBrillo. Use freely, fork openly, build anything.
+
+Commercial licenses are available for organizations that require proprietary embedding.

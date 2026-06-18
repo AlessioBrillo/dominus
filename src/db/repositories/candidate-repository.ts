@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type { DomainCandidate, CandidateStatus, CandidateSource } from '../../types/candidate.js';
 
 interface CandidateRow {
@@ -32,55 +32,55 @@ function rowToCandidate(row: CandidateRow): DomainCandidate {
 }
 
 export class CandidateRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   findAll(limit = 50): DomainCandidate[] {
-    const rows = this.db
-      .prepare('SELECT * FROM candidates ORDER BY updated_at DESC LIMIT ?')
-      .all(limit) as CandidateRow[];
+    const rows = this.db.query<CandidateRow>(
+      'SELECT * FROM candidates ORDER BY updated_at DESC LIMIT ?',
+      [limit],
+    );
     return rows.map(rowToCandidate);
   }
 
   insert(candidate: DomainCandidate): DomainCandidate {
-    const stmt = this.db.prepare(
+    const result = this.db.exec(
       `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    );
-    const result = stmt.run(
-      candidate.domain,
-      candidate.tld,
-      candidate.source,
-      candidate.status,
-      candidate.isPremium ? 1 : 0,
-      candidate.pipelineRunId,
+      [
+        candidate.domain,
+        candidate.tld,
+        candidate.source,
+        candidate.status,
+        candidate.isPremium ? 1 : 0,
+        candidate.pipelineRunId,
+      ],
     );
     return { ...candidate, id: result.lastInsertRowid as number };
   }
 
   findById(id: number): DomainCandidate | null {
-    const row = this.db.prepare('SELECT * FROM candidates WHERE id = ?').get(id) as
-      | CandidateRow
-      | undefined;
+    const row = this.db.queryOne<CandidateRow>('SELECT * FROM candidates WHERE id = ?', [id]);
     return row ? rowToCandidate(row) : null;
   }
 
   findByDomain(domain: string): DomainCandidate | null {
-    const row = this.db.prepare('SELECT * FROM candidates WHERE domain = ?').get(domain) as
-      | CandidateRow
-      | undefined;
+    const row = this.db.queryOne<CandidateRow>('SELECT * FROM candidates WHERE domain = ?', [
+      domain,
+    ]);
     return row ? rowToCandidate(row) : null;
   }
 
   updateStatus(id: number, status: CandidateStatus): void {
-    this.db
-      .prepare(`UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(status, id);
+    this.db.exec(`UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`, [
+      status,
+      id,
+    ]);
   }
 
   findByRunId(runId: string): DomainCandidate[] {
-    const rows = this.db
-      .prepare('SELECT * FROM candidates WHERE pipeline_run_id = ?')
-      .all(runId) as CandidateRow[];
+    const rows = this.db.query<CandidateRow>('SELECT * FROM candidates WHERE pipeline_run_id = ?', [
+      runId,
+    ]);
     return rows.map(rowToCandidate);
   }
 
@@ -95,45 +95,41 @@ export class CandidateRepository {
    * needed for pipeline history. Returns the number of rows removed.
    */
   pruneRescoreCandidates(before: string): number {
-    const result = this.db
-      .prepare(
-        `DELETE FROM candidates
-         WHERE source = 'portfolio_rescore' AND created_at < ?
-           AND id NOT IN (
-             SELECT candidate_id FROM scoring_runs WHERE candidate_id IS NOT NULL
-           )`,
-      )
-      .run(before);
+    const result = this.db.exec(
+      `DELETE FROM candidates
+       WHERE source = 'portfolio_rescore' AND created_at < ?
+         AND id NOT IN (
+           SELECT candidate_id FROM scoring_runs WHERE candidate_id IS NOT NULL
+         )`,
+      [before],
+    );
     return Number(result.changes);
   }
 
   /** Count of portfolio_rescore candidates created before the given date. */
   countRescoreCandidates(before: string): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) AS n FROM candidates
-         WHERE source = 'portfolio_rescore' AND created_at < ?`,
-      )
-      .get(before) as { n: number };
-    return row.n;
+    const row = this.db.queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM candidates
+       WHERE source = 'portfolio_rescore' AND created_at < ?`,
+      [before],
+    );
+    return row!.n;
   }
 
   upsert(candidate: DomainCandidate): DomainCandidate {
-    const row = this.db
-      .prepare(
-        `INSERT INTO candidates
-           (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(domain) DO UPDATE SET
-           status          = excluded.status,
-           dns_status      = excluded.dns_status,
-           rdap_status     = excluded.rdap_status,
-           is_premium      = excluded.is_premium,
-           pipeline_run_id = excluded.pipeline_run_id,
-           updated_at      = datetime('now')
-         RETURNING id`,
-      )
-      .get(
+    const row = this.db.queryOne<{ id: number }>(
+      `INSERT INTO candidates
+         (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(domain) DO UPDATE SET
+         status          = excluded.status,
+         dns_status      = excluded.dns_status,
+         rdap_status     = excluded.rdap_status,
+         is_premium      = excluded.is_premium,
+         pipeline_run_id = excluded.pipeline_run_id,
+         updated_at      = datetime('now')
+       RETURNING id`,
+      [
         candidate.domain,
         candidate.tld,
         candidate.source,
@@ -142,8 +138,9 @@ export class CandidateRepository {
         candidate.rdapStatus ?? null,
         candidate.isPremium ? 1 : 0,
         candidate.pipelineRunId,
-      ) as { id: number };
+      ],
+    );
 
-    return { ...candidate, id: row.id };
+    return { ...candidate, id: row!.id };
   }
 }

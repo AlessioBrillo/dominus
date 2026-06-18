@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type {
   Listing,
   ListingOffer,
@@ -11,80 +11,81 @@ import type {
 import { listingFromRow, listingOfferFromRow } from '../../types/listing.js';
 
 export class ListingRepository {
-  readonly #db: Database.Database;
+  readonly #db: DatabaseProvider;
 
-  constructor(db: Database.Database) {
+  constructor(db: DatabaseProvider) {
     this.#db = db;
   }
 
   insert(listing: NewListing): { id: number } {
-    const result = this.#db
-      .prepare(
-        `INSERT INTO listings (domain, marketplace, listing_url, price_eur, status, listed_at, expires_at, notes)
-       VALUES (@domain, @marketplace, @listingUrl, @priceEur, @status, @listedAt, @expiresAt, @notes)`,
-      )
-      .run({
-        domain: listing.domain,
-        marketplace: listing.marketplace,
-        listingUrl: listing.listingUrl,
-        priceEur: listing.priceEur,
-        status: listing.status,
-        listedAt: listing.listedAt,
-        expiresAt: listing.expiresAt,
-        notes: listing.notes,
-      });
+    const result = this.#db.exec(
+      `INSERT INTO listings (domain, marketplace, listing_url, price_eur, status, listed_at, expires_at, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        listing.domain,
+        listing.marketplace,
+        listing.listingUrl,
+        listing.priceEur,
+        listing.status,
+        listing.listedAt,
+        listing.expiresAt,
+        listing.notes,
+      ],
+    );
     return { id: result.lastInsertRowid as number };
   }
 
   update(id: number, update: ListingUpdate): void {
     const sets: string[] = [];
-    const params: Record<string, unknown> = { id };
+    const params: unknown[] = [];
 
     if (update.priceEur !== undefined) {
-      sets.push('price_eur = @priceEur');
-      params.priceEur = update.priceEur;
+      sets.push('price_eur = ?');
+      params.push(update.priceEur);
     }
     if (update.status !== undefined) {
-      sets.push('status = @status');
-      params.status = update.status;
+      sets.push('status = ?');
+      params.push(update.status);
     }
     if (update.listingUrl !== undefined) {
-      sets.push('listing_url = @listingUrl');
-      params.listingUrl = update.listingUrl;
+      sets.push('listing_url = ?');
+      params.push(update.listingUrl);
     }
     if (update.expiresAt !== undefined) {
-      sets.push('expires_at = @expiresAt');
-      params.expiresAt = update.expiresAt;
+      sets.push('expires_at = ?');
+      params.push(update.expiresAt);
     }
     if (update.notes !== undefined) {
-      sets.push('notes = @notes');
-      params.notes = update.notes;
+      sets.push('notes = ?');
+      params.push(update.notes);
     }
 
     if (sets.length === 0) return;
 
     sets.push("updated_at = datetime('now')");
-    this.#db.prepare(`UPDATE listings SET ${sets.join(', ')} WHERE id = @id`).run(params);
+    params.push(id);
+    this.#db.exec(`UPDATE listings SET ${sets.join(', ')} WHERE id = ?`, params);
   }
 
   delete(id: number): void {
-    this.#db.prepare('DELETE FROM listings WHERE id = ?').run(id);
+    this.#db.exec('DELETE FROM listings WHERE id = ?', [id]);
   }
 
   findById(id: number): Listing | undefined {
-    const row = this.#db.prepare('SELECT * FROM listings WHERE id = ?').get(id) as any;
+    const row = this.#db.queryOne<any>('SELECT * FROM listings WHERE id = ?', [id]);
     return row ? listingFromRow(row) : undefined;
   }
 
   findByDomain(domain: string): Listing[] {
-    const rows = this.#db.prepare('SELECT * FROM listings WHERE domain = ?').all(domain) as any[];
+    const rows = this.#db.query<any>('SELECT * FROM listings WHERE domain = ?', [domain]);
     return rows.map(listingFromRow);
   }
 
   findByDomainAndMarketplace(domain: string, marketplace: string): Listing | undefined {
-    const row = this.#db
-      .prepare('SELECT * FROM listings WHERE domain = ? AND marketplace = ?')
-      .get(domain, marketplace) as any;
+    const row = this.#db.queryOne<any>(
+      'SELECT * FROM listings WHERE domain = ? AND marketplace = ?',
+      [domain, marketplace],
+    );
     return row ? listingFromRow(row) : undefined;
   }
 
@@ -106,50 +107,50 @@ export class ListingRepository {
     }
 
     const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
-    const rows = this.#db
-      .prepare(`SELECT * FROM listings${where} ORDER BY created_at DESC`)
-      .all(...params) as any[];
+    const rows = this.#db.query<any>(
+      `SELECT * FROM listings${where} ORDER BY created_at DESC`,
+      params,
+    );
     return rows.map(listingFromRow);
   }
 
   findByStatus(status: string): Listing[] {
-    const rows = this.#db
-      .prepare('SELECT * FROM listings WHERE status = ? ORDER BY created_at DESC')
-      .all(status) as any[];
+    const rows = this.#db.query<any>(
+      'SELECT * FROM listings WHERE status = ? ORDER BY created_at DESC',
+      [status],
+    );
     return rows.map(listingFromRow);
   }
 
   insertOffer(offer: NewListingOffer): { id: number } {
-    const result = this.#db
-      .prepare(
-        `INSERT INTO listing_offers (listing_id, amount_eur, buyer, status, notes)
-       VALUES (@listingId, @amountEur, @buyer, 'pending', @notes)`,
-      )
-      .run(offer);
+    const result = this.#db.exec(
+      `INSERT INTO listing_offers (listing_id, amount_eur, buyer, status, notes)
+       VALUES (?, ?, ?, 'pending', ?)`,
+      [offer.listingId, offer.amountEur, offer.buyer, offer.notes ?? null],
+    );
     return { id: result.lastInsertRowid as number };
   }
 
   findOffersByListingId(listingId: number): ListingOffer[] {
-    const rows = this.#db
-      .prepare('SELECT * FROM listing_offers WHERE listing_id = ? ORDER BY received_at DESC')
-      .all(listingId) as any[];
+    const rows = this.#db.query<any>(
+      'SELECT * FROM listing_offers WHERE listing_id = ? ORDER BY received_at DESC',
+      [listingId],
+    );
     return rows.map(listingOfferFromRow);
   }
 
   findPendingOffer(listingId: number): ListingOffer | undefined {
-    const row = this.#db
-      .prepare(
-        "SELECT * FROM listing_offers WHERE listing_id = ? AND status = 'pending' ORDER BY received_at DESC LIMIT 1",
-      )
-      .get(listingId) as any;
+    const row = this.#db.queryOne<any>(
+      "SELECT * FROM listing_offers WHERE listing_id = ? AND status = 'pending' ORDER BY received_at DESC LIMIT 1",
+      [listingId],
+    );
     return row ? listingOfferFromRow(row) : undefined;
   }
 
   updateOfferStatus(id: number, status: string, notes?: string): void {
-    this.#db
-      .prepare(
-        "UPDATE listing_offers SET status = @status, responded_at = datetime('now'), notes = COALESCE(@notes, notes) WHERE id = @id",
-      )
-      .run({ id, status, notes: notes ?? null });
+    this.#db.exec(
+      "UPDATE listing_offers SET status = ?, responded_at = datetime('now'), notes = COALESCE(?, notes) WHERE id = ?",
+      [status, notes ?? null, id],
+    );
   }
 }

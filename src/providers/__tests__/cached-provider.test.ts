@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { CachedProvider } from '../cached-provider.js';
 
@@ -9,20 +10,24 @@ interface TestData {
   name: string;
 }
 
-function openTestDb(): Database.Database {
+function openTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   runMigrations(db);
-  return db;
+  const dbProvider = new SqliteProvider(db);
+  return { db, dbProvider };
 }
 
 describe('CachedProvider', () => {
   let db: Database.Database;
+  let dbProvider: SqliteProvider;
   let repo: ProviderCacheRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new ProviderCacheRepository(db);
+    const opened = openTestDb();
+    db = opened.db;
+    dbProvider = opened.dbProvider;
+    repo = new ProviderCacheRepository(dbProvider);
   });
 
   it('calls fetchFn on cache miss and returns result', async () => {

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type {
   WatchlistEntry,
   InsertWatchlistInput,
@@ -25,86 +25,81 @@ function parseRow(row: unknown): WatchlistEntry {
 }
 
 export class WatchlistRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   insert(input: InsertWatchlistInput): WatchlistEntry {
-    const row = this.db
-      .prepare(
-        `INSERT INTO watchlist_entries (domain, tld, notes)
-         VALUES (?, ?, ?)
-         RETURNING ${ROW_MAPPER}`,
-      )
-      .get(input.domain, input.tld, input.notes ?? null);
+    const row = this.db.queryOne<unknown>(
+      `INSERT INTO watchlist_entries (domain, tld, notes)
+       VALUES (?, ?, ?)
+       RETURNING ${ROW_MAPPER}`,
+      [input.domain, input.tld, input.notes ?? null],
+    )!;
     return parseRow(row);
   }
 
   findByDomain(domain: string): WatchlistEntry | null {
-    const row = this.db
-      .prepare(`SELECT ${ROW_MAPPER} FROM watchlist_entries WHERE domain = ?`)
-      .get(domain);
-    if (row === undefined) return null;
+    const row = this.db.queryOne<unknown>(
+      `SELECT ${ROW_MAPPER} FROM watchlist_entries WHERE domain = ?`,
+      [domain],
+    );
+    if (row === null) return null;
     return parseRow(row);
   }
 
   list(): WatchlistEntry[] {
-    const rows = this.db
-      .prepare(`SELECT ${ROW_MAPPER} FROM watchlist_entries ORDER BY created_at DESC, id DESC`)
-      .all();
-    return (rows as unknown[]).map(parseRow);
+    const rows = this.db.query<unknown>(
+      `SELECT ${ROW_MAPPER} FROM watchlist_entries ORDER BY created_at DESC, id DESC`,
+    );
+    return rows.map(parseRow);
   }
 
   listPendingPoll(hoursSinceLastCheck: number): WatchlistEntry[] {
-    const rows = this.db
-      .prepare(
-        `SELECT ${ROW_MAPPER} FROM watchlist_entries
-         WHERE notified = 0
-            OR last_checked_at IS NULL
-            OR datetime(last_checked_at) < datetime('now', ?)
-         ORDER BY last_checked_at ASC NULLS FIRST`,
-      )
-      .all(`-${hoursSinceLastCheck} hours`);
-    return (rows as unknown[]).map(parseRow);
+    const rows = this.db.query<unknown>(
+      `SELECT ${ROW_MAPPER} FROM watchlist_entries
+       WHERE notified = 0
+          OR last_checked_at IS NULL
+          OR datetime(last_checked_at) < datetime('now', ?)
+       ORDER BY last_checked_at ASC NULLS FIRST`,
+      [`-${hoursSinceLastCheck} hours`],
+    );
+    return rows.map(parseRow);
   }
 
   updateStatus(domain: string, input: UpdateWatchlistStatusInput): WatchlistEntry {
     const notified = input.notified ?? 0;
-    const row = this.db
-      .prepare(
-        `UPDATE watchlist_entries
-         SET last_checked_at   = ?,
-             last_status       = ?,
-             last_status_change = ?,
-             notified           = ?,
-             updated_at         = datetime('now')
-         WHERE domain = ?
-         RETURNING ${ROW_MAPPER}`,
-      )
-      .get(input.lastCheckedAt, input.lastStatus, input.lastStatusChange, notified, domain);
+    const row = this.db.queryOne<unknown>(
+      `UPDATE watchlist_entries
+       SET last_checked_at   = ?,
+           last_status       = ?,
+           last_status_change = ?,
+           notified           = ?,
+           updated_at         = datetime('now')
+       WHERE domain = ?
+       RETURNING ${ROW_MAPPER}`,
+      [input.lastCheckedAt, input.lastStatus, input.lastStatusChange, notified, domain],
+    )!;
     return parseRow(row);
   }
 
   markNotified(domain: string): WatchlistEntry {
-    const row = this.db
-      .prepare(
-        `UPDATE watchlist_entries
-         SET notified   = 1,
-             updated_at = datetime('now')
-         WHERE domain = ?
-         RETURNING ${ROW_MAPPER}`,
-      )
-      .get(domain);
+    const row = this.db.queryOne<unknown>(
+      `UPDATE watchlist_entries
+       SET notified   = 1,
+           updated_at = datetime('now')
+       WHERE domain = ?
+       RETURNING ${ROW_MAPPER}`,
+      [domain],
+    )!;
     return parseRow(row);
   }
 
   remove(domain: string): boolean {
-    const result = this.db.prepare('DELETE FROM watchlist_entries WHERE domain = ?').run(domain);
+    const result = this.db.exec('DELETE FROM watchlist_entries WHERE domain = ?', [domain]);
     return result.changes > 0;
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM watchlist_entries').get() as {
-      n: number;
-    };
+    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM watchlist_entries')!;
     return row.n;
   }
 }

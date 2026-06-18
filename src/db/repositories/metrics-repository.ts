@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export interface StageMetricRow {
   pipelineRunId?: string;
@@ -39,41 +39,40 @@ export interface MetricsHistory {
 }
 
 export class MetricsRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   insertBatch(runId: string, stages: StageMetricRow[]): number {
     if (stages.length === 0) return 0;
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO pipeline_metrics
-        (pipeline_run_id, stage_name, passed, filtered, duration_ms, error)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `);
-    const insertMany = this.db.transaction((rows: StageMetricRow[]) => {
-      for (const row of rows) {
-        stmt.run(runId, row.stageName, row.passed, row.filtered, row.durationMs, row.error ? 1 : 0);
+    this.db.transaction(() => {
+      for (const row of stages) {
+        this.db.exec(
+          `INSERT OR REPLACE INTO pipeline_metrics
+            (pipeline_run_id, stage_name, passed, filtered, duration_ms, error)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+          [runId, row.stageName, row.passed, row.filtered, row.durationMs, row.error ? 1 : 0],
+        );
       }
     });
-    insertMany(stages);
     return stages.length;
   }
 
   findByRunId(runId: string): StageMetricRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM pipeline_metrics WHERE pipeline_run_id = ? ORDER BY stage_name')
-      .all(runId) as MetricRecord[];
+    const rows = this.db.query<MetricRecord>(
+      'SELECT * FROM pipeline_metrics WHERE pipeline_run_id = ? ORDER BY stage_name',
+      [runId],
+    );
     return rows.map(toMetricRow);
   }
 
   findRecentRuns(limit: number = 20): MetricsHistory[] {
-    const runIds = this.db
-      .prepare(
-        `SELECT DISTINCT pm.pipeline_run_id, pr.started_at
-           FROM pipeline_metrics pm
-           LEFT JOIN pipeline_runs pr ON pr.run_id = pm.pipeline_run_id
-           ORDER BY pr.started_at DESC
-           LIMIT ?`,
-      )
-      .all(limit) as { pipeline_run_id: string; started_at: string | null }[];
+    const runIds = this.db.query<{ pipeline_run_id: string; started_at: string | null }>(
+      `SELECT DISTINCT pm.pipeline_run_id, pr.started_at
+         FROM pipeline_metrics pm
+         LEFT JOIN pipeline_runs pr ON pr.run_id = pm.pipeline_run_id
+         ORDER BY pr.started_at DESC
+         LIMIT ?`,
+      [limit],
+    );
     return runIds.map((r) => {
       const stages = this.findByRunId(r.pipeline_run_id);
       return {
@@ -85,27 +84,25 @@ export class MetricsRepository {
   }
 
   getAggregates(): MetricAggregate[] {
-    const rows = this.db
-      .prepare(
-        `SELECT
-           stage_name,
-           SUM(duration_ms) AS total_duration_ms,
-           SUM(passed) AS total_passed,
-           SUM(filtered) AS total_filtered,
-           COUNT(*) AS run_count,
-           SUM(error) AS error_count
-         FROM pipeline_metrics
-         GROUP BY stage_name
-         ORDER BY stage_name`,
-      )
-      .all() as Array<{
+    const rows = this.db.query<{
       stage_name: string;
       total_duration_ms: number;
       total_passed: number;
       total_filtered: number;
       run_count: number;
       error_count: number;
-    }>;
+    }>(
+      `SELECT
+         stage_name,
+         SUM(duration_ms) AS total_duration_ms,
+         SUM(passed) AS total_passed,
+         SUM(filtered) AS total_filtered,
+         COUNT(*) AS run_count,
+         SUM(error) AS error_count
+       FROM pipeline_metrics
+       GROUP BY stage_name
+       ORDER BY stage_name`,
+    );
 
     return rows.map((r) => ({
       stageName: r.stage_name,
@@ -121,21 +118,18 @@ export class MetricsRepository {
   }
 
   deleteByRunId(runId: string): number {
-    const result = this.db
-      .prepare('DELETE FROM pipeline_metrics WHERE pipeline_run_id = ?')
-      .run(runId);
-    return Number(result.changes);
+    const result = this.db.exec('DELETE FROM pipeline_metrics WHERE pipeline_run_id = ?', [runId]);
+    return result.changes;
   }
 
   #percentileForStage(stageName: string, percentile: number): number {
-    const rows = this.db
-      .prepare(
-        `SELECT duration_ms
-           FROM pipeline_metrics
-          WHERE stage_name = ?
-          ORDER BY duration_ms ASC`,
-      )
-      .all(stageName) as { duration_ms: number }[];
+    const rows = this.db.query<{ duration_ms: number }>(
+      `SELECT duration_ms
+         FROM pipeline_metrics
+        WHERE stage_name = ?
+        ORDER BY duration_ms ASC`,
+      [stageName],
+    );
     if (rows.length === 0) return 0;
     const index = Math.ceil(percentile * rows.length) - 1;
     return rows[Math.max(0, index)]?.duration_ms ?? 0;
