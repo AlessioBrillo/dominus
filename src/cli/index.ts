@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import type Database from 'better-sqlite3';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
@@ -23,6 +26,18 @@ import type { PortfolioReportService } from '../portfolio/portfolio-report-servi
 import type { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import type { AcquisitionService } from '../services/acquisition-service.js';
 import type { ListingManager } from '../listing/listing-manager.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+function loadCliVersion(): string {
+  try {
+    const pkgPath = join(__dirname, '..', '..', '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 import { registerListingCommand } from './commands/listing-command.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerBidCommand } from './commands/bid-command.js';
@@ -96,7 +111,7 @@ export function createCli(options: CreateCliOptions): Command {
   program
     .name('dominus')
     .description('Personal DNS domain investment decision-support tool')
-    .version('0.3.0');
+    .version(loadCliVersion());
 
   registerRunCommand(program, { runService, jobQueueService, runsRepo });
   registerCandidatesCommand(program, { candidateRepo });

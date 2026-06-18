@@ -25,7 +25,7 @@ export function computeIntrinsicScore(
 
   const tldMultiplier = tldBonuses[input.tld!] ?? 0.3;
 
-  const pronounceabilityScore = computePronouncability(sld);
+  const pronounceabilityScore = computePronounceability(sld);
 
   const raw =
     (lengthScore * 0.3 + penaltyScore * 0.35 + pronounceabilityScore * 0.35) * tldMultiplier;
@@ -50,7 +50,7 @@ export function computeIntrinsicScore(
 
 const STRICT_VOWELS = new Set(['a', 'e', 'i', 'o', 'u']);
 
-function computePronouncability(sld: string): number {
+function computePronounceability(sld: string): number {
   const normalized = sld.toLowerCase();
   if (normalized.length === 0) return 0;
 

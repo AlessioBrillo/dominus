@@ -180,7 +180,7 @@ describe('health command', () => {
     const output = await runHealth('--json');
     const parsed = JSON.parse(output.trim());
     expect(parsed).toHaveProperty('status', 'ok');
-    expect(parsed).toHaveProperty('version', '0.3.0');
+    expect(parsed).toHaveProperty('version', '0.4.0-dev');
     expect(parsed).toHaveProperty('uptime');
     expect(parsed).toHaveProperty('database', 'connected');
     expect(parsed).toHaveProperty('providers');
