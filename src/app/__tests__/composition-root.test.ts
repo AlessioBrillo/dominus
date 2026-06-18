@@ -474,6 +474,10 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       WORKER_CONCURRENCY: 2,
       JOB_QUEUE_POLL_INTERVAL_MS: 1000,
       JOB_MAX_RUNNING_AGE_MS: 300000,
+      LISTING_PROVIDER: 'manual' as const,
+      LISTING_DEFAULT_MARKETPLACE: 'manual' as const,
+      LISTING_DEFAULT_PRICE_MULTIPLIER: 1.0,
+      DAN_API_KEY: undefined,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

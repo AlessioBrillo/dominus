@@ -23,6 +23,7 @@ import * as m0020 from './migrations/0020_create_outcome_scores.js';
 import * as m0021 from './migrations/0021_create_bids.js';
 import * as m0022 from './migrations/0022_create_job_queue.js';
 import * as m0023 from './migrations/0023_add_outcome_costs.js';
+import * as m0024 from './migrations/0024_create_listings.js';
 
 interface Migration {
   name: string;
@@ -57,6 +58,7 @@ const MIGRATIONS: Migration[] = [
   m0021,
   m0022,
   m0023,
+  m0024,
 ];
 
 export function runMigrations(db: Database.Database): void {

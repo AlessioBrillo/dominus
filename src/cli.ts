@@ -26,5 +26,6 @@ const cli = createCli({
   reportService: deps.reportService,
   accuracyAnalyzer: deps.accuracyAnalyzer,
   acquisitionService: deps.acquisitionService,
+  listingManager: deps.listingManager,
 });
 cli.parse(process.argv);

@@ -6,3 +6,4 @@ export * from './outcome.js';
 export * from './portfolio.js';
 export * from './score.js';
 export * from './weight-snapshot.js';
+export * from './listing.js';

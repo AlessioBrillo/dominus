@@ -112,6 +112,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     WORKER_CONCURRENCY: 2,
     JOB_QUEUE_POLL_INTERVAL_MS: 1000,
     JOB_MAX_RUNNING_AGE_MS: 300000,
+    LISTING_PROVIDER: 'manual' as const,
+    LISTING_DEFAULT_MARKETPLACE: 'manual' as const,
+    LISTING_DEFAULT_PRICE_MULTIPLIER: 1.0,
     ...overrides,
   };
 }
