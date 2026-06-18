@@ -1,115 +1,133 @@
-import { useState, useEffect } from 'react';
-import { api } from '../api/client.js';
-import { useAuth } from '../hooks/useAuth.js';
-import type { ProviderStatus, HealthResponse } from '../types/domain.js';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { api } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { HealthResponse, ProviderStatus } from '@/types/domain';
 
 export function SettingsPage() {
-  const { isAuthenticated, logout } = useAuth();
+  const { logout } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiKey, setApiKey] = useState('');
 
-  useEffect(() => {
-    Promise.all([
-      api.get<HealthResponse>('/health'),
-      api.get<{ providers: ProviderStatus[] }>('/providers/status'),
-    ])
-      .then(([h, p]) => {
-        setHealth(h);
-        setProviders(p.providers);
-      })
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [healthData, providersData] = await Promise.allSettled([
+        api.get<HealthResponse>('/health'),
+        api.get<{ providers: ProviderStatus[] }>('/providers/status'),
+      ]);
+      if (healthData.status === 'fulfilled') setHealth(healthData.value);
+      if (providersData.status === 'fulfilled') setProviders(providersData.value.providers);
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleLogout = (): void => {
-    logout();
-    window.location.href = '/';
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-100">Settings</h2>
-        <p className="text-sm text-gray-500 mt-1">System configuration and status</p>
-      </div>
+      <h2 className="text-2xl font-bold text-text-primary">Settings</h2>
 
-      <section className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-        <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-          Authentication
-        </h3>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span
-              className={`inline-block w-2.5 h-2.5 rounded-full ${
-                isAuthenticated ? 'bg-green-500' : 'bg-red-500'
-              }`}
-            />
-            <span className="text-sm text-gray-300">
-              {isAuthenticated ? 'Authenticated' : 'Not Authenticated'}
-            </span>
+      <Card>
+        <CardHeader>
+          <CardTitle>Authentication</CardTitle>
+          <CardDescription>Update your API key or sign out</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Input
+            type="password"
+            placeholder="New API Key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={logout}>
+              Sign Out
+            </Button>
           </div>
-          <button
-            onClick={handleLogout}
-            className="px-3 py-1.5 text-xs bg-red-900/50 hover:bg-red-800/50 text-red-400 rounded-lg transition-colors border border-red-900"
-          >
-            Clear API Key
-          </button>
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-        <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-          System Health
-        </h3>
-        {loading ? (
-          <div className="text-gray-500 text-sm animate-pulse">Loading...</div>
-        ) : health ? (
-          <div className="grid grid-cols-3 gap-4 text-sm">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
             <div>
-              <div className="text-gray-500 text-xs">Version</div>
-              <div className="font-mono text-gray-200">{health.version}</div>
+              <CardTitle>System Health</CardTitle>
+              <CardDescription>
+                {health ? `v${health.version} · ${health.status}` : 'Loading...'}
+              </CardDescription>
             </div>
-            <div>
-              <div className="text-gray-500 text-xs">Uptime</div>
-              <div className="font-mono text-gray-200">
-                {Math.floor(health.uptime / 3600)}h {Math.floor((health.uptime % 3600) / 60)}m
-              </div>
-            </div>
-            <div>
-              <div className="text-gray-500 text-xs">Status</div>
-              <div className="font-mono text-emerald-400">{health.status}</div>
-            </div>
+            <Button variant="outline" size="sm" onClick={load}>
+              <RefreshCw className="h-3 w-3" />
+            </Button>
           </div>
-        ) : null}
-      </section>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {loading ? (
+            <Skeleton className="h-20 w-full" />
+          ) : (
+            <>
+              <InfoRow label="Version" value={health?.version ?? '—'} />
+              <InfoRow label="Status" value={health?.status ?? '—'} />
+              <InfoRow
+                label="Uptime"
+                value={
+                  health?.uptime != null
+                    ? `${Math.floor(health.uptime / 3600)}h ${Math.floor((health.uptime % 3600) / 60)}m`
+                    : '—'
+                }
+              />
+            </>
+          )}
+        </CardContent>
+      </Card>
 
-      <section className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-        <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-          Providers
-        </h3>
-        {loading ? (
-          <div className="text-gray-500 text-sm animate-pulse">Loading...</div>
-        ) : (
-          <div className="space-y-2">
-            {providers.map((p) => (
+      <Card>
+        <CardHeader>
+          <CardTitle>Providers</CardTitle>
+          <CardDescription>External service status</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {loading ? (
+            <Skeleton className="h-32 w-full" />
+          ) : providers.length === 0 ? (
+            <p className="text-sm text-text-muted">No provider status available</p>
+          ) : (
+            providers.map((p) => (
               <div
                 key={p.name}
-                className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-950"
+                className="flex items-center justify-between py-2 border-b border-border last:border-0"
               >
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full ${
-                      p.configured ? 'bg-emerald-500' : 'bg-amber-500'
-                    }`}
-                  />
-                  <span className="text-sm text-gray-200 font-medium">{p.name}</span>
-                </div>
-                <span className="text-xs text-gray-500 max-w-96 text-right truncate">{p.note}</span>
+                <span className="text-sm text-text-primary">{p.name}</span>
+                <Badge variant={p.configured ? 'success' : 'danger'}>
+                  {p.configured ? 'Configured' : 'Not configured'}
+                </Badge>
               </div>
-            ))}
-          </div>
-        )}
-      </section>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between py-1.5 text-sm">
+      <span className="text-text-muted">{label}</span>
+      <span className="text-text-primary font-mono">{value}</span>
     </div>
   );
 }

@@ -1,94 +1,145 @@
-import { useState, useEffect } from 'react';
-import { api } from '../api/client.js';
-import type { Outcome } from '../types/domain.js';
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { api } from '@/api/client';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { Outcome } from '@/types/domain';
+
+const typeVariant: Record<string, 'success' | 'danger' | 'warning' | 'info'> = {
+  sold: 'success',
+  expired: 'danger',
+  dropped: 'danger',
+  renewed: 'info',
+};
 
 export function OutcomesPage() {
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api
-      .get<{ outcomes: Outcome[] }>('/outcomes')
-      .then((data) => setOutcomes(data.outcomes))
-      .finally(() => setLoading(false));
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.get<{ outcomes: Outcome[] }>('/outcomes');
+      setOutcomes(data.outcomes);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load outcomes');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  if (loading) {
-    return <div className="text-gray-500 animate-pulse">Loading outcomes...</div>;
-  }
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const sold = outcomes.filter((o) => o.type === 'sold');
-  const totalRevenue = sold.reduce((sum, o) => sum + (o.salePriceEur ?? 0), 0);
+  const sold = outcomes.filter((o) => o.type === 'sold').length;
+  const totalRevenue = outcomes
+    .filter((o) => o.type === 'sold' && o.salePriceEur != null)
+    .reduce((sum, o) => sum + (o.salePriceEur ?? 0), 0);
+  const expired = outcomes.filter((o) => o.type === 'expired' || o.type === 'dropped').length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-100">Outcomes</h2>
-        <p className="text-sm text-gray-500 mt-1">
-          {sold.length} sales — €{totalRevenue.toFixed(2)} total revenue
-        </p>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-text-primary">Outcomes</h2>
+        <Button variant="outline" onClick={load}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
-        <Stat label="Sold" value={outcomes.filter((o) => o.type === 'sold').length} />
-        <Stat label="Dropped" value={outcomes.filter((o) => o.type === 'dropped').length} />
-        <Stat label="Expired" value={outcomes.filter((o) => o.type === 'expired').length} />
-        <Stat label="Renewed" value={outcomes.filter((o) => o.type === 'renewed').length} />
+      <div className="grid grid-cols-3 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sold</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono text-success">{sold}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Revenue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono text-success">
+              €{totalRevenue.toFixed(0)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Expired/Dropped</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-mono text-danger">{expired}</div>
+          </CardContent>
+        </Card>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-800">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-900">
-            <tr className="text-left text-gray-500 text-xs uppercase">
-              <th className="py-3 px-4">Domain</th>
-              <th className="py-3 px-4">Type</th>
-              <th className="py-3 px-4">Date</th>
-              <th className="py-3 px-4">Sale Price</th>
-              <th className="py-3 px-4">Venue</th>
-              <th className="py-3 px-4">Notes</th>
-            </tr>
-          </thead>
-          <tbody className="bg-gray-950">
-            {outcomes.map((o) => (
-              <tr key={o.id} className="border-b border-gray-800">
-                <td className="py-3 px-4 font-medium text-gray-200">{o.domain}</td>
-                <td className="py-3 px-4">
-                  <span
-                    className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      o.type === 'sold'
-                        ? 'bg-emerald-900/50 text-emerald-400'
-                        : o.type === 'dropped'
-                          ? 'bg-red-900/50 text-red-400'
-                          : o.type === 'expired'
-                            ? 'bg-gray-800 text-gray-500'
-                            : 'bg-blue-900/50 text-blue-400'
-                    }`}
-                  >
-                    {o.type}
-                  </span>
-                </td>
-                <td className="py-3 px-4 text-gray-400">
-                  {new Date(o.occurredAt).toLocaleDateString()}
-                </td>
-                <td className="py-3 px-4 font-mono text-gray-300">
-                  {o.salePriceEur ? `€${o.salePriceEur.toFixed(2)}` : '—'}
-                </td>
-                <td className="py-3 px-4 text-gray-400">{o.venue ?? '—'}</td>
-                <td className="py-3 px-4 text-gray-500 max-w-48 truncate">{o.notes ?? '—'}</td>
-              </tr>
+      {loading ? (
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
             ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-      <div className="text-xs text-gray-500 uppercase tracking-wider">{label}</div>
-      <div className="text-2xl font-bold mt-1 text-gray-100 font-mono">{value}</div>
+          </CardContent>
+        </Card>
+      ) : error ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-danger text-sm">{error}</p>
+          </CardContent>
+        </Card>
+      ) : outcomes.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-text-muted">
+            No outcomes recorded. Use the CLI to record outcomes.
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-bg-muted">
+                {['Domain', 'Type', 'Date', 'Price', 'Venue', 'Notes'].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left py-3 px-4 text-xs font-medium text-text-muted uppercase tracking-wider"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="bg-bg-elevated">
+              {outcomes.map((o) => (
+                <tr
+                  key={o.id}
+                  className="border-b border-border hover:bg-bg-hover transition-colors"
+                >
+                  <td className="py-3 px-4 font-mono text-sm text-text-primary">{o.domain}</td>
+                  <td className="py-3 px-4">
+                    <Badge variant={typeVariant[o.type] ?? 'outline'}>{o.type}</Badge>
+                  </td>
+                  <td className="py-3 px-4 text-sm text-text-secondary">
+                    {new Date(o.occurredAt).toLocaleDateString()}
+                  </td>
+                  <td className="py-3 px-4 font-mono text-sm text-text-primary">
+                    {o.salePriceEur != null ? `€${o.salePriceEur.toFixed(0)}` : '—'}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-text-secondary">{o.venue ?? '—'}</td>
+                  <td className="py-3 px-4 text-sm text-text-muted">{o.notes ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

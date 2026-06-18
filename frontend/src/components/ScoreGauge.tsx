@@ -1,22 +1,25 @@
+import { cn } from '@/lib/utils';
+
 interface ScoreGaugeProps {
-  value: number;
   label: string;
+  value: number;
   max?: number;
+  className?: string;
 }
 
-export function ScoreGauge({ value, label, max = 1 }: ScoreGaugeProps) {
+export function ScoreGauge({ label, value, max = 1, className }: ScoreGaugeProps) {
   const pct = Math.min(100, Math.max(0, (value / max) * 100));
-  const color = pct >= 70 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
+  const barColor = pct >= 70 ? 'bg-success' : pct >= 40 ? 'bg-warning' : 'bg-danger';
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className={cn('space-y-1', className)}>
       <div className="flex justify-between text-xs">
-        <span className="text-gray-400">{label}</span>
-        <span className="font-mono text-gray-200">{value.toFixed(2)}</span>
+        <span className="text-text-muted">{label}</span>
+        <span className="text-text-secondary font-mono">{value.toFixed(3)}</span>
       </div>
-      <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-bg-muted rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${color}`}
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
           style={{ width: `${pct}%` }}
         />
       </div>

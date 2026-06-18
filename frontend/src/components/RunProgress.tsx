@@ -1,98 +1,101 @@
-import { useRunProgress, type RunProgressState } from '../hooks/useRunProgress.js';
+import { useRunProgress } from '@/hooks/useRunProgress';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 interface RunProgressProps {
   runId: string | null;
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  candidate_generation: 'Candidate Generation',
-  dns_prefilter: 'DNS Pre-filter',
-  rdap_confirmation: 'RDAP Confirmation',
-  whois: 'WHOIS Lookup',
-  scoring: 'Scoring',
-  trademark_gate: 'Trademark Gate',
-};
+const stageOrder = [
+  'CandidateGenerationStage',
+  'DnsPreFilterStage',
+  'WhoisStage',
+  'RdapConfirmationStage',
+  'ScoringStage',
+  'TrademarkGateStage',
+];
 
 export function RunProgress({ runId }: RunProgressProps) {
   const progress = useRunProgress(runId);
 
-  if (!runId || progress.status === 'idle') return null;
+  if (!runId) return null;
+
+  if (progress.status === 'idle') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Pipeline Run</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-text-muted">Starting pipeline...</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          Pipeline Progress
-        </h3>
-        <PipelineStatusBadge status={progress.status} />
-      </div>
-
-      {progress.status === 'connecting' && (
-        <div className="text-sm text-gray-500 animate-pulse">Connecting...</div>
-      )}
-
-      {progress.stages.length > 0 && (
-        <div className="space-y-2">
-          {progress.stages.map((stage) => (
-            <StageRow key={stage.name} stage={stage} />
-          ))}
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle>Pipeline Run</CardTitle>
+          <Badge variant="info" className="font-mono text-[10px]">
+            {runId.slice(0, 8)}
+          </Badge>
         </div>
-      )}
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {stageOrder.map((stageName) => {
+          const stage = progress.stages?.find((s) => s.name === stageName);
+          const hasRun = stage != null;
 
-      {progress.status === 'complete' && (
-        <div className="text-sm text-emerald-400 font-medium pt-1">
-          Complete — {progress.totalPassed ?? 0} passed, {progress.totalFiltered ?? 0} filtered in{' '}
-          {((progress.totalDurationMs ?? 0) / 1000).toFixed(1)}s
-        </div>
-      )}
+          return (
+            <div
+              key={stageName}
+              className={cn(
+                'flex items-center justify-between px-3 py-2 rounded-lg text-sm',
+                hasRun && stage.complete && 'opacity-70',
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={cn(
+                    'inline-block w-2 h-2 rounded-full',
+                    stage?.error && 'bg-danger',
+                    stage?.complete && !stage.error && 'bg-success',
+                    !hasRun && progress.status === 'running' && 'bg-text-muted',
+                    hasRun && !stage.complete && !stage.error && 'bg-brand-400 animate-pulse',
+                  )}
+                />
+                <span className="text-text-primary">{stageName}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-text-muted">
+                {stage && (
+                  <>
+                    <span>{stage.passed ?? 0} passed</span>
+                    <span>{stage.filtered ?? 0} filtered</span>
+                  </>
+                )}
+                {stage?.complete && stage.durationMs != null && (
+                  <span className="font-mono">{(stage.durationMs / 1000).toFixed(1)}s</span>
+                )}
+                {stage?.error && <Badge variant="danger">Error</Badge>}
+              </div>
+            </div>
+          );
+        })}
 
-      {progress.status === 'error' && progress.error && (
-        <div className="text-sm text-red-400">{progress.error}</div>
-      )}
-    </div>
-  );
-}
+        {progress.status === 'complete' && progress.stages && (
+          <div className="pt-2 text-sm text-success font-medium">
+            Pipeline completed in{' '}
+            {(progress.stages.reduce((sum, s) => sum + (s.durationMs ?? 0), 0) / 1000).toFixed(1)}s
+          </div>
+        )}
 
-function PipelineStatusBadge({ status }: { status: RunProgressState['status'] }) {
-  const colors: Record<string, string> = {
-    connecting: 'bg-blue-900/50 text-blue-400',
-    running: 'bg-cyan-900/50 text-cyan-400',
-    complete: 'bg-emerald-900/50 text-emerald-400',
-    error: 'bg-red-900/50 text-red-400',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? ''}`}>
-      {status}
-    </span>
-  );
-}
-
-function StageRow({
-  stage,
-}: {
-  stage: {
-    name: string;
-    passed: number;
-    filtered: number;
-    durationMs: number;
-    error: boolean;
-    complete: boolean;
-  };
-}) {
-  const label = STAGE_LABELS[stage.name] ?? stage.name;
-  return (
-    <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-gray-950 text-sm">
-      <div className="flex items-center gap-2">
-        <span
-          className={`w-2 h-2 rounded-full ${
-            stage.error ? 'bg-red-500' : stage.complete ? 'bg-emerald-500' : 'bg-amber-500'
-          }`}
-        />
-        <span className="text-gray-200">{label}</span>
-      </div>
-      <span className="text-gray-500 font-mono text-xs">
-        +{stage.passed} / -{stage.filtered} · {(stage.durationMs / 1000).toFixed(1)}s
-      </span>
-    </div>
+        {progress.status === 'error' && (
+          <div className="pt-2 text-sm text-danger font-medium">Pipeline failed</div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

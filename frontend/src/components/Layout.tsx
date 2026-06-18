@@ -1,20 +1,39 @@
+import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth.js';
-import { LoginForm } from './LoginForm.js';
+import {
+  LayoutDashboard,
+  ListChecks,
+  BarChart3,
+  Gavel,
+  Briefcase,
+  History,
+  Settings,
+  Menu,
+  LogOut,
+  Sun,
+  Moon,
+} from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/hooks/useTheme';
+import { LoginForm } from '@/components/LoginForm';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: '◈' },
-  { to: '/candidates', label: 'Candidates', icon: '◎' },
-  { to: '/analytics', label: 'Analytics', icon: '▤' },
-  { to: '/bids', label: 'Bids', icon: '⚡' },
-  { to: '/portfolio', label: 'Portfolio', icon: '▣' },
-  { to: '/outcomes', label: 'Outcomes', icon: '▤' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/candidates', label: 'Candidates', icon: ListChecks },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/bids', label: 'Bids', icon: Gavel },
+  { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
+  { to: '/outcomes', label: 'Outcomes', icon: History },
+  { to: '/settings', label: 'Settings', icon: Settings },
 ] as const;
 
 export function Layout() {
   const { isAuthenticated, isLoading, logout: authLogout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleLogout = (): void => {
     authLogout();
@@ -24,7 +43,7 @@ export function Layout() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-gray-400 animate-pulse">Loading...</div>
+        <div className="text-text-muted animate-pulse">Loading...</div>
       </div>
     );
   }
@@ -34,44 +53,87 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col shrink-0">
-        <div className="p-5 border-b border-gray-800">
-          <h1 className="text-lg font-bold text-cyan-400 tracking-tight">DOMINUS</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Domain Investment Engine</p>
+    <div className="flex h-screen overflow-hidden bg-bg-primary">
+      <aside
+        className={cn(
+          'flex flex-col border-r border-border bg-bg-elevated transition-all duration-200 shrink-0',
+          sidebarOpen ? 'w-56' : 'w-14',
+        )}
+      >
+        <div
+          className={cn(
+            'flex items-center border-b border-border',
+            sidebarOpen ? 'p-4 justify-between' : 'p-3 justify-center',
+          )}
+        >
+          {sidebarOpen && (
+            <div>
+              <h1 className="text-base font-bold text-brand-400 tracking-tight">DOMINUS</h1>
+              <p className="text-[10px] text-text-muted leading-tight">Domain Investment</p>
+            </div>
+          )}
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="text-text-muted hover:text-text-primary transition-colors shrink-0"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
-          {navItems.map(({ to, label, icon }) => (
+
+        <nav className="flex-1 p-2 space-y-1">
+          {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                   isActive
-                    ? 'bg-cyan-900/40 text-cyan-300 font-medium'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                }`
+                    ? 'bg-brand-900/40 text-brand-300 font-medium'
+                    : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
+                )
               }
             >
-              <span className="w-5 text-center">{icon}</span>
-              {label}
+              <Icon className="h-4 w-4 shrink-0" />
+              {sidebarOpen && label}
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t border-gray-800 space-y-3">
-          <div className="flex items-center gap-2 text-xs text-gray-600">
-            <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-            API Connected
-          </div>
+
+        <div className={cn('border-t border-border space-y-2', sidebarOpen ? 'p-4' : 'p-2')}>
           <button
-            onClick={handleLogout}
-            className="w-full px-3 py-1.5 bg-gray-800 hover:bg-red-900/50 text-gray-400 hover:text-red-400 rounded-lg text-xs font-medium transition-colors"
+            onClick={toggleTheme}
+            className={cn(
+              'flex items-center gap-3 rounded-lg text-sm transition-colors w-full text-text-muted hover:text-text-primary hover:bg-bg-hover',
+              sidebarOpen ? 'px-3 py-2' : 'p-2 justify-center',
+            )}
           >
-            Logout
+            {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {sidebarOpen && (theme === 'dark' ? 'Light Mode' : 'Dark Mode')}
           </button>
+
+          <div
+            className={cn('flex items-center gap-2', sidebarOpen ? 'px-3 py-1' : 'justify-center')}
+          >
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
+            {sidebarOpen && <span className="text-[11px] text-text-muted">Connected</span>}
+          </div>
+
+          {sidebarOpen && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="w-full justify-start text-text-muted hover:text-red-400"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
+          )}
         </div>
       </aside>
+
       <main className="flex-1 overflow-y-auto p-6">
         <Outlet />
       </main>

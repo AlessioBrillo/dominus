@@ -1,60 +1,59 @@
-import { useState, type FormEvent } from 'react';
-import { useAuth } from '../hooks/useAuth.js';
-import { verifyAndStoreKey } from '../api/auth.js';
+import { useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export function LoginForm() {
   const { login } = useAuth();
-  const [apiKey, setApiKey] = useState('');
+  const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    const result = await verifyAndStoreKey(apiKey);
-    if (result.success) {
-      login(apiKey);
-    } else {
-      setError(result.error ?? 'Authentication failed');
+    if (!key.trim()) {
+      setError('API key is required');
+      return;
     }
-    setLoading(false);
+    setLoading(true);
+    setError('');
+    try {
+      await login(key.trim());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950">
-      <div className="w-full max-w-sm">
-        <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8">
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-cyan-400">DOMINUS</h1>
-            <p className="text-sm text-gray-500 mt-1">Enter your API key to continue</p>
+    <div className="flex min-h-screen items-center justify-center bg-bg-primary p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center">
+          <div className="mb-2">
+            <h1 className="text-2xl font-bold text-brand-400 tracking-tight">DOMINUS</h1>
+            <p className="text-xs text-text-muted">Domain Investment Engine</p>
           </div>
-
+          <CardTitle>Sign In</CardTitle>
+          <CardDescription>Enter your API key to access the dashboard</CardDescription>
+        </CardHeader>
+        <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-                className="w-full px-4 py-2.5 bg-gray-950 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-600 focus:outline-none focus:border-cyan-700 focus:ring-1 focus:ring-cyan-700 transition-colors text-sm font-mono"
-                autoFocus
-              />
-            </div>
-
-            {error && <div className="text-red-400 text-xs text-center">{error}</div>}
-
-            <button
-              type="submit"
-              disabled={loading || !apiKey}
-              className="w-full py-2.5 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
-            >
-              {loading ? 'Verifying...' : 'Authenticate'}
-            </button>
+            <Input
+              type="password"
+              placeholder="API Key"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              autoFocus
+            />
+            {error && <p className="text-xs text-danger">{error}</p>}
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? 'Authenticating...' : 'Authenticate'}
+            </Button>
           </form>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

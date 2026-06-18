@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { getStoredApiKey, clearApiKey, storeApiKey, setOnUnauthorized } from '../api/client.js';
+import { getStoredApiKey, clearApiKey, storeApiKey, setOnUnauthorized } from '@/api/client';
 
 interface AuthContextValue {
   isAuthenticated: boolean;

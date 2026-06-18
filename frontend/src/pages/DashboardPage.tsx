@@ -1,42 +1,51 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  fetchDashboardStats,
-  type DashboardStats,
-  type DashboardResult,
-} from '../api/dashboard.js';
-import { runPipeline } from '../api/candidates.js';
-import { RunProgress } from '../components/RunProgress.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Play, RefreshCw } from 'lucide-react';
+import { BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
+import { fetchDashboardStats, type DashboardResult } from '@/api/dashboard';
+import { runPipeline } from '@/api/candidates';
+import { RunProgress } from '@/components/RunProgress';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stats, setStats] = useState<DashboardResult['stats'] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [partialFailure, setPartialFailure] = useState(false);
   const [failureReasons, setFailureReasons] = useState<string[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     setPartialFailure(false);
     setFailureReasons([]);
     try {
-      const result: DashboardResult = await fetchDashboardStats();
+      const result: DashboardResult = await fetchDashboardStats(controller.signal);
+      if (controller.signal.aborted) return;
       setStats(result.stats);
       if (result.partialFailure) {
         setPartialFailure(true);
         setFailureReasons(result.failureReasons);
       }
     } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return;
       setError(err instanceof Error ? err.message : 'Failed to load dashboard');
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     load();
+    return () => abortRef.current?.abort();
   }, [load]);
 
   const startPipeline = useCallback(async () => {
@@ -52,20 +61,21 @@ export function DashboardPage() {
     }
   }, []);
 
-  if (error) {
+  if (error && !stats) {
     return (
       <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
-        <div className="bg-red-950/50 border border-red-900 text-red-400 px-4 py-6 rounded-xl text-center">
-          <div className="text-lg font-medium mb-2">Failed to load dashboard</div>
-          <p className="text-sm text-red-400/70 mb-4">{error}</p>
-          <button
-            onClick={load}
-            className="px-4 py-2 bg-red-800 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            Retry
-          </button>
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-text-primary">Dashboard</h2>
         </div>
+        <Card>
+          <CardContent className="flex flex-col items-center py-12">
+            <p className="text-danger text-sm mb-4">{error}</p>
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -73,80 +83,90 @@ export function DashboardPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
-          <p className="text-sm text-gray-500 mt-1 animate-pulse">Loading system data...</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-text-primary">Dashboard</h2>
+            <p className="text-sm text-text-muted mt-1 animate-pulse">Loading system data...</p>
+          </div>
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-gray-900 rounded-xl border border-gray-800 p-4 animate-pulse"
-            >
-              <div className="h-3 bg-gray-800 rounded w-20 mb-3" />
-              <div className="h-7 bg-gray-800 rounded w-24" />
-            </div>
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-3 w-20" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-7 w-24" />
+              </CardContent>
+            </Card>
           ))}
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 animate-pulse">
-            <div className="h-3 bg-gray-800 rounded w-32 mb-4" />
-            <div className="space-y-3">
-              <div className="h-8 bg-gray-800 rounded" />
-              <div className="h-8 bg-gray-800 rounded" />
-              <div className="h-8 bg-gray-800 rounded" />
-            </div>
-          </div>
-          <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 animate-pulse">
-            <div className="h-3 bg-gray-800 rounded w-24 mb-4" />
-            <div className="space-y-2">
-              <div className="h-4 bg-gray-800 rounded" />
-              <div className="h-4 bg-gray-800 rounded" />
-              <div className="h-4 bg-gray-800 rounded" />
-            </div>
-          </div>
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-3 w-32" />
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-3 w-24" />
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
   }
 
+  const chartData = [
+    { name: 'Keep', value: stats?.keepCount ?? 0, fill: '#10b981' },
+    { name: 'Reprice', value: stats?.repriceCount ?? 0, fill: '#f59e0b' },
+    { name: 'Drop', value: stats?.dropCount ?? 0, fill: '#ef4444' },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-100">Dashboard</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <h2 className="text-2xl font-bold text-text-primary">Dashboard</h2>
+          <p className="text-sm text-text-muted mt-1">
             DOMINUS v{stats?.health?.version ?? '?'} — {stats?.health?.status ?? 'unknown'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={startPipeline}
-            disabled={starting}
-            className="px-3 py-1.5 bg-cyan-800 hover:bg-cyan-700 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-xs font-medium transition-colors"
-            title="Run a new pipeline"
-          >
-            {starting ? <span className="animate-pulse">Starting...</span> : <>▶ Run Pipeline</>}
-          </button>
-          <button
-            onClick={load}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium transition-colors"
-            title="Refresh dashboard data"
-          >
-            ↻ Refresh
-          </button>
+          <Button onClick={startPipeline} disabled={starting}>
+            {starting ? (
+              <span className="animate-pulse">Starting...</span>
+            ) : (
+              <>
+                <Play className="h-4 w-4" /> Run Pipeline
+              </>
+            )}
+          </Button>
+          <Button variant="outline" onClick={load}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
       {partialFailure && (
-        <div className="bg-amber-950/40 border border-amber-900/50 text-amber-400 px-4 py-3 rounded-lg text-sm flex items-center justify-between">
+        <div className="bg-warning/10 border border-warning/30 text-warning px-4 py-3 rounded-lg text-sm flex items-center justify-between">
           <span>
             Some data sources unavailable: {failureReasons.map((r) => `/api/v1/${r}`).join(', ')}.
             Displaying partial data.
           </span>
-          <button onClick={load} className="ml-3 underline whitespace-nowrap">
+          <Button variant="ghost" size="sm" onClick={load}>
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
@@ -155,87 +175,89 @@ export function DashboardPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Portfolio Domains"
-          value={stats?.totalDomains ?? 0}
-          color="text-cyan-400"
+          value={String(stats?.totalDomains ?? 0)}
+          accent="text-brand-400"
         />
         <StatCard
           label="Keep / Drop"
           value={`${stats?.keepCount ?? 0} / ${stats?.dropCount ?? 0}`}
-          color="text-emerald-400"
+          accent="text-success"
         />
         <StatCard
           label="Portfolio Value"
           value={`€${(stats?.totalListValue ?? 0).toFixed(0)}`}
-          color="text-purple-400"
+          accent="text-accent"
         />
         <StatCard
           label="Active Alerts"
-          value={stats?.activeAlertCount ?? 0}
-          color={(stats?.activeAlertCount ?? 0) > 0 ? 'text-red-400' : 'text-gray-400'}
+          value={String(stats?.activeAlertCount ?? 0)}
+          accent={(stats?.activeAlertCount ?? 0) > 0 ? 'text-danger' : 'text-text-muted'}
         />
       </div>
 
       {stats?.recentAlerts && stats.recentAlerts.length > 0 && (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-            Active Alerts
-          </h3>
-          <div className="space-y-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Active Alerts</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
             {stats.recentAlerts.map((alert) => (
               <div
                 key={alert.id}
                 className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm ${
                   alert.severity === 'critical'
-                    ? 'bg-red-950/50 border border-red-900'
-                    : 'bg-amber-950/30 border border-amber-900/50'
+                    ? 'bg-danger/10 border border-danger/30'
+                    : 'bg-warning/10 border border-warning/30'
                 }`}
               >
                 <div>
-                  <span className="font-medium text-gray-200">{alert.domain}</span>
-                  <span className="text-gray-400 ml-2">{alert.message}</span>
+                  <span className="font-medium text-text-primary">{alert.domain}</span>
+                  <span className="text-text-secondary ml-2">{alert.message}</span>
                 </div>
                 <span
-                  className={`text-xs font-medium ${alert.severity === 'critical' ? 'text-red-400' : 'text-amber-400'}`}
+                  className={`text-xs font-medium ${alert.severity === 'critical' ? 'text-danger' : 'text-warning'}`}
                 >
                   {alert.severity}
                 </span>
               </div>
             ))}
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-            Verdict Breakdown
-          </h3>
-          <div className="space-y-3">
-            <VerdictBar
-              label="Keep"
-              count={stats?.keepCount ?? 0}
-              total={stats?.totalDomains ?? 1}
-              color="bg-emerald-500"
-            />
-            <VerdictBar
-              label="Reprice"
-              count={stats?.repriceCount ?? 0}
-              total={stats?.totalDomains ?? 1}
-              color="bg-amber-500"
-            />
-            <VerdictBar
-              label="Drop"
-              count={stats?.dropCount ?? 0}
-              total={stats?.totalDomains ?? 1}
-              color="bg-red-500"
-            />
-          </div>
-        </div>
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-          <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-            System Info
-          </h3>
-          <div className="space-y-2 text-sm">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Verdict Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} layout="vertical">
+                  <XAxis type="number" hide />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 space-y-2">
+              {chartData.map((d) => (
+                <div key={d.name} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: d.fill }} />
+                    <span className="text-text-secondary">{d.name}</span>
+                  </div>
+                  <span className="font-mono text-text-primary">{d.value}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>System Info</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
             <InfoRow label="Version" value={stats?.health?.version ?? '—'} />
             <InfoRow
               label="Uptime"
@@ -246,62 +268,31 @@ export function DashboardPage() {
               }
             />
             <InfoRow label="API Status" value={stats?.health?.status ?? 'unknown'} />
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
 
-function StatCard({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  color: string;
-}) {
+function StatCard({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-      <div className="text-xs text-gray-500 uppercase tracking-wider">{label}</div>
-      <div className={`text-2xl font-bold mt-1 font-mono ${color}`}>{value}</div>
-    </div>
-  );
-}
-
-function VerdictBar({
-  label,
-  count,
-  total,
-  color,
-}: {
-  label: string;
-  count: number;
-  total: number;
-  color: string;
-}) {
-  const pct = total > 0 ? (count / total) * 100 : 0;
-  return (
-    <div>
-      <div className="flex justify-between text-xs text-gray-400 mb-1">
-        <span>{label}</span>
-        <span>
-          {count} ({pct.toFixed(0)}%)
-        </span>
-      </div>
-      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className={`text-2xl font-bold font-mono ${accent}`}>{value}</div>
+      </CardContent>
+    </Card>
   );
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between">
-      <span className="text-gray-500">{label}</span>
-      <span className="text-gray-200 font-mono">{value}</span>
+    <div className="flex justify-between text-sm">
+      <span className="text-text-muted">{label}</span>
+      <span className="text-text-primary font-mono">{value}</span>
     </div>
   );
 }

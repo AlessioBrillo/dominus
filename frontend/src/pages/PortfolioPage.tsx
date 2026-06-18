@@ -1,134 +1,270 @@
-import { useState, useEffect } from 'react';
-import { api } from '../api/client.js';
-import { rescorePortfolio } from '../api/portfolio.js';
-import type { PortfolioEntry } from '../types/domain.js';
-import { PortfolioRow } from '../components/PortfolioRow.js';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  createColumnHelper,
+  flexRender,
+  type SortingState,
+  type ColumnFiltersState,
+} from '@tanstack/react-table';
+import { ArrowUpDown, RefreshCw, RotateCcw } from 'lucide-react';
+import {
+  fetchPortfolio,
+  rescorePortfolio,
+  refreshVerdicts,
+  type PortfolioListResponse,
+} from '@/api/portfolio';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { PortfolioEntry } from '@/types/domain';
+
+type RowData = PortfolioEntry;
 
 export function PortfolioPage() {
-  const [entries, setEntries] = useState<PortfolioEntry[]>([]);
+  const [data, setData] = useState<RowData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rescoring, setRescoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [globalFilter, setGlobalFilter] = useState('');
 
-  useEffect(() => {
-    api
-      .get<{ portfolio: PortfolioEntry[] }>('/portfolio')
-      .then((data: { portfolio: PortfolioEntry[] }) => setEntries(data.portfolio))
-      .catch(() => setError('Failed to load portfolio'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleRescore = async (): Promise<void> => {
-    setRescoring(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      await rescorePortfolio();
-      const updated = await api.get<{ portfolio: PortfolioEntry[] }>('/portfolio');
-      setEntries(updated.portfolio);
+      const result: PortfolioListResponse = await fetchPortfolio();
+      setData(result.portfolio);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Rescore failed');
+      setError(err instanceof Error ? err.message : 'Failed to load portfolio');
     } finally {
-      setRescoring(false);
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const handleRefreshVerdicts = async (): Promise<void> => {
-    try {
-      await api.post('/portfolio/verdicts');
-      const updated = await api.get<{ portfolio: PortfolioEntry[] }>('/portfolio');
-      setEntries(updated.portfolio);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Verdict refresh failed');
-    }
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const handleDelete = async (domain: string): Promise<void> => {
-    if (!confirm(`Remove ${domain} from portfolio?`)) return;
-    try {
-      await api.delete(`/portfolio/${encodeURIComponent(domain)}`);
-      setEntries((prev: PortfolioEntry[]) =>
-        prev.filter((e: PortfolioEntry) => e.domain !== domain),
-      );
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
-    }
-  };
+  const columns = useMemo(() => {
+    const col = createColumnHelper<RowData>();
+    return [
+      col.accessor('domain', {
+        header: 'Domain',
+        cell: (info) => (
+          <span className="font-mono text-sm font-medium text-text-primary">{info.getValue()}</span>
+        ),
+      }),
+      col.accessor('acquisitionCost', {
+        header: 'Cost',
+        cell: (info) => (
+          <span className="font-mono text-sm text-text-secondary">
+            €{info.getValue()?.toFixed(2) ?? '—'}
+          </span>
+        ),
+      }),
+      col.accessor('renewalDate', {
+        header: 'Renewal',
+        cell: (info) => (
+          <span className="text-sm text-text-secondary">
+            {info.getValue() ? new Date(info.getValue()!).toLocaleDateString() : '—'}
+          </span>
+        ),
+      }),
+      col.accessor('currentScore', {
+        header: 'Score',
+        cell: (info) => (
+          <span className="font-mono text-sm text-text-primary">
+            {info.getValue() != null ? `${(info.getValue()! * 100).toFixed(0)}` : '—'}
+          </span>
+        ),
+      }),
+      col.accessor('suggestedListPrice', {
+        header: 'List Price',
+        cell: (info) => (
+          <span className="font-mono text-sm text-accent">
+            {info.getValue() != null ? `€${info.getValue()!.toFixed(0)}` : '—'}
+          </span>
+        ),
+      }),
+      col.accessor('verdict', {
+        header: 'Verdict',
+        cell: (info) => {
+          const v = info.getValue();
+          const variant =
+            v === 'keep'
+              ? ('success' as const)
+              : v === 'reprice'
+                ? ('warning' as const)
+                : ('danger' as const);
+          return <Badge variant={variant}>{v}</Badge>;
+        },
+      }),
+    ];
+  }, []);
 
-  const keepEntries = entries.filter((e) => e.verdict === 'keep');
-  const dropEntries = entries.filter((e) => e.verdict === 'drop');
-  const repriceEntries = entries.filter((e) => e.verdict === 'reprice' || e.verdict === 'hold');
+  const table = useReactTable({
+    data,
+    columns,
+    state: { sorting, columnFilters, globalFilter },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    initialState: { pagination: { pageSize: 25 } },
+  });
 
   if (loading) {
-    return <div className="text-gray-500 animate-pulse">Loading portfolio...</div>;
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-text-primary">Portfolio</h2>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-4 w-32" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-text-primary">Portfolio</h2>
+        <Card>
+          <CardContent className="flex flex-col items-center py-8">
+            <p className="text-danger text-sm mb-4">{error}</p>
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-100">Portfolio</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            {entries.length} domains — {keepEntries.length} keep / {dropEntries.length} drop /{' '}
-            {repriceEntries.length} reprice
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleRefreshVerdicts}
-            className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium transition-colors"
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-2xl font-bold text-text-primary">Portfolio</h2>
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Search domains..."
+            value={globalFilter}
+            onChange={(e) => setGlobalFilter(e.target.value)}
+            className="w-48 h-8 text-xs"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await rescorePortfolio();
+              load();
+            }}
           >
-            Refresh Verdicts
-          </button>
-          <button
-            onClick={handleRescore}
-            disabled={rescoring}
-            className="px-4 py-2 bg-cyan-700 hover:bg-cyan-600 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
+            <RefreshCw className="h-3 w-3 mr-1" />
+            Rescore
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await refreshVerdicts();
+              load();
+            }}
           >
-            {rescoring ? 'Rescoring...' : 'Rescore All'}
-          </button>
+            <RotateCcw className="h-3 w-3 mr-1" />
+            Verdicts
+          </Button>
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-950/50 border border-red-900 text-red-400 px-4 py-3 rounded-lg text-sm">
-          {error}
-          <button onClick={() => setError(null)} className="ml-3 underline">
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {entries.length === 0 ? (
-        <div className="text-center py-12 text-gray-600">
-          No domains in portfolio. Use the CLI to add domains.
-        </div>
+      {data.length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-sm text-text-muted">
+            No domains in portfolio. Use the CLI to add domains.
+          </CardContent>
+        </Card>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-900">
-              <tr className="text-left text-gray-500 text-xs uppercase">
-                <th className="py-3 px-4">Domain</th>
-                <th className="py-3 px-4">Cost</th>
-                <th className="py-3 px-4">Renewal</th>
-                <th className="py-3 px-4">Score</th>
-                <th className="py-3 px-4">List Price</th>
-                <th className="py-3 px-4">Verdict</th>
-                <th className="py-3 px-4"></th>
-              </tr>
-            </thead>
-            <tbody className="bg-gray-950">
-              {keepEntries.map((entry) => (
-                <PortfolioRow key={entry.id} entry={entry} onDelete={handleDelete} />
-              ))}
-              {repriceEntries.map((entry) => (
-                <PortfolioRow key={entry.id} entry={entry} onDelete={handleDelete} />
-              ))}
-              {dropEntries.map((entry) => (
-                <PortfolioRow key={entry.id} entry={entry} onDelete={handleDelete} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="rounded-xl border border-border overflow-hidden">
+            <table className="w-full">
+              <thead>
+                {table.getHeaderGroups().map((hg) => (
+                  <tr key={hg.id} className="bg-bg-muted">
+                    {hg.headers.map((header) => (
+                      <th
+                        key={header.id}
+                        className="text-left py-3 px-4 text-xs font-medium text-text-muted uppercase tracking-wider cursor-pointer select-none hover:text-text-primary"
+                        onClick={header.column.getToggleSortingHandler()}
+                      >
+                        <div className="flex items-center gap-1">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <ArrowUpDown className="h-3 w-3" />
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                ))}
+              </thead>
+              <tbody className="bg-bg-elevated">
+                {table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className="border-b border-border hover:bg-bg-hover transition-colors"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="py-3 px-4">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between text-sm text-text-muted">
+            <span>
+              Showing {table.getRowModel().rows.length} of {data.length} domains
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                Previous
+              </Button>
+              <span className="text-xs">
+                Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

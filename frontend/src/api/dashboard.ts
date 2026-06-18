@@ -18,13 +18,16 @@ export interface DashboardResult {
   failureReasons: string[];
 }
 
-export async function fetchDashboardStats(): Promise<DashboardResult> {
+export async function fetchDashboardStats(signal?: AbortSignal): Promise<DashboardResult> {
   const failures: string[] = [];
 
   const [health, portfolioData, alertsData] = await Promise.allSettled([
-    api.get<HealthResponse>('/health'),
-    api.get<{ portfolio: Array<{ verdict: string; suggestedListPrice?: number }> }>('/portfolio'),
-    api.get<{ alerts: Alert[] }>('/alerts'),
+    api.get<HealthResponse>('/health', signal),
+    api.get<{ portfolio: Array<{ verdict: string; suggestedListPrice?: number }> }>(
+      '/portfolio',
+      signal,
+    ),
+    api.get<{ alerts: Alert[] }>('/alerts', signal),
   ]);
 
   const healthVal =

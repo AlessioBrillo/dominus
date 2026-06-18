@@ -1,399 +1,440 @@
-import { useState, useEffect, useCallback } from 'react';
-import { fetchPnlReport, fetchAccuracyReport, refreshAccuracy } from '../api/analytics.js';
-import type { PnlReport, AccuracyReport } from '../types/domain.js';
-
-function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-      <div className="text-xs text-gray-500 uppercase tracking-wider">{label}</div>
-      <div className={`text-2xl font-bold mt-1 font-mono ${accent ?? 'text-gray-100'}`}>
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function PnlSection({ report }: { report: PnlReport }) {
-  const s = report.summary;
-  const netColor = s.netPnlEur >= 0 ? 'text-emerald-400' : 'text-red-400';
-  const roiColor = s.roiPct >= 0 ? 'text-emerald-400' : 'text-red-400';
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-        Portfolio P&amp;L
-      </h3>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Investment" value={`\u20AC${s.totalInvestmentEur.toFixed(2)}`} />
-        <StatCard
-          label="Total Returns"
-          value={`\u20AC${s.totalReturnsEur.toFixed(2)}`}
-          accent="text-emerald-400"
-        />
-        <StatCard label="Net P&amp;L" value={`\u20AC${s.netPnlEur.toFixed(2)}`} accent={netColor} />
-        <StatCard
-          label="ROI"
-          value={`${s.roiPct >= 0 ? '+' : ''}${s.roiPct.toFixed(1)}%`}
-          accent={roiColor}
-        />
-      </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Holding Costs" value={`\u20AC${s.holdingCostsEur.toFixed(2)}`} />
-        <StatCard label="Portfolio Size" value={String(s.totalCount)} />
-        <StatCard label="Sold" value={String(s.soldCount)} />
-        <StatCard
-          label="Avg Sale Price"
-          value={
-            s.soldCount > 0 ? `\u20AC${(s.totalReturnsEur / s.soldCount).toFixed(2)}` : '\u2014'
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
-function PerDomainTable({ report }: { report: PnlReport }) {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-        Per-Domain Breakdown
-      </h3>
-      {report.perDomain.length === 0 ? (
-        <p className="text-sm text-gray-500">No portfolio entries found.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-gray-800">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-900">
-              <tr className="text-left text-gray-500 text-xs uppercase">
-                <th className="py-3 px-4">Domain</th>
-                <th className="py-3 px-4">TLD</th>
-                <th className="py-3 px-4">Cost</th>
-                <th className="py-3 px-4">Renewals</th>
-                <th className="py-3 px-4">Total Cost</th>
-                <th className="py-3 px-4">Sale Price</th>
-                <th className="py-3 px-4">Net P&amp;L</th>
-                <th className="py-3 px-4">Holding</th>
-                <th className="py-3 px-4">Verdict</th>
-              </tr>
-            </thead>
-            <tbody className="bg-gray-950">
-              {report.perDomain.map((d) => {
-                const pnlColor =
-                  d.netPnlEur > 0
-                    ? 'text-emerald-400'
-                    : d.netPnlEur < 0
-                      ? 'text-red-400'
-                      : 'text-gray-400';
-                const verdictClass =
-                  d.verdict === 'keep'
-                    ? 'text-emerald-400'
-                    : d.verdict === 'drop'
-                      ? 'text-red-400'
-                      : 'text-amber-400';
-                return (
-                  <tr key={d.domain} className="border-b border-gray-800">
-                    <td className="py-3 px-4 font-medium text-gray-200">{d.domain}</td>
-                    <td className="py-3 px-4 text-gray-400">{d.tld}</td>
-                    <td className="py-3 px-4 font-mono text-gray-300">
-                      \u20AC{d.acquisitionCostEur.toFixed(2)}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-gray-300">
-                      \u20AC{d.renewalCostsPaidEur.toFixed(2)}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-gray-300">
-                      \u20AC{d.totalCostEur.toFixed(2)}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-gray-300">
-                      {d.salePriceEur != null ? `\u20AC${d.salePriceEur.toFixed(2)}` : '\u2014'}
-                    </td>
-                    <td className={`py-3 px-4 font-mono ${pnlColor}`}>
-                      {d.netPnlEur >= 0 ? '+' : ''}\u20AC{d.netPnlEur.toFixed(2)}
-                    </td>
-                    <td className="py-3 px-4 text-gray-400">{d.holdingDays}d</td>
-                    <td className={`py-3 px-4 font-medium ${verdictClass}`}>{d.verdict}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MonthlyTrendChart({ report }: { report: PnlReport }) {
-  if (report.monthlyTrend.length === 0) return null;
-
-  const maxAbs = Math.max(...report.monthlyTrend.map((m) => Math.max(Math.abs(m.netFlowEur), 1)));
-
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-        Monthly Cash Flow
-      </h3>
-      <div className="overflow-x-auto rounded-xl border border-gray-800 p-4 bg-gray-900">
-        <div className="flex items-end gap-3 min-w-[300px]">
-          {report.monthlyTrend.map((m) => {
-            const heightPct = (Math.abs(m.netFlowEur) / maxAbs) * 100;
-            const isPositive = m.netFlowEur >= 0;
-            return (
-              <div key={m.period} className="flex-1 flex flex-col items-center gap-1">
-                <span className="text-xs font-mono text-gray-500">
-                  {m.netFlowEur >= 0 ? '+' : ''}\u20AC{m.netFlowEur.toFixed(0)}
-                </span>
-                <div className="w-full flex flex-col items-center" style={{ height: 120 }}>
-                  {isPositive ? (
-                    <div
-                      className="w-full bg-emerald-600/60 rounded-t"
-                      style={{ height: `${heightPct}%`, minHeight: 4 }}
-                    />
-                  ) : (
-                    <div
-                      className="w-full bg-red-600/60 rounded-b mt-auto"
-                      style={{ height: `${heightPct}%`, minHeight: 4 }}
-                    />
-                  )}
-                </div>
-                <span className="text-xs text-gray-500">{m.period}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AccuracySection({ report }: { report: AccuracyReport }) {
-  const o = report.overall;
-  const cm = report.confusionMatrix;
-
-  if (report.sampleSize === 0) {
-    return (
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          Prediction Accuracy
-        </h3>
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 text-center">
-          <p className="text-sm text-gray-500">
-            No outcome data recorded yet. Record outcomes first, then run
-            <code className="mx-1 text-cyan-400">dominus analytics refresh</code> to generate
-            accuracy metrics.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-        Prediction Accuracy
-      </h3>
-
-      {report.warnings.length > 0 && (
-        <div className="bg-amber-950/40 border border-amber-900/50 text-amber-400 px-4 py-2 rounded-lg text-xs">
-          {report.warnings.map((w, i) => (
-            <p key={i}>{w}</p>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Sample Size" value={String(o.sampleSize)} />
-        <StatCard label="MAE" value={`\u20AC${o.mae.toFixed(2)}`} />
-        <StatCard label="MAPE" value={`${o.mape.toFixed(1)}%`} />
-        <StatCard
-          label="Bias"
-          value={`${o.biasPct >= 0 ? '+' : ''}${o.biasPct.toFixed(1)}%`}
-          accent={
-            o.biasPct > 5 ? 'text-red-400' : o.biasPct < -5 ? 'text-red-400' : 'text-emerald-400'
-          }
-        />
-      </div>
-
-      {report.sampleSize > 0 && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-              <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2">
-                Confusion Matrix
-              </h4>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-gray-500">TP:</span>{' '}
-                  <span className="font-mono text-emerald-400">{cm.truePositives}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">FP:</span>{' '}
-                  <span className="font-mono text-red-400">{cm.falsePositives}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">TN:</span>{' '}
-                  <span className="font-mono text-gray-300">{cm.trueNegatives}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">FN:</span>{' '}
-                  <span className="font-mono text-amber-400">{cm.falseNegatives}</span>
-                </div>
-              </div>
-            </div>
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-              <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2">
-                Quality Metrics
-              </h4>
-              <div className="space-y-1 text-sm">
-                <div>
-                  <span className="text-gray-500">Precision:</span>{' '}
-                  <span className="font-mono text-gray-200">
-                    {(cm.precision * 100).toFixed(1)}%
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Recall:</span>{' '}
-                  <span className="font-mono text-gray-200">{(cm.recall * 100).toFixed(1)}%</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">F1 Score:</span>{' '}
-                  <span className="font-mono text-gray-200">{(cm.f1 * 100).toFixed(1)}%</span>
-                </div>
-              </div>
-            </div>
-            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-              <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-2">Calibration</h4>
-              <div className="space-y-1 text-sm">
-                {Object.entries(report.calibration).map(([bucket, data]) => (
-                  <div key={bucket}>
-                    <span className="text-gray-500 capitalize">{bucket}:</span>{' '}
-                    <span className="font-mono text-gray-200">
-                      n={data.n}
-                      {data.n > 0 ? ` MAE=\u20AC${data.meanAbsError.toFixed(0)}` : ''}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
+import { useCallback, useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts';
+import { fetchPnlReport, fetchAccuracyReport } from '@/api/analytics';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { PnlReport, AccuracyReport } from '@/types/domain';
 
 export function AnalyticsPage() {
-  const [pnlReport, setPnlReport] = useState<PnlReport | null>(null);
-  const [accuracyReport, setAccuracyReport] = useState<AccuracyReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'pnl' | 'accuracy'>('pnl');
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-text-primary">Analytics</h2>
+      <Tabs defaultValue="pnl">
+        <TabsList>
+          <TabsTrigger value="pnl">P&L</TabsTrigger>
+          <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
+        </TabsList>
+        <TabsContent value="pnl">
+          <PnlSection />
+        </TabsContent>
+        <TabsContent value="accuracy">
+          <AccuracySection />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
 
-  const loadAll = useCallback(async () => {
+function PnlSection() {
+  const [data, setData] = useState<PnlReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [pnl, acc] = await Promise.all([
-        fetchPnlReport().catch(() => null),
-        fetchAccuracyReport().catch(() => null),
-      ]);
-      setPnlReport(pnl);
-      setAccuracyReport(acc);
+      const result = await fetchPnlReport();
+      setData(result);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load analytics');
+      setError(err instanceof Error ? err.message : 'Failed to load P&L data');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    load();
+  }, [load]);
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refreshAccuracy();
-      await loadAll();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Refresh failed');
-    } finally {
-      setRefreshing(false);
-    }
-  }, [loadAll]);
-
-  if (error) {
+  if (loading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-100">Analytics</h2>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader>
+                <Skeleton className="h-3 w-20" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-6 w-16" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
-        <div className="bg-red-950/50 border border-red-900 text-red-400 px-4 py-6 rounded-xl text-center">
-          <p className="text-sm mb-4">{error}</p>
-          <button
-            onClick={loadAll}
-            className="px-4 py-2 bg-red-800 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            Retry
-          </button>
-        </div>
+        <Card>
+          <CardContent className="p-6">
+            <Skeleton className="h-64 w-full" />
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center py-8">
+          <p className="text-danger text-sm mb-4">{error}</p>
+          <Button variant="outline" onClick={load}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-text-muted">
+          P&L data not available
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const s = data.summary;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-100">Analytics</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Portfolio performance &amp; prediction accuracy
-          </p>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="px-3 py-1.5 bg-cyan-800 hover:bg-cyan-700 disabled:bg-gray-800 disabled:text-gray-600 text-white rounded-lg text-xs font-medium transition-colors"
-        >
-          {refreshing ? 'Refreshing...' : '\u21BB Refresh Accuracy'}
-        </button>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Total Invested" value={`€${s.totalInvestmentEur.toFixed(0)}`} />
+        <StatCard label="Total Returns" value={`€${s.totalReturnsEur.toFixed(0)}`} />
+        <StatCard
+          label="Net P&L"
+          value={`€${s.netPnlEur.toFixed(0)}`}
+          accent={s.netPnlEur >= 0 ? 'text-success' : 'text-danger'}
+        />
+        <StatCard
+          label="ROI"
+          value={`${s.roiPct.toFixed(1)}%`}
+          accent={s.roiPct >= 0 ? 'text-success' : 'text-danger'}
+        />
+        <StatCard label="Domains Sold" value={String(s.soldCount)} />
+        <StatCard label="Total Domains" value={String(s.totalCount)} />
+        <StatCard label="Holding Costs" value={`€${s.holdingCostsEur.toFixed(0)}`} />
       </div>
 
-      <div className="flex items-center gap-2 border-b border-gray-800 pb-3">
-        {(['pnl', 'accuracy'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-              tab === t
-                ? 'bg-cyan-900/40 text-cyan-300'
-                : 'bg-gray-900 text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            {t === 'pnl' ? 'P&amp;L' : 'Accuracy'}
-          </button>
+      {data.monthlyTrend.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly P&L Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.monthlyTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="period" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="investmentEur"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Investment"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="returnsEur"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Returns"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="netFlowEur"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Net Flow"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {data.perDomain.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Per-Domain Performance</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-bg-muted">
+                    {['Domain', 'Cost', 'Sale Price', 'Net P&L', 'Hold Days', 'Verdict'].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          className="text-left py-3 px-4 text-xs font-medium text-text-muted uppercase tracking-wider"
+                        >
+                          {h}
+                        </th>
+                      ),
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.perDomain.map((d) => (
+                    <tr
+                      key={d.domain}
+                      className="border-b border-border hover:bg-bg-hover transition-colors"
+                    >
+                      <td className="py-3 px-4 font-mono text-sm text-text-primary">{d.domain}</td>
+                      <td className="py-3 px-4 font-mono text-sm text-text-secondary">
+                        €{d.totalCostEur.toFixed(0)}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-sm text-success">
+                        {d.salePriceEur != null ? `€${d.salePriceEur.toFixed(0)}` : '—'}
+                      </td>
+                      <td
+                        className={`py-3 px-4 font-mono text-sm ${d.netPnlEur >= 0 ? 'text-success' : 'text-danger'}`}
+                      >
+                        €{d.netPnlEur.toFixed(0)}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-text-secondary">{d.holdingDays}d</td>
+                      <td className="py-3 px-4 text-sm text-text-secondary">{d.verdict}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function AccuracySection() {
+  const [data, setData] = useState<AccuracyReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await fetchAccuracyReport();
+      setData(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load accuracy data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i}>
+            <CardHeader>
+              <Skeleton className="h-3 w-20" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-6 w-16" />
+            </CardContent>
+          </Card>
         ))}
       </div>
+    );
+  }
 
-      {loading ? (
-        <div className="text-gray-500 animate-pulse py-8 text-center">Loading analytics...</div>
-      ) : (
-        <>
-          {tab === 'pnl' && pnlReport && (
-            <div className="space-y-6">
-              <PnlSection report={pnlReport} />
-              <MonthlyTrendChart report={pnlReport} />
-              <PerDomainTable report={pnlReport} />
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center py-8">
+          <p className="text-danger text-sm mb-4">{error}</p>
+          <Button variant="outline" onClick={load}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-text-muted">
+          No outcome data recorded yet. Use the CLI to record outcomes.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const cm = data.confusionMatrix;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="MAPE" value={`${(data.overall.mape * 100).toFixed(1)}%`} />
+        <StatCard label="Median APE" value={`${(data.overall.medianApe * 100).toFixed(1)}%`} />
+        <StatCard label="MAE" value={`€${data.overall.mae.toFixed(0)}`} />
+        <StatCard label="RMSE" value={`€${data.overall.rmse.toFixed(0)}`} />
+        <StatCard
+          label="Bias"
+          value={`${(data.overall.biasPct * 100).toFixed(1)}%`}
+          accent={Math.abs(data.overall.biasPct) < 0.1 ? 'text-success' : 'text-warning'}
+        />
+        <StatCard label="Sample Size" value={String(data.overall.sampleSize)} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Confusion Matrix</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-2 text-center text-sm">
+              <div />
+              <div className="text-text-muted text-xs font-medium">Predicted Yes</div>
+              <div className="text-text-muted text-xs font-medium">Predicted No</div>
+              <div className="text-text-muted text-xs font-medium text-left">Actual Yes</div>
+              <div className="bg-success/20 rounded-lg p-3 font-mono text-success">
+                {cm.truePositives}
+              </div>
+              <div className="bg-danger/20 rounded-lg p-3 font-mono text-danger">
+                {cm.falseNegatives}
+              </div>
+              <div className="text-text-muted text-xs font-medium text-left">Actual No</div>
+              <div className="bg-danger/20 rounded-lg p-3 font-mono text-danger">
+                {cm.falsePositives}
+              </div>
+              <div className="bg-success/20 rounded-lg p-3 font-mono text-success">
+                {cm.trueNegatives}
+              </div>
             </div>
-          )}
-          {tab === 'accuracy' && accuracyReport && <AccuracySection report={accuracyReport} />}
-          {tab === 'pnl' && !pnlReport && (
-            <div className="text-gray-600 text-sm py-8 text-center">
-              P&amp;L data not available. Add portfolio entries to see your P&amp;L.
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Quality Metrics</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <MetricBar label="Precision" value={cm.precision} />
+            <MetricBar label="Recall" value={cm.recall} />
+            <MetricBar label="F1 Score" value={cm.f1} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {Object.keys(data.calibration).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Calibration</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={Object.entries(data.calibration).map(([bucket, stat]) => ({
+                    bucket,
+                    meanAbsError: stat.meanAbsError,
+                    meanRealised: stat.meanRealised,
+                    meanPredicted: stat.meanPredicted,
+                  }))}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="bucket" stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                  <YAxis stroke="var(--text-muted)" tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Bar
+                    dataKey="meanRealised"
+                    fill="#22d3ee"
+                    radius={[4, 4, 0, 0]}
+                    name="Mean Realised"
+                  />
+                  <Bar
+                    dataKey="meanPredicted"
+                    fill="#8b5cf6"
+                    radius={[4, 4, 0, 0]}
+                    name="Mean Predicted"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
-          )}
-        </>
+          </CardContent>
+        </Card>
       )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{label}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className={`text-2xl font-bold font-mono ${accent ?? 'text-text-primary'}`}>
+          {value}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetricBar({ label, value }: { label: string; value: number }) {
+  const pct = value * 100;
+  return (
+    <div>
+      <div className="flex justify-between text-xs text-text-muted mb-1">
+        <span>{label}</span>
+        <span className="font-mono">{pct.toFixed(1)}%</span>
+      </div>
+      <div className="h-2 bg-bg-muted rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full bg-brand-500 transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }

@@ -53,35 +53,60 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
+  const selfController = new AbortController();
+  const outerSignal = options.signal as AbortSignal | undefined;
+
+  const combinedSignal = outerSignal
+    ? combineAbortSignals(outerSignal, selfController.signal)
+    : selfController.signal;
+
   const url = path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
-  const res = await fetch(url, { ...options, headers });
 
-  if (res.status === 401 || res.status === 403) {
-    clearApiKey();
-    onUnauthorized?.();
-    throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
+  try {
+    const res = await fetch(url, { ...options, signal: combinedSignal, headers });
+
+    if (res.status === 401 || res.status === 403) {
+      clearApiKey();
+      onUnauthorized?.();
+      throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
+    }
+
+    if (!res.ok) {
+      const body = await res
+        .json()
+        .catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
+      throw new ApiError(
+        res.status,
+        body?.error?.code ?? 'UNKNOWN',
+        body?.error?.message ?? res.statusText,
+      );
+    }
+
+    if (res.status === 204) return undefined as T;
+    return res.json() as Promise<T>;
+  } finally {
+    selfController.abort();
   }
+}
 
-  if (!res.ok) {
-    const body = await res
-      .json()
-      .catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
-    throw new ApiError(
-      res.status,
-      body?.error?.code ?? 'UNKNOWN',
-      body?.error?.message ?? res.statusText,
-    );
+function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      return controller.signal;
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
   }
-
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  return controller.signal;
 }
 
 export const api = {
-  get: <T>(path: string): Promise<T> => request<T>(path),
-  post: <T>(path: string, body?: unknown): Promise<T> =>
-    request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined }),
-  patch: <T>(path: string, body?: unknown): Promise<T> =>
-    request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined }),
-  delete: <T>(path: string): Promise<T> => request<T>(path, { method: 'DELETE' }),
+  get: <T>(path: string, signal?: AbortSignal): Promise<T> => request<T>(path, { signal }),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+    request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined, signal }),
+  patch: <T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+    request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined, signal }),
+  delete: <T>(path: string, signal?: AbortSignal): Promise<T> =>
+    request<T>(path, { method: 'DELETE', signal }),
 };
