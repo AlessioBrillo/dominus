@@ -13,6 +13,8 @@ interface OutcomeRow {
   days_listed: number | null;
   venue: string | null;
   commission_pct: number | null;
+  acquisition_cost_eur: number | null;
+  total_renewal_cost_eur: number | null;
   notes: string | null;
   created_at: string;
 }
@@ -29,6 +31,8 @@ function rowToOutcome(row: OutcomeRow): Outcome {
     daysListed: row.days_listed ?? undefined,
     venue: row.venue ?? undefined,
     commissionPct: row.commission_pct ?? undefined,
+    acquisitionCostEur: row.acquisition_cost_eur ?? undefined,
+    totalRenewalCostEur: row.total_renewal_cost_eur ?? undefined,
     notes: row.notes ?? undefined,
     createdAt: row.created_at,
   };
@@ -60,8 +64,9 @@ export class OutcomeRepository {
     const stmt = this.db.prepare(
       `INSERT INTO outcomes
          (domain, type, occurred_at, sale_price_eur, listing_price_eur,
-          days_listed, venue, commission_pct, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          days_listed, venue, commission_pct,
+          acquisition_cost_eur, total_renewal_cost_eur, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING id`,
     );
     try {
@@ -74,6 +79,8 @@ export class OutcomeRepository {
         input.daysListed ?? null,
         input.venue ?? null,
         input.commissionPct ?? null,
+        input.acquisitionCostEur ?? null,
+        input.totalRenewalCostEur ?? null,
         input.notes ?? null,
       ) as { id: number };
       const inserted = this.db

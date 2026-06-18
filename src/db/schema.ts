@@ -119,6 +119,8 @@ CREATE TABLE IF NOT EXISTS outcomes (
   days_listed INTEGER,
   venue TEXT,
   commission_pct REAL,
+  acquisition_cost_eur REAL,
+  total_renewal_cost_eur REAL,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
