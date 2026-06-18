@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import {
   CandidateRepository,
   ScoringRepository,
@@ -42,12 +43,12 @@ import { PurchaseService, AutoApprovalPolicy } from '../../services/purchase-ser
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeDnsProvider(): DnsProvider {
@@ -63,9 +64,9 @@ function makeDnsProvider(): DnsProvider {
 
 describe('Dependency Injection â€” composition-root wiring', () => {
   it('opens SQLite database and runs migrations', () => {
-    const db = openTestDb();
+    const provider = openTestDb();
 
-    const tables = db
+    const tables = provider.rawDb
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all() as { name: string }[];
     const tableNames = tables.map((t) => t.name);
@@ -84,20 +85,20 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(tableNames).toContain('provider_cache');
     expect(tableNames).toContain('scheduler_jobs');
 
-    db.close();
+    provider.close();
   });
 
   it('constructs all repositories against a live SQLite database', () => {
-    const db = openTestDb();
+    const provider = openTestDb();
 
-    const candidateRepo = new CandidateRepository(db);
-    const scoringRepo = new ScoringRepository(db);
-    const portfolioRepo = new PortfolioRepository(db);
-    const trademarkRepo = new TrademarkRepository(db);
-    const providerCacheRepo = new ProviderCacheRepository(db);
-    const outcomeRepo = new OutcomeRepository(db);
-    const alertRepo = new RenewalAlertRepository(db);
-    const pipelineRunsRepo = new PipelineRunsRepository(db);
+    const candidateRepo = new CandidateRepository(provider);
+    const scoringRepo = new ScoringRepository(provider);
+    const portfolioRepo = new PortfolioRepository(provider);
+    const trademarkRepo = new TrademarkRepository(provider);
+    const providerCacheRepo = new ProviderCacheRepository(provider);
+    const outcomeRepo = new OutcomeRepository(provider);
+    const alertRepo = new RenewalAlertRepository(provider);
+    const pipelineRunsRepo = new PipelineRunsRepository(provider);
 
     expect(candidateRepo).toBeInstanceOf(CandidateRepository);
     expect(scoringRepo).toBeInstanceOf(ScoringRepository);
@@ -108,12 +109,12 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(alertRepo).toBeInstanceOf(RenewalAlertRepository);
     expect(pipelineRunsRepo).toBeInstanceOf(PipelineRunsRepository);
 
-    db.close();
+    provider.close();
   });
 
   it('constructs keyword and comps providers', () => {
-    const db = openTestDb();
-    const providerCacheRepo = new ProviderCacheRepository(db);
+    const provider = openTestDb();
+    const providerCacheRepo = new ProviderCacheRepository(provider);
 
     const keywordProvider = createKeywordProvider(
       'manual',
@@ -137,12 +138,12 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(compsProvider).toBeDefined();
     expect(typeof compsProvider.getSales).toBe('function');
 
-    db.close();
+    provider.close();
   });
 
   it('constructs scoring engine with default weights', () => {
-    const db = openTestDb();
-    const providerCacheRepo = new ProviderCacheRepository(db);
+    const provider = openTestDb();
+    const providerCacheRepo = new ProviderCacheRepository(provider);
 
     const keywordProvider = createKeywordProvider(
       'manual',
@@ -170,7 +171,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       expiry: 0.1,
     });
 
-    db.close();
+    provider.close();
   });
 
   it('constructs trademark gate with both providers', () => {
@@ -190,8 +191,8 @@ describe('Dependency Injection â€” composition-root wiring', () => {
   });
 
   it('constructs pipeline orchestrator with all stages', () => {
-    const db = openTestDb();
-    const providerCacheRepo = new ProviderCacheRepository(db);
+    const provider = openTestDb();
+    const providerCacheRepo = new ProviderCacheRepository(provider);
     const keywordProvider = createKeywordProvider(
       'manual',
       {
@@ -243,15 +244,15 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(orchestrator).toBeDefined();
     expect(typeof orchestrator.run).toBe('function');
 
-    db.close();
+    provider.close();
   });
 
   it('constructs portfolio manager with rescore service', () => {
-    const db = openTestDb();
-    const portfolioRepo = new PortfolioRepository(db);
-    const providerCacheRepo = new ProviderCacheRepository(db);
-    const candidateRepo = new CandidateRepository(db);
-    const scoringRepo = new ScoringRepository(db);
+    const provider = openTestDb();
+    const portfolioRepo = new PortfolioRepository(provider);
+    const providerCacheRepo = new ProviderCacheRepository(provider);
+    const candidateRepo = new CandidateRepository(provider);
+    const scoringRepo = new ScoringRepository(provider);
     const keywordProvider = createKeywordProvider(
       'manual',
       {
@@ -289,14 +290,14 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(manager).toBeDefined();
     expect(typeof manager.add).toBe('function');
 
-    db.close();
+    provider.close();
   });
 
   it('constructs pipeline run service with orchestrator', () => {
-    const db = openTestDb();
-    const candidateRepo = new CandidateRepository(db);
-    const scoringRepo = new ScoringRepository(db);
-    const providerCacheRepo = new ProviderCacheRepository(db);
+    const provider = openTestDb();
+    const candidateRepo = new CandidateRepository(provider);
+    const scoringRepo = new ScoringRepository(provider);
+    const providerCacheRepo = new ProviderCacheRepository(provider);
     const keywordProvider = createKeywordProvider(
       'manual',
       {
@@ -341,23 +342,28 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       new TrademarkGateStage(gate, 3),
     );
 
-    const runService = new PipelineRunService(db, orchestrator, candidateRepo, scoringRepo);
+    const runService = new PipelineRunService(
+      provider.rawDb,
+      orchestrator,
+      candidateRepo,
+      scoringRepo,
+    );
 
     expect(runService).toBeDefined();
     expect(typeof runService.run).toBe('function');
 
-    db.close();
+    provider.close();
   });
 
   it('constructs scheduler service without auto-tuner', () => {
-    const db = openTestDb();
-    const alertRepo = new RenewalAlertRepository(db);
-    const portfolioRepo = new PortfolioRepository(db);
-    const trademarkRepo = new TrademarkRepository(db);
-    const providerCacheRepo = new ProviderCacheRepository(db);
-    const pipelineRunsRepo = new PipelineRunsRepository(db);
-    const watchlistRepo = new WatchlistRepository(db);
-    const jobRepo = new SchedulerJobRepository(db);
+    const provider = openTestDb();
+    const alertRepo = new RenewalAlertRepository(provider);
+    const portfolioRepo = new PortfolioRepository(provider);
+    const trademarkRepo = new TrademarkRepository(provider);
+    const providerCacheRepo = new ProviderCacheRepository(provider);
+    const pipelineRunsRepo = new PipelineRunsRepository(provider);
+    const watchlistRepo = new WatchlistRepository(provider);
+    const jobRepo = new SchedulerJobRepository(provider);
 
     const manager = new PortfolioManager(portfolioRepo, 25, 60, { method: 'threshold' });
     const config = {
@@ -511,14 +517,14 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(typeof scheduler.start).toBe('function');
     expect(typeof scheduler.stop).toBe('function');
 
-    db.close();
+    provider.close();
   });
 
   it('constructs purchase service with manual registrar', () => {
-    const db = openTestDb();
-    const portfolioRepo = new PortfolioRepository(db);
-    const outcomeRepo = new OutcomeRepository(db);
-    const providerCacheRepo = new ProviderCacheRepository(db);
+    const provider = openTestDb();
+    const portfolioRepo = new PortfolioRepository(provider);
+    const outcomeRepo = new OutcomeRepository(provider);
+    const providerCacheRepo = new ProviderCacheRepository(provider);
     const keywordProvider = createKeywordProvider(
       'manual',
       {
@@ -562,6 +568,6 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     expect(purchaseService).toBeDefined();
     expect(typeof purchaseService.preflight).toBe('function');
 
-    db.close();
+    provider.close();
   });
 });

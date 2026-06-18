@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../db/migrator.js';
+import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
 import { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
 import { CandidateRepository } from '../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../db/repositories/scoring-repository.js';
@@ -18,12 +19,12 @@ import request from 'supertest';
 import { createRunsRouter } from '../api/routes/runs.js';
 import { errorHandler } from '../api/middleware/error-handler.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeScoreResult(domain: string): ScoreResult {
@@ -76,13 +77,13 @@ interface IntegrationDeps {
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
-  db: Database.Database;
+  provider: SqliteProvider;
 }
 
-function buildIntegration(db: Database.Database): IntegrationDeps {
-  const runsRepo = new PipelineRunsRepository(db);
-  const candidateRepo = new CandidateRepository(db);
-  const scoringRepo = new ScoringRepository(db);
+function buildIntegration(provider: SqliteProvider): IntegrationDeps {
+  const runsRepo = new PipelineRunsRepository(provider);
+  const candidateRepo = new CandidateRepository(provider);
+  const scoringRepo = new ScoringRepository(provider);
 
   const scored = makeScoredCandidate('alpha.com', true);
   const blocked = makeScoredCandidate('beta.io', false, '.io');
@@ -114,23 +115,23 @@ function buildIntegration(db: Database.Database): IntegrationDeps {
   };
 
   const service = new PipelineRunService(
-    db,
+    provider.rawDb,
     makeMockOrchestrator(orchestratorResult),
     candidateRepo,
     scoringRepo,
     runsRepo,
   );
 
-  return { service, runsRepo, candidateRepo, scoringRepo, db };
+  return { service, runsRepo, candidateRepo, scoringRepo, provider };
 }
 
 describe('pipeline_runs — end-to-end (ADR-0011)', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let deps: IntegrationDeps;
 
   beforeEach(() => {
-    db = openTestDb();
-    deps = buildIntegration(db);
+    provider = openTestDb();
+    deps = buildIntegration(provider);
   });
 
   it('a run() call writes a complete pipeline_runs row + 3 candidates + 2 scoring_runs', async () => {
@@ -146,13 +147,13 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     expect(row?.totalDurationMs).toBeGreaterThanOrEqual(0);
 
     // Assert — candidates (linked to the service-level runRowId after alignment)
-    const candCount = db
+    const candCount = provider.rawDb
       .prepare('SELECT COUNT(*) AS n FROM candidates WHERE pipeline_run_id = ?')
       .get(result.runRowId) as { n: number };
     expect(candCount.n).toBe(3);
 
     // Assert — scoring_runs (linked to the service-level runRowId after alignment)
-    const scoreCount = db
+    const scoreCount = provider.rawDb
       .prepare('SELECT COUNT(*) AS n FROM scoring_runs WHERE run_id = ?')
       .get(result.runRowId) as { n: number };
     expect(scoreCount.n).toBe(2);
@@ -212,7 +213,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
   it('orchestrator failure completes the row with error=message and rethrows', async () => {
     // Arrange — swap the orchestrator for one that throws
     const failingService = new PipelineRunService(
-      db,
+      provider.rawDb,
       {
         run: () => Promise.reject(new Error('upstream RDAP timed out')),
       } as unknown as PipelineOrchestrator,
@@ -238,7 +239,10 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     // REST: GET /api/runs
     const app = express();
     app.use(express.json());
-    app.use('/api/runs', createRunsRouter(deps.runsRepo, deps.candidateRepo, deps.scoringRepo, db));
+    app.use(
+      '/api/runs',
+      createRunsRouter(deps.runsRepo, deps.candidateRepo, deps.scoringRepo, provider.rawDb),
+    );
     app.use(errorHandler);
     const res = await request(app).get('/api/runs');
     expect(res.status).toBe(200);

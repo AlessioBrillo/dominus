@@ -1,17 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { CachedTrademarkProvider } from '../cached-trademark-provider.js';
 import type { TrademarkProvider } from '../../providers/trademark/trademark-provider.js';
 import { ProviderError } from '../../types/errors.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeDelegate(
@@ -27,12 +28,12 @@ function makeErrorDelegate(): TrademarkProvider & { search: ReturnType<typeof vi
 }
 
 describe('CachedTrademarkProvider', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let cacheRepo: ProviderCacheRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    cacheRepo = new ProviderCacheRepository(db);
+    provider = openTestDb();
+    cacheRepo = new ProviderCacheRepository(provider);
   });
 
   it('calls the delegate on cache miss and returns its results', async () => {

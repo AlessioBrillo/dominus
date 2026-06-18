@@ -1,40 +1,37 @@
 import Database from 'better-sqlite3';
+import { existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { getLogger } from '../../logger.js';
-import type { DatabaseProvider, ExecResult, TransactionIsolationLevel } from './interface.js';
+import type { DatabaseProvider, ExecResult } from './interface.js';
 import { DatabaseError } from './interface.js';
-
 const logger = getLogger();
 
 export class SqliteProvider implements DatabaseProvider {
   #db: Database.Database;
   #open = false;
-  #transactionDepth = 0;
+  #txDepth = 0;
 
   constructor(db: Database.Database, _busyTimeout = 30000) {
     this.#db = db;
     this.#open = true;
   }
 
-  static async create(
+  static create(
     path: string,
     options: { busyTimeout?: number; readonly?: boolean } = {},
-  ): Promise<SqliteProvider> {
-    const { existsSync, mkdirSync } = await import('node:fs');
-    const { dirname } = await import('node:path');
+  ): SqliteProvider {
     const dir = dirname(path);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    const db = new Database(path, {
-      readonly: options.readonly ?? false,
-    });
+    const db = new Database(path, { readonly: options.readonly ?? false });
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.pragma(`busy_timeout = ${options.busyTimeout ?? 30000}`);
     return new SqliteProvider(db, options.busyTimeout ?? 30000);
   }
 
-  static async openInMemory(): Promise<SqliteProvider> {
+  static openInMemory(): SqliteProvider {
     const db = new Database(':memory:');
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
@@ -45,7 +42,7 @@ export class SqliteProvider implements DatabaseProvider {
     return this.#db;
   }
 
-  async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
+  exec(sql: string, params?: unknown[]): ExecResult {
     try {
       const stmt = this.#db.prepare(sql);
       const result = stmt.run(...(params ?? []));
@@ -55,34 +52,31 @@ export class SqliteProvider implements DatabaseProvider {
           result.lastInsertRowid != null ? Number(result.lastInsertRowid) : undefined,
       } as ExecResult;
     } catch (err) {
-      throw this.#wrapError(err, sql);
+      throw this.#wrapError(err);
     }
   }
 
-  async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
+  query<T>(sql: string, params?: unknown[]): T[] {
     try {
       const stmt = this.#db.prepare(sql);
       return stmt.all(...(params ?? [])) as T[];
     } catch (err) {
-      throw this.#wrapError(err, sql);
+      throw this.#wrapError(err);
     }
   }
 
-  async queryOne<T>(sql: string, params?: unknown[]): Promise<T | null> {
+  queryOne<T>(sql: string, params?: unknown[]): T | null {
     try {
       const stmt = this.#db.prepare(sql);
       const row = stmt.get(...(params ?? [])) as T | undefined;
       return row ?? null;
     } catch (err) {
-      throw this.#wrapError(err, sql);
+      throw this.#wrapError(err);
     }
   }
 
-  async transaction<T>(
-    fn: (trx: DatabaseProvider) => Promise<T>,
-    _isolationLevel?: TransactionIsolationLevel,
-  ): Promise<T> {
-    const depth = this.#transactionDepth;
+  transaction<T>(fn: (db: DatabaseProvider) => T): T {
+    const depth = this.#txDepth;
     const savepoint = `sp_${depth}`;
 
     if (depth === 0) {
@@ -90,16 +84,16 @@ export class SqliteProvider implements DatabaseProvider {
     } else {
       this.#db.exec(`SAVEPOINT ${savepoint}`);
     }
-    this.#transactionDepth++;
+    this.#txDepth++;
 
     try {
-      const result = await fn(this);
+      const result = fn(this);
       if (depth === 0) {
         this.#db.exec('COMMIT');
       } else {
         this.#db.exec(`RELEASE ${savepoint}`);
       }
-      this.#transactionDepth--;
+      this.#txDepth--;
       return result;
     } catch (err) {
       try {
@@ -111,12 +105,12 @@ export class SqliteProvider implements DatabaseProvider {
       } catch (rollbackErr) {
         logger.error({ rollbackErr, originalErr: err }, 'Transaction rollback failed');
       }
-      this.#transactionDepth--;
+      this.#txDepth--;
       throw err;
     }
   }
 
-  async close(): Promise<void> {
+  close(): void {
     if (this.#open) {
       this.#db.close();
       this.#open = false;
@@ -127,7 +121,7 @@ export class SqliteProvider implements DatabaseProvider {
     return this.#open;
   }
 
-  #wrapError(err: unknown, _sql: string): DatabaseError {
+  #wrapError(err: unknown): DatabaseError {
     const message = err instanceof Error ? err.message : String(err);
     const errCode =
       err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : '';
@@ -137,22 +131,6 @@ export class SqliteProvider implements DatabaseProvider {
       SQLITE_LOCKED: 'SQLITE_LOCKED',
       SQLITE_MISUSE: 'SQLITE_MISUSE',
       SQLITE_CONSTRAINT: 'SQLITE_CONSTRAINT',
-      SQLITE_RANGE: 'SQLITE_RANGE',
-      SQLITE_NOTADB: 'SQLITE_NOTADB',
-      SQLITE_INTERNAL: 'SQLITE_INTERNAL',
-      SQLITE_PERM: 'SQLITE_PERM',
-      SQLITE_ABORT: 'SQLITE_ABORT',
-      SQLITE_NOMEM: 'SQLITE_NOMEM',
-      SQLITE_READONLY: 'SQLITE_READONLY',
-      SQLITE_INTERRUPT: 'SQLITE_INTERRUPT',
-      SQLITE_IOERR: 'SQLITE_IOERR',
-      SQLITE_CORRUPT: 'SQLITE_CORRUPT',
-      SQLITE_NOTFOUND: 'SQLITE_NOTFOUND',
-      SQLITE_FULL: 'SQLITE_FULL',
-      SQLITE_CANTOPEN: 'SQLITE_CANTOPEN',
-      SQLITE_PROTOCOL: 'SQLITE_PROTOCOL',
-      SQLITE_SCHEMA: 'SQLITE_SCHEMA',
-      SQLITE_TOOBIG: 'SQLITE_TOOBIG',
       SQLITE_CONSTRAINT_UNIQUE: 'SQLITE_CONSTRAINT_UNIQUE',
       SQLITE_CONSTRAINT_PRIMARYKEY: 'SQLITE_CONSTRAINT_PRIMARYKEY',
       SQLITE_CONSTRAINT_FOREIGNKEY: 'SQLITE_CONSTRAINT_FOREIGNKEY',

@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { PredictionAccuracyAnalyzer } from '../prediction-accuracy-analyzer.js';
 import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import type { Outcome } from '../../types/outcome.js';
 
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.exec(`
+function createTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.exec(`
     CREATE TABLE IF NOT EXISTS candidates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       domain TEXT NOT NULL UNIQUE,
@@ -73,7 +74,7 @@ function createTestDb(): Database.Database {
       UNIQUE(domain, occurred_at)
     );
   `);
-  return db;
+  return provider;
 }
 
 function insertCandidate(db: Database.Database, domain: string, tld: string): number {
@@ -136,18 +137,18 @@ function insertOutcome(db: Database.Database, outcome: TestOutcome): void {
 }
 
 describe('PredictionAccuracyAnalyzer', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let outcomeRepo: OutcomeRepository;
   let analyzer: PredictionAccuracyAnalyzer;
 
   beforeEach(() => {
-    db = createTestDb();
-    outcomeRepo = new OutcomeRepository(db);
-    analyzer = new PredictionAccuracyAnalyzer(db, outcomeRepo);
+    provider = createTestDb();
+    outcomeRepo = new OutcomeRepository(provider);
+    analyzer = new PredictionAccuracyAnalyzer(provider.rawDb, outcomeRepo);
   });
 
   afterEach(() => {
-    db.close();
+    provider.close();
   });
 
   describe('generate() — empty state', () => {
@@ -163,14 +164,13 @@ describe('PredictionAccuracyAnalyzer', () => {
   describe('refresh() and generate() — with data', () => {
     beforeEach(() => {
       for (const d of ['alpha.com', 'beta.com', 'gamma.io', 'delta.io']) {
-        db.prepare('INSERT OR IGNORE INTO portfolio_entries (domain, tld) VALUES (?, ?)').run(
-          d,
-          d.includes('io') ? '.io' : '.com',
-        );
+        provider.rawDb
+          .prepare('INSERT OR IGNORE INTO portfolio_entries (domain, tld) VALUES (?, ?)')
+          .run(d, d.includes('io') ? '.io' : '.com');
       }
 
-      const candidateId = insertCandidate(db, 'alpha.com', '.com');
-      insertScoringRun(db, candidateId, {
+      const candidateId = insertCandidate(provider.rawDb, 'alpha.com', '.com');
+      insertScoringRun(provider.rawDb, candidateId, {
         expectedValue: 200,
         confidence: 0.8,
         weightedScore: 0.75,
@@ -178,8 +178,8 @@ describe('PredictionAccuracyAnalyzer', () => {
         commercialScore: 0.9,
       });
 
-      const candidateId2 = insertCandidate(db, 'beta.com', '.com');
-      insertScoringRun(db, candidateId2, {
+      const candidateId2 = insertCandidate(provider.rawDb, 'beta.com', '.com');
+      insertScoringRun(provider.rawDb, candidateId2, {
         expectedValue: 50,
         confidence: 0.2,
         weightedScore: 0.3,
@@ -187,8 +187,8 @@ describe('PredictionAccuracyAnalyzer', () => {
         commercialScore: 0,
       });
 
-      const candidateId3 = insertCandidate(db, 'gamma.io', '.io');
-      insertScoringRun(db, candidateId3, {
+      const candidateId3 = insertCandidate(provider.rawDb, 'gamma.io', '.io');
+      insertScoringRun(provider.rawDb, candidateId3, {
         expectedValue: 150,
         confidence: 0.6,
         weightedScore: 0.6,
@@ -196,8 +196,8 @@ describe('PredictionAccuracyAnalyzer', () => {
         commercialScore: 0.7,
       });
 
-      const candidateId4 = insertCandidate(db, 'delta.io', '.io');
-      insertScoringRun(db, candidateId4, {
+      const candidateId4 = insertCandidate(provider.rawDb, 'delta.io', '.io');
+      insertScoringRun(provider.rawDb, candidateId4, {
         expectedValue: 30,
         confidence: 0.15,
         weightedScore: 0.2,
@@ -205,24 +205,24 @@ describe('PredictionAccuracyAnalyzer', () => {
         commercialScore: 0,
       });
 
-      insertOutcome(db, {
+      insertOutcome(provider.rawDb, {
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-07-01T00:00:00.000Z',
         salePriceEur: 180,
       });
-      insertOutcome(db, {
+      insertOutcome(provider.rawDb, {
         domain: 'beta.com',
         type: 'sold',
         occurredAt: '2026-07-15T00:00:00.000Z',
         salePriceEur: 80,
       });
-      insertOutcome(db, {
+      insertOutcome(provider.rawDb, {
         domain: 'gamma.io',
         type: 'dropped',
         occurredAt: '2026-08-01T00:00:00.000Z',
       });
-      insertOutcome(db, {
+      insertOutcome(provider.rawDb, {
         domain: 'delta.io',
         type: 'expired',
         occurredAt: '2026-08-15T00:00:00.000Z',

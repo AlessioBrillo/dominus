@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { WatchlistRepository } from '../../db/repositories/watchlist-repository.js';
 import { WatchlistService } from '../watchlist-service.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
@@ -162,16 +163,17 @@ function makeNotifierMock(): Notifier[] {
   return [notifier];
 }
 
-function openTestDb(): Database.Database {
+function openTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
+  const dbProvider = new SqliteProvider(db);
+  return { db, dbProvider };
 }
 
 describe('WatchlistService', () => {
-  let db: Database.Database;
+  let dbProvider: SqliteProvider;
   let repo: WatchlistRepository;
   let config: Config;
   let dnsMock: DnsProvider;
@@ -180,8 +182,9 @@ describe('WatchlistService', () => {
   let service: WatchlistService;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new WatchlistRepository(db);
+    const opened = openTestDb();
+    dbProvider = opened.dbProvider;
+    repo = new WatchlistRepository(dbProvider);
     config = makeConfig();
     dnsMock = makeDnsMock({});
     rdapMock = makeRdapMock({});

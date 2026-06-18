@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type {
   JobType,
@@ -43,7 +44,8 @@ export interface JobQueueService {
 }
 
 export function createJobQueueService(db: Database.Database): JobQueueService {
-  const repo = new JobQueueRepository(db);
+  const provider = new SqliteProvider(db);
+  const repo = new JobQueueRepository(provider);
 
   function enqueue(
     jobType: JobType,

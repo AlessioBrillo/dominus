@@ -1,24 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { WatchlistRepository } from '../watchlist-repository.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 describe('WatchlistRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: WatchlistRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new WatchlistRepository(db);
+    provider = openTestDb();
+    repo = new WatchlistRepository(provider);
   });
 
   describe('insert', () => {
@@ -76,9 +77,11 @@ describe('WatchlistRepository', () => {
     it('returns entries with notified=0', () => {
       repo.insert({ domain: 'pending.com', tld: 'com' });
       repo.insert({ domain: 'notified.com', tld: 'com' });
-      db.prepare(
-        "UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now') WHERE domain = 'notified.com'",
-      ).run();
+      provider.rawDb
+        .prepare(
+          "UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now') WHERE domain = 'notified.com'",
+        )
+        .run();
 
       const pending = repo.listPendingPoll(24);
       expect(pending).toHaveLength(1);
@@ -87,9 +90,11 @@ describe('WatchlistRepository', () => {
 
     it('returns entries with last_checked_at older than hours', () => {
       repo.insert({ domain: 'old.com', tld: 'com' });
-      db.prepare(
-        "UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now', '-48 hours') WHERE domain = 'old.com'",
-      ).run();
+      provider.rawDb
+        .prepare(
+          "UPDATE watchlist_entries SET notified = 1, last_checked_at = datetime('now', '-48 hours') WHERE domain = 'old.com'",
+        )
+        .run();
 
       const pending = repo.listPendingPoll(24);
       expect(pending).toHaveLength(1);

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type { TrademarkMatch } from '../../providers/trademark/trademark-provider.js';
 
 export interface TrademarkResultRow {
@@ -14,7 +14,7 @@ export interface TrademarkResultRow {
 }
 
 export class TrademarkRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   // ---------------------------------------------------------------------------
   // Term-keyed cache methods (primary interface for the caching provider)
@@ -33,20 +33,19 @@ export class TrademarkRepository {
     ttlDays: number,
   ): void {
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO trademark_results
-         (search_term, source, match_found, match_details, raw_response, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+    this.db.exec(
+      `INSERT INTO trademark_results
+       (search_term, source, match_found, match_details, raw_response, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
         searchTerm,
         source,
         matchFound ? 1 : 0,
         matchDetails ? JSON.stringify(matchDetails) : null,
         rawResponse ? JSON.stringify(rawResponse) : null,
         expiresAt,
-      );
+      ],
+    );
   }
 
   /**
@@ -55,14 +54,11 @@ export class TrademarkRepository {
    */
   findValidByTerm(searchTerm: string, source: string): TrademarkResultRow | null {
     const now = new Date().toISOString();
-    return (
-      (this.db
-        .prepare(
-          `SELECT * FROM trademark_results
-           WHERE search_term = ? AND source = ? AND expires_at > ?
-           ORDER BY checked_at DESC LIMIT 1`,
-        )
-        .get(searchTerm, source, now) as TrademarkResultRow | undefined) ?? null
+    return this.db.queryOne<TrademarkResultRow>(
+      `SELECT * FROM trademark_results
+       WHERE search_term = ? AND source = ? AND expires_at > ?
+       ORDER BY checked_at DESC LIMIT 1`,
+      [searchTerm, source, now],
     );
   }
 
@@ -79,32 +75,28 @@ export class TrademarkRepository {
     matchDetails: unknown,
   ): void {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO trademark_results
-         (candidate_id, search_term, source, match_found, match_details, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+    this.db.exec(
+      `INSERT INTO trademark_results
+       (candidate_id, search_term, source, match_found, match_details, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
         candidateId,
         searchTerm,
         source,
         matchFound ? 1 : 0,
         matchDetails ? JSON.stringify(matchDetails) : null,
         expiresAt,
-      );
+      ],
+    );
   }
 
   findValid(candidateId: number, source: string): TrademarkResultRow | null {
     const now = new Date().toISOString();
-    return (
-      (this.db
-        .prepare(
-          `SELECT * FROM trademark_results
-           WHERE candidate_id = ? AND source = ? AND expires_at > ?
-           ORDER BY checked_at DESC LIMIT 1`,
-        )
-        .get(candidateId, source, now) as TrademarkResultRow | undefined) ?? null
+    return this.db.queryOne<TrademarkResultRow>(
+      `SELECT * FROM trademark_results
+       WHERE candidate_id = ? AND source = ? AND expires_at > ?
+       ORDER BY checked_at DESC LIMIT 1`,
+      [candidateId, source, now],
     );
   }
 
@@ -122,15 +114,13 @@ export class TrademarkRepository {
    * or as a scheduled job.
    */
   pruneExpired(now: string = new Date().toISOString()): number {
-    const result = this.db.prepare('DELETE FROM trademark_results WHERE expires_at < ?').run(now);
+    const result = this.db.exec('DELETE FROM trademark_results WHERE expires_at < ?', [now]);
     return Number(result.changes);
   }
 
   /** Total row count (for diagnostics). */
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM trademark_results').get() as {
-      n: number;
-    };
-    return row.n;
+    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM trademark_results');
+    return row!.n;
   }
 }

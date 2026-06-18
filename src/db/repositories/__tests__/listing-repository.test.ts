@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { ListingRepository } from '../listing-repository.js';
 import type { NewListing, NewListingOffer } from '../../../types/listing.js';
 
-function createTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.exec(`
+function createTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.exec(`
     CREATE TABLE IF NOT EXISTS listings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       domain TEXT NOT NULL,
@@ -33,11 +34,11 @@ function createTestDb(): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
-  return db;
+  return provider;
 }
 
 describe('ListingRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: ListingRepository;
 
   const sampleListing: NewListing = {
@@ -63,8 +64,8 @@ describe('ListingRepository', () => {
   };
 
   beforeEach(() => {
-    db = createTestDb();
-    repo = new ListingRepository(db);
+    provider = createTestDb();
+    repo = new ListingRepository(provider);
   });
 
   it('inserts and retrieves a listing by id', () => {

@@ -1,10 +1,4 @@
-import type { DatabaseProvider, ExecResult, TransactionIsolationLevel } from './interface.js';
-
-interface MockTable {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  autoIncrementId: number;
-}
+import type { DatabaseProvider, ExecResult } from './interface.js';
 
 interface CallRecord {
   method: string;
@@ -14,17 +8,13 @@ interface CallRecord {
 }
 
 export class MockDatabaseProvider implements DatabaseProvider {
-  #tables: Map<string, MockTable> = new Map();
   #calls: CallRecord[] = [];
   #open = true;
   #nextId = 1;
+  #tables: Set<string> = new Set();
 
   constructor() {
-    this.#tables.set('schema_migrations', {
-      columns: ['migration_name', 'applied_at'],
-      rows: [],
-      autoIncrementId: 0,
-    });
+    this.#tables.add('schema_migrations');
   }
 
   get calls(): CallRecord[] {
@@ -35,52 +25,35 @@ export class MockDatabaseProvider implements DatabaseProvider {
     this.#calls = [];
   }
 
-  addTable(name: string, columns: string[], initialRows: Record<string, unknown>[] = []): void {
-    this.#tables.set(name, {
-      columns,
-      rows: [...initialRows],
-      autoIncrementId: initialRows.length,
-    });
+  addTable(name: string): void {
+    this.#tables.add(name);
   }
 
-  getTable(name: string): MockTable | undefined {
-    return this.#tables.get(name);
+  hasTable(name: string): boolean {
+    return this.#tables.has(name);
   }
 
-  getAllRows<T>(table: string): T[] {
-    return (this.#tables.get(table)?.rows as T[]) ?? [];
-  }
-
-  async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
+  exec(sql: string, params?: unknown[]): ExecResult {
     this.#recordCall('exec', sql, params);
-    const normalizedSql = sql.trim().toUpperCase();
-
-    if (normalizedSql.startsWith('CREATE')) {
-      return { changes: 0, lastInsertRowid: undefined };
-    }
-
     const id = this.#nextId++;
     return { changes: 1, lastInsertRowid: id };
   }
 
-  async query<T>(_sql: string, _params?: unknown[]): Promise<T[]> {
+  query<T>(_sql: string, _params?: unknown[]): T[] {
     this.#recordCall('query', _sql, _params);
     return [];
   }
 
-  async queryOne<T>(_sql: string, _params?: unknown[]): Promise<T | null> {
+  queryOne<T>(_sql: string, _params?: unknown[]): T | null {
     this.#recordCall('queryOne', _sql, _params);
     return null;
   }
 
-  async transaction<T>(
-    fn: (trx: DatabaseProvider) => Promise<T>,
-    _isolationLevel?: TransactionIsolationLevel,
-  ): Promise<T> {
+  transaction<T>(fn: (db: DatabaseProvider) => T): T {
     return fn(this);
   }
 
-  async close(): Promise<void> {
+  close(): void {
     this.#open = false;
   }
 
@@ -89,10 +62,11 @@ export class MockDatabaseProvider implements DatabaseProvider {
   }
 
   reset(): void {
-    this.#tables.clear();
     this.#calls = [];
     this.#open = true;
     this.#nextId = 1;
+    this.#tables.clear();
+    this.#tables.add('schema_migrations');
   }
 
   #recordCall(method: string, sql: string, params?: unknown[]): void {

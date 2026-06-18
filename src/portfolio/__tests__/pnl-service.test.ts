@@ -1,17 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { PnlService } from '../pnl-service.js';
 import type { RecordOutcomeInput } from '../../types/outcome.js';
 
-function openTestDb(): Database.Database {
+function openTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
+  const dbProvider = new SqliteProvider(db);
+  return { db, dbProvider };
 }
 
 function insertPortfolio(
@@ -59,14 +61,15 @@ function makeOutcome(
 }
 
 describe('PnlService', () => {
-  let db: Database.Database;
+  let dbProvider: SqliteProvider;
   let portfolioRepo: PortfolioRepository;
   let outcomeRepo: OutcomeRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    portfolioRepo = new PortfolioRepository(db);
-    outcomeRepo = new OutcomeRepository(db);
+    const opened = openTestDb();
+    dbProvider = opened.dbProvider;
+    portfolioRepo = new PortfolioRepository(dbProvider);
+    outcomeRepo = new OutcomeRepository(dbProvider);
   });
 
   it('returns zeroed summary when portfolio is empty', () => {

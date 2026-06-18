@@ -1,7 +1,7 @@
-import type Database from 'better-sqlite3';
 import { vi } from 'vitest';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { KeywordProvider } from '../../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../../providers/comps/comps-provider.js';
 import type {
@@ -23,9 +23,9 @@ export interface FakeRescoreDeps {
   scoringRepo: ScoringRepository;
 }
 
-export function makeFakeRescoreDeps(db?: Database.Database): FakeRescoreDeps {
-  const candidateRepo = new CandidateRepository(db ?? ({} as Database.Database));
-  const scoringRepo = new ScoringRepository(db ?? ({} as Database.Database));
+export function makeFakeRescoreDeps(db: DatabaseProvider): FakeRescoreDeps {
+  const candidateRepo = new CandidateRepository(db);
+  const scoringRepo = new ScoringRepository(db);
   return {
     keyword: {
       getMetrics: vi

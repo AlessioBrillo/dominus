@@ -2,16 +2,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { JobQueueRepository } from '../../db/repositories/job-queue-repository.js';
 import { JobWorker } from '../worker.js';
 import type { JobType, JobHandler, JobPayload, JobResult } from '../../types/job-queue.js';
 
-function openTestDb(): Database.Database {
+function openTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
+  const dbProvider = new SqliteProvider(db);
+  return { db, dbProvider };
 }
 
 function makeMockHandler(
@@ -28,13 +30,16 @@ const FAST_POLL = { pollIntervalMs: 20, gracefulShutdownTimeoutMs: 100 };
 
 describe('JobWorker', () => {
   let db: Database.Database;
+  let dbProvider: SqliteProvider;
   let repo: JobQueueRepository;
   let handlers: Map<JobType, JobHandler<any, any>>;
   const workers: JobWorker[] = [];
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new JobQueueRepository(db);
+    const opened = openTestDb();
+    db = opened.db;
+    dbProvider = opened.dbProvider;
+    repo = new JobQueueRepository(dbProvider);
     handlers = new Map();
   });
 

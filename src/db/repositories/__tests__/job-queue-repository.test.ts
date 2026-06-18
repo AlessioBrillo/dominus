@@ -1,27 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { JobQueueRepository } from '../job-queue-repository.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 describe('JobQueueRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: JobQueueRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new JobQueueRepository(db);
+    provider = openTestDb();
+    repo = new JobQueueRepository(provider);
   });
 
   afterEach(() => {
-    db.close();
+    provider.close();
   });
 
   describe('enqueue', () => {
@@ -154,9 +155,9 @@ describe('JobQueueRepository', () => {
     it('requeues running jobs older than maxRunningAgeMs', () => {
       const id = repo.enqueue('WATCHLIST_POLL', {});
       repo.dequeue();
-      db.prepare(
-        "UPDATE job_queue SET started_at = datetime('now', '-10 minutes') WHERE id = ?",
-      ).run(id);
+      provider.rawDb
+        .prepare("UPDATE job_queue SET started_at = datetime('now', '-10 minutes') WHERE id = ?")
+        .run(id);
       const requeued = repo.requeueStuck(5000);
       expect(requeued).toBe(1);
       const job = repo.getById(id);
@@ -314,9 +315,9 @@ describe('JobQueueRepository', () => {
       const id = repo.enqueue('BACKUP', {});
       repo.dequeue();
       repo.complete(id, {});
-      db.prepare("UPDATE job_queue SET finished_at = datetime('now', '-10 days') WHERE id = ?").run(
-        id,
-      );
+      provider.rawDb
+        .prepare("UPDATE job_queue SET finished_at = datetime('now', '-10 days') WHERE id = ?")
+        .run(id);
       const deleted = repo.deleteCompleted(7);
       expect(deleted).toBe(1);
       expect(repo.getById(id)).toBeNull();
@@ -337,7 +338,9 @@ describe('JobQueueRepository', () => {
       const id = repo.enqueue('PRUNE', {}, { maxAttempts: 1 });
       repo.dequeue();
       repo.fail(id, 'err');
-      db.prepare("UPDATE dead_letter_jobs SET failed_at = datetime('now', '-40 days')").run();
+      provider.rawDb
+        .prepare("UPDATE dead_letter_jobs SET failed_at = datetime('now', '-40 days')")
+        .run();
       const deleted = repo.deleteDeadLetter(30);
       expect(deleted).toBe(1);
       expect(repo.getDeadLetter()).toHaveLength(0);

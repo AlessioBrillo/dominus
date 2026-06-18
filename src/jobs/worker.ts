@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type { JobType, JobHandler, JobQueueRow, JobPayload } from '../types/job-queue.js';
 import { getLogger } from '../logger.js';
@@ -32,7 +33,7 @@ export class JobWorker {
     handlers: Map<JobType, AnyHandler>,
     config: Partial<WorkerConfig> = {},
   ) {
-    this.#repo = new JobQueueRepository(db);
+    this.#repo = new JobQueueRepository(new SqliteProvider(db));
     this.#handlers = handlers;
     this.#config = {
       concurrency: config.concurrency ?? 2,

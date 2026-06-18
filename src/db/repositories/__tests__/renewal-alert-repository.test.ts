@@ -1,20 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { RenewalAlertRepository } from '../renewal-alert-repository.js';
 import { AlertType, AlertSeverity } from '../../../types/alert.js';
 import type { InsertRenewalAlertInput } from '../../../types/alert.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function makePortfolioEntry(db: Database.Database, domain: string, renewalDate: string): number {
-  const result = db
+function makePortfolioEntry(provider: SqliteProvider, domain: string, renewalDate: string): number {
+  const result = provider.rawDb
     .prepare(
       `INSERT INTO portfolio_entries (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar)
        VALUES (?, 'com', '2025-01-01', ?, 10, 15, 'test')`,
@@ -41,13 +42,13 @@ function insertSampleAlert(
 }
 
 describe('RenewalAlertRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: RenewalAlertRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new RenewalAlertRepository(db);
-    testInput.portfolioEntryId = makePortfolioEntry(db, 'example.com', '2026-07-01');
+    provider = openTestDb();
+    repo = new RenewalAlertRepository(provider);
+    testInput.portfolioEntryId = makePortfolioEntry(provider, 'example.com', '2026-07-01');
   });
 
   describe('upsert', () => {
@@ -85,7 +86,7 @@ describe('RenewalAlertRepository', () => {
       insertSampleAlert(repo);
       insertSampleAlert(repo, {
         domain: 'other.com',
-        portfolioEntryId: makePortfolioEntry(db, 'other.com', '2026-08-01'),
+        portfolioEntryId: makePortfolioEntry(provider, 'other.com', '2026-08-01'),
         alertType: AlertType.RenewalCritical,
       });
 
@@ -95,7 +96,7 @@ describe('RenewalAlertRepository', () => {
 
     it('filters by domain when specified', () => {
       insertSampleAlert(repo);
-      const otherId = makePortfolioEntry(db, 'other.com', '2026-08-01');
+      const otherId = makePortfolioEntry(provider, 'other.com', '2026-08-01');
       insertSampleAlert(repo, { domain: 'other.com', portfolioEntryId: otherId });
 
       const filtered = repo.findAll('example.com');
@@ -108,7 +109,7 @@ describe('RenewalAlertRepository', () => {
       repo.acknowledge(alert.id!);
       insertSampleAlert(repo, {
         domain: 'other.com',
-        portfolioEntryId: makePortfolioEntry(db, 'other.com', '2026-08-01'),
+        portfolioEntryId: makePortfolioEntry(provider, 'other.com', '2026-08-01'),
         alertType: AlertType.RenewalCritical,
       });
 
@@ -150,7 +151,7 @@ describe('RenewalAlertRepository', () => {
   describe('acknowledgeAll', () => {
     it('acknowledges all unacknowledged alerts', () => {
       insertSampleAlert(repo);
-      const otherId = makePortfolioEntry(db, 'other.com', '2026-08-01');
+      const otherId = makePortfolioEntry(provider, 'other.com', '2026-08-01');
       insertSampleAlert(repo, { domain: 'other.com', portfolioEntryId: otherId });
 
       const n = repo.acknowledgeAll();
@@ -160,7 +161,7 @@ describe('RenewalAlertRepository', () => {
 
     it('acknowledges only for a specific domain', () => {
       insertSampleAlert(repo);
-      const otherId = makePortfolioEntry(db, 'other.com', '2026-08-01');
+      const otherId = makePortfolioEntry(provider, 'other.com', '2026-08-01');
       insertSampleAlert(repo, { domain: 'other.com', portfolioEntryId: otherId });
 
       const n = repo.acknowledgeAll('example.com');
@@ -211,7 +212,7 @@ describe('RenewalAlertRepository', () => {
         alertType: AlertType.RenewalCritical,
         portfolioEntryId: testInput.portfolioEntryId,
       });
-      const otherId = makePortfolioEntry(db, 'other.com', '2026-08-01');
+      const otherId = makePortfolioEntry(provider, 'other.com', '2026-08-01');
       insertSampleAlert(repo, { domain: 'other.com', portfolioEntryId: otherId });
 
       const latest = repo.latestPerDomain();

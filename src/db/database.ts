@@ -2,6 +2,8 @@ import Database from 'better-sqlite3';
 import { mkdirSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { getLogger } from '../logger.js';
+import { SqliteProvider } from './provider/sqlite-adapter.js';
+import type { DatabaseProvider } from './provider/interface.js';
 
 const logger = getLogger();
 
@@ -119,4 +121,15 @@ export function setDatabaseForTest(db: Database.Database): void {
 /** Returns the currently active database instance, or null if none. */
 export function getDatabase(): Database.Database | null {
   return _db;
+}
+
+/**
+ * Returns a DatabaseProvider wrapping the active database connection.
+ * Creates the connection first if it hasn't been opened yet.
+ */
+export function getDatabaseProvider(): DatabaseProvider {
+  if (_db === null) {
+    openDatabase(_currentPath ?? './data/dominus.db');
+  }
+  return new SqliteProvider(_db!);
 }

@@ -1,20 +1,21 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { BacktestSignalsRepository } from '../backtest-signals-repository.js';
 import { OutcomeRepository } from '../outcome-repository.js';
 import { PortfolioRepository } from '../portfolio-repository.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function seedPortfolio(db: Database.Database, domain: string): void {
-  new PortfolioRepository(db).insert({
+function seedPortfolio(provider: SqliteProvider, domain: string): void {
+  new PortfolioRepository(provider).insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -25,8 +26,8 @@ function seedPortfolio(db: Database.Database, domain: string): void {
   });
 }
 
-function seedOutcome(db: Database.Database, domain: string, salePrice: number): number {
-  const outcome = new OutcomeRepository(db).insert({
+function seedOutcome(provider: SqliteProvider, domain: string, salePrice: number): number {
+  const outcome = new OutcomeRepository(provider).insert({
     domain,
     type: 'sold',
     occurredAt: '2026-04-15T00:00:00.000Z',
@@ -36,17 +37,17 @@ function seedOutcome(db: Database.Database, domain: string, salePrice: number): 
 }
 
 describe('BacktestSignalsRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
 
   beforeEach(() => {
-    db = openTestDb();
+    provider = openTestDb();
   });
 
   it('upserts a single signal with derived error columns', () => {
-    seedPortfolio(db, 'alpha.com');
-    const outcomeId = seedOutcome(db, 'alpha.com', 1500);
+    seedPortfolio(provider, 'alpha.com');
+    const outcomeId = seedOutcome(provider, 'alpha.com', 1500);
 
-    const repo = new BacktestSignalsRepository(db);
+    const repo = new BacktestSignalsRepository(provider);
     const sig = repo.upsert({
       domain: 'alpha.com',
       outcomeId,
@@ -66,14 +67,14 @@ describe('BacktestSignalsRepository', () => {
   });
 
   it('buckets low / mid / high confidence correctly', () => {
-    seedPortfolio(db, 'a.com');
-    seedPortfolio(db, 'b.com');
-    seedPortfolio(db, 'c.com');
-    const o1 = seedOutcome(db, 'a.com', 1000);
-    const o2 = seedOutcome(db, 'b.com', 1000);
-    const o3 = seedOutcome(db, 'c.com', 1000);
+    seedPortfolio(provider, 'a.com');
+    seedPortfolio(provider, 'b.com');
+    seedPortfolio(provider, 'c.com');
+    const o1 = seedOutcome(provider, 'a.com', 1000);
+    const o2 = seedOutcome(provider, 'b.com', 1000);
+    const o3 = seedOutcome(provider, 'c.com', 1000);
 
-    const repo = new BacktestSignalsRepository(db);
+    const repo = new BacktestSignalsRepository(provider);
     expect(
       repo.upsert({
         domain: 'a.com',
@@ -113,10 +114,10 @@ describe('BacktestSignalsRepository', () => {
   });
 
   it('upsert is idempotent on (outcome_id, scoring_run_id)', () => {
-    seedPortfolio(db, 'alpha.com');
-    const outcomeId = seedOutcome(db, 'alpha.com', 1500);
+    seedPortfolio(provider, 'alpha.com');
+    const outcomeId = seedOutcome(provider, 'alpha.com', 1500);
 
-    const repo = new BacktestSignalsRepository(db);
+    const repo = new BacktestSignalsRepository(provider);
     repo.upsert({
       domain: 'alpha.com',
       outcomeId,
@@ -143,10 +144,10 @@ describe('BacktestSignalsRepository', () => {
   });
 
   it('cascade-deletes signals when the parent outcome is removed', () => {
-    seedPortfolio(db, 'alpha.com');
-    const outcomeId = seedOutcome(db, 'alpha.com', 1500);
+    seedPortfolio(provider, 'alpha.com');
+    const outcomeId = seedOutcome(provider, 'alpha.com', 1500);
 
-    const repo = new BacktestSignalsRepository(db);
+    const repo = new BacktestSignalsRepository(provider);
     repo.upsert({
       domain: 'alpha.com',
       outcomeId,
@@ -159,17 +160,17 @@ describe('BacktestSignalsRepository', () => {
     });
     expect(repo.count()).toBe(1);
 
-    new OutcomeRepository(db).delete(outcomeId);
+    new OutcomeRepository(provider).delete(outcomeId);
     expect(repo.count()).toBe(0);
   });
 
   it('finds signals by domain', () => {
-    seedPortfolio(db, 'alpha.com');
-    seedPortfolio(db, 'beta.io');
-    const o1 = seedOutcome(db, 'alpha.com', 1500);
-    const o2 = seedOutcome(db, 'beta.io', 800);
+    seedPortfolio(provider, 'alpha.com');
+    seedPortfolio(provider, 'beta.io');
+    const o1 = seedOutcome(provider, 'alpha.com', 1500);
+    const o2 = seedOutcome(provider, 'beta.io', 800);
 
-    const repo = new BacktestSignalsRepository(db);
+    const repo = new BacktestSignalsRepository(provider);
     repo.upsert({
       domain: 'alpha.com',
       outcomeId: o1,

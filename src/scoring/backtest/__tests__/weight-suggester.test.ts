@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../../db/migrator.js';
+import { SqliteProvider } from '../../../db/provider/sqlite-adapter.js';
 import { BacktestSignalsRepository } from '../../../db/repositories/backtest-signals-repository.js';
 import { OutcomeRepository } from '../../../db/repositories/outcome-repository.js';
 import { PortfolioRepository } from '../../../db/repositories/portfolio-repository.js';
@@ -11,12 +12,13 @@ import { DEFAULT_WEIGHTS, type ScoringWeights } from '../../weights.js';
 import { CandidateSource, CandidateStatus } from '../../../types/candidate.js';
 import type { ScoreResult } from '../../../types/score.js';
 
-function openTestDb(): Database.Database {
+function openTestDb(): SqliteProvider {
   const db = new Database(':memory:');
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
-  return db;
+  const dbProvider = new SqliteProvider(db);
+  return dbProvider;
 }
 
 interface SeedSignal {
@@ -30,8 +32,8 @@ interface SeedSignal {
   occurredAt: string;
 }
 
-function seedSignalRow(db: Database.Database, s: SeedSignal): void {
-  new PortfolioRepository(db).insert({
+function seedSignalRow(dbProvider: SqliteProvider, s: SeedSignal): void {
+  new PortfolioRepository(dbProvider).insert({
     domain: s.domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -41,8 +43,8 @@ function seedSignalRow(db: Database.Database, s: SeedSignal): void {
     registrar: 'namecheap',
   });
 
-  const candidateRepo = new CandidateRepository(db);
-  const scoringRepo = new ScoringRepository(db);
+  const candidateRepo = new CandidateRepository(dbProvider);
+  const scoringRepo = new ScoringRepository(dbProvider);
   const candidate = candidateRepo.insert({
     domain: s.domain,
     tld: '.com',
@@ -74,18 +76,20 @@ function seedSignalRow(db: Database.Database, s: SeedSignal): void {
     effectiveConfidenceThreshold: 0.3,
   };
   scoringRepo.insert(candidate.id!, 'test', result);
-  db.prepare(
-    'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
-  ).run(s.scoredAt, candidate.id);
+  dbProvider.rawDb
+    .prepare(
+      'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
+    )
+    .run(s.scoredAt, candidate.id);
 
-  const outcome = new OutcomeRepository(db).insert({
+  const outcome = new OutcomeRepository(dbProvider).insert({
     domain: s.domain,
     type: 'sold',
     occurredAt: s.occurredAt,
     salePriceEur: s.salePrice,
   });
 
-  new BacktestSignalsRepository(db).upsert({
+  new BacktestSignalsRepository(dbProvider).upsert({
     domain: s.domain,
     outcomeId: outcome.id!,
     scoringRunId: 'test',
@@ -99,18 +103,20 @@ function seedSignalRow(db: Database.Database, s: SeedSignal): void {
 
 describe('WeightSuggester', () => {
   let db: Database.Database;
+  let dbProvider: SqliteProvider;
   let backtestRepo: BacktestSignalsRepository;
   let scoringRepo: ScoringRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    backtestRepo = new BacktestSignalsRepository(db);
-    scoringRepo = new ScoringRepository(db);
+    dbProvider = openTestDb();
+    db = dbProvider.rawDb;
+    backtestRepo = new BacktestSignalsRepository(dbProvider);
+    scoringRepo = new ScoringRepository(dbProvider);
   });
 
   it('holds all weights when the sample is too small (<5 sold outcomes)', () => {
     for (let i = 0; i < 4; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `d${i}.com`,
         intrinsic: 0.8,
         commercial: 0.6,
@@ -132,7 +138,7 @@ describe('WeightSuggester', () => {
     // 20 rows: 10 with high intrinsic, 10 with low intrinsic.
     // high-intrinsic sold for €1500+ on average, low-intrinsic for €500.
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -144,7 +150,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -165,7 +171,7 @@ describe('WeightSuggester', () => {
 
   it('proposes a negative weight delta when high signal underperforms (anti-predictive)', () => {
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -177,7 +183,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -197,7 +203,7 @@ describe('WeightSuggester', () => {
 
   it('renormalises so the suggested weights still sum to ~1.0', () => {
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -209,7 +215,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -228,7 +234,7 @@ describe('WeightSuggester', () => {
 
   it('holds a signal when the high/low buckets are too small', () => {
     // 5 outcomes, but only 1 has high intrinsic (the other 4 are low).
-    seedSignalRow(db, {
+    seedSignalRow(dbProvider, {
       domain: 'one-high.com',
       intrinsic: 0.9,
       commercial: 0.4,
@@ -239,7 +245,7 @@ describe('WeightSuggester', () => {
       occurredAt: '2026-04-15T00:00:00.000Z',
     });
     for (let i = 0; i < 4; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.1,
         commercial: 0.4,
@@ -260,7 +266,7 @@ describe('WeightSuggester', () => {
   it('caps individual deltas at ±0.05 (anti-jump safety rail)', () => {
     // 10 high sold for €5000, 10 low sold for €10. lift = €4990.
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `hi${i}.com`,
         intrinsic: 0.9,
         commercial: 0.4,
@@ -272,7 +278,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `lo${i}.com`,
         intrinsic: 0.1,
         commercial: 0.4,
@@ -298,7 +304,7 @@ describe('WeightSuggester', () => {
       expiry: 0.1,
     };
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `hi${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -310,7 +316,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `lo${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -329,7 +335,7 @@ describe('WeightSuggester', () => {
 
   it('uses the default weights when none are provided', () => {
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `hi${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -341,7 +347,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(db, {
+      seedSignalRow(dbProvider, {
         domain: `lo${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,

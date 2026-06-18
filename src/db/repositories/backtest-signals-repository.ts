@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export type ConfidenceBucket = 'low' | 'mid' | 'high';
 
@@ -94,7 +94,7 @@ export interface InsertBacktestSignalInput {
  * read-only and powers the report (see ADR-0008).
  */
 export class BacktestSignalsRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   /**
    * Insert a new signal. Computes derived columns (`absolute_error_eur`,
@@ -110,30 +110,28 @@ export class BacktestSignalsRepository {
     const signedErr = input.actualSalePriceEur - input.predictedExpectedValue;
     const bucket = bucketForConfidence(input.predictedConfidence);
 
-    const row = this.db
-      .prepare(
-        `INSERT INTO backtest_signals
-           (domain, outcome_id, scoring_run_id, predicted_expected_value,
-            predicted_buy_max, predicted_list_price, predicted_confidence,
-            actual_sale_price_eur, absolute_error_eur, signed_error_eur,
-            confidence_bucket, acquisition_cost_eur, total_renewal_cost_paid_eur)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(outcome_id, scoring_run_id) DO UPDATE SET
-           domain                    = excluded.domain,
-           predicted_expected_value  = excluded.predicted_expected_value,
-           predicted_buy_max         = excluded.predicted_buy_max,
-           predicted_list_price      = excluded.predicted_list_price,
-           predicted_confidence      = excluded.predicted_confidence,
-           actual_sale_price_eur     = excluded.actual_sale_price_eur,
-           absolute_error_eur        = excluded.absolute_error_eur,
-           signed_error_eur          = excluded.signed_error_eur,
-           confidence_bucket         = excluded.confidence_bucket,
-           acquisition_cost_eur      = excluded.acquisition_cost_eur,
-           total_renewal_cost_paid_eur = excluded.total_renewal_cost_paid_eur,
-           recorded_at               = datetime('now')
-         RETURNING id`,
-      )
-      .get(
+    const row = this.db.queryOne<{ id: number }>(
+      `INSERT INTO backtest_signals
+         (domain, outcome_id, scoring_run_id, predicted_expected_value,
+          predicted_buy_max, predicted_list_price, predicted_confidence,
+          actual_sale_price_eur, absolute_error_eur, signed_error_eur,
+          confidence_bucket, acquisition_cost_eur, total_renewal_cost_paid_eur)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(outcome_id, scoring_run_id) DO UPDATE SET
+         domain                    = excluded.domain,
+         predicted_expected_value  = excluded.predicted_expected_value,
+         predicted_buy_max         = excluded.predicted_buy_max,
+         predicted_list_price      = excluded.predicted_list_price,
+         predicted_confidence      = excluded.predicted_confidence,
+         actual_sale_price_eur     = excluded.actual_sale_price_eur,
+         absolute_error_eur        = excluded.absolute_error_eur,
+         signed_error_eur          = excluded.signed_error_eur,
+         confidence_bucket         = excluded.confidence_bucket,
+         acquisition_cost_eur      = excluded.acquisition_cost_eur,
+         total_renewal_cost_paid_eur = excluded.total_renewal_cost_paid_eur,
+         recorded_at               = datetime('now')
+       RETURNING id`,
+      [
         input.domain,
         input.outcomeId,
         input.scoringRunId,
@@ -147,43 +145,44 @@ export class BacktestSignalsRepository {
         bucket,
         input.acquisitionCostEur ?? 0,
         input.totalRenewalCostPaidEur ?? 0,
-      ) as { id: number };
+      ],
+    )!;
 
-    const stored = this.db
-      .prepare('SELECT * FROM backtest_signals WHERE id = ?')
-      .get(row.id) as BacktestRow;
+    const stored = this.db.queryOne<BacktestRow>('SELECT * FROM backtest_signals WHERE id = ?', [
+      row.id,
+    ])!;
     return rowToSignal(stored);
   }
 
   findByOutcome(outcomeId: number): BacktestSignal[] {
-    const rows = this.db
-      .prepare('SELECT * FROM backtest_signals WHERE outcome_id = ? ORDER BY recorded_at DESC')
-      .all(outcomeId) as BacktestRow[];
+    const rows = this.db.query<BacktestRow>(
+      'SELECT * FROM backtest_signals WHERE outcome_id = ? ORDER BY recorded_at DESC',
+      [outcomeId],
+    );
     return rows.map(rowToSignal);
   }
 
   findByDomain(domain: string): BacktestSignal[] {
-    const rows = this.db
-      .prepare('SELECT * FROM backtest_signals WHERE domain = ? ORDER BY recorded_at DESC')
-      .all(domain) as BacktestRow[];
+    const rows = this.db.query<BacktestRow>(
+      'SELECT * FROM backtest_signals WHERE domain = ? ORDER BY recorded_at DESC',
+      [domain],
+    );
     return rows.map(rowToSignal);
   }
 
   findAll(): BacktestSignal[] {
-    const rows = this.db
-      .prepare('SELECT * FROM backtest_signals ORDER BY recorded_at DESC, id DESC')
-      .all() as BacktestRow[];
+    const rows = this.db.query<BacktestRow>(
+      'SELECT * FROM backtest_signals ORDER BY recorded_at DESC, id DESC',
+    );
     return rows.map(rowToSignal);
   }
 
   count(): number {
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM backtest_signals').get() as {
-      n: number;
-    };
+    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM backtest_signals')!;
     return row.n;
   }
 
   deleteAll(): void {
-    this.db.prepare('DELETE FROM backtest_signals').run();
+    this.db.exec('DELETE FROM backtest_signals');
   }
 }

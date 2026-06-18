@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 import type { Outcome, RecordOutcomeInput, OutcomeType } from '../../types/outcome.js';
 import { isOutcomeType } from '../../types/outcome.js';
 import { DomainNotFoundError } from '../../types/errors.js';
@@ -50,42 +50,43 @@ function rowToOutcome(row: OutcomeRow): Outcome {
  * outcomes — keeping the data model honest.
  */
 export class OutcomeRepository {
-  constructor(private readonly db: Database.Database) {}
+  constructor(private readonly db: DatabaseProvider) {}
 
   /** Insert a new outcome. Throws if `domain` is not in the portfolio. */
   insert(input: RecordOutcomeInput): Outcome {
-    const exists = this.db
-      .prepare('SELECT 1 FROM portfolio_entries WHERE domain = ?')
-      .get(input.domain);
-    if (exists === undefined) {
+    const exists = this.db.queryOne<{ 1: number }>(
+      'SELECT 1 FROM portfolio_entries WHERE domain = ?',
+      [input.domain],
+    );
+    if (exists === null) {
       throw new DomainNotFoundError(input.domain);
     }
 
-    const stmt = this.db.prepare(
-      `INSERT INTO outcomes
-         (domain, type, occurred_at, sale_price_eur, listing_price_eur,
-          days_listed, venue, commission_pct,
-          acquisition_cost_eur, total_renewal_cost_eur, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id`,
-    );
     try {
-      const row = stmt.get(
-        input.domain,
-        input.type,
-        input.occurredAt,
-        input.salePriceEur ?? null,
-        input.listingPriceEur ?? null,
-        input.daysListed ?? null,
-        input.venue ?? null,
-        input.commissionPct ?? null,
-        input.acquisitionCostEur ?? null,
-        input.totalRenewalCostEur ?? null,
-        input.notes ?? null,
-      ) as { id: number };
-      const inserted = this.db
-        .prepare('SELECT * FROM outcomes WHERE id = ?')
-        .get(row.id) as OutcomeRow;
+      const row = this.db.queryOne<{ id: number }>(
+        `INSERT INTO outcomes
+           (domain, type, occurred_at, sale_price_eur, listing_price_eur,
+            days_listed, venue, commission_pct,
+            acquisition_cost_eur, total_renewal_cost_eur, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id`,
+        [
+          input.domain,
+          input.type,
+          input.occurredAt,
+          input.salePriceEur ?? null,
+          input.listingPriceEur ?? null,
+          input.daysListed ?? null,
+          input.venue ?? null,
+          input.commissionPct ?? null,
+          input.acquisitionCostEur ?? null,
+          input.totalRenewalCostEur ?? null,
+          input.notes ?? null,
+        ],
+      )!;
+      const inserted = this.db.queryOne<OutcomeRow>('SELECT * FROM outcomes WHERE id = ?', [
+        row.id,
+      ])!;
       return rowToOutcome(inserted);
     } catch (err: unknown) {
       // SQLite FK violation as safety net — should not trigger since we
@@ -99,33 +100,33 @@ export class OutcomeRepository {
   }
 
   findById(id: number): Outcome | null {
-    const row = this.db.prepare('SELECT * FROM outcomes WHERE id = ?').get(id) as
-      | OutcomeRow
-      | undefined;
+    const row = this.db.queryOne<OutcomeRow>('SELECT * FROM outcomes WHERE id = ?', [id]);
     return row ? rowToOutcome(row) : null;
   }
 
   /** All outcomes for one portfolio domain, most recent first. */
   findByDomain(domain: string): Outcome[] {
-    const rows = this.db
-      .prepare('SELECT * FROM outcomes WHERE domain = ? ORDER BY occurred_at DESC, id DESC')
-      .all(domain) as OutcomeRow[];
+    const rows = this.db.query<OutcomeRow>(
+      'SELECT * FROM outcomes WHERE domain = ? ORDER BY occurred_at DESC, id DESC',
+      [domain],
+    );
     return rows.map(rowToOutcome);
   }
 
   /** All outcomes in the database, most recent first. */
   findAll(): Outcome[] {
-    const rows = this.db
-      .prepare('SELECT * FROM outcomes ORDER BY occurred_at DESC, id DESC')
-      .all() as OutcomeRow[];
+    const rows = this.db.query<OutcomeRow>(
+      'SELECT * FROM outcomes ORDER BY occurred_at DESC, id DESC',
+    );
     return rows.map(rowToOutcome);
   }
 
   /** Outcomes of a specific type, most recent first. */
   findByType(type: OutcomeType): Outcome[] {
-    const rows = this.db
-      .prepare('SELECT * FROM outcomes WHERE type = ? ORDER BY occurred_at DESC, id DESC')
-      .all(type) as OutcomeRow[];
+    const rows = this.db.query<OutcomeRow>(
+      'SELECT * FROM outcomes WHERE type = ? ORDER BY occurred_at DESC, id DESC',
+      [type],
+    );
     return rows.map(rowToOutcome);
   }
 
@@ -137,23 +138,22 @@ export class OutcomeRepository {
     renewed: number;
     totalRealisedEur: number;
   } {
-    const row = this.db
-      .prepare(
-        `SELECT
-           SUM(CASE WHEN type = 'sold'    THEN 1 ELSE 0 END) AS sold,
-           SUM(CASE WHEN type = 'dropped' THEN 1 ELSE 0 END) AS dropped,
-           SUM(CASE WHEN type = 'expired' THEN 1 ELSE 0 END) AS expired,
-           SUM(CASE WHEN type = 'renewed' THEN 1 ELSE 0 END) AS renewed,
-           COALESCE(SUM(CASE WHEN type = 'sold' THEN sale_price_eur ELSE 0 END), 0) AS total_realised_eur
-         FROM outcomes WHERE domain = ?`,
-      )
-      .get(domain) as {
+    const row = this.db.queryOne<{
       sold: number | null;
       dropped: number | null;
       expired: number | null;
       renewed: number | null;
       total_realised_eur: number | null;
-    };
+    }>(
+      `SELECT
+         SUM(CASE WHEN type = 'sold'    THEN 1 ELSE 0 END) AS sold,
+         SUM(CASE WHEN type = 'dropped' THEN 1 ELSE 0 END) AS dropped,
+         SUM(CASE WHEN type = 'expired' THEN 1 ELSE 0 END) AS expired,
+         SUM(CASE WHEN type = 'renewed' THEN 1 ELSE 0 END) AS renewed,
+         COALESCE(SUM(CASE WHEN type = 'sold' THEN sale_price_eur ELSE 0 END), 0) AS total_realised_eur
+       FROM outcomes WHERE domain = ?`,
+      [domain],
+    )!;
     return {
       sold: row.sold ?? 0,
       dropped: row.dropped ?? 0,
@@ -165,6 +165,6 @@ export class OutcomeRepository {
 
   /** Hard delete an outcome. Used by tests; the CLI does not expose this. */
   delete(id: number): void {
-    this.db.prepare('DELETE FROM outcomes WHERE id = ?').run(id);
+    this.db.exec('DELETE FROM outcomes WHERE id = ?', [id]);
   }
 }

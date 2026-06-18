@@ -138,6 +138,8 @@ export interface DominusDependencies {
   worker: JobWorker | undefined;
 }
 
+import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
+
 function buildRepositories(db: Database.Database): {
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
@@ -153,20 +155,21 @@ function buildRepositories(db: Database.Database): {
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
 } {
+  const provider = new SqliteProvider(db);
   return {
-    candidateRepo: new CandidateRepository(db),
-    scoringRepo: new ScoringRepository(db),
-    trademarkRepo: new TrademarkRepository(db),
-    providerCacheRepo: new ProviderCacheRepository(db),
-    outcomeRepo: new OutcomeRepository(db),
-    portfolioRepo: new PortfolioRepository(db),
-    alertRepo: new RenewalAlertRepository(db),
-    pipelineRunsRepo: new PipelineRunsRepository(db),
-    metricsRepo: new MetricsRepository(db),
-    jobQueueRepo: new JobQueueRepository(db),
-    watchlistRepo: new WatchlistRepository(db),
-    acquisitionRepo: new AcquisitionRepository(db),
-    listingRepo: new ListingRepository(db),
+    candidateRepo: new CandidateRepository(provider),
+    scoringRepo: new ScoringRepository(provider),
+    trademarkRepo: new TrademarkRepository(provider),
+    providerCacheRepo: new ProviderCacheRepository(provider),
+    outcomeRepo: new OutcomeRepository(provider),
+    portfolioRepo: new PortfolioRepository(provider),
+    alertRepo: new RenewalAlertRepository(provider),
+    pipelineRunsRepo: new PipelineRunsRepository(provider),
+    metricsRepo: new MetricsRepository(provider),
+    jobQueueRepo: new JobQueueRepository(provider),
+    watchlistRepo: new WatchlistRepository(provider),
+    acquisitionRepo: new AcquisitionRepository(provider),
+    listingRepo: new ListingRepository(provider),
   };
 }
 
@@ -241,7 +244,7 @@ function buildWorkerIfEnabled(
     portfolioManager,
     rescoreService: portfolioManager.getRescoreService()!,
   });
-  const backtestSignalsRepo = new BacktestSignalsRepository(db);
+  const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(db));
   const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
   const weightSuggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
   const backtestHandler = new BacktestBuildHandler({
@@ -306,7 +309,7 @@ function buildSchedulerIfEnabled(
     runsRepo: pipelineRunsRepo,
     watchlistService,
     backupService,
-    jobRepo: new SchedulerJobRepository(db),
+    jobRepo: new SchedulerJobRepository(new SqliteProvider(db)),
     jobQueueService,
     ...(autoTuner ? { autoTuner } : {}),
   });
@@ -443,7 +446,7 @@ export function createDependencies(config: Config): DominusDependencies {
   // --- Auto-Tuner ---
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
-    const backtestSignalsRepo = new BacktestSignalsRepository(db);
+    const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(db));
     const backtestEngine = new BacktestEngine(db, repos.outcomeRepo, backtestSignalsRepo);
     const weightSuggester = new WeightSuggester(
       db,
@@ -451,7 +454,7 @@ export function createDependencies(config: Config): DominusDependencies {
       repos.scoringRepo,
       currentWeights,
     );
-    const weightSnapshotRepo = new WeightSnapshotRepository(db);
+    const weightSnapshotRepo = new WeightSnapshotRepository(new SqliteProvider(db));
     autoTuner = new AutoWeightTuner(
       backtestEngine,
       weightSuggester,

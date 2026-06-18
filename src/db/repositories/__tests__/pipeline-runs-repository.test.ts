@@ -1,15 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
+import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { PipelineRunsRepository } from '../pipeline-runs-repository.js';
 import type { CompletePipelineRunInput } from '../pipeline-runs-repository.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeStartedRun(
@@ -25,12 +26,12 @@ function makeStartedRun(
 }
 
 describe('PipelineRunsRepository', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let repo: PipelineRunsRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    repo = new PipelineRunsRepository(db);
+    provider = openTestDb();
+    repo = new PipelineRunsRepository(provider);
   });
 
   describe('insert + findById', () => {
