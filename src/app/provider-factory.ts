@@ -18,7 +18,9 @@ import {
   NodeWhoisProviderWithIanaFallback,
   buildPerTldWhoisRateLimiters,
 } from '../providers/whois/index.js';
+import { RetryingWhoisProvider, WHOIS_CIRCUIT_BREAKER } from './retrying-whois-provider.js';
 import { withRetry } from '../providers/retryable-provider.js';
+import type { WhoisProvider as WhoisProviderInterface } from '../providers/whois/whois-provider.js';
 import type { DnsCheckResult } from '../types/domain-status.js';
 import { DomainStatus } from '../types/domain-status.js';
 import { RetryingRdapProvider } from './retrying-rdap-provider.js';
@@ -157,7 +159,8 @@ export function buildDnsProvider(config: Config): DnsProvider {
 }
 
 export interface BuiltWhoisProvider {
-  provider: NodeWhoisProviderWithIanaFallback;
+  raw: NodeWhoisProviderWithIanaFallback;
+  withRetry: WhoisProviderInterface;
 }
 
 export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
@@ -173,13 +176,15 @@ export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
     intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
   });
 
-  const provider = new NodeWhoisProviderWithIanaFallback({
+  const raw = new NodeWhoisProviderWithIanaFallback({
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
     defaultRateLimiter: whoisDefaultLimiter,
     perTldRateLimiters: whoisPerTldLimiters,
   });
 
-  return { provider };
+  const withRetry = new RetryingWhoisProvider(raw, {}, WHOIS_CIRCUIT_BREAKER);
+
+  return { raw, withRetry };
 }
 
 export interface BuiltRateLimiters {

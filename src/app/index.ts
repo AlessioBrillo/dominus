@@ -8,6 +8,13 @@ export {
 } from './retrying-trademark-provider.js';
 export type { RetryPolicy } from './retrying-trademark-provider.js';
 export {
+  RetryingWhoisProvider,
+  WHOIS_RETRY_POLICY,
+  WHOIS_CIRCUIT_BREAKER,
+  CircuitOpenError as WhoisCircuitOpenError,
+} from './retrying-whois-provider.js';
+export type { RetryPolicy as WhoisRetryPolicy } from './retrying-whois-provider.js';
+export {
   reportProviderStatuses,
   warnEuipoIfMissing,
   warnCloudflareIfMissing,

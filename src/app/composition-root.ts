@@ -20,7 +20,7 @@ import {
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
 import { ProviderHealthCheck } from '../providers/provider-health.js';
-import type { NodeWhoisProviderWithIanaFallback } from '../providers/whois/node-whois-provider.js';
+import type { WhoisProvider } from '../providers/whois/whois-provider.js';
 import {
   AutoWeightTuner,
   type ScoringEngine,
@@ -105,7 +105,7 @@ export interface DominusDependencies {
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
-  whoisProvider: NodeWhoisProviderWithIanaFallback;
+  whoisProvider: WhoisProvider;
 
   currentWeights: ScoringWeights;
   engine: ScoringEngine;
@@ -167,7 +167,7 @@ export function createDependencies(config: Config): DominusDependencies {
     providerCacheRepo,
   );
   const dnsProvider = buildDnsProvider(config);
-  const { provider: whoisProvider } = buildWhoisProviders(config);
+  const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
   const usptoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
