@@ -156,7 +156,7 @@ describe('health command', () => {
   it('reports healthy state when database is connected', async () => {
     const output = await runHealth();
     expect(output).toMatch(/Status:\s+ok/);
-    expect(output).toMatch(/DOMINUS v0\.3\.0/);
+    expect(output).toMatch(/DOMINUS v0\.4\.0-dev/);
     expect(output).toMatch(/Database:\s+connected/);
     expect(output).toMatch(/Providers:/);
   });
