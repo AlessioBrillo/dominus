@@ -79,7 +79,10 @@ export class WhoisStage implements Stage<DomainCandidate> {
       }
       return Object.keys(meta).length > 0 ? meta : undefined;
     } catch (err) {
-      logger.debug({ domain: candidate.domain, err }, 'WHOIS enrichment failed — skipping');
+      logger.warn(
+        { domain: candidate.domain, err },
+        'WHOIS enrichment failed — expiry signal degraded',
+      );
       return undefined;
     }
   }
