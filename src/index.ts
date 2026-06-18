@@ -139,7 +139,7 @@ protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate)
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
 protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
 protectedRouter.use('/report', createReportRouter(deps.reportService));
-protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer));
+protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
 app.use('/api/v1', protectedRouter);
 
 // ── SPA catch-all with base path isolation ─────────────────────────

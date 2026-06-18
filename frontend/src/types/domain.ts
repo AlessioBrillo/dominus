@@ -110,3 +110,75 @@ export interface HealthResponse {
   version: string;
   timestamp: string;
 }
+
+export interface PnlSummary {
+  totalInvestmentEur: number;
+  totalReturnsEur: number;
+  netPnlEur: number;
+  roiPct: number;
+  holdingCostsEur: number;
+  soldCount: number;
+  totalCount: number;
+}
+
+export interface PnlPerDomain {
+  domain: string;
+  tld: string;
+  acquisitionCostEur: number;
+  renewalCostsPaidEur: number;
+  totalCostEur: number;
+  salePriceEur?: number;
+  netPnlEur: number;
+  holdingDays: number;
+  verdict: string;
+}
+
+export interface PnlMonthlyTrend {
+  period: string;
+  investmentEur: number;
+  returnsEur: number;
+  netFlowEur: number;
+}
+
+export interface PnlReport {
+  generatedAt: string;
+  summary: PnlSummary;
+  perDomain: PnlPerDomain[];
+  monthlyTrend: PnlMonthlyTrend[];
+}
+
+export interface AccuracyMetrics {
+  mape: number;
+  medianApe: number;
+  mae: number;
+  rmse: number;
+  bias: number;
+  biasPct: number;
+  sampleSize: number;
+}
+
+export interface ConfusionMatrix {
+  truePositives: number;
+  falsePositives: number;
+  trueNegatives: number;
+  falseNegatives: number;
+  precision: number;
+  recall: number;
+  f1: number;
+}
+
+export interface CalibrationBucketStat {
+  n: number;
+  meanAbsError: number;
+  meanRealised: number;
+  meanPredicted: number;
+}
+
+export interface AccuracyReport {
+  generatedAt: string;
+  sampleSize: number;
+  overall: AccuracyMetrics;
+  confusionMatrix: ConfusionMatrix;
+  calibration: Record<string, CalibrationBucketStat>;
+  warnings: string[];
+}

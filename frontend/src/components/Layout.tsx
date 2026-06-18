@@ -5,6 +5,7 @@ import { LoginForm } from './LoginForm.js';
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '◈' },
   { to: '/candidates', label: 'Candidates', icon: '◎' },
+  { to: '/analytics', label: 'Analytics', icon: '▤' },
   { to: '/bids', label: 'Bids', icon: '⚡' },
   { to: '/portfolio', label: 'Portfolio', icon: '▣' },
   { to: '/outcomes', label: 'Outcomes', icon: '▤' },

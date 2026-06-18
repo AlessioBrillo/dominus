@@ -2,15 +2,15 @@
 
 ## Metadata
 
-| Field | Value |
-|-------|-------|
-| **Status** | Proposed |
-| **Date** | 2026-06-16 |
-| **Authors** | AlessioBrillo |
-| **Deciders** | AlessioBrillo |
-| **Supersedes** | N/A |
+| Field          | Value                                                      |
+| -------------- | ---------------------------------------------------------- |
+| **Status**     | Accepted                                                   |
+| **Date**       | 2026-06-16                                                 |
+| **Authors**    | AlessioBrillo                                              |
+| **Deciders**   | AlessioBrillo                                              |
+| **Supersedes** | N/A                                                        |
 | **Relates to** | ADR-0001, ADR-0003, ADR-0005, ADR-0011, ADR-0021, ADR-0022 |
-| **Project** | DOMINUS |
+| **Project**    | DOMINUS                                                    |
 
 ## Context
 
@@ -49,6 +49,7 @@ The project constraints remain: **zero-cost infrastructure** (no Redis, no Rabbi
 A `job_queue` table in SQLite with atomic `dequeue` (SELECT ... FOR UPDATE pattern via `UPDATE ... WHERE id = (SELECT ...)`), a `JobWorker` class running in the same process (or separate process via `WORKER_ENABLED=true`), and handler functions for each job type.
 
 **Advantages:**
+
 - Zero new infrastructure: uses existing SQLite + better-sqlite3
 - Atomic dequeue via single UPDATE statement prevents race conditions
 - Workers can run in-process (dev) or as separate Node processes (prod) via same codebase
@@ -59,6 +60,7 @@ A `job_queue` table in SQLite with atomic `dequeue` (SELECT ... FOR UPDATE patte
 - ~200 lines of core infrastructure, minimal maintenance burden
 
 **Disadvantages:**
+
 - SQLite write contention under high concurrency (mitigated: low concurrency default, WAL mode, busy_timeout)
 - No native pub/sub for job notifications (polling required, acceptable at DOMINUS scale)
 - In-process worker shares event loop with API (mitigated: `WORKER_ENABLED` env var runs worker in separate process)
@@ -75,12 +77,14 @@ A `job_queue` table in SQLite with atomic `dequeue` (SELECT ... FOR UPDATE patte
 Add Redis as a queue backend with BullMQ for job management, workers, and scheduling.
 
 **Advantages:**
+
 - Battle-tested, high-performance queue with native pub/sub, delayed jobs, rate limiting
 - Horizontal scaling: add worker processes on any machine
 - Rich dashboard (Bull Board) for monitoring
 - Built-in retry, backoff, dead letter, metrics
 
 **Disadvantages:**
+
 - **Violates zero-cost mandate**: Redis requires memory, persistence config, monitoring
 - New operational dependency: backup, security, version upgrades
 - Adds ~50MB RAM baseline + network latency
@@ -98,11 +102,13 @@ Add Redis as a queue backend with BullMQ for job management, workers, and schedu
 Migrate from SQLite to PostgreSQL and use pg-boss or Graphile Worker for job queue.
 
 **Advantages:**
+
 - ACID-compliant queue with SKIP LOCKED for true concurrent dequeue
 - Single database for all data (queue + domain data)
 - Mature ecosystem, horizontal scaling
 
 **Disadvantages:**
+
 - **Violates zero-cost mandate**: PostgreSQL requires separate process, more RAM, backups
 - **Massive migration**: All 21 existing migrations + repositories + queries must be ported
 - Single-user SQLite is optimal for DOMINUS scale; Postgres adds complexity without benefit
@@ -119,11 +125,13 @@ Migrate from SQLite to PostgreSQL and use pg-boss or Graphile Worker for job que
 Adopt a durable execution platform (Temporal, Inngest, Hatchet) for pipeline orchestration.
 
 **Advantages:**
+
 - Durable execution: automatic retries, timeouts, visibility
 - Built-in saga patterns for multi-step pipelines
 - Excellent observability and replay
 
 **Disadvantages:**
+
 - **Requires external service** (Temporal Cloud or self-hosted cluster) — violates zero-cost
 - Steep learning curve, new programming model (workflows/activities)
 - Overkill for DOMINUS: pipeline is linear, not a complex saga
@@ -140,6 +148,7 @@ Adopt a durable execution platform (Temporal, Inngest, Hatchet) for pipeline orc
 **Chosen option: Option A — SQLite-based Job Queue with In-Process Worker Pool**
 
 Rationale:
+
 1. **Zero-cost compliance**: Uses only existing SQLite. No new infrastructure.
 2. **Solves root causes**: Non-blocking CLI/API (driver 2), durable execution (driver 3), concurrency control (driver 4).
 3. **Minimal code surface**: ~200 lines for queue + worker + ~100 for worker + handlers. Low maintenance.
@@ -152,6 +161,7 @@ Rejected alternatives fail driver 1 (zero-cost) or introduce disproportionate co
 ## Consequences
 
 ### Positive
+
 - `dominus run` returns in <100ms with `runId`; operator polls `dominus runs show <runId>` or `GET /api/v1/runs/<runId>`
 - API healthcheck always responsive — workers run independently (separate process if configured)
 - Pipeline runs, backtest, portfolio rescore, backup, watchlist, renewal checks all use same queue
@@ -160,18 +170,21 @@ Rejected alternatives fail driver 1 (zero-cost) or introduce disproportionate co
 - Priority support: urgent jobs (user-triggered run) jump ahead of scheduled maintenance
 
 ### Negative
+
 - SQLite write contention risk at high concurrency (mitigated: `WORKER_CONCURRENCY=2` default, `busy_timeout=30000`)
 - Polling-based status check (no push notifications) — acceptable for CLI/API poll UX
 - In-process worker mode still shares event loop (mitigated: production should use `WORKER_ENABLED=true` separate process)
 - Manual worker process management (systemd, PM2, or Docker) required for production deployment
 
 ### Compliance and Security Implications
+
 - No new attack surface: queue is internal SQLite table, no network exposure
 - Job payloads may contain domain names (PII-adjacent) — already covered by existing SQLite file permissions
 - API authentication (ADR-0017) applies to job status endpoints
 - No secrets in job payload — providers use env vars / config, not job data
 
 ### Migration and Monitoring Plan
+
 1. **Phase 1 (this ADR)**: Create `job_queue` table, `JobQueueRepository`, `JobWorker`, handlers. `WORKER_ENABLED=false` default.
 2. **Phase 2**: Refactor `PipelineRunService.run()` to enqueue job. Update CLI `run-command` to enqueue + poll option. Update API `POST /runs` to return 202.
 3. **Phase 3**: Refactor `SchedulerService` to enqueue jobs instead of running inline.
@@ -179,12 +192,14 @@ Rejected alternatives fail driver 1 (zero-cost) or introduce disproportionate co
 5. **Rollback**: Set `WORKER_ENABLED=false` — all logic reverts to synchronous execution via `PipelineRunService.run()`.
 
 **Metrics for success:**
+
 - `dominus run` response time < 200ms (p99)
 - API `/health` response time < 50ms during pipeline run
 - Zero `SQLITE_BUSY` errors in logs
 - Job completion rate > 99.5% (retries handle transient failures)
 
 ### Validation
+
 - Integration test: CLI enqueue → worker processes → result persisted → API poll returns result
 - Load test: 10 concurrent pipeline runs (100 domains each) — verify queue processes all, no deadlocks
 - Chaos test: Kill worker mid-job → verify job requeued and completed on restart
@@ -192,4 +207,4 @@ Rejected alternatives fail driver 1 (zero-cost) or introduce disproportionate co
 
 ---
 
-*This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs should be consistent with the ADR series starting at `docs/adr/0001-project-architecture.md`. Template: `.claude/skills/adr/template.md`.*
+_This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs should be consistent with the ADR series starting at `docs/adr/0001-project-architecture.md`. Template: `.claude/skills/adr/template.md`._

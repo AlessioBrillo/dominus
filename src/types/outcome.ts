@@ -61,6 +61,12 @@ export interface Outcome {
   /** Commission paid on the transaction, as a percentage of
    *  `salePriceEur` (e.g. 15 for a 15% commission). */
   commissionPct?: number | undefined;
+  /** How much was paid to acquire this domain, in EUR.
+   *  When set, enables P&L computation per outcome. */
+  acquisitionCostEur?: number | undefined;
+  /** Total renewal costs paid for this domain up to this outcome, in EUR.
+   *  Combined with acquisitionCostEur, gives the total cost basis. */
+  totalRenewalCostEur?: number | undefined;
   notes?: string | undefined;
   createdAt?: string | undefined;
 }
@@ -74,5 +80,7 @@ export interface RecordOutcomeInput {
   daysListed?: number | undefined;
   venue?: string | undefined;
   commissionPct?: number | undefined;
+  acquisitionCostEur?: number | undefined;
+  totalRenewalCostEur?: number | undefined;
   notes?: string | undefined;
 }

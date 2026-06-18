@@ -43,6 +43,7 @@ import {
   PortfolioManager,
   RenewalAlertEngine,
   PortfolioReportService,
+  PnlService,
 } from '../portfolio/index.js';
 import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.js';
 import { buildNotifiers } from '../notifiers/index.js';
@@ -130,6 +131,7 @@ export interface DominusDependencies {
   progressService: PipelineProgressService;
   accuracyAnalyzer: PredictionAccuracyAnalyzer;
   acquisitionService: AcquisitionService;
+  pnlService: PnlService;
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
@@ -337,6 +339,8 @@ export function createDependencies(config: Config): DominusDependencies {
     trademarkGate,
   );
 
+  const pnlService = new PnlService(portfolioRepo, outcomeRepo.findAll());
+
   const backupService = new BackupService({
     db,
     dbPath: config.DATABASE_PATH,
@@ -449,6 +453,7 @@ export function createDependencies(config: Config): DominusDependencies {
     progressService,
     accuracyAnalyzer,
     acquisitionService,
+    pnlService,
     jobQueueService,
     worker,
   };
