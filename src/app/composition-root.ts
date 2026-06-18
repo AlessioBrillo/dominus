@@ -21,12 +21,7 @@ import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
 import { ProviderHealthCheck } from '../providers/provider-health.js';
 import type { WhoisProvider } from '../providers/whois/whois-provider.js';
-import {
-  AutoWeightTuner,
-  type ScoringEngine,
-  type ScoringWeights,
-  type AutoTunerConfig,
-} from '../scoring/index.js';
+import { AutoWeightTuner, type ScoringEngine, type ScoringWeights } from '../scoring/index.js';
 import { BacktestEngine, WeightSuggester } from '../scoring/backtest/index.js';
 import { TrademarkGate } from '../trademark/index.js';
 import { CandidateSource } from '../types/candidate.js';
@@ -61,6 +56,7 @@ import {
   MetricsCollector,
   PipelineProgressService,
 } from './index.js';
+import { type RateLimiter } from '../providers/rate-limiter.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
 import {
@@ -137,38 +133,46 @@ export interface DominusDependencies {
   worker: JobWorker | undefined;
 }
 
-export function createDependencies(config: Config): DominusDependencies {
-  const db = openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
-  runMigrations(db);
-  warnEuipoIfMissing(config);
-  warnCloudflareIfMissing(config);
+function buildRepositories(db: Database.Database): {
+  candidateRepo: CandidateRepository;
+  scoringRepo: ScoringRepository;
+  trademarkRepo: TrademarkRepository;
+  providerCacheRepo: ProviderCacheRepository;
+  outcomeRepo: OutcomeRepository;
+  portfolioRepo: PortfolioRepository;
+  alertRepo: RenewalAlertRepository;
+  pipelineRunsRepo: PipelineRunsRepository;
+  metricsRepo: MetricsRepository;
+  jobQueueRepo: JobQueueRepository;
+  watchlistRepo: WatchlistRepository;
+  acquisitionRepo: AcquisitionRepository;
+} {
+  return {
+    candidateRepo: new CandidateRepository(db),
+    scoringRepo: new ScoringRepository(db),
+    trademarkRepo: new TrademarkRepository(db),
+    providerCacheRepo: new ProviderCacheRepository(db),
+    outcomeRepo: new OutcomeRepository(db),
+    portfolioRepo: new PortfolioRepository(db),
+    alertRepo: new RenewalAlertRepository(db),
+    pipelineRunsRepo: new PipelineRunsRepository(db),
+    metricsRepo: new MetricsRepository(db),
+    jobQueueRepo: new JobQueueRepository(db),
+    watchlistRepo: new WatchlistRepository(db),
+    acquisitionRepo: new AcquisitionRepository(db),
+  };
+}
 
-  const candidateRepo = new CandidateRepository(db);
-  const scoringRepo = new ScoringRepository(db);
-  const trademarkRepo = new TrademarkRepository(db);
-  const providerCacheRepo = new ProviderCacheRepository(db);
-  const outcomeRepo = new OutcomeRepository(db);
-  const portfolioRepo = new PortfolioRepository(db);
-  const alertRepo = new RenewalAlertRepository(db);
-  const pipelineRunsRepo = new PipelineRunsRepository(db);
-  const metricsRepo = new MetricsRepository(db);
-  const jobQueueRepo = new JobQueueRepository(db);
-
-  const { cached: cachedKeywordProvider } = buildKeywordProvider(config, providerCacheRepo);
-  const { cached: cachedCompsProvider } = buildCompsProvider(config, providerCacheRepo);
-  const {
-    rdap: rdapRateLimiter,
-    uspto: usptoRateLimiter,
-    euipo: euipoRateLimiter,
-  } = buildRateLimiters(config);
-  const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
-    config,
-    rdapRateLimiter,
-    providerCacheRepo,
-  );
-  const dnsProvider = buildDnsProvider(config);
-  const { withRetry: whoisProvider } = buildWhoisProviders(config);
-
+function buildTrademarkProviderStack(
+  config: Config,
+  providerCacheRepo: ProviderCacheRepository,
+  usptoRateLimiter: RateLimiter,
+  euipoRateLimiter: RateLimiter,
+): {
+  usptoTmProvider: CachedTrademarkProvider;
+  euipoTmProvider: CachedTrademarkProvider;
+  trademarkGate: TrademarkGate;
+} {
   const usptoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
       new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
@@ -203,12 +207,147 @@ export function createDependencies(config: Config): DominusDependencies {
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
+  return { usptoTmProvider, euipoTmProvider, trademarkGate };
+}
+
+function buildWorkerIfEnabled(
+  config: Config,
+  db: Database.Database,
+  runService: PipelineRunService,
+  portfolioManager: PortfolioManager,
+  scoringRepo: ScoringRepository,
+  currentWeights: ScoringWeights,
+  outcomeRepo: OutcomeRepository,
+  backupService: BackupService,
+  candidateRepo: CandidateRepository,
+  pipelineRunsRepo: PipelineRunsRepository,
+  providerCacheRepo: ProviderCacheRepository,
+  jobQueueRepo: JobQueueRepository,
+  watchlistService: WatchlistService,
+  alertEngine: RenewalAlertEngine,
+  autoTuner: AutoWeightTuner | undefined,
+): JobWorker | undefined {
+  if (!config.WORKER_ENABLED) return undefined;
+
+  const pipelineRunHandler = new PipelineRunHandler({ runService });
+  const portfolioRescoreHandler = new PortfolioRescoreHandler({
+    portfolioManager,
+    rescoreService: portfolioManager.getRescoreService()!,
+  });
+  const backtestSignalsRepo = new BacktestSignalsRepository(db);
+  const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+  const weightSuggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
+  const backtestHandler = new BacktestBuildHandler({
+    backtestEngine,
+    weightSuggester,
+    currentWeights,
+  });
+  const backupHandler = new BackupHandler({ backupService });
+  const pruneHandler = new PruneHandler({
+    candidateRepo,
+    scoringRepo,
+    pipelineRunsRepo,
+    providerCacheRepo,
+    jobQueueRepo,
+  });
+  const watchlistHandler = new WatchlistPollHandler({ watchlistService });
+  const renewalHandler = new RenewalCheckHandler({ alertEngine });
+  const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
+
+  const handlers = [
+    pipelineRunHandler,
+    portfolioRescoreHandler,
+    backtestHandler,
+    backupHandler,
+    pruneHandler,
+    watchlistHandler,
+    renewalHandler,
+    ...(weightTuneHandler ? [weightTuneHandler] : []),
+  ];
+  for (const handler of handlers) {
+    HANDLERS.set(handler.jobType, handler);
+  }
+  const worker = new JobWorker(db, HANDLERS, {
+    concurrency: config.WORKER_CONCURRENCY,
+    pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
+    maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
+  });
+  worker.start();
+  return worker;
+}
+
+function buildSchedulerIfEnabled(
+  config: Config,
+  alertEngine: RenewalAlertEngine,
+  portfolioManager: PortfolioManager,
+  trademarkRepo: TrademarkRepository,
+  providerCacheRepo: ProviderCacheRepository,
+  pipelineRunsRepo: PipelineRunsRepository,
+  watchlistService: WatchlistService,
+  backupService: BackupService,
+  jobQueueService: ReturnType<typeof createJobQueueService>,
+  autoTuner: AutoWeightTuner | undefined,
+  db: Database.Database,
+): SchedulerService | undefined {
+  if (!config.SCHEDULER_ENABLED) return undefined;
+  return new SchedulerService({
+    config,
+    alertEngine,
+    portfolioManager,
+    trademarkRepo,
+    providerCacheRepo,
+    runsRepo: pipelineRunsRepo,
+    watchlistService,
+    backupService,
+    jobRepo: new SchedulerJobRepository(db),
+    jobQueueService,
+    ...(autoTuner ? { autoTuner } : {}),
+  });
+}
+
+export function createDependencies(config: Config): DominusDependencies {
+  const db = openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
+  runMigrations(db);
+  warnEuipoIfMissing(config);
+  warnCloudflareIfMissing(config);
+
+  // --- Database & Repositories ---
+  const repos = buildRepositories(db);
+
+  // --- Rate Limiters ---
+  const {
+    rdap: rdapRateLimiter,
+    uspto: usptoRateLimiter,
+    euipo: euipoRateLimiter,
+  } = buildRateLimiters(config);
+
+  // --- Providers ---
+  const { cached: cachedKeywordProvider } = buildKeywordProvider(config, repos.providerCacheRepo);
+  const { cached: cachedCompsProvider } = buildCompsProvider(config, repos.providerCacheRepo);
+  const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
+    config,
+    rdapRateLimiter,
+    repos.providerCacheRepo,
+  );
+  const dnsProvider = buildDnsProvider(config);
+  const { withRetry: whoisProvider } = buildWhoisProviders(config);
+
+  // --- Trademark Gate ---
+  const { usptoTmProvider, euipoTmProvider, trademarkGate } = buildTrademarkProviderStack(
+    config,
+    repos.providerCacheRepo,
+    usptoRateLimiter,
+    euipoRateLimiter,
+  );
+
+  // --- Scoring ---
   const { currentWeights, engine } = buildScoringEngine(
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
   );
 
+  // --- Health ---
   const healthCheck = new ProviderHealthCheck(
     usptoTmProvider,
     euipoTmProvider,
@@ -217,8 +356,8 @@ export function createDependencies(config: Config): DominusDependencies {
     cachedKeywordProvider,
   );
 
+  // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
-
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
@@ -235,23 +374,23 @@ export function createDependencies(config: Config): DominusDependencies {
   );
   const progressService = new PipelineProgressService();
   const jobQueueService = createJobQueueService(db);
-
   const runService = new PipelineRunService(
     db,
     orchestrator,
-    candidateRepo,
-    scoringRepo,
-    pipelineRunsRepo,
+    repos.candidateRepo,
+    repos.scoringRepo,
+    repos.pipelineRunsRepo,
     undefined,
     undefined,
-    metricsRepo,
+    repos.metricsRepo,
     progressService,
     jobQueueService,
     config.WORKER_ENABLED,
   );
 
+  // --- Portfolio ---
   const portfolioManager = new PortfolioManager(
-    portfolioRepo,
+    repos.portfolioRepo,
     config.DROP_SCORE_THRESHOLD,
     config.DROP_RENEWAL_HORIZON_DAYS,
     {
@@ -264,83 +403,90 @@ export function createDependencies(config: Config): DominusDependencies {
     new PortfolioRescoreService(
       engine,
       trademarkGate,
-      candidateRepo,
-      scoringRepo,
+      repos.candidateRepo,
+      repos.scoringRepo,
       config.RESCORE_BATCH_CONCURRENCY,
     ),
   );
 
   const notifiers = buildNotifiers(config);
-  const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
-  const accuracyAnalyzer = new PredictionAccuracyAnalyzer(db, outcomeRepo);
+  const alertEngine = new RenewalAlertEngine(
+    repos.portfolioRepo,
+    repos.alertRepo,
+    config,
+    notifiers,
+  );
+  const accuracyAnalyzer = new PredictionAccuracyAnalyzer(db, repos.outcomeRepo);
   const reportService = new PortfolioReportService(
-    portfolioRepo,
-    outcomeRepo,
+    repos.portfolioRepo,
+    repos.outcomeRepo,
     config.DROP_SCORE_THRESHOLD,
     config.RENEWAL_WARNING_DAYS,
   );
 
+  // --- Watchlist ---
   const watchlistService = new WatchlistService(
-    new WatchlistRepository(db),
+    repos.watchlistRepo,
     dnsProvider,
     rawRdapProvider,
     notifiers,
     config,
   );
 
+  // --- Auto-Tuner ---
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
     const backtestSignalsRepo = new BacktestSignalsRepository(db);
-    const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+    const backtestEngine = new BacktestEngine(db, repos.outcomeRepo, backtestSignalsRepo);
     const weightSuggester = new WeightSuggester(
       db,
       backtestSignalsRepo,
-      scoringRepo,
+      repos.scoringRepo,
       currentWeights,
     );
     const weightSnapshotRepo = new WeightSnapshotRepository(db);
-
-    const autoTunerConfig: AutoTunerConfig = {
-      enabled: config.AUTO_TUNE_ENABLED,
-      minSampleSize: config.AUTO_TUNE_MIN_SAMPLE,
-      maxDeltaPerSignal: config.AUTO_TUNE_MAX_DELTA,
-      maxTotalDriftFromDefaults: config.AUTO_TUNE_MAX_DRIFT,
-      dryRun: config.AUTO_TUNE_DRY_RUN,
-    };
-
     autoTuner = new AutoWeightTuner(
       backtestEngine,
       weightSuggester,
       weightSnapshotRepo,
       currentWeights,
-      autoTunerConfig,
+      {
+        enabled: config.AUTO_TUNE_ENABLED,
+        minSampleSize: config.AUTO_TUNE_MIN_SAMPLE,
+        maxDeltaPerSignal: config.AUTO_TUNE_MAX_DELTA,
+        maxTotalDriftFromDefaults: config.AUTO_TUNE_MAX_DRIFT,
+        dryRun: config.AUTO_TUNE_DRY_RUN,
+      },
       config.AUTO_TUNE_WEIGHTS_PATH,
       notifiers,
     );
   }
 
+  // --- Purchase ---
   const registrarProvider = buildRegistrarProvider(config);
   const purchaseService = buildPurchaseService(
     registrarProvider,
     portfolioManager,
-    outcomeRepo,
+    repos.outcomeRepo,
     engine,
     trademarkGate,
     config,
   );
 
-  const acquisitionRepo = new AcquisitionRepository(db);
+  // --- Acquisition ---
   const acquisitionService = new AcquisitionService(
-    acquisitionRepo,
+    repos.acquisitionRepo,
     portfolioManager,
-    outcomeRepo,
+    repos.outcomeRepo,
     db,
     engine,
     trademarkGate,
   );
 
-  const pnlService = new PnlService(portfolioRepo, outcomeRepo.findAll());
+  // --- P&L ---
+  const pnlService = new PnlService(repos.portfolioRepo, repos.outcomeRepo.findAll());
 
+  // --- Backup ---
   const backupService = new BackupService({
     db,
     dbPath: config.DATABASE_PATH,
@@ -348,89 +494,44 @@ export function createDependencies(config: Config): DominusDependencies {
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
 
-  let worker: JobWorker | undefined;
-  if (config.WORKER_ENABLED) {
-    const pipelineRunHandler = new PipelineRunHandler({
-      runService,
-    });
-    const portfolioRescoreHandler = new PortfolioRescoreHandler({
-      portfolioManager,
-      rescoreService: portfolioManager.getRescoreService()!,
-    });
-    const backtestSignalsRepo = new BacktestSignalsRepository(db);
-    const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
-    const weightSuggester = new WeightSuggester(
-      db,
-      backtestSignalsRepo,
-      scoringRepo,
-      currentWeights,
-    );
-    const backtestHandler = new BacktestBuildHandler({
-      backtestEngine,
-      weightSuggester,
-      currentWeights,
-    });
-    const backupHandler = new BackupHandler({ backupService });
-    const pruneHandler = new PruneHandler({
-      candidateRepo,
-      scoringRepo,
-      pipelineRunsRepo,
-      providerCacheRepo,
-      jobQueueRepo,
-    });
-    const watchlistHandler = new WatchlistPollHandler({ watchlistService });
-    const renewalHandler = new RenewalCheckHandler({ alertEngine });
-    const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
-    const handlers = [
-      pipelineRunHandler,
-      portfolioRescoreHandler,
-      backtestHandler,
-      backupHandler,
-      pruneHandler,
-      watchlistHandler,
-      renewalHandler,
-      ...(weightTuneHandler ? [weightTuneHandler] : []),
-    ];
-    for (const handler of handlers) {
-      HANDLERS.set(handler.jobType, handler);
-    }
-    worker = new JobWorker(db, HANDLERS, {
-      concurrency: config.WORKER_CONCURRENCY,
-      pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
-      maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
-    });
-    worker.start();
-  }
+  // --- Worker ---
+  const worker = buildWorkerIfEnabled(
+    config,
+    db,
+    runService,
+    portfolioManager,
+    repos.scoringRepo,
+    currentWeights,
+    repos.outcomeRepo,
+    backupService,
+    repos.candidateRepo,
+    repos.pipelineRunsRepo,
+    repos.providerCacheRepo,
+    repos.jobQueueRepo,
+    watchlistService,
+    alertEngine,
+    autoTuner,
+  );
 
-  let scheduler: SchedulerService | undefined;
-  if (config.SCHEDULER_ENABLED) {
-    scheduler = new SchedulerService({
-      config,
-      alertEngine,
-      portfolioManager,
-      trademarkRepo,
-      providerCacheRepo,
-      runsRepo: pipelineRunsRepo,
-      watchlistService,
-      backupService,
-      jobRepo: new SchedulerJobRepository(db),
-      jobQueueService,
-      ...(autoTuner ? { autoTuner } : {}),
-    });
-  }
+  // --- Scheduler ---
+  const scheduler = buildSchedulerIfEnabled(
+    config,
+    alertEngine,
+    portfolioManager,
+    repos.trademarkRepo,
+    repos.providerCacheRepo,
+    repos.pipelineRunsRepo,
+    watchlistService,
+    backupService,
+    jobQueueService,
+    autoTuner,
+    db,
+  );
 
   return {
     db,
     config,
-    candidateRepo,
-    scoringRepo,
-    trademarkRepo,
-    outcomeRepo,
-    portfolioRepo,
-    alertRepo,
-    pipelineRunsRepo,
-    providerCacheRepo,
-    jobQueueRepo,
+    ...repos,
     keywordProvider: cachedKeywordProvider,
     compsProvider: cachedCompsProvider,
     whoisProvider,
@@ -449,7 +550,6 @@ export function createDependencies(config: Config): DominusDependencies {
     purchaseService,
     reportService,
     metrics,
-    metricsRepo,
     progressService,
     accuracyAnalyzer,
     acquisitionService,
