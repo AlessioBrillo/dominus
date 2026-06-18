@@ -140,7 +140,8 @@ export interface DominusDependencies {
 
 import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
 
-function buildRepositories(db: Database.Database): {
+interface BuiltRepositories {
+  provider: SqliteProvider;
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
   trademarkRepo: TrademarkRepository;
@@ -154,9 +155,12 @@ function buildRepositories(db: Database.Database): {
   watchlistRepo: WatchlistRepository;
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
-} {
+}
+
+function buildRepositories(db: Database.Database): BuiltRepositories {
   const provider = new SqliteProvider(db);
   return {
+    provider,
     candidateRepo: new CandidateRepository(provider),
     scoringRepo: new ScoringRepository(provider),
     trademarkRepo: new TrademarkRepository(provider),
@@ -223,6 +227,7 @@ function buildTrademarkProviderStack(
 function buildWorkerIfEnabled(
   config: Config,
   db: Database.Database,
+  provider: SqliteProvider,
   runService: PipelineRunService,
   portfolioManager: PortfolioManager,
   scoringRepo: ScoringRepository,
@@ -244,7 +249,7 @@ function buildWorkerIfEnabled(
     portfolioManager,
     rescoreService: portfolioManager.getRescoreService()!,
   });
-  const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(db));
+  const backtestSignalsRepo = new BacktestSignalsRepository(provider);
   const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
   const weightSuggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
   const backtestHandler = new BacktestBuildHandler({
@@ -288,6 +293,7 @@ function buildWorkerIfEnabled(
 
 function buildSchedulerIfEnabled(
   config: Config,
+  provider: SqliteProvider,
   alertEngine: RenewalAlertEngine,
   portfolioManager: PortfolioManager,
   trademarkRepo: TrademarkRepository,
@@ -297,7 +303,6 @@ function buildSchedulerIfEnabled(
   backupService: BackupService,
   jobQueueService: ReturnType<typeof createJobQueueService>,
   autoTuner: AutoWeightTuner | undefined,
-  db: Database.Database,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
   return new SchedulerService({
@@ -309,7 +314,7 @@ function buildSchedulerIfEnabled(
     runsRepo: pipelineRunsRepo,
     watchlistService,
     backupService,
-    jobRepo: new SchedulerJobRepository(new SqliteProvider(db)),
+    jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
     ...(autoTuner ? { autoTuner } : {}),
   });
@@ -446,7 +451,7 @@ export function createDependencies(config: Config): DominusDependencies {
   // --- Auto-Tuner ---
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
-    const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(db));
+    const backtestSignalsRepo = new BacktestSignalsRepository(repos.provider);
     const backtestEngine = new BacktestEngine(db, repos.outcomeRepo, backtestSignalsRepo);
     const weightSuggester = new WeightSuggester(
       db,
@@ -454,7 +459,7 @@ export function createDependencies(config: Config): DominusDependencies {
       repos.scoringRepo,
       currentWeights,
     );
-    const weightSnapshotRepo = new WeightSnapshotRepository(new SqliteProvider(db));
+    const weightSnapshotRepo = new WeightSnapshotRepository(repos.provider);
     autoTuner = new AutoWeightTuner(
       backtestEngine,
       weightSuggester,
@@ -520,6 +525,7 @@ export function createDependencies(config: Config): DominusDependencies {
   const worker = buildWorkerIfEnabled(
     config,
     db,
+    repos.provider,
     runService,
     portfolioManager,
     repos.scoringRepo,
@@ -538,6 +544,7 @@ export function createDependencies(config: Config): DominusDependencies {
   // --- Scheduler ---
   const scheduler = buildSchedulerIfEnabled(
     config,
+    repos.provider,
     alertEngine,
     portfolioManager,
     repos.trademarkRepo,
@@ -547,7 +554,6 @@ export function createDependencies(config: Config): DominusDependencies {
     backupService,
     jobQueueService,
     autoTuner,
-    db,
   );
 
   return {
