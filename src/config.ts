@@ -662,6 +662,44 @@ const configSchema = z.object({
    */
   FILE_REGISTRAR_CONFIG: z.string().optional(),
 
+  // ── Listing / Sales Pipeline config ────────────────────────────────
+
+  /**
+   * Listing provider implementation to use for marketplace integration.
+   * Supported values:
+   *   'manual' — local-only tracking, no external API calls (default)
+   *   'dan'    — Dan.com Marketplace API (requires DAN_API_KEY)
+   * Adding a new provider requires:
+   *   1. Creating a new implementation of ListingProvider interface
+   *   2. Adding the type to the union below
+   *   3. Adding the factory case in src/providers/listing/index.ts
+   */
+  LISTING_PROVIDER: z.enum(['manual', 'dan']).default('manual'),
+
+  /**
+   * Dan.com API key for marketplace listing management.
+   * Required when LISTING_PROVIDER=dan.
+   * Obtain from https://dan.com/settings/api
+   */
+  DAN_API_KEY: z.string().optional(),
+
+  /**
+   * Default marketplace for listings when none is specified.
+   * Options: dan, afternic, sedo, godaddy, manual.
+   * Default: manual (local tracking only).
+   */
+  LISTING_DEFAULT_MARKETPLACE: z
+    .enum(['dan', 'afternic', 'sedo', 'godaddy', 'manual'])
+    .default('manual'),
+
+  /**
+   * Default multiplier applied to the scoring engine's suggestedListPrice
+   * when creating a listing without an explicit price.
+   * A value of 1.0 uses the scoring engine price as-is.
+   * Default: 1.0
+   */
+  LISTING_DEFAULT_PRICE_MULTIPLIER: z.coerce.number().min(0.1).max(10).default(1.0),
+
   // ── Job Queue / Worker config (ADR-0023) ──────────────────────────
 
   /**

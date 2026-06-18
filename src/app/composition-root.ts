@@ -71,6 +71,9 @@ import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
+import { ListingRepository } from '../db/repositories/listing-repository.js';
+import { ListingManager } from '../listing/listing-manager.js';
+import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
 import { createJobQueueService } from './job-queue-service.js';
 import {
   JobWorker,
@@ -98,6 +101,7 @@ export interface DominusDependencies {
   pipelineRunsRepo: PipelineRunsRepository;
   providerCacheRepo: ProviderCacheRepository;
   jobQueueRepo: JobQueueRepository;
+  listingRepo: ListingRepository;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -128,6 +132,7 @@ export interface DominusDependencies {
   accuracyAnalyzer: PredictionAccuracyAnalyzer;
   acquisitionService: AcquisitionService;
   pnlService: PnlService;
+  listingManager: ListingManager;
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
@@ -146,6 +151,7 @@ function buildRepositories(db: Database.Database): {
   jobQueueRepo: JobQueueRepository;
   watchlistRepo: WatchlistRepository;
   acquisitionRepo: AcquisitionRepository;
+  listingRepo: ListingRepository;
 } {
   return {
     candidateRepo: new CandidateRepository(db),
@@ -160,6 +166,7 @@ function buildRepositories(db: Database.Database): {
     jobQueueRepo: new JobQueueRepository(db),
     watchlistRepo: new WatchlistRepository(db),
     acquisitionRepo: new AcquisitionRepository(db),
+    listingRepo: new ListingRepository(db),
   };
 }
 
@@ -494,6 +501,18 @@ export function createDependencies(config: Config): DominusDependencies {
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
 
+  // --- Listing / Sales Pipeline ---
+  const listingProvider = createListingProvider(config.LISTING_PROVIDER as ListingProviderType, {
+    listingRepo: repos.listingRepo,
+    danApiKey: config.DAN_API_KEY ?? undefined,
+  });
+  const listingManager = new ListingManager(
+    listingProvider,
+    repos.listingRepo,
+    engine,
+    trademarkGate,
+  );
+
   // --- Worker ---
   const worker = buildWorkerIfEnabled(
     config,
@@ -554,6 +573,7 @@ export function createDependencies(config: Config): DominusDependencies {
     accuracyAnalyzer,
     acquisitionService,
     pnlService,
+    listingManager,
     jobQueueService,
     worker,
   };

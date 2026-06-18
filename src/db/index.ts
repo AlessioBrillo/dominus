@@ -20,6 +20,7 @@ export { WeightSnapshotRepository } from './repositories/weight-snapshot-reposit
 export { SchedulerJobRepository } from './repositories/scheduler-job-repository.js';
 export { MetricsRepository } from './repositories/metrics-repository.js';
 export { JobQueueRepository } from './repositories/job-queue-repository.js';
+export { ListingRepository } from './repositories/listing-repository.js';
 export type {
   StageMetricRow,
   MetricAggregate,

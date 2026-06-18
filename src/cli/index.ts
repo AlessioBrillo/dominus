@@ -22,6 +22,8 @@ import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { PortfolioReportService } from '../portfolio/portfolio-report-service.js';
 import type { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import type { AcquisitionService } from '../services/acquisition-service.js';
+import type { ListingManager } from '../listing/listing-manager.js';
+import { registerListingCommand } from './commands/listing-command.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerBidCommand } from './commands/bid-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
@@ -63,6 +65,7 @@ export interface CreateCliOptions {
   reportService?: PortfolioReportService;
   accuracyAnalyzer?: PredictionAccuracyAnalyzer;
   acquisitionService?: AcquisitionService;
+  listingManager?: ListingManager;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -142,6 +145,10 @@ export function createCli(options: CreateCliOptions): Command {
 
   if (options.acquisitionService) {
     registerBidCommand(program, { acquisitionService: options.acquisitionService });
+  }
+
+  if (options.listingManager) {
+    registerListingCommand(program, { listingManager: options.listingManager });
   }
 
   return program;
