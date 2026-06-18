@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type Database from 'better-sqlite3';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { BacktestSignalsRepository } from '../../db/repositories/backtest-signals-repository.js';
@@ -16,8 +17,9 @@ export function createBacktestRouter(
   autoTuner?: AutoWeightTuner,
 ): Router {
   const router = Router();
-  const backtestSignalsRepo = new BacktestSignalsRepository(db);
-  const scoringRepo = new ScoringRepository(db);
+  const provider = new SqliteProvider(db);
+  const backtestSignalsRepo = new BacktestSignalsRepository(provider);
+  const scoringRepo = new ScoringRepository(provider);
 
   router.post('/snapshot', (_req: Request, res: Response, next: NextFunction): void => {
     try {

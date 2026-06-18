@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { CloseoutEntry } from '../../types/candidate.js';
@@ -10,12 +11,12 @@ import { createCandidatesRouter } from '../routes/candidates.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeStubRunService(): PipelineRunService {
@@ -32,8 +33,8 @@ function makeStubRunService(): PipelineRunService {
   } as unknown as PipelineRunService;
 }
 
-function buildApp(db: Database.Database): express.Express {
-  const candidateRepo = new CandidateRepository(db);
+function buildApp(provider: SqliteProvider): express.Express {
+  const candidateRepo = new CandidateRepository(provider);
   candidateRepo.insert({
     domain: 'alpha.com',
     tld: '.com',
@@ -59,10 +60,10 @@ function buildApp(db: Database.Database): express.Express {
 }
 
 describe('Candidates API', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
 
   beforeEach(() => {
-    db = openTestDb();
+    provider = openTestDb();
   });
 
   describe('POST /api/v1/candidates/run', () => {
@@ -72,7 +73,7 @@ describe('Candidates API', () => {
       app.use(express.json());
       app.use(
         '/api/v1/candidates',
-        createCandidatesRouter(runService, new CandidateRepository(db)),
+        createCandidatesRouter(runService, new CandidateRepository(provider)),
       );
       app.use(errorHandler);
 
@@ -94,7 +95,7 @@ describe('Candidates API', () => {
       app.use(express.json());
       app.use(
         '/api/v1/candidates',
-        createCandidatesRouter(runService, new CandidateRepository(db)),
+        createCandidatesRouter(runService, new CandidateRepository(provider)),
       );
       app.use(errorHandler);
 
@@ -117,7 +118,7 @@ describe('Candidates API', () => {
 
   describe('GET /api/v1/candidates', () => {
     it('returns 400 with a clear error when runId is missing', async () => {
-      const app = buildApp(db);
+      const app = buildApp(provider);
       const res = await request(app).get('/api/v1/candidates');
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('BAD_REQUEST');
@@ -125,7 +126,7 @@ describe('Candidates API', () => {
     });
 
     it('returns the candidates for the requested runId', async () => {
-      const app = buildApp(db);
+      const app = buildApp(provider);
       const res = await request(app).get('/api/v1/candidates?runId=run-1');
       expect(res.status).toBe(200);
       expect(res.body.candidates).toHaveLength(1);
@@ -133,7 +134,7 @@ describe('Candidates API', () => {
     });
 
     it('returns an empty array for an unknown runId', async () => {
-      const app = buildApp(db);
+      const app = buildApp(provider);
       const res = await request(app).get('/api/v1/candidates?runId=does-not-exist');
       expect(res.status).toBe(200);
       expect(res.body.candidates).toEqual([]);

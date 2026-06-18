@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
@@ -14,22 +15,22 @@ import { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import { createPortfolioRouter } from '../routes/portfolio.js';
 import { errorHandler } from '../middleware/error-handler.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function buildApp(db: Database.Database): {
+function buildApp(provider: SqliteProvider): {
   app: express.Express;
   outcomeRepo: OutcomeRepository;
   manager: PortfolioManager;
 } {
-  const outcomeRepo = new OutcomeRepository(db);
-  const manager = new PortfolioManager(new PortfolioRepository(db), 25, 60);
-  const deps = makeFakeRescoreDeps(db);
+  const outcomeRepo = new OutcomeRepository(provider);
+  const manager = new PortfolioManager(new PortfolioRepository(provider), 25, 60);
+  const deps = makeFakeRescoreDeps(provider);
   const { service } = makeServiceFromFakes(deps);
   manager.setRescoreService(service);
 
@@ -41,15 +42,15 @@ function buildApp(db: Database.Database): {
 }
 
 describe('Portfolio API', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
 
   beforeEach(() => {
-    db = openTestDb();
+    provider = openTestDb();
   });
 
   describe('GET /api/v1/portfolio', () => {
     it('returns an empty array on a fresh database', async () => {
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
       const res = await request(app).get('/api/v1/portfolio');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ portfolio: [] });
@@ -58,7 +59,7 @@ describe('Portfolio API', () => {
 
   describe('POST /api/v1/portfolio', () => {
     it('creates a portfolio entry', async () => {
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
       const res = await request(app).post('/api/v1/portfolio').send({
         domain: 'alpha.com',
         tld: '.com',
@@ -75,7 +76,7 @@ describe('Portfolio API', () => {
 
   describe('POST /api/v1/portfolio/rescore', () => {
     it('returns a per-domain summary for a non-empty portfolio', async () => {
-      const { app, manager } = buildApp(db);
+      const { app, manager } = buildApp(provider);
       manager.add({
         domain: 'alpha.com',
         tld: '.com',
@@ -95,7 +96,7 @@ describe('Portfolio API', () => {
     });
 
     it('returns an empty result list on a fresh portfolio', async () => {
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
       const res = await request(app).post('/api/v1/portfolio/rescore');
       expect(res.status).toBe(200);
       expect(res.body.results).toEqual([]);
@@ -104,7 +105,7 @@ describe('Portfolio API', () => {
 
   describe('GET /api/v1/portfolio/:domain/outcomes', () => {
     it('returns an empty array when no outcomes exist', async () => {
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
       const res = await request(app).get('/api/v1/portfolio/alpha.com/outcomes');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ outcomes: [] });
@@ -113,7 +114,7 @@ describe('Portfolio API', () => {
 
   describe('POST /api/v1/portfolio/:domain/outcomes', () => {
     it('records an outcome and returns 201 with the stored row', async () => {
-      const { app, manager, outcomeRepo } = buildApp(db);
+      const { app, manager, outcomeRepo } = buildApp(provider);
       manager.add({
         domain: 'alpha.com',
         tld: '.com',
@@ -141,7 +142,7 @@ describe('Portfolio API', () => {
     });
 
     it('rejects an unknown type with 400 and a clear error', async () => {
-      const { app, manager } = buildApp(db);
+      const { app, manager } = buildApp(provider);
       manager.add({
         domain: 'alpha.com',
         tld: '.com',
@@ -161,7 +162,7 @@ describe('Portfolio API', () => {
     });
 
     it('returns 404 when the domain is not in the portfolio', async () => {
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
       const res = await request(app)
         .post('/api/v1/portfolio/ghost.com/outcomes')
         .send({ type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z' });
@@ -173,7 +174,7 @@ describe('Portfolio API', () => {
 
   describe('GET /api/v1/portfolio/:domain/outcomes/stats', () => {
     it('returns aggregate counts and realised revenue', async () => {
-      const { app, manager, outcomeRepo } = buildApp(db);
+      const { app, manager, outcomeRepo } = buildApp(provider);
       manager.add({
         domain: 'alpha.com',
         tld: '.com',

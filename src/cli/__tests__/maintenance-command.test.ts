@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { TrademarkRepository } from '../../db/repositories/trademark-repository.js';
 import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
@@ -8,28 +9,28 @@ import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import { registerMaintenanceCommand } from '../commands/maintenance-command.js';
 import { Command } from 'commander';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function buildProgram(db: Database.Database): {
+function buildProgram(provider: SqliteProvider): {
   program: Command;
   tmRepo: TrademarkRepository;
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
 } {
-  const tmRepo = new TrademarkRepository(db);
-  const runsRepo = new PipelineRunsRepository(db);
-  const candidateRepo = new CandidateRepository(db);
-  const scoringRepo = new ScoringRepository(db);
+  const tmRepo = new TrademarkRepository(provider);
+  const runsRepo = new PipelineRunsRepository(provider);
+  const candidateRepo = new CandidateRepository(provider);
+  const scoringRepo = new ScoringRepository(provider);
   const program = new Command();
   registerMaintenanceCommand(program, {
-    db,
+    db: provider.rawDb,
     trademarkRepo: tmRepo,
     runsRepo,
     candidateRepo,
@@ -67,14 +68,14 @@ function captureStderr(fn: () => Promise<void> | void): Promise<string> {
 }
 
 describe('CLI: dominus maintenance', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let tmRepo: TrademarkRepository;
   let runsRepo: PipelineRunsRepository;
   let program: Command;
 
   beforeEach(() => {
-    db = openTestDb();
-    ({ program, tmRepo, runsRepo } = buildProgram(db));
+    provider = openTestDb();
+    ({ program, tmRepo, runsRepo } = buildProgram(provider));
   });
 
   it('prune with no flags prunes both trademark_results and pipeline_runs', async () => {

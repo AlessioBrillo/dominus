@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
@@ -32,40 +33,40 @@ interface PruneBody {
   remaining: number;
 }
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function buildApp(db: Database.Database): {
+function buildApp(provider: SqliteProvider): {
   app: express.Express;
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
 } {
-  const runsRepo = new PipelineRunsRepository(db);
-  const candidateRepo = new CandidateRepository(db);
-  const scoringRepo = new ScoringRepository(db);
+  const runsRepo = new PipelineRunsRepository(provider);
+  const candidateRepo = new CandidateRepository(provider);
+  const scoringRepo = new ScoringRepository(provider);
 
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/runs', createRunsRouter(runsRepo, candidateRepo, scoringRepo, db));
+  app.use('/api/v1/runs', createRunsRouter(runsRepo, candidateRepo, scoringRepo, provider.rawDb));
   app.use(errorHandler);
   return { app, runsRepo, candidateRepo };
 }
 
 describe('Runs API', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
 
   beforeEach(() => {
-    db = openTestDb();
+    provider = openTestDb();
   });
 
   describe('GET /api/v1/runs', () => {
     it('returns an empty array on a fresh database', async () => {
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
       const res = await request(app).get('/api/v1/runs');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ runs: [] });
@@ -73,7 +74,7 @@ describe('Runs API', () => {
 
     it('returns runs newest-first with full pipeline_runs shape', async () => {
       // Arrange
-      const { app, runsRepo } = buildApp(db);
+      const { app, runsRepo } = buildApp(provider);
       runsRepo.insert({
         runId: 'r-old',
         startedAt: '2026-05-01T00:00:00.000Z',
@@ -100,7 +101,7 @@ describe('Runs API', () => {
 
     it('respects ?since filter', async () => {
       // Arrange
-      const { app, runsRepo } = buildApp(db);
+      const { app, runsRepo } = buildApp(provider);
       runsRepo.insert({
         runId: 'r-old',
         startedAt: '2026-05-01T00:00:00.000Z',
@@ -127,7 +128,7 @@ describe('Runs API', () => {
   describe('GET /api/v1/runs/:runId', () => {
     it('returns the full run record', async () => {
       // Arrange
-      const { app, runsRepo } = buildApp(db);
+      const { app, runsRepo } = buildApp(provider);
       runsRepo.insert({
         runId: 'r-1',
         startedAt: '2026-06-01T00:00:00.000Z',
@@ -160,7 +161,7 @@ describe('Runs API', () => {
 
     it('returns 404 RUN_NOT_FOUND for unknown id', async () => {
       // Arrange
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
 
       // Act
       const res = await request(app).get('/api/v1/runs/nope');
@@ -175,7 +176,7 @@ describe('Runs API', () => {
   describe('GET /api/v1/runs/:runId/candidates', () => {
     it('returns the candidates persisted during that run', async () => {
       // Arrange
-      const { app, runsRepo, candidateRepo } = buildApp(db);
+      const { app, runsRepo, candidateRepo } = buildApp(provider);
       runsRepo.insert({
         runId: 'r-1',
         startedAt: '2026-06-01T00:00:00.000Z',
@@ -219,7 +220,7 @@ describe('Runs API', () => {
 
     it('returns 404 when the run does not exist', async () => {
       // Arrange
-      const { app } = buildApp(db);
+      const { app } = buildApp(provider);
 
       // Act
       const res = await request(app).get('/api/v1/runs/missing/candidates');
@@ -234,7 +235,7 @@ describe('Runs API', () => {
   describe('POST /api/v1/runs/prune', () => {
     it('deletes expired rows and reports counts', async () => {
       // Arrange
-      const { app, runsRepo } = buildApp(db);
+      const { app, runsRepo } = buildApp(provider);
       runsRepo.insert({
         runId: 'r-expired',
         startedAt: '2025-01-01T00:00:00.000Z',

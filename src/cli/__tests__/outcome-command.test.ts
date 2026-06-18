@@ -2,20 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Command } from 'commander';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 import { registerOutcomeCommand } from '../commands/outcome-command.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function seedPortfolio(db: Database.Database, domain: string): void {
-  new PortfolioRepository(db).insert({
+function seedPortfolio(provider: SqliteProvider, domain: string): void {
+  new PortfolioRepository(provider).insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -57,9 +58,9 @@ function stderrText(): string {
 describe('registerOutcomeCommand', () => {
   describe('record', () => {
     it('records a sold outcome and prints the result', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -91,9 +92,9 @@ describe('registerOutcomeCommand', () => {
     });
 
     it('rejects an unknown type with exit 1', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -118,9 +119,9 @@ describe('registerOutcomeCommand', () => {
     });
 
     it('rejects an unparseable --occurred-at with exit 1', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -145,8 +146,8 @@ describe('registerOutcomeCommand', () => {
     });
 
     it('fails clearly when the domain is not in the portfolio', async () => {
-      const db = openTestDb();
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -173,10 +174,10 @@ describe('registerOutcomeCommand', () => {
 
   describe('list', () => {
     it('lists all outcomes when no filter is given', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      seedPortfolio(db, 'beta.io');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      seedPortfolio(provider, 'beta.io');
+      const repo = new OutcomeRepository(provider);
       repo.insert({
         domain: 'alpha.com',
         type: 'sold',
@@ -196,10 +197,10 @@ describe('registerOutcomeCommand', () => {
     });
 
     it('filters by domain', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      seedPortfolio(db, 'beta.io');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      seedPortfolio(provider, 'beta.io');
+      const repo = new OutcomeRepository(provider);
       repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z' });
       repo.insert({ domain: 'beta.io', type: 'renewed', occurredAt: '2026-05-15T00:00:00.000Z' });
       const program = new Command();
@@ -214,10 +215,10 @@ describe('registerOutcomeCommand', () => {
     });
 
     it('filters by type', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      seedPortfolio(db, 'beta.io');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      seedPortfolio(provider, 'beta.io');
+      const repo = new OutcomeRepository(provider);
       repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z' });
       repo.insert({ domain: 'beta.io', type: 'renewed', occurredAt: '2026-05-15T00:00:00.000Z' });
       const program = new Command();
@@ -232,8 +233,8 @@ describe('registerOutcomeCommand', () => {
     });
 
     it('prints a friendly message when no outcomes exist', async () => {
-      const db = openTestDb();
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -246,9 +247,9 @@ describe('registerOutcomeCommand', () => {
 
   describe('stats', () => {
     it('prints the aggregate counts and realised revenue for a domain', async () => {
-      const db = openTestDb();
-      seedPortfolio(db, 'alpha.com');
-      const repo = new OutcomeRepository(db);
+      const provider = openTestDb();
+      seedPortfolio(provider, 'alpha.com');
+      const repo = new OutcomeRepository(provider);
       repo.insert({ domain: 'alpha.com', type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' });
       repo.insert({
         domain: 'alpha.com',

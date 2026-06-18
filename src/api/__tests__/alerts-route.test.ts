@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 import { RenewalAlertRepository } from '../../db/repositories/renewal-alert-repository.js';
 import { createAlertsRouter } from '../routes/alerts.js';
@@ -10,13 +11,13 @@ import { errorHandler } from '../middleware/error-handler.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';
 
 function createApp(): { app: express.Express; alertRepo: RenewalAlertRepository } {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
 
-  const portfolioRepo = new PortfolioRepository(db);
-  const alertRepo = new RenewalAlertRepository(db);
+  const portfolioRepo = new PortfolioRepository(provider);
+  const alertRepo = new RenewalAlertRepository(provider);
 
   // Insert a portfolio entry so FK constraints are satisfied
   portfolioRepo.insert({

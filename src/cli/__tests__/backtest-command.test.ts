@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Command } from 'commander';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
 import { BacktestSignalsRepository } from '../../db/repositories/backtest-signals-repository.js';
@@ -11,16 +12,16 @@ import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { ScoreResult } from '../../types/score.js';
 import { registerBacktestCommand } from '../commands/backtest-command.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
-function seedPortfolio(db: Database.Database, domain: string): void {
-  new PortfolioRepository(db).insert({
+function seedPortfolio(provider: SqliteProvider, domain: string): void {
+  new PortfolioRepository(provider).insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -32,7 +33,7 @@ function seedPortfolio(db: Database.Database, domain: string): void {
 }
 
 function seedScoringSnapshot(
-  db: Database.Database,
+  provider: SqliteProvider,
   domain: string,
   scoredAt: string,
   expectedValue: number,
@@ -40,8 +41,8 @@ function seedScoringSnapshot(
   listPrice: number,
   confidence: number,
 ): void {
-  const candidateRepo = new CandidateRepository(db);
-  const scoringRepo = new ScoringRepository(db);
+  const candidateRepo = new CandidateRepository(provider);
+  const scoringRepo = new ScoringRepository(provider);
   const existing = candidateRepo.findByDomain(domain);
   const candidate =
     existing ??
@@ -76,18 +77,20 @@ function seedScoringSnapshot(
     effectiveConfidenceThreshold: 0.3,
   };
   scoringRepo.insert(candidate.id!, 'test', result);
-  db.prepare(
-    'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
-  ).run(scoredAt, candidate.id);
+  provider.rawDb
+    .prepare(
+      'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
+    )
+    .run(scoredAt, candidate.id);
 }
 
 function seedSoldOutcome(
-  db: Database.Database,
+  provider: SqliteProvider,
   domain: string,
   salePrice: number,
   occurredAt: string,
 ): void {
-  new OutcomeRepository(db).insert({
+  new OutcomeRepository(provider).insert({
     domain,
     type: 'sold',
     occurredAt,
@@ -110,22 +113,26 @@ async function captureStdout(fn: () => Promise<void>): Promise<string> {
 }
 
 describe('dominus backtest CLI', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
 
   beforeEach(() => {
-    db = openTestDb();
+    provider = openTestDb();
   });
 
   it('snapshot subcommand rebuilds the backtest_signals table', async () => {
-    seedPortfolio(db, 'alpha.com');
-    seedScoringSnapshot(db, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(db, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    seedPortfolio(provider, 'alpha.com');
+    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
+    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'snapshot']);
       } catch {
@@ -136,15 +143,19 @@ describe('dominus backtest CLI', () => {
     expect(out).toContain('scanned 1');
     expect(out).toContain('inserted 1');
     expect(out).toContain('skipped 0');
-    expect(new BacktestSignalsRepository(db).count()).toBe(1);
+    expect(new BacktestSignalsRepository(provider).count()).toBe(1);
   });
 
   it('report subcommand on empty data prints a clear "no data" message', async () => {
     const out = await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'report']);
       } catch {
@@ -157,18 +168,22 @@ describe('dominus backtest CLI', () => {
   });
 
   it('run subcommand performs snapshot + report in one call', async () => {
-    seedPortfolio(db, 'alpha.com');
-    seedPortfolio(db, 'beta.io');
-    seedScoringSnapshot(db, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedScoringSnapshot(db, 'beta.io', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.4);
-    seedSoldOutcome(db, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
-    seedSoldOutcome(db, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
+    seedPortfolio(provider, 'alpha.com');
+    seedPortfolio(provider, 'beta.io');
+    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
+    seedScoringSnapshot(provider, 'beta.io', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.4);
+    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    seedSoldOutcome(provider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'run']);
       } catch {
@@ -184,15 +199,19 @@ describe('dominus backtest CLI', () => {
   });
 
   it('run --json emits valid JSON with the report', async () => {
-    seedPortfolio(db, 'alpha.com');
-    seedScoringSnapshot(db, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(db, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    seedPortfolio(provider, 'alpha.com');
+    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
+    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'run', '--json']);
       } catch {
@@ -205,16 +224,20 @@ describe('dominus backtest CLI', () => {
   });
 
   it('run --no-snapshot reports on the existing table without rebuilding', async () => {
-    seedPortfolio(db, 'alpha.com');
-    seedScoringSnapshot(db, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(db, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    seedPortfolio(provider, 'alpha.com');
+    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
+    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     // Pre-snapshot once to populate the table
     await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'snapshot']);
       } catch {
@@ -225,8 +248,12 @@ describe('dominus backtest CLI', () => {
     const out = await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'run', '--no-snapshot']);
       } catch {
@@ -239,15 +266,19 @@ describe('dominus backtest CLI', () => {
   });
 
   it('suggest-weights subcommand holds all signals on a small sample', async () => {
-    seedPortfolio(db, 'alpha.com');
-    seedScoringSnapshot(db, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(db, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    seedPortfolio(provider, 'alpha.com');
+    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
+    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
       program.exitOverride();
-      const outcomeRepo = new OutcomeRepository(db);
-      registerBacktestCommand(program, { db, outcomeRepo, currentWeights: undefined });
+      const outcomeRepo = new OutcomeRepository(provider);
+      registerBacktestCommand(program, {
+        db: provider.rawDb,
+        outcomeRepo,
+        currentWeights: undefined,
+      });
       try {
         await program.parseAsync(['node', 'dominus', 'backtest', 'suggest-weights']);
       } catch {

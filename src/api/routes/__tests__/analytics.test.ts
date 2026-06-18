@@ -3,18 +3,19 @@ import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../../db/migrator.js';
+import { SqliteProvider } from '../../../db/provider/sqlite-adapter.js';
 import { PortfolioRepository } from '../../../db/repositories/portfolio-repository.js';
 import { OutcomeRepository } from '../../../db/repositories/outcome-repository.js';
 import { PnlService } from '../../../portfolio/pnl-service.js';
 import { createAnalyticsRouter } from '../analytics.js';
 import type { PredictionAccuracyAnalyzer } from '../../../analytics/index.js';
 
-function openTestDb(): Database.Database {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
-  runMigrations(db);
-  return db;
+function openTestDb(): SqliteProvider {
+  const provider = new SqliteProvider(new Database(':memory:'));
+  provider.rawDb.pragma('journal_mode = WAL');
+  provider.rawDb.pragma('foreign_keys = ON');
+  runMigrations(provider.rawDb);
+  return provider;
 }
 
 function makeAccuracyStub(): PredictionAccuracyAnalyzer {
@@ -60,12 +61,12 @@ function buildApp(pnlService?: PnlService): express.Express {
 }
 
 describe('Analytics API routes', () => {
-  let db: Database.Database;
+  let provider: SqliteProvider;
   let portfolioRepo: PortfolioRepository;
 
   beforeEach(() => {
-    db = openTestDb();
-    portfolioRepo = new PortfolioRepository(db);
+    provider = openTestDb();
+    portfolioRepo = new PortfolioRepository(provider);
   });
 
   it('GET /api/v1/analytics/accuracy returns accuracy report', async () => {
@@ -85,7 +86,7 @@ describe('Analytics API routes', () => {
   });
 
   it('GET /api/v1/analytics/pnl returns P&L report when PnlService is provided', async () => {
-    const outcomeRepo = new OutcomeRepository(db);
+    const outcomeRepo = new OutcomeRepository(provider);
     const pnlService = new PnlService(portfolioRepo, outcomeRepo.findAll());
     const app = buildApp(pnlService);
     const res = await request(app).get('/api/v1/analytics/pnl');
@@ -97,7 +98,7 @@ describe('Analytics API routes', () => {
   });
 
   it('GET /api/v1/analytics/pnl returns P&L with portfolio data', async () => {
-    const outcomeRepo = new OutcomeRepository(db);
+    const outcomeRepo = new OutcomeRepository(provider);
 
     portfolioRepo.insert({
       domain: 'test.com',

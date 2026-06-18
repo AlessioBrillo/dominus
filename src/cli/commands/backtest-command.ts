@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import type Database from 'better-sqlite3';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
@@ -29,25 +30,29 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
   const weights = deps.currentWeights ?? DEFAULT_WEIGHTS;
 
   const makeEngine = (): BacktestEngine =>
-    new BacktestEngine(deps.db, deps.outcomeRepo, new BacktestSignalsRepository(deps.db));
+    new BacktestEngine(
+      deps.db,
+      deps.outcomeRepo,
+      new BacktestSignalsRepository(new SqliteProvider(deps.db)),
+    );
 
   const makeSuggester = (): WeightSuggester =>
     new WeightSuggester(
       deps.db,
-      new BacktestSignalsRepository(deps.db),
-      new ScoringRepository(deps.db),
+      new BacktestSignalsRepository(new SqliteProvider(deps.db)),
+      new ScoringRepository(new SqliteProvider(deps.db)),
       weights,
     );
 
   const makeAutoTuner = (): AutoWeightTuner | null => {
     const config = loadConfig();
     if (!config.AUTO_TUNE_ENABLED) return null;
-    const backtestSignalsRepo = new BacktestSignalsRepository(deps.db);
-    const scoringRepo = new ScoringRepository(deps.db);
+    const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(deps.db));
+    const scoringRepo = new ScoringRepository(new SqliteProvider(deps.db));
     return new AutoWeightTuner(
       new BacktestEngine(deps.db, deps.outcomeRepo, backtestSignalsRepo),
       new WeightSuggester(deps.db, backtestSignalsRepo, scoringRepo, weights),
-      new WeightSnapshotRepository(deps.db),
+      new WeightSnapshotRepository(new SqliteProvider(deps.db)),
       weights,
       {
         enabled: config.AUTO_TUNE_ENABLED,

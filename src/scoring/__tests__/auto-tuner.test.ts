@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { WeightSnapshotRepository } from '../../db/repositories/weight-snapshot-repository.js';
 import { AutoWeightTuner } from '../auto-tuner.js';
 import type { AutoTunerConfig } from '../auto-tuner-config.js';
@@ -79,7 +80,8 @@ describe('AutoWeightTuner', () => {
 
   beforeEach(() => {
     db = openTestDb();
-    weightSnapshotRepo = new WeightSnapshotRepository(db);
+    const dbProvider = new SqliteProvider(db);
+    weightSnapshotRepo = new WeightSnapshotRepository(dbProvider);
 
     mockBacktestEngine = {
       snapshot: vi.fn().mockReturnValue({ scanned: 10, inserted: 5, skipped: 2 }),
