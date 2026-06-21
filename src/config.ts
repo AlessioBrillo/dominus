@@ -6,6 +6,14 @@ const configSchema = z.object({
   DATABASE_PATH: z.string().min(1).default('./data/dominus.db'),
 
   /**
+   * PostgreSQL connection string for the cloud edition.
+   * When set, the application uses PostgreSQL instead of SQLite.
+   * Format: postgresql://user:password@host:5432/dbname
+   * The community edition leaves this unset and uses DATABASE_PATH (SQLite).
+   */
+  DATABASE_URL: z.string().optional(),
+
+  /**
    * SQLite busy timeout in milliseconds (default: 30000 = 30s).
    * Controls how long better-sqlite3 waits for a locked database before
    * throwing SQLITE_BUSY. Increase for bulk pipeline writes concurrent

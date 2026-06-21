@@ -17,21 +17,37 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  NODE_VERSION: lts/*
-
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dominus
+          POSTGRES_PASSWORD: dominus
+          POSTGRES_DB: dominus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready -U dominus
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js ${{ matrix.node }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
@@ -52,10 +68,16 @@ jobs:
       - name: Test (with coverage)
         run: npm test -- --coverage
 
+      - name: PostgreSQL connectivity test
+        run: node -e "
+          const { Pool } = require('pg');
+          const pool = new Pool({ connectionString: 'postgresql://dominus:dominus@localhost:5432/dominus' });
+          pool.query('SELECT 1 AS ok').then(r => { console.log('PG OK:', r.rows[0].ok); process.exit(0); }).catch(e => { console.error('PG FAIL:', e.message); process.exit(1); });
+        "
+
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [backend]
 
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +85,7 @@ jobs:
       - name: Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: lts/*
           cache: npm
 
       - name: Install dependencies

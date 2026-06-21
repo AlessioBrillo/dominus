@@ -1,7 +1,10 @@
 # DOMINUS — Docker Compose for development and production.
 #
-# Development:
+# Community edition (SQLite, single-user):
 #   docker compose up -d
+#
+# DOMINUS Cloud (PostgreSQL, multi-tenant):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
 # Production (with .env file for secrets):
 #   docker compose --env-file .env up -d
@@ -21,6 +24,7 @@ services:
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_PATH=/app/data/dominus.db
+      - DATABASE_URL=${DATABASE_URL:-}
       - PORT=${PORT:-3000}
       - HOST=0.0.0.0
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -40,20 +44,37 @@ services:
       - FRONTEND_DIST_PATH=./frontend/dist
       - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
       - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
+      - WORKER_ENABLED=${WORKER_ENABLED:-true}
+      - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
+      - PURCHASE_AUTO_APPROVAL=${PURCHASE_AUTO_APPROVAL:-never}
     restart: unless-stopped
+    profiles:
+      - cloud
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  # Optional: run the pipeline on a schedule (uncomment and configure).
-  # scheduler:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   image: dominus:latest
-  #   container_name: dominus-scheduler
-  #   volumes:
-  #     - ./data:/app/data
-  #   environment:
-  #     - NODE_ENV=production
-  #     - DATABASE_PATH=/app/data/dominus.db
-  #     - LOG_LEVEL=info
-  #   entrypoint: ["node", "dist/cli.js", "maintenance", "prune"]
-  #   restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    container_name: dominus-pg
+    environment:
+      POSTGRES_USER: dominus
+      POSTGRES_PASSWORD: dominus
+      POSTGRES_DB: dominus
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dominus"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    profiles:
+      - cloud
+
+volumes:
+  pgdata:
