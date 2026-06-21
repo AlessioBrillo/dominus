@@ -30,7 +30,6 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
-  WhoisStage,
 } from '../../pipeline/index.js';
 import { PortfolioManager, RenewalAlertEngine } from '../../portfolio/index.js';
 import { PortfolioRescoreService } from '../../portfolio/portfolio-rescore-service.js';
@@ -235,7 +234,6 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage('.com'),
       new DnsPreFilterStage(makeDnsProvider(), 10, []),
-      new WhoisStage(whoisProvider, 3),
       new RdapConfirmationStage(rdapProvider, whoisProvider, 5),
       new ScoringStage(engine),
       new TrademarkGateStage(gate, 3),
@@ -336,7 +334,6 @@ describe('Dependency Injection â€” composition-root wiring', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage('.com'),
       new DnsPreFilterStage(dnsProvider, 10, []),
-      new WhoisStage(whoisProvider, 3),
       new RdapConfirmationStage(rdapProvider, whoisProvider, 5),
       new ScoringStage(engine),
       new TrademarkGateStage(gate, 3),
@@ -384,6 +381,8 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       DROP_NPV_HORIZON_YEARS: 5,
       TM_CACHE_TTL_DAYS: 7,
       PROVIDER_CACHE_TTL_DAYS: 7,
+      PROVIDER_MEMORY_CACHE_SIZE: 1000,
+      PROVIDER_MEMORY_CACHE_TTL_SECONDS: 300,
       DATABASE_PATH: ':memory:',
       DATABASE_BUSY_TIMEOUT: 30000,
       PORT: 3000,
@@ -398,6 +397,8 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       COMPS_PROVIDER: 'manual' as const,
       DNS_BULK_CONCURRENCY: 10,
       DNS_LOOKUP_TIMEOUT_MS: 3000,
+      DNS_LOOKUP_STRATEGY: 'native',
+      DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
       WHOIS_LOOKUP_TIMEOUT: 10000,
       RDAP_RATE_LIMIT_TOKENS: 10,
       RDAP_RATE_LIMIT_INTERVAL_MS: 1000,

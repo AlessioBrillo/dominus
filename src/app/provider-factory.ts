@@ -48,6 +48,9 @@ export function buildKeywordProvider(
     providerCacheRepo,
     'keyword',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+    undefined,
+    config.PROVIDER_MEMORY_CACHE_SIZE,
+    config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
   const cached: KeywordProvider = {
     getMetrics: (term: string, signal?: AbortSignal) => cache.get(term, signal),
@@ -70,6 +73,9 @@ export function buildCompsProvider(
     providerCacheRepo,
     'comps',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+    undefined,
+    config.PROVIDER_MEMORY_CACHE_SIZE,
+    config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
   const cached: CompsProvider = {
     getSales: (term: string, signal?: AbortSignal) => cache.get(term, signal),
@@ -110,6 +116,9 @@ export function buildRdapProviders(
     providerCacheRepo,
     'rdap',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+    undefined,
+    config.PROVIDER_MEMORY_CACHE_SIZE,
+    config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
   const cached: RdapProvider = {
     name: `${withRetryProvider.name}(cache)`,

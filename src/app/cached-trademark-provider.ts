@@ -13,6 +13,8 @@ export class CachedTrademarkProvider implements TrademarkProvider {
     cacheRepo: ProviderCacheRepository,
     source: string,
     ttlDays: number,
+    memoryCacheSize: number = 0,
+    memoryCacheTtlSeconds: number = 300,
   ) {
     this.cache = new CachedProvider<TrademarkMatch[]>(
       (term) => delegate.search(term),
@@ -27,6 +29,8 @@ export class CachedTrademarkProvider implements TrademarkProvider {
           return parsed as TrademarkMatch[];
         },
       },
+      memoryCacheSize,
+      memoryCacheTtlSeconds,
     );
   }
 
