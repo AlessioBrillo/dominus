@@ -5,14 +5,12 @@ import { DnsPreFilterStage } from '../stages/dns-prefilter-stage.js';
 import { RdapConfirmationStage } from '../stages/rdap-confirmation-stage.js';
 import { ScoringStage } from '../stages/scoring-stage.js';
 import { TrademarkGateStage } from '../stages/trademark-gate-stage.js';
-import { WhoisStage } from '../stages/whois-stage.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
-import type { WhoisProvider } from '../../providers/whois/whois-provider.js';
 
 function makeMockDns(status = DomainStatus.Available): DnsProvider {
   return {
@@ -22,12 +20,6 @@ function makeMockDns(status = DomainStatus.Available): DnsProvider {
       .mockImplementation((domains: string[]) =>
         Promise.resolve(domains.map((d) => ({ domain: d, status, checkedAt: '' }))),
       ),
-  };
-}
-
-function makeMockWhois(): WhoisProvider {
-  return {
-    checkAvailability: vi.fn().mockResolvedValue({ domain: 'x', available: true, checkedAt: '' }),
   };
 }
 
@@ -80,7 +72,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(makeMockEngine()),
       new TrademarkGateStage(makeMockGate()),
@@ -102,7 +93,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(dnsFiltered),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(engine),
       new TrademarkGateStage(makeMockGate()),
@@ -122,7 +112,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(engine),
       new TrademarkGateStage(gate),
@@ -142,7 +131,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(makeMockEngine()),
       new TrademarkGateStage(gate),
@@ -164,7 +152,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(makeMockEngine()),
       new TrademarkGateStage(gate),
@@ -186,7 +173,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(makeMockEngine()),
       new TrademarkGateStage(brokenGate),
@@ -219,7 +205,6 @@ describe('PipelineOrchestrator', () => {
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
       new DnsPreFilterStage(makeMockDns()),
-      new WhoisStage(makeMockWhois()),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(makeMockEngine()),
       new TrademarkGateStage(gate),

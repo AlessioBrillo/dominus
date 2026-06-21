@@ -1,11 +1,13 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
-import type { DomainCandidate } from '../../types/candidate.js';
+import type { DomainCandidate, WhoisMeta } from '../../types/candidate.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
 import type { Stage, StageResult } from '../stage.js';
 import { getLogger } from '../../logger.js';
+
+const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
 
 interface AvailabilityResult {
   domain: string;
@@ -13,6 +15,8 @@ interface AvailabilityResult {
   isPremium: boolean;
   registrar?: string | undefined;
   expiresAt?: string | undefined;
+  createdDate?: string | undefined;
+  domainAge?: number | undefined;
   checkedAt: string;
   source: 'rdap' | 'whois' | 'cross-validated';
 }
@@ -30,15 +34,31 @@ function rdapToResult(r: RdapResult): AvailabilityResult {
 }
 
 function whoisToResult(r: WhoisResult): AvailabilityResult {
+  let domainAge: number | undefined;
+  if (r.createdDate !== undefined) {
+    const created = new Date(r.createdDate);
+    domainAge = Math.max(0, (Date.now() - created.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+  }
   return {
     domain: r.domain,
     status: r.available ? DomainStatus.Available : DomainStatus.Registered,
     isPremium: false,
     registrar: r.registrar,
     expiresAt: r.expiryDate,
+    createdDate: r.createdDate,
+    domainAge,
     checkedAt: r.checkedAt,
     source: 'whois',
   };
+}
+
+function buildWhoisMeta(result: AvailabilityResult): WhoisMeta | undefined {
+  const meta: WhoisMeta = {};
+  if (result.domainAge !== undefined) meta.domainAge = result.domainAge;
+  if (result.registrar !== undefined) meta.registrar = result.registrar;
+  if (result.createdDate !== undefined) meta.createdDate = result.createdDate;
+  if (result.expiresAt !== undefined) meta.expiryDate = result.expiresAt;
+  return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
 export class RdapConfirmationStage implements Stage<DomainCandidate> {
@@ -48,6 +68,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     private readonly rdapProvider: RdapProvider,
     private readonly whoisProvider?: WhoisProvider,
     private readonly concurrency: number = 5,
+    private readonly enrichTimeoutMs: number = DEFAULT_ENRICH_TIMEOUT_MS,
   ) {}
 
   async process(
@@ -58,7 +79,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     const passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
 
-    // Process in batches to control concurrency while allowing parallel RDAP lookups
     const batches = this.#toBatches(candidates, this.concurrency);
     for (const batch of batches) {
       const results = await Promise.allSettled(
@@ -71,11 +91,16 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         if (settled.status === 'fulfilled') {
           const { candidate, result } = settled.value;
           if (result.status === DomainStatus.Available && !result.isPremium) {
+            const whoisMeta =
+              candidate.closeoutMeta?.domainAge !== undefined
+                ? candidate.whoisMeta
+                : { ...buildWhoisMeta(result), ...candidate.whoisMeta };
             passed.push({
               ...candidate,
               rdapStatus: result.status,
               isPremium: false,
               status: CandidateStatus.Pending,
+              whoisMeta,
             });
           } else {
             filtered.push({
@@ -111,15 +136,18 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     return batches;
   }
 
-  async #checkAvailability(domain: string): Promise<AvailabilityResult> {
+  async #checkAvailability(domain: string, signal?: AbortSignal): Promise<AvailabilityResult> {
     if (this.whoisProvider === undefined) {
-      const rdap = await this.rdapProvider.confirm(domain);
+      const rdap = await this.rdapProvider.confirm(domain, signal);
       return rdapToResult(rdap);
     }
 
+    const timeoutSignal = AbortSignal.timeout(this.enrichTimeoutMs);
+    const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
     const [rdapSettled, whoisSettled] = await Promise.allSettled([
-      this.rdapProvider.confirm(domain),
-      this.whoisProvider.checkAvailability(domain),
+      this.rdapProvider.confirm(domain, combined),
+      this.whoisProvider.checkAvailability(domain, combined),
     ]);
 
     if (rdapSettled.status === 'fulfilled' && whoisSettled.status === 'fulfilled') {
@@ -137,29 +165,21 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     throw rdapSettled.reason;
   }
 
-  /**
-   * Cross-validate RDAP and WHOIS results. When the two sources disagree
-   * on availability status, WHOIS is preferred as the tiebreaker because
-   * it queries the registry directly and is generally more up-to-date for
-   * recent changes (expiry, redemption, pendingDelete). RDAP data can lag
-   * behind by hours to days depending on the registry.
-   *
-   * Cross-validation is conservative: when in doubt, mark as Registered.
-   * A false-positive Available (buying a taken domain) costs money;
-   * a false-negative (missing an available domain) costs nothing.
-   */
   #crossValidate(domain: string, rdap: RdapResult, whois: WhoisResult): AvailabilityResult {
     const rdapAvailable = rdap.status === DomainStatus.Available && !rdap.isPremium;
     const whoisAvailable = whois.available;
 
     if (rdapAvailable === whoisAvailable) {
-      return {
-        ...rdapToResult(rdap),
-        source: 'cross-validated',
-      };
+      const rdapResult = rdapToResult(rdap);
+      const whoisResult = whoisToResult(whois);
+      const merged: AvailabilityResult = { ...rdapResult, source: 'cross-validated' };
+      if (whoisResult.registrar !== undefined) merged.registrar = whoisResult.registrar;
+      if (whoisResult.expiresAt !== undefined) merged.expiresAt = whoisResult.expiresAt;
+      if (whoisResult.createdDate !== undefined) merged.createdDate = whoisResult.createdDate;
+      if (whoisResult.domainAge !== undefined) merged.domainAge = whoisResult.domainAge;
+      return merged;
     }
 
-    // Disagreement: use WHOIS (more real-time), mark source as cross-validated
     getLogger().warn(
       {
         domain,

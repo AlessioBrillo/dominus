@@ -32,7 +32,6 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
-  WhoisStage,
 } from '../pipeline/index.js';
 import {
   PortfolioManager,
@@ -196,6 +195,8 @@ function buildTrademarkProviderStack(
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
+    config.PROVIDER_MEMORY_CACHE_SIZE,
+    config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
   const euipoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
@@ -212,6 +213,8 @@ function buildTrademarkProviderStack(
     providerCacheRepo,
     'EUIPO',
     config.TM_CACHE_TTL_DAYS,
+    config.PROVIDER_MEMORY_CACHE_SIZE,
+    config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
 
   const matchDetectorConfig = {
@@ -376,12 +379,12 @@ export function createDependencies(config: Config): DominusDependencies {
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
-    new WhoisStage(
+    new RdapConfirmationStage(
+      cachedRdapProvider,
       whoisProvider,
-      config.WHOIS_BATCH_CONCURRENCY,
+      config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
     ),
-    new RdapConfirmationStage(cachedRdapProvider, undefined, config.RDAP_BATCH_CONCURRENCY),
     new ScoringStage(engine),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,

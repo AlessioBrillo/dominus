@@ -156,6 +156,20 @@ const configSchema = z.object({
    */
   PROVIDER_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
   /**
+   * Maximum number of entries in the in-memory provider cache (LRU).
+   * Set to 0 to disable in-memory caching (DB-only cache).
+   * Default: 1000 entries — enough for typical pipeline runs without
+   * consuming significant heap. Each entry is ~few KB (JSON string).
+   */
+  PROVIDER_MEMORY_CACHE_SIZE: z.coerce.number().int().min(0).max(100000).default(1000),
+  /**
+   * TTL in seconds for in-memory provider cache entries.
+   * After this time, entries are evicted and re-fetched from the DB cache
+   * or live provider. Must be shorter than PROVIDER_CACHE_TTL_DAYS.
+   * Default: 300 (5 minutes).
+   */
+  PROVIDER_MEMORY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86400).default(300),
+  /**
    * Optional path to a JSON file with operator-approved weight overrides.
    * When set, the scoring engine reads this file at startup and uses the
    * weights inside it instead of DEFAULT_WEIGHTS. The CLI's
@@ -172,11 +186,26 @@ const configSchema = z.object({
   DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
   /**
    * Per-domain DNS lookup timeout in milliseconds.
-   * Each individual DNS resolution (A, AAAA, CNAME, NS) has this timeout.
+   * Each individual DNS resolution (A, AAAA, CNAME, NS, SOA) has this timeout.
    * Increase for slow resolvers, decrease to fail fast on unresponsive NS.
-   * Default: 3000ms (3 seconds).
+   * Default: 1500ms (1.5 seconds) — reduced from 3000ms for faster pipeline.
    */
-  DNS_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).optional().default(3000),
+  DNS_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).optional().default(1500),
+  /**
+   * DNS lookup strategy for availability checks.
+   * - 'native': Use Node.js built-in resolver only (default).
+   * - 'native-with-doh-fallback': Use native resolver; on timeout, fall back to
+   *   DNS-over-HTTPS (Cloudflare by default) for a second attempt.
+   * DoH fallback improves reliability when the system resolver returns
+   * sporadic timeouts, at the cost of one extra HTTPS request per timeout.
+   */
+  DNS_LOOKUP_STRATEGY: z.enum(['native', 'native-with-doh-fallback']).default('native'),
+  /**
+   * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
+   * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
+   * Default: Cloudflare DNS over HTTPS (privacy-first, no ECS).
+   */
+  DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
   /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
