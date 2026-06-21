@@ -13,13 +13,14 @@ vi.mock('../../api/auth.js', () => ({
 describe('LoginForm', () => {
   it('renders API key input and authenticate button', () => {
     render(<LoginForm />);
-    expect(screen.getByPlaceholderText('sk-...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('API Key')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /authenticate/i })).toBeInTheDocument();
   });
 
   it('renders title and description', () => {
     render(<LoginForm />);
-    expect(screen.getAllByText('DOMINUS').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Enter your API key to continue')).toBeInTheDocument();
+    expect(screen.getByText('DOMINUS')).toBeInTheDocument();
+    expect(screen.getByText('Sign In')).toBeInTheDocument();
+    expect(screen.getByText('Enter your API key to access the dashboard')).toBeInTheDocument();
   });
 });

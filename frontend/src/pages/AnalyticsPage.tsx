@@ -39,7 +39,7 @@ export function AnalyticsPage() {
   );
 }
 
-function PnlSection() {
+export function PnlSection() {
   const [data, setData] = useState<PnlReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +237,7 @@ function PnlSection() {
   );
 }
 
-function AccuracySection() {
+export function AccuracySection() {
   const [data, setData] = useState<AccuracyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

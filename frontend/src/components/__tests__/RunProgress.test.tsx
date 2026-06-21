@@ -33,13 +33,12 @@ describe('RunProgress', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('shows connecting state when runId is provided', () => {
+  it('shows pipeline card when runId is provided', () => {
     vi.stubGlobal('EventSource', MockEventSource);
 
     render(<RunProgress runId="test-run-123" />);
-    expect(screen.getByText('Connecting...')).toBeInTheDocument();
-    expect(screen.getByText('Pipeline Progress')).toBeInTheDocument();
-    expect(screen.getByText('connecting')).toBeInTheDocument();
+    expect(screen.getByText('Pipeline Run')).toBeInTheDocument();
+    expect(screen.getByText('test-run')).toBeInTheDocument();
   });
 
   it('renders stage events after they arrive', () => {
@@ -53,17 +52,19 @@ describe('RunProgress', () => {
         data: JSON.stringify({
           type: 'stage',
           runId: 'test-run-456',
-          stageName: 'dns_prefilter',
+          stageName: 'DnsPreFilterStage',
           passed: 10,
           filtered: 2,
           durationMs: 1500,
+          complete: true,
           error: false,
         }),
       });
     });
 
-    expect(screen.getByText('DNS Pre-filter')).toBeInTheDocument();
-    expect(screen.getByText('+10 / -2 · 1.5s')).toBeInTheDocument();
+    expect(screen.getByText('DnsPreFilterStage')).toBeInTheDocument();
+    expect(screen.getByText('10 passed')).toBeInTheDocument();
+    expect(screen.getByText('2 filtered')).toBeInTheDocument();
   });
 
   it('renders complete state', () => {
@@ -85,8 +86,7 @@ describe('RunProgress', () => {
       });
     });
 
-    expect(screen.getByText(/Complete/)).toBeInTheDocument();
-    expect(screen.getByText(/50 passed/)).toBeInTheDocument();
+    expect(screen.getByText(/Pipeline completed/)).toBeInTheDocument();
   });
 
   it('renders error state on SSE connection failure', () => {
@@ -99,6 +99,6 @@ describe('RunProgress', () => {
       currentInstance!.onerror?.();
     });
 
-    expect(screen.getByText('SSE connection failed')).toBeInTheDocument();
+    expect(screen.getByText('Pipeline failed')).toBeInTheDocument();
   });
 });

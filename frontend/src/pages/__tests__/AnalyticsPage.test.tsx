@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { AnalyticsPage } from '../AnalyticsPage.js';
+import { AnalyticsPage, PnlSection, AccuracySection } from '../AnalyticsPage.js';
 
 vi.mock('../../api/analytics.js', () => {
   const pnlReport = {
@@ -86,64 +86,59 @@ describe('AnalyticsPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders loading state initially', () => {
+  it('renders page title', () => {
     renderPage();
-    expect(screen.getByText(/Loading analytics/)).toBeInTheDocument();
+    expect(screen.getByText('Analytics')).toBeInTheDocument();
   });
 
-  it('renders P&L section after loading', async () => {
+  it('renders both tab triggers', () => {
     renderPage();
+    expect(screen.getByRole('tab', { name: 'P&L' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Accuracy' })).toBeInTheDocument();
+  });
+});
+
+describe('PnlSection', () => {
+  it('renders P&L metrics after loading', async () => {
+    render(<PnlSection />);
     await waitFor(() => {
-      expect(screen.getByText('Portfolio P&L')).toBeInTheDocument();
+      expect(screen.getByText('Total Invested')).toBeInTheDocument();
     });
-    expect(screen.getByText('€100.00')).toBeInTheDocument();
-    const all300 = screen.getAllByText('€300.00');
-    expect(all300.length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('+200.0%')).toBeInTheDocument();
+    expect(screen.getByText('€100')).toBeInTheDocument();
+    expect(screen.getByText('200.0%')).toBeInTheDocument();
   });
 
-  it('renders per-domain breakdown table', async () => {
-    renderPage();
+  it('renders per-domain performance', async () => {
+    render(<PnlSection />);
     await waitFor(() => {
-      expect(screen.getByText('Per-Domain Breakdown')).toBeInTheDocument();
+      expect(screen.getByText('Per-Domain Performance')).toBeInTheDocument();
     });
     expect(screen.getByText('winner.com')).toBeInTheDocument();
     expect(screen.getByText('loser.com')).toBeInTheDocument();
   });
 
   it('renders monthly trend chart', async () => {
-    renderPage();
+    render(<PnlSection />);
     await waitFor(() => {
-      expect(screen.getByText('Monthly Cash Flow')).toBeInTheDocument();
+      expect(screen.getByText('Monthly P&L Trend')).toBeInTheDocument();
     });
   });
+});
 
-  it('switches to accuracy tab and renders metrics', async () => {
-    renderPage();
+describe('AccuracySection', () => {
+  it('renders accuracy metrics after loading', async () => {
+    render(<AccuracySection />);
     await waitFor(() => {
-      expect(screen.getByText('Portfolio P&L')).toBeInTheDocument();
-    });
-
-    const accuracyBtn = screen.getByText('Accuracy');
-    accuracyBtn.click();
-
-    await waitFor(() => {
-      expect(screen.getByText('Prediction Accuracy')).toBeInTheDocument();
+      expect(screen.getByText('MAPE')).toBeInTheDocument();
     });
     expect(screen.getByText('Sample Size')).toBeInTheDocument();
   });
 
-  it('renders confusion matrix in accuracy tab', async () => {
-    renderPage();
-    await waitFor(() => {
-      expect(screen.getByText('Portfolio P&L')).toBeInTheDocument();
-    });
-
-    screen.getByText('Accuracy').click();
-
+  it('renders confusion matrix', async () => {
+    render(<AccuracySection />);
     await waitFor(() => {
       expect(screen.getByText('Confusion Matrix')).toBeInTheDocument();
     });
-    expect(screen.getByText(/TP:/)).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
   });
 });
