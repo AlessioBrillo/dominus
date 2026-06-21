@@ -565,3 +565,56 @@ CREATE INDEX IF NOT EXISTS idx_bids_status ON bids(status)
 export const BIDS_PLACED_AT_IDX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_bids_placed_at ON bids(bid_placed_at)
 `;
+
+export const EVENTS_DDL = `
+CREATE TABLE IF NOT EXISTS events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id   TEXT    NOT NULL DEFAULT 'default',
+  anon_id     TEXT,
+  type        TEXT    NOT NULL,
+  props       TEXT,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const EVENTS_TYPE_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_events_type
+  ON events(type, created_at)
+`;
+
+export const EVENTS_TENANT_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_events_tenant
+  ON events(tenant_id, created_at DESC)
+`;
+
+export const ONBOARDING_STATE_DDL = `
+CREATE TABLE IF NOT EXISTS onboarding_state (
+  tenant_id      TEXT    NOT NULL PRIMARY KEY DEFAULT 'default',
+  current_step   TEXT    NOT NULL DEFAULT 'welcome',
+  step_data      TEXT,
+  completed_at   TEXT,
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const PUBLIC_SCORES_DDL = `
+CREATE TABLE IF NOT EXISTS public_scores (
+  slug           TEXT    NOT NULL PRIMARY KEY,
+  domain         TEXT    NOT NULL,
+  score_json     TEXT    NOT NULL,
+  trademark_json TEXT,
+  view_count     INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const PUBLIC_SCORES_DOMAIN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_public_scores_domain
+  ON public_scores(domain)
+`;
+
+export const PUBLIC_SCORES_CREATED_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_public_scores_created
+  ON public_scores(created_at DESC)
+`;

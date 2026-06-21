@@ -30,6 +30,8 @@ import {
   createMetricsRouter,
   createAnalyticsRouter,
   createListingsRouter,
+  createOnboardingRouter,
+  createPublicRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
@@ -41,11 +43,12 @@ const deps = createDependencies(config);
 const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
 if (!authProvider.isActive) {
   if (config.HOST === '0.0.0.0' || config.HOST === '::') {
-    logger.error(
-      'CRITICAL: API authentication is DISABLED but server is bound to 0.0.0.0 (all interfaces). ' +
+    logger.fatal(
+      'FATAL: API authentication is DISABLED but server is bound to 0.0.0.0 (all interfaces). ' +
         'Set API_KEYS env var to enable authentication, or bind to 127.0.0.1 for local-only access. ' +
-        'Override with DISABLE_AUTH_WARNING=true only if behind a trusted reverse proxy.',
+        'This is a security risk — startup aborted.',
     );
+    process.exit(1);
   } else {
     logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
   }
@@ -101,6 +104,8 @@ if (config.REQUEST_TIMEOUT_MS > 0) {
 app.use(express.json({ limit: '100kb' }));
 app.use(createRequestLogger(logger));
 
+app.use('/public', createPublicRouter(deps.db, deps.engine, deps.trademarkGate));
+
 app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
 app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
 app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
@@ -137,6 +142,10 @@ if (deps.scheduler) {
 }
 protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
 protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
+protectedRouter.use(
+  '/onboarding',
+  createOnboardingRouter(deps.db, deps.engine, deps.trademarkGate, deps.portfolioManager),
+);
 protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
 protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
 protectedRouter.use('/report', createReportRouter(deps.reportService));
@@ -156,8 +165,8 @@ const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*` 
 if (existsSync(frontendDir)) {
   app.use(express.static(frontendDir));
   app.get(spaPattern, (req, res) => {
-    if (req.path.startsWith('/api/')) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'API route not found' } });
+    if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
       return;
     }
     res.sendFile(join(frontendDir, 'index.html'));

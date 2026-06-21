@@ -35,6 +35,8 @@ re-running the original arguments.
 | [0026](0026-monetization-and-saas-model.md)           | Monetization and SaaS model                                                        | 2026-06-18 | Proposed                 |
 | [0027](0027-saas-architecture-multi-tenant.md)        | SaaS architecture — multi-tenancy, database, and authentication                    | 2026-06-18 | Proposed                 |
 | [0028](0028-frontend-architecture-professional-dashboard.md) | Frontend architecture — professional SaaS dashboard                          | 2026-06-18 | Proposed                 |
+| [0029](0029-conversion-driven-features.md)                   | Conversion-driven features for DOMINUS Cloud                                 | 2026-06-21 | Proposed                 |
+| [0030](0030-public-namespace-architecture.md)                | Public namespace architecture                                                | 2026-06-21 | Proposed                 |
 
 ## Conventions
 
@@ -47,14 +49,16 @@ re-running the original arguments.
 - **ADR-0001 through ADR-0024** document the original single-user, MIT-licensed,
   SQLite-based architecture. These decisions remain valid for the community
   edition (self-hosted, single-user).
-- **ADR-0025 through ADR-0028** document the SaaS transition: license change,
-  monetisation, multi-tenancy, PostgreSQL, professional frontend. These
-  decisions build upon the earlier foundation while superseding specific
-  constraints (single-user, MIT, SQLite-only, CLI-first UI).
+- **ADR-0025 through ADR-0030** document the SaaS transition: license change,
+  monetisation, multi-tenancy, PostgreSQL, professional frontend, conversion
+  features, and public namespace architecture. These decisions build upon
+  the earlier foundation while superseding specific constraints (single-user,
+  MIT, SQLite-only, CLI-first UI).
 - ADR-0025 supersedes ADR-0018 on licensing. ADR-0026 supersedes ADR-0001
   on monetisation and user model. ADR-0027 supersedes ADR-0001 on database
   and ADR-0005 on schema strategy. ADR-0028 supersedes ADR-0001 on frontend
-  priority.
+  priority. ADR-0029 and ADR-0030 define the public-facing surface and
+  conversion mechanics for DOMINUS Cloud.
 
 ## How to write a new ADR
 
