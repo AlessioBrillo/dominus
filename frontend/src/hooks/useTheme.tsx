@@ -16,7 +16,9 @@ function getInitialTheme(): Theme {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
-  } catch {}
+  } catch {
+    /* localStorage not available */
+  }
   if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: light)').matches) {
     return 'light';
   }
@@ -32,7 +34,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.add(theme);
     try {
       localStorage.setItem(STORAGE_KEY, theme);
-    } catch {}
+    } catch {
+      /* localStorage not available */
+    }
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
