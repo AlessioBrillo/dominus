@@ -6,6 +6,8 @@ export {
   getDatabase,
 } from './database.js';
 export { runMigrations } from './migrator.js';
+export { PostgresAdapter } from './provider/postgres-adapter.js';
+export type { AsyncDatabaseProvider, AsyncExecResult } from './provider/async-interface.js';
 export { CandidateRepository } from './repositories/candidate-repository.js';
 export { ScoringRepository } from './repositories/scoring-repository.js';
 export { PortfolioRepository } from './repositories/portfolio-repository.js';
