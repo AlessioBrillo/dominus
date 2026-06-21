@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Play, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
 import { fetchDashboardStats, type DashboardResult } from '@/api/dashboard';
 import { runPipeline } from '@/api/candidates';
+import { getOnboardingState } from '@/api/onboarding';
 import { RunProgress } from '@/components/RunProgress';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export function DashboardPage() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardResult['stats'] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,6 +19,7 @@ export function DashboardPage() {
   const [failureReasons, setFailureReasons] = useState<string[]>([]);
   const [runId, setRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [onboardingCheckDone, setOnboardingCheckDone] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -44,9 +48,24 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    getOnboardingState()
+      .then((state) => {
+        if (!state.completedAt) {
+          navigate('/onboarding', { replace: true });
+          return;
+        }
+        setOnboardingCheckDone(true);
+      })
+      .catch(() => {
+        setOnboardingCheckDone(true);
+      });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!onboardingCheckDone) return;
     load();
     return () => abortRef.current?.abort();
-  }, [load]);
+  }, [load, onboardingCheckDone]);
 
   const startPipeline = useCallback(async () => {
     setStarting(true);

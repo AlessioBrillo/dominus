@@ -66,7 +66,20 @@ estimates and subject to change.
 - [ ] Community edition retains static `.env` API key (backward compatible)
 - [ ] OAuth providers (Google, GitHub) — stretch goal
 
-## v0.8.0 — Professional Frontend Dashboard
+## v0.8.0 — Conversion Features & Onboarding Wizard
+
+> **Status**: Planned
+> **Focus**: Time-to-value < 7 minutes, portfolio import with savings callout
+
+- [ ] Onboarding wizard with stepper (sample run → portfolio import → verdict + savings)
+- [ ] `POST /api/v1/onboarding/sample-run` — synchronous sample pipeline execution
+- [ ] `POST /api/v1/portfolio/import` — CSV import with annual savings calculation
+- [ ] `SavingsCallout` component on dashboard post-onboarding
+- [ ] Empty-state redirect to onboarding wizard
+- [ ] Self-hosted analytics events table (`events`)
+- [ ] Activation funnel instrumentation (`time_to_activation`)
+
+## v0.9.0 — Professional Frontend Dashboard
 
 > **Status**: Planned
 > **Focus**: Recharts, TanStack Table, shadcn/ui, SaaS UX
@@ -83,28 +96,48 @@ estimates and subject to change.
 - [ ] Accessibility pass (WCAG 2.1 AA, keyboard navigation, aria-labels)
 - [ ] Frontend test coverage ≥50%
 
-## v0.9.0 — DOMINUS Cloud MVP
+## v0.10.0 — Shareable Score Pages & Public Namespace
 
 > **Status**: Planned
-> **Focus**: Managed hosting, billing, first paid tier
+> **Focus**: Viral loop, public score snapshots, OG images
+
+- [ ] `/public/*` namespace with dedicated rate limiting and caching
+- [ ] `public_scores` table (immutable snapshots, no `tenant_id`)
+- [ ] `POST /api/v1/scores/:id/share` — creates shareable score snapshot
+- [ ] `GET /public/s/:slug` — public score page with branded breakdown
+- [ ] `GET /public/s/:slug/og.png` — dynamic Open Graph image generation
+- [ ] `ShareButton` component on score views
+- [ ] `PublicScorePage` — server-rendered, crawlable, with CTA
+- [ ] Rate limiting and abuse protection for public endpoints
+
+## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO
+
+> **Status**: Planned
+> **Focus**: Managed hosting, billing, paid tiers, SEO
 
 - [ ] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
 - [ ] Free tier: rate-limited pipeline runs, single user
-- [ ] Pro tier (€19/mo): 100 runs/day, 3 team seats, email support
+- [ ] Pro tier (€29/mo): 100 runs/day, 3 team seats, email support
+- [ ] Team tier (€79/mo): 500 runs/day, 10 team seats, Slack support
 - [ ] Stripe billing integration (subscriptions + customer portal)
 - [ ] Usage metering (pipeline runs, API calls per tenant)
 - [ ] Admin panel (user management, usage metrics)
-- [ ] Onboarding flow for new signups
 - [ ] Automated daily backups with point-in-time recovery
 - [ ] Monitoring and alerting (uptime, error rate, latency)
 - [ ] Migration guide: from community edition to DOMINUS Cloud
+- [ ] `AnonScoringService` — scoring engine in no-persist mode for public endpoints
+- [ ] `GET /public/domain/:name` — public domain valuation page (crawlable, cached)
+- [ ] `GET /sitemap.xml` — dynamic sitemap with public pages
+- [ ] `GET /public/compare/:slug` — editorial comparison pages
+- [ ] JSON-LD structured data for rich snippets
+- [ ] SSR layer for public pages (React renderToString)
 
-## v1.0.0 — GA Release
+## v1.1.0 — GA Release
 
 > **Status**: Planned
 > **Focus**: Stability, production readiness, community launch
 
-- [ ] Team tier (€49/mo): 500 runs/day, 10 team seats, Slack support
+- [ ] Team tier (€79/mo): 500 runs/day, 10 team seats, Slack support
 - [ ] Enterprise tier: custom pricing, SSO, SLA, dedicated infra
 - [ ] End-to-end tests (Playwright/Cypress)
 - [ ] Load testing and performance benchmarking

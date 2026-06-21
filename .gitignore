@@ -38,3 +38,11 @@ data/
 
 # --- Claude runtime ---
 .claude/scheduled_tasks.lock
+
+# --- Coverage check snapshot (stale copies, do not commit) ---
+coverage-check/
+
+# --- Temporary alignment documents (do not commit) ---
+dominus-business-plan.md
+dominus-conversion-features-spec.md
+*.paper.md

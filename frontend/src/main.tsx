@@ -8,6 +8,7 @@ import { ThemeProvider } from '@/hooks/useTheme';
 import { AuthProvider } from '@/hooks/useAuth';
 import { Layout } from '@/components/Layout';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { OnboardingPage } from '@/pages/OnboardingPage';
 import { CandidatesPage } from '@/pages/CandidatesPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
@@ -27,6 +28,7 @@ createRoot(document.getElementById('root')!).render(
               <Routes>
                 <Route element={<Layout />}>
                   <Route index element={<DashboardPage />} />
+                  <Route path="onboarding" element={<OnboardingPage />} />
                   <Route path="candidates" element={<CandidatesPage />} />
                   <Route path="analytics" element={<AnalyticsPage />} />
                   <Route path="bids" element={<BidsPage />} />

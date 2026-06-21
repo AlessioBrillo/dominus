@@ -162,11 +162,13 @@ Suggested structure (to be validated with early users):
 | Tier | Price | Runs/day | Team seats | Support |
 |------|-------|----------|------------|---------|
 | **Free** | €0 | 10 | 1 (solo) | Community (GitHub Issues) |
-| **Pro** | €19/mo | 100 | 3 | Email (4h response) |
-| **Team** | €49/mo | 500 | 10 | Email + Slack (2h response) |
+| **Pro** | €29/mo | 100 | 3 | Email (4h response) |
+| **Team** | €79/mo | 500 | 10 | Email + Slack (2h response) |
 | **Enterprise** | Custom | Unlimited | Unlimited | SLA, SSO, dedicated infra |
 
 The community edition (self-hosted) has no limits — unlimited runs, unlimited domains, all features. The tiers apply only to DOMINUS Cloud hosted accounts.
+
+Pricing rationale: Pro at €29/mo matches Estibot (the dominant competitor in the domain appraisal space) on price while offering more value (trademark gate, portfolio verdicts, open-source transparency). Team at €79/mo reflects the added value of multi-seat collaboration and priority support — approximately 2.7× the Pro price for >3× the seats. All prices are in EUR; a separate USD listing ($29/$79) is considered for the US market where price tolerance is 2-3× higher.
 
 ## Consequences
 
