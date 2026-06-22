@@ -57,7 +57,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         filtered.push({
           ...candidate,
           dnsStatus: 'error',
-          status: CandidateStatus.Unscored,
+          status: CandidateStatus.DnsFiltered,
         });
         continue;
       }
