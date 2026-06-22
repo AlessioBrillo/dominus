@@ -91,12 +91,14 @@ export class EuipoProvider implements TrademarkProvider {
     this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
   }
 
-  async search(term: string): Promise<TrademarkMatch[]> {
+  async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
     const token = await this.#getToken();
     const url = this.#buildSearchUrl(term);
 
     let response: Response;
     try {
+      const abortTimeout = AbortSignal.timeout(15_000);
+      const combined = signal ? AbortSignal.any([signal, abortTimeout]) : abortTimeout;
       response = await this.#rateLimiter.throttle(() =>
         fetch(url.toString(), {
           method: 'GET',
@@ -105,7 +107,7 @@ export class EuipoProvider implements TrademarkProvider {
             'X-IBM-Client-Id': this.#clientId ?? '',
             Accept: 'application/json',
           },
-          signal: AbortSignal.timeout(15_000),
+          signal: combined,
         }),
       );
     } catch (err: unknown) {
@@ -122,6 +124,8 @@ export class EuipoProvider implements TrademarkProvider {
       // Retry once with a fresh token
       const freshToken = await this.#getToken();
       try {
+        const retryTimeout = AbortSignal.timeout(15_000);
+        const retryCombined = signal ? AbortSignal.any([signal, retryTimeout]) : retryTimeout;
         response = await this.#rateLimiter.throttle(() =>
           fetch(url.toString(), {
             method: 'GET',
@@ -130,7 +134,7 @@ export class EuipoProvider implements TrademarkProvider {
               'X-IBM-Client-Id': this.#clientId ?? '',
               Accept: 'application/json',
             },
-            signal: AbortSignal.timeout(15_000),
+            signal: retryCombined,
           }),
         );
       } catch (err: unknown) {

@@ -21,7 +21,7 @@ export class NameBioProvider implements CompsProvider {
     this.apiKey = config.apiKey;
   }
 
-  async getSales(term: string): Promise<ComparableSale[]> {
+  async getSales(term: string, signal?: AbortSignal): Promise<ComparableSale[]> {
     if (this.apiKey === undefined || this.apiKey === '') {
       if (!this.warned) {
         getLogger().warn(
@@ -36,10 +36,12 @@ export class NameBioProvider implements CompsProvider {
 
     let response: Response;
     try {
+      const abortTimeout = AbortSignal.timeout(10_000);
+      const combined = signal ? AbortSignal.any([signal, abortTimeout]) : abortTimeout;
       response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10_000),
+        signal: combined,
       });
     } catch (err: unknown) {
       getLogger().error(
