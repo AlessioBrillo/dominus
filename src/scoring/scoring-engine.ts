@@ -163,11 +163,9 @@ export class ScoringEngine {
     const suggestedListPrice = expectedValue * listPriceMultiplier;
 
     const aggressive = suggestedBuyMax;
-    const conservative =
-      effectiveConfidenceThreshold > 0
-        ? Math.round(aggressive * Math.min(confidence / effectiveConfidenceThreshold, 1) * 100) /
-          100
-        : 0;
+    // Conservative bid is a confidence-weighted fraction of aggressive,
+    // always strictly less than aggressive (confidence max is 0.8 < 1).
+    const conservative = Math.round(aggressive * confidence * 100) / 100;
 
     const recommended =
       confidence >= effectiveConfidenceThreshold && weightedScore >= effectiveRecommendThreshold;
