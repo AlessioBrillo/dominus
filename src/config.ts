@@ -343,13 +343,6 @@ const configSchema = z.object({
   /** Confidence base for zero-signal fallback (default: 0.2). */
   SCORING_CONFIDENCE_BASE: z.coerce.number().min(0).max(1).default(0.2),
   /**
-   * @deprecated since ADR-0020 — no longer used in the weight-covered
-   * proportion formula. Kept in schema for backward compatibility only.
-   * Setting this value has no effect on scoring. Remove from env config
-   * to silence the deprecation warning.
-   */
-  SCORING_CONFIDENCE_PER_SIGNAL: z.coerce.number().min(0).max(1).optional(),
-  /**
    * Influence of intrinsic quality score on confidence (default: 0.12).
    * 12% of the confidence range is reserved for intrinsic quality;
    * the remaining 88% is driven by the proportion of signal weight
@@ -378,6 +371,47 @@ const configSchema = z.object({
   TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: z.coerce.number().int().min(1).default(3),
   /** Maximum Levenshtein distance for fuzzy matching (default: 1). */
   TRADEMARK_MAX_LEVENSHTEIN: z.coerce.number().int().min(0).default(1),
+  // ── Wayback Machine CDX expiry data enrichment ─────────────────────
+
+  /**
+   * Enable Wayback Machine CDX API for automatic expiry data enrichment.
+   * When enabled, the pipeline fetches domain age and capture count from
+   * the Internet Archive for candidates without closeout metadata.
+   * Completely free — no API key required.
+   * Default: true.
+   */
+  WAYBACK_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
+  /**
+   * Rate limiting: max tokens (burst capacity) for Wayback CDX requests.
+   * Token bucket refills at WAYBACK_RATE_LIMIT_TOKENS per WAYBACK_RATE_LIMIT_INTERVAL_MS.
+   * The CDX API has no documented rate limit but 5 req/12s is conservative.
+   * Default: 5.
+   */
+  WAYBACK_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(5),
+  /** Rate limiting: refill interval in ms for CDX requests (default: 12000). */
+  WAYBACK_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(12000),
+  /**
+   * Per-domain timeout in ms for a single CDX API call.
+   * Wayback CDX can be slow for domains with millions of captures.
+   * Default: 10000ms (10 seconds).
+   */
+  WAYBACK_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
+  /**
+   * Maximum number of concurrent Wayback enrichment lookups during
+   * a pipeline stage run. Each lookup is one HTTP request to CDX.
+   * Default: 3 (conservative — CDX has no documented rate limit).
+   */
+  WAYBACK_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(3),
+  /**
+   * CDX API result limit per page. Higher values mean fewer pagination
+   * cycles but larger response payloads. The API silently truncates
+   * at 100000; we use 5000 for reasonable response sizes.
+   * Default: 5000.
+   */
+  WAYBACK_CDX_PAGE_SIZE: z.coerce.number().int().min(100).max(100000).default(5000),
+
   /**
    * Network interface to bind the Express server to.
    * '127.0.0.1' listens on localhost only (safe default).
@@ -784,18 +818,6 @@ export function loadConfig(): Config {
     throw new ConfigError(`Invalid environment configuration: ${issues}`);
   }
   _config = result.data;
-
-  // Deprecation warning for SCORING_CONFIDENCE_PER_SIGNAL (ADR-0020)
-  if (
-    process.env.SCORING_CONFIDENCE_PER_SIGNAL !== undefined &&
-    process.env.SCORING_CONFIDENCE_PER_SIGNAL !== '' &&
-    _config.SCORING_CONFIDENCE_PER_SIGNAL !== undefined
-  ) {
-    process.stderr.write(
-      '[WARN] SCORING_CONFIDENCE_PER_SIGNAL is deprecated since ADR-0020 and has no effect. ' +
-        'Remove it from your environment configuration.\n',
-    );
-  }
 
   return _config;
 }

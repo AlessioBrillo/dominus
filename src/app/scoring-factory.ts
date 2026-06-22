@@ -1,6 +1,7 @@
 import type { Config } from '../config.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
+import type { WaybackProvider } from '../providers/wayback/wayback-provider.js';
 import {
   ScoringEngine,
   loadWeights,
@@ -13,6 +14,7 @@ export function buildScoringEngine(
   keywordProvider: KeywordProvider,
   compsProvider: CompsProvider,
   config: Config,
+  waybackProvider?: WaybackProvider,
 ): { currentWeights: ScoringWeights; engine: ScoringEngine } {
   const weightsOverridePath =
     config.SCORING_WEIGHTS_OVERRIDE ||
@@ -56,6 +58,7 @@ export function buildScoringEngine(
     config.BUY_MAX_ABSOLUTE_CAP,
     scoringConfig,
     tldBonuses,
+    waybackProvider,
   );
 
   return { currentWeights, engine };

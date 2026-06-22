@@ -106,6 +106,7 @@ export interface PruneResult {
   deletedPipelineRuns: number;
   deletedProviderCache: number;
   deletedJobQueue: number;
+  deletedWaybackCache: number;
 }
 
 export interface WatchlistPollPayload {}

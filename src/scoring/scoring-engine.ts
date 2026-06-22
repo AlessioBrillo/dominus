@@ -1,5 +1,6 @@
 import type { KeywordProvider } from '../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../providers/comps/comps-provider.js';
+import type { WaybackProvider } from '../providers/wayback/wayback-provider.js';
 import type {
   ScoreResult,
   ScoringInput,
@@ -27,6 +28,7 @@ export class ScoringEngine {
     private readonly buyMaxAbsoluteCap: number = 500,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
     tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
+    private readonly waybackProvider?: WaybackProvider,
   ) {
     this.#weights = weights;
     this.#tldBonuses = tldBonuses;
@@ -55,6 +57,23 @@ export class ScoringEngine {
     const sld = input.sld ?? parsed.sld;
     const tld = input.tld ?? parsed.tld;
     const inputWithSld: ScoringInput = { ...input, sld, tld };
+
+    const hasExpiryInInput =
+      input.domainAge !== undefined ||
+      input.backlinks !== undefined ||
+      input.waybackSnapshots !== undefined;
+
+    if (!hasExpiryInInput && this.waybackProvider !== undefined) {
+      try {
+        const wayback = await this.waybackProvider.getExpiryData(input.domain);
+        if (wayback.domainAge > 0 || wayback.waybackSnapshots > 0) {
+          inputWithSld.domainAge = wayback.domainAge;
+          inputWithSld.waybackSnapshots = wayback.waybackSnapshots;
+        }
+      } catch {
+        // Wayback fetch is non-fatal — expiry signal degrades gracefully
+      }
+    }
 
     const intrinsic = computeIntrinsicScore(
       inputWithSld,

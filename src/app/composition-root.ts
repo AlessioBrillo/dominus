@@ -65,6 +65,7 @@ import {
   buildDnsProvider,
   buildWhoisProviders,
   buildRateLimiters,
+  buildWaybackProvider,
 } from './provider-factory.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
@@ -267,6 +268,7 @@ function buildWorkerIfEnabled(
     pipelineRunsRepo,
     providerCacheRepo,
     jobQueueRepo,
+    db,
   });
   const watchlistHandler = new WatchlistPollHandler({ watchlistService });
   const renewalHandler = new RenewalCheckHandler({ alertEngine });
@@ -350,6 +352,9 @@ export function createDependencies(config: Config): DominusDependencies {
   const dnsProvider = buildDnsProvider(config);
   const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
+  // --- Wayback Machine (expiry data enrichment) ---
+  const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
+
   // --- Trademark Gate ---
   const { usptoTmProvider, euipoTmProvider, trademarkGate } = buildTrademarkProviderStack(
     config,
@@ -363,6 +368,7 @@ export function createDependencies(config: Config): DominusDependencies {
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
+    waybackProvider,
   );
 
   // --- Health ---

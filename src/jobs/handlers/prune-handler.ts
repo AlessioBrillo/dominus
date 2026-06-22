@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
@@ -14,6 +15,7 @@ export interface PruneHandlerDeps {
   pipelineRunsRepo: PipelineRunsRepository;
   providerCacheRepo: ProviderCacheRepository;
   jobQueueRepo: JobQueueRepository;
+  db?: Database.Database;
 }
 
 export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
@@ -31,6 +33,11 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
     const deletedPipelineRuns = this.deps.pipelineRunsRepo.pruneBefore(cutoff);
     const deletedProviderCache = this.deps.providerCacheRepo.pruneExpired();
     const deletedJobQueue = this.deps.jobQueueRepo.deleteCompleted(7);
+    const deletedWaybackCache = this.deps.db
+      ? this.deps.db
+          .prepare("DELETE FROM wayback_cache WHERE expires_at < datetime('now')")
+          .run().changes
+      : 0;
 
     logger.info(
       {
@@ -39,6 +46,7 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
         deletedPipelineRuns,
         deletedProviderCache,
         deletedJobQueue,
+        deletedWaybackCache,
       },
       'PruneHandler: completed',
     );
@@ -49,6 +57,7 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
       deletedPipelineRuns,
       deletedProviderCache,
       deletedJobQueue,
+      deletedWaybackCache,
     };
   }
 }

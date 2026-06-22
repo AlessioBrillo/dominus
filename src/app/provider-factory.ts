@@ -25,6 +25,8 @@ import type { DnsCheckResult } from '../types/domain-status.js';
 import { DomainStatus } from '../types/domain-status.js';
 import { RetryingRdapProvider } from './retrying-rdap-provider.js';
 import { RDAP_CIRCUIT_BREAKER } from './circuit-breaker.js';
+import { CdxWaybackProvider } from '../providers/wayback/index.js';
+import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
 
 export function buildKeywordProvider(
   config: Config,
@@ -196,10 +198,42 @@ export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
   return { raw, withRetry };
 }
 
+export function buildWaybackProvider(
+  config: Config,
+  providerCacheRepo: ProviderCacheRepository,
+): WaybackProvider | undefined {
+  if (!config.WAYBACK_ENABLED) return undefined;
+
+  const waybackLimiter = new RateLimiter({
+    maxTokens: config.WAYBACK_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.WAYBACK_RATE_LIMIT_TOKENS,
+    intervalMs: config.WAYBACK_RATE_LIMIT_INTERVAL_MS,
+  });
+
+  const raw = new CdxWaybackProvider(undefined, waybackLimiter, config.WAYBACK_TIMEOUT_MS);
+
+  const cache = new CachedProvider<WaybackResult>(
+    (domain, signal) => raw.getExpiryData(domain, signal),
+    providerCacheRepo,
+    'wayback',
+    config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+    undefined,
+    config.PROVIDER_MEMORY_CACHE_SIZE,
+    config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
+  );
+
+  const cached: WaybackProvider = {
+    getExpiryData: (domain: string, signal?: AbortSignal) => cache.get(domain, signal),
+  };
+
+  return cached;
+}
+
 export interface BuiltRateLimiters {
   rdap: RateLimiter;
   uspto: RateLimiter;
   euipo: RateLimiter;
+  wayback: RateLimiter;
 }
 
 export function buildRateLimiters(config: Config): BuiltRateLimiters {
@@ -218,5 +252,10 @@ export function buildRateLimiters(config: Config): BuiltRateLimiters {
     tokensPerInterval: config.EUIPO_RATE_LIMIT_TOKENS,
     intervalMs: config.EUIPO_RATE_LIMIT_INTERVAL_MS,
   });
-  return { rdap, uspto, euipo };
+  const wayback = new RateLimiter({
+    maxTokens: config.WAYBACK_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.WAYBACK_RATE_LIMIT_TOKENS,
+    intervalMs: config.WAYBACK_RATE_LIMIT_INTERVAL_MS,
+  });
+  return { rdap, uspto, euipo, wayback };
 }
