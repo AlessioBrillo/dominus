@@ -76,17 +76,27 @@ export class TrademarkGate {
     private readonly matchConfig: MatchDetectorConfig = DEFAULT_MATCH_DETECTOR_CONFIG,
   ) {}
 
-  async check(domain: string): Promise<GateResult> {
+  async check(domain: string, signal?: AbortSignal): Promise<GateResult> {
     const sld = extractSld(domain);
 
+    function isAbortError(err: unknown): boolean {
+      return err instanceof DOMException && err.name === 'AbortError';
+    }
+
     const [usptoResult, euipoResult] = await Promise.all([
-      this.usptoProvider.search(sld).then(
+      this.usptoProvider.search(sld, signal).then(
         (matches) => ({ ok: true as const, matches }),
-        () => ({ ok: false as const, matches: [] }),
+        (err: unknown) => {
+          if (isAbortError(err)) throw err;
+          return { ok: false as const, matches: [] };
+        },
       ),
-      this.euipoProvider.search(sld).then(
+      this.euipoProvider.search(sld, signal).then(
         (matches) => ({ ok: true as const, matches }),
-        () => ({ ok: false as const, matches: [] }),
+        (err: unknown) => {
+          if (isAbortError(err)) throw err;
+          return { ok: false as const, matches: [] };
+        },
       ),
     ]);
 

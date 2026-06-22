@@ -52,7 +52,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
     this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
   }
 
-  async search(term: string): Promise<TrademarkMatch[]> {
+  async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
     const body = JSON.stringify({
       query: {
         bool: {
@@ -71,6 +71,8 @@ export class UsptoCasesProvider implements TrademarkProvider {
 
     let response: Response;
     try {
+      const abortTimeout = AbortSignal.timeout(8_000);
+      const combined = signal ? AbortSignal.any([signal, abortTimeout]) : abortTimeout;
       response = await this.#rateLimiter.throttle(() =>
         fetch(this.#searchUrl, {
           method: 'POST',
@@ -80,7 +82,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
             'User-Agent': 'Mozilla/5.0 (compatible; DOMINUS/1.0 trademark-check)',
           },
           body,
-          signal: AbortSignal.timeout(8_000),
+          signal: combined,
         }),
       );
     } catch (err: unknown) {

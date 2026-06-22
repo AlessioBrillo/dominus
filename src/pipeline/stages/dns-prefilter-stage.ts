@@ -20,9 +20,11 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
   async process(
     candidates: DomainCandidate[],
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
+    if (signal?.aborted) return { passed: [], filtered: [], stageName: this.name, durationMs: 0 };
+
     const toFilter: DomainCandidate[] = [];
     const toSkip: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
@@ -42,7 +44,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
-    const perDomainResults = await this.#resolveBulkWithFallback(toFilter);
+    const perDomainResults = await this.#resolveBulkWithFallback(toFilter, signal);
 
     const passed: DomainCandidate[] = [...toSkip];
 
@@ -55,7 +57,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         filtered.push({
           ...candidate,
           dnsStatus: 'error',
-          status: CandidateStatus.Unscored,
+          status: CandidateStatus.DnsFiltered,
         });
         continue;
       }
@@ -76,11 +78,16 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
   async #resolveBulkWithFallback(
     domains: DomainCandidate[],
+    signal?: AbortSignal,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (domains.length === 0) return [];
+    if (signal?.aborted) return new Array(domains.length);
 
     try {
-      const results = await this.dnsProvider.checkBulk(domains.map((c) => c.domain));
+      const results = await this.dnsProvider.checkBulk(
+        domains.map((c) => c.domain),
+        signal,
+      );
       if (results.length === domains.length) return results;
       logger.warn(
         { expected: domains.length, got: results.length },
@@ -92,11 +99,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     const results: (DnsCheckResult | undefined)[] = new Array(domains.length);
     for (let i = 0; i < domains.length; i += this.fallbackConcurrency) {
+      if (signal?.aborted) return results;
       const batch = domains.slice(i, i + this.fallbackConcurrency);
       const batchResults = await Promise.all(
         batch.map(async (c) => {
           try {
-            return await this.dnsProvider.checkAvailability(c.domain);
+            return await this.dnsProvider.checkAvailability(c.domain, signal);
           } catch {
             logger.error({ domain: c.domain }, 'DNS per-domain check failed');
             return undefined;

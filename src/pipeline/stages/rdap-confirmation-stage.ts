@@ -73,54 +73,57 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
 
   async process(
     candidates: DomainCandidate[],
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
+    if (signal?.aborted) return { passed: [], filtered: [], stageName: this.name, durationMs: 0 };
+
     const passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
 
     const batches = this.#toBatches(candidates, this.concurrency);
     for (const batch of batches) {
+      if (signal?.aborted) break;
       const results = await Promise.allSettled(
         batch.map(async (candidate) => {
-          const result = await this.#checkAvailability(candidate.domain);
-          return { candidate, result };
+          try {
+            const result = await this.#checkAvailability(candidate.domain, signal);
+            return { candidate, result, error: undefined } as const;
+          } catch (error) {
+            return { candidate, result: undefined, error } as const;
+          }
         }),
       );
       for (const settled of results) {
-        if (settled.status === 'fulfilled') {
-          const { candidate, result } = settled.value;
-          if (result.status === DomainStatus.Available && !result.isPremium) {
-            const whoisMeta =
-              candidate.closeoutMeta?.domainAge !== undefined
-                ? candidate.whoisMeta
-                : { ...buildWhoisMeta(result), ...candidate.whoisMeta };
-            passed.push({
-              ...candidate,
-              rdapStatus: result.status,
-              isPremium: false,
-              status: CandidateStatus.Pending,
-              whoisMeta,
-            });
-          } else {
-            filtered.push({
-              ...candidate,
-              rdapStatus: result.status,
-              isPremium: result.isPremium,
-              status: CandidateStatus.RdapFiltered,
-            });
-          }
+        if (settled.status === 'rejected') continue;
+        const { candidate, result, error } = settled.value;
+        if (error !== undefined) {
+          filtered.push({
+            ...candidate,
+            rdapStatus: 'error',
+            status: CandidateStatus.RdapFiltered,
+          });
+          continue;
+        }
+        if (result!.status === DomainStatus.Available && !result!.isPremium) {
+          const whoisMeta =
+            candidate.closeoutMeta?.domainAge !== undefined
+              ? candidate.whoisMeta
+              : { ...buildWhoisMeta(result!), ...candidate.whoisMeta };
+          passed.push({
+            ...candidate,
+            rdapStatus: result!.status,
+            isPremium: false,
+            status: CandidateStatus.Pending,
+            whoisMeta,
+          });
         } else {
-          const firstCandidate = batch[0];
-          const fallbackCandidate = firstCandidate ?? candidates[0];
-          const failed = batch[candidates.indexOf(settled.reason?.candidate ?? fallbackCandidate)];
-          if (failed) {
-            filtered.push({
-              ...failed,
-              rdapStatus: 'error',
-              status: CandidateStatus.RdapFiltered,
-            });
-          }
+          filtered.push({
+            ...candidate,
+            rdapStatus: result!.status,
+            isPremium: result!.isPremium,
+            status: CandidateStatus.RdapFiltered,
+          });
         }
       }
     }

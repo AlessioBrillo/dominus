@@ -53,6 +53,7 @@ export class PipelineTimeoutError extends Error {
 
 export class PipelineOrchestrator {
   #abortController: AbortController | null = null;
+  #running: boolean = false;
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -84,6 +85,21 @@ export class PipelineOrchestrator {
   }
 
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
+    if (this.#running) {
+      throw new Error(
+        'Pipeline run already in progress — concurrent runs are not supported on this instance',
+      );
+    }
+    this.#running = true;
+
+    try {
+      return await this.#runInternal(input);
+    } finally {
+      this.#running = false;
+    }
+  }
+
+  async #runInternal(input: CandidateGenerationInput): Promise<PipelineResult> {
     this.#abortController = new AbortController();
     const signal = this.#abortController.signal;
     const start = Date.now();
@@ -93,10 +109,6 @@ export class PipelineOrchestrator {
       signal.aborted || (this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs);
 
     if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
-
-    if (signal.aborted) {
-      return this.#abortWithError('unknown', stageSummary, stageErrors, start);
-    }
 
     let gen: {
       passed: DomainCandidate[];
