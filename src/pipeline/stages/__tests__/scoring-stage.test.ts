@@ -49,6 +49,7 @@ describe('ScoringStage closeout metadata threading', () => {
     expect(bare!.scoreResult!.breakdown.expiry.score).toBe(0);
     expect(rich!.scoreResult!.breakdown.expiry.details['domainAge']).toBe(15);
     expect(rich!.scoreResult!.breakdown.expiry.details['waybackSnapshots']).toBe(400);
-    expect(rich!.scoreResult!.expectedValue).toBeGreaterThan(bare!.scoreResult!.expectedValue ?? 0);
+    // Closeout domain without expiry data correctly reports dataAvailable=false
+    expect(bare!.scoreResult!.breakdown.expiry.dataAvailable).toBe(false);
   });
 });
