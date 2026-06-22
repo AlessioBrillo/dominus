@@ -46,9 +46,10 @@ export function computeNpv(
   }
   projectedAnnualReturn = projectedAnnualReturn / horizonYears - renewalCost;
 
+  const netAnnualReturn = expectedValue * confidence - renewalCost;
   const breakEvenYears =
-    expectedValue * confidence > 0 && renewalCost > 0
-      ? acquisitionCost / (expectedValue * confidence - renewalCost)
+    expectedValue * confidence > 0 && renewalCost > 0 && netAnnualReturn > 0
+      ? acquisitionCost / netAnnualReturn
       : horizonYears + 1;
 
   return {

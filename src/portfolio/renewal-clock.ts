@@ -5,7 +5,11 @@ export function computeRenewalClock(entry: PortfolioEntry): RenewalClockData {
   const now = new Date();
   const renewal = new Date(entry.renewalDate);
   const diffMs = renewal.getTime() - now.getTime();
-  const daysUntilRenewal = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysUntilRenewal =
+    diffMs < 0
+      ? Math.floor(diffMs / msPerDay)
+      : Math.ceil(diffMs / msPerDay);
 
   return {
     domain: entry.domain,
