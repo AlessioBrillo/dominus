@@ -1,9 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  RetryingTrademarkProvider,
-  isTransient,
-  DEFAULT_RETRY_POLICY,
-} from '../retrying-trademark-provider.js';
+import { RetryingTrademarkProvider } from '../retrying-trademark-provider.js';
+import { isTransient, DEFAULT_RETRY_POLICY } from '../../providers/retry-policy.js';
 import type {
   TrademarkMatch,
   TrademarkProvider,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { RetryingWhoisProvider, CircuitOpenError } from '../retrying-whois-provider.js';
+import { RetryingWhoisProvider } from '../retrying-whois-provider.js';
+import { CircuitOpenError } from '../../providers/retry-policy.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
 
 function okResult(domain = 'example.com'): WhoisResult {

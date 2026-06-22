@@ -1,19 +1,15 @@
 import type { WhoisProvider, WhoisResult } from '../providers/whois/whois-provider.js';
-import { isTransient } from './retrying-trademark-provider.js';
+import {
+  isTransient,
+  computeDelay,
+  defaultSleep,
+  CircuitOpenError,
+  type RetryPolicy,
+} from '../providers/retry-policy.js';
 import { CircuitBreaker, type CircuitBreakerPolicy } from './circuit-breaker.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
-
-export interface RetryPolicy {
-  maxAttempts: number;
-  baseDelayMs: number;
-  backoffMultiplier: number;
-  maxDelayMs: number;
-  jitterRatio: number;
-  random?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-}
 
 export const WHOIS_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 2,
@@ -28,18 +24,6 @@ export const WHOIS_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
   windowMs: 60_000,
   cooldownMs: 120_000,
 };
-
-export class CircuitOpenError extends Error {
-  readonly retryAfterMs: number;
-  readonly circuitState: string;
-
-  constructor(retryAfterMs: number, circuitState: string) {
-    super(`WHOIS provider circuit is ${circuitState}. Retry after ${retryAfterMs}ms.`);
-    this.name = 'CircuitOpenError';
-    this.retryAfterMs = retryAfterMs;
-    this.circuitState = circuitState;
-  }
-}
 
 export class RetryingWhoisProvider implements WhoisProvider {
   readonly #delegate: WhoisProvider;
@@ -60,7 +44,7 @@ export class RetryingWhoisProvider implements WhoisProvider {
 
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
     if (!this.#circuitBreaker.allow()) {
-      throw new CircuitOpenError(this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
+      throw new CircuitOpenError('WHOIS provider', this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
     }
 
     const random = this.#policy.random ?? Math.random;
@@ -94,17 +78,4 @@ export class RetryingWhoisProvider implements WhoisProvider {
 
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
-}
-
-function computeDelay(attempt: number, policy: RetryPolicy, random: () => number): number {
-  const exp = Math.pow(policy.backoffMultiplier, attempt - 1);
-  const raw = policy.baseDelayMs * exp;
-  const capped = Math.min(raw, policy.maxDelayMs);
-  const lower = capped * (1 - policy.jitterRatio);
-  const jittered = lower + random() * (capped - lower);
-  return Math.max(0, Math.floor(jittered));
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
