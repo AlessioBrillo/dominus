@@ -5,6 +5,7 @@ import {
   PortfolioError,
   DuplicateDomainError,
 } from '../../types/errors.js';
+import { getLogger } from '../../logger.js';
 
 interface ErrorResponse {
   error: {
@@ -32,6 +33,7 @@ export function errorHandler(
     return;
   }
 
-  const message = err instanceof Error ? err.message : 'Internal server error';
-  res.status(500).json({ error: { code: 'INTERNAL_ERROR', message } });
+  // Log full internal error details server-side, return sanitised message to client
+  getLogger().error({ err }, 'Unhandled internal error');
+  res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
 }
