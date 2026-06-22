@@ -12,12 +12,12 @@ export function computeExpiryScore(
     input.backlinks !== undefined ||
     input.waybackSnapshots !== undefined;
 
-  if (!input.isCloseout && !hasExpiryData) {
+  if (!hasExpiryData) {
     return {
       score: 0,
       weight,
       dataAvailable: false,
-      details: { isCloseout: false, hasExpiryData: false },
+      details: { isCloseout: input.isCloseout ?? false, hasExpiryData: false },
     };
   }
 
