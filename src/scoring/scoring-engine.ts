@@ -80,7 +80,7 @@ export class ScoringEngine {
       this.scoringConfig.expiry,
     );
 
-    const hasCommercialData = commercial.details.monthlySearchVolume !== 0;
+    const hasCommercialData = commercial.dataAvailable === true;
     const hasMarketData = market.details.comparables !== 0;
     const expiryHasData = expiry.dataAvailable === true;
 
