@@ -149,4 +149,23 @@ describe('CdxWaybackProvider', () => {
     const result = await provider.getExpiryData('example.com');
     expect(result.waybackSnapshots).toBe(5001);
   });
+
+  it('handles malformed CDX rows with non-string fields', async () => {
+    mockFetch.mockResolvedValue({
+      status: 200,
+      ok: true,
+      text: () =>
+        Promise.resolve(
+          JSON.stringify([
+            ['urlkey', 'timestamp', 'original', 'statuscode'],
+            ['20060101000000', 'http://example.com/', '200'],
+            [null, 'http://example.com/bad', null],
+          ]),
+        ),
+    });
+
+    const result = await provider.getExpiryData('example.com');
+    expect(result.domainAge).toBeGreaterThan(0);
+    expect(result.waybackSnapshots).toBe(1);
+  });
 });
