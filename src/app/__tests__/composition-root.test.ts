@@ -446,7 +446,6 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       SCORING_LIST_PRICE_MULTIPLIER: 2.5,
       SCORING_BASE_MARKET_VALUE: 500,
       SCORING_CONFIDENCE_BASE: 0.2,
-      SCORING_CONFIDENCE_PER_SIGNAL: 0.3,
       SCORING_CONFIDENCE_CAP: 0.8,
       TLD_BONUSES_PATH: undefined,
       DEFAULT_KEYWORD_TLD: '.com',
@@ -485,6 +484,12 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       LISTING_DEFAULT_MARKETPLACE: 'manual' as const,
       LISTING_DEFAULT_PRICE_MULTIPLIER: 1.0,
       DAN_API_KEY: undefined,
+      WAYBACK_ENABLED: true,
+      WAYBACK_RATE_LIMIT_TOKENS: 5,
+      WAYBACK_RATE_LIMIT_INTERVAL_MS: 12000,
+      WAYBACK_TIMEOUT_MS: 10000,
+      WAYBACK_BATCH_CONCURRENCY: 3,
+      WAYBACK_CDX_PAGE_SIZE: 5000,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

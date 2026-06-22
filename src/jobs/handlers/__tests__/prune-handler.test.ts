@@ -25,6 +25,7 @@ describe('PruneHandler', () => {
     expect(result.deletedPipelineRuns).toBe(3);
     expect(result.deletedProviderCache).toBe(20);
     expect(result.deletedJobQueue).toBe(7);
+    expect(result.deletedWaybackCache).toBe(0);
   });
 
   it('uses default maxAgeDays of 30', async () => {

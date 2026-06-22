@@ -216,7 +216,11 @@ describe('RdapConfirmationStage (WHOIS enrichment)', () => {
     ]);
 
     expect(result.passed).toHaveLength(1);
-    expect(result.passed[0]!.whoisMeta).toBeUndefined();
+    expect(result.passed[0]!.whoisMeta).toBeDefined();
+    expect(result.passed[0]!.whoisMeta!.domainAge).toBe(10);
+    expect(result.passed[0]!.whoisMeta!.createdDate).toBe('2015-01-01T00:00:00.000Z');
+    expect(result.passed[0]!.whoisMeta!.registrar).toBe('RDAP Registrar');
+    expect(result.passed[0]!.whoisMeta!.expiryDate).toBe('2026-06-01T00:00:00.000Z');
   });
 
   it('still enriches closeout candidates that lack closeoutMeta', async () => {
