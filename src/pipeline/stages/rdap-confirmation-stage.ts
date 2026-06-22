@@ -106,10 +106,15 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           continue;
         }
         if (result!.status === DomainStatus.Available && !result!.isPremium) {
-          const whoisMeta =
-            candidate.closeoutMeta?.domainAge !== undefined
-              ? candidate.whoisMeta
-              : { ...buildWhoisMeta(result!), ...candidate.whoisMeta };
+          const rdapMeta = buildWhoisMeta(result!);
+          const merged = {
+            ...rdapMeta,
+            ...candidate.whoisMeta,
+            ...(candidate.closeoutMeta?.domainAge !== undefined
+              ? { domainAge: candidate.closeoutMeta.domainAge }
+              : {}),
+          };
+          const whoisMeta = Object.keys(merged).length > 0 ? merged : undefined;
           passed.push({
             ...candidate,
             rdapStatus: result!.status,

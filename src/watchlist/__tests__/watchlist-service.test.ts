@@ -123,17 +123,16 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     JOB_MAX_RUNNING_AGE_MS: 300000,
     LISTING_PROVIDER: 'manual' as const,
     LISTING_DEFAULT_MARKETPLACE: 'manual' as const,
-      LISTING_DEFAULT_PRICE_MULTIPLIER: 1.0,
-      WAYBACK_ENABLED: true,
-      WAYBACK_RATE_LIMIT_TOKENS: 5,
-      WAYBACK_RATE_LIMIT_INTERVAL_MS: 12000,
-      WAYBACK_TIMEOUT_MS: 10000,
-      WAYBACK_BATCH_CONCURRENCY: 3,
-      WAYBACK_CDX_PAGE_SIZE: 5000,
-      ...overrides,
-    };
-  }
-
+    LISTING_DEFAULT_PRICE_MULTIPLIER: 1.0,
+    WAYBACK_ENABLED: true,
+    WAYBACK_RATE_LIMIT_TOKENS: 5,
+    WAYBACK_RATE_LIMIT_INTERVAL_MS: 12000,
+    WAYBACK_TIMEOUT_MS: 10000,
+    WAYBACK_BATCH_CONCURRENCY: 3,
+    WAYBACK_CDX_PAGE_SIZE: 5000,
+    ...overrides,
+  };
+}
 
 function makeDnsMock(results: Record<string, DomainStatus>): DnsProvider {
   return {

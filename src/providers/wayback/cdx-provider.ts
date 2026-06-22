@@ -27,7 +27,12 @@ function parseCdxJson(raw: string): CdxRow[] {
     const timestamp = entry[0];
     const original = entry[1];
     const statusCode = entry[2];
-    if (typeof timestamp !== 'string' || typeof original !== 'string' || typeof statusCode !== 'string') continue;
+    if (
+      typeof timestamp !== 'string' ||
+      typeof original !== 'string' ||
+      typeof statusCode !== 'string'
+    )
+      continue;
     rows.push({ timestamp, original, statusCode });
   }
   return rows;
@@ -80,7 +85,10 @@ export class CdxWaybackProvider implements WaybackProvider {
     }
 
     const firstDate = timestampToDate(firstTimestamp);
-    const domainAge = Math.max(0, (Date.now() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+    const domainAge = Math.max(
+      0,
+      (Date.now() - firstDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000),
+    );
 
     return {
       domain,
@@ -108,14 +116,21 @@ export class CdxWaybackProvider implements WaybackProvider {
         });
       } catch (err) {
         if (allRows.length > 0) return allRows;
-        throw new ProviderError(`Wayback CDX request failed for ${domain}: ${String(err)}`, this.name);
+        throw new ProviderError(
+          `Wayback CDX request failed for ${domain}: ${String(err)}`,
+          this.name,
+        );
       }
 
       if (response.status === 404) return allRows;
       if (!response.ok) {
         if (allRows.length > 0) return allRows;
         if (response.status === 429) {
-          throw new ProviderError(`Wayback CDX rate limited for ${domain}`, this.name, 'RATE_LIMITED');
+          throw new ProviderError(
+            `Wayback CDX rate limited for ${domain}`,
+            this.name,
+            'RATE_LIMITED',
+          );
         }
         return allRows;
       }

@@ -34,9 +34,8 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
     const deletedProviderCache = this.deps.providerCacheRepo.pruneExpired();
     const deletedJobQueue = this.deps.jobQueueRepo.deleteCompleted(7);
     const deletedWaybackCache = this.deps.db
-      ? this.deps.db
-          .prepare("DELETE FROM wayback_cache WHERE expires_at < datetime('now')")
-          .run().changes
+      ? this.deps.db.prepare("DELETE FROM wayback_cache WHERE expires_at < datetime('now')").run()
+          .changes
       : 0;
 
     logger.info(

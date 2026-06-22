@@ -22,7 +22,10 @@ describe('CdxWaybackProvider', () => {
   it('returns domain age and snapshots from CDX response', async () => {
     const now = Date.now();
     const fifteenYearsAgo = new Date(now - 15 * 365.25 * 24 * 60 * 60 * 1000);
-    const ts = fifteenYearsAgo.toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
+    const ts = fifteenYearsAgo
+      .toISOString()
+      .replace(/[-:T.Z]/g, '')
+      .slice(0, 14);
 
     mockFetch.mockResolvedValue({
       status: 200,
@@ -140,11 +143,7 @@ describe('CdxWaybackProvider', () => {
         status: 200,
         ok: true,
         text: () =>
-          Promise.resolve(
-            makeCdxResponse([
-              ['20250101000000', 'http://example.com/extra', '200'],
-            ]),
-          ),
+          Promise.resolve(makeCdxResponse([['20250101000000', 'http://example.com/extra', '200']])),
       });
 
     const result = await provider.getExpiryData('example.com');
