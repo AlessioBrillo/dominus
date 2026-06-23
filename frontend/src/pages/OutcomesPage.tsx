@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { api } from '@/api/client';
+import { useOutcomesList } from '@/hooks/useOutcomes';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { Outcome } from '@/types/domain';
 
 const typeVariant: Record<string, 'success' | 'danger' | 'warning' | 'info'> = {
   sold: 'success',
@@ -15,26 +13,7 @@ const typeVariant: Record<string, 'success' | 'danger' | 'warning' | 'info'> = {
 };
 
 export function OutcomesPage() {
-  const [outcomes, setOutcomes] = useState<Outcome[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.get<{ outcomes: Outcome[] }>('/outcomes');
-      setOutcomes(data.outcomes);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load outcomes');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: outcomes = [], isLoading, error, refetch } = useOutcomesList();
 
   const sold = outcomes.filter((o) => o.type === 'sold').length;
   const totalRevenue = outcomes
@@ -46,7 +25,7 @@ export function OutcomesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-text-primary">Outcomes</h2>
-        <Button variant="outline" onClick={load}>
+        <Button variant="outline" onClick={() => refetch()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
@@ -81,7 +60,7 @@ export function OutcomesPage() {
         </Card>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <Card>
           <CardContent className="space-y-3 p-4">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -92,7 +71,9 @@ export function OutcomesPage() {
       ) : error ? (
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-danger text-sm">{error}</p>
+            <p className="text-danger text-sm">
+              {error instanceof Error ? error.message : 'Failed to load outcomes'}
+            </p>
           </CardContent>
         </Card>
       ) : outcomes.length === 0 ? (

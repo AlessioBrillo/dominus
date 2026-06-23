@@ -53,52 +53,31 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  const selfController = new AbortController();
   const outerSignal = options.signal as AbortSignal | undefined;
-
-  const combinedSignal = outerSignal
-    ? combineAbortSignals(outerSignal, selfController.signal)
-    : selfController.signal;
 
   const url = path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
 
-  try {
-    const res = await fetch(url, { ...options, signal: combinedSignal, headers });
+  const res = await fetch(url, { ...options, signal: outerSignal, headers });
 
-    if (res.status === 401 || res.status === 403) {
-      clearApiKey();
-      onUnauthorized?.();
-      throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
-    }
-
-    if (!res.ok) {
-      const body = await res
-        .json()
-        .catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
-      throw new ApiError(
-        res.status,
-        body?.error?.code ?? 'UNKNOWN',
-        body?.error?.message ?? res.statusText,
-      );
-    }
-
-    if (res.status === 204) return undefined as T;
-    return res.json() as Promise<T>;
-  } finally {
-    selfController.abort();
+  if (res.status === 401 || res.status === 403) {
+    clearApiKey();
+    onUnauthorized?.();
+    throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
   }
-}
 
-function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  const controller = new AbortController();
-  for (const signal of signals) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      return controller.signal;
-    }
-    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ error: { code: 'UNKNOWN', message: res.statusText } }));
+    throw new ApiError(
+      res.status,
+      body?.error?.code ?? 'UNKNOWN',
+      body?.error?.message ?? res.statusText,
+    );
   }
-  return controller.signal;
+
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
 }
 
 export const api = {

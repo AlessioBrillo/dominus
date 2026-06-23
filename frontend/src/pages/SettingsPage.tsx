@@ -1,40 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { api } from '@/api/client';
+import { useHealth, useProviders } from '@/hooks/useSettings';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { HealthResponse, ProviderStatus } from '@/types/domain';
 
 export function SettingsPage() {
   const { logout } = useAuth();
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [providers, setProviders] = useState<ProviderStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [apiKey, setApiKey] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [healthData, providersData] = await Promise.allSettled([
-        api.get<HealthResponse>('/health'),
-        api.get<{ providers: ProviderStatus[] }>('/providers/status'),
-      ]);
-      if (healthData.status === 'fulfilled') setHealth(healthData.value);
-      if (providersData.status === 'fulfilled') setProviders(providersData.value.providers);
-    } catch {
-      /* silent */
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: health, isLoading: healthLoading } = useHealth();
+  const { data: providers = [], isLoading: providersLoading } = useProviders();
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -46,12 +21,7 @@ export function SettingsPage() {
           <CardDescription>Update your API key or sign out</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input
-            type="password"
-            placeholder="New API Key"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
+          <Input type="password" placeholder="New API Key" />
           <div className="flex gap-2">
             <Button variant="outline" onClick={logout}>
               Sign Out
@@ -69,13 +39,10 @@ export function SettingsPage() {
                 {health ? `v${health.version} · ${health.status}` : 'Loading...'}
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={load}>
-              <RefreshCw className="h-3 w-3" />
-            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-2">
-          {loading ? (
+          {healthLoading ? (
             <Skeleton className="h-20 w-full" />
           ) : (
             <>
@@ -100,7 +67,7 @@ export function SettingsPage() {
           <CardDescription>External service status</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          {loading ? (
+          {providersLoading ? (
             <Skeleton className="h-32 w-full" />
           ) : providers.length === 0 ? (
             <p className="text-sm text-text-muted">No provider status available</p>

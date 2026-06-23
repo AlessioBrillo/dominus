@@ -1,41 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Play } from 'lucide-react';
-import { fetchCandidates, fetchRuns, runPipeline } from '@/api/candidates';
+import { useCandidatesList, useRunsList, useRunPipeline } from '@/hooks/useCandidates';
 import { CandidateCard } from '@/components/CandidateCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Candidate, PipelineRun } from '@/types/domain';
 
 export function CandidatesPage() {
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [candidatesData, runsData] = await Promise.all([
-        fetchCandidates(selectedRunId),
-        fetchRuns(),
-      ]);
-      setCandidates(candidatesData);
-      setRuns(runsData);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load candidates');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedRunId]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: candidates = [], isLoading, error } = useCandidatesList(selectedRunId);
+  const { data: runs = [] } = useRunsList();
+  const runPipeline = useRunPipeline();
 
   const recommended = candidates.filter((c) => c.status === 'recommended');
   const scored = candidates.filter((c) => c.status !== 'recommended');
@@ -44,25 +21,18 @@ export function CandidatesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-text-primary">Candidates</h2>
-        <Button
-          onClick={async () => {
-            try {
-              await runPipeline({});
-              load();
-            } catch (err) {
-              setError(err instanceof Error ? err.message : 'Pipeline failed');
-            }
-          }}
-        >
+        <Button onClick={() => runPipeline.mutate()} disabled={runPipeline.isPending}>
           <Play className="h-4 w-4 mr-2" />
-          Run Pipeline
+          {runPipeline.isPending ? 'Running...' : 'Run Pipeline'}
         </Button>
       </div>
 
       {error && (
         <Card>
           <CardContent className="flex flex-col items-center py-8">
-            <p className="text-danger text-sm">{error}</p>
+            <p className="text-danger text-sm">
+              {error instanceof Error ? error.message : 'Failed to load candidates'}
+            </p>
           </CardContent>
         </Card>
       )}
@@ -83,7 +53,7 @@ export function CandidatesPage() {
         </Tabs>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Card key={i}>

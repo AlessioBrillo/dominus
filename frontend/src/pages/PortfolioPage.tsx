@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -11,12 +11,7 @@ import {
   type ColumnFiltersState,
 } from '@tanstack/react-table';
 import { ArrowUpDown, RefreshCw, RotateCcw } from 'lucide-react';
-import {
-  fetchPortfolio,
-  rescorePortfolio,
-  refreshVerdicts,
-  type PortfolioListResponse,
-} from '@/api/portfolio';
+import { usePortfolioList, useRescorePortfolio, useRefreshVerdicts } from '@/hooks/usePortfolio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,29 +22,12 @@ import type { PortfolioEntry } from '@/types/domain';
 type RowData = PortfolioEntry;
 
 export function PortfolioPage() {
-  const [data, setData] = useState<RowData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: portfolio = [], isLoading, error } = usePortfolioList();
+  const rescore = useRescorePortfolio();
+  const verdicts = useRefreshVerdicts();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result: PortfolioListResponse = await fetchPortfolio();
-      setData(result.portfolio);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load portfolio');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const columns = useMemo(() => {
     const col = createColumnHelper<RowData>();
@@ -109,7 +87,7 @@ export function PortfolioPage() {
   }, []);
 
   const table = useReactTable({
-    data,
+    data: portfolio,
     columns,
     state: { sorting, columnFilters, globalFilter },
     onSortingChange: setSorting,
@@ -122,7 +100,7 @@ export function PortfolioPage() {
     initialState: { pagination: { pageSize: 25 } },
   });
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <h2 className="text-2xl font-bold text-text-primary">Portfolio</h2>
@@ -146,11 +124,9 @@ export function PortfolioPage() {
         <h2 className="text-2xl font-bold text-text-primary">Portfolio</h2>
         <Card>
           <CardContent className="flex flex-col items-center py-8">
-            <p className="text-danger text-sm mb-4">{error}</p>
-            <Button variant="outline" onClick={load}>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Retry
-            </Button>
+            <p className="text-danger text-sm mb-4">
+              {error instanceof Error ? error.message : 'Failed to load portfolio'}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -171,29 +147,25 @@ export function PortfolioPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={async () => {
-              await rescorePortfolio();
-              load();
-            }}
+            onClick={() => rescore.mutate()}
+            disabled={rescore.isPending}
           >
             <RefreshCw className="h-3 w-3 mr-1" />
-            Rescore
+            {rescore.isPending ? 'Rescoring...' : 'Rescore'}
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={async () => {
-              await refreshVerdicts();
-              load();
-            }}
+            onClick={() => verdicts.mutate()}
+            disabled={verdicts.isPending}
           >
             <RotateCcw className="h-3 w-3 mr-1" />
-            Verdicts
+            {verdicts.isPending ? 'Refreshing...' : 'Verdicts'}
           </Button>
         </div>
       </div>
 
-      {data.length === 0 ? (
+      {portfolio.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-text-muted">
             No domains in portfolio. Use the CLI to add domains.
@@ -240,7 +212,7 @@ export function PortfolioPage() {
 
           <div className="flex items-center justify-between text-sm text-text-muted">
             <span>
-              Showing {table.getRowModel().rows.length} of {data.length} domains
+              Showing {table.getRowModel().rows.length} of {portfolio.length} domains
             </span>
             <div className="flex items-center gap-2">
               <Button
