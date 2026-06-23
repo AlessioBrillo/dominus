@@ -69,8 +69,8 @@ export class PredictionAccuracyAnalyzer {
     private readonly outcomeRepo: OutcomeRepository,
   ) {}
 
-  refresh(): AccuracyReportSnapshot {
-    const outcomes = this.outcomeRepo.findAll();
+  async refresh(): Promise<AccuracyReportSnapshot> {
+    const outcomes = await this.outcomeRepo.findAll();
     let included = 0;
     let skippedNoScore = 0;
     let skippedNoOutcome = 0;

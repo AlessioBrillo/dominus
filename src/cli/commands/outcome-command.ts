@@ -20,7 +20,7 @@ export function registerOutcomeCommand(program: Command, repo: OutcomeRepository
     .option('--commission-pct <pct>', 'commission paid, as a percentage', parseFloat)
     .option('--notes <notes>', 'free-form notes')
     .action(
-      (options: {
+      async (options: {
         domain: string;
         type: string;
         occurredAt: string;
@@ -44,7 +44,7 @@ export function registerOutcomeCommand(program: Command, repo: OutcomeRepository
         }
 
         try {
-          const out = repo.insert({
+          const out = await repo.insert({
             domain: options.domain,
             type: options.type,
             occurredAt: new Date(options.occurredAt).toISOString(),
@@ -70,10 +70,10 @@ export function registerOutcomeCommand(program: Command, repo: OutcomeRepository
     .description('List recorded outcomes, optionally filtered by domain or type')
     .option('-d, --domain <domain>', 'filter to a specific domain')
     .option('-t, --type <type>', `filter to a specific type, one of: ${OUTCOME_TYPES.join(', ')}`)
-    .action((options: { domain?: string; type?: string }) => {
+    .action(async (options: { domain?: string; type?: string }) => {
       let outcomes;
       if (options.domain !== undefined) {
-        outcomes = repo.findByDomain(options.domain);
+        outcomes = await repo.findByDomain(options.domain);
       } else if (options.type !== undefined) {
         if (!isOutcomeType(options.type)) {
           process.stderr.write(
@@ -81,9 +81,9 @@ export function registerOutcomeCommand(program: Command, repo: OutcomeRepository
           );
           process.exit(1);
         }
-        outcomes = repo.findByType(options.type);
+        outcomes = await repo.findByType(options.type);
       } else {
-        outcomes = repo.findAll();
+        outcomes = await repo.findAll();
       }
 
       if (outcomes.length === 0) {
@@ -107,8 +107,8 @@ export function registerOutcomeCommand(program: Command, repo: OutcomeRepository
     .command('stats')
     .description('Show aggregate stats (counts + realised revenue) for a portfolio domain')
     .requiredOption('-d, --domain <domain>', 'portfolio domain to summarise')
-    .action((options: { domain: string }) => {
-      const stats = repo.statsByDomain(options.domain);
+    .action(async (options: { domain: string }) => {
+      const stats = await repo.statsByDomain(options.domain);
       process.stdout.write(`Outcomes for ${options.domain}:\n`);
       process.stdout.write(`  sold:     ${stats.sold}\n`);
       process.stdout.write(`  dropped:  ${stats.dropped}\n`);

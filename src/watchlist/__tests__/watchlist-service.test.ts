@@ -202,59 +202,59 @@ describe('WatchlistService', () => {
   });
 
   describe('add', () => {
-    it('adds a domain to the watchlist', () => {
-      const entry = service.add('example.com');
+    it('adds a domain to the watchlist', async () => {
+      const entry = await service.add('example.com');
       expect(entry.domain).toBe('example.com');
       expect(entry.tld).toBe('.com');
       expect(entry.notified).toBe(0);
     });
 
-    it('accepts optional notes', () => {
-      const entry = service.add('test.io', 'interesting domain');
+    it('accepts optional notes', async () => {
+      const entry = await service.add('test.io', 'interesting domain');
       expect(entry.domain).toBe('test.io');
       expect(entry.notes).toBe('interesting domain');
     });
 
-    it('rejects duplicate domain', () => {
-      service.add('example.com');
-      expect(() => service.add('example.com')).toThrow();
+    it('rejects duplicate domain', async () => {
+      await service.add('example.com');
+      await expect(service.add('example.com')).rejects.toThrow();
     });
   });
 
   describe('remove', () => {
-    it('removes an existing entry', () => {
-      service.add('example.com');
-      expect(service.remove('example.com')).toBe(true);
-      expect(service.get('example.com')).toBeNull();
+    it('removes an existing entry', async () => {
+      await service.add('example.com');
+      expect(await service.remove('example.com')).toBe(true);
+      expect(await service.get('example.com')).toBeNull();
     });
 
-    it('returns false for non-existing entry', () => {
-      expect(service.remove('nonexistent.com')).toBe(false);
+    it('returns false for non-existing entry', async () => {
+      expect(await service.remove('nonexistent.com')).toBe(false);
     });
   });
 
   describe('list', () => {
-    it('returns all entries', () => {
-      service.add('a.com');
-      service.add('b.io');
-      expect(service.list()).toHaveLength(2);
+    it('returns all entries', async () => {
+      await service.add('a.com');
+      await service.add('b.io');
+      expect(await service.list()).toHaveLength(2);
     });
 
-    it('returns empty array when none', () => {
-      expect(service.list()).toHaveLength(0);
+    it('returns empty array when none', async () => {
+      expect(await service.list()).toHaveLength(0);
     });
   });
 
   describe('get', () => {
-    it('returns entry by domain', () => {
-      service.add('example.com');
-      const entry = service.get('example.com');
+    it('returns entry by domain', async () => {
+      await service.add('example.com');
+      const entry = await service.get('example.com');
       expect(entry).not.toBeNull();
       expect(entry!.domain).toBe('example.com');
     });
 
-    it('returns null for missing domain', () => {
-      expect(service.get('missing.com')).toBeNull();
+    it('returns null for missing domain', async () => {
+      expect(await service.get('missing.com')).toBeNull();
     });
   });
 
@@ -275,7 +275,7 @@ describe('WatchlistService', () => {
       expect(result.available).toBe(0);
       expect(result.notified).toBe(0);
 
-      const entry = repo.findByDomain('registered.com');
+      const entry = await repo.findByDomain('registered.com');
       expect(entry!.lastStatus).toBe(DomainStatus.Registered);
       expect(entry!.lastCheckedAt).not.toBeNull();
     });
@@ -298,7 +298,7 @@ describe('WatchlistService', () => {
       expect(result.available).toBe(1);
       expect(result.notified).toBe(1);
 
-      const entry = repo.findByDomain('available.com');
+      const entry = await repo.findByDomain('available.com');
       expect(entry!.notified).toBe(1);
       expect(entry!.lastStatus).toBe(DomainStatus.Available);
 
@@ -345,7 +345,7 @@ describe('WatchlistService', () => {
       expect(result.available).toBe(1);
       expect(result.notified).toBe(0);
 
-      const entry = repo.findByDomain('available.com');
+      const entry = await repo.findByDomain('available.com');
       expect(entry!.notified).toBe(0);
       expect((notifiers[0]!.send as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
     });

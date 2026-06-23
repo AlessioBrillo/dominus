@@ -47,7 +47,7 @@ describe('CachedProvider', () => {
 
     await provider.get('write-test');
 
-    const cached = repo.get('write-test', 'test-provider');
+    const cached = await repo.get('write-test', 'test-provider');
     expect(cached).not.toBeNull();
     expect(JSON.parse(cached!)).toEqual({ id: 2, name: 'cached' });
   });
@@ -80,7 +80,7 @@ describe('CachedProvider', () => {
   });
 
   it('falls through to fetchFn when cache is corrupted', async () => {
-    repo.set('corrupt-key', 'corrupt-provider', 'not-valid-json{{{', 7);
+    await repo.set('corrupt-key', 'corrupt-provider', 'not-valid-json{{{', 7);
 
     const fetchFn = vi.fn().mockResolvedValue({ id: 5, name: 'recovered' } satisfies TestData);
     const provider = new CachedProvider<TestData>(fetchFn, repo, 'corrupt-provider', 7);
@@ -97,7 +97,7 @@ describe('CachedProvider', () => {
 
     await expect(provider.get('error-key')).rejects.toThrow('fetch failed');
 
-    const cached = repo.get('error-key', 'error-provider');
+    const cached = await repo.get('error-key', 'error-provider');
     expect(cached).toBeNull();
   });
 
@@ -152,7 +152,7 @@ describe('CachedProvider', () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
 
     // Manually replace cached data with different content
-    repo.set('overwrite-key', 'overwrite', JSON.stringify({ id: 999, name: 'stale' }), 1);
+    await repo.set('overwrite-key', 'overwrite', JSON.stringify({ id: 999, name: 'stale' }), 1);
 
     // Cache hit should return the manually-set stale data
     const staleResult = await provider.get('overwrite-key');

@@ -38,8 +38,8 @@ function rowToJob(row: SchedulerDbRow): SchedulerJobRow {
 export class SchedulerJobRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  upsert(input: { jobName: string; cronExpression: string; description: string }): SchedulerJobRow {
-    this.db.exec(
+  async upsert(input: { jobName: string; cronExpression: string; description: string }): Promise<SchedulerJobRow> {
+    await this.db.exec(
       `INSERT INTO scheduler_jobs (job_name, cron_expression, description)
        VALUES (?, ?, ?)
        ON CONFLICT(job_name) DO UPDATE SET
@@ -48,14 +48,14 @@ export class SchedulerJobRepository {
          updated_at = datetime('now')`,
       [input.jobName, input.cronExpression, input.description],
     );
-    return this.findByJobName(input.jobName)!;
+    return (await this.findByJobName(input.jobName))!;
   }
 
-  updateResult(
+  async updateResult(
     jobName: string,
     result: { lastRunAt: string; lastResult: string; durationMs: number; isError: boolean },
-  ): void {
-    this.db.exec(
+  ): Promise<void> {
+    await this.db.exec(
       `UPDATE scheduler_jobs SET
          last_run_at = ?,
          last_result = ?,
@@ -67,22 +67,22 @@ export class SchedulerJobRepository {
     );
   }
 
-  findByJobName(jobName: string): SchedulerJobRow | null {
-    const row = this.db.queryOne<SchedulerDbRow>(
+  async findByJobName(jobName: string): Promise<SchedulerJobRow | null> {
+    const row = await this.db.queryOne<SchedulerDbRow>(
       'SELECT * FROM scheduler_jobs WHERE job_name = ?',
       [jobName],
     );
     return row ? rowToJob(row) : null;
   }
 
-  findAll(): SchedulerJobRow[] {
-    return this.db
-      .query<SchedulerDbRow>('SELECT * FROM scheduler_jobs ORDER BY job_name')
+  async findAll(): Promise<SchedulerJobRow[]> {
+    return (await this.db
+      .query<SchedulerDbRow>('SELECT * FROM scheduler_jobs ORDER BY job_name'))
       .map(rowToJob);
   }
 
-  prune(maxAgeDays: number = 90): number {
-    const result = this.db.exec(
+  async prune(maxAgeDays: number = 90): Promise<number> {
+    const result = await this.db.exec(
       "DELETE FROM scheduler_jobs WHERE updated_at < datetime('now', ?)",
       [`-${maxAgeDays} days`],
     );

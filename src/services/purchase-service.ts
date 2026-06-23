@@ -160,7 +160,7 @@ export class PurchaseService {
       if (this.#registrar.name === 'manual') {
         const tld = parseDomain(domain).tld ?? '';
         const now = new Date();
-        this.#portfolioManager.add({
+        await this.#portfolioManager.add({
           domain,
           tld,
           acquiredAt: now.toISOString(),
@@ -170,7 +170,7 @@ export class PurchaseService {
           registrar: this.#registrar.name,
         });
 
-        this.#outcomeRepo.insert({
+        await this.#outcomeRepo.insert({
           domain,
           type: 'purchased',
           occurredAt: new Date().toISOString(),
@@ -210,7 +210,7 @@ export class PurchaseService {
       }
 
       const now = new Date();
-      this.#portfolioManager.add({
+      await this.#portfolioManager.add({
         domain,
         tld,
         acquiredAt: now.toISOString(),
@@ -220,7 +220,7 @@ export class PurchaseService {
         registrar: this.#registrar.name,
       });
 
-      this.#outcomeRepo.insert({
+      await this.#outcomeRepo.insert({
         domain,
         type: 'purchased',
         occurredAt: new Date().toISOString(),

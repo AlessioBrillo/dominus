@@ -42,7 +42,7 @@ export class SqliteProvider implements DatabaseProvider {
     return this.#db;
   }
 
-  exec(sql: string, params?: unknown[]): ExecResult {
+  async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
       const stmt = this.#db.prepare(sql);
       const result = stmt.run(...(params ?? []));
@@ -56,7 +56,7 @@ export class SqliteProvider implements DatabaseProvider {
     }
   }
 
-  query<T>(sql: string, params?: unknown[]): T[] {
+  async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
     try {
       const stmt = this.#db.prepare(sql);
       return stmt.all(...(params ?? [])) as T[];
@@ -65,7 +65,7 @@ export class SqliteProvider implements DatabaseProvider {
     }
   }
 
-  queryOne<T>(sql: string, params?: unknown[]): T | null {
+  async queryOne<T>(sql: string, params?: unknown[]): Promise<T | null> {
     try {
       const stmt = this.#db.prepare(sql);
       const row = stmt.get(...(params ?? [])) as T | undefined;
@@ -75,7 +75,7 @@ export class SqliteProvider implements DatabaseProvider {
     }
   }
 
-  transaction<T>(fn: (db: DatabaseProvider) => T): T {
+  async transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T> {
     const depth = this.#txDepth;
     const savepoint = `sp_${depth}`;
 
@@ -87,7 +87,7 @@ export class SqliteProvider implements DatabaseProvider {
     this.#txDepth++;
 
     try {
-      const result = fn(this);
+      const result = await fn(this);
       if (depth === 0) {
         this.#db.exec('COMMIT');
       } else {
@@ -110,7 +110,7 @@ export class SqliteProvider implements DatabaseProvider {
     }
   }
 
-  close(): void {
+  async close(): Promise<void> {
     if (this.#open) {
       this.#db.close();
       this.#open = false;

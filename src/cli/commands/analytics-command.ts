@@ -19,8 +19,8 @@ export function registerAnalyticsCommand(program: Command, deps: AnalyticsComman
     .description(
       'Rebuild the outcome_scores table by joining outcomes with their last scoring run (idempotent)',
     )
-    .action(() => {
-      const summary = deps.accuracyAnalyzer.refresh();
+    .action(async () => {
+      const summary = await deps.accuracyAnalyzer.refresh();
       process.stdout.write(
         `Refresh: scanned ${summary.scanned} outcomes, ` +
           `included ${summary.included}, ` +
@@ -33,8 +33,8 @@ export function registerAnalyticsCommand(program: Command, deps: AnalyticsComman
     .command('accuracy')
     .description('Generate a full accuracy report: confusion matrix, per-TLD, calibration, trends')
     .option('--json', 'emit machine-readable JSON instead of human report', false)
-    .action((options: { json: boolean }) => {
-      const report = deps.accuracyAnalyzer.generate();
+    .action(async (options: { json: boolean }) => {
+      const report = await deps.accuracyAnalyzer.generate();
       if (options.json) {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
         return;
@@ -47,13 +47,13 @@ export function registerAnalyticsCommand(program: Command, deps: AnalyticsComman
     .description('Refresh outcome_scores, then print the accuracy report')
     .option('--json', 'emit machine-readable JSON instead of human report', false)
     .option('--no-refresh', 'skip the refresh step and report on the existing table')
-    .action((options: { json: boolean; refresh: boolean }) => {
+    .action(async (options: { json: boolean; refresh: boolean }) => {
       let refreshNote = '';
       if (options.refresh) {
-        const summary = deps.accuracyAnalyzer.refresh();
+        const summary = await deps.accuracyAnalyzer.refresh();
         refreshNote = `Refresh: scanned ${summary.scanned}, included ${summary.included}\n\n`;
       }
-      const report = deps.accuracyAnalyzer.generate();
+      const report = await deps.accuracyAnalyzer.generate();
       if (options.json) {
         process.stdout.write(JSON.stringify({ refresh: refreshNote, report }, null, 2));
         process.stdout.write('\n');

@@ -14,8 +14,8 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function seedPortfolio(provider: SqliteProvider, domain: string): void {
-  new PortfolioRepository(provider).insert({
+async function seedPortfolio(provider: SqliteProvider, domain: string): Promise<void> {
+  await new PortfolioRepository(provider).insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -26,8 +26,12 @@ function seedPortfolio(provider: SqliteProvider, domain: string): void {
   });
 }
 
-function seedOutcome(provider: SqliteProvider, domain: string, salePrice: number): number {
-  const outcome = new OutcomeRepository(provider).insert({
+async function seedOutcome(
+  provider: SqliteProvider,
+  domain: string,
+  salePrice: number,
+): Promise<number> {
+  const outcome = await new OutcomeRepository(provider).insert({
     domain,
     type: 'sold',
     occurredAt: '2026-04-15T00:00:00.000Z',
@@ -43,12 +47,12 @@ describe('BacktestSignalsRepository', () => {
     provider = openTestDb();
   });
 
-  it('upserts a single signal with derived error columns', () => {
-    seedPortfolio(provider, 'alpha.com');
-    const outcomeId = seedOutcome(provider, 'alpha.com', 1500);
+  it('upserts a single signal with derived error columns', async () => {
+    await seedPortfolio(provider, 'alpha.com');
+    const outcomeId = await seedOutcome(provider, 'alpha.com', 1500);
 
     const repo = new BacktestSignalsRepository(provider);
-    const sig = repo.upsert({
+    const sig = await repo.upsert({
       domain: 'alpha.com',
       outcomeId,
       scoringRunId: 'run-1',
@@ -66,59 +70,65 @@ describe('BacktestSignalsRepository', () => {
     expect(sig.recordedAt).toBeDefined();
   });
 
-  it('buckets low / mid / high confidence correctly', () => {
-    seedPortfolio(provider, 'a.com');
-    seedPortfolio(provider, 'b.com');
-    seedPortfolio(provider, 'c.com');
-    const o1 = seedOutcome(provider, 'a.com', 1000);
-    const o2 = seedOutcome(provider, 'b.com', 1000);
-    const o3 = seedOutcome(provider, 'c.com', 1000);
+  it('buckets low / mid / high confidence correctly', async () => {
+    await seedPortfolio(provider, 'a.com');
+    await seedPortfolio(provider, 'b.com');
+    await seedPortfolio(provider, 'c.com');
+    const o1 = await seedOutcome(provider, 'a.com', 1000);
+    const o2 = await seedOutcome(provider, 'b.com', 1000);
+    const o3 = await seedOutcome(provider, 'c.com', 1000);
 
     const repo = new BacktestSignalsRepository(provider);
     expect(
-      repo.upsert({
-        domain: 'a.com',
-        outcomeId: o1,
-        scoringRunId: 'r',
-        predictedExpectedValue: 1000,
-        predictedBuyMax: 500,
-        predictedListPrice: 3000,
-        predictedConfidence: 0.1,
-        actualSalePriceEur: 1000,
-      }).confidenceBucket,
+      (
+        await repo.upsert({
+          domain: 'a.com',
+          outcomeId: o1,
+          scoringRunId: 'r',
+          predictedExpectedValue: 1000,
+          predictedBuyMax: 500,
+          predictedListPrice: 3000,
+          predictedConfidence: 0.1,
+          actualSalePriceEur: 1000,
+        })
+      ).confidenceBucket,
     ).toBe('low');
     expect(
-      repo.upsert({
-        domain: 'b.com',
-        outcomeId: o2,
-        scoringRunId: 'r',
-        predictedExpectedValue: 1000,
-        predictedBuyMax: 500,
-        predictedListPrice: 3000,
-        predictedConfidence: 0.45,
-        actualSalePriceEur: 1000,
-      }).confidenceBucket,
+      (
+        await repo.upsert({
+          domain: 'b.com',
+          outcomeId: o2,
+          scoringRunId: 'r',
+          predictedExpectedValue: 1000,
+          predictedBuyMax: 500,
+          predictedListPrice: 3000,
+          predictedConfidence: 0.45,
+          actualSalePriceEur: 1000,
+        })
+      ).confidenceBucket,
     ).toBe('mid');
     expect(
-      repo.upsert({
-        domain: 'c.com',
-        outcomeId: o3,
-        scoringRunId: 'r',
-        predictedExpectedValue: 1000,
-        predictedBuyMax: 500,
-        predictedListPrice: 3000,
-        predictedConfidence: 0.8,
-        actualSalePriceEur: 1000,
-      }).confidenceBucket,
+      (
+        await repo.upsert({
+          domain: 'c.com',
+          outcomeId: o3,
+          scoringRunId: 'r',
+          predictedExpectedValue: 1000,
+          predictedBuyMax: 500,
+          predictedListPrice: 3000,
+          predictedConfidence: 0.8,
+          actualSalePriceEur: 1000,
+        })
+      ).confidenceBucket,
     ).toBe('high');
   });
 
-  it('upsert is idempotent on (outcome_id, scoring_run_id)', () => {
-    seedPortfolio(provider, 'alpha.com');
-    const outcomeId = seedOutcome(provider, 'alpha.com', 1500);
+  it('upsert is idempotent on (outcome_id, scoring_run_id)', async () => {
+    await seedPortfolio(provider, 'alpha.com');
+    const outcomeId = await seedOutcome(provider, 'alpha.com', 1500);
 
     const repo = new BacktestSignalsRepository(provider);
-    repo.upsert({
+    await repo.upsert({
       domain: 'alpha.com',
       outcomeId,
       scoringRunId: 'run-1',
@@ -128,7 +138,7 @@ describe('BacktestSignalsRepository', () => {
       predictedConfidence: 0.7,
       actualSalePriceEur: 1500,
     });
-    repo.upsert({
+    await repo.upsert({
       domain: 'alpha.com',
       outcomeId,
       scoringRunId: 'run-1',
@@ -139,16 +149,16 @@ describe('BacktestSignalsRepository', () => {
       actualSalePriceEur: 1500,
     });
 
-    expect(repo.count()).toBe(1);
-    expect(repo.findByOutcome(outcomeId)).toHaveLength(1);
+    expect(await repo.count()).toBe(1);
+    expect(await repo.findByOutcome(outcomeId)).toHaveLength(1);
   });
 
-  it('cascade-deletes signals when the parent outcome is removed', () => {
-    seedPortfolio(provider, 'alpha.com');
-    const outcomeId = seedOutcome(provider, 'alpha.com', 1500);
+  it('cascade-deletes signals when the parent outcome is removed', async () => {
+    await seedPortfolio(provider, 'alpha.com');
+    const outcomeId = await seedOutcome(provider, 'alpha.com', 1500);
 
     const repo = new BacktestSignalsRepository(provider);
-    repo.upsert({
+    await repo.upsert({
       domain: 'alpha.com',
       outcomeId,
       scoringRunId: 'run-1',
@@ -158,20 +168,20 @@ describe('BacktestSignalsRepository', () => {
       predictedConfidence: 0.7,
       actualSalePriceEur: 1500,
     });
-    expect(repo.count()).toBe(1);
+    expect(await repo.count()).toBe(1);
 
-    new OutcomeRepository(provider).delete(outcomeId);
-    expect(repo.count()).toBe(0);
+    await new OutcomeRepository(provider).delete(outcomeId);
+    expect(await repo.count()).toBe(0);
   });
 
-  it('finds signals by domain', () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedPortfolio(provider, 'beta.io');
-    const o1 = seedOutcome(provider, 'alpha.com', 1500);
-    const o2 = seedOutcome(provider, 'beta.io', 800);
+  it('finds signals by domain', async () => {
+    await seedPortfolio(provider, 'alpha.com');
+    await seedPortfolio(provider, 'beta.io');
+    const o1 = await seedOutcome(provider, 'alpha.com', 1500);
+    const o2 = await seedOutcome(provider, 'beta.io', 800);
 
     const repo = new BacktestSignalsRepository(provider);
-    repo.upsert({
+    await repo.upsert({
       domain: 'alpha.com',
       outcomeId: o1,
       scoringRunId: 'r',
@@ -181,7 +191,7 @@ describe('BacktestSignalsRepository', () => {
       predictedConfidence: 0.7,
       actualSalePriceEur: 1500,
     });
-    repo.upsert({
+    await repo.upsert({
       domain: 'beta.io',
       outcomeId: o2,
       scoringRunId: 'r',
@@ -192,11 +202,11 @@ describe('BacktestSignalsRepository', () => {
       actualSalePriceEur: 800,
     });
 
-    const alphaSigs = repo.findByDomain('alpha.com');
+    const alphaSigs = await repo.findByDomain('alpha.com');
     expect(alphaSigs).toHaveLength(1);
     expect(alphaSigs[0]?.domain).toBe('alpha.com');
 
-    const all = repo.findAll();
+    const all = await repo.findAll();
     expect(all).toHaveLength(2);
   });
 });

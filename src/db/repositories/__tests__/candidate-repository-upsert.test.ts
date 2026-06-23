@@ -35,12 +35,12 @@ describe('CandidateRepository.upsert', () => {
     repo = new CandidateRepository(provider);
   });
 
-  it('inserts a new candidate and returns it with an id', () => {
+  it('inserts a new candidate and returns it with an id', async () => {
     // Arrange
     const candidate = makeCandidate('example.com');
 
     // Act
-    const result = repo.upsert(candidate);
+    const result = await repo.upsert(candidate);
 
     // Assert
     expect(result.id).toBeTypeOf('number');
@@ -48,22 +48,22 @@ describe('CandidateRepository.upsert', () => {
     expect(result.domain).toBe('example.com');
   });
 
-  it('does not throw on a second upsert of the same domain', () => {
+  it('does not throw on a second upsert of the same domain', async () => {
     // Arrange
     const candidate = makeCandidate('example.com');
-    repo.upsert(candidate);
+    await repo.upsert(candidate);
 
     // Act + Assert — no UNIQUE constraint error
-    expect(() => repo.upsert({ ...candidate, status: CandidateStatus.Scored })).not.toThrow();
+    await repo.upsert({ ...candidate, status: CandidateStatus.Scored });
   });
 
-  it('updates mutable fields on conflict', () => {
+  it('updates mutable fields on conflict', async () => {
     // Arrange
     const original = makeCandidate('example.com', { status: CandidateStatus.Pending });
-    const first = repo.upsert(original);
+    const first = await repo.upsert(original);
 
     // Act — same domain, new run with updated status
-    const updated = repo.upsert({
+    const updated = await repo.upsert({
       ...original,
       status: CandidateStatus.Recommended,
       pipelineRunId: 'run-002',
@@ -71,19 +71,19 @@ describe('CandidateRepository.upsert', () => {
 
     // Assert — same row id, status updated
     expect(updated.id).toBe(first.id);
-    const row = repo.findById(first.id!);
+    const row = await repo.findById(first.id!);
     expect(row?.status).toBe(CandidateStatus.Recommended);
     expect(row?.pipelineRunId).toBe('run-002');
   });
 
-  it('produces exactly one row for multiple upserts of the same domain', () => {
+  it('produces exactly one row for multiple upserts of the same domain', async () => {
     // Arrange
     const candidate = makeCandidate('example.com');
 
     // Act
-    repo.upsert(candidate);
-    repo.upsert(candidate);
-    repo.upsert(candidate);
+    await repo.upsert(candidate);
+    await repo.upsert(candidate);
+    await repo.upsert(candidate);
 
     // Assert
     const rows = provider.rawDb
@@ -92,7 +92,7 @@ describe('CandidateRepository.upsert', () => {
     expect(rows.cnt).toBe(1);
   });
 
-  it('persists dns_status and rdap_status correctly', () => {
+  it('persists dns_status and rdap_status correctly', async () => {
     // Arrange
     const candidate = makeCandidate('example.com', {
       dnsStatus: 'available',
@@ -101,8 +101,8 @@ describe('CandidateRepository.upsert', () => {
     });
 
     // Act
-    const result = repo.upsert(candidate);
-    const row = repo.findById(result.id!);
+    const result = await repo.upsert(candidate);
+    const row = await repo.findById(result.id!);
 
     // Assert
     expect(row?.dnsStatus).toBe('available');

@@ -62,8 +62,8 @@ export class WeightSuggester {
     private readonly currentWeights: ScoringWeights = DEFAULT_WEIGHTS,
   ) {}
 
-  suggest(): WeightSuggestionReport {
-    const signals = this.backtestRepo.findAll();
+  async suggest(): Promise<WeightSuggestionReport> {
+    const signals = await this.backtestRepo.findAll();
     const sampleSize = signals.length;
     const warnings: string[] = [];
     const generatedAt = new Date().toISOString();
@@ -78,7 +78,7 @@ export class WeightSuggester {
       return this.buildReport(generatedAt, sampleSize, suggestions, warnings);
     }
 
-    const lookup = this.indexSignalsByRun(signals);
+    const lookup = await this.indexSignalsByRun(signals);
     const predictiveness: Record<SignalName, SignalPredictiveness> = {
       intrinsic: {
         signal: 'intrinsic',
@@ -154,7 +154,7 @@ export class WeightSuggester {
     };
   }
 
-  private indexSignalsByRun(signals: BacktestSignal[]): Map<number, SignalScores> {
+  private async indexSignalsByRun(signals: BacktestSignal[]): Promise<Map<number, SignalScores>> {
     const out = new Map<number, SignalScores>();
     for (const s of signals) {
       if (s.id === undefined) continue;
@@ -162,7 +162,7 @@ export class WeightSuggester {
         .prepare('SELECT id FROM candidates WHERE domain = ?')
         .get(s.domain) as { id: number } | undefined;
       if (candidate === undefined) continue;
-      const row = this.scoringRepo.findByRunId(s.scoringRunId, candidate.id);
+      const row = await this.scoringRepo.findByRunId(s.scoringRunId, candidate.id);
       if (row === null) continue;
       out.set(s.id, {
         intrinsic: row.intrinsic_score,

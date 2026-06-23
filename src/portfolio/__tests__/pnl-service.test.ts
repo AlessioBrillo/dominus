@@ -16,7 +16,7 @@ function openTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   return { db, dbProvider };
 }
 
-function insertPortfolio(
+async function insertPortfolio(
   repo: PortfolioRepository,
   domain: string,
   overrides: Partial<{
@@ -26,8 +26,8 @@ function insertPortfolio(
     registrar: string;
     verdict: string;
   }> = {},
-): void {
-  repo.insert({
+): Promise<void> {
+  await repo.insert({
     domain,
     tld: overrides.tld ?? 'com',
     acquiredAt: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(),
@@ -72,9 +72,9 @@ describe('PnlService', () => {
     outcomeRepo = new OutcomeRepository(dbProvider);
   });
 
-  it('returns zeroed summary when portfolio is empty', () => {
+  it('returns zeroed summary when portfolio is empty', async () => {
     const svc = new PnlService(portfolioRepo, []);
-    const report = svc.generate();
+    const report = await svc.generate();
     expect(report.summary.totalInvestmentEur).toBe(0);
     expect(report.summary.totalReturnsEur).toBe(0);
     expect(report.summary.netPnlEur).toBe(0);
@@ -84,13 +84,13 @@ describe('PnlService', () => {
     expect(report.monthlyTrend).toEqual([]);
   });
 
-  it('computes correct P&L for one domain with no sale', () => {
-    insertPortfolio(portfolioRepo, 'example.com', {
+  it('computes correct P&L for one domain with no sale', async () => {
+    await insertPortfolio(portfolioRepo, 'example.com', {
       acquisitionCost: 10,
       renewalCost: 9.5,
     });
     const svc = new PnlService(portfolioRepo, []);
-    const report = svc.generate();
+    const report = await svc.generate();
     expect(report.summary.totalInvestmentEur).toBe(10);
     expect(report.summary.totalReturnsEur).toBe(0);
     expect(report.summary.netPnlEur).toBe(-19.5);
@@ -99,21 +99,21 @@ describe('PnlService', () => {
     expect(report.summary.soldCount).toBe(0);
   });
 
-  it('computes correct P&L for a sold domain', () => {
-    insertPortfolio(portfolioRepo, 'sold.com', {
+  it('computes correct P&L for a sold domain', async () => {
+    await insertPortfolio(portfolioRepo, 'sold.com', {
       acquisitionCost: 15,
       renewalCost: 9.5,
     });
-    outcomeRepo.insert(
+    await outcomeRepo.insert(
       makeOutcome('sold.com', 'sold', {
         salePriceEur: 200,
         acquisitionCostEur: 15,
         totalRenewalCostEur: 9.5,
       }),
     );
-    const outcomes = outcomeRepo.findAll();
+    const outcomes = await outcomeRepo.findAll();
     const svc = new PnlService(portfolioRepo, outcomes);
-    const report = svc.generate();
+    const report = await svc.generate();
     expect(report.summary.totalInvestmentEur).toBe(15);
     expect(report.summary.totalReturnsEur).toBe(200);
     expect(report.summary.netPnlEur).toBe(200 - 15 - 9.5);
@@ -121,34 +121,34 @@ describe('PnlService', () => {
     expect(report.summary.roiPct).toBeCloseTo(((200 - 15 - 9.5) / (15 + 9.5)) * 100, 1);
   });
 
-  it('shows negative P&L when holding costs exceed sale price', () => {
-    insertPortfolio(portfolioRepo, 'loser.com', {
+  it('shows negative P&L when holding costs exceed sale price', async () => {
+    await insertPortfolio(portfolioRepo, 'loser.com', {
       acquisitionCost: 100,
       renewalCost: 50,
     });
-    outcomeRepo.insert(
+    await outcomeRepo.insert(
       makeOutcome('loser.com', 'sold', {
         salePriceEur: 80,
       }),
     );
-    const outcomes = outcomeRepo.findAll();
+    const outcomes = await outcomeRepo.findAll();
     const svc = new PnlService(portfolioRepo, outcomes);
-    const report = svc.generate();
+    const report = await svc.generate();
     expect(report.summary.netPnlEur).toBe(80 - 100 - 50);
     expect(report.summary.roiPct).toBeLessThan(0);
   });
 
-  it('handles multiple domains with mixed outcomes', () => {
-    insertPortfolio(portfolioRepo, 'winner.com', { acquisitionCost: 10, renewalCost: 9.5 });
-    insertPortfolio(portfolioRepo, 'loser.com', { acquisitionCost: 50, renewalCost: 10 });
-    insertPortfolio(portfolioRepo, 'holdling.com', { acquisitionCost: 8, renewalCost: 8 });
+  it('handles multiple domains with mixed outcomes', async () => {
+    await insertPortfolio(portfolioRepo, 'winner.com', { acquisitionCost: 10, renewalCost: 9.5 });
+    await insertPortfolio(portfolioRepo, 'loser.com', { acquisitionCost: 50, renewalCost: 10 });
+    await insertPortfolio(portfolioRepo, 'holdling.com', { acquisitionCost: 8, renewalCost: 8 });
 
-    outcomeRepo.insert(makeOutcome('winner.com', 'sold', { salePriceEur: 300 }));
-    outcomeRepo.insert(makeOutcome('loser.com', 'dropped'));
+    await outcomeRepo.insert(makeOutcome('winner.com', 'sold', { salePriceEur: 300 }));
+    await outcomeRepo.insert(makeOutcome('loser.com', 'dropped'));
 
-    const outcomes = outcomeRepo.findAll();
+    const outcomes = await outcomeRepo.findAll();
     const svc = new PnlService(portfolioRepo, outcomes);
-    const report = svc.generate();
+    const report = await svc.generate();
 
     expect(report.summary.totalInvestmentEur).toBe(10 + 50 + 8);
     expect(report.summary.totalReturnsEur).toBe(300);
@@ -159,24 +159,24 @@ describe('PnlService', () => {
     expect(report.perDomain[0]!.netPnlEur).toBeGreaterThanOrEqual(report.perDomain[1]!.netPnlEur);
   });
 
-  it('includes domains sold with no sale price in per-domain breakdown', () => {
-    insertPortfolio(portfolioRepo, 'freesold.com', { acquisitionCost: 5, renewalCost: 5 });
-    outcomeRepo.insert(makeOutcome('freesold.com', 'sold', { salePriceEur: 0 }));
-    const outcomes = outcomeRepo.findAll();
+  it('includes domains sold with no sale price in per-domain breakdown', async () => {
+    await insertPortfolio(portfolioRepo, 'freesold.com', { acquisitionCost: 5, renewalCost: 5 });
+    await outcomeRepo.insert(makeOutcome('freesold.com', 'sold', { salePriceEur: 0 }));
+    const outcomes = await outcomeRepo.findAll();
     const svc = new PnlService(portfolioRepo, outcomes);
-    const report = svc.generate();
+    const report = await svc.generate();
     const entry = report.perDomain.find((d) => d.domain === 'freesold.com');
     expect(entry).toBeDefined();
     expect(entry!.salePriceEur).toBe(0);
     expect(entry!.netPnlEur).toBe(0 - 5 - 5);
   });
 
-  it('generates monthly trend with investments and returns', () => {
-    insertPortfolio(portfolioRepo, 'bought-last-month.com', {
+  it('generates monthly trend with investments and returns', async () => {
+    await insertPortfolio(portfolioRepo, 'bought-last-month.com', {
       acquisitionCost: 20,
       renewalCost: 10,
     });
-    outcomeRepo.insert({
+    await outcomeRepo.insert({
       domain: 'bought-last-month.com',
       type: 'sold',
       occurredAt: new Date().toISOString(),
@@ -184,9 +184,9 @@ describe('PnlService', () => {
       notes: undefined,
     });
 
-    const outcomes = outcomeRepo.findAll();
+    const outcomes = await outcomeRepo.findAll();
     const svc = new PnlService(portfolioRepo, outcomes);
-    const report = svc.generate();
+    const report = await svc.generate();
 
     expect(report.monthlyTrend.length).toBeGreaterThanOrEqual(1);
     const trend = report.monthlyTrend.find((m) => m.investmentEur > 0 || m.returnsEur > 0);

@@ -152,9 +152,9 @@ function seedScenario(provider: SqliteProvider): void {
     );
 }
 
-function seedOutcome(provider: SqliteProvider): Outcome {
+async function seedOutcome(provider: SqliteProvider): Promise<Outcome> {
   const outcomeRepo = new OutcomeRepository(provider);
-  return outcomeRepo.insert({
+  return await outcomeRepo.insert({
     domain: 'sold-alpha.com',
     type: 'sold',
     occurredAt: '2026-03-01T00:00:00.000Z',
@@ -162,9 +162,9 @@ function seedOutcome(provider: SqliteProvider): Outcome {
   });
 }
 
-function seedSecondOutcome(provider: SqliteProvider): Outcome {
+async function seedSecondOutcome(provider: SqliteProvider): Promise<Outcome> {
   const outcomeRepo = new OutcomeRepository(provider);
-  return outcomeRepo.insert({
+  return await outcomeRepo.insert({
     domain: 'sold-beta.io',
     type: 'sold',
     occurredAt: '2026-03-15T00:00:00.000Z',
@@ -185,13 +185,13 @@ describe('Backtest — end-to-end', () => {
     scoringRepo = new ScoringRepository(provider);
   });
 
-  it('snapshot and report produce correct metrics for one sold outcome', () => {
+  it('snapshot and report produce correct metrics for one sold outcome', async () => {
     seedScenario(provider);
-    seedOutcome(provider);
+    await seedOutcome(provider);
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
 
     // Act — snapshot
-    const summary = engine.snapshot();
+    const summary = await engine.snapshot();
     expect(summary.scanned).toBe(1);
     expect(summary.inserted).toBe(1);
     expect(summary.skipped).toBe(0);
@@ -200,7 +200,7 @@ describe('Backtest — end-to-end', () => {
     expect(summary.skipped).toBe(0);
 
     // Act — report
-    const report = engine.report();
+    const report = await engine.report();
     expect(report.sampleSize).toBe(1);
     // actual=450, predicted=500 => MAE=50, bias=450-500=-50
     expect(report.meanAbsoluteErrorEur).toBeCloseTo(50, 1);
@@ -209,57 +209,57 @@ describe('Backtest — end-to-end', () => {
     expect(report.medianAbsoluteErrorEur).toBeCloseTo(50, 1);
   });
 
-  it('snapshot point-in-time join prevents lookahead bias', () => {
+  it('snapshot point-in-time join prevents lookahead bias', async () => {
     seedScenario(provider);
-    seedOutcome(provider);
+    await seedOutcome(provider);
 
     // The scoring_run on 2026-06-01 (run-2, ev=900) should NOT be picked
     // because the sale was on 2026-03-01
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
-    const summary = engine.snapshot();
+    const summary = await engine.snapshot();
     expect(summary.inserted).toBe(1);
 
-    const signals = backtestRepo.findAll();
+    const signals = await backtestRepo.findAll();
     expect(signals[0]?.predictedExpectedValue).toBe(500);
     expect(signals[0]?.predictedExpectedValue).not.toBe(900);
   });
 
-  it('snapshot is idempotent — second call does not create duplicate rows', () => {
+  it('snapshot is idempotent — second call does not create duplicate rows', async () => {
     seedScenario(provider);
-    seedOutcome(provider);
+    await seedOutcome(provider);
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
 
-    const s1 = engine.snapshot();
+    const s1 = await engine.snapshot();
     expect(s1.inserted).toBe(1);
 
-    engine.snapshot();
+    await engine.snapshot();
     // upsert uses ON CONFLICT DO UPDATE, so it returns true but the
     // unique index prevents duplicate (outcome_id, scoring_run_id) rows.
-    expect(backtestRepo.count()).toBe(1);
+    expect(await backtestRepo.count()).toBe(1);
   });
 
-  it('snapshot handles multiple outcomes', () => {
+  it('snapshot handles multiple outcomes', async () => {
     seedScenario(provider);
-    seedOutcome(provider);
-    seedSecondOutcome(provider);
+    await seedOutcome(provider);
+    await seedSecondOutcome(provider);
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
 
-    const summary = engine.snapshot();
+    const summary = await engine.snapshot();
     expect(summary.scanned).toBe(2);
     expect(summary.inserted).toBe(2);
     expect(summary.skipped).toBe(0);
   });
 
-  it('weight suggester works end-to-end after snapshot', () => {
+  it('weight suggester works end-to-end after snapshot', async () => {
     seedScenario(provider);
-    seedOutcome(provider);
-    seedSecondOutcome(provider);
+    await seedOutcome(provider);
+    await seedSecondOutcome(provider);
 
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
-    engine.snapshot();
+    await engine.snapshot();
 
     const suggester = new WeightSuggester(provider.rawDb, backtestRepo, scoringRepo);
-    const suggestion = suggester.suggest();
+    const suggestion = await suggester.suggest();
     expect(suggestion.sampleSize).toBe(2);
     expect(suggestion.suggestions.length).toBeGreaterThan(0);
     // With only 2 samples, all signals should hold (minimum 5 for adjustment)
@@ -269,15 +269,15 @@ describe('Backtest — end-to-end', () => {
     }
   });
 
-  it('report on empty backtest_signals returns zeroes', () => {
+  it('report on empty backtest_signals returns zeroes', async () => {
     seedScenario(provider);
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
-    const report = engine.report();
+    const report = await engine.report();
     expect(report.sampleSize).toBe(0);
     expect(report.meanAbsoluteErrorEur).toBe(0);
   });
 
-  it('bad outcome does not abort snapshot', () => {
+  it('bad outcome does not abort snapshot', async () => {
     seedScenario(provider);
     // Need portfolio entry for FK, but the domain has no candidate/scoring run
     provider.rawDb
@@ -294,16 +294,16 @@ describe('Backtest — end-to-end', () => {
         12,
         'GoDaddy',
       );
-    outcomeRepo.insert({
+    await outcomeRepo.insert({
       domain: 'ghost.com',
       type: 'sold',
       occurredAt: '2026-03-01T00:00:00.000Z',
       salePriceEur: 100,
     });
-    seedOutcome(provider);
+    await seedOutcome(provider);
 
     const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
-    const summary = engine.snapshot();
+    const summary = await engine.snapshot();
     expect(summary.scanned).toBe(2);
     expect(summary.inserted).toBe(1);
     expect(summary.skipped).toBe(1);

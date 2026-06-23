@@ -15,13 +15,13 @@ describe('SqliteProvider', () => {
     provider = new SqliteProvider(sqlite);
   });
 
-  afterEach(() => {
-    provider.close();
+  afterEach(async () => {
+    await provider.close();
   });
 
   describe('exec', () => {
-    it('inserts a row and returns lastInsertRowid', () => {
-      const result = provider.exec(
+    it('inserts a row and returns lastInsertRowid', async () => {
+      const result = await provider.exec(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['example.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
@@ -30,43 +30,43 @@ describe('SqliteProvider', () => {
       expect(result.lastInsertRowid).toBeGreaterThan(0);
     });
 
-    it('updates a row and returns changes count', () => {
-      provider.exec(
+    it('updates a row and returns changes count', async () => {
+      await provider.exec(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['example.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
       );
-      const result = provider.exec('UPDATE candidates SET status = ? WHERE domain = ?', [
+      const result = await provider.exec('UPDATE candidates SET status = ? WHERE domain = ?', [
         'scored',
         'example.com',
       ]);
       expect(result.changes).toBe(1);
     });
 
-    it('deletes a row and returns changes count', () => {
-      provider.exec(
+    it('deletes a row and returns changes count', async () => {
+      await provider.exec(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['example.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
       );
-      const result = provider.exec('DELETE FROM candidates WHERE domain = ?', ['example.com']);
+      const result = await provider.exec('DELETE FROM candidates WHERE domain = ?', ['example.com']);
       expect(result.changes).toBe(1);
     });
   });
 
   describe('query', () => {
-    it('returns all rows for SELECT', () => {
-      provider.exec(
+    it('returns all rows for SELECT', async () => {
+      await provider.exec(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['example.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
       );
-      provider.exec(
+      await provider.exec(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['test.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
       );
-      const rows = provider.query<{ domain: string }>(
+      const rows = await provider.query<{ domain: string }>(
         'SELECT domain FROM candidates ORDER BY domain',
       );
       expect(rows).toHaveLength(2);
@@ -74,8 +74,8 @@ describe('SqliteProvider', () => {
       expect(rows[1]!.domain).toBe('test.com');
     });
 
-    it('returns empty array for no results', () => {
-      const rows = provider.query<{ domain: string }>('SELECT * FROM candidates WHERE domain = ?', [
+    it('returns empty array for no results', async () => {
+      const rows = await provider.query<{ domain: string }>('SELECT * FROM candidates WHERE domain = ?', [
         'nonexistent.com',
       ]);
       expect(rows).toEqual([]);
@@ -83,13 +83,13 @@ describe('SqliteProvider', () => {
   });
 
   describe('queryOne', () => {
-    it('returns a single row', () => {
-      provider.exec(
+    it('returns a single row', async () => {
+      await provider.exec(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['example.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
       );
-      const row = provider.queryOne<{ domain: string }>(
+      const row = await provider.queryOne<{ domain: string }>(
         'SELECT domain FROM candidates WHERE domain = ?',
         ['example.com'],
       );
@@ -97,16 +97,16 @@ describe('SqliteProvider', () => {
       expect(row!.domain).toBe('example.com');
     });
 
-    it('returns null for no match', () => {
-      const row = provider.queryOne<{ domain: string }>(
+    it('returns null for no match', async () => {
+      const row = await provider.queryOne<{ domain: string }>(
         'SELECT domain FROM candidates WHERE domain = ?',
         ['nonexistent.com'],
       );
       expect(row).toBeNull();
     });
 
-    it('returns row with RETURNING clause', () => {
-      const row = provider.queryOne<{ id: number }>(
+    it('returns row with RETURNING clause', async () => {
+      const row = await provider.queryOne<{ id: number }>(
         `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
          VALUES (?, ?, ?, ?, ?, ?)
          RETURNING id`,
@@ -118,14 +118,14 @@ describe('SqliteProvider', () => {
   });
 
   describe('transaction', () => {
-    it('commits all operations atomically', () => {
-      const result = provider.transaction((trx) => {
-        trx.exec(
+    it('commits all operations atomically', async () => {
+      const result = await provider.transaction(async (trx) => {
+        await trx.exec(
           `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
            VALUES (?, ?, ?, ?, ?, ?)`,
           ['a.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
         );
-        trx.exec(
+        await trx.exec(
           `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
            VALUES (?, ?, ?, ?, ?, ?)`,
           ['b.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
@@ -133,43 +133,43 @@ describe('SqliteProvider', () => {
         return 'done';
       });
       expect(result).toBe('done');
-      const rows = provider.query<{ domain: string }>(
+      const rows = await provider.query<{ domain: string }>(
         'SELECT domain FROM candidates ORDER BY domain',
       );
       expect(rows).toHaveLength(2);
     });
 
-    it('rolls back on error', () => {
-      expect(() =>
-        provider.transaction((trx) => {
-          trx.exec(
+    it('rolls back on error', async () => {
+      await expect(() =>
+        provider.transaction(async (trx) => {
+          await trx.exec(
             `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
              VALUES (?, ?, ?, ?, ?, ?)`,
             ['a.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
           );
           throw new Error('rollback test');
         }),
-      ).toThrow('rollback test');
-      const rows = provider.query<{ domain: string }>('SELECT domain FROM candidates');
+      ).rejects.toThrow('rollback test');
+      const rows = await provider.query<{ domain: string }>('SELECT domain FROM candidates');
       expect(rows).toHaveLength(0);
     });
 
-    it('nests savepoints correctly', () => {
-      provider.transaction((outer) => {
-        outer.exec(
+    it('nests savepoints correctly', async () => {
+      await provider.transaction(async (outer) => {
+        await outer.exec(
           `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
            VALUES (?, ?, ?, ?, ?, ?)`,
           ['outer.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
         );
-        outer.transaction((inner) => {
-          inner.exec(
+        await outer.transaction(async (inner) => {
+          await inner.exec(
             `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
              VALUES (?, ?, ?, ?, ?, ?)`,
             ['inner.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
           );
         });
       });
-      const rows = provider.query<{ domain: string }>(
+      const rows = await provider.query<{ domain: string }>(
         'SELECT domain FROM candidates ORDER BY domain',
       );
       expect(rows).toHaveLength(2);
@@ -177,15 +177,15 @@ describe('SqliteProvider', () => {
   });
 
   describe('isOpen and close', () => {
-    it('tracks open state', () => {
+    it('tracks open state', async () => {
       expect(provider.isOpen()).toBe(true);
-      provider.close();
+      await provider.close();
       expect(provider.isOpen()).toBe(false);
     });
 
-    it('is idempotent on close', () => {
-      provider.close();
-      provider.close();
+    it('is idempotent on close', async () => {
+      await provider.close();
+      await provider.close();
       expect(provider.isOpen()).toBe(false);
     });
   });

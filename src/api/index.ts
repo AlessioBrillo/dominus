@@ -19,6 +19,7 @@ export { createAnalyticsRouter } from './routes/analytics.js';
 export { createBidsRouter } from './routes/bids.js';
 export { createListingsRouter } from './routes/listings.js';
 export { createOnboardingRouter } from './routes/onboarding.js';
+export { createDocsRouter } from './routes/docs.js';
 export { createPublicRouter } from './public-router.js';
 export { createAuthMiddleware } from './middleware/auth.js';
 export { securityHeaders } from './middleware/security-headers.js';

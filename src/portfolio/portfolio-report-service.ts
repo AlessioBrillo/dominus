@@ -20,7 +20,7 @@ export class PortfolioReportService {
   ) {}
 
   async generate(): Promise<PortfolioReport> {
-    const entries = this.portfolioRepo.findAll();
+    const entries = await this.portfolioRepo.findAll();
     const totalDomains = entries.length;
 
     if (totalDomains === 0) {
@@ -83,10 +83,10 @@ export class PortfolioReportService {
       aggregateProjectedAnnualReturn += npvResult.projectedAnnualReturn;
     }
 
-    const soldOutcomes = this.outcomeRepo.findByType('sold');
+    const soldOutcomes = await this.outcomeRepo.findByType('sold');
     const totalRealisedRevenue = soldOutcomes.reduce((s, o) => s + (o.salePriceEur ?? 0), 0);
 
-    const totalOutcomes = this.outcomeRepo.findAll();
+    const totalOutcomes = await this.outcomeRepo.findAll();
     const totalRenewalCostPaid = entries.reduce((s, e) => {
       const renewals = totalOutcomes.filter(
         (o) => o.domain === e.domain && o.type === 'renewed',
@@ -179,10 +179,10 @@ export class PortfolioReportService {
   }
 
   async domainRoi(domain: string): Promise<DomainRoi | null> {
-    const entry = this.portfolioRepo.findByDomain(domain);
+    const entry = await this.portfolioRepo.findByDomain(domain);
     if (!entry) return null;
 
-    const outcomes = this.outcomeRepo.findByDomain(domain);
+    const outcomes = await this.outcomeRepo.findByDomain(domain);
     const soldOutcome = outcomes.find((o) => o.type === 'sold');
     const dropOutcome = outcomes.find((o) => o.type === 'dropped');
     const expiredOutcome = outcomes.find((o) => o.type === 'expired');
@@ -247,7 +247,7 @@ export class PortfolioReportService {
   }
 
   async allRoi(): Promise<RoiReport> {
-    const entries = this.portfolioRepo.findAll();
+    const entries = await this.portfolioRepo.findAll();
     const domainDetails: DomainRoi[] = [];
 
     for (const entry of entries) {

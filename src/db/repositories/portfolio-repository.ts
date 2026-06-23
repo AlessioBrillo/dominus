@@ -45,13 +45,13 @@ function rowToEntry(row: PortfolioRow): PortfolioEntry {
 export class PortfolioRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  insert(input: AddPortfolioEntryInput): PortfolioEntry {
-    const existing = this.findByDomain(input.domain);
+  async insert(input: AddPortfolioEntryInput): Promise<PortfolioEntry> {
+    const existing = await this.findByDomain(input.domain);
     if (existing !== null) {
       throw new DuplicateDomainError(input.domain);
     }
 
-    const result = this.db.exec(
+    const result = await this.db.exec(
       `INSERT INTO portfolio_entries
        (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -67,30 +67,30 @@ export class PortfolioRepository {
       ],
     );
     const id = result.lastInsertRowid as number;
-    const row = this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE id = ?', [
+    const row = await this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE id = ?', [
       id,
     ]);
     return rowToEntry(row!);
   }
 
-  findByDomain(domain: string): PortfolioEntry | null {
-    const row = this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE domain = ?', [
+  async findByDomain(domain: string): Promise<PortfolioEntry | null> {
+    const row = await this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE domain = ?', [
       domain,
     ]);
     return row ? rowToEntry(row) : null;
   }
 
-  findAll(): PortfolioEntry[] {
-    const rows = this.db.query<PortfolioRow>(
+  async findAll(): Promise<PortfolioEntry[]> {
+    const rows = await this.db.query<PortfolioRow>(
       'SELECT * FROM portfolio_entries ORDER BY renewal_date ASC',
     );
     return rows.map(rowToEntry);
   }
 
-  updateVerdict(domain: string, verdict: Verdict, reason?: string): void {
-    const existing = this.findByDomain(domain);
+  async updateVerdict(domain: string, verdict: Verdict, reason?: string): Promise<void> {
+    const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    this.db.exec(
+    await this.db.exec(
       `UPDATE portfolio_entries
        SET verdict = ?, verdict_reason = ?, verdict_updated_at = datetime('now'),
            updated_at = datetime('now')
@@ -99,10 +99,10 @@ export class PortfolioRepository {
     );
   }
 
-  updateScore(domain: string, score: number, listPrice: number): void {
-    const existing = this.findByDomain(domain);
+  async updateScore(domain: string, score: number, listPrice: number): Promise<void> {
+    const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    this.db.exec(
+    await this.db.exec(
       `UPDATE portfolio_entries
        SET current_score = ?, suggested_list_price = ?, updated_at = datetime('now')
        WHERE domain = ?`,
@@ -110,8 +110,8 @@ export class PortfolioRepository {
     );
   }
 
-  updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): void {
-    const existing = this.findByDomain(domain);
+  async updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): Promise<void> {
+    const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
     const sets: string[] = [];
     const params: (number | string)[] = [];
@@ -126,12 +126,12 @@ export class PortfolioRepository {
     if (sets.length === 0) return;
     sets.push("updated_at = datetime('now')");
     params.push(domain);
-    this.db.exec(`UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ?`, params);
+    await this.db.exec(`UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ?`, params);
   }
 
-  delete(domain: string): void {
-    const existing = this.findByDomain(domain);
+  async delete(domain: string): Promise<void> {
+    const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    this.db.exec('DELETE FROM portfolio_entries WHERE domain = ?', [domain]);
+    await this.db.exec('DELETE FROM portfolio_entries WHERE domain = ?', [domain]);
   }
 }

@@ -180,7 +180,7 @@ export function createListingsRouter(listingManager: ListingManager): Router {
     }
   });
 
-  router.post('/:listingId/offers/:offerId/accept', (req: Request, res: Response) => {
+  router.post('/:listingId/offers/:offerId/accept', async (req: Request, res: Response) => {
     const listingId = parseInt(req.params.listingId as string, 10);
     const offerId = parseInt(req.params.offerId as string, 10);
     if (isNaN(listingId) || isNaN(offerId)) {
@@ -189,7 +189,7 @@ export function createListingsRouter(listingManager: ListingManager): Router {
     }
 
     try {
-      listingManager.respondToOffer(offerId, listingId, 'accepted');
+      await listingManager.respondToOffer(offerId, listingId, 'accepted');
       res.json({ status: 'accepted' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -197,7 +197,7 @@ export function createListingsRouter(listingManager: ListingManager): Router {
     }
   });
 
-  router.post('/:listingId/offers/:offerId/decline', (req: Request, res: Response) => {
+  router.post('/:listingId/offers/:offerId/decline', async (req: Request, res: Response) => {
     const listingId = parseInt(req.params.listingId as string, 10);
     const offerId = parseInt(req.params.offerId as string, 10);
     if (isNaN(listingId) || isNaN(offerId)) {
@@ -206,7 +206,7 @@ export function createListingsRouter(listingManager: ListingManager): Router {
     }
 
     try {
-      listingManager.respondToOffer(offerId, listingId, 'declined');
+      await listingManager.respondToOffer(offerId, listingId, 'declined');
       res.json({ status: 'declined' });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

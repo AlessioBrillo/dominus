@@ -31,209 +31,204 @@ import {
   createAnalyticsRouter,
   createListingsRouter,
   createOnboardingRouter,
+  createDocsRouter,
   createPublicRouter,
   errorHandler,
   createRequestLogger,
 } from './api/index.js';
 
-const config = loadConfig();
-const logger = getLogger();
-const deps = createDependencies(config);
+async function main(): Promise<void> {
+  const config = loadConfig();
+  const logger = getLogger();
+  const deps = await createDependencies(config);
 
-const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
-if (!authProvider.isActive) {
-  if (config.HOST === '0.0.0.0' || config.HOST === '::') {
-    logger.fatal(
-      'FATAL: API authentication is DISABLED but server is bound to 0.0.0.0 (all interfaces). ' +
-        'Set API_KEYS env var to enable authentication, or bind to 127.0.0.1 for local-only access. ' +
-        'This is a security risk — startup aborted.',
-    );
-    process.exit(1);
-  } else {
-    logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
+  const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
+  if (!authProvider.isActive) {
+    if (config.HOST === '0.0.0.0' || config.HOST === '::') {
+      logger.fatal(
+        'FATAL: API authentication is DISABLED but server is bound to 0.0.0.0 (all interfaces). ' +
+          'Set API_KEYS env var to enable authentication, or bind to 127.0.0.1 for local-only access. ' +
+          'This is a security risk — startup aborted.',
+      );
+      process.exit(1);
+    } else {
+      logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
+    }
   }
-}
-const authMiddleware = createAuthMiddleware(authProvider);
+  const authMiddleware = createAuthMiddleware(authProvider);
 
-const app = express();
+  const app = express();
 
-const corsOrigins = config.CORS_ORIGIN.split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+  const corsOrigins = config.CORS_ORIGIN.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
-if (corsOrigins.includes('*')) {
-  logger.warn(
-    'CORS is configured with wildcard origin (*). This allows any website to call the API. ' +
-      'Restrict CORS_ORIGIN to specific origins in production.',
-  );
-}
+  if (corsOrigins.includes('*')) {
+    logger.warn(
+      'CORS is configured with wildcard origin (*). This allows any website to call the API. ' +
+        'Restrict CORS_ORIGIN to specific origins in production.',
+    );
+  }
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || corsOrigins.includes('*') || corsOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(null, false);
-    },
-    credentials: true,
-  }),
-);
-
-if (config.RATE_LIMIT_MAX > 0) {
   app.use(
-    rateLimit({
-      windowMs: config.RATE_LIMIT_WINDOW_MS,
-      max: config.RATE_LIMIT_MAX,
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: {
-        error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || corsOrigins.includes('*') || corsOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(null, false);
       },
+      credentials: true,
     }),
   );
-}
 
-app.use(securityHeaders);
+  if (config.RATE_LIMIT_MAX > 0) {
+    app.use(
+      rateLimit({
+        windowMs: config.RATE_LIMIT_WINDOW_MS,
+        max: config.RATE_LIMIT_MAX,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
+        },
+      }),
+    );
+  }
 
-if (config.REQUEST_TIMEOUT_MS > 0) {
-  app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
-}
+  app.use(securityHeaders);
 
-app.use(express.json({ limit: '100kb' }));
-app.use(createRequestLogger(logger));
+  if (config.REQUEST_TIMEOUT_MS > 0) {
+    app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
+  }
 
-app.use('/public', createPublicRouter(deps.db, deps.engine, deps.trademarkGate));
+  app.use(express.json({ limit: '100kb' }));
+  app.use(createRequestLogger(logger));
 
-app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
-app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
-app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
-app.use('/api/v1/auth', createAuthRouter(authProvider));
+  app.use('/public', createPublicRouter(deps.db, deps.engine, deps.trademarkGate));
 
-const protectedRouter = express.Router();
-protectedRouter.use(authMiddleware);
-protectedRouter.use(
-  '/backtest',
-  createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
-);
-protectedRouter.use('/providers', createProvidersRouter(deps.config));
-protectedRouter.use('/outcomes', createOutcomesRouter(deps.outcomeRepo));
-protectedRouter.use('/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
-protectedRouter.use('/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
-protectedRouter.use(
-  '/runs',
-  createRunsRouter(
-    deps.pipelineRunsRepo,
-    deps.candidateRepo,
-    deps.scoringRepo,
-    deps.db,
-    deps.progressService,
-    deps.runService,
-    deps.jobQueueService,
-  ),
-);
-protectedRouter.use(
-  '/alerts',
-  createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }),
-);
-if (deps.scheduler) {
-  protectedRouter.use('/scheduler', createSchedulerRouter(deps.scheduler));
-}
-protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
-protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
-protectedRouter.use(
-  '/onboarding',
-  createOnboardingRouter(deps.db, deps.engine, deps.trademarkGate, deps.portfolioManager),
-);
-protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
-protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
-protectedRouter.use('/report', createReportRouter(deps.reportService));
-protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
-protectedRouter.use('/listings', createListingsRouter(deps.listingManager));
-app.use('/api/v1', protectedRouter);
+  app.use('/api/v1/docs', createDocsRouter());
+  app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
+  app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
+  app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
+  app.use('/api/v1/auth', createAuthRouter(authProvider));
 
-// ── SPA catch-all with base path isolation ─────────────────────────
-// The SPA middleware is mounted AFTER all API routes to prevent path
-// conflicts. The catch-all only matches non-API paths. When
-// FRONTEND_BASE_PATH is set (e.g. "/dominus"), the catch-all only
-// fires for paths under that prefix — enabling deployment behind a
-// reverse proxy that rewrites the prefix away from upstream.
-const frontendDir = resolve(process.cwd(), config.FRONTEND_DIST_PATH);
-const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*` : '*';
-
-if (existsSync(frontendDir)) {
-  app.use(express.static(frontendDir));
-  app.get(spaPattern, (req, res) => {
-    if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) {
-      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
-      return;
-    }
-    res.sendFile(join(frontendDir, 'index.html'));
-  });
-  logger.info(
-    { dir: frontendDir, basePath: config.FRONTEND_BASE_PATH || '/' },
-    'Serving SPA frontend from disk',
+  const protectedRouter = express.Router();
+  protectedRouter.use(authMiddleware);
+  protectedRouter.use(
+    '/backtest',
+    createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
   );
-} else {
-  logger.info(
-    { dir: frontendDir },
-    'Frontend dist not found — API-only mode (run `cd frontend && npm run build` to enable)',
+  protectedRouter.use('/providers', createProvidersRouter(deps.config));
+  protectedRouter.use('/outcomes', createOutcomesRouter(deps.outcomeRepo));
+  protectedRouter.use('/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
+  protectedRouter.use('/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
+  protectedRouter.use(
+    '/runs',
+    createRunsRouter(
+      deps.pipelineRunsRepo,
+      deps.candidateRepo,
+      deps.scoringRepo,
+      deps.db,
+      deps.progressService,
+      deps.runService,
+      deps.jobQueueService,
+    ),
   );
-}
-
-app.use(errorHandler);
-
-const server = app.listen(config.PORT, config.HOST, () => {
-  logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
-  // Warmup delay before starting background jobs: allows the DB connection
-  // to stabilise, provider caches to initialise, and rate-limiters to
-  // calibrate before the first scheduled job fires. Particularly important
-  // on cold start where multiple jobs (renewal-check, rescore, watchlist)
-  // could all queue their first execution within seconds.
-  const warmupMs = config.SCHEDULER_WARMUP_MS;
+  protectedRouter.use(
+    '/alerts',
+    createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }),
+  );
   if (deps.scheduler) {
-    setTimeout(() => {
-      deps.scheduler!.start();
-      logger.info({ warmupMs }, 'Background scheduler started after warmup');
-    }, warmupMs);
+    protectedRouter.use('/scheduler', createSchedulerRouter(deps.scheduler));
   }
-});
+  protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
+  protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
+  protectedRouter.use(
+    '/onboarding',
+    createOnboardingRouter(deps.db, deps.engine, deps.trademarkGate, deps.portfolioManager),
+  );
+  protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
+  protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
+  protectedRouter.use('/report', createReportRouter(deps.reportService));
+  protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
+  protectedRouter.use('/listings', createListingsRouter(deps.listingManager));
+  app.use('/api/v1', protectedRouter);
 
-function shutdown(signal: string): void {
-  logger.info({ signal }, 'Shutdown signal received — draining connections');
+  // ── SPA catch-all with base path isolation ─────────────────────────
+  const frontendDir = resolve(process.cwd(), config.FRONTEND_DIST_PATH);
+  const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*` : '*';
 
-  // Express 5: close idle keep-alive connections first, then active ones.
-  // This lets in-flight requests complete while preventing new ones.
-  if (typeof server.closeIdleConnections === 'function') {
-    server.closeIdleConnections();
+  if (existsSync(frontendDir)) {
+    app.use(express.static(frontendDir));
+    app.get(spaPattern, (req, res) => {
+      if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
+        return;
+      }
+      res.sendFile(join(frontendDir, 'index.html'));
+    });
+    logger.info(
+      { dir: frontendDir, basePath: config.FRONTEND_BASE_PATH || '/' },
+      'Serving SPA frontend from disk',
+    );
+  } else {
+    logger.info(
+      { dir: frontendDir },
+      'Frontend dist not found — API-only mode (run `cd frontend && npm run build` to enable)',
+    );
   }
-  server.close(() => {
+
+  app.use(errorHandler);
+
+  const server = app.listen(config.PORT, config.HOST, () => {
+    logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
+    const warmupMs = config.SCHEDULER_WARMUP_MS;
     if (deps.scheduler) {
-      deps.scheduler.stop();
-      logger.info('Scheduler stopped');
+      setTimeout(() => {
+        deps.scheduler!.start();
+        logger.info({ warmupMs }, 'Background scheduler started after warmup');
+      }, warmupMs);
     }
-    closeDatabase();
-    logger.info('Database closed');
-    process.exit(0);
   });
 
-  // Force-close remaining active connections after drain timeout.
-  const drainMs = 5_000;
-  const graceMs = 25_000;
-  setTimeout(() => {
-    if (typeof server.closeAllConnections === 'function') {
-      server.closeAllConnections();
-    }
-  }, drainMs).unref();
+  function shutdown(signal: string): void {
+    logger.info({ signal }, 'Shutdown signal received — draining connections');
 
-  // Force exit after hard timeout (respects K8s terminationGracePeriodSeconds)
-  const forceExitMs = drainMs + graceMs;
-  setTimeout(() => {
-    logger.error('Forced exit after shutdown timeout');
-    process.exit(1);
-  }, forceExitMs).unref();
+    if (typeof server.closeIdleConnections === 'function') {
+      server.closeIdleConnections();
+    }
+    server.close(() => {
+      if (deps.scheduler) {
+        deps.scheduler.stop();
+        logger.info('Scheduler stopped');
+      }
+      closeDatabase();
+      logger.info('Database closed');
+      process.exit(0);
+    });
+
+    const drainMs = 5_000;
+    const graceMs = 25_000;
+    setTimeout(() => {
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+    }, drainMs).unref();
+
+    const forceExitMs = drainMs + graceMs;
+    setTimeout(() => {
+      logger.error('Forced exit after shutdown timeout');
+      process.exit(1);
+    }, forceExitMs).unref();
+  }
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

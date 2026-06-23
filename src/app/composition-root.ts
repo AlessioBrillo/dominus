@@ -325,7 +325,7 @@ function buildSchedulerIfEnabled(
   });
 }
 
-export function createDependencies(config: Config): DominusDependencies {
+export async function createDependencies(config: Config): Promise<DominusDependencies> {
   const db = openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
   runMigrations(db);
   warnEuipoIfMissing(config);
@@ -508,7 +508,8 @@ export function createDependencies(config: Config): DominusDependencies {
   );
 
   // --- P&L ---
-  const pnlService = new PnlService(repos.portfolioRepo, repos.outcomeRepo.findAll());
+  const allOutcomes = await repos.outcomeRepo.findAll();
+  const pnlService = new PnlService(repos.portfolioRepo, allOutcomes);
 
   // --- Backup ---
   const backupService = new BackupService({

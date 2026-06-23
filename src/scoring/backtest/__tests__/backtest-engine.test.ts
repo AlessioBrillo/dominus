@@ -32,7 +32,7 @@ function seedPortfolio(dbProvider: SqliteProvider, domain: string): void {
   });
 }
 
-function seedScoringSnapshot(
+async function seedScoringSnapshot(
   dbProvider: SqliteProvider,
   domain: string,
   scoredAt: string,
@@ -40,21 +40,21 @@ function seedScoringSnapshot(
   buyMax: number,
   listPrice: number,
   confidence: number,
-): void {
+): Promise<void> {
   const candidateRepo = new CandidateRepository(dbProvider);
   const scoringRepo = new ScoringRepository(dbProvider);
 
-  const existing = candidateRepo.findByDomain(domain);
+  const existing = await candidateRepo.findByDomain(domain);
   const candidate =
     existing ??
-    candidateRepo.insert({
+    (await candidateRepo.insert({
       domain,
       tld: '.com',
       source: CandidateSource.KeywordCombo,
       status: CandidateStatus.Recommended,
       isPremium: false,
       pipelineRunId: 'test',
-    });
+    }));
 
   const result: ScoreResult = {
     domain,
@@ -79,7 +79,7 @@ function seedScoringSnapshot(
   };
 
   // Manually set scored_at via direct update (the repo does not accept a custom timestamp).
-  scoringRepo.insert(candidate.id!, 'test', result);
+  await scoringRepo.insert(candidate.id!, 'test', result);
   dbProvider.rawDb
     .prepare(
       'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
@@ -87,13 +87,13 @@ function seedScoringSnapshot(
     .run(scoredAt, candidate.id);
 }
 
-function seedSoldOutcome(
+async function seedSoldOutcome(
   dbProvider: SqliteProvider,
   domain: string,
   salePrice: number,
   occurredAt: string,
-): number {
-  const outcome = new OutcomeRepository(dbProvider).insert({
+): Promise<number> {
+  const outcome = await new OutcomeRepository(dbProvider).insert({
     domain,
     type: 'sold',
     occurredAt,
@@ -118,10 +118,10 @@ describe('BacktestEngine', () => {
   });
 
   describe('snapshot()', () => {
-    it('writes one signal per sold outcome that has a prior scoring snapshot', () => {
+    it('writes one signal per sold outcome that has a prior scoring snapshot', async () => {
       seedPortfolio(dbProvider, 'alpha.com');
       seedPortfolio(dbProvider, 'beta.io');
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2025-12-01T00:00:00.000Z',
@@ -130,20 +130,28 @@ describe('BacktestEngine', () => {
         3000,
         0.7,
       );
-      seedScoringSnapshot(dbProvider, 'beta.io', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.5);
-      seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
-      seedSoldOutcome(dbProvider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
+      await seedScoringSnapshot(
+        dbProvider,
+        'beta.io',
+        '2025-12-01T00:00:00.000Z',
+        800,
+        400,
+        2400,
+        0.5,
+      );
+      await seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
 
-      const summary = engine.snapshot();
+      const summary = await engine.snapshot();
       expect(summary.scanned).toBe(2);
       expect(summary.inserted).toBe(2);
       expect(summary.skipped).toBe(0);
-      expect(backtestRepo.count()).toBe(2);
+      expect(await backtestRepo.count()).toBe(2);
     });
 
-    it('skips outcomes whose scoring snapshot does not predate the sale', () => {
+    it('skips outcomes whose scoring snapshot does not predate the sale', async () => {
       seedPortfolio(dbProvider, 'alpha.com');
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2026-12-01T00:00:00.000Z',
@@ -152,17 +160,17 @@ describe('BacktestEngine', () => {
         3000,
         0.7,
       );
-      seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
-      const summary = engine.snapshot();
+      const summary = await engine.snapshot();
       expect(summary.inserted).toBe(0);
       expect(summary.skipped).toBe(1);
-      expect(backtestRepo.count()).toBe(0);
+      expect(await backtestRepo.count()).toBe(0);
     });
 
-    it('skips outcomes without sale_price_eur', () => {
+    it('skips outcomes without sale_price_eur', async () => {
       seedPortfolio(dbProvider, 'alpha.com');
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2025-12-01T00:00:00.000Z',
@@ -171,20 +179,20 @@ describe('BacktestEngine', () => {
         3000,
         0.7,
       );
-      new OutcomeRepository(dbProvider).insert({
+      await new OutcomeRepository(dbProvider).insert({
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
 
-      const summary = engine.snapshot();
+      const summary = await engine.snapshot();
       expect(summary.inserted).toBe(0);
       expect(summary.skipped).toBe(1);
     });
 
-    it('picks the LAST snapshot whose scored_at <= occurredAt (point-in-time)', () => {
+    it('picks the LAST snapshot whose scored_at <= occurredAt (point-in-time)', async () => {
       seedPortfolio(dbProvider, 'alpha.com');
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2025-06-01T00:00:00.000Z',
@@ -193,7 +201,7 @@ describe('BacktestEngine', () => {
         3000,
         0.7,
       );
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2025-12-01T00:00:00.000Z',
@@ -202,7 +210,7 @@ describe('BacktestEngine', () => {
         3900,
         0.8,
       );
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2026-12-01T00:00:00.000Z',
@@ -211,17 +219,17 @@ describe('BacktestEngine', () => {
         9999,
         0.9,
       );
-      seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
-      engine.snapshot();
-      const signals = backtestRepo.findByDomain('alpha.com');
+      await engine.snapshot();
+      const signals = await backtestRepo.findByDomain('alpha.com');
       expect(signals).toHaveLength(1);
       expect(signals[0]?.predictedExpectedValue).toBe(1300);
     });
 
-    it('is idempotent on repeated runs', () => {
+    it('is idempotent on repeated runs', async () => {
       seedPortfolio(dbProvider, 'alpha.com');
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2025-12-01T00:00:00.000Z',
@@ -230,29 +238,29 @@ describe('BacktestEngine', () => {
         3000,
         0.7,
       );
-      seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
-      engine.snapshot();
-      engine.snapshot();
-      engine.snapshot();
-      expect(backtestRepo.count()).toBe(1);
+      await engine.snapshot();
+      await engine.snapshot();
+      await engine.snapshot();
+      expect(await backtestRepo.count()).toBe(1);
     });
   });
 
   describe('report()', () => {
-    it('returns an empty report on a fresh database', () => {
-      const r = engine.report();
+    it('returns an empty report on a fresh database', async () => {
+      const r = await engine.report();
       expect(r.sampleSize).toBe(0);
       expect(r.meanAbsoluteErrorEur).toBe(0);
       expect(r.biasEur).toBe(0);
       expect(r.buyMaxHitRate).toBe(0);
     });
 
-    it('computes MAE, bias, and buy-max accuracy on seeded signals', () => {
+    it('computes MAE, bias, and buy-max accuracy on seeded signals', async () => {
       seedPortfolio(dbProvider, 'alpha.com');
       seedPortfolio(dbProvider, 'beta.io');
       seedPortfolio(dbProvider, 'gamma.net');
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
         dbProvider,
         'alpha.com',
         '2025-12-01T00:00:00.000Z',
@@ -261,8 +269,16 @@ describe('BacktestEngine', () => {
         3000,
         0.7,
       );
-      seedScoringSnapshot(dbProvider, 'beta.io', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.4);
-      seedScoringSnapshot(
+      await seedScoringSnapshot(
+        dbProvider,
+        'beta.io',
+        '2025-12-01T00:00:00.000Z',
+        800,
+        400,
+        2400,
+        0.4,
+      );
+      await seedScoringSnapshot(
         dbProvider,
         'gamma.net',
         '2025-12-01T00:00:00.000Z',
@@ -271,12 +287,12 @@ describe('BacktestEngine', () => {
         3600,
         0.9,
       );
-      seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
-      seedSoldOutcome(dbProvider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
-      seedSoldOutcome(dbProvider, 'gamma.net', 1800, '2026-06-01T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'gamma.net', 1800, '2026-06-01T00:00:00.000Z');
 
-      engine.snapshot();
-      const r = engine.report();
+      await engine.snapshot();
+      const r = await engine.report();
 
       expect(r.sampleSize).toBe(3);
       // alpha: |1000-1500|=500, beta: |800-600|=200, gamma: |1200-1800|=600 → MAE = 433.33
@@ -289,22 +305,46 @@ describe('BacktestEngine', () => {
       expect(r.buyMaxHitRate).toBe(1);
     });
 
-    it('produces per-bucket calibration', () => {
+    it('produces per-bucket calibration', async () => {
       seedPortfolio(dbProvider, 'a.com');
       seedPortfolio(dbProvider, 'b.com');
       seedPortfolio(dbProvider, 'c.com');
       // low confidence
-      seedScoringSnapshot(dbProvider, 'a.com', '2025-12-01T00:00:00.000Z', 500, 250, 1500, 0.1);
+      await seedScoringSnapshot(
+        dbProvider,
+        'a.com',
+        '2025-12-01T00:00:00.000Z',
+        500,
+        250,
+        1500,
+        0.1,
+      );
       // mid
-      seedScoringSnapshot(dbProvider, 'b.com', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.4);
+      await seedScoringSnapshot(
+        dbProvider,
+        'b.com',
+        '2025-12-01T00:00:00.000Z',
+        800,
+        400,
+        2400,
+        0.4,
+      );
       // high
-      seedScoringSnapshot(dbProvider, 'c.com', '2025-12-01T00:00:00.000Z', 1500, 750, 4500, 0.8);
-      seedSoldOutcome(dbProvider, 'a.com', 400, '2026-04-01T00:00:00.000Z');
-      seedSoldOutcome(dbProvider, 'b.com', 1000, '2026-05-01T00:00:00.000Z');
-      seedSoldOutcome(dbProvider, 'c.com', 2000, '2026-06-01T00:00:00.000Z');
+      await seedScoringSnapshot(
+        dbProvider,
+        'c.com',
+        '2025-12-01T00:00:00.000Z',
+        1500,
+        750,
+        4500,
+        0.8,
+      );
+      await seedSoldOutcome(dbProvider, 'a.com', 400, '2026-04-01T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'b.com', 1000, '2026-05-01T00:00:00.000Z');
+      await seedSoldOutcome(dbProvider, 'c.com', 2000, '2026-06-01T00:00:00.000Z');
 
-      engine.snapshot();
-      const r = engine.report();
+      await engine.snapshot();
+      const r = await engine.report();
 
       expect(r.calibration.low.n).toBe(1);
       expect(r.calibration.low.meanRealised).toBe(400);

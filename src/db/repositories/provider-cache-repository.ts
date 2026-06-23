@@ -12,8 +12,8 @@ export interface ProviderCacheRow {
 export class ProviderCacheRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  get(cacheKey: string, providerName: string): string | null {
-    const row = this.db.queryOne<{ value: string }>(
+  async get(cacheKey: string, providerName: string): Promise<string | null> {
+    const row = await this.db.queryOne<{ value: string }>(
       `SELECT value FROM provider_cache
        WHERE cache_key = ? AND provider_name = ? AND expires_at > datetime('now')
        ORDER BY created_at DESC LIMIT 1`,
@@ -22,22 +22,22 @@ export class ProviderCacheRepository {
     return row?.value ?? null;
   }
 
-  set(cacheKey: string, providerName: string, value: string, ttlDays: number): void {
+  async set(cacheKey: string, providerName: string, value: string, ttlDays: number): Promise<void> {
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
-    this.db.exec(
+    await this.db.exec(
       `INSERT OR REPLACE INTO provider_cache (cache_key, provider_name, value, expires_at)
        VALUES (?, ?, ?, ?)`,
       [cacheKey, providerName, value, expiresAt],
     );
   }
 
-  pruneExpired(): number {
-    const result = this.db.exec(`DELETE FROM provider_cache WHERE expires_at < datetime('now')`);
+  async pruneExpired(): Promise<number> {
+    const result = await this.db.exec(`DELETE FROM provider_cache WHERE expires_at < datetime('now')`);
     return Number(result.changes);
   }
 
-  count(): number {
-    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM provider_cache');
+  async count(): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM provider_cache');
     return row!.n;
   }
 }

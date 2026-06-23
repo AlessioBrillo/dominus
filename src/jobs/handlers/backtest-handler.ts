@@ -26,14 +26,14 @@ export class BacktestBuildHandler implements JobHandler<BacktestBuildPayload, Ba
 
     logger.info({ minSampleSize }, 'BacktestBuildHandler: building signals');
 
-    const snapshotResult = this.deps.backtestEngine.snapshot();
+    const snapshotResult = await this.deps.backtestEngine.snapshot();
     const signalsBuilt = snapshotResult.inserted;
 
     logger.info({ signalsBuilt }, 'BacktestBuildHandler: signals built');
 
     if (signalsBuilt >= minSampleSize) {
       logger.info('BacktestBuildHandler: suggesting weights');
-      const suggestion = this.deps.weightSuggester.suggest();
+      const suggestion = await this.deps.weightSuggester.suggest();
       return {
         signalsBuilt,
         weightSuggestion: {

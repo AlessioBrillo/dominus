@@ -12,8 +12,8 @@ export function registerSchedulerCommand(program: Command, deps: SchedulerComman
     .command('status')
     .description('Show registered jobs and last run timestamps')
     .option('--json', 'Emit JSON instead of a human-readable table', false)
-    .action((options: { json: boolean }) => {
-      const jobs = deps.scheduler.getStatus();
+    .action(async (options: { json: boolean }) => {
+      const jobs = await deps.scheduler.getStatus();
       if (options.json) {
         process.stdout.write(JSON.stringify(jobs, null, 2) + '\n');
         return;

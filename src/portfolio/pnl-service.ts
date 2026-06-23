@@ -58,8 +58,8 @@ export class PnlService {
     return this.getOutcomes().filter((o) => o.type === 'sold');
   }
 
-  generate(): PnlReport {
-    const allEntries = this.portfolioRepo.findAll();
+  async generate(): Promise<PnlReport> {
+    const allEntries = await this.portfolioRepo.findAll();
     const soldOutcomes = this.getSoldOutcomes();
 
     const totalInvestment = allEntries.reduce((sum, e) => sum + e.acquisitionCost, 0);

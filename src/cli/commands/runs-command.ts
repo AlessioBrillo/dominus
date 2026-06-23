@@ -21,7 +21,7 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
     .option('-k, --keywords <keywords>', 'Comma-separated keywords to evaluate as .com names')
     .option('-b, --brandable <domains>', 'Comma-separated brandable domain names')
     .option('-c, --closeout <domains>', 'Comma-separated closeout/expired domain names')
-    .action((options: { keywords?: string; brandable?: string; closeout?: string }) => {
+    .action(async (options: { keywords?: string; brandable?: string; closeout?: string }) => {
       if (!deps.jobQueueService) {
         process.stderr.write(
           'Error: Job queue is not available. Set WORKER_ENABLED=true in environment.\n',
@@ -45,13 +45,12 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
           .filter(Boolean),
       };
 
-      void deps.jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
-        process.stdout.write(`\nPipeline submitted asynchronously.\n`);
-        process.stdout.write(`  Run ID:  ${runId}\n`);
-        process.stdout.write(`  Job ID:  ${jobId}\n`);
-        process.stdout.write(`\nTrack progress:\n`);
-        process.stdout.write(`  dominus runs show ${runId}\n`);
-      });
+      const { jobId, runId } = await deps.jobQueueService.enqueuePipelineRun(input);
+      process.stdout.write(`\nPipeline submitted asynchronously.\n`);
+      process.stdout.write(`  Run ID:  ${runId}\n`);
+      process.stdout.write(`  Job ID:  ${jobId}\n`);
+      process.stdout.write(`\nTrack progress:\n`);
+      process.stdout.write(`  dominus runs show ${runId}\n`);
     });
 
   runs
@@ -70,9 +69,9 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
 
       process.stdout.write(`Waiting for pipeline run ${runId}...\n`);
 
-      const poll = setInterval(() => {
+      const poll = setInterval(async () => {
         if (!deps.runsRepo) return;
-        const run = deps.runsRepo.findById(runId);
+        const run = await deps.runsRepo.findById(runId);
         if (run === null) {
           process.stdout.write(`\nPipeline run ${runId} not found yet (still queued?).\n`);
           return;
@@ -105,11 +104,11 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
     .option('--since <iso>', 'Only show runs started at or after this ISO-8601 timestamp')
     .option('--limit <n>', 'Cap the number of rows', (v: string) => Number.parseInt(v, 10))
     .option('--json', 'Emit JSON instead of a human-readable table', false)
-    .action((options: { since?: string; limit?: number; json: boolean }) => {
+    .action(async (options: { since?: string; limit?: number; json: boolean }) => {
       const opts: { since?: string; limit?: number } = {};
       if (options.since !== undefined) opts.since = options.since;
       if (options.limit !== undefined) opts.limit = options.limit;
-      const rows = deps.runsRepo.findAll(opts);
+      const rows = await deps.runsRepo.findAll(opts);
       if (rows.length === 0) {
         if (options.json) {
           process.stdout.write('[]\n');
@@ -129,8 +128,8 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
     .command('show <runId>')
     .description('Show one pipeline run with its full stage + result summary')
     .option('--json', 'Emit JSON instead of a human-readable table', false)
-    .action((runId: string, options: { json: boolean }) => {
-      const row = deps.runsRepo.findById(runId);
+    .action(async (runId: string, options: { json: boolean }) => {
+      const row = await deps.runsRepo.findById(runId);
       if (row === null) {
         process.stderr.write(`No pipeline run with id ${runId}\n`);
         process.exit(1);
@@ -146,16 +145,16 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
     .command('prune')
     .description('Delete pipeline_runs rows whose retained_until has passed (idempotent)')
     .option('--dry-run', 'Print how many rows would be deleted without writing', false)
-    .action((options: { dryRun: boolean }) => {
-      const before = deps.runsRepo.count();
+    .action(async (options: { dryRun: boolean }) => {
+      const before = await deps.runsRepo.count();
       if (options.dryRun) {
         process.stdout.write(
           `Would prune runs whose retained_until < now (${before} total rows remain in table).\n`,
         );
         return;
       }
-      const deleted = deps.runsRepo.prune();
-      const after = deps.runsRepo.count();
+      const deleted = await deps.runsRepo.prune();
+      const after = await deps.runsRepo.count();
       process.stdout.write(`Pruned ${deleted} pipeline run(s). ${after} row(s) remain.\n`);
     });
 }

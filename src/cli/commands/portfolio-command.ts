@@ -19,8 +19,8 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
   portfolio
     .command('list')
     .description('List all portfolio domains with renewal status')
-    .action(() => {
-      const summaries = manager.list();
+    .action(async () => {
+      const summaries = await manager.list();
       if (summaries.length === 0) {
         process.stdout.write('Portfolio is empty.\n');
         return;
@@ -35,8 +35,8 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
   portfolio
     .command('verdicts')
     .description('Refresh keep/drop/reprice verdicts for all portfolio domains')
-    .action(() => {
-      manager.refreshVerdicts();
+    .action(async () => {
+      await manager.refreshVerdicts();
       process.stdout.write('Verdicts refreshed.\n');
     });
 
@@ -46,14 +46,14 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
     .argument('<domain>', 'Domain to update')
     .option('--acquisition-cost <eur>', 'New acquisition cost in EUR', parseFloat)
     .option('--renewal-cost <eur>', 'New annual renewal cost in EUR', parseFloat)
-    .action((domain: string, options: { acquisitionCost?: number; renewalCost?: number }) => {
+    .action(async (domain: string, options: { acquisitionCost?: number; renewalCost?: number }) => {
       if (options.acquisitionCost === undefined && options.renewalCost === undefined) {
         process.stderr.write('Specify at least --acquisition-cost or --renewal-cost.\n');
         process.exit(1);
         return;
       }
       try {
-        manager.updateCosts(domain, options.acquisitionCost, options.renewalCost);
+        await manager.updateCosts(domain, options.acquisitionCost, options.renewalCost);
         process.stdout.write(`Costs updated for ${domain}.\n`);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -69,8 +69,8 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
     )
     .option('--quiet', 'Suppress per-domain output, print only the summary', false)
     .option('--async', 'Enqueue via job queue and return immediately', false)
-    .action((options: { quiet: boolean; async: boolean }) => {
-      const portfolioEntries = manager.list();
+    .action(async (options: { quiet: boolean; async: boolean }) => {
+      const portfolioEntries = await manager.list();
       if (portfolioEntries.length === 0) {
         process.stdout.write('Portfolio is empty — nothing to rescore.\n');
         return;
@@ -85,57 +85,53 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
           return;
         }
 
-        void jobQueueService.enqueuePortfolioRescore().then((jobId) => {
-          process.stdout.write(`\nRescore enqueued as job ${jobId}.\n`);
-          process.stdout.write('Run `dominus scheduler status` to track progress.\n');
-        });
+        const jobId = await jobQueueService.enqueuePortfolioRescore();
+        process.stdout.write(`\nRescore enqueued as job ${jobId}.\n`);
+        process.stdout.write('Run `dominus scheduler status` to track progress.\n');
         return;
       }
 
       process.stdout.write(`Re-scoring ${portfolioEntries.length} portfolio domain(s)…\n`);
 
-      return manager.rescoreAll().then((summary) => {
-        let ok = 0;
-        let blocked = 0;
-        let errored = 0;
+      const summary = await manager.rescoreAll();
+      let ok = 0;
+      let blocked = 0;
+      let errored = 0;
 
-        if (!options.quiet) {
-          process.stdout.write('\n');
-          for (const r of summary.results) {
-            const tm =
-              r.trademarkVerdict === GateVerdict.Clear
-                ? 'TM:clear'
-                : r.trademarkVerdict === GateVerdict.Blocked
-                  ? `TM:blocked(${r.matchedMark ?? '?'})`
-                  : 'TM:unverified';
+      if (!options.quiet) {
+        process.stdout.write('\n');
+        for (const r of summary.results) {
+          const tm =
+            r.trademarkVerdict === GateVerdict.Clear
+              ? 'TM:clear'
+              : r.trademarkVerdict === GateVerdict.Blocked
+                ? `TM:blocked(${r.matchedMark ?? '?'})`
+                : 'TM:unverified';
 
-            if (r.error !== undefined) {
-              errored++;
-              process.stdout.write(`  ${r.domain.padEnd(30)} ERROR  ${r.error}\n`);
-            } else if (!r.trademarkClear && r.trademarkVerdict === GateVerdict.Blocked) {
-              blocked++;
-              process.stdout.write(
-                `  ${r.domain.padEnd(30)} score: ${String(r.calibratedScore).padStart(3)}  list: €${r.suggestedListPrice.toFixed(0).padStart(5)}  ${tm}\n`,
-              );
-            } else {
-              ok++;
-              process.stdout.write(
-                `  ${r.domain.padEnd(30)} score: ${String(r.calibratedScore).padStart(3)}  list: €${r.suggestedListPrice.toFixed(0).padStart(5)}  ${tm}\n`,
-              );
-            }
+          if (r.error !== undefined) {
+            errored++;
+            process.stdout.write(`  ${r.domain.padEnd(30)} ERROR  ${r.error}\n`);
+          } else if (!r.trademarkClear && r.trademarkVerdict === GateVerdict.Blocked) {
+            blocked++;
+            process.stdout.write(
+              `  ${r.domain.padEnd(30)} score: ${String(r.calibratedScore).padStart(3)}  list: €${r.suggestedListPrice.toFixed(0).padStart(5)}  ${tm}\n`,
+            );
+          } else {
+            ok++;
+            process.stdout.write(
+              `  ${r.domain.padEnd(30)} score: ${String(r.calibratedScore).padStart(3)}  list: €${r.suggestedListPrice.toFixed(0).padStart(5)}  ${tm}\n`,
+            );
           }
-        } else {
-          ok = summary.results.filter((r) => r.error === undefined && r.trademarkClear).length;
-          blocked = summary.results.filter(
-            (r) => r.trademarkVerdict === GateVerdict.Blocked,
-          ).length;
-          errored = summary.results.filter((r) => r.error !== undefined).length;
         }
+      } else {
+        ok = summary.results.filter((r) => r.error === undefined && r.trademarkClear).length;
+        blocked = summary.results.filter((r) => r.trademarkVerdict === GateVerdict.Blocked).length;
+        errored = summary.results.filter((r) => r.error !== undefined).length;
+      }
 
-        process.stdout.write(
-          `\nRescore complete in ${summary.totalDurationMs}ms — ${ok} cleared, ${blocked} TM-blocked, ${errored} errored. Verdicts refreshed.\n`,
-        );
-      });
+      process.stdout.write(
+        `\nRescore complete in ${summary.totalDurationMs}ms — ${ok} cleared, ${blocked} TM-blocked, ${errored} errored. Verdicts refreshed.\n`,
+      );
     });
 
   // ── Alerts subcommands ──────────────────────────────────────────────
@@ -148,12 +144,12 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
     .option('--domain <domain>', 'Filter by domain')
     .option('--unacknowledged', 'Show only unacknowledged alerts', false)
     .option('--json', 'Emit JSON instead of a human-readable table', false)
-    .action((options: { domain?: string; unacknowledged: boolean; json: boolean }) => {
+    .action(async (options: { domain?: string; unacknowledged: boolean; json: boolean }) => {
       if (!alertRepo) {
         process.stderr.write('Alert repository not available.\n');
         return;
       }
-      const alertsList = alertRepo.findAll(options.domain, options.unacknowledged);
+      const alertsList = await alertRepo.findAll(options.domain, options.unacknowledged);
       if (alertsList.length === 0) {
         if (options.json) {
           process.stdout.write('[]\n');
@@ -189,16 +185,16 @@ export function registerPortfolioCommand(program: Command, deps: PortfolioComman
     .option('--id <n>', 'Alert ID to acknowledge', (v: string) => Number.parseInt(v, 10))
     .option('--domain <domain>', 'Acknowledge all alerts for a domain')
     .option('--all', 'Acknowledge every unacknowledged alert', false)
-    .action((options: { id?: number; domain?: string; all: boolean }) => {
+    .action(async (options: { id?: number; domain?: string; all: boolean }) => {
       if (!alertRepo) {
         process.stderr.write('Alert repository not available.\n');
         return;
       }
       if (options.id !== undefined) {
-        alertRepo.acknowledge(options.id);
+        await alertRepo.acknowledge(options.id);
         process.stdout.write(`Alert ${options.id} acknowledged.\n`);
       } else if (options.all) {
-        const n = alertRepo.acknowledgeAll(options.domain);
+        const n = await alertRepo.acknowledgeAll(options.domain);
         process.stdout.write(`${n} alert(s) acknowledged.\n`);
       } else {
         process.stderr.write('Specify --id <n>, --domain, or --all.\n');

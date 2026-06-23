@@ -22,8 +22,8 @@ export interface ScoringRow {
 export class ScoringRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  insert(candidateId: number, runId: string, result: ScoreResult): void {
-    this.db.exec(
+  async insert(candidateId: number, runId: string, result: ScoreResult): Promise<void> {
+    await this.db.exec(
       `INSERT INTO scoring_runs
        (candidate_id, run_id, expected_value, confidence, suggested_buy_max,
         suggested_list_price, intrinsic_score, commercial_score, market_score,
@@ -47,8 +47,8 @@ export class ScoringRepository {
     );
   }
 
-  findLatestByCandidate(candidateId: number): ScoringRow | null {
-    return this.db.queryOne<ScoringRow>(
+  async findLatestByCandidate(candidateId: number): Promise<ScoringRow | null> {
+    return await this.db.queryOne<ScoringRow>(
       'SELECT * FROM scoring_runs WHERE candidate_id = ? ORDER BY scored_at DESC LIMIT 1',
       [candidateId],
     );
@@ -64,8 +64,8 @@ export class ScoringRepository {
    * by many candidates in the same pipeline run, and `run_id` alone is
    * not a unique key on this table.
    */
-  findByRunId(runId: string, candidateId: number): ScoringRow | null {
-    return this.db.queryOne<ScoringRow>(
+  async findByRunId(runId: string, candidateId: number): Promise<ScoringRow | null> {
+    return await this.db.queryOne<ScoringRow>(
       'SELECT * FROM scoring_runs WHERE run_id = ? AND candidate_id = ? ORDER BY id DESC LIMIT 1',
       [runId, candidateId],
     );
@@ -80,8 +80,8 @@ export class ScoringRepository {
    * PortfolioRescoreService.pruneRetention). Uses a LIKE filter so
    * the caller controls the prefix scope.
    */
-  pruneByRunIdPrefix(prefix: string, scoredBefore: string): number {
-    const info = this.db.exec(
+  async pruneByRunIdPrefix(prefix: string, scoredBefore: string): Promise<number> {
+    const info = await this.db.exec(
       `DELETE FROM scoring_runs
         WHERE run_id LIKE ?
           AND scored_at < ?`,

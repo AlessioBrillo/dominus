@@ -13,11 +13,11 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function makeStartedRun(
+async function makeStartedRun(
   repo: PipelineRunsRepository,
   overrides: { runId?: string; startedAt?: string; retainedUntil?: string } = {},
-): void {
-  repo.insert({
+): Promise<void> {
+  await repo.insert({
     runId: overrides.runId ?? `run-${Math.random().toString(36).slice(2, 10)}`,
     startedAt: overrides.startedAt ?? '2026-06-07T10:00:00.000Z',
     hostVersion: '0.1.0',
@@ -35,9 +35,9 @@ describe('PipelineRunsRepository', () => {
   });
 
   describe('insert + findById', () => {
-    it('persists a started run with empty defaults', () => {
+    it('persists a started run with empty defaults', async () => {
       // Act
-      const run = repo.insert({
+      const run = await repo.insert({
         runId: 'run-001',
         startedAt: '2026-06-07T10:00:00.000Z',
         hostVersion: '0.1.0',
@@ -66,7 +66,7 @@ describe('PipelineRunsRepository', () => {
       });
     });
 
-    it('round-trips a run with full payload', () => {
+    it('round-trips a run with full payload', async () => {
       // Arrange
       const full = {
         runId: 'run-full',
@@ -88,23 +88,23 @@ describe('PipelineRunsRepository', () => {
       };
 
       // Act
-      repo.insert(full);
-      const round = repo.findById('run-full');
+      await repo.insert(full);
+      const round = await repo.findById('run-full');
 
       // Assert
       expect(round).toEqual(full);
     });
 
-    it('returns null for an unknown runId', () => {
+    it('returns null for an unknown runId', async () => {
       // Act + Assert
-      expect(repo.findById('does-not-exist')).toBeNull();
+      expect(await repo.findById('does-not-exist')).toBeNull();
     });
   });
 
   describe('complete', () => {
-    it('marks a run as finished with summary and error', () => {
+    it('marks a run as finished with summary and error', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'run-002' });
+      await makeStartedRun(repo, { runId: 'run-002' });
 
       const completion: CompletePipelineRunInput = {
         finishedAt: '2026-06-07T10:00:05.000Z',
@@ -123,7 +123,7 @@ describe('PipelineRunsRepository', () => {
       };
 
       // Act
-      const updated = repo.complete('run-002', completion);
+      const updated = await repo.complete('run-002', completion);
 
       // Assert
       expect(updated).not.toBeNull();
@@ -134,12 +134,12 @@ describe('PipelineRunsRepository', () => {
       expect(updated?.error).toBeNull();
     });
 
-    it('records an error message when the run failed', () => {
+    it('records an error message when the run failed', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'run-fail' });
+      await makeStartedRun(repo, { runId: 'run-fail' });
 
       // Act
-      const updated = repo.complete('run-fail', {
+      const updated = await repo.complete('run-fail', {
         finishedAt: '2026-06-07T10:00:01.000Z',
         totalDurationMs: 1000,
         stageSummary: {},
@@ -157,10 +157,10 @@ describe('PipelineRunsRepository', () => {
       expect(updated?.error).toBe('EUIPO credentials missing');
     });
 
-    it('returns null when completing an unknown runId', () => {
+    it('returns null when completing an unknown runId', async () => {
       // Act + Assert
       expect(
-        repo.complete('ghost', {
+        await repo.complete('ghost', {
           finishedAt: '2026-06-07T10:00:01.000Z',
           totalDurationMs: 1,
           stageSummary: {},
@@ -177,27 +177,28 @@ describe('PipelineRunsRepository', () => {
   });
 
   describe('findAll', () => {
-    it('returns runs in descending started_at order', () => {
+    it('returns runs in descending started_at order', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'a', startedAt: '2026-06-07T08:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'b', startedAt: '2026-06-07T10:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'c', startedAt: '2026-06-07T09:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'a', startedAt: '2026-06-07T08:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'b', startedAt: '2026-06-07T10:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'c', startedAt: '2026-06-07T09:00:00.000Z' });
 
       // Act
-      const ids = repo.findAll().map((r) => r.runId);
+      const runs = await repo.findAll();
+      const ids = runs.map((r) => r.runId);
 
       // Assert
       expect(ids).toEqual(['b', 'c', 'a']);
     });
 
-    it('honors since and until date filters', () => {
+    it('honors since and until date filters', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'a', startedAt: '2026-06-01T10:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'b', startedAt: '2026-06-07T10:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'c', startedAt: '2026-06-15T10:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'a', startedAt: '2026-06-01T10:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'b', startedAt: '2026-06-07T10:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'c', startedAt: '2026-06-15T10:00:00.000Z' });
 
       // Act
-      const inJune = repo.findAll({
+      const inJune = await repo.findAll({
         since: '2026-06-01T00:00:00.000Z',
         until: '2026-06-30T23:59:59.999Z',
       });
@@ -206,87 +207,87 @@ describe('PipelineRunsRepository', () => {
       expect(inJune.map((r) => r.runId).sort()).toEqual(['a', 'b', 'c']);
     });
 
-    it('respects the limit option', () => {
+    it('respects the limit option', async () => {
       // Arrange
       for (let i = 0; i < 5; i++) {
-        makeStartedRun(repo, { runId: `r${i}`, startedAt: `2026-06-07T10:0${i}:00.000Z` });
+        await makeStartedRun(repo, { runId: `r${i}`, startedAt: `2026-06-07T10:0${i}:00.000Z` });
       }
 
       // Act
-      const limited = repo.findAll({ limit: 3 });
+      const limited = await repo.findAll({ limit: 3 });
 
       // Assert
       expect(limited).toHaveLength(3);
     });
 
-    it('returns an empty array when no runs are recorded', () => {
+    it('returns an empty array when no runs are recorded', async () => {
       // Act + Assert
-      expect(repo.findAll()).toEqual([]);
+      expect(await repo.findAll()).toEqual([]);
     });
   });
 
   describe('prune', () => {
-    it('removes runs whose retained_until is in the past', () => {
+    it('removes runs whose retained_until is in the past', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'old', retainedUntil: '2026-01-01T00:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'fresh', retainedUntil: '2027-01-01T00:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'old', retainedUntil: '2026-01-01T00:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'fresh', retainedUntil: '2027-01-01T00:00:00.000Z' });
 
       // Act
-      const deleted = repo.prune('2026-06-07T00:00:00.000Z');
+      const deleted = await repo.prune('2026-06-07T00:00:00.000Z');
 
       // Assert
       expect(deleted).toBe(1);
-      expect(repo.findById('old')).toBeNull();
-      expect(repo.findById('fresh')).not.toBeNull();
+      expect(await repo.findById('old')).toBeNull();
+      expect(await repo.findById('fresh')).not.toBeNull();
     });
 
-    it('is idempotent on a second call with the same threshold', () => {
+    it('is idempotent on a second call with the same threshold', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'old', retainedUntil: '2026-01-01T00:00:00.000Z' });
-      repo.prune('2026-06-07T00:00:00.000Z');
+      await makeStartedRun(repo, { runId: 'old', retainedUntil: '2026-01-01T00:00:00.000Z' });
+      await repo.prune('2026-06-07T00:00:00.000Z');
 
       // Act
-      const secondDelete = repo.prune('2026-06-07T00:00:00.000Z');
+      const secondDelete = await repo.prune('2026-06-07T00:00:00.000Z');
 
       // Assert
       expect(secondDelete).toBe(0);
     });
 
-    it('does not remove runs whose retained_until equals now', () => {
+    it('does not remove runs whose retained_until equals now', async () => {
       // Arrange — `retained_until < now` is strict, equal is kept
-      makeStartedRun(repo, { runId: 'boundary', retainedUntil: '2026-06-07T00:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'boundary', retainedUntil: '2026-06-07T00:00:00.000Z' });
 
       // Act
-      const deleted = repo.prune('2026-06-07T00:00:00.000Z');
+      const deleted = await repo.prune('2026-06-07T00:00:00.000Z');
 
       // Assert
       expect(deleted).toBe(0);
-      expect(repo.findById('boundary')).not.toBeNull();
+      expect(await repo.findById('boundary')).not.toBeNull();
     });
   });
 
   describe('pruneBefore', () => {
-    it('removes runs started before the cutoff', () => {
+    it('removes runs started before the cutoff', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'old', startedAt: '2026-01-01T00:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'recent', startedAt: '2026-06-07T10:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'old', startedAt: '2026-01-01T00:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'recent', startedAt: '2026-06-07T10:00:00.000Z' });
 
       // Act
-      const deleted = repo.pruneBefore('2026-06-01T00:00:00.000Z');
+      const deleted = await repo.pruneBefore('2026-06-01T00:00:00.000Z');
 
       // Assert
       expect(deleted).toBe(1);
-      expect(repo.findById('old')).toBeNull();
-      expect(repo.findById('recent')).not.toBeNull();
+      expect(await repo.findById('old')).toBeNull();
+      expect(await repo.findById('recent')).not.toBeNull();
     });
 
-    it('is idempotent on a second call', () => {
+    it('is idempotent on a second call', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'old', startedAt: '2025-01-01T00:00:00.000Z' });
-      repo.pruneBefore('2026-06-01T00:00:00.000Z');
+      await makeStartedRun(repo, { runId: 'old', startedAt: '2025-01-01T00:00:00.000Z' });
+      await repo.pruneBefore('2026-06-01T00:00:00.000Z');
 
       // Act
-      const second = repo.pruneBefore('2026-06-01T00:00:00.000Z');
+      const second = await repo.pruneBefore('2026-06-01T00:00:00.000Z');
 
       // Assert
       expect(second).toBe(0);
@@ -294,13 +295,13 @@ describe('PipelineRunsRepository', () => {
   });
 
   describe('countBefore', () => {
-    it('counts runs started before the cutoff', () => {
+    it('counts runs started before the cutoff', async () => {
       // Arrange
-      makeStartedRun(repo, { runId: 'old', startedAt: '2025-01-01T00:00:00.000Z' });
-      makeStartedRun(repo, { runId: 'recent', startedAt: '2026-06-07T10:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'old', startedAt: '2025-01-01T00:00:00.000Z' });
+      await makeStartedRun(repo, { runId: 'recent', startedAt: '2026-06-07T10:00:00.000Z' });
 
       // Act
-      const n = repo.countBefore('2026-06-01T00:00:00.000Z');
+      const n = await repo.countBefore('2026-06-01T00:00:00.000Z');
 
       // Assert
       expect(n).toBe(1);
@@ -308,14 +309,14 @@ describe('PipelineRunsRepository', () => {
   });
 
   describe('count', () => {
-    it('reports the number of runs in the table', () => {
+    it('reports the number of runs in the table', async () => {
       // Arrange
-      makeStartedRun(repo);
-      makeStartedRun(repo);
-      makeStartedRun(repo);
+      await makeStartedRun(repo);
+      await makeStartedRun(repo);
+      await makeStartedRun(repo);
 
       // Act + Assert
-      expect(repo.count()).toBe(3);
+      expect(await repo.count()).toBe(3);
     });
   });
 });

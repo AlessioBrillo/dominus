@@ -28,11 +28,11 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
     logger.info({ maxAgeDays }, 'PruneHandler: starting prune');
 
     const cutoff = new Date(Date.now() - maxAgeDays * 86400000).toISOString();
-    const deletedCandidates = this.deps.candidateRepo.pruneRescoreCandidates(cutoff);
-    const deletedScoringRuns = this.deps.scoringRepo.pruneByRunIdPrefix('rescore_', cutoff);
-    const deletedPipelineRuns = this.deps.pipelineRunsRepo.pruneBefore(cutoff);
-    const deletedProviderCache = this.deps.providerCacheRepo.pruneExpired();
-    const deletedJobQueue = this.deps.jobQueueRepo.deleteCompleted(7);
+    const deletedCandidates = await this.deps.candidateRepo.pruneRescoreCandidates(cutoff);
+    const deletedScoringRuns = await this.deps.scoringRepo.pruneByRunIdPrefix('rescore_', cutoff);
+    const deletedPipelineRuns = await this.deps.pipelineRunsRepo.pruneBefore(cutoff);
+    const deletedProviderCache = await this.deps.providerCacheRepo.pruneExpired();
+    const deletedJobQueue = await this.deps.jobQueueRepo.deleteCompleted(7);
     const deletedWaybackCache = this.deps.db
       ? this.deps.db.prepare("DELETE FROM wayback_cache WHERE expires_at < datetime('now')").run()
           .changes

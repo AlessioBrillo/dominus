@@ -30,75 +30,78 @@ export interface JobQueueService {
   enqueueRenewalCheck(): Promise<string>;
   enqueueWeightTune(): Promise<string>;
   getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null>;
-  getQueueStats(): JobQueueStats;
+  getQueueStats(): Promise<JobQueueStats>;
   listJobs(options?: {
     status?: string;
     jobType?: string;
     limit?: number;
     offset?: number;
-  }): JobQueueRow[];
-  getDeadLetter(options?: { limit?: number; offset?: number }): DeadLetterJobRow[];
-  retryDeadLetter(deadLetterId: number): number | null;
-  deleteCompletedJobs(olderThanDays?: number): number;
-  deleteDeadLetterJobs(olderThanDays?: number): number;
+  }): Promise<JobQueueRow[]>;
+  getDeadLetter(options?: { limit?: number; offset?: number }): Promise<DeadLetterJobRow[]>;
+  retryDeadLetter(deadLetterId: number): Promise<number | null>;
+  deleteCompletedJobs(olderThanDays?: number): Promise<number>;
+  deleteDeadLetterJobs(olderThanDays?: number): Promise<number>;
 }
 
 export function createJobQueueService(db: Database.Database): JobQueueService {
   const provider = new SqliteProvider(db);
   const repo = new JobQueueRepository(provider);
 
-  function enqueue(
+  async function enqueue(
     jobType: JobType,
     payload: JobPayload,
     options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
-  ): string {
-    const jobId = repo.enqueue(jobType, payload, options);
+  ): Promise<string> {
+    const jobId = await repo.enqueue(jobType, payload, options);
     logger.info({ jobId, jobType }, 'Job enqueued');
     return String(jobId);
   }
 
   return {
-    enqueuePipelineRun(input: CandidateGenerationInput, runId?: string): Promise<EnqueueResult> {
+    async enqueuePipelineRun(
+      input: CandidateGenerationInput,
+      runId?: string,
+    ): Promise<EnqueueResult> {
       const id = runId ?? generateRunId();
       const payload: PipelineRunPayload = {
         candidateGenerationInput: input,
         runId: id,
       };
-      const jobId = enqueue('PIPELINE_RUN', payload, { priority: 10 });
-      return Promise.resolve({ jobId, runId: id });
+      const jobId = await enqueue('PIPELINE_RUN', payload, { priority: 10 });
+      return { jobId, runId: id };
     },
 
-    enqueuePortfolioRescore(domain?: string): Promise<string> {
-      return Promise.resolve(enqueue('PORTFOLIO_RESCORE', { domain }, { priority: 5 }));
+    async enqueuePortfolioRescore(domain?: string): Promise<string> {
+      return enqueue('PORTFOLIO_RESCORE', { domain }, { priority: 5 });
     },
 
-    enqueueBacktestBuild(minSampleSize?: number): Promise<string> {
-      return Promise.resolve(enqueue('BACKTEST_BUILD', { minSampleSize }, { priority: 0 }));
+    async enqueueBacktestBuild(minSampleSize?: number): Promise<string> {
+      return enqueue('BACKTEST_BUILD', { minSampleSize }, { priority: 0 });
     },
 
-    enqueueBackup(retentionDays?: number): Promise<string> {
-      return Promise.resolve(enqueue('BACKUP', { retentionDays }, { priority: 0 }));
+    async enqueueBackup(retentionDays?: number): Promise<string> {
+      return enqueue('BACKUP', { retentionDays }, { priority: 0 });
     },
 
-    enqueuePrune(maxAgeDays?: number): Promise<string> {
-      return Promise.resolve(enqueue('PRUNE', { maxAgeDays }, { priority: 0 }));
+    async enqueuePrune(maxAgeDays?: number): Promise<string> {
+      return enqueue('PRUNE', { maxAgeDays }, { priority: 0 });
     },
 
-    enqueueWatchlistPoll(): Promise<string> {
-      return Promise.resolve(enqueue('WATCHLIST_POLL', {}, { priority: 0 }));
+    async enqueueWatchlistPoll(): Promise<string> {
+      return enqueue('WATCHLIST_POLL', {}, { priority: 0 });
     },
 
-    enqueueRenewalCheck(): Promise<string> {
-      return Promise.resolve(enqueue('RENEWAL_CHECK', {}, { priority: 0 }));
+    async enqueueRenewalCheck(): Promise<string> {
+      return enqueue('RENEWAL_CHECK', {}, { priority: 0 });
     },
 
-    enqueueWeightTune(): Promise<string> {
-      return Promise.resolve(enqueue('WEIGHT_TUNE', {}, { priority: 0 }));
+    async enqueueWeightTune(): Promise<string> {
+      return enqueue('WEIGHT_TUNE', {}, { priority: 0 });
     },
 
-    getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {
-      const job = repo.getById(jobId);
-      if (!job) return Promise.resolve(null);
+    async getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {
+      const job = await repo.getById(jobId);
+      if (!job) return null;
 
       let parsed: JobResult | undefined;
       if (job.resultJson) {
@@ -108,37 +111,38 @@ export function createJobQueueService(db: Database.Database): JobQueueService {
           // ignore parse errors
         }
       }
-      const status: { job: JobQueueRow; result?: JobResult } =
-        parsed === undefined ? { job } : { job, result: parsed };
-      return Promise.resolve(status);
+      return parsed === undefined ? { job } : { job, result: parsed };
     },
 
-    getQueueStats(): JobQueueStats {
+    async getQueueStats(): Promise<JobQueueStats> {
       return repo.getStats();
     },
 
-    listJobs(options?: {
+    async listJobs(options?: {
       status?: string;
       jobType?: string;
       limit?: number;
       offset?: number;
-    }): JobQueueRow[] {
+    }): Promise<JobQueueRow[]> {
       return repo.list(options);
     },
 
-    getDeadLetter(options?: { limit?: number; offset?: number }): DeadLetterJobRow[] {
+    async getDeadLetter(options?: {
+      limit?: number;
+      offset?: number;
+    }): Promise<DeadLetterJobRow[]> {
       return repo.getDeadLetter(options);
     },
 
-    retryDeadLetter(deadLetterId: number): number | null {
+    async retryDeadLetter(deadLetterId: number): Promise<number | null> {
       return repo.retryDeadLetter(deadLetterId);
     },
 
-    deleteCompletedJobs(olderThanDays?: number): number {
+    async deleteCompletedJobs(olderThanDays?: number): Promise<number> {
       return repo.deleteCompleted(olderThanDays);
     },
 
-    deleteDeadLetterJobs(olderThanDays?: number): number {
+    async deleteDeadLetterJobs(olderThanDays?: number): Promise<number> {
       return repo.deleteDeadLetter(olderThanDays);
     },
   };

@@ -53,7 +53,7 @@ export class AutoWeightTuner {
     this.#notifiers = notifiers;
   }
 
-  tune(): AutoTuneOutcome {
+  async tune(): Promise<AutoTuneOutcome> {
     const tunedAt = new Date().toISOString();
     const warnings: string[] = [];
 
@@ -67,10 +67,10 @@ export class AutoWeightTuner {
     }
 
     // 1. Snapshot backtest signals
-    const snapshot = this.backtestEngine.snapshot();
+    const snapshot = await this.backtestEngine.snapshot();
 
     // 2. Run weight suggester
-    const suggestionReport = this.weightSuggester.suggest();
+    const suggestionReport = await this.weightSuggester.suggest();
     if (suggestionReport.warnings.length > 0) {
       warnings.push(...suggestionReport.warnings);
     }
@@ -143,7 +143,7 @@ export class AutoWeightTuner {
 
     // 5. Record in weight_snapshots (always — even dry runs)
     const newWeights = this.resolveNewWeights(suggestionReport, safetyPassed);
-    const record = this.weightSnapshotRepo.insert({
+    const record = await this.weightSnapshotRepo.insert({
       intrinsic: newWeights.intrinsic,
       commercial: newWeights.commercial,
       market: newWeights.market,

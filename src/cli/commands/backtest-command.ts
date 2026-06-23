@@ -70,9 +70,9 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .description(
       'Rebuild the backtest_signals table from current outcomes and scoring_runs (idempotent)',
     )
-    .action(() => {
+    .action(async () => {
       const engine = makeEngine();
-      const summary = engine.snapshot();
+      const summary = await engine.snapshot();
       process.stdout.write(
         `Snapshot: scanned ${summary.scanned} sold outcomes, ` +
           `inserted ${summary.inserted}, skipped ${summary.skipped}\n`,
@@ -83,9 +83,9 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .command('report')
     .description('Aggregate the backtest_signals table into MAE, bias, and per-bucket calibration')
     .option('--json', 'emit machine-readable JSON instead of a human report', false)
-    .action((options: { json: boolean }) => {
+    .action(async (options: { json: boolean }) => {
       const engine = makeEngine();
-      const report = engine.report();
+      const report = await engine.report();
       if (options.json) {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
         return;
@@ -98,14 +98,14 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .description('Snapshot the backtest_signals table, then print the aggregated report')
     .option('--json', 'emit machine-readable JSON instead of a human report', false)
     .option('--no-snapshot', 'skip the snapshot step and report on the existing table')
-    .action((options: { json: boolean; snapshot: boolean }) => {
+    .action(async (options: { json: boolean; snapshot: boolean }) => {
       const engine = makeEngine();
       let snapshotNote = '';
       if (options.snapshot) {
-        const summary = engine.snapshot();
+        const summary = await engine.snapshot();
         snapshotNote = `Snapshot: scanned ${summary.scanned}, inserted ${summary.inserted}, skipped ${summary.skipped}\n\n`;
       }
-      const report = engine.report();
+      const report = await engine.report();
       if (options.json) {
         process.stdout.write(`${JSON.stringify({ snapshot: snapshotNote, report }, null, 2)}\n`);
         return;
@@ -125,9 +125,9 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
       'persist the suggestion to data/weights-override.json (no auto-activation)',
       false,
     )
-    .action((options: { json: boolean; apply: boolean }) => {
+    .action(async (options: { json: boolean; apply: boolean }) => {
       const suggester = makeSuggester();
-      const report = suggester.suggest();
+      const report = await suggester.suggest();
       if (options.json) {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
       } else {
@@ -174,7 +174,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .command('auto-tune')
     .description('Run the closed-loop weight tuning cycle (backtest + safety + apply)')
     .option('--dry-run', 'preview only — do not write override file', undefined)
-    .action((_options: { dryRun?: boolean }) => {
+    .action(async (_options: { dryRun?: boolean }) => {
       const tuner = makeAutoTuner();
       if (!tuner) {
         process.stderr.write(
@@ -182,7 +182,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
         );
         process.exit(1);
       }
-      const outcome = tuner.tune();
+      const outcome = await tuner.tune();
       process.stdout.write(formatAutoTuneOutcome(outcome));
     });
 }

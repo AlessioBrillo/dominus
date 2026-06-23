@@ -51,8 +51,8 @@ function rowToBid(row: BidRow): Bid {
 export class AcquisitionRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  insert(input: PlaceBidInput): Bid {
-    const result = this.db.exec(
+  async insert(input: PlaceBidInput): Promise<Bid> {
+    const result = await this.db.exec(
       `INSERT INTO bids
        (domain, venue, bid_amount_eur, max_bid_eur, status,
         expected_value_at_bid, confidence_at_bid,
@@ -73,49 +73,49 @@ export class AcquisitionRepository {
       ],
     );
     const id = result.lastInsertRowid as number;
-    const row = this.db.queryOne<BidRow>('SELECT * FROM bids WHERE id = ?', [id]);
+    const row = await this.db.queryOne<BidRow>('SELECT * FROM bids WHERE id = ?', [id]);
     return rowToBid(row!);
   }
 
-  findPending(): Bid[] {
-    const rows = this.db.query<BidRow>(
+  async findPending(): Promise<Bid[]> {
+    const rows = await this.db.query<BidRow>(
       'SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at ASC',
       [BidStatus.Pending],
     );
     return rows.map(rowToBid);
   }
 
-  findByDomain(domain: string): Bid | null {
-    const row = this.db.queryOne<BidRow>(
+  async findByDomain(domain: string): Promise<Bid | null> {
+    const row = await this.db.queryOne<BidRow>(
       'SELECT * FROM bids WHERE domain = ? ORDER BY bid_placed_at DESC LIMIT 1',
       [domain],
     );
     return row ? rowToBid(row) : null;
   }
 
-  findByStatus(status: BidStatus): Bid[] {
-    const rows = this.db.query<BidRow>(
+  async findByStatus(status: BidStatus): Promise<Bid[]> {
+    const rows = await this.db.query<BidRow>(
       'SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at DESC',
       [status],
     );
     return rows.map(rowToBid);
   }
 
-  findAll(): Bid[] {
-    const rows = this.db.query<BidRow>('SELECT * FROM bids ORDER BY bid_placed_at DESC');
+  async findAll(): Promise<Bid[]> {
+    const rows = await this.db.query<BidRow>('SELECT * FROM bids ORDER BY bid_placed_at DESC');
     return rows.map(rowToBid);
   }
 
-  resolve(
+  async resolve(
     domain: string,
     status: BidStatus.Won | BidStatus.Lost | BidStatus.Cancelled | BidStatus.Outbid,
     wonPriceEur?: number,
     notes?: string,
-  ): Bid | null {
-    const existing = this.findByDomain(domain);
+  ): Promise<Bid | null> {
+    const existing = await this.findByDomain(domain);
     if (existing === null) return null;
 
-    this.db.exec(
+    await this.db.exec(
       `UPDATE bids
        SET status = ?, won_price_eur = COALESCE(?, won_price_eur),
            resolved_at = datetime('now'), notes = COALESCE(?, notes),
@@ -124,6 +124,6 @@ export class AcquisitionRepository {
       [status, wonPriceEur ?? null, notes ?? null, existing.id],
     );
 
-    return this.findByDomain(domain);
+    return await this.findByDomain(domain);
   }
 }

@@ -100,7 +100,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     )
     .option('--dry-run', 'Print counts of rows that would be removed without writing')
     .action(
-      (options: {
+      async (options: {
         cacheOnly?: boolean;
         providerCacheOnly?: boolean;
         runsOnly?: boolean;
@@ -135,23 +135,23 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
         const retentionDays = options.before ?? 90;
 
         if (pruneProviderCache && deps.providerCacheRepo) {
-          const before = deps.providerCacheRepo.count();
+          const before = await deps.providerCacheRepo.count();
           if (options.dryRun === true) {
             process.stdout.write(`Would prune ${before} provider_cache row(s).\n`);
           } else {
-            const removed = deps.providerCacheRepo.pruneExpired();
-            const after = deps.providerCacheRepo.count();
+            const removed = await deps.providerCacheRepo.pruneExpired();
+            const after = await deps.providerCacheRepo.count();
             process.stdout.write(`Pruned ${removed} provider_cache row(s); ${after} remain.\n`);
           }
         }
 
         if (pruneCache) {
-          const before = deps.trademarkRepo.count();
+          const before = await deps.trademarkRepo.count();
           if (options.dryRun === true) {
             process.stdout.write(`Would prune ${before} trademark_results row(s).\n`);
           } else {
-            const removed = deps.trademarkRepo.pruneExpired();
-            const after = deps.trademarkRepo.count();
+            const removed = await deps.trademarkRepo.pruneExpired();
+            const after = await deps.trademarkRepo.count();
             process.stdout.write(`Pruned ${removed} trademark_results row(s); ${after} remain.\n`);
           }
         }
@@ -161,28 +161,28 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
             const cutoff = new Date(
               Date.now() - options.before * 24 * 60 * 60 * 1000,
             ).toISOString();
-            const before = deps.runsRepo.count();
+            const before = await deps.runsRepo.count();
             if (options.dryRun === true) {
-              const expired = deps.runsRepo.countBefore(cutoff);
+              const expired = await deps.runsRepo.countBefore(cutoff);
               process.stdout.write(
                 `Would prune ${expired} pipeline_runs row(s) started before ${cutoff} (${before} total rows).\n`,
               );
             } else {
-              const removed = deps.runsRepo.pruneBefore(cutoff);
-              const after = deps.runsRepo.count();
+              const removed = await deps.runsRepo.pruneBefore(cutoff);
+              const after = await deps.runsRepo.count();
               process.stdout.write(
                 `Pruned ${removed} pipeline_runs row(s) started before ${cutoff}; ${after} remain.\n`,
               );
             }
           } else {
-            const before = deps.runsRepo.count();
+            const before = await deps.runsRepo.count();
             if (options.dryRun === true) {
               process.stdout.write(
                 `Would prune pipeline_runs rows whose retained_until < now (${before} total rows).\n`,
               );
             } else {
-              const removed = deps.runsRepo.prune();
-              const after = deps.runsRepo.count();
+              const removed = await deps.runsRepo.prune();
+              const after = await deps.runsRepo.count();
               process.stdout.write(`Pruned ${removed} pipeline_runs row(s); ${after} remain.\n`);
             }
           }
@@ -194,21 +194,21 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
 
           // Prune orphaned scoring_runs first (run_id LIKE 'portfolio-rescore-%').
           if (deps.scoringRepo) {
-            const scoringBefore = deps.scoringRepo.pruneByRunIdPrefix(prefix, cutoff);
+            const scoringBefore = await deps.scoringRepo.pruneByRunIdPrefix(prefix, cutoff);
             process.stdout.write(
               `Pruned ${scoringBefore} portfolio_rescore scoring_runs row(s).\n`,
             );
           }
 
           // Then prune candidates that are no longer referenced.
-          const before = deps.candidateRepo.countRescoreCandidates(cutoff);
+          const before = await deps.candidateRepo.countRescoreCandidates(cutoff);
           if (options.dryRun === true) {
             process.stdout.write(
               `Would prune ${before} portfolio_rescore candidate(s) created before ${cutoff}.\n`,
             );
           } else {
-            const removed = deps.candidateRepo.pruneRescoreCandidates(cutoff);
-            const after = deps.candidateRepo.countRescoreCandidates(cutoff);
+            const removed = await deps.candidateRepo.pruneRescoreCandidates(cutoff);
+            const after = await deps.candidateRepo.countRescoreCandidates(cutoff);
             process.stdout.write(
               `Pruned ${removed} portfolio_rescore candidate(s) created before ${cutoff}; ${after} remain.\n`,
             );

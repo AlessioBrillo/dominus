@@ -140,7 +140,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
       closeoutDomains: ['alpha.com', 'beta.io', 'noise.com'],
     });
 
-    const row = deps.runsRepo.findById(result.runRowId);
+    const row = await deps.runsRepo.findById(result.runRowId);
     expect(row).not.toBeNull();
     expect(row?.finishedAt).not.toBeNull();
     expect(row?.error).toBeNull();
@@ -164,7 +164,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     const result = await deps.service.runSync({});
 
     // Assert
-    const row = deps.runsRepo.findById(result.runRowId);
+    const row = await deps.runsRepo.findById(result.runRowId);
     const start = new Date(row!.startedAt).getTime();
     const retain = new Date(row!.retainedUntil).getTime();
     const expected = DEFAULT_PIPELINE_RUN_RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -180,7 +180,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     });
 
     // Assert
-    const row = deps.runsRepo.findById(result.runRowId);
+    const row = await deps.runsRepo.findById(result.runRowId);
     expect(row?.inputs).toEqual({
       keywords: 2,
       brandableNames: 1,
@@ -194,7 +194,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     const result = await deps.service.runSync({});
 
     // Assert
-    const row = deps.runsRepo.findById(result.runRowId);
+    const row = await deps.runsRepo.findById(result.runRowId);
     expect(row?.resultsSummary.recommended).toBe(1);
     expect(row?.resultsSummary.candidatesEvaluated).toBe(3);
   });
@@ -205,9 +205,9 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     const r2 = await deps.service.runSync({});
 
     // Assert
-    expect(deps.runsRepo.count()).toBe(2);
-    expect(deps.runsRepo.findById(r1.runRowId)).not.toBeNull();
-    expect(deps.runsRepo.findById(r2.runRowId)).not.toBeNull();
+    expect(await deps.runsRepo.count()).toBe(2);
+    expect(await deps.runsRepo.findById(r1.runRowId)).not.toBeNull();
+    expect(await deps.runsRepo.findById(r2.runRowId)).not.toBeNull();
   });
 
   it('orchestrator failure completes the row with error=message and rethrows', async () => {
@@ -226,7 +226,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     await expect(failingService.runSync({})).rejects.toThrow('upstream RDAP timed out');
 
     // The error row is the newest one
-    const all = deps.runsRepo.findAll({ limit: 1 });
+    const all = await deps.runsRepo.findAll({ limit: 1 });
     expect(all).toHaveLength(1);
     expect(all[0]?.error).toBe('upstream RDAP timed out');
     expect(all[0]?.finishedAt).not.toBeNull();

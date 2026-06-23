@@ -4,7 +4,12 @@ import { getLogger } from '../../logger.js';
 const logger = getLogger();
 
 export interface TuneableWeightTuner {
-  tune(): { sampleSize: number; safety: { passed: boolean }; applied: boolean; dryRun: boolean };
+  tune(): Promise<{
+    sampleSize: number;
+    safety: { passed: boolean };
+    applied: boolean;
+    dryRun: boolean;
+  }>;
 }
 
 export interface WeightTuneHandlerDeps {

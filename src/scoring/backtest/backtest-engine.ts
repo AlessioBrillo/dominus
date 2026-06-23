@@ -88,8 +88,8 @@ export class BacktestEngine {
    * Re-derive the backtest_signals table from current outcomes and
    * scoring_runs. Idempotent. Returns a summary the CLI can print.
    */
-  snapshot(): SnapshotSummary {
-    const soldOutcomes = this.outcomeRepo.findByType('sold');
+  async snapshot(): Promise<SnapshotSummary> {
+    const soldOutcomes = await this.outcomeRepo.findByType('sold');
     let inserted = 0;
     let skipped = 0;
 
@@ -99,7 +99,7 @@ export class BacktestEngine {
         continue;
       }
       try {
-        const insertedNow = this.writeSignalForOutcome(outcome);
+        const insertedNow = await this.writeSignalForOutcome(outcome);
         if (insertedNow) inserted++;
         else skipped++;
       } catch {
@@ -118,8 +118,8 @@ export class BacktestEngine {
    * Produce a BacktestReport from the current backtest_signals table.
    * Does not touch outcomes or scoring_runs — pure aggregation.
    */
-  report(): BacktestReport {
-    const signals = this.backtestRepo.findAll();
+  async report(): Promise<BacktestReport> {
+    const signals = await this.backtestRepo.findAll();
     const sampleSize = signals.length;
 
     if (sampleSize === 0) {
@@ -189,11 +189,11 @@ export class BacktestEngine {
   }
 
   /** Expose the signals list for the weight suggester (ADR-0009). */
-  signals(): BacktestSignal[] {
-    return this.backtestRepo.findAll();
+  async signals(): Promise<BacktestSignal[]> {
+    return await this.backtestRepo.findAll();
   }
 
-  private writeSignalForOutcome(outcome: Outcome): boolean {
+  private async writeSignalForOutcome(outcome: Outcome): Promise<boolean> {
     if (outcome.id === undefined || outcome.salePriceEur === undefined) return false;
 
     const snapshot = this.findSnapshotForOutcome(outcome.domain, outcome.occurredAt);
@@ -203,7 +203,7 @@ export class BacktestEngine {
 
     const costs = this.#computeDomainCosts(outcome.domain, outcome.occurredAt);
 
-    this.backtestRepo.upsert({
+    await this.backtestRepo.upsert({
       domain: outcome.domain,
       outcomeId: outcome.id,
       scoringRunId: snapshot.run_id,

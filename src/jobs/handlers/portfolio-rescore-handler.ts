@@ -27,7 +27,7 @@ export class PortfolioRescoreHandler implements JobHandler<
 
     let result;
     if (payload.domain) {
-      const summaries = this.deps.portfolioManager.list();
+      const summaries = await this.deps.portfolioManager.list();
       const summary = summaries.find((s) => s.entry.domain === payload.domain);
       if (!summary) {
         return {

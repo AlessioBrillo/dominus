@@ -55,7 +55,7 @@ describe('CachedTrademarkProvider', () => {
 
     await provider.search('nike');
 
-    const cached = cacheRepo.get('nike', 'trademark:USPTO');
+    const cached = await cacheRepo.get('nike', 'trademark:USPTO');
     expect(cached).not.toBeNull();
     const parsed = JSON.parse(cached!);
     expect(parsed).toEqual(matches);
@@ -85,7 +85,7 @@ describe('CachedTrademarkProvider', () => {
 
     // Delegate only called once; second call from cache
     expect(delegate.search).toHaveBeenCalledOnce();
-    const cached = cacheRepo.get('brandablexy', 'trademark:USPTO');
+    const cached = await cacheRepo.get('brandablexy', 'trademark:USPTO');
     expect(cached).not.toBeNull();
     expect(JSON.parse(cached!)).toEqual([]);
   });
@@ -103,7 +103,38 @@ describe('CachedTrademarkProvider', () => {
 
     await provider.search('test').catch(() => undefined);
 
-    const cached = cacheRepo.get('test', 'trademark:USPTO');
+    const cached = await cacheRepo.get('test', 'trademark:USPTO');
+    expect(cached).toBeNull();
+  });
+
+  it('cache is source-scoped: USPTO and EUIPO entries do not collide', async () => {
+    const delegate = makeDelegate([]);
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
+
+    await provider.search('brandablexy');
+    await provider.search('brandablexy');
+
+    // Delegate only called once; second call from cache
+    expect(delegate.search).toHaveBeenCalledOnce();
+    const cached = await cacheRepo.get('brandablexy', 'trademark:USPTO');
+    expect(cached).not.toBeNull();
+    expect(JSON.parse(cached!)).toEqual([]);
+  });
+
+  it('propagates delegate errors (so the gate counts the source as down)', async () => {
+    const delegate = makeErrorDelegate();
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
+
+    await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
+  });
+
+  it('does NOT write to cache when the delegate errors', async () => {
+    const delegate = makeErrorDelegate();
+    const provider = new CachedTrademarkProvider(delegate, cacheRepo, 'USPTO', 7);
+
+    await provider.search('test').catch(() => undefined);
+
+    const cached = await cacheRepo.get('test', 'trademark:USPTO');
     expect(cached).toBeNull();
   });
 

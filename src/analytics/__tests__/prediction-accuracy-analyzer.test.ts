@@ -229,15 +229,15 @@ describe('PredictionAccuracyAnalyzer', () => {
       });
     });
 
-    it('refresh() scans and includes outcomes with matching scoring runs', () => {
-      const snapshot = analyzer.refresh();
+    it('refresh() scans and includes outcomes with matching scoring runs', async () => {
+      const snapshot = await analyzer.refresh();
       expect(snapshot.scanned).toBe(4);
       expect(snapshot.included).toBe(4);
     });
 
-    it('generate() returns correct sample size after refresh', () => {
-      analyzer.refresh();
-      const report = analyzer.generate();
+    it('generate() returns correct sample size after refresh', async () => {
+      await analyzer.refresh();
+      const report = await analyzer.generate();
       expect(report.sampleSize).toBe(4);
     });
 
