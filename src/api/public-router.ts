@@ -7,6 +7,7 @@ import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import { isValidDomain, parseDomain } from '../utils/domain.js';
 import { getLogger } from '../logger.js';
+import { generateOgPng } from './open-graph.js';
 
 const logger = getLogger();
 
@@ -169,8 +170,13 @@ export function createPublicRouter(
                 recommended: boolean;
                 scoredAt: string;
               };
+              trademark: {
+                verdict: string;
+                verifiedSources: string[];
+                matchedMark?: string | null;
+              } | null;
             };
-            res.send(renderDomainPage(d.domain, d.score));
+            res.send(renderDomainPage(d.domain, d.score, d.trademark));
           } else {
             res.json(cached);
           }
@@ -178,6 +184,25 @@ export function createPublicRouter(
         }
 
         const parsed = parseDomain(domain);
+
+        let trademarkResult: {
+          verdict: string;
+          verifiedSources: string[];
+          matchedMark?: string | null;
+        } | null = null;
+        if (trademarkGate) {
+          try {
+            const gateResult = await trademarkGate.check(domain);
+            trademarkResult = {
+              verdict: gateResult.verdict,
+              verifiedSources: gateResult.verifiedSources,
+              matchedMark: gateResult.matchedMark ?? null,
+            };
+          } catch {
+            trademarkResult = { verdict: 'unverified', verifiedSources: [] };
+          }
+        }
+
         const scoreResult = await engine.score({
           domain,
           tld: parsed.tld,
@@ -185,13 +210,16 @@ export function createPublicRouter(
           isCloseout: false,
         });
 
-        const data = { domain, score: scoreResult };
+        const data = { domain, score: scoreResult, trademark: trademarkResult };
         cache.set(`domain:${domain.toLowerCase()}`, data);
 
-        logger.info({ domain }, 'Public domain score served');
+        logger.info(
+          { domain, trademarkVerdict: trademarkResult?.verdict },
+          'Public domain score served',
+        );
 
         if (req.accepts('html')) {
-          res.send(renderDomainPage(domain, scoreResult));
+          res.send(renderDomainPage(domain, scoreResult, trademarkResult));
         } else {
           res.json(data);
         }
@@ -302,6 +330,58 @@ export function createPublicRouter(
       res.status(500).send('Internal server error');
     }
   });
+
+  router.get(
+    '/s/:slug/og.png',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const { slug } = req.params;
+        if (!slug || slug.length < 8) {
+          res.status(400).json({
+            error: { code: 'INVALID_SLUG', message: 'Invalid score slug' },
+          });
+          return;
+        }
+
+        const row = getScore.get(slug) as
+          | {
+              slug: string;
+              domain: string;
+              score_json: string;
+              trademark_json: string | null;
+            }
+          | undefined;
+
+        if (!row) {
+          res.status(404).json({
+            error: { code: 'NOT_FOUND', message: 'Score not found' },
+          });
+          return;
+        }
+
+        const score = JSON.parse(row.score_json);
+        const trademark = row.trademark_json
+          ? (JSON.parse(row.trademark_json) as { verdict: string })
+          : { verdict: 'unverified' };
+
+        const png = await generateOgPng(row.domain, {
+          domain: row.domain,
+          expectedValue: score.expectedValue ?? 0,
+          confidence: score.confidence ?? 0,
+          weightedScore: score.weightedScore ?? 0,
+          recommended: score.recommended ?? false,
+          trademark: trademark.verdict ?? 'unverified',
+        });
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=600');
+        res.setHeader('ETag', `"og-${row.domain.toLowerCase().replace(/[^a-z0-9]/g, '-')}"`);
+        res.status(200).end(png);
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
 
   router.get('/s/:slug', (req: Request, res: Response, next: NextFunction): void => {
     try {
@@ -494,8 +574,21 @@ function renderDomainPage(
     recommended: boolean;
     scoredAt: string;
   },
+  trademark?: {
+    verdict: string;
+    verifiedSources: string[];
+    matchedMark?: string | null;
+  } | null,
 ): string {
   const verdict = score.recommended ? 'Recommended' : 'Not Recommended';
+  const tmStatus =
+    trademark?.verdict === 'clear'
+      ? 'Clear'
+      : trademark?.verdict === 'blocked'
+        ? 'Blocked'
+        : trademark?.verdict === 'unverified'
+          ? 'Unverified'
+          : null;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -529,6 +622,10 @@ ${JSON.stringify({
   .stat-value { font-size: 1.25rem; font-weight: 700; margin-top: 0.25rem; }
   .stat-value.positive { color: #22c55e; }
   .stat-value.negative { color: #ef4444; }
+  .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; margin-bottom: 1rem; }
+  .badge.clear { background: #052e16; color: #22c55e; }
+  .badge.blocked { background: #450a0a; color: #ef4444; }
+  .badge.unverified { background: #1c1917; color: #f97316; }
   .footer { margin-top: 1.5rem; text-align: center; font-size: 0.75rem; color: #52525b; }
   .footer a { color: #818cf8; text-decoration: none; }
 </style>
@@ -537,6 +634,7 @@ ${JSON.stringify({
 <div class="card">
   <h1>${escapeHtml(domain)}</h1>
   <p class="subtitle">Domain Investment Score</p>
+  ${tmStatus ? `<div><span class="badge ${trademark!.verdict}">Trademark: ${tmStatus}</span></div>` : ''}
   <div class="grid">
     <div class="stat"><div class="stat-label">Expected Value</div><div class="stat-value ${score.expectedValue >= 100 ? 'positive' : ''}">€${score.expectedValue.toFixed(0)}</div></div>
     <div class="stat"><div class="stat-label">Confidence</div><div class="stat-value">${(score.confidence * 100).toFixed(0)}%</div></div>

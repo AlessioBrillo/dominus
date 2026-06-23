@@ -93,7 +93,9 @@ export class RenewalAlertRepository {
   }
 
   async acknowledge(id: number): Promise<void> {
-    await this.db.exec("UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ?", [id]);
+    await this.db.exec("UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ?", [
+      id,
+    ]);
   }
 
   async acknowledgeAll(domain?: string): Promise<number> {
@@ -118,17 +120,15 @@ export class RenewalAlertRepository {
 
   async count(domain?: string): Promise<number> {
     if (domain !== undefined) {
-      const row = (
-        await this.db.queryOne<{ n: number }>(
-          'SELECT COUNT(*) AS n FROM renewal_alerts WHERE domain = ?',
-          [domain],
-        )
-      )!;
+      const row = (await this.db.queryOne<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM renewal_alerts WHERE domain = ?',
+        [domain],
+      ))!;
       return row.n;
     }
-    const row = (
-      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM renewal_alerts')
-    )!;
+    const row = (await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM renewal_alerts',
+    ))!;
     return row.n;
   }
 

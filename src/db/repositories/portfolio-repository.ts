@@ -67,16 +67,18 @@ export class PortfolioRepository {
       ],
     );
     const id = result.lastInsertRowid as number;
-    const row = await this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE id = ?', [
-      id,
-    ]);
+    const row = await this.db.queryOne<PortfolioRow>(
+      'SELECT * FROM portfolio_entries WHERE id = ?',
+      [id],
+    );
     return rowToEntry(row!);
   }
 
   async findByDomain(domain: string): Promise<PortfolioEntry | null> {
-    const row = await this.db.queryOne<PortfolioRow>('SELECT * FROM portfolio_entries WHERE domain = ?', [
-      domain,
-    ]);
+    const row = await this.db.queryOne<PortfolioRow>(
+      'SELECT * FROM portfolio_entries WHERE domain = ?',
+      [domain],
+    );
     return row ? rowToEntry(row) : null;
   }
 

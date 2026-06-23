@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type Database from 'better-sqlite3';
-import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
+import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { PipelineOrchestrator, PipelineResult } from '../pipeline/orchestrator.js';
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
@@ -73,8 +72,7 @@ export interface EnqueueRunResult {
  *    worker picks it up asynchronously.
  */
 export class PipelineRunService {
-  readonly #db: Database.Database;
-  readonly #provider: SqliteProvider;
+  readonly #provider: DatabaseProvider;
   readonly #orchestrator: PipelineOrchestrator;
   readonly #candidateRepo: CandidateRepository;
   readonly #scoringRepo: ScoringRepository;
@@ -88,20 +86,19 @@ export class PipelineRunService {
   readonly #workerEnabled: boolean;
 
   constructor(
-    db: Database.Database,
+    provider: DatabaseProvider,
     orchestrator: PipelineOrchestrator,
     candidateRepo: CandidateRepository,
     scoringRepo: ScoringRepository,
-    runsRepo: PipelineRunsRepository = new PipelineRunsRepository(new SqliteProvider(db)),
+    runsRepo: PipelineRunsRepository = new PipelineRunsRepository(provider),
     hostVersion: string = readHostVersion(),
     retentionDays: number = DEFAULT_PIPELINE_RUN_RETENTION_DAYS,
-    metricsRepo: MetricsRepository = new MetricsRepository(new SqliteProvider(db)),
+    metricsRepo: MetricsRepository = new MetricsRepository(provider),
     progressService?: PipelineProgressService,
     jobQueueService?: JobQueueService,
     workerEnabled: boolean = false,
   ) {
-    this.#db = db;
-    this.#provider = new SqliteProvider(db);
+    this.#provider = provider;
     this.#orchestrator = orchestrator;
     this.#candidateRepo = candidateRepo;
     this.#scoringRepo = scoringRepo;
@@ -239,12 +236,14 @@ export class PipelineRunService {
         }
 
         if (result.runId !== runRowId) {
-          this.#db
-            .prepare('UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?')
-            .run(runRowId, result.runId);
-          this.#db
-            .prepare('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?')
-            .run(runRowId, result.runId);
+          await this.#provider.exec(
+            'UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?',
+            [runRowId, result.runId],
+          );
+          await this.#provider.exec('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?', [
+            runRowId,
+            result.runId,
+          ]);
         }
 
         return { candidatesPersisted, scoresPersisted };

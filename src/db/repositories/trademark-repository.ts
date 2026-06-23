@@ -120,7 +120,9 @@ export class TrademarkRepository {
 
   /** Total row count (for diagnostics). */
   async count(): Promise<number> {
-    const row = await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM trademark_results');
+    const row = await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM trademark_results',
+    );
     return row!.n;
   }
 }

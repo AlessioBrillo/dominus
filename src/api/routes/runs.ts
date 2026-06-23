@@ -87,11 +87,9 @@ export function createRunsRouter(
         }
         const run = await runsRepo.findById(runId);
         if (run === null) {
-          res
-            .status(404)
-            .json({
-              error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` },
-            });
+          res.status(404).json({
+            error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` },
+          });
           return;
         }
         const candidates = await candidateRepo.findByRunId(runId);
@@ -240,11 +238,9 @@ export function createRunsRouter(
 
         const run = await runsRepo.findById(runId);
         if (run === null) {
-          res
-            .status(404)
-            .json({
-              error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` },
-            });
+          res.status(404).json({
+            error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` },
+          });
           return;
         }
 

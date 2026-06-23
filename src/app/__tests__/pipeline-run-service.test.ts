@@ -90,7 +90,7 @@ describe('PipelineRunService', () => {
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -119,7 +119,7 @@ describe('PipelineRunService', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -151,7 +151,7 @@ describe('PipelineRunService', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -185,7 +185,7 @@ describe('PipelineRunService', () => {
     const scoringRepo = new ScoringRepository(provider);
 
     const service1 = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       candidateRepo,
       scoringRepo,
@@ -195,7 +195,7 @@ describe('PipelineRunService', () => {
     // Second run — same domain, new runId
     const result2: PipelineResult = { ...result, runId: 'run-002' };
     const service2 = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result2),
       candidateRepo,
       scoringRepo,
@@ -230,7 +230,7 @@ describe('PipelineRunService', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -260,7 +260,7 @@ describe('PipelineRunService', () => {
       totalDurationMs: 5,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -292,7 +292,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       totalDurationMs: 42,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -338,7 +338,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -371,7 +371,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       totalDurationMs: 10,
     };
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       makeMockOrchestrator(result),
       new CandidateRepository(provider),
       new ScoringRepository(provider),
@@ -401,7 +401,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
       run: vi.fn().mockRejectedValue(new Error('boom')),
     } as unknown as PipelineOrchestrator;
     const service = new PipelineRunService(
-      provider.rawDb,
+      provider,
       orchestrator,
       new CandidateRepository(provider),
       new ScoringRepository(provider),
