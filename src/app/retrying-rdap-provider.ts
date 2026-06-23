@@ -1,6 +1,12 @@
 import type { RdapResult } from '../types/domain-status.js';
 import type { RdapProvider } from '../providers/rdap/rdap-provider.js';
-import { isTransient } from './retrying-trademark-provider.js';
+import {
+  isTransient,
+  computeDelay,
+  defaultSleep,
+  CircuitOpenError,
+  type RetryPolicy,
+} from '../providers/retry-policy.js';
 import {
   CircuitBreaker,
   DEFAULT_CIRCUIT_BREAKER,
@@ -10,16 +16,6 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
-export interface RetryPolicy {
-  maxAttempts: number;
-  baseDelayMs: number;
-  backoffMultiplier: number;
-  maxDelayMs: number;
-  jitterRatio: number;
-  random?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-}
-
 const RDAP_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 2,
   baseDelayMs: 500,
@@ -28,24 +24,12 @@ const RDAP_RETRY_POLICY: RetryPolicy = {
   jitterRatio: 0.5,
 };
 
-export class CircuitOpenError extends Error {
-  readonly retryAfterMs: number;
-  readonly circuitState: string;
-
-  constructor(retryAfterMs: number, circuitState: string) {
-    super(`RDAP provider circuit is ${circuitState}. Retry after ${retryAfterMs}ms.`);
-    this.name = 'CircuitOpenError';
-    this.retryAfterMs = retryAfterMs;
-    this.circuitState = circuitState;
-  }
-}
-
 export class RetryingRdapProvider implements RdapProvider {
   readonly name: string;
   readonly #delegate: RdapProvider;
   readonly #policy: RetryPolicy;
   readonly #circuitBreaker: CircuitBreaker;
-  readonly #cooldownMs: number;
+  readonly #circuitBreakerPolicy: CircuitBreakerPolicy;
 
   constructor(
     delegate: RdapProvider,
@@ -54,15 +38,14 @@ export class RetryingRdapProvider implements RdapProvider {
   ) {
     this.#delegate = delegate;
     this.#policy = { ...RDAP_RETRY_POLICY, ...policy };
-    const cbPolicy = { ...DEFAULT_CIRCUIT_BREAKER, ...circuitBreakerPolicy };
-    this.#circuitBreaker = new CircuitBreaker(cbPolicy);
-    this.#cooldownMs = cbPolicy.cooldownMs;
+    this.#circuitBreakerPolicy = { ...DEFAULT_CIRCUIT_BREAKER, ...circuitBreakerPolicy };
+    this.#circuitBreaker = new CircuitBreaker(this.#circuitBreakerPolicy);
     this.name = `RetryingRdapProvider(${delegate.name})`;
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
     if (!this.#circuitBreaker.allow()) {
-      throw new CircuitOpenError(this.#cooldownMs, this.#circuitBreaker.state);
+      throw new CircuitOpenError('RDAP provider', this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
     }
 
     const random = this.#policy.random ?? Math.random;
@@ -97,17 +80,4 @@ export class RetryingRdapProvider implements RdapProvider {
 
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
   }
-}
-
-function computeDelay(attempt: number, policy: RetryPolicy, random: () => number): number {
-  const exp = Math.pow(policy.backoffMultiplier, attempt - 1);
-  const raw = policy.baseDelayMs * exp;
-  const capped = Math.min(raw, policy.maxDelayMs);
-  const lower = capped * (1 - policy.jitterRatio);
-  const jittered = lower + random() * (capped - lower);
-  return Math.max(0, Math.floor(jittered));
-}
-
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { RetryingRdapProvider, CircuitOpenError } from '../retrying-rdap-provider.js';
+import { RetryingRdapProvider } from '../retrying-rdap-provider.js';
+import { CircuitOpenError } from '../../providers/retry-policy.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import { DomainStatus } from '../../types/domain-status.js';
 

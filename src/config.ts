@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import { ConfigError } from './types/errors.js';
 
@@ -818,6 +819,23 @@ export function loadConfig(): Config {
     throw new ConfigError(`Invalid environment configuration: ${issues}`);
   }
   _config = result.data;
+
+  // Startup validation: warn if configured data file paths do not exist.
+  // File-based providers (keyword, comps, weights, TLD bonuses) will fail
+  // silently at runtime if the path is missing; catching it early prevents
+  // silent scoring degradation.
+  const filePaths: { key: string; path: string | undefined }[] = [
+    { key: 'KEYWORD_DATA_PATH', path: _config.KEYWORD_DATA_PATH },
+    { key: 'COMPS_DATA_PATH', path: _config.COMPS_DATA_PATH },
+    { key: 'TLD_BONUSES_PATH', path: _config.TLD_BONUSES_PATH },
+    { key: 'SCORING_WEIGHTS_OVERRIDE', path: _config.SCORING_WEIGHTS_OVERRIDE },
+    { key: 'AUTO_TUNE_WEIGHTS_PATH', path: _config.AUTO_TUNE_WEIGHTS_PATH },
+  ];
+  for (const { key, path } of filePaths) {
+    if (path !== undefined && !existsSync(path)) {
+      console.warn(`[config] ${key}=${path} — file not found, will use defaults`);
+    }
+  }
 
   return _config;
 }

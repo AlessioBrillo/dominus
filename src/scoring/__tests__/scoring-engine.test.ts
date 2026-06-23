@@ -393,7 +393,7 @@ describe('ScoringEngine', () => {
       isCloseout: false,
     });
     expect(result.breakdown.expiry.score).toBeGreaterThan(0);
-    expect(result.breakdown.expiry.signals.domainAge).toBe(8.5);
+    expect((result.breakdown.expiry.details as Record<string, unknown>).domainAge).toBe(8.5);
   });
 
   it('gracefully handles Wayback provider failure', async () => {
