@@ -29,7 +29,10 @@ data:
   DNS_BULK_CONCURRENCY: "10"
   WHOIS_LOOKUP_TIMEOUT: "10000"
   TM_CACHE_TTL_DAYS: "7"
-  CORS_ORIGIN: "*"
+  # CORS_ORIGIN: set to your frontend domain in production (e.g. "https://dominus.example.com").
+  # Wildcard (*) with credentials:true causes browser CORS failures. When the frontend is served
+  # by the same origin as the API, leave this unset or set to the explicit origin.
+  CORS_ORIGIN: "http://localhost:5173"
   RATE_LIMIT_WINDOW_MS: "900000"
   RATE_LIMIT_MAX: "100"
   USPTO_SEARCH_URL: "https://tmsearch.uspto.gov/tmsearch"

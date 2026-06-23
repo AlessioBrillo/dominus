@@ -68,6 +68,9 @@ jobs:
       - name: Test (with coverage)
         run: npm test -- --coverage
 
+      - name: Security audit
+        run: npm audit --audit-level=moderate
+
       - name: PostgreSQL connectivity test
         run: >
           node -e "
@@ -108,6 +111,10 @@ jobs:
       - name: Build
         working-directory: ./frontend
         run: npm run build
+
+      - name: Security audit
+        working-directory: ./frontend
+        run: npm audit --audit-level=moderate
 
   docker:
     runs-on: ubuntu-latest
