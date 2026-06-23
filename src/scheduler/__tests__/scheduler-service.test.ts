@@ -121,6 +121,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     WAYBACK_RATE_LIMIT_INTERVAL_MS: 12000,
     WAYBACK_TIMEOUT_MS: 10000,
     WAYBACK_BATCH_CONCURRENCY: 3,
+    SCORING_BATCH_CONCURRENCY: 5,
     WAYBACK_CDX_PAGE_SIZE: 5000,
     ...overrides,
   };

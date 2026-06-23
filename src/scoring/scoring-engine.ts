@@ -48,7 +48,7 @@ export class ScoringEngine {
     return this.#weights;
   }
 
-  async score(input: ScoringInput): Promise<ScoreResult> {
+  async score(input: ScoringInput, signal?: AbortSignal): Promise<ScoreResult> {
     // Always derive SLD and TLD from the authoritative domain parser.
     // The input fields are accepted for backward compatibility
     // but internal computation is the canonical path (principle:
@@ -86,12 +86,14 @@ export class ScoringEngine {
       this.keywordProvider,
       this.#weights.commercial,
       this.scoringConfig.commercial,
+      signal,
     );
     const market = await computeMarketScore(
       inputWithSld,
       this.compsProvider,
       this.#weights.market,
       this.scoringConfig.market,
+      signal,
     );
     const expiry = computeExpiryScore(
       inputWithSld,

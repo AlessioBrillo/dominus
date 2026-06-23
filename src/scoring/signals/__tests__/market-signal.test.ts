@@ -43,7 +43,7 @@ describe('MarketSignal', () => {
       1,
     );
     assert(provider.getSales !== undefined);
-    expect(provider.getSales).toHaveBeenCalledWith('nike');
+    expect(provider.getSales).toHaveBeenCalledWith('nike', undefined);
     expect(result.score).toBeGreaterThan(0);
   });
 

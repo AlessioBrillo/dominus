@@ -8,6 +8,7 @@ export async function computeMarketScore(
   provider: CompsProvider,
   weight: number,
   config: MarketSignalConfig = DEFAULT_MARKET_CONFIG,
+  signal?: AbortSignal,
 ): Promise<SignalOutput & { medianSalePrice: number }> {
   // Engine always sets sld before calling signal functions;
   // non-null assertion is safe here (see ScoringEngine.score()).
@@ -16,7 +17,7 @@ export async function computeMarketScore(
   let providerError: string | undefined;
 
   try {
-    sales = await provider.getSales(sld);
+    sales = await provider.getSales(sld, signal);
   } catch (err) {
     providerError = err instanceof Error ? err.message : String(err);
     sales = [];
