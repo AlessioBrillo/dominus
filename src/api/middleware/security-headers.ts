@@ -19,12 +19,18 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-DNS-Prefetch-Control', 'off');
 
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+
   const isApiRequest = req.path.startsWith('/api/');
   if (!isApiRequest) {
     res.setHeader('Content-Security-Policy', CSP_DIRECTIVES.join('; '));
   }
 
-  if (req.protocol === 'https') {
+  const proto = req.headers['x-forwarded-proto'] as string | undefined;
+  const isHttps = req.protocol === 'https' || proto === 'https';
+  if (isHttps) {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   }
 

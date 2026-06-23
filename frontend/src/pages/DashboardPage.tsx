@@ -1,51 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
-import { fetchDashboardStats, type DashboardResult } from '@/api/dashboard';
-import { runPipeline } from '@/api/candidates';
+import { useDashboardStats } from '@/hooks/useDashboard';
+import { useRunPipeline } from '@/hooks/useCandidates';
 import { getOnboardingState } from '@/api/onboarding';
 import { RunProgress } from '@/components/RunProgress';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useState } from 'react';
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [stats, setStats] = useState<DashboardResult['stats'] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [partialFailure, setPartialFailure] = useState(false);
-  const [failureReasons, setFailureReasons] = useState<string[]>([]);
+  const { data: result, isLoading, error, refetch } = useDashboardStats();
+  const runPipeline = useRunPipeline();
   const [runId, setRunId] = useState<string | null>(null);
-  const [starting, setStarting] = useState(false);
-  const [onboardingCheckDone, setOnboardingCheckDone] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const load = useCallback(async () => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setLoading(true);
-    setError(null);
-    setPartialFailure(false);
-    setFailureReasons([]);
-    try {
-      const result: DashboardResult = await fetchDashboardStats(controller.signal);
-      if (controller.signal.aborted) return;
-      setStats(result.stats);
-      if (result.partialFailure) {
-        setPartialFailure(true);
-        setFailureReasons(result.failureReasons);
-      }
-    } catch (err: unknown) {
-      if ((err as Error)?.name === 'AbortError') return;
-      setError(err instanceof Error ? err.message : 'Failed to load dashboard');
-    } finally {
-      if (!controller.signal.aborted) setLoading(false);
-    }
-  }, []);
+  const [_onboardingCheckDone, setOnboardingCheckDone] = useState(false);
 
   useEffect(() => {
     getOnboardingState()
@@ -61,26 +32,17 @@ export function DashboardPage() {
       });
   }, [navigate]);
 
-  useEffect(() => {
-    if (!onboardingCheckDone) return;
-    load();
-    return () => abortRef.current?.abort();
-  }, [load, onboardingCheckDone]);
-
-  const startPipeline = useCallback(async () => {
-    setStarting(true);
+  const startPipeline = async () => {
     setRunId(null);
     try {
-      const result = await runPipeline({});
+      const result = await runPipeline.mutateAsync();
       setRunId(result.runId);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Pipeline failed to start');
-    } finally {
-      setStarting(false);
+    } catch {
+      /* error handled by mutation */
     }
-  }, []);
+  };
 
-  if (error && !stats) {
+  if (error && !result) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -88,8 +50,10 @@ export function DashboardPage() {
         </div>
         <Card>
           <CardContent className="flex flex-col items-center py-12">
-            <p className="text-danger text-sm mb-4">{error}</p>
-            <Button variant="outline" onClick={load}>
+            <p className="text-danger text-sm mb-4">
+              {error instanceof Error ? error.message : 'Failed to load dashboard'}
+            </p>
+            <Button variant="outline" onClick={() => refetch()}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Retry
             </Button>
@@ -99,7 +63,7 @@ export function DashboardPage() {
     );
   }
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -146,6 +110,10 @@ export function DashboardPage() {
     );
   }
 
+  const stats = result?.stats;
+  const partialFailure = result?.partialFailure ?? false;
+  const failureReasons = result?.failureReasons ?? [];
+
   const chartData = [
     { name: 'Keep', value: stats?.keepCount ?? 0, fill: '#10b981' },
     { name: 'Reprice', value: stats?.repriceCount ?? 0, fill: '#f59e0b' },
@@ -162,8 +130,8 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={startPipeline} disabled={starting}>
-            {starting ? (
+          <Button onClick={startPipeline} disabled={runPipeline.isPending}>
+            {runPipeline.isPending ? (
               <span className="animate-pulse">Starting...</span>
             ) : (
               <>
@@ -171,7 +139,7 @@ export function DashboardPage() {
               </>
             )}
           </Button>
-          <Button variant="outline" onClick={load}>
+          <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
@@ -183,7 +151,7 @@ export function DashboardPage() {
             Some data sources unavailable: {failureReasons.map((r) => `/api/v1/${r}`).join(', ')}.
             Displaying partial data.
           </span>
-          <Button variant="ghost" size="sm" onClick={load}>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>
             Retry
           </Button>
         </div>

@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AnalyticsPage, PnlSection, AccuracySection } from '../AnalyticsPage.js';
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+function Wrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+}
 
 vi.mock('../../api/analytics.js', () => {
   const pnlReport = {
@@ -74,11 +87,7 @@ vi.mock('../../api/analytics.js', () => {
 });
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AnalyticsPage />
-    </MemoryRouter>,
-  );
+  return render(<AnalyticsPage />, { wrapper: Wrapper });
 }
 
 describe('AnalyticsPage', () => {
@@ -98,9 +107,17 @@ describe('AnalyticsPage', () => {
   });
 });
 
+function renderWithQuery(ui: React.ReactElement) {
+  return render(ui, {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  });
+}
+
 describe('PnlSection', () => {
   it('renders P&L metrics after loading', async () => {
-    render(<PnlSection />);
+    renderWithQuery(<PnlSection />);
     await waitFor(() => {
       expect(screen.getByText('Total Invested')).toBeInTheDocument();
     });
@@ -109,7 +126,7 @@ describe('PnlSection', () => {
   });
 
   it('renders per-domain performance', async () => {
-    render(<PnlSection />);
+    renderWithQuery(<PnlSection />);
     await waitFor(() => {
       expect(screen.getByText('Per-Domain Performance')).toBeInTheDocument();
     });
@@ -118,7 +135,7 @@ describe('PnlSection', () => {
   });
 
   it('renders monthly trend chart', async () => {
-    render(<PnlSection />);
+    renderWithQuery(<PnlSection />);
     await waitFor(() => {
       expect(screen.getByText('Monthly P&L Trend')).toBeInTheDocument();
     });
@@ -127,7 +144,7 @@ describe('PnlSection', () => {
 
 describe('AccuracySection', () => {
   it('renders accuracy metrics after loading', async () => {
-    render(<AccuracySection />);
+    renderWithQuery(<AccuracySection />);
     await waitFor(() => {
       expect(screen.getByText('MAPE')).toBeInTheDocument();
     });
@@ -135,7 +152,7 @@ describe('AccuracySection', () => {
   });
 
   it('renders confusion matrix', async () => {
-    render(<AccuracySection />);
+    renderWithQuery(<AccuracySection />);
     await waitFor(() => {
       expect(screen.getByText('Confusion Matrix')).toBeInTheDocument();
     });

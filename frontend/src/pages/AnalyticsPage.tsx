@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import {
   LineChart,
@@ -12,12 +11,11 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { fetchPnlReport, fetchAccuracyReport } from '@/api/analytics';
+import { usePnlReport, useAccuracyReport } from '@/hooks/useAnalytics';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { PnlReport, AccuracyReport } from '@/types/domain';
 
 export function AnalyticsPage() {
   return (
@@ -40,28 +38,9 @@ export function AnalyticsPage() {
 }
 
 export function PnlSection() {
-  const [data, setData] = useState<PnlReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = usePnlReport();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchPnlReport();
-      setData(result);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load P&L data');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -89,8 +68,10 @@ export function PnlSection() {
     return (
       <Card>
         <CardContent className="flex flex-col items-center py-8">
-          <p className="text-danger text-sm mb-4">{error}</p>
-          <Button variant="outline" onClick={load}>
+          <p className="text-danger text-sm mb-4">
+            {error instanceof Error ? error.message : 'Failed to load P&L data'}
+          </p>
+          <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Retry
           </Button>
@@ -238,28 +219,9 @@ export function PnlSection() {
 }
 
 export function AccuracySection() {
-  const [data, setData] = useState<AccuracyReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = useAccuracyReport();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await fetchAccuracyReport();
-      setData(result);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load accuracy data');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }).map((_, i) => (
@@ -280,8 +242,10 @@ export function AccuracySection() {
     return (
       <Card>
         <CardContent className="flex flex-col items-center py-8">
-          <p className="text-danger text-sm mb-4">{error}</p>
-          <Button variant="outline" onClick={load}>
+          <p className="text-danger text-sm mb-4">
+            {error instanceof Error ? error.message : 'Failed to load accuracy data'}
+          </p>
+          <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Retry
           </Button>
