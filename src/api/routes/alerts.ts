@@ -30,25 +30,28 @@ export function createAlertsRouter(deps: AlertRouteDeps): Router {
     }
   });
 
-  router.post('/:id/acknowledge', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const id = Number(getRouteParam(req, 'id'));
-      if (Number.isNaN(id) || id <= 0) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid alert ID' } });
-        return;
+  router.post(
+    '/:id/acknowledge',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const id = Number(getRouteParam(req, 'id'));
+        if (Number.isNaN(id) || id <= 0) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid alert ID' } });
+          return;
+        }
+        const existing = await alertRepo.findById(id);
+        if (existing === null) {
+          res.status(404).json({ error: { code: 'NOT_FOUND', message: `Alert ${id} not found` } });
+          return;
+        }
+        await alertRepo.acknowledge(id);
+        const updated = await alertRepo.findById(id);
+        res.json({ alert: updated });
+      } catch (err: unknown) {
+        next(err);
       }
-      const existing = alertRepo.findById(id);
-      if (existing === null) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: `Alert ${id} not found` } });
-        return;
-      }
-      alertRepo.acknowledge(id);
-      const updated = alertRepo.findById(id);
-      res.json({ alert: updated });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
 
   router.post('/acknowledge-all', (req: Request, res: Response, next: NextFunction): void => {
     try {

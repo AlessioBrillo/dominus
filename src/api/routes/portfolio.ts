@@ -54,42 +54,48 @@ export function createPortfolioRouter(
     }
   });
 
-  router.post('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.post('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsed = portfolioInputSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({ error: parseZodError(parsed.error) });
         return;
       }
-      const entry = manager.add(parsed.data);
+      const entry = await manager.add(parsed.data);
       res.status(201).json({ entry });
     } catch (err: unknown) {
       next(err);
     }
   });
 
-  router.patch('/:domain/verdict', (_req: Request, res: Response, next: NextFunction): void => {
-    try {
-      manager.refreshVerdicts();
-      res.json({ ok: true });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
-
-  router.delete('/:domain', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const domain = getRouteParam(req, 'domain');
-      if (domain === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
-        return;
+  router.patch(
+    '/:domain/verdict',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        await manager.refreshVerdicts();
+        res.json({ ok: true });
+      } catch (err: unknown) {
+        next(err);
       }
-      manager.remove(domain);
-      res.status(204).send();
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
+
+  router.delete(
+    '/:domain',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
+        await manager.remove(domain);
+        res.status(204).send();
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
 
   router.post('/rescore', (_req: Request, res: Response, next: NextFunction): void => {
     manager
