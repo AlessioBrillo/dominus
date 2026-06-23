@@ -19,7 +19,7 @@ estimates and subject to change.
 - [ ] COMMERCIAL_LICENSE.md with standard terms
 - [ ] Contributor License Agreement (CLA)
 - [ ] README badges updated with CI + coverage
-- [ ] OpenAPI/Swagger endpoint (`GET /api/v1/docs`)
+- [x] OpenAPI/Swagger endpoint (`GET /api/v1/docs`)
 
 ## v0.5.0 — Showcase Polish
 

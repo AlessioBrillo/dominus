@@ -31,6 +31,7 @@ import {
   createAnalyticsRouter,
   createListingsRouter,
   createOnboardingRouter,
+  createDocsRouter,
   createPublicRouter,
   errorHandler,
   createRequestLogger,
@@ -106,6 +107,7 @@ app.use(createRequestLogger(logger));
 
 app.use('/public', createPublicRouter(deps.db, deps.engine, deps.trademarkGate));
 
+app.use('/api/v1/docs', createDocsRouter());
 app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
 app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
 app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
