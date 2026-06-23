@@ -339,12 +339,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       new TrademarkGateStage(gate, 3),
     );
 
-    const runService = new PipelineRunService(
-      provider.rawDb,
-      orchestrator,
-      candidateRepo,
-      scoringRepo,
-    );
+    const runService = new PipelineRunService(provider, orchestrator, candidateRepo, scoringRepo);
 
     expect(runService).toBeDefined();
     expect(typeof runService.run).toBe('function');

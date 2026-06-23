@@ -115,7 +115,7 @@ function buildIntegration(provider: SqliteProvider): IntegrationDeps {
   };
 
   const service = new PipelineRunService(
-    provider.rawDb,
+    provider,
     makeMockOrchestrator(orchestratorResult),
     candidateRepo,
     scoringRepo,
@@ -213,7 +213,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
   it('orchestrator failure completes the row with error=message and rethrows', async () => {
     // Arrange — swap the orchestrator for one that throws
     const failingService = new PipelineRunService(
-      provider.rawDb,
+      provider,
       {
         run: () => Promise.reject(new Error('upstream RDAP timed out')),
       } as unknown as PipelineOrchestrator,

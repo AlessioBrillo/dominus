@@ -399,7 +399,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const progressService = new PipelineProgressService();
   const jobQueueService = createJobQueueService(db);
   const runService = new PipelineRunService(
-    db,
+    repos.provider,
     orchestrator,
     repos.candidateRepo,
     repos.scoringRepo,
