@@ -84,7 +84,9 @@ describe('ScoringStage parallelism', () => {
     const count = 5;
 
     const start = Date.now();
-    const result = await stage.process(Array.from({ length: count }, (_, i) => candidate(`dom${i}.com`)));
+    const result = await stage.process(
+      Array.from({ length: count }, (_, i) => candidate(`dom${i}.com`)),
+    );
     const elapsed = Date.now() - start;
 
     expect(result.passed).toHaveLength(count);
