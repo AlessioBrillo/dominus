@@ -36,7 +36,7 @@ export function createRunsRouter(
 ): Router {
   const router = Router();
 
-  router.get('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const since = typeof req.query['since'] === 'string' ? req.query['since'] : undefined;
       const until = typeof req.query['until'] === 'string' ? req.query['until'] : undefined;
@@ -49,21 +49,21 @@ export function createRunsRouter(
       if (since !== undefined) opts.since = since;
       if (until !== undefined) opts.until = until;
       if (limit !== undefined) opts.limit = limit;
-      const runs = runsRepo.findAll(opts);
+      const runs = await runsRepo.findAll(opts);
       res.json({ runs });
     } catch (err: unknown) {
       next(err);
     }
   });
 
-  router.get('/:runId', (req: Request, res: Response, next: NextFunction): void => {
+  router.get('/:runId', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const runId = getRouteParam(req, 'runId');
       if (runId === undefined) {
         res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
         return;
       }
-      const run = runsRepo.findById(runId);
+      const run = await runsRepo.findById(runId);
       if (run === null) {
         res
           .status(404)
@@ -76,26 +76,31 @@ export function createRunsRouter(
     }
   });
 
-  router.get('/:runId/candidates', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const runId = getRouteParam(req, 'runId');
-      if (runId === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
-        return;
+  router.get(
+    '/:runId/candidates',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const runId = getRouteParam(req, 'runId');
+        if (runId === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
+          return;
+        }
+        const run = await runsRepo.findById(runId);
+        if (run === null) {
+          res
+            .status(404)
+            .json({
+              error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` },
+            });
+          return;
+        }
+        const candidates = await candidateRepo.findByRunId(runId);
+        res.json({ runId, candidates });
+      } catch (err: unknown) {
+        next(err);
       }
-      const run = runsRepo.findById(runId);
-      if (run === null) {
-        res
-          .status(404)
-          .json({ error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` } });
-        return;
-      }
-      const candidates = candidateRepo.findByRunId(runId);
-      res.json({ runId, candidates });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
 
   router.get('/:runId/stream', (req: Request, res: Response, next: NextFunction): void => {
     try {
@@ -120,10 +125,10 @@ export function createRunsRouter(
     }
   });
 
-  router.post('/prune', (_req: Request, res: Response, next: NextFunction): void => {
+  router.post('/prune', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const before = runsRepo.count();
-      const deleted = runsRepo.prune();
+      const before = await runsRepo.count();
+      const deleted = await runsRepo.prune();
       res.json({ deleted, remaining: before - deleted });
     } catch (err: unknown) {
       next(err);
@@ -138,7 +143,7 @@ export function createRunsRouter(
    * When jobQueueService is available, returns 202 Accepted with runId and jobId.
    * Otherwise runs synchronously and returns 200 with the full PipelineRunResult.
    */
-  router.post('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.post('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { keywords, brandableNames, closeoutDomains } = req.body ?? {};
 
@@ -167,20 +172,19 @@ export function createRunsRouter(
 
       if (jobQueueService && runService) {
         // Async path: enqueue and return 202 Accepted
-        void jobQueueService.enqueuePipelineRun(input).then(({ jobId, runId }) => {
-          res
-            .status(202)
-            .location(`/api/v1/runs/${runId}`)
-            .json({
-              runId,
-              jobId,
-              status: 'queued',
-              _links: {
-                poll: { href: `/api/v1/runs/${runId}/job` },
-                run: { href: `/api/v1/runs/${runId}` },
-              },
-            });
-        });
+        const { jobId, runId } = await jobQueueService.enqueuePipelineRun(input);
+        res
+          .status(202)
+          .location(`/api/v1/runs/${runId}`)
+          .json({
+            runId,
+            jobId,
+            status: 'queued',
+            _links: {
+              poll: { href: `/api/v1/runs/${runId}/job` },
+              run: { href: `/api/v1/runs/${runId}` },
+            },
+          });
         return;
       }
 
@@ -196,27 +200,25 @@ export function createRunsRouter(
       }
 
       // Sync path: run synchronously and return 200
-      runService
-        .runSync(input)
-        .then((result) => {
-          res.status(200).json({
-            runId: result.runId,
-            status: 'completed',
-            durationMs: result.totalDurationMs,
-            recommended: result.recommended.length,
-            scored: result.scored.length,
-            stageSummary: result.stageSummary,
-            stageErrors: result.stageErrors,
-            persistence: result.persistence,
-          });
-        })
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.error({ err }, 'POST /api/runs — sync pipeline run failed');
-          res.status(500).json({
-            error: { code: 'PIPELINE_RUN_FAILED', message },
-          });
+      try {
+        const result = await runService.runSync(input);
+        res.status(200).json({
+          runId: result.runId,
+          status: 'completed',
+          durationMs: result.totalDurationMs,
+          recommended: result.recommended.length,
+          scored: result.scored.length,
+          stageSummary: result.stageSummary,
+          stageErrors: result.stageErrors,
+          persistence: result.persistence,
         });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err }, 'POST /api/runs — sync pipeline run failed');
+        res.status(500).json({
+          error: { code: 'PIPELINE_RUN_FAILED', message },
+        });
+      }
     } catch (err: unknown) {
       next(err);
     }
@@ -226,38 +228,43 @@ export function createRunsRouter(
    * GET /:runId/job — Return the job queue status for a submitted run.
    * This route must be registered BEFORE the generic /:runId route.
    */
-  router.get('/:runId/job', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const runId = getRouteParam(req, 'runId');
-      if (runId === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
-        return;
-      }
+  router.get(
+    '/:runId/job',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const runId = getRouteParam(req, 'runId');
+        if (runId === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'runId is required' } });
+          return;
+        }
 
-      const run = runsRepo.findById(runId);
-      if (run === null) {
-        res
-          .status(404)
-          .json({ error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` } });
-        return;
-      }
+        const run = await runsRepo.findById(runId);
+        if (run === null) {
+          res
+            .status(404)
+            .json({
+              error: { code: 'RUN_NOT_FOUND', message: `No pipeline run with id ${runId}` },
+            });
+          return;
+        }
 
-      if (!jobQueueService) {
-        res.json({ runId, jobStatus: 'not_available' });
-        return;
-      }
+        if (!jobQueueService) {
+          res.json({ runId, jobStatus: 'not_available' });
+          return;
+        }
 
-      // The run was created synchronously — no job tracking needed
-      if (run.finishedAt !== null) {
-        res.json({ runId, jobStatus: 'completed', finishedAt: run.finishedAt });
-        return;
-      }
+        // The run was created synchronously — no job tracking needed
+        if (run.finishedAt !== null) {
+          res.json({ runId, jobStatus: 'completed', finishedAt: run.finishedAt });
+          return;
+        }
 
-      res.json({ runId, jobStatus: 'in_progress' });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+        res.json({ runId, jobStatus: 'in_progress' });
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
 
   // The scoringRepo and db parameters are accepted for symmetry with the
   // composition root and to give future endpoints (e.g. /:runId/scores) a

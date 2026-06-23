@@ -32,7 +32,7 @@ interface SeedSignal {
   occurredAt: string;
 }
 
-function seedSignalRow(dbProvider: SqliteProvider, s: SeedSignal): void {
+async function seedSignalRow(dbProvider: SqliteProvider, s: SeedSignal): Promise<void> {
   new PortfolioRepository(dbProvider).insert({
     domain: s.domain,
     tld: '.com',
@@ -45,7 +45,7 @@ function seedSignalRow(dbProvider: SqliteProvider, s: SeedSignal): void {
 
   const candidateRepo = new CandidateRepository(dbProvider);
   const scoringRepo = new ScoringRepository(dbProvider);
-  const candidate = candidateRepo.insert({
+  const candidate = await candidateRepo.insert({
     domain: s.domain,
     tld: '.com',
     source: CandidateSource.KeywordCombo,
@@ -75,21 +75,21 @@ function seedSignalRow(dbProvider: SqliteProvider, s: SeedSignal): void {
     effectiveRecommendThreshold: 0.4,
     effectiveConfidenceThreshold: 0.3,
   };
-  scoringRepo.insert(candidate.id!, 'test', result);
+  await scoringRepo.insert(candidate.id!, 'test', result);
   dbProvider.rawDb
     .prepare(
       'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
     )
     .run(s.scoredAt, candidate.id);
 
-  const outcome = new OutcomeRepository(dbProvider).insert({
+  const outcome = await new OutcomeRepository(dbProvider).insert({
     domain: s.domain,
     type: 'sold',
     occurredAt: s.occurredAt,
     salePriceEur: s.salePrice,
   });
 
-  new BacktestSignalsRepository(dbProvider).upsert({
+  await new BacktestSignalsRepository(dbProvider).upsert({
     domain: s.domain,
     outcomeId: outcome.id!,
     scoringRunId: 'test',
@@ -114,9 +114,9 @@ describe('WeightSuggester', () => {
     scoringRepo = new ScoringRepository(dbProvider);
   });
 
-  it('holds all weights when the sample is too small (<5 sold outcomes)', () => {
+  it('holds all weights when the sample is too small (<5 sold outcomes)', async () => {
     for (let i = 0; i < 4; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `d${i}.com`,
         intrinsic: 0.8,
         commercial: 0.6,
@@ -128,17 +128,17 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     expect(report.sampleSize).toBe(4);
     expect(report.suggestions.every((s) => s.action === 'hold')).toBe(true);
     expect(report.warnings.join(' ')).toMatch(/below the 5 minimum/);
   });
 
-  it('proposes a positive weight delta when a signal is predictive (high > low)', () => {
+  it('proposes a positive weight delta when a signal is predictive (high > low)', async () => {
     // 20 rows: 10 with high intrinsic, 10 with low intrinsic.
     // high-intrinsic sold for €1500+ on average, low-intrinsic for €500.
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -150,7 +150,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -162,16 +162,16 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.action).toBe('apply');
     expect(intrinsic.delta).toBeGreaterThan(0);
     expect(intrinsic.delta).toBeLessThanOrEqual(0.05);
   });
 
-  it('proposes a negative weight delta when high signal underperforms (anti-predictive)', () => {
+  it('proposes a negative weight delta when high signal underperforms (anti-predictive)', async () => {
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -183,7 +183,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -195,15 +195,15 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.action).toBe('revert');
     expect(intrinsic.delta).toBeLessThan(0);
   });
 
-  it('renormalises so the suggested weights still sum to ~1.0', () => {
+  it('renormalises so the suggested weights still sum to ~1.0', async () => {
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `high${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -215,7 +215,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -227,14 +227,14 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     const total = report.suggestions.reduce((acc, s) => acc + s.suggestedWeight, 0);
     expect(Math.abs(total - 1.0)).toBeLessThan(0.01);
   });
 
-  it('holds a signal when the high/low buckets are too small', () => {
+  it('holds a signal when the high/low buckets are too small', async () => {
     // 5 outcomes, but only 1 has high intrinsic (the other 4 are low).
-    seedSignalRow(dbProvider, {
+    await seedSignalRow(dbProvider, {
       domain: 'one-high.com',
       intrinsic: 0.9,
       commercial: 0.4,
@@ -245,7 +245,7 @@ describe('WeightSuggester', () => {
       occurredAt: '2026-04-15T00:00:00.000Z',
     });
     for (let i = 0; i < 4; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `low${i}.com`,
         intrinsic: 0.1,
         commercial: 0.4,
@@ -257,16 +257,16 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.action).toBe('hold');
     expect(intrinsic.rationale).toMatch(/buckets too small/);
   });
 
-  it('caps individual deltas at ±0.05 (anti-jump safety rail)', () => {
+  it('caps individual deltas at ±0.05 (anti-jump safety rail)', async () => {
     // 10 high sold for €5000, 10 low sold for €10. lift = €4990.
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `hi${i}.com`,
         intrinsic: 0.9,
         commercial: 0.4,
@@ -278,7 +278,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `lo${i}.com`,
         intrinsic: 0.1,
         commercial: 0.4,
@@ -290,13 +290,13 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     for (const s of report.suggestions) {
       expect(Math.abs(s.delta)).toBeLessThanOrEqual(0.05);
     }
   });
 
-  it('respects a custom current weights config (operator-tuned base)', () => {
+  it('respects a custom current weights config (operator-tuned base)', async () => {
     const customWeights: ScoringWeights = {
       intrinsic: 0.5,
       commercial: 0.2,
@@ -304,7 +304,7 @@ describe('WeightSuggester', () => {
       expiry: 0.1,
     };
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `hi${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -316,7 +316,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `lo${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -328,14 +328,14 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo, customWeights);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.currentWeight).toBe(0.5);
   });
 
-  it('uses the default weights when none are provided', () => {
+  it('uses the default weights when none are provided', async () => {
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `hi${i}.com`,
         intrinsic: 0.8,
         commercial: 0.4,
@@ -347,7 +347,7 @@ describe('WeightSuggester', () => {
       });
     }
     for (let i = 0; i < 10; i++) {
-      seedSignalRow(dbProvider, {
+      await seedSignalRow(dbProvider, {
         domain: `lo${i}.com`,
         intrinsic: 0.2,
         commercial: 0.4,
@@ -359,7 +359,7 @@ describe('WeightSuggester', () => {
       });
     }
     const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
-    const report = suggester.suggest();
+    const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.currentWeight).toBe(DEFAULT_WEIGHTS.intrinsic);
   });

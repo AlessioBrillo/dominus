@@ -47,40 +47,42 @@ export class PortfolioManager {
     return this.#rescoreService;
   }
 
-  add(input: AddPortfolioEntryInput): PortfolioEntry {
-    return this.repo.insert(input);
+  async add(input: AddPortfolioEntryInput): Promise<PortfolioEntry> {
+    return await this.repo.insert(input);
   }
 
-  updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): void {
-    this.repo.updateCosts(domain, acquisitionCost, renewalCost);
+  async updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): Promise<void> {
+    await this.repo.updateCosts(domain, acquisitionCost, renewalCost);
   }
 
-  remove(domain: string): void {
-    this.repo.delete(domain);
+  async remove(domain: string): Promise<void> {
+    await this.repo.delete(domain);
   }
 
-  list(): PortfolioSummary[] {
-    return this.repo.findAll().map((entry) => ({
+  async list(): Promise<PortfolioSummary[]> {
+    const entries = await this.repo.findAll();
+    return entries.map((entry) => ({
       entry,
       renewalClock: computeRenewalClock(entry),
     }));
   }
 
-  refreshVerdicts(): void {
-    for (const entry of this.repo.findAll()) {
+  async refreshVerdicts(): Promise<void> {
+    const entries = await this.repo.findAll();
+    for (const entry of entries) {
       const result = computeDropVerdict(entry, this.#dropConfig);
       if (result.verdict !== entry.verdict) {
         const reasonWithNpv =
           result.npv !== undefined
             ? `${result.reason} (NPV: €${result.npv.toFixed(2)})`
             : result.reason;
-        this.repo.updateVerdict(entry.domain, result.verdict, reasonWithNpv);
+        await this.repo.updateVerdict(entry.domain, result.verdict, reasonWithNpv);
       }
     }
   }
 
-  updateScore(domain: string, score: number, listPrice: number): void {
-    this.repo.updateScore(domain, score, listPrice);
+  async updateScore(domain: string, score: number, listPrice: number): Promise<void> {
+    await this.repo.updateScore(domain, score, listPrice);
   }
 
   /**
@@ -98,14 +100,14 @@ export class PortfolioManager {
       throw new Error('PortfolioRescoreService not configured: call setRescoreService() first');
     }
 
-    const entries = this.repo.findAll();
+    const entries = await this.repo.findAll();
     const summary = await this.#rescoreService.rescore(entries);
 
     for (const r of summary.results) {
-      this.repo.updateScore(r.domain, r.calibratedScore, r.suggestedListPrice);
+      await this.repo.updateScore(r.domain, r.calibratedScore, r.suggestedListPrice);
     }
 
-    this.refreshVerdicts();
+    await this.refreshVerdicts();
     return summary;
   }
 }

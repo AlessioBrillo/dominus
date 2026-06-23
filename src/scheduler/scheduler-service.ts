@@ -105,9 +105,9 @@ export class SchedulerService {
         this.config.SCHEDULER_PRUNE_CRON,
         'Prune expired trademark cache, provider cache, and pipeline run history',
         async () => {
-          const tmRemoved = this.trademarkRepo!.pruneExpired();
-          const pcRemoved = this.providerCacheRepo?.pruneExpired() ?? 0;
-          const runsRemoved = this.runsRepo!.prune();
+          const tmRemoved = await this.trademarkRepo!.pruneExpired();
+          const pcRemoved = (await this.providerCacheRepo?.pruneExpired()) ?? 0;
+          const runsRemoved = await this.runsRepo!.prune();
           const msg = `Pruned ${tmRemoved} trademark cache + ${pcRemoved} provider cache + ${runsRemoved} pipeline run(s)`;
           logger.info(msg);
           return msg;
@@ -159,7 +159,7 @@ export class SchedulerService {
         'Create a consistent database backup via VACUUM INTO and prune expired backups',
         async () => {
           const result = await this.backupService!.create();
-          const pruned = this.backupService!.prune();
+          const pruned = await this.backupService!.prune();
           const sizeKb = (result.sizeBytes / 1024).toFixed(1);
           const msg = `Backup created: ${result.path} (${sizeKb}KB, ${result.durationMs}ms), pruned ${pruned} old backup(s)`;
           return msg;
@@ -190,8 +190,8 @@ export class SchedulerService {
     return await job.execute();
   }
 
-  getStatus(): ScheduledJob[] {
-    const dbJobs = this.jobRepo?.findAll() ?? [];
+  async getStatus(): Promise<ScheduledJob[]> {
+    const dbJobs = (await this.jobRepo?.findAll()) ?? [];
     const dbMap = new Map(dbJobs.map((j) => [j.jobName, j]));
     return this.#availableJobs().map((name) => {
       const db = dbMap.get(name);
@@ -244,30 +244,28 @@ export class SchedulerService {
     this.#setJobDefinition(name, cronExpression, description, wrappedExec);
 
     // Persist job definition to DB
-    try {
-      this.jobRepo?.upsert({ jobName: name, cronExpression, description });
-    } catch {
+    this.jobRepo?.upsert({ jobName: name, cronExpression, description }).catch(() => {
       // DB persistence is best-effort
-    }
+    });
 
     if (cron.validate(cronExpression)) {
       const task = cron.schedule(cronExpression, () => {
         const started = Date.now();
         wrappedExec()
-          .then((result) => {
+          .then(async (result) => {
             const durationMs = Date.now() - started;
-            this.jobRepo?.updateResult(name, {
+            await this.jobRepo?.updateResult(name, {
               lastRunAt: new Date().toISOString(),
               lastResult: result,
               durationMs,
               isError: false,
             });
           })
-          .catch((err: unknown) => {
+          .catch(async (err: unknown) => {
             const durationMs = Date.now() - started;
             const errorMsg = err instanceof Error ? err.message : String(err);
             logger.error(`Job ${name} failed: ${errorMsg}`);
-            this.jobRepo?.updateResult(name, {
+            await this.jobRepo?.updateResult(name, {
               lastRunAt: new Date().toISOString(),
               lastResult: `Error: ${errorMsg}`,
               durationMs,

@@ -124,8 +124,8 @@ describe('AutoWeightTuner', () => {
     dryRun: true,
   };
 
-  it('returns a valid AutoTuneOutcome with dryRun=true', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport());
+  it('returns a valid AutoTuneOutcome with dryRun=true', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(makeSuggestionReport());
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -136,7 +136,7 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome).toBeDefined();
     expect(outcome.dryRun).toBe(true);
@@ -148,8 +148,8 @@ describe('AutoWeightTuner', () => {
     expect(outcome.snapshotId).toBeTypeOf('number');
   });
 
-  it('does not write the override file in dry-run mode', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport());
+  it('does not write the override file in dry-run mode', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(makeSuggestionReport());
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -160,13 +160,13 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    tuner.tune();
+    await tuner.tune();
 
     expect(existsSync(TEST_WEIGHTS_PATH)).toBe(false);
   });
 
-  it('writes the override file when not in dry-run and safety passes', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport());
+  it('writes the override file when not in dry-run and safety passes', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(makeSuggestionReport());
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -177,14 +177,16 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome.applied).toBe(true);
     expect(existsSync(TEST_WEIGHTS_PATH)).toBe(true);
   });
 
-  it('fails safety when sample size is below minimum', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport({ sampleSize: 5 }));
+  it('fails safety when sample size is below minimum', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(
+      makeSuggestionReport({ sampleSize: 5 }),
+    );
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -195,15 +197,15 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome.safety.passed).toBe(false);
     expect(outcome.safety.failures[0]).toBe('Sample size 5 < minimum 20');
     expect(outcome.applied).toBe(false);
   });
 
-  it('fails safety when a signal delta exceeds maxDeltaPerSignal', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(
+  it('fails safety when a signal delta exceeds maxDeltaPerSignal', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(
       makeSuggestionReport({
         suggestions: [
           {
@@ -251,14 +253,14 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome.safety.passed).toBe(false);
     expect(outcome.safety.failures.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('fails safety when suggested weights do not sum to one', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(
+  it('fails safety when suggested weights do not sum to one', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(
       makeSuggestionReport({ sumsToOne: false, totalSuggestedWeight: 0.95 }),
     );
 
@@ -271,14 +273,14 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome.safety.passed).toBe(false);
     expect(outcome.safety.failures[0]).toBe('Suggested weights sum to 0.9500 (expected 1.0)');
   });
 
-  it('persists a weight_snapshot record on every tune call', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport());
+  it('persists a weight_snapshot record on every tune call', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(makeSuggestionReport());
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -289,15 +291,15 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const before = weightSnapshotRepo.count();
-    tuner.tune();
-    const after = weightSnapshotRepo.count();
+    const before = await weightSnapshotRepo.count();
+    await tuner.tune();
+    const after = await weightSnapshotRepo.count();
 
     expect(after).toBe(before + 1);
   });
 
-  it('sends notification when weights are applied', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport());
+  it('sends notification when weights are applied', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(makeSuggestionReport());
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -309,7 +311,7 @@ describe('AutoWeightTuner', () => {
       [mockNotifier],
     );
 
-    tuner.tune();
+    await tuner.tune();
 
     expect(mockNotifier.send).toHaveBeenCalledTimes(1);
     expect(mockNotifier.send).toHaveBeenCalledWith(
@@ -320,8 +322,8 @@ describe('AutoWeightTuner', () => {
     );
   });
 
-  it('does not send notification when weights are not applied (dry run)', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(makeSuggestionReport());
+  it('does not send notification when weights are not applied (dry run)', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(makeSuggestionReport());
 
     const tuner = new AutoWeightTuner(
       mockBacktestEngine,
@@ -333,13 +335,13 @@ describe('AutoWeightTuner', () => {
       [mockNotifier],
     );
 
-    tuner.tune();
+    await tuner.tune();
 
     expect(mockNotifier.send).not.toHaveBeenCalled();
   });
 
-  it('includes warnings when all signals are on hold', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(
+  it('includes warnings when all signals are on hold', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(
       makeSuggestionReport({
         suggestions: [
           {
@@ -387,13 +389,13 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome.warnings).toContain('All signals on hold — no weight changes recommended');
   });
 
-  it('records warnings from the suggestion report', () => {
-    vi.mocked(mockWeightSuggester.suggest).mockReturnValue(
+  it('records warnings from the suggestion report', async () => {
+    vi.mocked(mockWeightSuggester.suggest).mockResolvedValue(
       makeSuggestionReport({
         warnings: ['Sample is skewed towards .com domains'],
       }),
@@ -408,7 +410,7 @@ describe('AutoWeightTuner', () => {
       TEST_WEIGHTS_PATH,
     );
 
-    const outcome = tuner.tune();
+    const outcome = await tuner.tune();
 
     expect(outcome.warnings).toContain('Sample is skewed towards .com domains');
   });

@@ -15,8 +15,8 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function seedPortfolio(provider: SqliteProvider, domain: string): void {
-  new PortfolioRepository(provider).insert({
+async function seedPortfolio(provider: SqliteProvider, domain: string): Promise<void> {
+  await new PortfolioRepository(provider).insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -59,7 +59,7 @@ describe('registerOutcomeCommand', () => {
   describe('record', () => {
     it('records a sold outcome and prints the result', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'alpha.com');
       const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
@@ -84,7 +84,7 @@ describe('registerOutcomeCommand', () => {
         '240',
       ]);
 
-      const stored = repo.findByDomain('alpha.com');
+      const stored = await repo.findByDomain('alpha.com');
       expect(stored).toHaveLength(1);
       expect(stored[0]?.type).toBe('sold');
       expect(stored[0]?.salePriceEur).toBe(1500);
@@ -93,7 +93,7 @@ describe('registerOutcomeCommand', () => {
 
     it('rejects an unknown type with exit 1', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'alpha.com');
       const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
@@ -120,7 +120,7 @@ describe('registerOutcomeCommand', () => {
 
     it('rejects an unparseable --occurred-at with exit 1', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'alpha.com');
       const repo = new OutcomeRepository(provider);
       const program = new Command();
       program.exitOverride();
@@ -175,16 +175,20 @@ describe('registerOutcomeCommand', () => {
   describe('list', () => {
     it('lists all outcomes when no filter is given', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
-      seedPortfolio(provider, 'beta.io');
+      await seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'beta.io');
       const repo = new OutcomeRepository(provider);
-      repo.insert({
+      await repo.insert({
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-04-15T00:00:00.000Z',
         salePriceEur: 1000,
       });
-      repo.insert({ domain: 'beta.io', type: 'renewed', occurredAt: '2026-05-15T00:00:00.000Z' });
+      await repo.insert({
+        domain: 'beta.io',
+        type: 'renewed',
+        occurredAt: '2026-05-15T00:00:00.000Z',
+      });
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -198,11 +202,19 @@ describe('registerOutcomeCommand', () => {
 
     it('filters by domain', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
-      seedPortfolio(provider, 'beta.io');
+      await seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'beta.io');
       const repo = new OutcomeRepository(provider);
-      repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z' });
-      repo.insert({ domain: 'beta.io', type: 'renewed', occurredAt: '2026-05-15T00:00:00.000Z' });
+      await repo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-04-15T00:00:00.000Z',
+      });
+      await repo.insert({
+        domain: 'beta.io',
+        type: 'renewed',
+        occurredAt: '2026-05-15T00:00:00.000Z',
+      });
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -216,11 +228,19 @@ describe('registerOutcomeCommand', () => {
 
     it('filters by type', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
-      seedPortfolio(provider, 'beta.io');
+      await seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'beta.io');
       const repo = new OutcomeRepository(provider);
-      repo.insert({ domain: 'alpha.com', type: 'sold', occurredAt: '2026-04-15T00:00:00.000Z' });
-      repo.insert({ domain: 'beta.io', type: 'renewed', occurredAt: '2026-05-15T00:00:00.000Z' });
+      await repo.insert({
+        domain: 'alpha.com',
+        type: 'sold',
+        occurredAt: '2026-04-15T00:00:00.000Z',
+      });
+      await repo.insert({
+        domain: 'beta.io',
+        type: 'renewed',
+        occurredAt: '2026-05-15T00:00:00.000Z',
+      });
       const program = new Command();
       program.exitOverride();
       registerOutcomeCommand(program, repo);
@@ -248,16 +268,20 @@ describe('registerOutcomeCommand', () => {
   describe('stats', () => {
     it('prints the aggregate counts and realised revenue for a domain', async () => {
       const provider = openTestDb();
-      seedPortfolio(provider, 'alpha.com');
+      await seedPortfolio(provider, 'alpha.com');
       const repo = new OutcomeRepository(provider);
-      repo.insert({ domain: 'alpha.com', type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' });
-      repo.insert({
+      await repo.insert({
+        domain: 'alpha.com',
+        type: 'renewed',
+        occurredAt: '2025-12-01T00:00:00.000Z',
+      });
+      await await repo.insert({
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-04-01T00:00:00.000Z',
         salePriceEur: 800,
       });
-      repo.insert({
+      await repo.insert({
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-05-01T00:00:00.000Z',

@@ -147,7 +147,7 @@ describe('ListingManager', () => {
     const listing = await manager.listDomain('example.com', 'manual', 1000);
 
     await manager.deleteListing(listing.id);
-    expect(manager.getListing(listing.id)).toBeUndefined();
+    expect(await manager.getListing(listing.id)).toBeUndefined();
   });
 
   it('records an offer and updates listing status', async () => {
@@ -165,7 +165,7 @@ describe('ListingManager', () => {
     expect(offer.buyer).toBe('Buyer123');
     expect(offer.status).toBe('pending');
 
-    const updatedListing = manager.getListing(listing.id);
+    const updatedListing = await manager.getListing(listing.id);
     expect(updatedListing?.status).toBe('offer_received');
   });
 
@@ -180,11 +180,11 @@ describe('ListingManager', () => {
     const listing = await manager.listDomain('example.com', 'manual', 1000);
     const offer = await manager.recordOffer(listing.id, 800, 'Buyer123');
 
-    manager.respondToOffer(offer.id, listing.id, 'accepted');
-    const updatedListing = manager.getListing(listing.id);
+    await manager.respondToOffer(offer.id, listing.id, 'accepted');
+    const updatedListing = await manager.getListing(listing.id);
     expect(updatedListing?.status).toBe('sold');
 
-    const offers = manager.getOffers(listing.id);
+    const offers = await manager.getOffers(listing.id);
     expect(offers[0]?.status).toBe('accepted');
   });
 
@@ -199,10 +199,10 @@ describe('ListingManager', () => {
     const listing = await manager.listDomain('example.com', 'manual', 1000);
     const offer = await manager.recordOffer(listing.id, 500, 'Lowballer');
 
-    manager.respondToOffer(offer.id, listing.id, 'declined');
-    const offers = manager.getOffers(listing.id);
+    await manager.respondToOffer(offer.id, listing.id, 'declined');
+    const offers = await manager.getOffers(listing.id);
     expect(offers[0]?.status).toBe('declined');
-    expect(manager.getListing(listing.id)?.status).toBe('offer_received');
+    expect((await manager.getListing(listing.id))?.status).toBe('offer_received');
   });
 
   it('lists all listings with optional filter', async () => {
@@ -216,10 +216,10 @@ describe('ListingManager', () => {
     await manager.listDomain('alpha.com', 'manual', 500);
     await manager.listDomain('beta.com', 'dan', 1000);
 
-    const all = manager.getListings();
+    const all = await manager.getListings();
     expect(all.length).toBe(2);
 
-    const dan = manager.getListings({ marketplace: 'dan' });
+    const dan = await manager.getListings({ marketplace: 'dan' });
     expect(dan.length).toBe(1);
   });
 });

@@ -14,9 +14,9 @@ export function registerWatchlistCommand(program: Command, deps: WatchlistComman
     .command('add <domain>')
     .description('Add a domain to the watchlist')
     .option('--notes <text>', 'Optional notes about this domain')
-    .action((domain: string, options: { notes?: string }) => {
+    .action(async (domain: string, options: { notes?: string }) => {
       try {
-        const entry = deps.watchlistService.add(domain, options.notes);
+        const entry = await deps.watchlistService.add(domain, options.notes);
         process.stdout.write(`Added ${entry.domain} to watchlist (id=${entry.id}).\n`);
       } catch (err: unknown) {
         process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -27,8 +27,8 @@ export function registerWatchlistCommand(program: Command, deps: WatchlistComman
   watchlist
     .command('remove <domain>')
     .description('Remove a domain from the watchlist')
-    .action((domain: string) => {
-      const removed = deps.watchlistService.remove(domain);
+    .action(async (domain: string) => {
+      const removed = await deps.watchlistService.remove(domain);
       if (removed) {
         process.stdout.write(`Removed ${domain} from watchlist.\n`);
       } else {
@@ -41,8 +41,8 @@ export function registerWatchlistCommand(program: Command, deps: WatchlistComman
     .command('list')
     .description('List all watched domains')
     .option('--json', 'Emit JSON instead of a human-readable table', false)
-    .action((options: { json: boolean }) => {
-      const entries = deps.watchlistService.list();
+    .action(async (options: { json: boolean }) => {
+      const entries = await deps.watchlistService.list();
       if (entries.length === 0) {
         process.stdout.write('Watchlist is empty.\n');
         return;

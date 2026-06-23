@@ -97,10 +97,10 @@ export class PortfolioRescoreService {
    * whose run_id starts with the rescore prefix. Called on scheduler or
    * explicitly via CLI maintenance.
    */
-  pruneRetention(): number {
+  async pruneRetention(): Promise<number> {
     const cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const prefix = `${RESCORE_RUN_ID_PREFIX}%`;
-    const pruned = this.scoringRepo.pruneByRunIdPrefix(prefix, cutoff);
+    const pruned = await this.scoringRepo.pruneByRunIdPrefix(prefix, cutoff);
     getLogger().info(
       { pruned, retentionDays: this.retentionDays },
       'Pruned stale rescore scoring_runs',
@@ -123,8 +123,8 @@ export class PortfolioRescoreService {
 
       const gate = await this.gate.check(entry.domain);
 
-      const candidateId = this.ensureRescoreCandidate(entry, runId);
-      this.scoringRepo.insert(candidateId, runId, score);
+      const candidateId = await this.ensureRescoreCandidate(entry, runId);
+      await this.scoringRepo.insert(candidateId, runId, score);
 
       return {
         domain: entry.domain,
@@ -156,8 +156,8 @@ export class PortfolioRescoreService {
     }
   }
 
-  private ensureRescoreCandidate(entry: PortfolioEntry, runId: string): number {
-    this.candidateRepo.upsert({
+  private async ensureRescoreCandidate(entry: PortfolioEntry, runId: string): Promise<number> {
+    await this.candidateRepo.upsert({
       domain: entry.domain,
       tld: entry.tld,
       source: CandidateSource.PortfolioRescore,
@@ -165,7 +165,7 @@ export class PortfolioRescoreService {
       isPremium: false,
       pipelineRunId: runId,
     });
-    const row = this.candidateRepo.findByDomain(entry.domain);
+    const row = await this.candidateRepo.findByDomain(entry.domain);
     if (row === null || row.id === undefined) {
       throw new Error(
         `Failed to upsert rescore candidate for ${entry.domain} — upsert succeeded but no row found`,

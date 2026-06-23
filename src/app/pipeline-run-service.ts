@@ -74,6 +74,7 @@ export interface EnqueueRunResult {
  */
 export class PipelineRunService {
   readonly #db: Database.Database;
+  readonly #provider: SqliteProvider;
   readonly #orchestrator: PipelineOrchestrator;
   readonly #candidateRepo: CandidateRepository;
   readonly #scoringRepo: ScoringRepository;
@@ -100,6 +101,7 @@ export class PipelineRunService {
     workerEnabled: boolean = false,
   ) {
     this.#db = db;
+    this.#provider = new SqliteProvider(db);
     this.#orchestrator = orchestrator;
     this.#candidateRepo = candidateRepo;
     this.#scoringRepo = scoringRepo;
@@ -145,7 +147,7 @@ export class PipelineRunService {
     const retainedUntil = computeRetainedUntil(startedAt, this.#retentionDays);
     const hostVersion = this.#hostVersion;
 
-    this.#runsRepo.insert({
+    await this.#runsRepo.insert({
       runId: runRowId,
       startedAt,
       hostVersion,
@@ -174,7 +176,7 @@ export class PipelineRunService {
     const inputs = snapshotInputs(input);
     const hostVersion = options.hostVersion ?? this.#hostVersion;
 
-    this.#runsRepo.insert({
+    await this.#runsRepo.insert({
       runId: runRowId,
       startedAt,
       hostVersion,
@@ -202,7 +204,7 @@ export class PipelineRunService {
       result = await this.#orchestrator.run(input);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.#runsRepo.complete(runRowId, {
+      await this.#runsRepo.complete(runRowId, {
         finishedAt: new Date().toISOString(),
         totalDurationMs: Date.now() - startedMs,
         stageSummary: {},
@@ -214,13 +216,13 @@ export class PipelineRunService {
 
     let persistence: PersistenceSummary;
     try {
-      persistence = this.#db.transaction((): PersistenceSummary => {
+      persistence = await this.#provider.transaction(async (): Promise<PersistenceSummary> => {
         let candidatesPersisted = 0;
         let scoresPersisted = 0;
 
         const idByDomain = new Map<string, number>();
         for (const candidate of result.allCandidates) {
-          const persisted = this.#candidateRepo.upsert(candidate);
+          const persisted = await this.#candidateRepo.upsert(candidate);
           if (persisted.id !== undefined) {
             idByDomain.set(persisted.domain, persisted.id);
           }
@@ -231,7 +233,7 @@ export class PipelineRunService {
           if (scored.scoreResult === null) continue;
           const id = idByDomain.get(scored.domain);
           if (id !== undefined) {
-            this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
+            await this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
             scoresPersisted++;
           }
         }
@@ -246,10 +248,10 @@ export class PipelineRunService {
         }
 
         return { candidatesPersisted, scoresPersisted };
-      })();
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.#runsRepo.complete(runRowId, {
+      await this.#runsRepo.complete(runRowId, {
         finishedAt: new Date().toISOString(),
         totalDurationMs: Date.now() - startedMs,
         stageSummary: result.stageSummary,
@@ -259,7 +261,7 @@ export class PipelineRunService {
       throw err;
     }
 
-    this.#persistStageMetrics(runRowId, result);
+    await this.#persistStageMetrics(runRowId, result);
 
     const totalDurationMs = Date.now() - startedMs;
 
@@ -280,7 +282,7 @@ export class PipelineRunService {
       this.#progressService.removeClient(runRowId);
     }
 
-    this.#runsRepo.complete(runRowId, {
+    await this.#runsRepo.complete(runRowId, {
       finishedAt: new Date().toISOString(),
       totalDurationMs,
       stageSummary: result.stageSummary,
@@ -295,7 +297,7 @@ export class PipelineRunService {
     };
   }
 
-  #persistStageMetrics(runId: string, result: PipelineResult): void {
+  async #persistStageMetrics(runId: string, result: PipelineResult): Promise<void> {
     const stages: Array<{
       stageName: string;
       passed: number;
@@ -316,7 +318,7 @@ export class PipelineRunService {
     }
 
     if (stages.length > 0) {
-      this.#metricsRepo.insertBatch(runId, stages);
+      await this.#metricsRepo.insertBatch(runId, stages);
     }
   }
 }

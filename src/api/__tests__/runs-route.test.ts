@@ -257,8 +257,8 @@ describe('Runs API', () => {
       const body = res.body as PruneBody;
       expect(body.deleted).toBe(1);
       expect(body.remaining).toBe(1);
-      expect(runsRepo.findById('r-expired')).toBeNull();
-      expect(runsRepo.findById('r-kept')).not.toBeNull();
+      expect(await runsRepo.findById('r-expired')).toBeNull();
+      expect(await runsRepo.findById('r-kept')).not.toBeNull();
     });
   });
 });

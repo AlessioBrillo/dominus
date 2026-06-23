@@ -106,7 +106,7 @@ export class JobWorker {
     let dequeued = 0;
     for (let i = 0; i < availableSlots; i++) {
       try {
-        const job = this.#repo.dequeue();
+        const job = await this.#repo.dequeue();
         if (!job) break;
         dequeued++;
         void this.#processJob(job);
@@ -131,7 +131,7 @@ export class JobWorker {
       this.#consecutiveBusy = 0;
     }
 
-    const requeued = this.#repo.requeueStuck(this.#config.maxRunningAgeMs);
+    const requeued = await this.#repo.requeueStuck(this.#config.maxRunningAgeMs);
     if (requeued > 0) {
       logger.warn({ requeued }, 'Requeued stuck jobs');
     }
@@ -155,7 +155,7 @@ export class JobWorker {
     if (!handler) {
       const error = `No handler registered for job type: ${job.jobType}`;
       logger.error({ jobId: job.id, jobType: job.jobType }, error);
-      this.#repo.fail(job.id, error);
+      await this.#repo.fail(job.id, error);
       this.#activeJobs.delete(job.id);
       this.#checkShutdown();
       return;
@@ -167,7 +167,7 @@ export class JobWorker {
       const payload = JSON.parse(job.payloadJson) as JobPayload;
       const result = await handler.handle(payload, controller.signal);
 
-      this.#repo.complete(job.id, result);
+      await this.#repo.complete(job.id, result);
       logger.info({ jobId: job.id, jobType: job.jobType }, 'Job completed');
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
@@ -175,7 +175,7 @@ export class JobWorker {
         logger.warn({ jobId: job.id }, 'Job aborted during shutdown');
       } else {
         logger.error({ jobId: job.id, jobType: job.jobType, error }, 'Job failed');
-        this.#repo.fail(job.id, error);
+        await this.#repo.fail(job.id, error);
       }
     } finally {
       this.#activeJobs.delete(job.id);

@@ -22,26 +22,26 @@ export class WatchlistService {
     private readonly config: Config,
   ) {}
 
-  add(domain: string, notes?: string): WatchlistEntry {
+  async add(domain: string, notes?: string): Promise<WatchlistEntry> {
     const parsed = parseDomain(domain);
     const tld = parsed.tld ?? 'unknown';
-    return this.repo.insert({ domain, tld, notes });
+    return await this.repo.insert({ domain, tld, notes });
   }
 
-  remove(domain: string): boolean {
-    return this.repo.remove(domain);
+  async remove(domain: string): Promise<boolean> {
+    return await this.repo.remove(domain);
   }
 
-  list(): WatchlistEntry[] {
-    return this.repo.list();
+  async list(): Promise<WatchlistEntry[]> {
+    return await this.repo.list();
   }
 
-  get(domain: string): WatchlistEntry | null {
-    return this.repo.findByDomain(domain);
+  async get(domain: string): Promise<WatchlistEntry | null> {
+    return await this.repo.findByDomain(domain);
   }
 
   async poll(dryRun = false): Promise<WatchlistPollResult> {
-    const entries = this.repo.listPendingPoll(this.config.WATCHLIST_POLL_INTERVAL_HOURS);
+    const entries = await this.repo.listPendingPoll(this.config.WATCHLIST_POLL_INTERVAL_HOURS);
     const result: WatchlistPollResult = { checked: 0, available: 0, notified: 0, errors: 0 };
 
     if (entries.length === 0) {

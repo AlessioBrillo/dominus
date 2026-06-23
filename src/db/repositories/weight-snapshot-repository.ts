@@ -37,12 +37,12 @@ export class WeightSnapshotRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
   async insert(input: InsertWeightSnapshotInput): Promise<WeightSnapshot> {
-    const row = await this.db.queryOne<{ id: number }>(
+    const row = (await this.db.queryOne<{ id: number }>(
       `INSERT INTO weight_snapshots
-       (intrinsic, commercial, market, expiry, source,
-        backtest_generated_at, sample_size, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING id`,
+         (intrinsic, commercial, market, expiry, source,
+          backtest_generated_at, sample_size, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING id`,
       [
         input.intrinsic,
         input.commercial,
@@ -53,13 +53,12 @@ export class WeightSnapshotRepository {
         input.sampleSize ?? null,
         input.notes ?? null,
       ],
-    )!;
+    ))!;
 
-    const stored = (
-      await this.db.queryOne<WeightSnapshotRow>('SELECT * FROM weight_snapshots WHERE id = ?', [
-        row.id,
-      ])
-    )!;
+    const stored = (await this.db.queryOne<WeightSnapshotRow>(
+      'SELECT * FROM weight_snapshots WHERE id = ?',
+      [row.id],
+    ))!;
     return rowToSnapshot(stored);
   }
 
@@ -87,9 +86,9 @@ export class WeightSnapshotRepository {
   }
 
   async count(): Promise<number> {
-    const row = (
-      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM weight_snapshots')
-    )!;
+    const row = (await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM weight_snapshots',
+    ))!;
     return row.n;
   }
 }

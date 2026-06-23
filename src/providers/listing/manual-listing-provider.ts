@@ -16,8 +16,8 @@ export class ManualListingProvider implements ListingProvider {
   }
 
   async createListing(newListing: NewListing): Promise<Listing> {
-    const { id } = this.#repo.insert(newListing);
-    const listing = this.#repo.findById(id);
+    const { id } = await this.#repo.insert(newListing);
+    const listing = await this.#repo.findById(id);
     if (!listing) throw new Error(`Failed to create listing for ${newListing.domain}`);
     logger.info({ domain: newListing.domain }, 'ManualListingProvider: listing created');
     return listing;
@@ -25,34 +25,34 @@ export class ManualListingProvider implements ListingProvider {
 
   async updateListing(externalId: string, update: ListingUpdate): Promise<Listing> {
     const id = parseInt(externalId, 10);
-    this.#repo.update(id, update);
-    const listing = this.#repo.findById(id);
+    await this.#repo.update(id, update);
+    const listing = await this.#repo.findById(id);
     if (!listing) throw new Error(`Listing ${externalId} not found`);
     return listing;
   }
 
   async cancelListing(externalId: string): Promise<void> {
     const id = parseInt(externalId, 10);
-    this.#repo.update(id, { status: 'unlisted' });
+    await this.#repo.update(id, { status: 'unlisted' });
     logger.info({ listingId: id }, 'ManualListingProvider: listing cancelled');
   }
 
   async getListing(externalId: string): Promise<Listing | undefined> {
     const id = parseInt(externalId, 10);
-    return this.#repo.findById(id);
+    return await this.#repo.findById(id);
   }
 
   async getListings(): Promise<Listing[]> {
-    return this.#repo.findAll();
+    return await this.#repo.findAll();
   }
 
   async getOffers(externalId: string): Promise<ListingOffer[]> {
     const id = parseInt(externalId, 10);
-    return this.#repo.findOffersByListingId(id);
+    return await this.#repo.findOffersByListingId(id);
   }
 
   async sync(): Promise<SyncResult> {
-    const listings = this.#repo.findAll();
+    const listings = await this.#repo.findAll();
     logger.info({ total: listings.length }, 'ManualListingProvider: sync complete');
     return {
       marketplace: 'manual',

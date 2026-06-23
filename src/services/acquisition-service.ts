@@ -42,7 +42,7 @@ export class AcquisitionService {
       throw new Error('Bid amount must be positive');
     }
 
-    const existing = this.#repo.findByDomain(input.domain);
+    const existing = await this.#repo.findByDomain(input.domain);
     if (existing !== null && existing.status === BidStatus.Pending) {
       throw new Error(
         `Domain ${input.domain} already has a pending bid (placed ${existing.bidPlacedAt}). Cancel it first or wait for resolution.`,
@@ -95,13 +95,13 @@ export class AcquisitionService {
       }
     }
 
-    const bid = this.#repo.insert(input);
+    const bid = await this.#repo.insert(input);
     logger.info({ domain: bid.domain, venue: bid.venue, amount: bid.bidAmountEur }, 'Bid placed');
     return bid;
   }
 
   async resolve(input: ResolveBidInput): Promise<Bid> {
-    const existing = this.#repo.findByDomain(input.domain);
+    const existing = await this.#repo.findByDomain(input.domain);
     if (existing === null) {
       throw new Error(`No bid found for domain ${input.domain}`);
     }
@@ -111,8 +111,9 @@ export class AcquisitionService {
       );
     }
 
-    const transaction = this.#db.transaction((): Bid => {
-      const resolved = this.#repo.resolve(
+    this.#db.exec('BEGIN');
+    try {
+      const resolved = await this.#repo.resolve(
         input.domain,
         input.status,
         input.wonPriceEur,
@@ -128,7 +129,7 @@ export class AcquisitionService {
         const now = new Date();
         const years = input.registrationYears ?? 1;
 
-        this.#portfolioManager.add({
+        await this.#portfolioManager.add({
           domain: input.domain,
           tld: parsed.tld,
           acquiredAt: now.toISOString(),
@@ -139,7 +140,7 @@ export class AcquisitionService {
           notes: input.notes,
         });
 
-        this.#outcomeRepo.insert({
+        await this.#outcomeRepo.insert({
           domain: input.domain,
           type: 'purchased',
           occurredAt: now.toISOString(),
@@ -149,14 +150,11 @@ export class AcquisitionService {
         });
       }
 
-      return resolved;
-    });
-
-    try {
-      const result = transaction();
+      this.#db.exec('COMMIT');
       logger.info({ domain: input.domain, status: input.status }, `Bid resolved: ${input.status}`);
-      return result;
+      return resolved;
     } catch (err: unknown) {
+      this.#db.exec('ROLLBACK');
       if (err instanceof DuplicateDomainError) {
         const dupError = new Error(
           `Domain ${input.domain} is already in the portfolio. Resolve the bid as lost/cancelled or remove the portfolio entry first.`,
@@ -172,16 +170,16 @@ export class AcquisitionService {
 
   async list(status?: BidStatus): Promise<Bid[]> {
     if (status !== undefined) {
-      return this.#repo.findByStatus(status);
+      return await this.#repo.findByStatus(status);
     }
-    return this.#repo.findAll();
+    return await this.#repo.findAll();
   }
 
   async pending(): Promise<Bid[]> {
-    return this.#repo.findPending();
+    return await this.#repo.findPending();
   }
 
   async get(domain: string): Promise<Bid | null> {
-    return this.#repo.findByDomain(domain);
+    return await this.#repo.findByDomain(domain);
   }
 }

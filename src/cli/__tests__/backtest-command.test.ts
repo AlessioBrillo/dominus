@@ -20,8 +20,8 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function seedPortfolio(provider: SqliteProvider, domain: string): void {
-  new PortfolioRepository(provider).insert({
+async function seedPortfolio(provider: SqliteProvider, domain: string): Promise<void> {
+  await new PortfolioRepository(provider).insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -32,7 +32,7 @@ function seedPortfolio(provider: SqliteProvider, domain: string): void {
   });
 }
 
-function seedScoringSnapshot(
+async function seedScoringSnapshot(
   provider: SqliteProvider,
   domain: string,
   scoredAt: string,
@@ -40,20 +40,20 @@ function seedScoringSnapshot(
   buyMax: number,
   listPrice: number,
   confidence: number,
-): void {
+): Promise<void> {
   const candidateRepo = new CandidateRepository(provider);
   const scoringRepo = new ScoringRepository(provider);
-  const existing = candidateRepo.findByDomain(domain);
+  const existing = await candidateRepo.findByDomain(domain);
   const candidate =
     existing ??
-    candidateRepo.insert({
+    (await candidateRepo.insert({
       domain,
       tld: '.com',
       source: CandidateSource.KeywordCombo,
       status: CandidateStatus.Recommended,
       isPremium: false,
       pipelineRunId: 'test',
-    });
+    }));
 
   const result: ScoreResult = {
     domain,
@@ -76,7 +76,7 @@ function seedScoringSnapshot(
     effectiveRecommendThreshold: 0.4,
     effectiveConfidenceThreshold: 0.3,
   };
-  scoringRepo.insert(candidate.id!, 'test', result);
+  await scoringRepo.insert(candidate.id!, 'test', result);
   provider.rawDb
     .prepare(
       'UPDATE scoring_runs SET scored_at = ? WHERE candidate_id = ? ORDER BY id DESC LIMIT 1',
@@ -84,13 +84,13 @@ function seedScoringSnapshot(
     .run(scoredAt, candidate.id);
 }
 
-function seedSoldOutcome(
+async function seedSoldOutcome(
   provider: SqliteProvider,
   domain: string,
   salePrice: number,
   occurredAt: string,
-): void {
-  new OutcomeRepository(provider).insert({
+): Promise<void> {
+  await new OutcomeRepository(provider).insert({
     domain,
     type: 'sold',
     occurredAt,
@@ -120,9 +120,17 @@ describe('dominus backtest CLI', () => {
   });
 
   it('snapshot subcommand rebuilds the backtest_signals table', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    await seedPortfolio(provider, 'alpha.com');
+    await seedScoringSnapshot(
+      provider,
+      'alpha.com',
+      '2025-12-01T00:00:00.000Z',
+      1000,
+      500,
+      3000,
+      0.7,
+    );
+    await seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
@@ -143,7 +151,7 @@ describe('dominus backtest CLI', () => {
     expect(out).toContain('scanned 1');
     expect(out).toContain('inserted 1');
     expect(out).toContain('skipped 0');
-    expect(new BacktestSignalsRepository(provider).count()).toBe(1);
+    expect(await new BacktestSignalsRepository(provider).count()).toBe(1);
   });
 
   it('report subcommand on empty data prints a clear "no data" message', async () => {
@@ -168,12 +176,20 @@ describe('dominus backtest CLI', () => {
   });
 
   it('run subcommand performs snapshot + report in one call', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedPortfolio(provider, 'beta.io');
-    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedScoringSnapshot(provider, 'beta.io', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.4);
-    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
-    seedSoldOutcome(provider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
+    await seedPortfolio(provider, 'alpha.com');
+    await seedPortfolio(provider, 'beta.io');
+    await seedScoringSnapshot(
+      provider,
+      'alpha.com',
+      '2025-12-01T00:00:00.000Z',
+      1000,
+      500,
+      3000,
+      0.7,
+    );
+    await seedScoringSnapshot(provider, 'beta.io', '2025-12-01T00:00:00.000Z', 800, 400, 2400, 0.4);
+    await seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    await seedSoldOutcome(provider, 'beta.io', 600, '2026-05-01T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
@@ -199,9 +215,17 @@ describe('dominus backtest CLI', () => {
   });
 
   it('run --json emits valid JSON with the report', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    await seedPortfolio(provider, 'alpha.com');
+    await seedScoringSnapshot(
+      provider,
+      'alpha.com',
+      '2025-12-01T00:00:00.000Z',
+      1000,
+      500,
+      3000,
+      0.7,
+    );
+    await seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();
@@ -224,9 +248,17 @@ describe('dominus backtest CLI', () => {
   });
 
   it('run --no-snapshot reports on the existing table without rebuilding', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    await seedPortfolio(provider, 'alpha.com');
+    await seedScoringSnapshot(
+      provider,
+      'alpha.com',
+      '2025-12-01T00:00:00.000Z',
+      1000,
+      500,
+      3000,
+      0.7,
+    );
+    await seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     // Pre-snapshot once to populate the table
     await captureStdout(async () => {
@@ -266,9 +298,17 @@ describe('dominus backtest CLI', () => {
   });
 
   it('suggest-weights subcommand holds all signals on a small sample', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedScoringSnapshot(provider, 'alpha.com', '2025-12-01T00:00:00.000Z', 1000, 500, 3000, 0.7);
-    seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
+    await seedPortfolio(provider, 'alpha.com');
+    await seedScoringSnapshot(
+      provider,
+      'alpha.com',
+      '2025-12-01T00:00:00.000Z',
+      1000,
+      500,
+      3000,
+      0.7,
+    );
+    await seedSoldOutcome(provider, 'alpha.com', 1500, '2026-04-15T00:00:00.000Z');
 
     const out = await captureStdout(async () => {
       const program = new Command();

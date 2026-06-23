@@ -80,16 +80,16 @@ describe('CLI: dominus maintenance', () => {
 
   it('prune with no flags prunes both trademark_results and pipeline_runs', async () => {
     // Arrange
-    tmRepo.insertByTerm('alpha', 'USPTO', false, [], { hits: [] }, 7);
-    tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1); // already expired
-    runsRepo.insert({
+    await tmRepo.insertByTerm('alpha', 'USPTO', false, [], { hits: [] }, 7);
+    await tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1); // already expired
+    await runsRepo.insert({
       runId: 'r-expired',
       startedAt: '2025-01-01T00:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2025-06-30T00:00:00.000Z',
     });
-    const tmBefore = tmRepo.count();
-    const runsBefore = runsRepo.count();
+    const tmBefore = await tmRepo.count();
+    const runsBefore = await runsRepo.count();
 
     // Act
     const out = await captureStdout(async () => {
@@ -99,21 +99,21 @@ describe('CLI: dominus maintenance', () => {
     // Assert
     expect(out).toMatch(/Pruned 1 trademark_results row\(s\)/);
     expect(out).toMatch(/Pruned 1 pipeline_runs row\(s\)/);
-    expect(tmRepo.count()).toBe(tmBefore - 1);
-    expect(runsRepo.count()).toBe(runsBefore - 1);
+    expect(await tmRepo.count()).toBe(tmBefore - 1);
+    expect(await runsRepo.count()).toBe(runsBefore - 1);
   });
 
   it('prune --cache-only leaves pipeline_runs alone', async () => {
     // Arrange
-    tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
-    runsRepo.insert({
+    await tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
+    await runsRepo.insert({
       runId: 'r-expired',
       startedAt: '2025-01-01T00:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2025-06-30T00:00:00.000Z',
     });
-    const tmBefore = tmRepo.count();
-    const runsBefore = runsRepo.count();
+    const tmBefore = await tmRepo.count();
+    const runsBefore = await runsRepo.count();
 
     // Act
     const out = await captureStdout(async () => {
@@ -123,21 +123,21 @@ describe('CLI: dominus maintenance', () => {
     // Assert
     expect(out).toMatch(/Pruned 1 trademark_results row\(s\)/);
     expect(out).not.toMatch(/pipeline_runs/);
-    expect(tmRepo.count()).toBe(tmBefore - 1);
-    expect(runsRepo.count()).toBe(runsBefore);
+    expect(await tmRepo.count()).toBe(tmBefore - 1);
+    expect(await runsRepo.count()).toBe(runsBefore);
   });
 
   it('prune --runs-only leaves trademark_results alone', async () => {
     // Arrange
-    tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
-    runsRepo.insert({
+    await tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
+    await runsRepo.insert({
       runId: 'r-expired',
       startedAt: '2025-01-01T00:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2025-06-30T00:00:00.000Z',
     });
-    const tmBefore = tmRepo.count();
-    const runsBefore = runsRepo.count();
+    const tmBefore = await tmRepo.count();
+    const runsBefore = await runsRepo.count();
 
     // Act
     const out = await captureStdout(async () => {
@@ -147,21 +147,21 @@ describe('CLI: dominus maintenance', () => {
     // Assert
     expect(out).not.toMatch(/trademark_results/);
     expect(out).toMatch(/Pruned 1 pipeline_runs row\(s\)/);
-    expect(tmRepo.count()).toBe(tmBefore);
-    expect(runsRepo.count()).toBe(runsBefore - 1);
+    expect(await tmRepo.count()).toBe(tmBefore);
+    expect(await runsRepo.count()).toBe(runsBefore - 1);
   });
 
   it('prune --dry-run does not delete', async () => {
     // Arrange
-    tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
-    runsRepo.insert({
+    await tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
+    await runsRepo.insert({
       runId: 'r-expired',
       startedAt: '2025-01-01T00:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2025-06-30T00:00:00.000Z',
     });
-    const tmBefore = tmRepo.count();
-    const runsBefore = runsRepo.count();
+    const tmBefore = await tmRepo.count();
+    const runsBefore = await runsRepo.count();
 
     // Act
     const out = await captureStdout(async () => {
@@ -170,26 +170,26 @@ describe('CLI: dominus maintenance', () => {
 
     // Assert
     expect(out).toMatch(/Would prune/);
-    expect(tmRepo.count()).toBe(tmBefore);
-    expect(runsRepo.count()).toBe(runsBefore);
+    expect(await tmRepo.count()).toBe(tmBefore);
+    expect(await runsRepo.count()).toBe(runsBefore);
   });
 
   it('prune --before removes runs started before N days ago', async () => {
     // Arrange
     const oldDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString(); // 200 days ago
-    runsRepo.insert({
+    await runsRepo.insert({
       runId: 'r-old',
       startedAt: oldDate,
       hostVersion: '0.1.0',
       retainedUntil: '2099-01-01T00:00:00.000Z',
     });
-    runsRepo.insert({
+    await runsRepo.insert({
       runId: 'r-new',
       startedAt: new Date().toISOString(),
       hostVersion: '0.1.0',
       retainedUntil: '2099-01-01T00:00:00.000Z',
     });
-    const before = runsRepo.count();
+    const before = await runsRepo.count();
 
     // Act
     const out = await captureStdout(async () => {
@@ -206,14 +206,14 @@ describe('CLI: dominus maintenance', () => {
 
     // Assert
     expect(out).toMatch(/Pruned 1 pipeline_runs row\(s\) started before/);
-    expect(runsRepo.count()).toBe(before - 1);
-    expect(runsRepo.findById('r-old')).toBeNull();
+    expect(await runsRepo.count()).toBe(before - 1);
+    expect(await runsRepo.findById('r-old')).toBeNull();
   });
 
   it('prune --before --dry-run does not delete', async () => {
     // Arrange
     const oldDate = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
-    runsRepo.insert({
+    await runsRepo.insert({
       runId: 'r-old',
       startedAt: oldDate,
       hostVersion: '0.1.0',
@@ -236,7 +236,7 @@ describe('CLI: dominus maintenance', () => {
 
     // Assert
     expect(out).toMatch(/Would prune/);
-    expect(runsRepo.findById('r-old')).not.toBeNull();
+    expect(await runsRepo.findById('r-old')).not.toBeNull();
   });
 
   it('rejects mutually exclusive --cache-only and --runs-only', async () => {

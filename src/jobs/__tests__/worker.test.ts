@@ -99,12 +99,12 @@ describe('JobWorker', () => {
       const worker = new JobWorker(db, handlers, FAST_POLL);
       workers.push(worker);
 
-      const jobId = repo.enqueue('PRUNE', { maxAgeDays: 30 });
+      const jobId = await repo.enqueue('PRUNE', { maxAgeDays: 30 });
       worker.start();
 
       await vi.waitFor(
-        () => {
-          expect(repo.getById(jobId)?.status).toBe('completed');
+        async () => {
+          expect((await repo.getById(jobId))?.status).toBe('completed');
         },
         { timeout: 5000, interval: 20 },
       );
@@ -120,12 +120,12 @@ describe('JobWorker', () => {
       const worker = new JobWorker(db, handlers, FAST_POLL);
       workers.push(worker);
 
-      const jobId = repo.enqueue('BACKUP', {}, { maxAttempts: 3 });
+      const jobId = await repo.enqueue('BACKUP', {}, { maxAttempts: 3 });
       worker.start();
 
       await vi.waitFor(
-        () => {
-          expect(repo.getById(jobId)?.attempts).toBeGreaterThanOrEqual(1);
+        async () => {
+          expect((await repo.getById(jobId))?.attempts).toBeGreaterThanOrEqual(1);
         },
         { timeout: 5000, interval: 20 },
       );
@@ -139,17 +139,17 @@ describe('JobWorker', () => {
       const worker = new JobWorker(db, handlers, FAST_POLL);
       workers.push(worker);
 
-      const jobId = repo.enqueue('BACKUP', {}, { maxAttempts: 1 });
+      const jobId = await repo.enqueue('BACKUP', {}, { maxAttempts: 1 });
       worker.start();
 
       await vi.waitFor(
-        () => {
-          expect(repo.getById(jobId)).toBeNull();
+        async () => {
+          expect(await repo.getById(jobId)).toBeNull();
         },
         { timeout: 5000, interval: 20 },
       );
 
-      const deadLetters = repo.getDeadLetter();
+      const deadLetters = await repo.getDeadLetter();
       expect(deadLetters).toHaveLength(1);
       expect(deadLetters[0]!.error).toContain('fatal');
     });
@@ -158,17 +158,17 @@ describe('JobWorker', () => {
       const worker = new JobWorker(db, handlers, FAST_POLL);
       workers.push(worker);
 
-      const jobId = repo.enqueue('PIPELINE_RUN', {}, { maxAttempts: 1 });
+      const jobId = await repo.enqueue('PIPELINE_RUN', {}, { maxAttempts: 1 });
       worker.start();
 
       await vi.waitFor(
-        () => {
-          expect(repo.getById(jobId)).toBeNull();
+        async () => {
+          expect(await repo.getById(jobId)).toBeNull();
         },
         { timeout: 5000, interval: 20 },
       );
 
-      const deadLetters = repo.getDeadLetter();
+      const deadLetters = await repo.getDeadLetter();
       expect(deadLetters.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -190,7 +190,10 @@ describe('JobWorker', () => {
       });
       workers.push(worker);
 
-      repo.enqueue('PIPELINE_RUN', { candidateGenerationInput: { keywords: [] }, runId: 'r1' });
+      await repo.enqueue('PIPELINE_RUN', {
+        candidateGenerationInput: { keywords: [] },
+        runId: 'r1',
+      });
       worker.start();
 
       await vi.waitFor(
@@ -233,7 +236,7 @@ describe('JobWorker', () => {
       workers.push(worker);
 
       for (let i = 0; i < 5; i++) {
-        repo.enqueue('PRUNE', {});
+        await repo.enqueue('PRUNE', {});
       }
       worker.start();
 

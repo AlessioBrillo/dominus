@@ -27,7 +27,7 @@ export function registerListingCommand(program: Command, options: ListingCommand
         const filter: { status?: string; marketplace?: string } = {};
         if (opts.status) filter.status = opts.status;
         if (opts.marketplace) filter.marketplace = opts.marketplace;
-        const listings = listingManager.getListings(filter as never);
+        const listings = await listingManager.getListings(filter as never);
 
         if (opts.json) {
           console.log(JSON.stringify(listings, null, 2));
@@ -140,8 +140,8 @@ export function registerListingCommand(program: Command, options: ListingCommand
     .action(async (idStr, opts) => {
       try {
         const id = parseInt(idStr, 10);
-        const offers = listingManager.getOffers(id);
-        const listing = listingManager.getListing(id);
+        const offers = await listingManager.getOffers(id);
+        const listing = await listingManager.getListing(id);
 
         if (opts.json) {
           console.log(JSON.stringify({ listing, offers }, null, 2));
@@ -196,7 +196,7 @@ export function registerListingCommand(program: Command, options: ListingCommand
     .description('Accept an offer')
     .action(async (offerIdStr, listingIdStr) => {
       try {
-        listingManager.respondToOffer(
+        await listingManager.respondToOffer(
           parseInt(offerIdStr, 10),
           parseInt(listingIdStr, 10),
           'accepted',
@@ -213,7 +213,7 @@ export function registerListingCommand(program: Command, options: ListingCommand
     .description('Decline an offer')
     .action(async (offerIdStr, listingIdStr) => {
       try {
-        listingManager.respondToOffer(
+        await listingManager.respondToOffer(
           parseInt(offerIdStr, 10),
           parseInt(listingIdStr, 10),
           'declined',

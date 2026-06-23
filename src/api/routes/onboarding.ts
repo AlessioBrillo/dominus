@@ -184,7 +184,7 @@ export function createOnboardingRouter(
               isCloseout: false,
             });
 
-            const entry = portfolioManager.add({
+            const entry = await portfolioManager.add({
               domain: item.domain,
               tld: item.tld,
               acquiredAt: item.acquiredAt,

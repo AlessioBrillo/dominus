@@ -36,7 +36,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
   it('persists the calibrated score and suggested list price from the rescore', async () => {
     // Arrange — one portfolio entry, no score yet
-    manager.add({
+    await manager.add({
       domain: 'alpha.com',
       tld: '.com',
       acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -51,7 +51,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
     // Assert
     expect(summary.results).toHaveLength(1);
-    const stored = repo.findByDomain('alpha.com');
+    const stored = await repo.findByDomain('alpha.com');
     expect(stored?.currentScore).toBe(summary.results[0]?.calibratedScore);
     expect(stored?.suggestedListPrice).toBe(summary.results[0]?.suggestedListPrice);
   });
@@ -81,7 +81,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
     // Renewal in 20 days (within 60-day horizon)
     const inTwentyDays = new Date(Date.now() + 20 * 86_400_000).toISOString();
-    manager.add({
+    await manager.add({
       domain: 'alpha.com',
       tld: '.com',
       acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -93,7 +93,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
     // Act
     await manager.rescoreAll();
-    const after = repo.findByDomain('alpha.com');
+    const after = await repo.findByDomain('alpha.com');
 
     // Assert — with a high score, the verdict is no longer Drop.
     // (Concretely the engine returns a non-zero weighted score for a
@@ -110,7 +110,7 @@ describe('PortfolioManager.rescoreAll', () => {
     // when all other signals have no data), a domain with poor intrinsic
     // quality (long, many hyphens/digits, unpronounceable) still scores low.
     const inFifteenDays = new Date(Date.now() + 15 * 86_400_000).toISOString();
-    manager.add({
+    await manager.add({
       domain: 'x-1-2-3-4-5.com',
       tld: '.com',
       acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -122,7 +122,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
     // Act
     await manager.rescoreAll();
-    const after = repo.findByDomain('x-1-2-3-4-5.com');
+    const after = await repo.findByDomain('x-1-2-3-4-5.com');
 
     // Assert
     expect(after?.currentScore).toBeLessThanOrEqual(25);
@@ -131,7 +131,7 @@ describe('PortfolioManager.rescoreAll', () => {
 
   it('handles a per-domain error from the rescore service without aborting the batch', async () => {
     // Arrange — two entries; second one makes the keyword provider throw
-    manager.add({
+    await manager.add({
       domain: 'alpha.com',
       tld: '.com',
       acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -140,7 +140,7 @@ describe('PortfolioManager.rescoreAll', () => {
       renewalCost: 12,
       registrar: 'namecheap',
     });
-    manager.add({
+    await manager.add({
       domain: 'beta.io',
       tld: '.io',
       acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -165,7 +165,7 @@ describe('PortfolioManager.rescoreAll', () => {
     expect(summary.results[1]?.error).toContain('upstream down');
     // Engine degrades gracefully: intrinsic-only weighted score >= 0
     expect(summary.results[1]?.calibratedScore).toBeGreaterThanOrEqual(0);
-    const alpha = repo.findByDomain('alpha.com');
+    const alpha = await repo.findByDomain('alpha.com');
     expect(alpha?.currentScore).toBeDefined();
   });
 
@@ -174,7 +174,7 @@ describe('PortfolioManager.rescoreAll', () => {
     vi.mocked(deps.uspto.search).mockResolvedValue([
       { markName: 'alpha', owner: 'Acme', status: 'live', source: 'USPTO' },
     ]);
-    manager.add({
+    await manager.add({
       domain: 'alpha.com',
       tld: '.com',
       acquiredAt: '2025-01-01T00:00:00.000Z',

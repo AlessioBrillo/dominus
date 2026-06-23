@@ -15,9 +15,9 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function seedPortfolio(provider: SqliteProvider, domain: string): void {
+async function seedPortfolio(provider: SqliteProvider, domain: string): Promise<void> {
   const repo = new PortfolioRepository(provider);
-  repo.insert({
+  await repo.insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -41,16 +41,16 @@ describe('OutcomeRepository', () => {
   let provider: SqliteProvider;
   let repo: OutcomeRepository;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     provider = openTestDb();
     repo = new OutcomeRepository(provider);
-    seedPortfolio(provider, 'example.com');
+    await seedPortfolio(provider, 'example.com');
   });
 
   describe('insert', () => {
-    it('inserts a new outcome and returns it with an id', () => {
+    it('inserts a new outcome and returns it with an id', async () => {
       // Act
-      const out = repo.insert(makeInput({ type: 'renewed' }));
+      const out = await repo.insert(makeInput({ type: 'renewed' }));
 
       // Assert
       expect(out.id).toBeTypeOf('number');
@@ -60,9 +60,9 @@ describe('OutcomeRepository', () => {
       expect(out.occurredAt).toBe('2026-01-01T00:00:00.000Z');
     });
 
-    it('persists all optional fields when provided', () => {
+    it('persists all optional fields when provided', async () => {
       // Act
-      const out = repo.insert(
+      const out = await repo.insert(
         makeInput({
           type: 'sold',
           salePriceEur: 1500,
@@ -83,25 +83,27 @@ describe('OutcomeRepository', () => {
       expect(out.notes).toBe('Inbound offer accepted');
     });
 
-    it('throws DomainNotFoundError when the domain is not in the portfolio', () => {
+    it('throws DomainNotFoundError when the domain is not in the portfolio', async () => {
       // Act + Assert
-      expect(() => repo.insert(makeInput({ domain: 'missing.com' }))).toThrow(DomainNotFoundError);
+      await expect(repo.insert(makeInput({ domain: 'missing.com' }))).rejects.toThrow(
+        DomainNotFoundError,
+      );
     });
   });
 
   describe('findByDomain', () => {
-    it('returns outcomes most recent first', () => {
+    it('returns outcomes most recent first', async () => {
       // Arrange
-      seedPortfolio(provider, 'second.com');
-      repo.insert(makeInput({ occurredAt: '2025-06-01T00:00:00.000Z' }));
-      repo.insert(makeInput({ occurredAt: '2026-03-01T00:00:00.000Z' }));
-      repo.insert(
+      await seedPortfolio(provider, 'second.com');
+      await repo.insert(makeInput({ occurredAt: '2025-06-01T00:00:00.000Z' }));
+      await repo.insert(makeInput({ occurredAt: '2026-03-01T00:00:00.000Z' }));
+      await repo.insert(
         makeInput({ occurredAt: '2025-12-01T00:00:00.000Z', type: 'sold', domain: 'second.com' }),
       );
 
       // Act
-      const a = repo.findByDomain('example.com');
-      const b = repo.findByDomain('second.com');
+      const a = await repo.findByDomain('example.com');
+      const b = await repo.findByDomain('second.com');
 
       // Assert
       expect(a.map((o) => o.occurredAt)).toEqual([
@@ -111,24 +113,24 @@ describe('OutcomeRepository', () => {
       expect(b.map((o) => o.occurredAt)).toEqual(['2025-12-01T00:00:00.000Z']);
     });
 
-    it('returns an empty array when the domain has no outcomes', () => {
+    it('returns an empty array when the domain has no outcomes', async () => {
       // Act + Assert
-      expect(repo.findByDomain('example.com')).toEqual([]);
+      expect(await repo.findByDomain('example.com')).toEqual([]);
     });
   });
 
   describe('findByType', () => {
-    it('filters by outcome type', () => {
+    it('filters by outcome type', async () => {
       // Arrange
-      repo.insert(makeInput({ type: 'renewed' }));
-      repo.insert(
+      await repo.insert(makeInput({ type: 'renewed' }));
+      await repo.insert(
         makeInput({ type: 'sold', salePriceEur: 1000, occurredAt: '2026-02-01T00:00:00.000Z' }),
       );
-      repo.insert(makeInput({ type: 'dropped', occurredAt: '2026-02-15T00:00:00.000Z' }));
+      await repo.insert(makeInput({ type: 'dropped', occurredAt: '2026-02-15T00:00:00.000Z' }));
 
       // Act
-      const sold = repo.findByType('sold');
-      const dropped = repo.findByType('dropped');
+      const sold = await repo.findByType('sold');
+      const dropped = await repo.findByType('dropped');
 
       // Assert
       expect(sold).toHaveLength(1);
@@ -138,19 +140,19 @@ describe('OutcomeRepository', () => {
   });
 
   describe('statsByDomain', () => {
-    it('counts and sums outcomes per type', () => {
+    it('counts and sums outcomes per type', async () => {
       // Arrange
-      repo.insert(makeInput({ type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' }));
-      repo.insert(
+      await repo.insert(makeInput({ type: 'renewed', occurredAt: '2025-12-01T00:00:00.000Z' }));
+      await repo.insert(
         makeInput({ type: 'sold', salePriceEur: 800, occurredAt: '2026-04-01T00:00:00.000Z' }),
       );
-      repo.insert(
+      await repo.insert(
         makeInput({ type: 'sold', salePriceEur: 1200, occurredAt: '2026-05-01T00:00:00.000Z' }),
       );
-      repo.insert(makeInput({ type: 'dropped', occurredAt: '2026-06-01T00:00:00.000Z' }));
+      await repo.insert(makeInput({ type: 'dropped', occurredAt: '2026-06-01T00:00:00.000Z' }));
 
       // Act
-      const stats = repo.statsByDomain('example.com');
+      const stats = await repo.statsByDomain('example.com');
 
       // Assert
       expect(stats).toEqual({
@@ -162,10 +164,10 @@ describe('OutcomeRepository', () => {
       });
     });
 
-    it('returns zeros for a domain with no outcomes', () => {
+    it('returns zeros for a domain with no outcomes', async () => {
       // Act
-      seedPortfolio(provider, 'empty.com');
-      const stats = repo.statsByDomain('empty.com');
+      await seedPortfolio(provider, 'empty.com');
+      const stats = await repo.statsByDomain('empty.com');
 
       // Assert
       expect(stats).toEqual({
@@ -179,17 +181,17 @@ describe('OutcomeRepository', () => {
   });
 
   describe('cascading delete', () => {
-    it('removes outcomes when the parent portfolio entry is deleted', () => {
+    it('removes outcomes when the parent portfolio entry is deleted', async () => {
       // Arrange
       const portfolio = new PortfolioRepository(provider);
-      repo.insert(makeInput({ type: 'renewed' }));
-      expect(repo.findByDomain('example.com')).toHaveLength(1);
+      await repo.insert(makeInput({ type: 'renewed' }));
+      expect(await repo.findByDomain('example.com')).toHaveLength(1);
 
       // Act
-      portfolio.delete('example.com');
+      await portfolio.delete('example.com');
 
       // Assert
-      expect(repo.findByDomain('example.com')).toEqual([]);
+      expect(await repo.findByDomain('example.com')).toEqual([]);
     });
   });
 });

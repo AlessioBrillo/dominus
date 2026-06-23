@@ -156,20 +156,20 @@ describe('SchedulerService', () => {
     scheduler.stop();
   });
 
-  it('reports initial status with no runs after start', () => {
+  it('reports initial status with no runs after start', async () => {
     const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
-    const status = scheduler.getStatus();
+    const status = await scheduler.getStatus();
     expect(status).toHaveLength(1); // renewal-check registered in start
     expect(status[0]?.name).toBe('renewal-check');
     expect(status[0]?.lastRunAt).toBeNull();
     scheduler.stop();
   });
 
-  it('reports status after start includes all registered jobs', () => {
+  it('reports status after start includes all registered jobs', async () => {
     const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
-    const status = scheduler.getStatus();
+    const status = await scheduler.getStatus();
     expect(status.length).toBeGreaterThanOrEqual(1);
     expect(status.some((j) => j.name === 'renewal-check')).toBe(true);
     scheduler.stop();

@@ -118,22 +118,28 @@ export class GoogleAdsProvider implements KeywordProvider {
   #restoreQuota(): void {
     if (this.cacheRepo === null || !this.customerId) return;
 
-    const cached = this.cacheRepo.get(this.#quotaCacheKey(), 'google-ads');
-    if (cached === null) return;
+    this.cacheRepo
+      .get(this.#quotaCacheKey(), 'google-ads')
+      .then((cached) => {
+        if (cached === null) return;
 
-    try {
-      const state: SerialisedQuotaState = JSON.parse(cached) as SerialisedQuotaState;
-      const today = new Date().toISOString().slice(0, 10);
-      if (state.quotaDate === today && typeof state.queriesToday === 'number') {
-        this.queriesToday = state.queriesToday;
-        getLogger().debug(
-          { queriesToday: this.queriesToday },
-          'Google Ads quota counter restored from cache',
-        );
-      }
-    } catch {
-      // Malformed cache entry — ignore and start fresh
-    }
+        try {
+          const state: SerialisedQuotaState = JSON.parse(cached) as SerialisedQuotaState;
+          const today = new Date().toISOString().slice(0, 10);
+          if (state.quotaDate === today && typeof state.queriesToday === 'number') {
+            this.queriesToday = state.queriesToday;
+            getLogger().debug(
+              { queriesToday: this.queriesToday },
+              'Google Ads quota counter restored from cache',
+            );
+          }
+        } catch {
+          // Malformed cache entry — ignore and start fresh
+        }
+      })
+      .catch(() => {
+        // Cache lookup is best-effort
+      });
   }
 
   /** Persist the current quota counter to the provider cache (7-day TTL). */
@@ -144,7 +150,9 @@ export class GoogleAdsProvider implements KeywordProvider {
       queriesToday: this.queriesToday,
       quotaDate: new Date().toISOString().slice(0, 10),
     };
-    this.cacheRepo.set(this.#quotaCacheKey(), 'google-ads', JSON.stringify(state), 7);
+    this.cacheRepo.set(this.#quotaCacheKey(), 'google-ads', JSON.stringify(state), 7).catch(() => {
+      // Cache set is best-effort
+    });
   }
 
   #quotaCacheKey(): string {

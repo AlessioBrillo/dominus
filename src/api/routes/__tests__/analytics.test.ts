@@ -87,7 +87,8 @@ describe('Analytics API routes', () => {
 
   it('GET /api/v1/analytics/pnl returns P&L report when PnlService is provided', async () => {
     const outcomeRepo = new OutcomeRepository(provider);
-    const pnlService = new PnlService(portfolioRepo, outcomeRepo.findAll());
+    const outcomes = await outcomeRepo.findAll();
+    const pnlService = new PnlService(portfolioRepo, outcomes);
     const app = buildApp(pnlService);
     const res = await request(app).get('/api/v1/analytics/pnl');
     expect(res.status).toBe(200);
@@ -100,7 +101,7 @@ describe('Analytics API routes', () => {
   it('GET /api/v1/analytics/pnl returns P&L with portfolio data', async () => {
     const outcomeRepo = new OutcomeRepository(provider);
 
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'test.com',
       tld: 'com',
       acquiredAt: new Date().toISOString(),
@@ -111,7 +112,7 @@ describe('Analytics API routes', () => {
       notes: undefined,
     });
 
-    outcomeRepo.insert({
+    await outcomeRepo.insert({
       domain: 'test.com',
       type: 'sold',
       occurredAt: new Date().toISOString(),
@@ -119,7 +120,8 @@ describe('Analytics API routes', () => {
       notes: undefined,
     });
 
-    const pnlService = new PnlService(portfolioRepo, outcomeRepo.findAll());
+    const outcomes = await outcomeRepo.findAll();
+    const pnlService = new PnlService(portfolioRepo, outcomes);
     const app = buildApp(pnlService);
     const res = await request(app).get('/api/v1/analytics/pnl');
     expect(res.status).toBe(200);

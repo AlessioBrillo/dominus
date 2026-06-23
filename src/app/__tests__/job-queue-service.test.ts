@@ -114,8 +114,8 @@ describe('JobQueueService', () => {
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
       ).JobQueueRepository(provider);
-      repo.dequeue();
-      repo.complete(jobId, { deleted: 5 });
+      await repo.dequeue();
+      await repo.complete(jobId, { deleted: 5 });
 
       const status = await service.getJobStatus(jobId);
       expect(status!.result).toEqual({ deleted: 5 });
@@ -125,7 +125,7 @@ describe('JobQueueService', () => {
   describe('getQueueStats', () => {
     it('returns stats from the repository', async () => {
       await service.enqueuePipelineRun({ keywords: ['a', 'b'] });
-      const stats = service.getQueueStats();
+      const stats = await service.getQueueStats();
       expect(stats.queued).toBe(1);
       expect(stats.total).toBe(1);
     });
@@ -135,14 +135,14 @@ describe('JobQueueService', () => {
     it('lists enqueued jobs', async () => {
       await service.enqueuePrune();
       await service.enqueueBackup();
-      const jobs = service.listJobs();
+      const jobs = await service.listJobs();
       expect(jobs).toHaveLength(2);
     });
 
     it('filters by job type', async () => {
       await service.enqueuePrune();
       await service.enqueueBackup();
-      const jobs = service.listJobs({ jobType: 'PRUNE' });
+      const jobs = await service.listJobs({ jobType: 'PRUNE' });
       expect(jobs).toHaveLength(1);
     });
   });
@@ -155,19 +155,19 @@ describe('JobQueueService', () => {
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
       ).JobQueueRepository(provider);
-      repo.dequeue();
-      repo.fail(jobId, 'permanent error');
-      repo.dequeue();
-      repo.fail(jobId, 'permanent error 2');
-      repo.dequeue();
-      repo.fail(jobId, 'permanent error 3');
+      await repo.dequeue();
+      await repo.fail(jobId, 'permanent error');
+      await repo.dequeue();
+      await repo.fail(jobId, 'permanent error 2');
+      await repo.dequeue();
+      await repo.fail(jobId, 'permanent error 3');
 
-      const deadLetters = service.getDeadLetter();
+      const deadLetters = await service.getDeadLetter();
       expect(deadLetters).toHaveLength(1);
 
-      const newJobId = service.retryDeadLetter(deadLetters[0]!.id);
+      const newJobId = await service.retryDeadLetter(deadLetters[0]!.id);
       expect(newJobId).toBeGreaterThan(0);
-      expect(service.getDeadLetter()).toHaveLength(0);
+      expect(await service.getDeadLetter()).toHaveLength(0);
     });
   });
 
@@ -178,13 +178,13 @@ describe('JobQueueService', () => {
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
       ).JobQueueRepository(provider);
-      repo.dequeue();
-      repo.complete(jobId, {});
+      await repo.dequeue();
+      await repo.complete(jobId, {});
       provider.rawDb
         .prepare("UPDATE job_queue SET finished_at = datetime('now', '-10 days') WHERE id = ?")
         .run(jobId);
 
-      const deleted = service.deleteCompletedJobs(7);
+      const deleted = await service.deleteCompletedJobs(7);
       expect(deleted).toBe(1);
     });
 
@@ -195,18 +195,18 @@ describe('JobQueueService', () => {
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
       ).JobQueueRepository(provider);
-      repo.dequeue();
-      repo.fail(jobId, 'boom');
-      repo.dequeue();
-      repo.fail(jobId, 'boom 2');
-      repo.dequeue();
-      repo.fail(jobId, 'boom 3');
+      await repo.dequeue();
+      await repo.fail(jobId, 'boom');
+      await repo.dequeue();
+      await repo.fail(jobId, 'boom 2');
+      await repo.dequeue();
+      await repo.fail(jobId, 'boom 3');
 
       provider.rawDb
         .prepare("UPDATE dead_letter_jobs SET failed_at = datetime('now', '-40 days')")
         .run();
 
-      const deleted = service.deleteDeadLetterJobs(30);
+      const deleted = await service.deleteDeadLetterJobs(30);
       expect(deleted).toBe(1);
     });
   });

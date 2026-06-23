@@ -90,7 +90,7 @@ export class CachedProvider<T> {
     }
 
     // 2. DB-backed cache
-    const dbCached = this.repo.get(term, this.providerName);
+    const dbCached = await this.repo.get(term, this.providerName);
     if (dbCached !== null) {
       try {
         const value = this.serializer.deserialize(dbCached);
@@ -108,7 +108,7 @@ export class CachedProvider<T> {
     if (existing !== undefined) return existing;
 
     const promise = this.fetchFn(term, signal)
-      .then((result) => {
+      .then(async (result) => {
         // Write to both caches in parallel (non-fatal)
         if (this.#memoryCache !== null) {
           try {
@@ -118,7 +118,12 @@ export class CachedProvider<T> {
           }
         }
         try {
-          this.repo.set(term, this.providerName, this.serializer.serialize(result), this.ttlDays);
+          await this.repo.set(
+            term,
+            this.providerName,
+            this.serializer.serialize(result),
+            this.ttlDays,
+          );
         } catch {
           // Non-fatal
         }

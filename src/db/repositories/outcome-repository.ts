@@ -63,13 +63,13 @@ export class OutcomeRepository {
     }
 
     try {
-      const row = await this.db.queryOne<{ id: number }>(
+      const row = (await this.db.queryOne<{ id: number }>(
         `INSERT INTO outcomes
-           (domain, type, occurred_at, sale_price_eur, listing_price_eur,
-            days_listed, venue, commission_pct,
-            acquisition_cost_eur, total_renewal_cost_eur, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          RETURNING id`,
+             (domain, type, occurred_at, sale_price_eur, listing_price_eur,
+              days_listed, venue, commission_pct,
+              acquisition_cost_eur, total_renewal_cost_eur, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id`,
         [
           input.domain,
           input.type,
@@ -83,10 +83,10 @@ export class OutcomeRepository {
           input.totalRenewalCostEur ?? null,
           input.notes ?? null,
         ],
-      )!;
-      const inserted = (
-        await this.db.queryOne<OutcomeRow>('SELECT * FROM outcomes WHERE id = ?', [row.id])
-      )!;
+      ))!;
+      const inserted = (await this.db.queryOne<OutcomeRow>('SELECT * FROM outcomes WHERE id = ?', [
+        row.id,
+      ]))!;
       return rowToOutcome(inserted);
     } catch (err: unknown) {
       // SQLite FK violation as safety net — should not trigger since we
@@ -138,24 +138,22 @@ export class OutcomeRepository {
     renewed: number;
     totalRealisedEur: number;
   }> {
-    const row = (
-      await this.db.queryOne<{
-        sold: number | null;
-        dropped: number | null;
-        expired: number | null;
-        renewed: number | null;
-        total_realised_eur: number | null;
-      }>(
-        `SELECT
+    const row = (await this.db.queryOne<{
+      sold: number | null;
+      dropped: number | null;
+      expired: number | null;
+      renewed: number | null;
+      total_realised_eur: number | null;
+    }>(
+      `SELECT
            SUM(CASE WHEN type = 'sold'    THEN 1 ELSE 0 END) AS sold,
            SUM(CASE WHEN type = 'dropped' THEN 1 ELSE 0 END) AS dropped,
            SUM(CASE WHEN type = 'expired' THEN 1 ELSE 0 END) AS expired,
            SUM(CASE WHEN type = 'renewed' THEN 1 ELSE 0 END) AS renewed,
            COALESCE(SUM(CASE WHEN type = 'sold' THEN sale_price_eur ELSE 0 END), 0) AS total_realised_eur
          FROM outcomes WHERE domain = ?`,
-        [domain],
-      )
-    )!;
+      [domain],
+    ))!;
     return {
       sold: row.sold ?? 0,
       dropped: row.dropped ?? 0,

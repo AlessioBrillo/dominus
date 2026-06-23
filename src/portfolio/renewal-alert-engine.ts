@@ -21,7 +21,7 @@ export class RenewalAlertEngine {
   ) {}
 
   async checkAll(): Promise<AlertEngineResult> {
-    const entries = this.portfolioRepo.findAll();
+    const entries = await this.portfolioRepo.findAll();
     const alerts: RenewalAlert[] = [];
 
     for (const entry of entries) {
@@ -32,11 +32,11 @@ export class RenewalAlertEngine {
       const input = this.#buildAlertInput(entry.domain, entry.id, clock.daysUntilRenewal);
       if (input === null) continue;
 
-      const persisted = this.alertRepo.upsert(input, []);
+      const persisted = await this.alertRepo.upsert(input, []);
       const channels = await sendAlert(this.notifiers, persisted);
 
       if (channels.length > 0) {
-        const updated = this.alertRepo.upsert(input, channels);
+        const updated = await this.alertRepo.upsert(input, channels);
         alerts.push(updated);
       } else {
         alerts.push(persisted);

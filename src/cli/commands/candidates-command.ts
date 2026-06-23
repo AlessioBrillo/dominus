@@ -14,8 +14,8 @@ export function registerCandidatesCommand(program: Command, deps: CandidatesComm
     .description('List the most recent candidates')
     .option('--limit <n>', 'Maximum rows to return', (v: string) => Number.parseInt(v, 10), 50)
     .option('--json', 'Emit JSON instead of a human-readable table', false)
-    .action((options: { limit: number; json: boolean }) => {
-      const rows = deps.candidateRepo.findAll(options.limit);
+    .action(async (options: { limit: number; json: boolean }) => {
+      const rows = await deps.candidateRepo.findAll(options.limit);
       if (rows.length === 0) {
         if (options.json) {
           process.stdout.write('[]\n');
