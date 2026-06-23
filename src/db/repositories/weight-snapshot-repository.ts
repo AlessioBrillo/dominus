@@ -36,8 +36,8 @@ function rowToSnapshot(row: WeightSnapshotRow): WeightSnapshot {
 export class WeightSnapshotRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  insert(input: InsertWeightSnapshotInput): WeightSnapshot {
-    const row = this.db.queryOne<{ id: number }>(
+  async insert(input: InsertWeightSnapshotInput): Promise<WeightSnapshot> {
+    const row = await this.db.queryOne<{ id: number }>(
       `INSERT INTO weight_snapshots
        (intrinsic, commercial, market, expiry, source,
         backtest_generated_at, sample_size, notes)
@@ -55,38 +55,41 @@ export class WeightSnapshotRepository {
       ],
     )!;
 
-    const stored = this.db.queryOne<WeightSnapshotRow>(
-      'SELECT * FROM weight_snapshots WHERE id = ?',
-      [row.id],
+    const stored = (
+      await this.db.queryOne<WeightSnapshotRow>('SELECT * FROM weight_snapshots WHERE id = ?', [
+        row.id,
+      ])
     )!;
     return rowToSnapshot(stored);
   }
 
-  findAll(limit = 50): WeightSnapshot[] {
-    const rows = this.db.query<WeightSnapshotRow>(
+  async findAll(limit = 50): Promise<WeightSnapshot[]> {
+    const rows = await this.db.query<WeightSnapshotRow>(
       'SELECT * FROM weight_snapshots ORDER BY snapshot_at DESC LIMIT ?',
       [limit],
     );
     return rows.map(rowToSnapshot);
   }
 
-  findLatest(): WeightSnapshot | null {
-    const row = this.db.queryOne<WeightSnapshotRow>(
+  async findLatest(): Promise<WeightSnapshot | null> {
+    const row = await this.db.queryOne<WeightSnapshotRow>(
       'SELECT * FROM weight_snapshots ORDER BY snapshot_at DESC LIMIT 1',
     );
     return row ? rowToSnapshot(row) : null;
   }
 
-  findBySource(source: WeightSnapshotSource): WeightSnapshot[] {
-    const rows = this.db.query<WeightSnapshotRow>(
+  async findBySource(source: WeightSnapshotSource): Promise<WeightSnapshot[]> {
+    const rows = await this.db.query<WeightSnapshotRow>(
       'SELECT * FROM weight_snapshots WHERE source = ? ORDER BY snapshot_at DESC',
       [source],
     );
     return rows.map(rowToSnapshot);
   }
 
-  count(): number {
-    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM weight_snapshots')!;
+  async count(): Promise<number> {
+    const row = (
+      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM weight_snapshots')
+    )!;
     return row.n;
   }
 }

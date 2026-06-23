@@ -137,26 +137,28 @@ export class PipelineRunsRepository {
    * `finishedAt`, `totalDurationMs`, and `error` are null until
    * the orchestrator calls `complete()`.
    */
-  insert(input: InsertPipelineRunInput): PipelineRun {
-    const row = this.db.queryOne<PipelineRunRow>(
-      `INSERT INTO pipeline_runs
-         (run_id, started_at, finished_at, total_duration_ms,
-          stage_summary, inputs, results_summary, host_version,
-          retained_until, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING *`,
-      [
-        input.runId,
-        input.startedAt,
-        input.finishedAt ?? null,
-        input.totalDurationMs ?? null,
-        JSON.stringify(input.stageSummary ?? EMPTY_STAGE_SUMMARY),
-        JSON.stringify(input.inputs ?? EMPTY_INPUTS),
-        JSON.stringify(input.resultsSummary ?? EMPTY_RESULTS),
-        input.hostVersion,
-        input.retainedUntil,
-        input.error ?? null,
-      ],
+  async insert(input: InsertPipelineRunInput): Promise<PipelineRun> {
+    const row = (
+      await this.db.queryOne<PipelineRunRow>(
+        `INSERT INTO pipeline_runs
+           (run_id, started_at, finished_at, total_duration_ms,
+            stage_summary, inputs, results_summary, host_version,
+            retained_until, error)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING *`,
+        [
+          input.runId,
+          input.startedAt,
+          input.finishedAt ?? null,
+          input.totalDurationMs ?? null,
+          JSON.stringify(input.stageSummary ?? EMPTY_STAGE_SUMMARY),
+          JSON.stringify(input.inputs ?? EMPTY_INPUTS),
+          JSON.stringify(input.resultsSummary ?? EMPTY_RESULTS),
+          input.hostVersion,
+          input.retainedUntil,
+          input.error ?? null,
+        ],
+      )
     )!;
     return rowToRun(row);
   }
@@ -166,8 +168,8 @@ export class PipelineRunsRepository {
    * stage_summary, results_summary, and (optionally) error. Returns
    * the updated row, or null when the run_id is unknown.
    */
-  complete(runId: string, input: CompletePipelineRunInput): PipelineRun | null {
-    const result = this.db.queryOne<PipelineRunRow>(
+  async complete(runId: string, input: CompletePipelineRunInput): Promise<PipelineRun | null> {
+    const result = await this.db.queryOne<PipelineRunRow>(
       `UPDATE pipeline_runs
           SET finished_at = ?,
               total_duration_ms = ?,
@@ -188,8 +190,8 @@ export class PipelineRunsRepository {
     return result ? rowToRun(result) : null;
   }
 
-  findById(runId: string): PipelineRun | null {
-    const row = this.db.queryOne<PipelineRunRow>('SELECT * FROM pipeline_runs WHERE run_id = ?', [
+  async findById(runId: string): Promise<PipelineRun | null> {
+    const row = await this.db.queryOne<PipelineRunRow>('SELECT * FROM pipeline_runs WHERE run_id = ?', [
       runId,
     ]);
     return row ? rowToRun(row) : null;
@@ -200,7 +202,7 @@ export class PipelineRunsRepository {
    * `since` and `until` are inclusive ISO-8601 strings compared
    * lexicographically (which works for the canonical UTC format).
    */
-  findAll(options: ListPipelineRunsOptions = {}): PipelineRun[] {
+  async findAll(options: ListPipelineRunsOptions = {}): Promise<PipelineRun[]> {
     const where: string[] = [];
     const params: unknown[] = [];
     if (options.since !== undefined) {
@@ -216,12 +218,14 @@ export class PipelineRunsRepository {
     const finalParams =
       options.limit !== undefined && options.limit > 0 ? [...params, options.limit] : params;
     const sql = `SELECT * FROM pipeline_runs ${whereClause} ORDER BY started_at DESC ${limitClause}`;
-    const rows = this.db.query<PipelineRunRow>(sql, finalParams);
+    const rows = await this.db.query<PipelineRunRow>(sql, finalParams);
     return rows.map(rowToRun);
   }
 
-  count(): number {
-    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM pipeline_runs')!;
+  async count(): Promise<number> {
+    const row = (
+      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM pipeline_runs')
+    )!;
     return row.n;
   }
 
@@ -229,10 +233,12 @@ export class PipelineRunsRepository {
    * Count runs whose `started_at` is strictly before `cutoff`.
    * Used by `prune --before --dry-run` to preview deletions.
    */
-  countBefore(cutoff: string): number {
-    const row = this.db.queryOne<{ n: number }>(
-      'SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?',
-      [cutoff],
+  async countBefore(cutoff: string): Promise<number> {
+    const row = (
+      await this.db.queryOne<{ n: number }>(
+        'SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?',
+        [cutoff],
+      )
     )!;
     return row.n;
   }
@@ -243,8 +249,8 @@ export class PipelineRunsRepository {
    * based expiry with an absolute age threshold. Returns the number
    * of rows deleted.
    */
-  pruneBefore(cutoff: string): number {
-    const result = this.db.exec('DELETE FROM pipeline_runs WHERE started_at < ?', [cutoff]);
+  async pruneBefore(cutoff: string): Promise<number> {
+    const result = await this.db.exec('DELETE FROM pipeline_runs WHERE started_at < ?', [cutoff]);
     return result.changes;
   }
 
@@ -253,13 +259,13 @@ export class PipelineRunsRepository {
    * Returns the number of rows deleted. Idempotent — a second call
    * with the same `now` is a no-op.
    */
-  prune(now: string = new Date().toISOString()): number {
-    const result = this.db.exec('DELETE FROM pipeline_runs WHERE retained_until < ?', [now]);
+  async prune(now: string = new Date().toISOString()): Promise<number> {
+    const result = await this.db.exec('DELETE FROM pipeline_runs WHERE retained_until < ?', [now]);
     return result.changes;
   }
 
   /** Test helper: clear every row. Not exposed via CLI. */
-  deleteAll(): void {
-    this.db.exec('DELETE FROM pipeline_runs');
+  async deleteAll(): Promise<void> {
+    await this.db.exec('DELETE FROM pipeline_runs');
   }
 }

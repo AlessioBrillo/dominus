@@ -41,12 +41,12 @@ export class JobQueueRepository {
     };
   }
 
-  enqueue(
+  async enqueue(
     jobType: string,
     payload: object,
     options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
-  ): number {
-    const result = this.#db.exec(
+  ): Promise<number> {
+    const result = await this.#db.exec(
       `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at)
        VALUES (?, ?, ?, ?, ?)`,
       [
@@ -60,8 +60,8 @@ export class JobQueueRepository {
     return result.lastInsertRowid as number;
   }
 
-  dequeue(): JobQueueRow | null {
-    const row = this.#db.queryOne<any>(
+  async dequeue(): Promise<JobQueueRow | null> {
+    const row = await this.#db.queryOne<any>(
       `UPDATE job_queue
        SET status = 'running',
            attempts = attempts + 1,
@@ -79,8 +79,8 @@ export class JobQueueRepository {
     return row ? this.#rowToJob(row) : null;
   }
 
-  complete(jobId: number, result: object): void {
-    this.#db.exec(
+  async complete(jobId: number, result: object): Promise<void> {
+    await this.#db.exec(
       `UPDATE job_queue
        SET status = 'completed',
            finished_at = datetime('now'),
@@ -91,19 +91,19 @@ export class JobQueueRepository {
     );
   }
 
-  fail(jobId: number, error: string): void {
-    const job = this.getById(jobId);
+  async fail(jobId: number, error: string): Promise<void> {
+    const job = await this.getById(jobId);
     if (!job) return;
 
     const nextAttempt = job.attempts + 1;
     const isDeadLetter = nextAttempt > job.maxAttempts;
 
     if (isDeadLetter) {
-      this.moveToDeadLetter(jobId, error, nextAttempt);
+      await this.moveToDeadLetter(jobId, error, nextAttempt);
       return;
     }
 
-    this.#db.exec(
+    await this.#db.exec(
       `UPDATE job_queue
        SET status = 'queued',
            error = ?,
@@ -113,23 +113,23 @@ export class JobQueueRepository {
     );
   }
 
-  private moveToDeadLetter(jobId: number, error: string, attempts: number): void {
-    const job = this.getById(jobId);
+  private async moveToDeadLetter(jobId: number, error: string, attempts: number): Promise<void> {
+    const job = await this.getById(jobId);
     if (!job) return;
 
-    this.#db.transaction(() => {
-      this.#db.exec(
+    await this.#db.transaction(async () => {
+      await this.#db.exec(
         `INSERT INTO dead_letter_jobs (original_job_id, job_type, payload_json, error, attempts, original_created_at)
          VALUES (?, ?, ?, ?, ?, ?)`,
         [job.id, job.jobType, job.payloadJson, error, attempts, job.createdAt],
       );
 
-      this.#db.exec('DELETE FROM job_queue WHERE id = ?', [jobId]);
+      await this.#db.exec('DELETE FROM job_queue WHERE id = ?', [jobId]);
     });
   }
 
-  requeueStuck(maxRunningAgeMs: number = 300000): number {
-    const result = this.#db.exec(
+  async requeueStuck(maxRunningAgeMs: number = 300000): Promise<number> {
+    const result = await this.#db.exec(
       `UPDATE job_queue
        SET status = 'queued',
            started_at = NULL,
@@ -142,25 +142,25 @@ export class JobQueueRepository {
     return result.changes;
   }
 
-  getById(id: number): JobQueueRow | null {
-    const row = this.#db.queryOne<any>('SELECT * FROM job_queue WHERE id = ?', [id]);
+  async getById(id: number): Promise<JobQueueRow | null> {
+    const row = await this.#db.queryOne<any>('SELECT * FROM job_queue WHERE id = ?', [id]);
     return row ? this.#rowToJob(row) : null;
   }
 
-  getByIdWithPayload<T>(id: number): { job: JobQueueRow; payload: T } | null {
-    const job = this.getById(id);
+  async getByIdWithPayload<T>(id: number): Promise<{ job: JobQueueRow; payload: T } | null> {
+    const job = await this.getById(id);
     if (!job) return null;
     return { job, payload: JSON.parse(job.payloadJson) as T };
   }
 
-  list(
+  async list(
     options: {
       status?: string;
       jobType?: string;
       limit?: number;
       offset?: number;
     } = {},
-  ): JobQueueRow[] {
+  ): Promise<JobQueueRow[]> {
     const conditions: string[] = [];
     const params: any[] = [];
 
@@ -178,7 +178,7 @@ export class JobQueueRepository {
     const offset = options.offset ?? 0;
 
     params.push(limit, offset);
-    const rows = this.#db.query<any>(
+    const rows = await this.#db.query<any>(
       `SELECT * FROM job_queue
        ${where}
        ORDER BY priority DESC, scheduled_at ASC
@@ -188,8 +188,8 @@ export class JobQueueRepository {
     return rows.map((r) => this.#rowToJob(r));
   }
 
-  getStats(): JobQueueStats {
-    const rows = this.#db.query<{ status: string; count: number }>(
+  async getStats(): Promise<JobQueueStats> {
+    const rows = await this.#db.query<{ status: string; count: number }>(
       `SELECT
          status,
          COUNT(*) as count
@@ -214,10 +214,10 @@ export class JobQueueRepository {
     return stats;
   }
 
-  getDeadLetter(options: { limit?: number; offset?: number } = {}): DeadLetterJobRow[] {
+  async getDeadLetter(options: { limit?: number; offset?: number } = {}): Promise<DeadLetterJobRow[]> {
     const limit = options.limit ?? 50;
     const offset = options.offset ?? 0;
-    const rows = this.#db.query<any>(
+    const rows = await this.#db.query<any>(
       `SELECT * FROM dead_letter_jobs
        ORDER BY failed_at DESC
        LIMIT ? OFFSET ?`,
@@ -226,23 +226,23 @@ export class JobQueueRepository {
     return rows.map((r) => this.#rowToDeadLetter(r));
   }
 
-  retryDeadLetter(deadLetterId: number): number | null {
-    const dl = this.#db.queryOne<any>('SELECT * FROM dead_letter_jobs WHERE id = ?', [
+  async retryDeadLetter(deadLetterId: number): Promise<number | null> {
+    const dl = await this.#db.queryOne<any>('SELECT * FROM dead_letter_jobs WHERE id = ?', [
       deadLetterId,
     ]);
     if (!dl) return null;
 
-    const jobId = this.enqueue(dl.job_type, JSON.parse(dl.payload_json), {
+    const jobId = await this.enqueue(dl.job_type, JSON.parse(dl.payload_json), {
       priority: 10,
       maxAttempts: 3,
     });
 
-    this.#db.exec('DELETE FROM dead_letter_jobs WHERE id = ?', [deadLetterId]);
+    await this.#db.exec('DELETE FROM dead_letter_jobs WHERE id = ?', [deadLetterId]);
     return jobId;
   }
 
-  deleteCompleted(olderThanDays: number = 7): number {
-    const result = this.#db.exec(
+  async deleteCompleted(olderThanDays: number = 7): Promise<number> {
+    const result = await this.#db.exec(
       `DELETE FROM job_queue
        WHERE status = 'completed'
          AND finished_at < datetime('now', ?)`,
@@ -251,8 +251,8 @@ export class JobQueueRepository {
     return result.changes;
   }
 
-  deleteDeadLetter(olderThanDays: number = 30): number {
-    const result = this.#db.exec(
+  async deleteDeadLetter(olderThanDays: number = 30): Promise<number> {
+    const result = await this.#db.exec(
       `DELETE FROM dead_letter_jobs
        WHERE failed_at < datetime('now', ?)`,
       [`-${olderThanDays} days`],

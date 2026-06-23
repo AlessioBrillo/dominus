@@ -40,8 +40,8 @@ function parseRow(row: unknown): RenewalAlert {
 export class RenewalAlertRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  upsert(input: InsertRenewalAlertInput, channels: string[]): RenewalAlert {
-    const row = this.db.queryOne<unknown>(
+  async upsert(input: InsertRenewalAlertInput, channels: string[]): Promise<RenewalAlert> {
+    const row = await this.db.queryOne<unknown>(
       `INSERT INTO renewal_alerts
          (domain, portfolio_entry_id, alert_type, severity, message, details, notified_channels)
        VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -65,7 +65,7 @@ export class RenewalAlertRepository {
     return parseRow(row);
   }
 
-  findAll(domain?: string, unacknowledgedOnly = false): RenewalAlert[] {
+  async findAll(domain?: string, unacknowledgedOnly = false): Promise<RenewalAlert[]> {
     let sql = 'SELECT * FROM renewal_alerts WHERE 1=1';
     const params: unknown[] = [];
 
@@ -78,12 +78,12 @@ export class RenewalAlertRepository {
     }
     sql += ' ORDER BY created_at DESC, id DESC';
 
-    const rows = this.db.query<unknown>(sql, params);
+    const rows = await this.db.query<unknown>(sql, params);
     return rows.map(parseRow);
   }
 
-  findById(id: number): RenewalAlert | null {
-    const row = this.db.queryOne<unknown>('SELECT * FROM renewal_alerts WHERE id = ?', [id]);
+  async findById(id: number): Promise<RenewalAlert | null> {
+    const row = await this.db.queryOne<unknown>('SELECT * FROM renewal_alerts WHERE id = ?', [id]);
     if (row === null) return null;
     try {
       return parseRow(row);
@@ -92,11 +92,11 @@ export class RenewalAlertRepository {
     }
   }
 
-  acknowledge(id: number): void {
-    this.db.exec("UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ?", [id]);
+  async acknowledge(id: number): Promise<void> {
+    await this.db.exec("UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ?", [id]);
   }
 
-  acknowledgeAll(domain?: string): number {
+  async acknowledgeAll(domain?: string): Promise<number> {
     let sql =
       "UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE acknowledged_at IS NULL";
     const params: unknown[] = [];
@@ -104,33 +104,37 @@ export class RenewalAlertRepository {
       sql += ' AND domain = ?';
       params.push(domain);
     }
-    const result = this.db.exec(sql, params);
+    const result = await this.db.exec(sql, params);
     return result.changes;
   }
 
-  deleteBefore(date: string): number {
-    const result = this.db.exec(
+  async deleteBefore(date: string): Promise<number> {
+    const result = await this.db.exec(
       'DELETE FROM renewal_alerts WHERE created_at < ? AND acknowledged_at IS NOT NULL',
       [date],
     );
     return result.changes;
   }
 
-  count(domain?: string): number {
+  async count(domain?: string): Promise<number> {
     if (domain !== undefined) {
-      const row = this.db.queryOne<{ n: number }>(
-        'SELECT COUNT(*) AS n FROM renewal_alerts WHERE domain = ?',
-        [domain],
+      const row = (
+        await this.db.queryOne<{ n: number }>(
+          'SELECT COUNT(*) AS n FROM renewal_alerts WHERE domain = ?',
+          [domain],
+        )
       )!;
       return row.n;
     }
-    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM renewal_alerts')!;
+    const row = (
+      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM renewal_alerts')
+    )!;
     return row.n;
   }
 
   /** Return the most recent alert for each unacknowledged domain. */
-  latestPerDomain(): RenewalAlert[] {
-    const rows = this.db.query<unknown>(
+  async latestPerDomain(): Promise<RenewalAlert[]> {
+    const rows = await this.db.query<unknown>(
       `SELECT a.* FROM renewal_alerts a
        INNER JOIN (
          SELECT domain, MAX(id) AS max_id

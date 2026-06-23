@@ -105,12 +105,12 @@ export class BacktestSignalsRepository {
    * (idempotent rebuild), it is overwritten with the latest values. This
    * is safe: the table is an immutable audit log and rebuild = refresh.
    */
-  upsert(input: InsertBacktestSignalInput): BacktestSignal {
+  async upsert(input: InsertBacktestSignalInput): Promise<BacktestSignal> {
     const absErr = Math.abs(input.predictedExpectedValue - input.actualSalePriceEur);
     const signedErr = input.actualSalePriceEur - input.predictedExpectedValue;
     const bucket = bucketForConfidence(input.predictedConfidence);
 
-    const row = this.db.queryOne<{ id: number }>(
+    const row = (await this.db.queryOne<{ id: number }>(
       `INSERT INTO backtest_signals
          (domain, outcome_id, scoring_run_id, predicted_expected_value,
           predicted_buy_max, predicted_list_price, predicted_confidence,
@@ -146,43 +146,43 @@ export class BacktestSignalsRepository {
         input.acquisitionCostEur ?? 0,
         input.totalRenewalCostPaidEur ?? 0,
       ],
-    )!;
+    ))!;
 
-    const stored = this.db.queryOne<BacktestRow>('SELECT * FROM backtest_signals WHERE id = ?', [
+    const stored = (await this.db.queryOne<BacktestRow>('SELECT * FROM backtest_signals WHERE id = ?', [
       row.id,
-    ])!;
+    ]))!;
     return rowToSignal(stored);
   }
 
-  findByOutcome(outcomeId: number): BacktestSignal[] {
-    const rows = this.db.query<BacktestRow>(
+  async findByOutcome(outcomeId: number): Promise<BacktestSignal[]> {
+    const rows = await this.db.query<BacktestRow>(
       'SELECT * FROM backtest_signals WHERE outcome_id = ? ORDER BY recorded_at DESC',
       [outcomeId],
     );
     return rows.map(rowToSignal);
   }
 
-  findByDomain(domain: string): BacktestSignal[] {
-    const rows = this.db.query<BacktestRow>(
+  async findByDomain(domain: string): Promise<BacktestSignal[]> {
+    const rows = await this.db.query<BacktestRow>(
       'SELECT * FROM backtest_signals WHERE domain = ? ORDER BY recorded_at DESC',
       [domain],
     );
     return rows.map(rowToSignal);
   }
 
-  findAll(): BacktestSignal[] {
-    const rows = this.db.query<BacktestRow>(
+  async findAll(): Promise<BacktestSignal[]> {
+    const rows = await this.db.query<BacktestRow>(
       'SELECT * FROM backtest_signals ORDER BY recorded_at DESC, id DESC',
     );
     return rows.map(rowToSignal);
   }
 
-  count(): number {
-    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM backtest_signals')!;
+  async count(): Promise<number> {
+    const row = (await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM backtest_signals'))!;
     return row.n;
   }
 
-  deleteAll(): void {
-    this.db.exec('DELETE FROM backtest_signals');
+  async deleteAll(): Promise<void> {
+    await this.db.exec('DELETE FROM backtest_signals');
   }
 }

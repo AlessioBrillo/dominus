@@ -34,16 +34,16 @@ function rowToCandidate(row: CandidateRow): DomainCandidate {
 export class CandidateRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  findAll(limit = 50): DomainCandidate[] {
-    const rows = this.db.query<CandidateRow>(
+  async findAll(limit = 50): Promise<DomainCandidate[]> {
+    const rows = await this.db.query<CandidateRow>(
       'SELECT * FROM candidates ORDER BY updated_at DESC LIMIT ?',
       [limit],
     );
     return rows.map(rowToCandidate);
   }
 
-  insert(candidate: DomainCandidate): DomainCandidate {
-    const result = this.db.exec(
+  async insert(candidate: DomainCandidate): Promise<DomainCandidate> {
+    const result = await this.db.exec(
       `INSERT INTO candidates (domain, tld, source, status, is_premium, pipeline_run_id)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [
@@ -58,27 +58,27 @@ export class CandidateRepository {
     return { ...candidate, id: result.lastInsertRowid as number };
   }
 
-  findById(id: number): DomainCandidate | null {
-    const row = this.db.queryOne<CandidateRow>('SELECT * FROM candidates WHERE id = ?', [id]);
+  async findById(id: number): Promise<DomainCandidate | null> {
+    const row = await this.db.queryOne<CandidateRow>('SELECT * FROM candidates WHERE id = ?', [id]);
     return row ? rowToCandidate(row) : null;
   }
 
-  findByDomain(domain: string): DomainCandidate | null {
-    const row = this.db.queryOne<CandidateRow>('SELECT * FROM candidates WHERE domain = ?', [
+  async findByDomain(domain: string): Promise<DomainCandidate | null> {
+    const row = await this.db.queryOne<CandidateRow>('SELECT * FROM candidates WHERE domain = ?', [
       domain,
     ]);
     return row ? rowToCandidate(row) : null;
   }
 
-  updateStatus(id: number, status: CandidateStatus): void {
-    this.db.exec(`UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`, [
+  async updateStatus(id: number, status: CandidateStatus): Promise<void> {
+    await this.db.exec(`UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`, [
       status,
       id,
     ]);
   }
 
-  findByRunId(runId: string): DomainCandidate[] {
-    const rows = this.db.query<CandidateRow>('SELECT * FROM candidates WHERE pipeline_run_id = ?', [
+  async findByRunId(runId: string): Promise<DomainCandidate[]> {
+    const rows = await this.db.query<CandidateRow>('SELECT * FROM candidates WHERE pipeline_run_id = ?', [
       runId,
     ]);
     return rows.map(rowToCandidate);
@@ -94,8 +94,8 @@ export class CandidateRepository {
    * These synthetic candidates accumulate on every rescore run and are not
    * needed for pipeline history. Returns the number of rows removed.
    */
-  pruneRescoreCandidates(before: string): number {
-    const result = this.db.exec(
+  async pruneRescoreCandidates(before: string): Promise<number> {
+    const result = await this.db.exec(
       `DELETE FROM candidates
        WHERE source = 'portfolio_rescore' AND created_at < ?
          AND id NOT IN (
@@ -107,8 +107,8 @@ export class CandidateRepository {
   }
 
   /** Count of portfolio_rescore candidates created before the given date. */
-  countRescoreCandidates(before: string): number {
-    const row = this.db.queryOne<{ n: number }>(
+  async countRescoreCandidates(before: string): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>(
       `SELECT COUNT(*) AS n FROM candidates
        WHERE source = 'portfolio_rescore' AND created_at < ?`,
       [before],
@@ -116,8 +116,8 @@ export class CandidateRepository {
     return row!.n;
   }
 
-  upsert(candidate: DomainCandidate): DomainCandidate {
-    const row = this.db.queryOne<{ id: number }>(
+  async upsert(candidate: DomainCandidate): Promise<DomainCandidate> {
+    const row = await this.db.queryOne<{ id: number }>(
       `INSERT INTO candidates
          (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)

@@ -24,16 +24,16 @@ export class TrademarkRepository {
    * Persist a trademark search result keyed by the search term.
    * Used by CachedTrademarkProvider before any candidate DB id is available.
    */
-  insertByTerm(
+  async insertByTerm(
     searchTerm: string,
     source: string,
     matchFound: boolean,
     matchDetails: TrademarkMatch[] | null,
     rawResponse: unknown,
     ttlDays: number,
-  ): void {
+  ): Promise<void> {
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
-    this.db.exec(
+    await this.db.exec(
       `INSERT INTO trademark_results
        (search_term, source, match_found, match_details, raw_response, expires_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -52,9 +52,9 @@ export class TrademarkRepository {
    * Return the most recent non-expired cache row for the given (term, source)
    * pair, or null when the cache is cold or expired.
    */
-  findValidByTerm(searchTerm: string, source: string): TrademarkResultRow | null {
+  async findValidByTerm(searchTerm: string, source: string): Promise<TrademarkResultRow | null> {
     const now = new Date().toISOString();
-    return this.db.queryOne<TrademarkResultRow>(
+    return await this.db.queryOne<TrademarkResultRow>(
       `SELECT * FROM trademark_results
        WHERE search_term = ? AND source = ? AND expires_at > ?
        ORDER BY checked_at DESC LIMIT 1`,
@@ -67,15 +67,15 @@ export class TrademarkRepository {
   // ---------------------------------------------------------------------------
 
   /** Link an existing term-cache row to a candidate id after persistence. */
-  insert(
+  async insert(
     candidateId: number,
     searchTerm: string,
     source: string,
     matchFound: boolean,
     matchDetails: unknown,
-  ): void {
+  ): Promise<void> {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    this.db.exec(
+    await this.db.exec(
       `INSERT INTO trademark_results
        (candidate_id, search_term, source, match_found, match_details, expires_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -90,9 +90,9 @@ export class TrademarkRepository {
     );
   }
 
-  findValid(candidateId: number, source: string): TrademarkResultRow | null {
+  async findValid(candidateId: number, source: string): Promise<TrademarkResultRow | null> {
     const now = new Date().toISOString();
-    return this.db.queryOne<TrademarkResultRow>(
+    return await this.db.queryOne<TrademarkResultRow>(
       `SELECT * FROM trademark_results
        WHERE candidate_id = ? AND source = ? AND expires_at > ?
        ORDER BY checked_at DESC LIMIT 1`,
@@ -113,14 +113,14 @@ export class TrademarkRepository {
    * Operators can run this on demand (`dominus maintenance prune --cache-only`)
    * or as a scheduled job.
    */
-  pruneExpired(now: string = new Date().toISOString()): number {
-    const result = this.db.exec('DELETE FROM trademark_results WHERE expires_at < ?', [now]);
+  async pruneExpired(now: string = new Date().toISOString()): Promise<number> {
+    const result = await this.db.exec('DELETE FROM trademark_results WHERE expires_at < ?', [now]);
     return Number(result.changes);
   }
 
   /** Total row count (for diagnostics). */
-  count(): number {
-    const row = this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM trademark_results');
+  async count(): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM trademark_results');
     return row!.n;
   }
 }
