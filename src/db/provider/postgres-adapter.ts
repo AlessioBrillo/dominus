@@ -1,7 +1,7 @@
 import pg from 'pg';
 import { getLogger } from '../../logger.js';
-import type { AsyncDatabaseProvider, AsyncExecResult } from './async-interface.js';
-import { AsyncDatabaseError } from './async-interface.js';
+import type { DatabaseProvider, ExecResult } from './interface.js';
+import { DatabaseError } from './interface.js';
 
 const logger = getLogger();
 
@@ -17,7 +17,7 @@ function rowToCamel(row: Record<string, unknown>): Record<string, unknown> {
   return result;
 }
 
-export class PostgresAdapter implements AsyncDatabaseProvider {
+export class PostgresAdapter implements DatabaseProvider {
   readonly #pool: pg.Pool;
   readonly #schema: string | undefined;
   #open: boolean;
@@ -58,7 +58,7 @@ export class PostgresAdapter implements AsyncDatabaseProvider {
     return this.#pool;
   }
 
-  async exec(sql: string, params?: unknown[]): Promise<AsyncExecResult> {
+  async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
       const result = await this.#pool.query({
         text: sql,
@@ -67,7 +67,7 @@ export class PostgresAdapter implements AsyncDatabaseProvider {
       return {
         changes: result.rowCount ?? 0,
         lastInsertRowid: result.rows[0]?.id != null ? Number(result.rows[0].id) : undefined,
-      } as AsyncExecResult;
+      } as ExecResult;
     } catch (err) {
       throw this.#wrapError(err);
     }
@@ -98,7 +98,7 @@ export class PostgresAdapter implements AsyncDatabaseProvider {
     }
   }
 
-  async transaction<T>(fn: (db: AsyncDatabaseProvider) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T> {
     const client = await this.#pool.connect();
     const txAdapter = new PostgresTransactionAdapter(client, this.#schema);
     try {
@@ -129,8 +129,8 @@ export class PostgresAdapter implements AsyncDatabaseProvider {
     return this.#open;
   }
 
-  #wrapError(err: unknown): AsyncDatabaseError {
-    if (err instanceof AsyncDatabaseError) return err;
+  #wrapError(err: unknown): DatabaseError {
+    if (err instanceof DatabaseError) return err;
     const message = err instanceof Error ? err.message : String(err);
     const code =
       err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'UNKNOWN';
@@ -141,18 +141,18 @@ export class PostgresAdapter implements AsyncDatabaseProvider {
       pgCode === '57P01' ||
       pgCode === '53300' ||
       pgCode === 'XX000';
-    return new AsyncDatabaseError(message, pgCode, isRetryable);
+    return new DatabaseError(message, pgCode, isRetryable);
   }
 }
 
-class PostgresTransactionAdapter implements AsyncDatabaseProvider {
+class PostgresTransactionAdapter implements DatabaseProvider {
   readonly #client: pg.PoolClient;
 
   constructor(client: pg.PoolClient, _schema?: string) {
     this.#client = client;
   }
 
-  async exec(sql: string, params?: unknown[]): Promise<AsyncExecResult> {
+  async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
       const result = await this.#client.query({
         text: sql,
@@ -161,7 +161,7 @@ class PostgresTransactionAdapter implements AsyncDatabaseProvider {
       return {
         changes: result.rowCount ?? 0,
         lastInsertRowid: result.rows[0]?.id != null ? Number(result.rows[0].id) : undefined,
-      } as AsyncExecResult;
+      } as ExecResult;
     } catch (err) {
       throw this.#wrapError(err);
     }
@@ -192,7 +192,7 @@ class PostgresTransactionAdapter implements AsyncDatabaseProvider {
     }
   }
 
-  async transaction<T>(fn: (db: AsyncDatabaseProvider) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T> {
     return fn(this);
   }
 
@@ -204,8 +204,8 @@ class PostgresTransactionAdapter implements AsyncDatabaseProvider {
     return true;
   }
 
-  #wrapError(err: unknown): AsyncDatabaseError {
-    if (err instanceof AsyncDatabaseError) return err;
+  #wrapError(err: unknown): DatabaseError {
+    if (err instanceof DatabaseError) return err;
     const message = err instanceof Error ? err.message : String(err);
     const code =
       err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'UNKNOWN';
@@ -216,6 +216,6 @@ class PostgresTransactionAdapter implements AsyncDatabaseProvider {
       pgCode === '57P01' ||
       pgCode === '53300' ||
       pgCode === 'XX000';
-    return new AsyncDatabaseError(message, pgCode, isRetryable);
+    return new DatabaseError(message, pgCode, isRetryable);
   }
 }

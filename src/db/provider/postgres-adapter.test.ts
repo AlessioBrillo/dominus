@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { PostgresAdapter } from './postgres-adapter.js';
-import { AsyncDatabaseError } from './async-interface.js';
+import { DatabaseError } from './interface.js';
 
 const PG_URL = process.env.DATABASE_URL ?? '';
 
@@ -64,9 +64,9 @@ describe.runIf(PG_URL)('PostgresAdapter', () => {
       expect(result.lastInsertRowid).toBe(1); // serial starts at 1
     });
 
-    it('throws AsyncDatabaseError on bad SQL', async () => {
+    it('throws DatabaseError on bad SQL', async () => {
       adapter = await PostgresAdapter.create(PG_URL);
-      await expect(adapter.exec('SELECT FROM nowhere')).rejects.toThrow(AsyncDatabaseError);
+      await expect(adapter.exec('SELECT FROM nowhere')).rejects.toThrow(DatabaseError);
     });
   });
 
@@ -169,14 +169,14 @@ describe.runIf(PG_URL)('PostgresAdapter', () => {
         },
         (e: unknown) => e,
       );
-      expect(err).toBeInstanceOf(AsyncDatabaseError);
-      expect((err as AsyncDatabaseError).code).toBe('42P01');
-      expect((err as AsyncDatabaseError).isRetryable).toBe(false);
+      expect(err).toBeInstanceOf(DatabaseError);
+      expect((err as DatabaseError).code).toBe('42P01');
+      expect((err as DatabaseError).isRetryable).toBe(false);
     });
 
     it('marks serialisation failures as retryable', async () => {
       adapter = await PostgresAdapter.create(PG_URL);
-      const err = new AsyncDatabaseError('deadlock detected', '40P01', true);
+      const err = new DatabaseError('deadlock detected', '40P01', true);
       expect(err.isRetryable).toBe(true);
       expect(err.code).toBe('40P01');
     });

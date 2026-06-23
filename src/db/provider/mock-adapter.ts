@@ -33,27 +33,27 @@ export class MockDatabaseProvider implements DatabaseProvider {
     return this.#tables.has(name);
   }
 
-  exec(sql: string, params?: unknown[]): ExecResult {
+  async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     this.#recordCall('exec', sql, params);
     const id = this.#nextId++;
     return { changes: 1, lastInsertRowid: id };
   }
 
-  query<T>(_sql: string, _params?: unknown[]): T[] {
+  async query<T>(_sql: string, _params?: unknown[]): Promise<T[]> {
     this.#recordCall('query', _sql, _params);
     return [];
   }
 
-  queryOne<T>(_sql: string, _params?: unknown[]): T | null {
+  async queryOne<T>(_sql: string, _params?: unknown[]): Promise<T | null> {
     this.#recordCall('queryOne', _sql, _params);
     return null;
   }
 
-  transaction<T>(fn: (db: DatabaseProvider) => T): T {
+  async transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T> {
     return fn(this);
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.#open = false;
   }
 

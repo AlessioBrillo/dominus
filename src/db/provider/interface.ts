@@ -15,10 +15,10 @@ export class DatabaseError extends Error {
 }
 
 export interface DatabaseProvider {
-  exec(sql: string, params?: unknown[]): ExecResult;
-  query<T>(sql: string, params?: unknown[]): T[];
-  queryOne<T>(sql: string, params?: unknown[]): T | null;
-  transaction<T>(fn: (db: DatabaseProvider) => T): T;
-  close(): void;
+  exec(sql: string, params?: unknown[]): Promise<ExecResult>;
+  query<T>(sql: string, params?: unknown[]): Promise<T[]>;
+  queryOne<T>(sql: string, params?: unknown[]): Promise<T | null>;
+  transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
   isOpen(): boolean;
 }
