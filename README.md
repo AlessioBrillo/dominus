@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
 [![Version](https://img.shields.io/badge/version-0.4.0--dev-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+[![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
 [![Open Source](https://img.shields.io/badge/open-source-AGPLv3-333333)](#)
 
 DOMINUS is an **open-source domain investment tool** that helps you make better purchase, portfolio, and pricing decisions than the market average. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
