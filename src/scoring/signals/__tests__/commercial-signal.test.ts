@@ -37,7 +37,7 @@ describe('CommercialSignal', () => {
       1,
     );
     assert(provider.getMetrics !== undefined);
-    expect(provider.getMetrics).toHaveBeenCalledWith('nike');
+    expect(provider.getMetrics).toHaveBeenCalledWith('nike', undefined);
     expect(result.score).toBeGreaterThan(0);
   });
 

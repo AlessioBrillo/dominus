@@ -391,7 +391,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
     ),
-    new ScoringStage(engine),
+    new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
     metrics,

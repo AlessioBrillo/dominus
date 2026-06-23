@@ -20,18 +20,17 @@ export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
     private readonly concurrency: number = 3,
   ) {}
 
-  async process(candidates: T[], _signal?: AbortSignal): Promise<StageResult<T>> {
+  async process(candidates: T[], signal?: AbortSignal): Promise<StageResult<T>> {
     const start = Date.now();
+    if (signal?.aborted) return { passed: [], filtered: [], stageName: this.name, durationMs: 0 };
     const passed: T[] = [];
     const filtered: T[] = [];
 
     const batches = toBatches(candidates, this.concurrency);
     for (const batch of batches) {
-      // Placeholder array: results[i] corresponds to batch[i].
-      // Promise.allSettled preserves input order, so we can safely
-      // iterate by index without relying on Promise identity.
+      if (signal?.aborted) break;
       const tasks = batch.map(async (candidate) => {
-        const result = await this.gate.check(candidate.domain);
+        const result = await this.gate.check(candidate.domain, signal);
         return { candidate, verdict: result.verdict };
       });
 

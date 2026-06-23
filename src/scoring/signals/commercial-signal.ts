@@ -8,6 +8,7 @@ export async function computeCommercialScore(
   provider: KeywordProvider,
   weight: number,
   config: CommercialSignalConfig = DEFAULT_COMMERCIAL_CONFIG,
+  signal?: AbortSignal,
 ): Promise<SignalOutput> {
   // Engine always sets sld before calling signal functions;
   // non-null assertion is safe here (see ScoringEngine.score()).
@@ -16,7 +17,7 @@ export async function computeCommercialScore(
   let providerError: string | undefined;
 
   try {
-    metrics = await provider.getMetrics(sld);
+    metrics = await provider.getMetrics(sld, signal);
   } catch (err) {
     providerError = err instanceof Error ? err.message : String(err);
     metrics = { monthlySearchVolume: 0, cpc: 0 };

@@ -540,6 +540,12 @@ const configSchema = z.object({
    *  Each domain hits scoring engine + trademark gate. Default: 5. */
   RESCORE_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(5),
 
+  /** Maximum concurrent domains to score in a single ScoringStage batch.
+   *  Each candidate triggers keyword + comps provider calls (if available),
+   *  so higher concurrency may increase API concurrency pressure.
+   *  Default: 5 — matches RDAP and other batch stages. */
+  SCORING_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+
   /** HTTP request timeout in milliseconds for Express routes.
    *  Set to 0 to disable. Default: 30000 (30s). */
   REQUEST_TIMEOUT_MS: z.coerce.number().int().min(0).max(300000).default(30000),
