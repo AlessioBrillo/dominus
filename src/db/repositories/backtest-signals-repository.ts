@@ -148,9 +148,10 @@ export class BacktestSignalsRepository {
       ],
     ))!;
 
-    const stored = (await this.db.queryOne<BacktestRow>('SELECT * FROM backtest_signals WHERE id = ?', [
-      row.id,
-    ]))!;
+    const stored = (await this.db.queryOne<BacktestRow>(
+      'SELECT * FROM backtest_signals WHERE id = ?',
+      [row.id],
+    ))!;
     return rowToSignal(stored);
   }
 
@@ -178,7 +179,9 @@ export class BacktestSignalsRepository {
   }
 
   async count(): Promise<number> {
-    const row = (await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM backtest_signals'))!;
+    const row = (await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM backtest_signals',
+    ))!;
     return row.n;
   }
 

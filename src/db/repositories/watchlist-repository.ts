@@ -99,9 +99,9 @@ export class WatchlistRepository {
   }
 
   async count(): Promise<number> {
-    const row = (
-      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM watchlist_entries')
-    )!;
+    const row = (await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM watchlist_entries',
+    ))!;
     return row.n;
   }
 }

@@ -124,7 +124,9 @@ export class MetricsRepository {
   }
 
   async deleteByRunId(runId: string): Promise<number> {
-    const result = await this.db.exec('DELETE FROM pipeline_metrics WHERE pipeline_run_id = ?', [runId]);
+    const result = await this.db.exec('DELETE FROM pipeline_metrics WHERE pipeline_run_id = ?', [
+      runId,
+    ]);
     return result.changes;
   }
 

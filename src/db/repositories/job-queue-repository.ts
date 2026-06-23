@@ -214,7 +214,9 @@ export class JobQueueRepository {
     return stats;
   }
 
-  async getDeadLetter(options: { limit?: number; offset?: number } = {}): Promise<DeadLetterJobRow[]> {
+  async getDeadLetter(
+    options: { limit?: number; offset?: number } = {},
+  ): Promise<DeadLetterJobRow[]> {
     const limit = options.limit ?? 50;
     const offset = options.offset ?? 0;
     const rows = await this.#db.query<any>(

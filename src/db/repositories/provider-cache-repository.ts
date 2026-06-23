@@ -32,7 +32,9 @@ export class ProviderCacheRepository {
   }
 
   async pruneExpired(): Promise<number> {
-    const result = await this.db.exec(`DELETE FROM provider_cache WHERE expires_at < datetime('now')`);
+    const result = await this.db.exec(
+      `DELETE FROM provider_cache WHERE expires_at < datetime('now')`,
+    );
     return Number(result.changes);
   }
 

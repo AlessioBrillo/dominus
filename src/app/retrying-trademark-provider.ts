@@ -55,7 +55,11 @@ export class RetryingTrademarkProvider implements TrademarkProvider {
 
   async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
     if (!this.#circuitBreaker.allow()) {
-      throw new CircuitOpenError('Trademark provider', this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
+      throw new CircuitOpenError(
+        'Trademark provider',
+        this.#circuitBreakerPolicy.cooldownMs,
+        this.#circuitBreaker.state,
+      );
     }
 
     const random = this.#policy.random ?? Math.random;

@@ -71,16 +71,17 @@ export class CandidateRepository {
   }
 
   async updateStatus(id: number, status: CandidateStatus): Promise<void> {
-    await this.db.exec(`UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`, [
-      status,
-      id,
-    ]);
+    await this.db.exec(
+      `UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ?`,
+      [status, id],
+    );
   }
 
   async findByRunId(runId: string): Promise<DomainCandidate[]> {
-    const rows = await this.db.query<CandidateRow>('SELECT * FROM candidates WHERE pipeline_run_id = ?', [
-      runId,
-    ]);
+    const rows = await this.db.query<CandidateRow>(
+      'SELECT * FROM candidates WHERE pipeline_run_id = ?',
+      [runId],
+    );
     return rows.map(rowToCandidate);
   }
 

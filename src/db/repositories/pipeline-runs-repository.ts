@@ -138,28 +138,26 @@ export class PipelineRunsRepository {
    * the orchestrator calls `complete()`.
    */
   async insert(input: InsertPipelineRunInput): Promise<PipelineRun> {
-    const row = (
-      await this.db.queryOne<PipelineRunRow>(
-        `INSERT INTO pipeline_runs
+    const row = (await this.db.queryOne<PipelineRunRow>(
+      `INSERT INTO pipeline_runs
            (run_id, started_at, finished_at, total_duration_ms,
             stage_summary, inputs, results_summary, host_version,
             retained_until, error)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *`,
-        [
-          input.runId,
-          input.startedAt,
-          input.finishedAt ?? null,
-          input.totalDurationMs ?? null,
-          JSON.stringify(input.stageSummary ?? EMPTY_STAGE_SUMMARY),
-          JSON.stringify(input.inputs ?? EMPTY_INPUTS),
-          JSON.stringify(input.resultsSummary ?? EMPTY_RESULTS),
-          input.hostVersion,
-          input.retainedUntil,
-          input.error ?? null,
-        ],
-      )
-    )!;
+      [
+        input.runId,
+        input.startedAt,
+        input.finishedAt ?? null,
+        input.totalDurationMs ?? null,
+        JSON.stringify(input.stageSummary ?? EMPTY_STAGE_SUMMARY),
+        JSON.stringify(input.inputs ?? EMPTY_INPUTS),
+        JSON.stringify(input.resultsSummary ?? EMPTY_RESULTS),
+        input.hostVersion,
+        input.retainedUntil,
+        input.error ?? null,
+      ],
+    ))!;
     return rowToRun(row);
   }
 
@@ -191,9 +189,10 @@ export class PipelineRunsRepository {
   }
 
   async findById(runId: string): Promise<PipelineRun | null> {
-    const row = await this.db.queryOne<PipelineRunRow>('SELECT * FROM pipeline_runs WHERE run_id = ?', [
-      runId,
-    ]);
+    const row = await this.db.queryOne<PipelineRunRow>(
+      'SELECT * FROM pipeline_runs WHERE run_id = ?',
+      [runId],
+    );
     return row ? rowToRun(row) : null;
   }
 
@@ -223,9 +222,7 @@ export class PipelineRunsRepository {
   }
 
   async count(): Promise<number> {
-    const row = (
-      await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM pipeline_runs')
-    )!;
+    const row = (await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM pipeline_runs'))!;
     return row.n;
   }
 
@@ -234,12 +231,10 @@ export class PipelineRunsRepository {
    * Used by `prune --before --dry-run` to preview deletions.
    */
   async countBefore(cutoff: string): Promise<number> {
-    const row = (
-      await this.db.queryOne<{ n: number }>(
-        'SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?',
-        [cutoff],
-      )
-    )!;
+    const row = (await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pipeline_runs WHERE started_at < ?',
+      [cutoff],
+    ))!;
     return row.n;
   }
 

@@ -44,7 +44,11 @@ export class RetryingWhoisProvider implements WhoisProvider {
 
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
     if (!this.#circuitBreaker.allow()) {
-      throw new CircuitOpenError('WHOIS provider', this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
+      throw new CircuitOpenError(
+        'WHOIS provider',
+        this.#circuitBreakerPolicy.cooldownMs,
+        this.#circuitBreaker.state,
+      );
     }
 
     const random = this.#policy.random ?? Math.random;

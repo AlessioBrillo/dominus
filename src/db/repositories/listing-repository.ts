@@ -81,7 +81,10 @@ export class ListingRepository {
     return rows.map(listingFromRow);
   }
 
-  async findByDomainAndMarketplace(domain: string, marketplace: string): Promise<Listing | undefined> {
+  async findByDomainAndMarketplace(
+    domain: string,
+    marketplace: string,
+  ): Promise<Listing | undefined> {
     const row = await this.#db.queryOne<any>(
       'SELECT * FROM listings WHERE domain = ? AND marketplace = ?',
       [domain, marketplace],

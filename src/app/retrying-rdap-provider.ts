@@ -45,7 +45,11 @@ export class RetryingRdapProvider implements RdapProvider {
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
     if (!this.#circuitBreaker.allow()) {
-      throw new CircuitOpenError('RDAP provider', this.#circuitBreakerPolicy.cooldownMs, this.#circuitBreaker.state);
+      throw new CircuitOpenError(
+        'RDAP provider',
+        this.#circuitBreakerPolicy.cooldownMs,
+        this.#circuitBreaker.state,
+      );
     }
 
     const random = this.#policy.random ?? Math.random;

@@ -38,7 +38,11 @@ function rowToJob(row: SchedulerDbRow): SchedulerJobRow {
 export class SchedulerJobRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  async upsert(input: { jobName: string; cronExpression: string; description: string }): Promise<SchedulerJobRow> {
+  async upsert(input: {
+    jobName: string;
+    cronExpression: string;
+    description: string;
+  }): Promise<SchedulerJobRow> {
     await this.db.exec(
       `INSERT INTO scheduler_jobs (job_name, cron_expression, description)
        VALUES (?, ?, ?)
@@ -76,9 +80,9 @@ export class SchedulerJobRepository {
   }
 
   async findAll(): Promise<SchedulerJobRow[]> {
-    return (await this.db
-      .query<SchedulerDbRow>('SELECT * FROM scheduler_jobs ORDER BY job_name'))
-      .map(rowToJob);
+    return (
+      await this.db.query<SchedulerDbRow>('SELECT * FROM scheduler_jobs ORDER BY job_name')
+    ).map(rowToJob);
   }
 
   async prune(maxAgeDays: number = 90): Promise<number> {

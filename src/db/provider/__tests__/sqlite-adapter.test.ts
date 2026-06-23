@@ -49,7 +49,9 @@ describe('SqliteProvider', () => {
          VALUES (?, ?, ?, ?, ?, ?)`,
         ['example.com', '.com', 'closeout_csv', 'pending', 0, 'run-001'],
       );
-      const result = await provider.exec('DELETE FROM candidates WHERE domain = ?', ['example.com']);
+      const result = await provider.exec('DELETE FROM candidates WHERE domain = ?', [
+        'example.com',
+      ]);
       expect(result.changes).toBe(1);
     });
   });
@@ -75,9 +77,10 @@ describe('SqliteProvider', () => {
     });
 
     it('returns empty array for no results', async () => {
-      const rows = await provider.query<{ domain: string }>('SELECT * FROM candidates WHERE domain = ?', [
-        'nonexistent.com',
-      ]);
+      const rows = await provider.query<{ domain: string }>(
+        'SELECT * FROM candidates WHERE domain = ?',
+        ['nonexistent.com'],
+      );
       expect(rows).toEqual([]);
     });
   });
