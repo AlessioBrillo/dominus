@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { FailoverRdapProvider } from '../failover-rdap-provider.js';
 import type { RdapProvider } from '../rdap-provider.js';
 import { DomainStatus } from '../../../types/domain-status.js';
@@ -19,10 +19,6 @@ function makeProvider(name: string, result: unknown, delayMs = 10): RdapProvider
 }
 
 describe('FailoverRdapProvider', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it('returns result from first provider on success', async () => {
     const primary = makeProvider('primary', {
       domain: 'example.com',
@@ -46,33 +42,40 @@ describe('FailoverRdapProvider', () => {
       checkedAt: new Date().toISOString(),
     });
 
-    const provider = new FailoverRdapProvider([first, second], 10);
+    const provider = new FailoverRdapProvider([first, second]);
     const result = await provider.confirm('example.com');
     expect(result.status).toBe(DomainStatus.Registered);
+    // Both are called in parallel; first fails, second succeeds
     expect(first.confirm).toHaveBeenCalledTimes(1);
     expect(second.confirm).toHaveBeenCalledTimes(1);
   });
 
-  it('skips remaining servers once one succeeds', async () => {
-    const first = makeProvider('rdap.org', new ProviderError('timeout', 'rdap.org'));
-    const second = makeProvider('verisign-rdap', {
-      domain: 'example.com',
-      status: DomainStatus.Registered,
-      isPremium: false,
-      checkedAt: new Date().toISOString(),
-    });
-    const third = makeProvider('google-rdap', {
-      domain: 'example.com',
-      status: DomainStatus.Available,
-      isPremium: false,
-      checkedAt: new Date().toISOString(),
-    });
+  it('returns first success when multiple providers respond', async () => {
+    const first = makeProvider(
+      'fast',
+      {
+        domain: 'example.com',
+        status: DomainStatus.Available,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      },
+      5,
+    );
+    const second = makeProvider(
+      'slow',
+      {
+        domain: 'example.com',
+        status: DomainStatus.Registered,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      },
+      50,
+    );
 
-    const provider = new FailoverRdapProvider([first, second, third], 10);
-    await provider.confirm('example.com');
-    expect(first.confirm).toHaveBeenCalledTimes(1);
-    expect(second.confirm).toHaveBeenCalledTimes(1);
-    expect(third.confirm).not.toHaveBeenCalled();
+    const provider = new FailoverRdapProvider([first, second]);
+    const result = await provider.confirm('example.com');
+    // Fast provider wins
+    expect(result.status).toBe(DomainStatus.Available);
   });
 
   it('throws ProviderError when all servers fail', async () => {
@@ -81,14 +84,14 @@ describe('FailoverRdapProvider', () => {
       makeProvider('b', new ProviderError('connection refused', 'b')),
     ];
 
-    const provider = new FailoverRdapProvider(providers, 10);
+    const provider = new FailoverRdapProvider(providers);
     await expect(provider.confirm('example.com')).rejects.toThrow(ProviderError);
     await expect(provider.confirm('example.com')).rejects.toThrow(
       /All RDAP bootstrap servers failed/,
     );
   });
 
-  it('stops iterating when signal is aborted', async () => {
+  it('stops when signal is aborted before any response', async () => {
     const slowProvider: RdapProvider = {
       name: 'slow',
       confirm: vi.fn().mockImplementation(async (_domain: string, signal?: AbortSignal) => {
@@ -112,7 +115,7 @@ describe('FailoverRdapProvider', () => {
       }),
     };
 
-    const provider = new FailoverRdapProvider([slowProvider], 10);
+    const provider = new FailoverRdapProvider([slowProvider]);
     const controller = new AbortController();
     const promise = provider.confirm('example.com', controller.signal);
     controller.abort();
@@ -126,30 +129,6 @@ describe('FailoverRdapProvider', () => {
     ]);
     expect(provider.name).toContain('first');
     expect(provider.name).toContain('second');
-  });
-
-  it('has delay between failover attempts', async () => {
-    vi.useFakeTimers();
-    const first = makeProvider('a', new ProviderError('fail', 'a'));
-    const second = makeProvider('b', {
-      domain: 'example.com',
-      status: DomainStatus.Available,
-      isPremium: false,
-      checkedAt: new Date().toISOString(),
-    });
-
-    const provider = new FailoverRdapProvider([first, second], 100);
-    const promise = provider.confirm('example.com');
-
-    await vi.advanceTimersByTimeAsync(50);
-    expect(first.confirm).toHaveBeenCalledTimes(1);
-    expect(second.confirm).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(100);
-    expect(second.confirm).toHaveBeenCalledTimes(1);
-
-    await expect(promise).resolves.toBeDefined();
-    vi.useRealTimers();
   });
 
   it('builds provider list from URLs via fromConfig', () => {

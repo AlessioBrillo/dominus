@@ -259,9 +259,10 @@ const configSchema = z.object({
   /**
    * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
    * WHOIS servers are generally more restrictive than RDAP.
-   * Default: 1 req/2 sec.
+   * Default: 2 tokens — burst allows 2 quick lookups, sustained at 1 req/sec
+   * (refill: 2 tokens every 2000ms = 1 token/sec).
    */
-  WHOIS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(1),
+  WHOIS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(2),
   /** Rate limiting: refill interval in ms for WHOIS requests (default: 2000). */
   WHOIS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(2000),
   /**
