@@ -84,6 +84,8 @@ export class PipelineRunService {
   readonly #progressService: PipelineProgressService | undefined;
   readonly #jobQueueService: JobQueueService | undefined;
   readonly #workerEnabled: boolean;
+  /** Dedicated provider for pipeline persistence writes (separate SQLite connection). */
+  readonly #bulkWriteProvider: DatabaseProvider | undefined;
 
   constructor(
     provider: DatabaseProvider,
@@ -97,6 +99,10 @@ export class PipelineRunService {
     progressService?: PipelineProgressService,
     jobQueueService?: JobQueueService,
     workerEnabled: boolean = false,
+    /** When provided, candidate/score persistence uses this connection instead of the
+     *  main provider. On SQLite with WAL mode, this allows the main connection
+     *  to serve reads while a bulk write transaction runs on this dedicated conn. */
+    bulkWriteProvider?: DatabaseProvider,
   ) {
     this.#provider = provider;
     this.#orchestrator = orchestrator;
@@ -109,6 +115,12 @@ export class PipelineRunService {
     this.#progressService = progressService;
     this.#jobQueueService = jobQueueService;
     this.#workerEnabled = workerEnabled;
+    this.#bulkWriteProvider = bulkWriteProvider;
+  }
+
+  /** The provider used for persistence writes (bulk-write if available, main otherwise). */
+  get #persistenceProvider(): DatabaseProvider {
+    return this.#bulkWriteProvider ?? this.#provider;
   }
 
   /**
@@ -213,41 +225,44 @@ export class PipelineRunService {
 
     let persistence: PersistenceSummary;
     try {
-      persistence = await this.#provider.transaction(async (): Promise<PersistenceSummary> => {
-        let candidatesPersisted = 0;
-        let scoresPersisted = 0;
+      persistence = await this.#persistenceProvider.transaction(
+        async (): Promise<PersistenceSummary> => {
+          let candidatesPersisted = 0;
+          let scoresPersisted = 0;
 
-        const idByDomain = new Map<string, number>();
-        for (const candidate of result.allCandidates) {
-          const persisted = await this.#candidateRepo.upsert(candidate);
-          if (persisted.id !== undefined) {
-            idByDomain.set(persisted.domain, persisted.id);
+          const idByDomain = new Map<string, number>();
+          for (const candidate of result.allCandidates) {
+            const persisted = await this.#candidateRepo.upsert(candidate);
+            if (persisted.id !== undefined) {
+              idByDomain.set(persisted.domain, persisted.id);
+            }
+            candidatesPersisted++;
           }
-          candidatesPersisted++;
-        }
 
-        for (const scored of result.scored) {
-          if (scored.scoreResult === null) continue;
-          const id = idByDomain.get(scored.domain);
-          if (id !== undefined) {
-            await this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
-            scoresPersisted++;
+          for (const scored of result.scored) {
+            if (scored.scoreResult === null) continue;
+            const id = idByDomain.get(scored.domain);
+            if (id !== undefined) {
+              await this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
+              scoresPersisted++;
+            }
           }
-        }
 
-        if (result.runId !== runRowId) {
-          await this.#provider.exec(
-            'UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?',
-            [runRowId, result.runId],
-          );
-          await this.#provider.exec('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?', [
-            runRowId,
-            result.runId,
-          ]);
-        }
+          if (result.runId !== runRowId) {
+            const writeConn = this.#persistenceProvider;
+            await writeConn.exec(
+              'UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?',
+              [runRowId, result.runId],
+            );
+            await writeConn.exec('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?', [
+              runRowId,
+              result.runId,
+            ]);
+          }
 
-        return { candidatesPersisted, scoresPersisted };
-      });
+          return { candidatesPersisted, scoresPersisted };
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.#runsRepo.complete(runRowId, {
