@@ -82,6 +82,13 @@ export class CachedProvider<T> {
       memoryCacheSize > 0 ? new MemoryCache<T>(memoryCacheSize, memoryCacheTtlSeconds) : null;
   }
 
+  /** Clear the in-memory cache. Does NOT clear the DB-backed cache (TTL-based). */
+  clearCache(): void {
+    if (this.#memoryCache !== null) {
+      this.#memoryCache.clear();
+    }
+  }
+
   async get(term: string, signal?: AbortSignal): Promise<T> {
     // 1. In-memory cache (fastest)
     if (this.#memoryCache !== null) {
