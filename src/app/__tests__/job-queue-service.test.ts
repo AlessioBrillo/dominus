@@ -19,7 +19,7 @@ describe('JobQueueService', () => {
 
   beforeEach(() => {
     provider = openTestDb();
-    service = createJobQueueService(provider.rawDb);
+    service = createJobQueueService(provider);
   });
 
   afterEach(() => {

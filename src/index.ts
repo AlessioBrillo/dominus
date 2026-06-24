@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   app.use(express.json({ limit: '100kb' }));
   app.use(createRequestLogger(logger));
 
-  app.use('/public', createPublicRouter(deps.db, deps.engine, deps.trademarkGate));
+  app.use('/public', createPublicRouter(deps.provider, deps.engine, deps.trademarkGate));
 
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
@@ -118,7 +118,13 @@ async function main(): Promise<void> {
   protectedRouter.use(authMiddleware);
   protectedRouter.use(
     '/backtest',
-    createBacktestRouter(deps.db, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
+    createBacktestRouter(
+      deps.db,
+      deps.provider,
+      deps.outcomeRepo,
+      deps.currentWeights,
+      deps.autoTuner,
+    ),
   );
   protectedRouter.use('/providers', createProvidersRouter(deps.config));
   protectedRouter.use('/outcomes', createOutcomesRouter(deps.outcomeRepo));
@@ -147,7 +153,7 @@ async function main(): Promise<void> {
   protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
   protectedRouter.use(
     '/onboarding',
-    createOnboardingRouter(deps.db, deps.engine, deps.trademarkGate, deps.portfolioManager),
+    createOnboardingRouter(deps.provider, deps.engine, deps.trademarkGate, deps.portfolioManager),
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));

@@ -25,13 +25,11 @@ export default defineConfig({
         'src/logger.ts',
         'src/types/**',
       ],
-      // Baseline after SignalOutput refactoring (details vs signals).
-      // Last measured: lines 64.91%, branches 54.43%, functions 69.94%.
-      // Buffer of ~2pp below measured to absorb CI platform variance.
+      // Raised thresholds after DatabaseProvider abstraction refactoring.
       thresholds: {
-        lines: 62,
-        functions: 67,
-        branches: 52,
+        lines: 70,
+        functions: 70,
+        branches: 60,
       },
     },
   },

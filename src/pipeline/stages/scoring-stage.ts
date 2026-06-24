@@ -2,6 +2,7 @@ import { CandidateStatus, CandidateSource } from '../../types/candidate.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import type { ScoreResult } from '../../types/score.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
+import type { WaybackProvider } from '../../providers/wayback/wayback-provider.js';
 import type { Stage, StageResult } from '../stage.js';
 
 export interface ScoredCandidate extends DomainCandidate {
@@ -22,6 +23,7 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
   constructor(
     private readonly engine: ScoringEngine,
     private readonly concurrency: number = 5,
+    private readonly waybackProvider?: WaybackProvider,
   ) {}
 
   async process(
@@ -38,8 +40,10 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
     for (const batch of batches) {
       if (signal?.aborted) break;
 
+      const enriched = await this.#enrichWithWayback(batch, signal);
+
       const results = await Promise.allSettled(
-        batch.map(async (candidate) => {
+        enriched.map(async (candidate) => {
           try {
             const scoreResult = await this.engine.score(
               {
@@ -77,5 +81,53 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
     }
 
     return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
+  }
+
+  /**
+   * Enrich candidates with Wayback Machine expiry data when the candidate
+   * does not already carry closeout metadata. Non-fatal — candidates
+   * without wayback data proceed with degraded expiry signal.
+   * Extracted from ScoringEngine to respect Principle 1 (provider
+   * abstraction: the pipeline stage owns enrichment, not the pure engine).
+   */
+  async #enrichWithWayback(
+    candidates: DomainCandidate[],
+    signal?: AbortSignal,
+  ): Promise<DomainCandidate[]> {
+    const wp = this.waybackProvider;
+    if (!wp) return candidates;
+
+    const enriched = await Promise.allSettled(
+      candidates.map(async (candidate) => {
+        if (signal?.aborted) return candidate;
+
+        const hasExpiryData =
+          candidate.closeoutMeta?.domainAge !== undefined ||
+          candidate.closeoutMeta?.backlinks !== undefined ||
+          candidate.closeoutMeta?.waybackSnapshots !== undefined ||
+          candidate.whoisMeta?.domainAge !== undefined;
+
+        if (hasExpiryData) return candidate;
+
+        try {
+          const wayback = await wp.getExpiryData(candidate.domain, signal);
+          if (wayback.domainAge > 0 || wayback.waybackSnapshots > 0) {
+            return {
+              ...candidate,
+              closeoutMeta: {
+                ...candidate.closeoutMeta,
+                domainAge: wayback.domainAge,
+                waybackSnapshots: wayback.waybackSnapshots,
+              },
+            };
+          }
+        } catch {
+          // Non-fatal — expiry signal degrades gracefully
+        }
+        return candidate;
+      }),
+    );
+
+    return enriched.map((r) => (r.status === 'fulfilled' ? r.value : candidates[0]!));
   }
 }

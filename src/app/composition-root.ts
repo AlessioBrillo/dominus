@@ -1,6 +1,12 @@
 ﻿import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
-import { openDatabase, runMigrations } from '../db/index.js';
+import type { DatabaseProvider } from '../db/provider/interface.js';
+import {
+  openDatabase,
+  runMigrations,
+  createDatabaseProvider,
+  createSqliteProvider,
+} from '../db/index.js';
 import {
   CandidateRepository,
   ScoringRepository,
@@ -90,6 +96,7 @@ import {
 
 export interface DominusDependencies {
   db: Database.Database;
+  provider: DatabaseProvider;
   config: Config;
 
   candidateRepo: CandidateRepository;
@@ -138,10 +145,8 @@ export interface DominusDependencies {
   worker: JobWorker | undefined;
 }
 
-import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
-
 interface BuiltRepositories {
-  provider: SqliteProvider;
+  provider: DatabaseProvider;
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
   trademarkRepo: TrademarkRepository;
@@ -157,8 +162,7 @@ interface BuiltRepositories {
   listingRepo: ListingRepository;
 }
 
-function buildRepositories(db: Database.Database): BuiltRepositories {
-  const provider = new SqliteProvider(db);
+function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
   return {
     provider,
     candidateRepo: new CandidateRepository(provider),
@@ -231,7 +235,7 @@ function buildTrademarkProviderStack(
 function buildWorkerIfEnabled(
   config: Config,
   db: Database.Database,
-  provider: SqliteProvider,
+  provider: DatabaseProvider,
   runService: PipelineRunService,
   portfolioManager: PortfolioManager,
   scoringRepo: ScoringRepository,
@@ -287,7 +291,7 @@ function buildWorkerIfEnabled(
   for (const handler of handlers) {
     HANDLERS.set(handler.jobType, handler);
   }
-  const worker = new JobWorker(db, HANDLERS, {
+  const worker = new JobWorker(provider, HANDLERS, {
     concurrency: config.WORKER_CONCURRENCY,
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
@@ -298,7 +302,7 @@ function buildWorkerIfEnabled(
 
 function buildSchedulerIfEnabled(
   config: Config,
-  provider: SqliteProvider,
+  provider: DatabaseProvider,
   alertEngine: RenewalAlertEngine,
   portfolioManager: PortfolioManager,
   trademarkRepo: TrademarkRepository,
@@ -326,19 +330,33 @@ function buildSchedulerIfEnabled(
 }
 
 export async function createDependencies(config: Config): Promise<DominusDependencies> {
-  const db = openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
-  runMigrations(db);
+  const provider = config.DATABASE_URL
+    ? await createDatabaseProvider(config)
+    : createSqliteProvider(config);
+
+  // Open raw SQLite connection for backup, migrations, and SQLite-specific consumers.
+  // When using PostgreSQL (DATABASE_URL set), rawDb is undefined — consumers that
+  // depend on raw SQLite access (backup, backtest engine) must handle that case.
+  const db = config.DATABASE_URL
+    ? (null as unknown as Database.Database)
+    : openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
+
+  if (db) {
+    runMigrations(db);
+  }
+
   warnEuipoIfMissing(config);
   warnCloudflareIfMissing(config);
 
   // --- Database & Repositories ---
-  const repos = buildRepositories(db);
+  const repos = buildRepositories(provider);
 
   // --- Rate Limiters ---
   const {
     rdap: rdapRateLimiter,
     uspto: usptoRateLimiter,
     euipo: euipoRateLimiter,
+    dns: dnsRateLimiter,
   } = buildRateLimiters(config);
 
   // --- Providers ---
@@ -349,7 +367,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rdapRateLimiter,
     repos.providerCacheRepo,
   );
-  const dnsProvider = buildDnsProvider(config);
+  const dnsProvider = buildDnsProvider(config, dnsRateLimiter);
   const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
   // --- Wayback Machine (expiry data enrichment) ---
@@ -368,7 +386,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
-    waybackProvider,
   );
 
   // --- Health ---
@@ -391,13 +408,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
     ),
-    new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY),
+    new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
     metrics,
   );
   const progressService = new PipelineProgressService();
-  const jobQueueService = createJobQueueService(db);
+  const jobQueueService = createJobQueueService(provider);
   const runService = new PipelineRunService(
     repos.provider,
     orchestrator,
@@ -502,7 +519,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.acquisitionRepo,
     portfolioManager,
     repos.outcomeRepo,
-    db,
+    provider,
     engine,
     trademarkGate,
   );
