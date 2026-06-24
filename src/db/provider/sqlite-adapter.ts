@@ -7,13 +7,20 @@ import { DatabaseError } from './interface.js';
 const logger = getLogger();
 
 export class SqliteProvider implements DatabaseProvider {
-  #db: Database.Database;
+  /** Underlying better-sqlite3 database handle. */
+  readonly #db: Database.Database;
   #open = false;
   #txDepth = 0;
+  /**
+   * When true, close() is a no-op because the underlying Database handle
+   * is lifecycle-managed externally (e.g. via database.ts ref-counting).
+   */
+  readonly #externalLifecycle: boolean;
 
-  constructor(db: Database.Database, _busyTimeout = 30000) {
+  constructor(db: Database.Database, _busyTimeout = 30000, externalLifecycle = false) {
     this.#db = db;
     this.#open = true;
+    this.#externalLifecycle = externalLifecycle;
   }
 
   static create(
@@ -29,6 +36,26 @@ export class SqliteProvider implements DatabaseProvider {
     db.pragma('foreign_keys = ON');
     db.pragma(`busy_timeout = ${options.busyTimeout ?? 30000}`);
     return new SqliteProvider(db, options.busyTimeout ?? 30000);
+  }
+
+  /**
+   * Create a dedicated SqliteProvider on a separate connection intended for
+   * long-running bulk writes (pipeline persistence, backup). Uses a shorter
+   * busy_timeout (5s) so bulk operations fail fast instead of blocking the
+   * main connection for 30s. WAL mode is enabled so concurrent reads on the
+   * main connection are still served while a bulk-write transaction runs.
+   */
+  static createBulkWrite(path: string, options: { busyTimeout?: number } = {}): SqliteProvider {
+    const dir = dirname(path);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const db = new Database(path);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    const busyTimeout = options.busyTimeout ?? 5000;
+    db.pragma(`busy_timeout = ${busyTimeout}`);
+    return new SqliteProvider(db, busyTimeout);
   }
 
   static openInMemory(): SqliteProvider {
@@ -111,7 +138,7 @@ export class SqliteProvider implements DatabaseProvider {
   }
 
   async close(): Promise<void> {
-    if (this.#open) {
+    if (this.#open && !this.#externalLifecycle) {
       this.#db.close();
       this.#open = false;
     }

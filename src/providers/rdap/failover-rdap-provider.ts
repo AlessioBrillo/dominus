@@ -15,16 +15,22 @@ const DEFAULT_BOOTSTRAP_SERVERS: RdapBootstrapConfig[] = [
   { baseUrl: 'https://rdap.nic.google/domain/', name: 'google-rdap' },
 ];
 
-const DELAY_BETWEEN_FAILOVER_MS = 500;
-
+/**
+ * FailoverRdapProvider — parallel-first RDAP resolution.
+ *
+ * All configured RDAP servers are queried CONCURRENTLY via Promise.allSettled.
+ * The first successful response wins; all other in-flight requests are aborted
+ * via a shared AbortController. This eliminates the ~500ms sequential failover
+ * delay per domain that the previous implementation incurred.
+ *
+ * When ALL servers fail, the combined error message is thrown as ProviderError
+ * with every server's failure reason listed.
+ */
 export class FailoverRdapProvider implements RdapProvider {
   readonly name: string;
   readonly #providers: RdapProvider[];
 
-  constructor(
-    providers?: RdapProvider[],
-    private readonly delayBetweenFailoverMs = DELAY_BETWEEN_FAILOVER_MS,
-  ) {
+  constructor(providers?: RdapProvider[]) {
     if (providers) {
       this.#providers = providers;
       this.name = `FailoverRdapProvider(${providers.map((s) => s.name).join(',')})`;
@@ -36,38 +42,43 @@ export class FailoverRdapProvider implements RdapProvider {
     }
   }
 
-  static fromConfig(
-    urls: string[],
-    rateLimiter?: RateLimiter,
-    delayMs = DELAY_BETWEEN_FAILOVER_MS,
-  ): FailoverRdapProvider {
+  static fromConfig(urls: string[], rateLimiter?: RateLimiter): FailoverRdapProvider {
     const providers = urls.map((url, i) => {
       const name = `rdap-server-${i + 1}`;
       return new PublicRdapProvider(url, name, rateLimiter);
     });
-    return new FailoverRdapProvider(providers, delayMs);
+    return new FailoverRdapProvider(providers);
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    // Child controller lets us cancel all in-flight requests once one succeeds.
+    const childAbort = new AbortController();
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, childAbort.signal])
+      : childAbort.signal;
+
+    const results = await Promise.allSettled(
+      this.#providers.map((provider) =>
+        provider.confirm(domain, combinedSignal).then((result) => {
+          childAbort.abort(); // Cancel remaining in-flight requests
+          return result;
+        }),
+      ),
+    );
+
     const errors: string[] = [];
-
-    for (let i = 0; i < this.#providers.length; i++) {
-      if (signal?.aborted) break;
-
-      const provider = this.#providers[i];
-      if (provider === undefined) continue;
-
-      try {
-        const result = await provider.confirm(domain, signal);
-        return result;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`${provider.name}: ${msg}`);
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        return result.value;
       }
-
-      if (i < this.#providers.length - 1 && !signal?.aborted) {
-        await sleep(this.delayBetweenFailoverMs);
-      }
+      // Collect the failure reason
+      const reason = result.reason;
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      errors.push(msg);
     }
 
     throw new ProviderError(
@@ -75,8 +86,4 @@ export class FailoverRdapProvider implements RdapProvider {
       this.name,
     );
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

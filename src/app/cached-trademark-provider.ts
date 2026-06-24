@@ -37,4 +37,8 @@ export class CachedTrademarkProvider implements TrademarkProvider {
   async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
     return this.cache.get(term, signal);
   }
+
+  clearCache(): void {
+    this.cache.clearCache();
+  }
 }

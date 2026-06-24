@@ -61,6 +61,8 @@ export class PipelineOrchestrator {
     durationMs: number,
     error: boolean,
   ) => void;
+  /** Called at the start of each run to clear provider caches. */
+  #onRunStart?: () => void;
 
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -84,6 +86,13 @@ export class PipelineOrchestrator {
     this.#onStageProgress = cb;
   }
 
+  /** Register a callback invoked before each pipeline run starts.
+   *  Typically used to clear in-memory provider caches so stale DNS
+   *  or trademark results are not reused across runs. */
+  setOnRunStart(cb: () => void): void {
+    this.#onRunStart = cb;
+  }
+
   async run(input: CandidateGenerationInput): Promise<PipelineResult> {
     if (this.#running) {
       throw new Error(
@@ -103,6 +112,10 @@ export class PipelineOrchestrator {
     this.#abortController = new AbortController();
     const signal = this.#abortController.signal;
     const start = Date.now();
+
+    // Clear provider caches before each run to prevent stale data
+    // (DNS results, trademark lookups) from being reused across runs.
+    this.#onRunStart?.();
     const stageSummary: PipelineResult['stageSummary'] = {};
     const stageErrors: StageError[] = [];
     const aborted = (): boolean =>

@@ -6,6 +6,7 @@ import {
   runMigrations,
   createDatabaseProvider,
   createSqliteProvider,
+  createBulkWriteDatabaseProvider,
 } from '../db/index.js';
 import {
   CandidateRepository,
@@ -143,6 +144,7 @@ export interface DominusDependencies {
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
+  bulkWriteProvider: DatabaseProvider | undefined;
 }
 
 interface BuiltRepositories {
@@ -351,6 +353,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);
 
+  // Dedicated bulk-write connection for pipeline persistence (SQLite only).
+  // With WAL mode, this lets the main connection serve reads concurrently
+  // while a pipeline persists thousands of candidates in a single transaction.
+  const bulkWriteProvider = config.DATABASE_URL
+    ? undefined
+    : createBulkWriteDatabaseProvider(config.DATABASE_PATH, 5000);
+
   // --- Rate Limiters ---
   const {
     rdap: rdapRateLimiter,
@@ -414,6 +423,17 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     metrics,
   );
   const progressService = new PipelineProgressService();
+
+  // Clear in-memory provider caches before each pipeline run to prevent stale
+  // DNS, trademark, keyword, or comps data from being reused across runs.
+  orchestrator.setOnRunStart(() => {
+    dnsProvider.clearCache();
+    (cachedKeywordProvider as unknown as { clearCache: () => void }).clearCache();
+    (cachedCompsProvider as unknown as { clearCache: () => void }).clearCache();
+    usptoTmProvider.clearCache();
+    euipoTmProvider.clearCache();
+  });
+
   const jobQueueService = createJobQueueService(provider);
   const runService = new PipelineRunService(
     repos.provider,
@@ -427,6 +447,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     progressService,
     jobQueueService,
     config.WORKER_ENABLED,
+    bulkWriteProvider,
   );
 
   // --- Portfolio ---
@@ -596,6 +617,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     orchestrator,
     runService,
     healthCheck,
+    bulkWriteProvider,
     portfolioManager,
     notifiers,
     alertEngine,

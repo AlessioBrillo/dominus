@@ -148,6 +148,7 @@ function makeDnsMock(results: Record<string, DomainStatus>): DnsProvider {
       } as DnsCheckResult);
     }),
     checkBulk: vi.fn(),
+    clearCache: vi.fn(),
   };
 }
 
@@ -358,6 +359,7 @@ describe('WatchlistService', () => {
       const dnsMock2: DnsProvider = {
         checkAvailability: vi.fn().mockRejectedValue(new Error('DNS timeout')),
         checkBulk: vi.fn(),
+        clearCache: vi.fn(),
       };
       const svc = new WatchlistService(repo, dnsMock2, rdapMock, notifiers, config);
 

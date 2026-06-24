@@ -54,11 +54,12 @@ export function buildKeywordProvider(
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
-  const cached: KeywordProvider = {
+  const cached: KeywordProvider & { clearCache: () => void } = {
     getMetrics: (term: string, signal?: AbortSignal) => cache.get(term, signal),
+    clearCache: () => cache.clearCache(),
   };
 
-  return { raw, cached };
+  return { raw, cached: cached as KeywordProvider };
 }
 
 export function buildCompsProvider(
@@ -79,11 +80,12 @@ export function buildCompsProvider(
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
-  const cached: CompsProvider = {
+  const cached: CompsProvider & { clearCache: () => void } = {
     getSales: (term: string, signal?: AbortSignal) => cache.get(term, signal),
+    clearCache: () => cache.clearCache(),
   };
 
-  return { raw, cached };
+  return { raw, cached: cached as CompsProvider };
 }
 
 export interface BuiltRdapProviders {
@@ -150,6 +152,7 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
 
   const dnsProvider: DnsProvider = {
     checkAvailability: wrappedCheckAvailability,
+    clearCache: () => inner.clearCache(),
     checkBulk: async (domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> => {
       const concurrency = config.DNS_BULK_CONCURRENCY;
       const results: DnsCheckResult[] = [];
