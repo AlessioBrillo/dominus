@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { createTestQueryClient } from './test-utils';
-
 vi.mock('@/api/candidates', () => ({
   fetchCandidates: vi.fn(),
   fetchRuns: vi.fn(),

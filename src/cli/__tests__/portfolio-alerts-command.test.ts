@@ -9,7 +9,7 @@ import { registerPortfolioCommand } from '../commands/portfolio-command.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
 
-function createTestDeps(): { alertRepo: RenewalAlertRepository } {
+async function createTestDeps(): Promise<{ alertRepo: RenewalAlertRepository }> {
   const provider = new SqliteProvider(new Database(':memory:'));
   provider.rawDb.pragma('journal_mode = WAL');
   provider.rawDb.pragma('foreign_keys = ON');
@@ -18,7 +18,7 @@ function createTestDeps(): { alertRepo: RenewalAlertRepository } {
   const portfolioRepo = new PortfolioRepository(provider);
   const alertRepo = new RenewalAlertRepository(provider);
 
-  portfolioRepo.insert({
+  await portfolioRepo.insert({
     domain: 'example.com',
     tld: 'com',
     acquiredAt: '2025-01-01',
@@ -28,7 +28,7 @@ function createTestDeps(): { alertRepo: RenewalAlertRepository } {
     registrar: 'test',
   });
 
-  alertRepo.upsert(
+  await alertRepo.upsert(
     {
       domain: 'example.com',
       portfolioEntryId: 1,
@@ -58,7 +58,7 @@ function captureStdout(fn: () => Promise<void> | void): Promise<string> {
 
 describe('portfolio alerts list', () => {
   it('lists alerts in table format', async () => {
-    const { alertRepo } = createTestDeps();
+    const { alertRepo } = await createTestDeps();
     const program = new Command();
     program.exitOverride();
     const manager = { list: vi.fn().mockReturnValue([]) } as never;
@@ -72,7 +72,7 @@ describe('portfolio alerts list', () => {
   });
 
   it('lists alerts in JSON format', async () => {
-    const { alertRepo } = createTestDeps();
+    const { alertRepo } = await createTestDeps();
     const program = new Command();
     program.exitOverride();
     const manager = { list: vi.fn().mockReturnValue([]) } as never;
@@ -86,8 +86,8 @@ describe('portfolio alerts list', () => {
   });
 
   it('shows empty message when no alerts', async () => {
-    const { alertRepo } = createTestDeps();
-    alertRepo.acknowledgeAll();
+    const { alertRepo } = await createTestDeps();
+    await alertRepo.acknowledgeAll();
     const program = new Command();
     program.exitOverride();
     const manager = { list: vi.fn().mockReturnValue([]) } as never;
@@ -109,7 +109,7 @@ describe('portfolio alerts list', () => {
 
 describe('portfolio alerts acknowledge', () => {
   it('acknowledges by id', async () => {
-    const { alertRepo } = createTestDeps();
+    const { alertRepo } = await createTestDeps();
     const program = new Command();
     program.exitOverride();
     const manager = { list: vi.fn().mockReturnValue([]) } as never;
@@ -130,7 +130,7 @@ describe('portfolio alerts acknowledge', () => {
   });
 
   it('acknowledges all', async () => {
-    const { alertRepo } = createTestDeps();
+    const { alertRepo } = await createTestDeps();
     const program = new Command();
     program.exitOverride();
     const manager = { list: vi.fn().mockReturnValue([]) } as never;
@@ -145,7 +145,7 @@ describe('portfolio alerts acknowledge', () => {
 
 describe('portfolio alerts run', () => {
   it('runs the alert engine', async () => {
-    const { alertRepo } = createTestDeps();
+    const { alertRepo } = await createTestDeps();
     const alertEngine = {
       checkAll: vi.fn().mockResolvedValue({ generated: 2, alerts: [] }),
     } as unknown as RenewalAlertEngine;

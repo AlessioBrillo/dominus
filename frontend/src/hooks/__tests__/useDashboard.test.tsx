@@ -10,7 +10,6 @@ import { useDashboardStats } from '../useDashboard';
 import { fetchDashboardStats } from '@/api/dashboard';
 import type { DashboardResult } from '@/api/dashboard';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { queryKeys } from '../query-keys';
 
 const mockStats: DashboardResult = {
   stats: {
@@ -39,16 +38,6 @@ const mockStats: DashboardResult = {
 
 function renderUseDashboardStats() {
   const queryClient = createTestQueryClient();
-  return renderHook(() => useDashboardStats(), {
-    wrapper: ({ children }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    ),
-  });
-}
-
-function renderUseDashboardStatsNoRetry() {
-  const queryClient = createTestQueryClient();
-  queryClient.setQueryDefaults(queryKeys.dashboard.stats(), { retry: false });
   return renderHook(() => useDashboardStats(), {
     wrapper: ({ children }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

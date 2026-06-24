@@ -73,13 +73,13 @@ describe('CLI: dominus runs', () => {
     // Arrange
     const t0 = new Date('2026-06-01T10:00:00.000Z').toISOString();
     const t1 = new Date('2026-06-02T11:00:00.000Z').toISOString();
-    repo.insert({
+    await repo.insert({
       runId: 'aaaaaaaa-1111-2222-3333-444444444444',
       startedAt: t0,
       hostVersion: '0.1.0',
       retainedUntil: new Date('2026-11-28T10:00:00.000Z').toISOString(),
     });
-    repo.complete('aaaaaaaa-1111-2222-3333-444444444444', {
+    await repo.complete('aaaaaaaa-1111-2222-3333-444444444444', {
       finishedAt: t0,
       totalDurationMs: 250,
       stageSummary: { ScoringStage: { passed: 1, filtered: 0, durationMs: 5 } },
@@ -91,7 +91,7 @@ describe('CLI: dominus runs', () => {
         errors: 0,
       },
     });
-    repo.insert({
+    await repo.insert({
       runId: 'bbbbbbbb-1111-2222-3333-444444444444',
       startedAt: t1,
       hostVersion: '0.1.0',
@@ -115,7 +115,7 @@ describe('CLI: dominus runs', () => {
 
   it('list --json emits a JSON array of rows', async () => {
     // Arrange
-    repo.insert({
+    await repo.insert({
       runId: 'cccccccc-1111-2222-3333-444444444444',
       startedAt: new Date('2026-06-01T10:00:00.000Z').toISOString(),
       hostVersion: '0.1.0',
@@ -135,13 +135,13 @@ describe('CLI: dominus runs', () => {
 
   it('list --since filters by started_at >= cutoff', async () => {
     // Arrange
-    repo.insert({
+    await repo.insert({
       runId: 'old-run-1111111111111111',
       startedAt: '2026-05-01T00:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2026-10-28T00:00:00.000Z',
     });
-    repo.insert({
+    await repo.insert({
       runId: 'new-run-1111111111111111',
       startedAt: '2026-06-15T00:00:00.000Z',
       hostVersion: '0.1.0',
@@ -180,13 +180,13 @@ describe('CLI: dominus runs', () => {
 
   it('show <runId> prints the full detail', async () => {
     // Arrange
-    repo.insert({
+    await repo.insert({
       runId: 'show-run-111111111111111',
       startedAt: '2026-06-01T10:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2026-11-28T10:00:00.000Z',
     });
-    repo.complete('show-run-111111111111111', {
+    await repo.complete('show-run-111111111111111', {
       finishedAt: '2026-06-01T10:00:01.000Z',
       totalDurationMs: 1000,
       stageSummary: { ScoringStage: { passed: 2, filtered: 1, durationMs: 8 } },
@@ -230,13 +230,13 @@ describe('CLI: dominus runs', () => {
 
   it('prune deletes expired runs and reports a count', async () => {
     // Arrange
-    repo.insert({
+    await repo.insert({
       runId: 'expired-11111111111111111',
       startedAt: '2025-01-01T00:00:00.000Z',
       hostVersion: '0.1.0',
       retainedUntil: '2025-06-30T00:00:00.000Z', // in the past
     });
-    repo.insert({
+    await repo.insert({
       runId: 'kept-1111111111111111111',
       startedAt: new Date().toISOString(),
       hostVersion: '0.1.0',
@@ -250,13 +250,13 @@ describe('CLI: dominus runs', () => {
 
     // Assert
     expect(out).toMatch(/Pruned \d+ pipeline run\(s\)\. \d+ row\(s\) remain\./);
-    expect(repo.findById('expired-11111111111111111')).toBeNull();
-    expect(repo.findById('kept-1111111111111111111')).not.toBeNull();
+    expect(await repo.findById('expired-11111111111111111')).toBeNull();
+    expect(await repo.findById('kept-1111111111111111111')).not.toBeNull();
   });
 
   it('prune --dry-run does not delete', async () => {
     // Arrange
-    repo.insert({
+    await repo.insert({
       runId: 'expired-22222222222222222',
       startedAt: '2025-01-01T00:00:00.000Z',
       hostVersion: '0.1.0',

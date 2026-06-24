@@ -45,9 +45,9 @@ export function createPortfolioRouter(
 ): Router {
   const router = Router();
 
-  router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const entries = manager.list();
+      const entries = await manager.list();
       res.json({ portfolio: entries });
     } catch (err: unknown) {
       next(err);
@@ -97,10 +97,11 @@ export function createPortfolioRouter(
     },
   );
 
-  router.post('/rescore', (_req: Request, res: Response, next: NextFunction): void => {
-    manager
-      .rescoreAll()
-      .then((summary) => {
+  router.post(
+    '/rescore',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const summary = await manager.rescoreAll();
         res.json({
           totalDurationMs: summary.totalDurationMs,
           results: summary.results.map((r) => ({
@@ -116,79 +117,90 @@ export function createPortfolioRouter(
             error: r.error,
           })),
         });
-      })
-      .catch(next);
-  });
-
-  router.get('/:domain/outcomes', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const domain = getRouteParam(req, 'domain');
-      if (domain === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
-        return;
+      } catch (err: unknown) {
+        next(err);
       }
-      const outcomes = outcomeRepo.findByDomain(domain);
-      res.json({ outcomes });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
 
-  router.get('/:domain/outcomes/stats', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const domain = getRouteParam(req, 'domain');
-      if (domain === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
-        return;
+  router.get(
+    '/:domain/outcomes',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
+        const outcomes = await outcomeRepo.findByDomain(domain);
+        res.json({ outcomes });
+      } catch (err: unknown) {
+        next(err);
       }
-      const stats = outcomeRepo.statsByDomain(domain);
-      res.json({ domain, stats });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
 
-  router.post('/:domain/outcomes', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const domain = getRouteParam(req, 'domain');
-      if (domain === undefined) {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
-        return;
+  router.get(
+    '/:domain/outcomes/stats',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
+        const stats = await outcomeRepo.statsByDomain(domain);
+        res.json({ domain, stats });
+      } catch (err: unknown) {
+        next(err);
       }
+    },
+  );
 
-      const parsed = outcomeInputSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ error: parseZodError(parsed.error) });
-        return;
-      }
+  router.post(
+    '/:domain/outcomes',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
 
-      const outcome = outcomeRepo.insert({
-        domain,
-        type: parsed.data.type,
-        occurredAt: new Date(parsed.data.occurredAt).toISOString(),
-        salePriceEur: parsed.data.salePriceEur,
-        listingPriceEur: parsed.data.listingPriceEur,
-        daysListed: parsed.data.daysListed,
-        venue: parsed.data.venue,
-        commissionPct: parsed.data.commissionPct,
-        notes: parsed.data.notes,
-      });
+        const parsed = outcomeInputSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ error: parseZodError(parsed.error) });
+          return;
+        }
 
-      res.status(201).json({ outcome });
-    } catch (err: unknown) {
-      // Map "domain not in portfolio" FK violation to 404 at the edge.
-      const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof ConfigError) {
-        res.status(500).json({ error: { code: err.code, message: err.message } });
-        return;
+        const outcome = await outcomeRepo.insert({
+          domain,
+          type: parsed.data.type,
+          occurredAt: new Date(parsed.data.occurredAt).toISOString(),
+          salePriceEur: parsed.data.salePriceEur,
+          listingPriceEur: parsed.data.listingPriceEur,
+          daysListed: parsed.data.daysListed,
+          venue: parsed.data.venue,
+          commissionPct: parsed.data.commissionPct,
+          notes: parsed.data.notes,
+        });
+
+        res.status(201).json({ outcome });
+      } catch (err: unknown) {
+        // Map "domain not in portfolio" FK violation to 404 at the edge.
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof ConfigError) {
+          res.status(500).json({ error: { code: err.code, message: err.message } });
+          return;
+        }
+        if (/not found in portfolio/i.test(message)) {
+          res.status(404).json({ error: { code: 'DOMAIN_NOT_FOUND', message } });
+          return;
+        }
+        next(err);
       }
-      if (/not found in portfolio/i.test(message)) {
-        res.status(404).json({ error: { code: 'DOMAIN_NOT_FOUND', message } });
-        return;
-      }
-      next(err);
-    }
-  });
+    },
+  );
 
   return router;
 }

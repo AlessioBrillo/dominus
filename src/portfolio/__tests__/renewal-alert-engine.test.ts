@@ -162,7 +162,7 @@ describe('RenewalAlertEngine', () => {
   });
 
   it('creates warning alerts for domains within warning horizon', async () => {
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'soon.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -179,7 +179,7 @@ describe('RenewalAlertEngine', () => {
   });
 
   it('creates critical alerts for domains within critical horizon', async () => {
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'urgent.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -196,7 +196,7 @@ describe('RenewalAlertEngine', () => {
   });
 
   it('creates past-due alerts for domains past renewal date', async () => {
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'expired.com',
       tld: 'com',
       acquiredAt: '2024-01-01',
@@ -213,7 +213,7 @@ describe('RenewalAlertEngine', () => {
   });
 
   it('does not create alerts for domains far from renewal', async () => {
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'safe.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -228,7 +228,7 @@ describe('RenewalAlertEngine', () => {
   });
 
   it('upgrades alert severity when domain gets closer to renewal', async () => {
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'closer.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -242,8 +242,8 @@ describe('RenewalAlertEngine', () => {
     expect(first.alerts[0]?.alertType).toBe('renewal_imminent');
 
     // Simulate time passing â€” update renewal date to be closer
-    portfolioRepo.delete('closer.com');
-    portfolioRepo.insert({
+    await portfolioRepo.delete('closer.com');
+    await portfolioRepo.insert({
       domain: 'closer.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -258,7 +258,7 @@ describe('RenewalAlertEngine', () => {
   });
 
   it('handles multiple domains with mixed renewal windows', async () => {
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'warning.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -267,7 +267,7 @@ describe('RenewalAlertEngine', () => {
       renewalCost: 15,
       registrar: 'test',
     });
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'critical.com',
       tld: 'com',
       acquiredAt: '2025-01-01',
@@ -276,7 +276,7 @@ describe('RenewalAlertEngine', () => {
       renewalCost: 15,
       registrar: 'test',
     });
-    portfolioRepo.insert({
+    await portfolioRepo.insert({
       domain: 'safe.com',
       tld: 'com',
       acquiredAt: '2025-01-01',

@@ -10,7 +10,7 @@ import { createAlertsRouter } from '../routes/alerts.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';
 
-function createApp(): { app: express.Express; alertRepo: RenewalAlertRepository } {
+async function createApp(): Promise<{ app: express.Express; alertRepo: RenewalAlertRepository }> {
   const provider = new SqliteProvider(new Database(':memory:'));
   provider.rawDb.pragma('journal_mode = WAL');
   provider.rawDb.pragma('foreign_keys = ON');
@@ -20,7 +20,7 @@ function createApp(): { app: express.Express; alertRepo: RenewalAlertRepository 
   const alertRepo = new RenewalAlertRepository(provider);
 
   // Insert a portfolio entry so FK constraints are satisfied
-  portfolioRepo.insert({
+  await portfolioRepo.insert({
     domain: 'example.com',
     tld: 'com',
     acquiredAt: '2025-01-01',
@@ -31,7 +31,7 @@ function createApp(): { app: express.Express; alertRepo: RenewalAlertRepository 
   });
 
   // Create a sample alert
-  alertRepo.upsert(
+  await alertRepo.upsert(
     {
       domain: 'example.com',
       portfolioEntryId: 1,
@@ -52,7 +52,7 @@ function createApp(): { app: express.Express; alertRepo: RenewalAlertRepository 
 
 describe('GET /api/v1/alerts', () => {
   it('returns all alerts', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).get('/api/v1/alerts');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toHaveLength(1);
@@ -60,21 +60,21 @@ describe('GET /api/v1/alerts', () => {
   });
 
   it('filters by domain', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).get('/api/v1/alerts?domain=example.com');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toHaveLength(1);
   });
 
   it('returns empty array for unknown domain', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).get('/api/v1/alerts?domain=unknown.com');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toEqual([]);
   });
 
   it('filters unacknowledged alerts', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).get('/api/v1/alerts?unacknowledged=true');
     expect(res.status).toBe(200);
     expect(res.body.alerts).toHaveLength(1);
@@ -83,14 +83,14 @@ describe('GET /api/v1/alerts', () => {
 
 describe('POST /api/v1/alerts/:id/acknowledge', () => {
   it('acknowledges an existing alert', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).post('/api/v1/alerts/1/acknowledge');
     expect(res.status).toBe(200);
     expect(res.body.alert.acknowledgedAt).toBeDefined();
   });
 
   it('returns 404 for unknown alert', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).post('/api/v1/alerts/999/acknowledge');
     expect(res.status).toBe(404);
   });
@@ -98,7 +98,7 @@ describe('POST /api/v1/alerts/:id/acknowledge', () => {
 
 describe('POST /api/v1/alerts/acknowledge-all', () => {
   it('acknowledges all alerts', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).post('/api/v1/alerts/acknowledge-all').send({});
     expect(res.status).toBe(200);
     expect(res.body.acknowledged).toBe(1);
@@ -107,7 +107,7 @@ describe('POST /api/v1/alerts/acknowledge-all', () => {
 
 describe('POST /api/v1/alerts/run', () => {
   it('returns 503 when alert engine is not configured', async () => {
-    const { app } = createApp();
+    const { app } = await createApp();
     const res = await request(app).post('/api/v1/alerts/run');
     expect(res.status).toBe(503);
   });

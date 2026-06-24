@@ -21,45 +21,57 @@ export function createBacktestRouter(
   const backtestSignalsRepo = new BacktestSignalsRepository(provider);
   const scoringRepo = new ScoringRepository(provider);
 
-  router.post('/snapshot', (_req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const engine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
-      const summary = engine.snapshot();
-      res.json(summary);
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
-
-  router.post('/report', (_req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const engine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
-      const report = engine.report();
-      res.json(report);
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
-
-  router.post('/suggest-weights', (_req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const suggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
-      const report = suggester.suggest();
-      res.json(report);
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
-
-  if (autoTuner) {
-    router.post('/auto-tune', (_req: Request, res: Response, next: NextFunction): void => {
+  router.post(
+    '/snapshot',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const outcome = autoTuner.tune();
-        res.json(outcome);
+        const engine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+        const summary = await engine.snapshot();
+        res.json(summary);
       } catch (err: unknown) {
         next(err);
       }
-    });
+    },
+  );
+
+  router.post(
+    '/report',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const engine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+        const report = await engine.report();
+        res.json(report);
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
+
+  router.post(
+    '/suggest-weights',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const suggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
+        const report = await suggester.suggest();
+        res.json(report);
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
+
+  if (autoTuner) {
+    router.post(
+      '/auto-tune',
+      async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+          const outcome = await autoTuner.tune();
+          res.json(outcome);
+        } catch (err: unknown) {
+          next(err);
+        }
+      },
+    );
   }
 
   return router;

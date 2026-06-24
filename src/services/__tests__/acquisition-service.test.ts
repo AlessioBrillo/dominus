@@ -27,7 +27,7 @@ function createMockOutcomeRepo(): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createMockDb(): any {
-  return { transaction: vi.fn() };
+  return { exec: vi.fn(), query: vi.fn(), transaction: vi.fn() };
 }
 
 function makeBid(overrides: Partial<Bid> = {}): Bid {
@@ -287,10 +287,7 @@ describe('AcquisitionService', () => {
     it('throws user-friendly error when domain is already in portfolio', async () => {
       const pending = makeBid({ status: BidStatus.Pending, venue: 'sedo' });
       repo.findByDomain.mockReturnValue(pending);
-
-      db.transaction.mockImplementation(() => (): Bid => {
-        throw new DuplicateDomainError('example.com');
-      });
+      pm.add.mockRejectedValue(new DuplicateDomainError('example.com'));
 
       await expect(
         svc.resolve({

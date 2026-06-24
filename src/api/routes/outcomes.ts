@@ -30,20 +30,20 @@ function parseZodError(err: z.ZodError): { code: string; message: string; issues
 export function createOutcomesRouter(outcomeRepo: OutcomeRepository): Router {
   const router = Router();
 
-  router.get('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const type = typeof req.query['type'] === 'string' ? req.query['type'] : undefined;
       const outcomes =
         type !== undefined && isOutcomeType(type)
-          ? outcomeRepo.findByType(type)
-          : outcomeRepo.findAll();
+          ? await outcomeRepo.findByType(type)
+          : await outcomeRepo.findAll();
       res.json({ outcomes });
     } catch (err: unknown) {
       next(err);
     }
   });
 
-  router.post('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.post('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsed = outcomeInputSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -51,7 +51,7 @@ export function createOutcomesRouter(outcomeRepo: OutcomeRepository): Router {
         return;
       }
 
-      const outcome = outcomeRepo.insert({
+      const outcome = await outcomeRepo.insert({
         domain: parsed.data.domain,
         type: parsed.data.type,
         occurredAt: new Date(parsed.data.occurredAt).toISOString(),
@@ -74,19 +74,22 @@ export function createOutcomesRouter(outcomeRepo: OutcomeRepository): Router {
     }
   });
 
-  router.get('/stats/:domain', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const domain = getRouteParam(req, 'domain');
-      if (domain === undefined || domain === '') {
-        res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
-        return;
+  router.get(
+    '/stats/:domain',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined || domain === '') {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
+        const stats = await outcomeRepo.statsByDomain(domain);
+        res.json({ domain, stats });
+      } catch (err: unknown) {
+        next(err);
       }
-      const stats = outcomeRepo.statsByDomain(domain);
-      res.json({ domain, stats });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
 
   return router;
 }

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { NextFunction } from 'express';
 import type { PredictionAccuracyAnalyzer } from '../../analytics/index.js';
 import type { PnlService } from '../../portfolio/index.js';
 
@@ -8,13 +9,12 @@ export function createAnalyticsRouter(
 ): Router {
   const router = Router();
 
-  router.post('/refresh', (_req, res) => {
+  router.post('/refresh', async (_req, res, next: NextFunction) => {
     try {
-      const snapshot = accuracyAnalyzer.refresh();
+      const snapshot = await accuracyAnalyzer.refresh();
       res.json(snapshot);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: { code: 'ANALYTICS_REFRESH_ERROR', message } });
+      next(err);
     }
   });
 
@@ -29,13 +29,12 @@ export function createAnalyticsRouter(
   });
 
   if (pnlService) {
-    router.get('/pnl', (_req, res) => {
+    router.get('/pnl', async (_req, res, next: NextFunction) => {
       try {
-        const report = pnlService.generate();
+        const report = await pnlService.generate();
         res.json(report);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        res.status(500).json({ error: { code: 'PNL_ERROR', message } });
+        next(err);
       }
     });
   }

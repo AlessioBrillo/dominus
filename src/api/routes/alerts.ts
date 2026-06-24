@@ -18,12 +18,12 @@ export function createAlertsRouter(deps: AlertRouteDeps): Router {
   const router = Router();
   const { alertRepo, alertEngine } = deps;
 
-  router.get('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const domain = typeof req.query.domain === 'string' ? req.query.domain : undefined;
       const unacknowledged =
         typeof req.query.unacknowledged === 'string' ? req.query.unacknowledged === 'true' : false;
-      const alerts = alertRepo.findAll(domain, unacknowledged);
+      const alerts = await alertRepo.findAll(domain, unacknowledged);
       res.json({ alerts });
     } catch (err: unknown) {
       next(err);
@@ -53,16 +53,19 @@ export function createAlertsRouter(deps: AlertRouteDeps): Router {
     },
   );
 
-  router.post('/acknowledge-all', (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const parsed = acknowledgeQuerySchema.safeParse(req.body);
-      const domain = parsed.success ? parsed.data.domain : undefined;
-      const n = alertRepo.acknowledgeAll(domain);
-      res.json({ acknowledged: n });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+  router.post(
+    '/acknowledge-all',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const parsed = acknowledgeQuerySchema.safeParse(req.body);
+        const domain = parsed.success ? parsed.data.domain : undefined;
+        const n = await alertRepo.acknowledgeAll(domain);
+        res.json({ acknowledged: n });
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
 
   router.post('/run', (_req: Request, res: Response, next: NextFunction): void => {
     if (!alertEngine) {

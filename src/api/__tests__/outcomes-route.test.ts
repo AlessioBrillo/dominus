@@ -17,9 +17,9 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function seedPortfolio(provider: SqliteProvider, domain: string): void {
+async function seedPortfolio(provider: SqliteProvider, domain: string): Promise<void> {
   const repo = new PortfolioRepository(provider);
-  repo.insert({
+  await repo.insert({
     domain,
     tld: '.com',
     acquiredAt: '2025-01-01',
@@ -40,7 +40,7 @@ describe('Standalone outcomes API', () => {
   });
 
   it('POST /api/v1/outcomes records an outcome (with domain in body)', async () => {
-    seedPortfolio(provider, 'example.com');
+    await seedPortfolio(provider, 'example.com');
     const app = express();
     app.use(express.json());
     app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
@@ -70,15 +70,15 @@ describe('Standalone outcomes API', () => {
   });
 
   it('GET /api/v1/outcomes lists all outcomes', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    seedPortfolio(provider, 'beta.com');
-    outcomeRepo.insert({
+    await seedPortfolio(provider, 'alpha.com');
+    await seedPortfolio(provider, 'beta.com');
+    await outcomeRepo.insert({
       domain: 'alpha.com',
       type: 'sold',
       occurredAt: '2025-06-01',
       salePriceEur: 500,
     });
-    outcomeRepo.insert({ domain: 'beta.com', type: 'renewed', occurredAt: '2025-07-01' });
+    await outcomeRepo.insert({ domain: 'beta.com', type: 'renewed', occurredAt: '2025-07-01' });
 
     const app = express();
     app.use('/api/v1/outcomes', createOutcomesRouter(outcomeRepo));
@@ -90,8 +90,8 @@ describe('Standalone outcomes API', () => {
   });
 
   it('GET /api/v1/outcomes?type=sold filters by type', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    outcomeRepo.insert({
+    await seedPortfolio(provider, 'alpha.com');
+    await outcomeRepo.insert({
       domain: 'alpha.com',
       type: 'sold',
       occurredAt: '2025-06-01',
@@ -109,8 +109,8 @@ describe('Standalone outcomes API', () => {
   });
 
   it('GET /api/v1/outcomes/stats/:domain returns aggregate stats', async () => {
-    seedPortfolio(provider, 'alpha.com');
-    outcomeRepo.insert({
+    await seedPortfolio(provider, 'alpha.com');
+    await outcomeRepo.insert({
       domain: 'alpha.com',
       type: 'sold',
       occurredAt: '2025-06-01',

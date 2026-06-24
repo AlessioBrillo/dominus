@@ -8,6 +8,7 @@ import { PortfolioRepository } from '../../../db/repositories/portfolio-reposito
 import { OutcomeRepository } from '../../../db/repositories/outcome-repository.js';
 import { PnlService } from '../../../portfolio/pnl-service.js';
 import { createAnalyticsRouter } from '../analytics.js';
+import { errorHandler } from '../../middleware/error-handler.js';
 import type { PredictionAccuracyAnalyzer } from '../../../analytics/index.js';
 
 function openTestDb(): SqliteProvider {
@@ -54,6 +55,7 @@ function buildApp(pnlService?: PnlService): express.Express {
   const app = express();
   app.use(express.json());
   app.use('/api/v1/analytics', createAnalyticsRouter(makeAccuracyStub(), pnlService));
+  app.use(errorHandler);
   app.use((_req, res) =>
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } }),
   );
@@ -147,6 +149,6 @@ describe('Analytics API routes', () => {
     const app = buildApp(brokenService);
     const res = await request(app).get('/api/v1/analytics/pnl');
     expect(res.status).toBe(500);
-    expect(res.body.error.code).toBe('PNL_ERROR');
+    expect(res.body.error.code).toBe('INTERNAL_ERROR');
   });
 });

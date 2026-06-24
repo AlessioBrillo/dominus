@@ -28,7 +28,7 @@ export function createCandidatesRouter(
 ): Router {
   const router = Router();
 
-  router.get('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const runId = typeof req.query['runId'] === 'string' ? req.query['runId'] : '';
       if (runId === '') {
@@ -37,7 +37,7 @@ export function createCandidatesRouter(
         });
         return;
       }
-      const candidates = candidateRepo.findByRunId(runId);
+      const candidates = await candidateRepo.findByRunId(runId);
       res.json({ candidates });
     } catch (err: unknown) {
       next(err);
@@ -47,26 +47,27 @@ export function createCandidatesRouter(
   router.post(
     '/run',
     validate({ body: runBodySchema }),
-    (req: Request, res: Response, next: NextFunction): void => {
-      const body = req.body as z.infer<typeof runBodySchema>;
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const body = req.body as z.infer<typeof runBodySchema>;
 
-      runService
-        .runSync({
+        const result = await runService.runSync({
           keywords: body.keywords,
           brandableNames: body.brandableNames,
           closeoutDomains: body.closeoutDomains,
           closeoutEntries: body.closeoutEntries as CloseoutEntry[] | undefined,
-        })
-        .then((result) => {
-          res.json({
-            runId: result.runId,
-            recommended: result.recommended,
-            stageSummary: result.stageSummary,
-            totalDurationMs: result.totalDurationMs,
-            persistence: result.persistence,
-          });
-        })
-        .catch((err: unknown) => next(err));
+        });
+
+        res.json({
+          runId: result.runId,
+          recommended: result.recommended,
+          stageSummary: result.stageSummary,
+          totalDurationMs: result.totalDurationMs,
+          persistence: result.persistence,
+        });
+      } catch (err: unknown) {
+        next(err);
+      }
     },
   );
 

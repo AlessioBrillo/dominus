@@ -1,5 +1,3 @@
-import sharp from 'sharp';
-
 const OG_WIDTH = 1200;
 const OG_HEIGHT = 630;
 const CACHE_MAX = 100;
@@ -96,7 +94,13 @@ export async function generateOgPng(domain: string, score: OgScoreData): Promise
   }
 
   const svg = renderOgSvg(score);
-  const png = await sharp(Buffer.from(svg)).png().toBuffer();
+  let png: Buffer;
+  try {
+    const sharp = (await import('sharp')).default;
+    png = await sharp(Buffer.from(svg)).png().toBuffer();
+  } catch {
+    png = Buffer.from(svg);
+  }
 
   pngCache.set(key, { png, createdAt: Date.now() });
   return png;

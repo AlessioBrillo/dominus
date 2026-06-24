@@ -241,8 +241,8 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(report.sampleSize).toBe(4);
     });
 
-    it('generate() computes correct confusion matrix', () => {
-      analyzer.refresh();
+    it('generate() computes correct confusion matrix', async () => {
+      await analyzer.refresh();
       const report = analyzer.generate();
 
       // alpha.com: recommended=1, sold → TP
@@ -258,8 +258,8 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(report.confusionMatrix.f1).toBeCloseTo(0.5, 2);
     });
 
-    it('generate() computes overall accuracy for sold domains with price', () => {
-      analyzer.refresh();
+    it('generate() computes overall accuracy for sold domains with price', async () => {
+      await analyzer.refresh();
       const report = analyzer.generate();
 
       // alpha.com: predicted=200, actual=180 → error=20, ape=11.1%
@@ -268,8 +268,8 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(report.overall.mape).toBeGreaterThan(0);
     });
 
-    it('generate() returns per-TLD breakdown', () => {
-      analyzer.refresh();
+    it('generate() returns per-TLD breakdown', async () => {
+      await analyzer.refresh();
       const report = analyzer.generate();
 
       const dotCom = report.byTld.find((t) => t.tld === '.com');
@@ -280,8 +280,8 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(dotIo).toBeUndefined();
     });
 
-    it('generate() returns calibration buckets', () => {
-      analyzer.refresh();
+    it('generate() returns calibration buckets', async () => {
+      await analyzer.refresh();
       const report = analyzer.generate();
 
       expect(report.calibration.low).toBeDefined();
@@ -289,8 +289,8 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(report.calibration.high).toBeDefined();
     });
 
-    it('generate() returns signal availability breakdown', () => {
-      analyzer.refresh();
+    it('generate() returns signal availability breakdown', async () => {
+      await analyzer.refresh();
       const report = analyzer.generate();
 
       expect(report.bySignalAvailability.length).toBe(3);
@@ -298,8 +298,8 @@ describe('PredictionAccuracyAnalyzer', () => {
       expect(commercial).toBeDefined();
     });
 
-    it('generate() returns trend', () => {
-      analyzer.refresh();
+    it('generate() returns trend', async () => {
+      await analyzer.refresh();
       const report = analyzer.generate();
 
       expect(report.trend.length).toBeGreaterThan(0);

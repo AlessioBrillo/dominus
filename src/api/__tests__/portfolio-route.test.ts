@@ -77,7 +77,7 @@ describe('Portfolio API', () => {
   describe('POST /api/v1/portfolio/rescore', () => {
     it('returns a per-domain summary for a non-empty portfolio', async () => {
       const { app, manager } = buildApp(provider);
-      manager.add({
+      await manager.add({
         domain: 'alpha.com',
         tld: '.com',
         acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -115,7 +115,7 @@ describe('Portfolio API', () => {
   describe('POST /api/v1/portfolio/:domain/outcomes', () => {
     it('records an outcome and returns 201 with the stored row', async () => {
       const { app, manager, outcomeRepo } = buildApp(provider);
-      manager.add({
+      await manager.add({
         domain: 'alpha.com',
         tld: '.com',
         acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -137,13 +137,13 @@ describe('Portfolio API', () => {
       expect(res.body.outcome.type).toBe('sold');
       expect(res.body.outcome.salePriceEur).toBe(1500);
 
-      const stored = outcomeRepo.findByDomain('alpha.com');
+      const stored = await outcomeRepo.findByDomain('alpha.com');
       expect(stored).toHaveLength(1);
     });
 
     it('rejects an unknown type with 400 and a clear error', async () => {
       const { app, manager } = buildApp(provider);
-      manager.add({
+      await manager.add({
         domain: 'alpha.com',
         tld: '.com',
         acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -175,7 +175,7 @@ describe('Portfolio API', () => {
   describe('GET /api/v1/portfolio/:domain/outcomes/stats', () => {
     it('returns aggregate counts and realised revenue', async () => {
       const { app, manager, outcomeRepo } = buildApp(provider);
-      manager.add({
+      await manager.add({
         domain: 'alpha.com',
         tld: '.com',
         acquiredAt: '2025-01-01T00:00:00.000Z',
@@ -184,19 +184,19 @@ describe('Portfolio API', () => {
         renewalCost: 12,
         registrar: 'namecheap',
       });
-      outcomeRepo.insert({
+      await outcomeRepo.insert({
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-04-01T00:00:00.000Z',
         salePriceEur: 800,
       });
-      outcomeRepo.insert({
+      await outcomeRepo.insert({
         domain: 'alpha.com',
         type: 'sold',
         occurredAt: '2026-05-01T00:00:00.000Z',
         salePriceEur: 1200,
       });
-      outcomeRepo.insert({
+      await outcomeRepo.insert({
         domain: 'alpha.com',
         type: 'renewed',
         occurredAt: '2025-12-01T00:00:00.000Z',
