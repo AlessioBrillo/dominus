@@ -26,6 +26,7 @@ export interface PipelineRunInputs {
   brandableNames: number;
   closeoutDomains: number;
   closeoutEntries: number;
+  domains: number;
 }
 
 export interface PipelineRunResults {
@@ -81,6 +82,7 @@ const EMPTY_INPUTS: PipelineRunInputs = {
   brandableNames: 0,
   closeoutDomains: 0,
   closeoutEntries: 0,
+  domains: 0,
 };
 
 const EMPTY_RESULTS: PipelineRunResults = {

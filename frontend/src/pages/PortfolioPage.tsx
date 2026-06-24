@@ -10,24 +10,70 @@ import {
   type SortingState,
   type ColumnFiltersState,
 } from '@tanstack/react-table';
-import { ArrowUpDown, RefreshCw, RotateCcw } from 'lucide-react';
-import { usePortfolioList, useRescorePortfolio, useRefreshVerdicts } from '@/hooks/usePortfolio';
+import { ArrowUpDown, MoreVertical, RefreshCw, RotateCcw, Trash2, Eye } from 'lucide-react';
+import {
+  usePortfolioList,
+  useRescorePortfolio,
+  useRefreshVerdicts,
+  useUpdateVerdict,
+  useRemoveFromPortfolio,
+} from '@/hooks/usePortfolio';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import type { PortfolioEntry } from '@/types/domain';
 
 type RowData = PortfolioEntry;
+
+function verdictVariant(v: string) {
+  switch (v) {
+    case 'keep':
+      return 'success' as const;
+    case 'reprice':
+      return 'warning' as const;
+    case 'drop':
+      return 'danger' as const;
+    default:
+      return 'outline' as const;
+  }
+}
+
+function daysUntilRenewal(renewalDate: string): number {
+  const now = Date.now();
+  const renewal = new Date(renewalDate).getTime();
+  return Math.ceil((renewal - now) / 86400000);
+}
 
 export function PortfolioPage() {
   const { data: portfolio = [], isLoading, error } = usePortfolioList();
   const rescore = useRescorePortfolio();
   const verdicts = useRefreshVerdicts();
+  const updateVerdict = useUpdateVerdict();
+  const removeDomain = useRemoveFromPortfolio();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
+  const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
 
   const columns = useMemo(() => {
     const col = createColumnHelper<RowData>();
@@ -48,11 +94,18 @@ export function PortfolioPage() {
       }),
       col.accessor('renewalDate', {
         header: 'Renewal',
-        cell: (info) => (
-          <span className="text-sm text-text-secondary">
-            {info.getValue() ? new Date(info.getValue()!).toLocaleDateString() : '—'}
-          </span>
-        ),
+        cell: (info) => {
+          const date = info.getValue();
+          if (!date) return <span className="text-sm text-text-secondary">—</span>;
+          const days = daysUntilRenewal(date);
+          const soon = days <= 60;
+          return (
+            <span className={`text-sm font-mono ${soon ? 'text-danger' : 'text-text-secondary'}`}>
+              {new Date(date).toLocaleDateString()}
+              {soon && <span className="ml-1">⚠</span>}
+            </span>
+          );
+        },
       }),
       col.accessor('currentScore', {
         header: 'Score',
@@ -74,17 +127,114 @@ export function PortfolioPage() {
         header: 'Verdict',
         cell: (info) => {
           const v = info.getValue();
-          const variant =
-            v === 'keep'
-              ? ('success' as const)
-              : v === 'reprice'
-                ? ('warning' as const)
-                : ('danger' as const);
-          return <Badge variant={variant}>{v}</Badge>;
+          return (
+            <div className="flex items-center gap-2">
+              <Badge variant={verdictVariant(v)}>{v}</Badge>
+              {info.row.original.verdictReason && (
+                <span
+                  className="text-xs text-text-muted truncate max-w-32 cursor-help"
+                  title={info.row.original.verdictReason}
+                >
+                  {info.row.original.verdictReason.length > 30
+                    ? info.row.original.verdictReason.slice(0, 30) + '…'
+                    : info.row.original.verdictReason}
+                </span>
+              )}
+            </div>
+          );
+        },
+      }),
+      col.display({
+        id: 'actions',
+        header: '',
+        cell: (info) => {
+          const domain = info.row.original.domain;
+          const isUpdating = updateVerdict.isPending && updateVerdict.variables?.domain === domain;
+          return (
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => setExpandedDomain(expandedDomain === domain ? null : domain)}
+              >
+                <Eye className="h-3.5 w-3.5" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isUpdating}>
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                  <DropdownMenuItem
+                    onClick={() =>
+                      updateVerdict.mutate({
+                        domain,
+                        input: { verdict: 'keep' },
+                      })
+                    }
+                  >
+                    Keep
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      updateVerdict.mutate({
+                        domain,
+                        input: { verdict: 'reprice' },
+                      })
+                    }
+                  >
+                    Reprice
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      updateVerdict.mutate({
+                        domain,
+                        input: { verdict: 'drop' },
+                      })
+                    }
+                  >
+                    Drop
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem
+                        className="text-danger"
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-2" />
+                        Remove
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove from portfolio?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will permanently remove <strong>{domain}</strong> and all its
+                          outcomes from your portfolio. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => removeDomain.mutate(domain)}
+                          className="bg-danger hover:bg-danger/90"
+                        >
+                          Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          );
         },
       }),
     ];
-  }, []);
+  }, [expandedDomain, updateVerdict, removeDomain]);
 
   const table = useReactTable({
     data: portfolio,
@@ -195,16 +345,65 @@ export function PortfolioPage() {
               </thead>
               <tbody className="bg-bg-elevated">
                 {table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="border-b border-border hover:bg-bg-hover transition-colors"
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="py-3 px-4">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
+                  <>
+                    <tr
+                      key={row.id}
+                      className="border-b border-border hover:bg-bg-hover transition-colors"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="py-3 px-4">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
+                    {expandedDomain === row.original.domain && (
+                      <tr key={`${row.id}-detail`}>
+                        <td
+                          colSpan={columns.length}
+                          className="bg-bg-muted/50 px-4 py-3 border-b border-border"
+                        >
+                          <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <span className="text-text-muted text-xs uppercase tracking-wider block mb-1">
+                                Details
+                              </span>
+                              <p className="text-text-secondary">TLD: {row.original.tld}</p>
+                              <p className="text-text-secondary">
+                                Registrar: {row.original.registrar}
+                              </p>
+                              <p className="text-text-secondary">
+                                Acquired: {new Date(row.original.acquiredAt).toLocaleDateString()}
+                              </p>
+                              <p className="text-text-secondary">
+                                Renewal cost: €{row.original.renewalCost?.toFixed(2) ?? '—'}
+                                /yr
+                              </p>
+                            </div>
+                            {row.original.verdictReason && (
+                              <div className="col-span-2">
+                                <span className="text-text-muted text-xs uppercase tracking-wider block mb-1">
+                                  Verdict Reason
+                                </span>
+                                <p className="text-text-secondary whitespace-pre-wrap">
+                                  {row.original.verdictReason}
+                                </p>
+                              </div>
+                            )}
+                            {row.original.notes && (
+                              <div className="col-span-2">
+                                <span className="text-text-muted text-xs uppercase tracking-wider block mb-1">
+                                  Notes
+                                </span>
+                                <p className="text-text-secondary whitespace-pre-wrap">
+                                  {row.original.notes}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
               </tbody>
             </table>

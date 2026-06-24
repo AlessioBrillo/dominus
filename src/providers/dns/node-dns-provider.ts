@@ -9,8 +9,6 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'NS' | 'SOA';
 
-const PRIMARY_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'NS'];
-
 export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback';
 
 function getLookupTimeout(): number {
@@ -114,38 +112,65 @@ async function resolveDoh(
   return true;
 }
 
+const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'NS', 'SOA'];
+
 async function resolvesAnyNative(
   domain: string,
   timeout: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
-  for (const recordType of PRIMARY_RECORDS) {
-    try {
-      await resolveWithTimeout(domain, recordType, timeout, signal);
-      return true;
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
-      if (code === 'ENOTFOUND' || code === 'ENODATA') {
-        continue;
-      }
-      if (code === 'ETIMEOUT' || code === 'ESOCKETTIMEOUT') {
-        logger.warn({ domain, recordType }, 'DNS lookup timed out');
-        return undefined;
-      }
+  // Launch ALL record types in parallel via race.
+  // First resolve → domain is registered (return true).
+  // All reject with NXDOMAIN/NODATA → domain is available (return false).
+  // Any reject with timeout → unknown (return undefined).
+  const childAbort = new AbortController();
+  const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
+
+  const tasks = ALL_RECORDS.map((type) =>
+    resolveWithTimeout(domain, type, timeout, combinedSignal)
+      .then(() => {
+        childAbort.abort();
+        return { type, resolved: true as const, aborted: false as const };
+      })
+      .catch((err: unknown) => {
+        const e = err as { code?: string; name?: string };
+        return {
+          type,
+          resolved: false as const,
+          aborted: e.name === ('AbortError' as const),
+          code: e.code,
+        };
+      }),
+  );
+
+  const outcomes = await Promise.all(tasks);
+
+  // If any record type resolved → domain is registered
+  for (const o of outcomes) {
+    if (o.resolved) return true;
+  }
+
+  let anyTimeout = false;
+  for (const o of outcomes) {
+    if (o.resolved) continue;
+    if (o.aborted) continue;
+    const c = o.code;
+    if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
+      anyTimeout = true;
+    } else if (c !== 'ENOTFOUND' && c !== 'ENODATA' && c !== undefined) {
       return undefined;
     }
   }
 
-  // All primary types failed — try SOA for NXDOMAIN confirmation
-  try {
-    await resolveWithTimeout(domain, 'SOA', timeout, signal);
-    return true;
-  } catch (err: unknown) {
-    const code = (err as { code?: string }).code;
-    if (code === 'ENOTFOUND') return false;
-    return false;
+  if (anyTimeout) {
+    logger.warn({ domain }, 'DNS: all record types timed out or NXDOMAIN');
+    return undefined;
   }
+
+  return false;
 }
+
+const DOH_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
 
 async function resolvesAnyDoh(
   domain: string,
@@ -153,25 +178,79 @@ async function resolvesAnyDoh(
   timeout: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
-  const dohTypes = ['A', 'AAAA', 'NS', 'SOA'];
-  for (const recordType of dohTypes) {
-    try {
-      const timeoutSignal = AbortSignal.timeout(timeout);
-      const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-      await resolveDoh(domain, recordType, endpoint, combined);
-      return true;
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
-      if (code === 'ENOTFOUND' || code === 'ENODATA') continue;
-      return undefined;
-    }
+  const childAbort = new AbortController();
+  const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
+
+  const tasks = DOH_TYPES.map((type) => {
+    const timeoutSignal = AbortSignal.timeout(timeout);
+    const merged = AbortSignal.any([combinedSignal, timeoutSignal]);
+    return resolveDoh(domain, type, endpoint, merged)
+      .then(() => {
+        childAbort.abort();
+        return { resolved: true as const, aborted: false as const };
+      })
+      .catch((err: unknown) => {
+        const e = err as { code?: string; name?: string };
+        return {
+          resolved: false as const,
+          aborted: e.name === ('AbortError' as const),
+          code: e.code,
+        };
+      });
+  });
+
+  const outcomes = await Promise.all(tasks);
+
+  for (const o of outcomes) {
+    if (o.resolved) return true;
   }
+
+  const anyUnknown = outcomes.some(
+    (o) =>
+      !o.resolved &&
+      !o.aborted &&
+      o.code !== undefined &&
+      o.code !== 'ENOTFOUND' &&
+      o.code !== 'ENODATA',
+  );
+  if (anyUnknown) return undefined;
   return false;
 }
 
+const DNS_CACHE_TTL_MS = 60_000; // 1 minute cache for DNS results
+
+interface CacheEntry {
+  result: DnsCheckResult;
+  expiresAt: number;
+}
+
 export class NodeDnsProvider implements DnsProvider {
+  #cache: Map<string, CacheEntry> = new Map();
+
+  /** Clear cached entries older than TTL */
+  pruneCache(): number {
+    const now = Date.now();
+    let pruned = 0;
+    for (const [key, entry] of this.#cache) {
+      if (entry.expiresAt < now) {
+        this.#cache.delete(key);
+        pruned++;
+      }
+    }
+    return pruned;
+  }
+
+  clearCache(): void {
+    this.#cache.clear();
+  }
+
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    const cached = this.#cache.get(domain);
+    if (cached !== undefined && cached.expiresAt > Date.now()) {
+      return cached.result;
+    }
 
     const strategy = getLookupStrategy();
     const timeout = getLookupTimeout();
@@ -181,11 +260,11 @@ export class NodeDnsProvider implements DnsProvider {
       const native = await resolvesAnyNative(domain, timeout, signal);
 
       if (native !== undefined) {
-        return {
+        return this.#cached(domain, {
           domain,
           status: native ? DomainStatus.Registered : DomainStatus.Available,
           checkedAt,
-        };
+        });
       }
 
       // Native resolver timed out — try DoH fallback if enabled
@@ -194,22 +273,27 @@ export class NodeDnsProvider implements DnsProvider {
         logger.warn({ domain, endpoint }, 'DNS: native resolver timed out, falling back to DoH');
         const doh = await resolvesAnyDoh(domain, endpoint, timeout, signal);
         if (doh !== undefined) {
-          return {
+          return this.#cached(domain, {
             domain,
             status: doh ? DomainStatus.Registered : DomainStatus.Available,
             checkedAt,
-          };
+          });
         }
       }
 
-      return { domain, status: DomainStatus.Unknown, checkedAt };
+      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
     } catch (err: unknown) {
       const code = (err as { code?: string }).code;
       if (code === 'ENOTFOUND' || code === 'ENODATA') {
-        return { domain, status: DomainStatus.Available, checkedAt };
+        return this.#cached(domain, { domain, status: DomainStatus.Available, checkedAt });
       }
-      return { domain, status: DomainStatus.Unknown, checkedAt };
+      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
     }
+  }
+
+  #cached(domain: string, result: DnsCheckResult): DnsCheckResult {
+    this.#cache.set(domain, { result, expiresAt: Date.now() + DNS_CACHE_TTL_MS });
+    return result;
   }
 
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {

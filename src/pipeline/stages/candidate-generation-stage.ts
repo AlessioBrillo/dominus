@@ -11,6 +11,12 @@ export interface CandidateGenerationInput {
   closeoutDomains?: string[] | undefined;
   /** Closeout domains carrying expiry-signal metadata (e.g. a --closeout-csv import). */
   closeoutEntries?: CloseoutEntry[] | undefined;
+  /**
+   * Direct domain injection — bypasses keyword/brandable/closeout processing.
+   * These domains are passed through DNS pre-filter and the rest of the pipeline
+   * as-is. Useful for rescore operations and incremental checks.
+   */
+  domains?: string[] | undefined;
 }
 
 export class CandidateGenerationStage implements Stage<CandidateGenerationInput, DomainCandidate> {
@@ -74,6 +80,17 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
             backlinks: entry.backlinks,
             waybackSnapshots: entry.waybackSnapshots,
           },
+        });
+      }
+      for (const domain of input.domains ?? []) {
+        const tld = extractTld(domain);
+        passed.push({
+          domain,
+          tld,
+          source: CandidateSource.KeywordCombo,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
         });
       }
     }

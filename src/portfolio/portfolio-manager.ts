@@ -2,6 +2,7 @@ import type {
   PortfolioEntry,
   AddPortfolioEntryInput,
   RenewalClockData,
+  Verdict,
 } from '../types/portfolio.js';
 import type { PortfolioRepository } from '../db/repositories/portfolio-repository.js';
 import { computeDropVerdict, DEFAULT_DROP_VERDICT_CONFIG } from './drop-verdict-engine.js';
@@ -53,6 +54,14 @@ export class PortfolioManager {
 
   async updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): Promise<void> {
     await this.repo.updateCosts(domain, acquisitionCost, renewalCost);
+  }
+
+  async updateVerdict(domain: string, verdict: Verdict, reason?: string): Promise<void> {
+    await this.repo.updateVerdict(domain, verdict, reason);
+  }
+
+  async updateNotes(domain: string, notes: string): Promise<void> {
+    await this.repo.updateNotes(domain, notes);
   }
 
   async remove(domain: string): Promise<void> {

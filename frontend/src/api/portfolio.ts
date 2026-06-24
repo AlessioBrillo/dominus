@@ -30,3 +30,23 @@ export function rescorePortfolio(): Promise<RescoreResponse> {
 export function refreshVerdicts(): Promise<{ ok: boolean }> {
   return api.post<{ ok: boolean }>('/portfolio/verdicts');
 }
+
+export interface UpdateVerdictInput {
+  verdict: 'keep' | 'drop' | 'reprice';
+  notes?: string;
+}
+
+export function updateVerdict(domain: string, input: UpdateVerdictInput): Promise<{ ok: boolean }> {
+  return api.patch<{ ok: boolean }>(`/portfolio/${encodeURIComponent(domain)}/verdict`, input);
+}
+
+export function removeFromPortfolio(domain: string): Promise<void> {
+  return api.delete<void>(`/portfolio/${encodeURIComponent(domain)}`);
+}
+
+export function updatePortfolioEntry(
+  domain: string,
+  input: { notes?: string; acquisitionCost?: number; renewalCost?: number },
+): Promise<{ ok: boolean }> {
+  return api.patch<{ ok: boolean }>(`/portfolio/${encodeURIComponent(domain)}`, input);
+}
