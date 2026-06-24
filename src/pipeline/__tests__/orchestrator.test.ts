@@ -20,6 +20,7 @@ function makeMockDns(status = DomainStatus.Available): DnsProvider {
       .mockImplementation((domains: string[]) =>
         Promise.resolve(domains.map((d) => ({ domain: d, status, checkedAt: '' }))),
       ),
+    clearCache: vi.fn(),
   };
 }
 

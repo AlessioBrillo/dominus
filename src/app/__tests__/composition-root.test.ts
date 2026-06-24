@@ -58,6 +58,7 @@ function makeDnsProvider(): DnsProvider {
       checkedAt: new Date().toISOString(),
     }),
     checkBulk: async (_domains: string[]) => [],
+    clearCache: (): void => {},
   };
 }
 

@@ -26,6 +26,7 @@ function makeMockDns(results: DomainStatus[]): DnsProvider {
         checkedAt: new Date().toISOString(),
       })),
     ),
+    clearCache: vi.fn(),
   };
 }
 
