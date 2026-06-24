@@ -11,7 +11,12 @@ let _db: Database.Database | null = null;
 let _refCount = 0;
 let _currentPath: string | null = null;
 
-/** Dedicated connection for long-running bulk operations (pipeline, backup). */
+/**
+ * Dedicated connection for long-running bulk operations (pipeline, backup).
+ * Managed via acquireBulkWriteConnection / releaseBulkWriteConnection.
+ * The corresponding SqliteProvider wrapper is created by
+ * createBulkWriteDatabaseProvider() and must be closed by the caller.
+ */
 let _bulkDb: Database.Database | null = null;
 let _bulkRefCount = 0;
 
@@ -132,4 +137,24 @@ export function getDatabaseProvider(): DatabaseProvider {
     openDatabase(_currentPath ?? './data/dominus.db');
   }
   return new SqliteProvider(_db!);
+}
+
+/**
+ * Create (or reuse) a dedicated SqliteProvider on a separate SQLite connection
+ * for long-running bulk writes. Uses a short busy_timeout (5s) to fail fast
+ * on contention. The caller is responsible for calling close() on the returned
+ * provider when the application shuts down.
+ *
+ * WAL mode is active on both connections so the main connection continues to
+ * serve reads while a bulk-write transaction runs on this dedicated connection.
+ * In PostgreSQL mode (DATABASE_URL set), the pool handles connection management
+ * internally and this function returns undefined.
+ */
+export function createBulkWriteDatabaseProvider(
+  path?: string,
+  busyTimeout: number = 5000,
+): SqliteProvider | undefined {
+  if (_currentPath === null && path === undefined) return undefined;
+  const dbPath = path ?? _currentPath!;
+  return SqliteProvider.createBulkWrite(dbPath, { busyTimeout });
 }

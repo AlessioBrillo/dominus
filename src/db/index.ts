@@ -3,6 +3,7 @@ export {
   closeDatabase,
   acquireBulkWriteConnection,
   releaseBulkWriteConnection,
+  createBulkWriteDatabaseProvider,
   getDatabase,
 } from './database.js';
 export { runMigrations } from './migrator.js';
