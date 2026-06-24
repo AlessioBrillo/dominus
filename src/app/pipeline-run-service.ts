@@ -328,6 +328,7 @@ function snapshotInputs(input: CandidateGenerationInput): PipelineRunInputs {
     brandableNames: input.brandableNames?.length ?? 0,
     closeoutDomains: input.closeoutDomains?.length ?? 0,
     closeoutEntries: input.closeoutEntries?.length ?? 0,
+    domains: input.domains?.length ?? 0,
   };
 }
 

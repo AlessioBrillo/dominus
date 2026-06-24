@@ -131,6 +131,15 @@ export class PortfolioRepository {
     await this.db.exec(`UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ?`, params);
   }
 
+  async updateNotes(domain: string, notes: string): Promise<void> {
+    const existing = await this.findByDomain(domain);
+    if (existing === null) throw new DomainNotFoundError(domain);
+    await this.db.exec(
+      `UPDATE portfolio_entries SET notes = ?, updated_at = datetime('now') WHERE domain = ?`,
+      [notes, domain],
+    );
+  }
+
   async delete(domain: string): Promise<void> {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);

@@ -186,6 +186,7 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
       brandableNames: 1,
       closeoutDomains: 2,
       closeoutEntries: 0,
+      domains: 0,
     });
   });
 

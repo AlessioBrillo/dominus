@@ -56,6 +56,7 @@ describe('PipelineRunsRepository', () => {
         brandableNames: 0,
         closeoutDomains: 0,
         closeoutEntries: 0,
+        domains: 0,
       });
       expect(run.resultsSummary).toEqual({
         candidatesEvaluated: 0,
@@ -74,7 +75,13 @@ describe('PipelineRunsRepository', () => {
         finishedAt: '2026-06-07T10:00:05.000Z',
         totalDurationMs: 5000,
         stageSummary: { ScoringStage: { passed: 3, filtered: 2, durationMs: 100 } },
-        inputs: { keywords: 5, brandableNames: 1, closeoutDomains: 0, closeoutEntries: 4 },
+        inputs: {
+          keywords: 5,
+          brandableNames: 1,
+          closeoutDomains: 0,
+          closeoutEntries: 4,
+          domains: 0,
+        },
         resultsSummary: {
           candidatesEvaluated: 10,
           recommended: 3,

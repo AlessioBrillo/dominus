@@ -41,8 +41,11 @@
     "build:frontend": "cd frontend && npm run build",
     "audit": "npm audit --audit-level=high",
     "prepush": "npm run ci:backend && npm run ci:frontend",
+    "prepush:local": "npm run ci:local && npm run ci:local:frontend",
     "ci:backend": "npm run typecheck && npm run build && npm run lint && npm run format:check && npm test -- --coverage",
     "ci:frontend": "cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
+    "ci:local": "npm run typecheck && npm run build && npm test",
+    "ci:local:frontend": "cd frontend && npm run typecheck && npm run test && npm run build",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('coverage',{recursive:true,force:true})\"",
     "prepare": "husky"
   },

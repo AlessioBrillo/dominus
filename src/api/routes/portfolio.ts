@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
+import { type Verdict } from '../../types/portfolio.js';
 import { isOutcomeType } from '../../types/outcome.js';
 import { ConfigError } from '../../types/errors.js';
 import { getRouteParam } from '../route-utils.js';
@@ -68,11 +69,59 @@ export function createPortfolioRouter(
     }
   });
 
+  const verdictUpdateSchema = z.object({
+    verdict: z.enum(['keep', 'drop', 'reprice']),
+    notes: z.string().optional(),
+  });
+
   router.patch(
     '/:domain/verdict',
-    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        await manager.refreshVerdicts();
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
+        const parsed = verdictUpdateSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ error: parseZodError(parsed.error) });
+          return;
+        }
+        await manager.updateVerdict(domain, parsed.data.verdict as Verdict, parsed.data.notes);
+        res.json({ ok: true });
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
+
+  router.patch(
+    '/:domain',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = getRouteParam(req, 'domain');
+        if (domain === undefined) {
+          res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'domain is required' } });
+          return;
+        }
+        const parsed = z
+          .object({
+            notes: z.string().optional(),
+            acquisitionCost: z.number().nonnegative().optional(),
+            renewalCost: z.number().nonnegative().optional(),
+          })
+          .safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({ error: parseZodError(parsed.error) });
+          return;
+        }
+        if (parsed.data.notes !== undefined) {
+          await manager.updateNotes(domain, parsed.data.notes);
+        }
+        if (parsed.data.acquisitionCost !== undefined || parsed.data.renewalCost !== undefined) {
+          await manager.updateCosts(domain, parsed.data.acquisitionCost, parsed.data.renewalCost);
+        }
         res.json({ ok: true });
       } catch (err: unknown) {
         next(err);
