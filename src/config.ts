@@ -208,6 +208,15 @@ const configSchema = z.object({
    */
   DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
   /**
+   * Rate limiting: max tokens (burst capacity) for DNS resolution requests.
+   * Token bucket refills at DNS_RATE_LIMIT_TOKENS per DNS_RATE_LIMIT_INTERVAL_MS.
+   * DNS resolvers are typically permissive but bulk pipelines can still trigger
+   * soft rate-limiting by authoritative NS. Default: 20 req/sec with burst up to 20.
+   */
+  DNS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(20),
+  /** Rate limiting: refill interval in ms for DNS resolution requests (default: 1000). */
+  DNS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */

@@ -1,5 +1,4 @@
-import type Database from 'better-sqlite3';
-import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
+import type { DatabaseProvider } from '../db/provider/interface.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type {
   JobType,
@@ -43,8 +42,7 @@ export interface JobQueueService {
   deleteDeadLetterJobs(olderThanDays?: number): Promise<number>;
 }
 
-export function createJobQueueService(db: Database.Database): JobQueueService {
-  const provider = new SqliteProvider(db);
+export function createJobQueueService(provider: DatabaseProvider): JobQueueService {
   const repo = new JobQueueRepository(provider);
 
   async function enqueue(

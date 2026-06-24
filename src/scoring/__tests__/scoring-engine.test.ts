@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { ScoringEngine } from '../scoring-engine.js';
 import type { KeywordProvider } from '../../providers/keyword/keyword-provider.js';
 import type { CompsProvider } from '../../providers/comps/comps-provider.js';
-import type { WaybackProvider } from '../../providers/wayback/wayback-provider.js';
 
 function makeProviders(
   volume = 0,
@@ -375,37 +374,28 @@ describe('ScoringEngine', () => {
     expect(result.breakdown.market.score).toBe(0);
   });
 
-  it('enriches expiry data from Wayback provider when input lacks it', async () => {
+  it('uses provided expiry data (domainAge, waybackSnapshots) in scoring input', async () => {
     const { keyword, comps } = makeProviders(100, 2, [1500]);
-    const wayback: WaybackProvider = {
-      getExpiryData: vi.fn().mockResolvedValue({
-        domain: 'old-domain.com',
-        domainAge: 8.5,
-        waybackSnapshots: 42,
-        checkedAt: new Date().toISOString(),
-      }),
-    };
-    const engine = new ScoringEngine(keyword, comps, undefined, 500, undefined, undefined, wayback);
+    const engine = new ScoringEngine(keyword, comps, undefined, 500);
     const result = await engine.score({
       domain: 'old-domain.com',
       tld: '.com',
       sld: 'old-domain',
       isCloseout: false,
+      domainAge: 8.5,
+      waybackSnapshots: 42,
     });
     expect(result.breakdown.expiry.score).toBeGreaterThan(0);
     expect((result.breakdown.expiry.details as Record<string, unknown>).domainAge).toBe(8.5);
   });
 
-  it('gracefully handles Wayback provider failure', async () => {
+  it('gracefully handles missing expiry data — expiry signal degrades to zero', async () => {
     const { keyword, comps } = makeProviders(100, 2, [1500]);
-    const wayback: WaybackProvider = {
-      getExpiryData: vi.fn().mockRejectedValue(new Error('CDX timeout')),
-    };
-    const engine = new ScoringEngine(keyword, comps, undefined, 500, undefined, undefined, wayback);
+    const engine = new ScoringEngine(keyword, comps, undefined, 500);
     const result = await engine.score({
-      domain: 'failing-wayback.com',
+      domain: 'no-expiry-data.com',
       tld: '.com',
-      sld: 'failing-wayback',
+      sld: 'no-expiry-data',
       isCloseout: false,
     });
     expect(result.recommended).toBeDefined();

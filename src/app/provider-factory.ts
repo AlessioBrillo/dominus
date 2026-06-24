@@ -130,19 +130,23 @@ export function buildRdapProviders(
   return { raw, withRetry: withRetryProvider, cached };
 }
 
-export function buildDnsProvider(config: Config): DnsProvider {
+export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): DnsProvider {
   const inner = new NodeDnsProvider();
 
-  const wrappedCheckAvailability = (
+  const wrappedCheckAvailability = async (
     domain: string,
     signal?: AbortSignal,
-  ): Promise<DnsCheckResult> =>
-    withRetry(
+  ): Promise<DnsCheckResult> => {
+    if (rateLimiter) {
+      await rateLimiter.acquire();
+    }
+    return withRetry(
       (s) => inner.checkAvailability(domain, s),
       `dns:${domain}`,
       { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
       signal,
     );
+  };
 
   const dnsProvider: DnsProvider = {
     checkAvailability: wrappedCheckAvailability,
@@ -234,6 +238,7 @@ export interface BuiltRateLimiters {
   uspto: RateLimiter;
   euipo: RateLimiter;
   wayback: RateLimiter;
+  dns: RateLimiter;
 }
 
 export function buildRateLimiters(config: Config): BuiltRateLimiters {
@@ -257,5 +262,10 @@ export function buildRateLimiters(config: Config): BuiltRateLimiters {
     tokensPerInterval: config.WAYBACK_RATE_LIMIT_TOKENS,
     intervalMs: config.WAYBACK_RATE_LIMIT_INTERVAL_MS,
   });
-  return { rdap, uspto, euipo, wayback };
+  const dns = new RateLimiter({
+    maxTokens: config.DNS_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.DNS_RATE_LIMIT_TOKENS,
+    intervalMs: config.DNS_RATE_LIMIT_INTERVAL_MS,
+  });
+  return { rdap, uspto, euipo, wayback, dns };
 }

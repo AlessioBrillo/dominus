@@ -31,6 +31,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     DNS_LOOKUP_TIMEOUT_MS: 3000,
     DNS_LOOKUP_STRATEGY: 'native',
     DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
+    DNS_RATE_LIMIT_TOKENS: 20,
+    DNS_RATE_LIMIT_INTERVAL_MS: 1000,
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     RDAP_RATE_LIMIT_TOKENS: 10,
     RDAP_RATE_LIMIT_INTERVAL_MS: 1000,

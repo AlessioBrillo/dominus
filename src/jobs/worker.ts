@@ -1,5 +1,4 @@
-import type Database from 'better-sqlite3';
-import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
+import type { DatabaseProvider } from '../db/provider/interface.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type { JobType, JobHandler, JobQueueRow, JobPayload } from '../types/job-queue.js';
 import { getLogger } from '../logger.js';
@@ -29,11 +28,11 @@ export class JobWorker {
   #consecutiveBusy: number = 0;
 
   constructor(
-    db: Database.Database,
+    provider: DatabaseProvider,
     handlers: Map<JobType, AnyHandler>,
     config: Partial<WorkerConfig> = {},
   ) {
-    this.#repo = new JobQueueRepository(new SqliteProvider(db));
+    this.#repo = new JobQueueRepository(provider);
     this.#handlers = handlers;
     this.#config = {
       concurrency: config.concurrency ?? 2,

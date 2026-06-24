@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type Database from 'better-sqlite3';
-import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { BacktestSignalsRepository } from '../../db/repositories/backtest-signals-repository.js';
@@ -12,12 +12,12 @@ import type { AutoWeightTuner } from '../../scoring/auto-tuner.js';
 
 export function createBacktestRouter(
   db: Database.Database,
+  provider: DatabaseProvider,
   outcomeRepo: OutcomeRepository,
   currentWeights: ScoringWeights = DEFAULT_WEIGHTS,
   autoTuner?: AutoWeightTuner,
 ): Router {
   const router = Router();
-  const provider = new SqliteProvider(db);
   const backtestSignalsRepo = new BacktestSignalsRepository(provider);
   const scoringRepo = new ScoringRepository(provider);
 

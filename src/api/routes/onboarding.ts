@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import { GateVerdict, type TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
@@ -53,39 +53,13 @@ const wizardStateSchema = z.object({
 });
 
 export function createOnboardingRouter(
-  db: Database.Database,
+  db: DatabaseProvider,
   engine: ScoringEngine,
   trademarkGate: TrademarkGate | undefined,
   portfolioManager: PortfolioManager,
 ): Router {
   const router = Router();
 
-  const insertEvent = db.prepare(
-    `INSERT INTO events (tenant_id, type, props) VALUES ('default', ?, ?)`,
-  );
-
-  const getState = db.prepare(
-    `SELECT current_step, step_data, completed_at FROM onboarding_state WHERE tenant_id = 'default'`,
-  );
-
-  const upsertState = db.prepare(
-    `INSERT INTO onboarding_state (tenant_id, current_step, step_data, updated_at)
-     VALUES ('default', ?, ?, datetime('now'))
-     ON CONFLICT(tenant_id) DO UPDATE SET
-       current_step = excluded.current_step,
-       step_data = excluded.step_data,
-       updated_at = datetime('now')`,
-  );
-
-  const markOnboardingComplete = db.prepare(
-    `UPDATE onboarding_state SET completed_at = datetime('now'), updated_at = datetime('now')
-     WHERE tenant_id = 'default'`,
-  );
-
-  /**
-   * POST /sample-run — Run scoring on predefined sample domains.
-   * Returns immediate results without requiring any provider configuration.
-   */
   router.post(
     '/sample-run',
     async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -119,10 +93,10 @@ export function createOnboardingRouter(
           }),
         );
 
-        insertEvent.run(
+        await db.exec("INSERT INTO events (tenant_id, type, props) VALUES ('default', ?, ?)", [
           'sample_run_viewed',
           JSON.stringify({ sampleCount: SAMPLE_DOMAINS.length }),
-        );
+        ]);
 
         res.json({ results, sampleCount: SAMPLE_DOMAINS.length });
       } catch (err: unknown) {
@@ -233,10 +207,10 @@ export function createOnboardingRouter(
           }
         }
 
-        insertEvent.run(
+        await db.exec("INSERT INTO events (tenant_id, type, props) VALUES ('default', ?, ?)", [
           'portfolio_imported',
           JSON.stringify({ imported: domains.length, errors: errors.length }),
-        );
+        ]);
 
         res.status(201).json({
           imported: verdicts.length,
@@ -258,15 +232,15 @@ export function createOnboardingRouter(
   /**
    * GET /state — Get the current onboarding wizard state.
    */
-  router.get('/state', (_req: Request, res: Response, next: NextFunction): void => {
+  router.get('/state', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const row = getState.get() as
-        | {
-            current_step: string;
-            step_data: string | null;
-            completed_at: string | null;
-          }
-        | undefined;
+      const row = await db.queryOne<{
+        current_step: string;
+        step_data: string | null;
+        completed_at: string | null;
+      }>(
+        "SELECT current_step, step_data, completed_at FROM onboarding_state WHERE tenant_id = 'default'",
+      );
 
       if (!row) {
         res.json({ currentStep: 'welcome', stepData: null, completedAt: null });
@@ -286,7 +260,7 @@ export function createOnboardingRouter(
   /**
    * PATCH /state — Update the onboarding wizard state.
    */
-  router.patch('/state', (req: Request, res: Response, next: NextFunction): void => {
+  router.patch('/state', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsed = wizardStateSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -301,11 +275,24 @@ export function createOnboardingRouter(
       }
 
       const { currentStep, stepData } = parsed.data;
-      upsertState.run(currentStep, stepData ? JSON.stringify(stepData) : null);
+      await db.exec(
+        `INSERT INTO onboarding_state (tenant_id, current_step, step_data, updated_at)
+         VALUES ('default', ?, ?, datetime('now'))
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           current_step = excluded.current_step,
+           step_data = excluded.step_data,
+           updated_at = datetime('now')`,
+        [currentStep, stepData ? JSON.stringify(stepData) : null],
+      );
 
       if (currentStep === 'complete') {
-        markOnboardingComplete.run();
-        insertEvent.run('onboarding_completed', JSON.stringify({}));
+        await db.exec(
+          "UPDATE onboarding_state SET completed_at = datetime('now'), updated_at = datetime('now') WHERE tenant_id = 'default'",
+        );
+        await db.exec("INSERT INTO events (tenant_id, type, props) VALUES ('default', ?, ?)", [
+          'onboarding_completed',
+          JSON.stringify({}),
+        ]);
       }
 
       res.json({ currentStep, saved: true });

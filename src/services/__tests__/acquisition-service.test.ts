@@ -27,7 +27,14 @@ function createMockOutcomeRepo(): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createMockDb(): any {
-  return { exec: vi.fn(), query: vi.fn(), transaction: vi.fn() };
+  return {
+    exec: vi.fn(),
+    query: vi.fn(),
+    queryOne: vi.fn(),
+    transaction: vi.fn((fn: () => unknown) => fn()),
+    close: vi.fn(),
+    isOpen: vi.fn().mockReturnValue(true),
+  };
 }
 
 function makeBid(overrides: Partial<Bid> = {}): Bid {
@@ -128,10 +135,6 @@ describe('AcquisitionService', () => {
   });
 
   describe('resolve', () => {
-    function makeWonTransaction(fn: () => Bid): { transaction: () => Bid } {
-      return { transaction: fn };
-    }
-
     it('throws when no bid exists for the domain', async () => {
       repo.findByDomain.mockReturnValue(null);
       await expect(
@@ -163,8 +166,6 @@ describe('AcquisitionService', () => {
       const resolvedBid = makeBid({ status: BidStatus.Lost, resolvedAt: new Date().toISOString() });
       repo.resolve.mockReturnValue(resolvedBid);
 
-      db.transaction.mockImplementation((fn: () => Bid) => makeWonTransaction(fn).transaction);
-
       const result = await svc.resolve({
         domain: 'example.com',
         status: BidStatus.Lost,
@@ -181,8 +182,6 @@ describe('AcquisitionService', () => {
       repo.resolve.mockReturnValue(
         makeBid({ status: BidStatus.Cancelled, resolvedAt: new Date().toISOString() }),
       );
-
-      db.transaction.mockImplementation((fn: () => Bid) => makeWonTransaction(fn).transaction);
 
       const result = await svc.resolve({
         domain: 'example.com',
@@ -207,8 +206,6 @@ describe('AcquisitionService', () => {
         wonPriceEur: 150,
       });
       repo.resolve.mockReturnValue(resolvedBid);
-
-      db.transaction.mockImplementation((fn: () => Bid) => makeWonTransaction(fn).transaction);
 
       const result = await svc.resolve({
         domain: 'example.com',
@@ -240,8 +237,6 @@ describe('AcquisitionService', () => {
         }),
       );
 
-      db.transaction.mockImplementation((fn: () => Bid) => makeWonTransaction(fn).transaction);
-
       await svc.resolve({
         domain: 'example.com',
         status: BidStatus.Won,
@@ -272,8 +267,6 @@ describe('AcquisitionService', () => {
           resolvedAt: new Date().toISOString(),
         }),
       );
-
-      db.transaction.mockImplementation((fn: () => Bid) => makeWonTransaction(fn).transaction);
 
       await svc.resolve({
         domain: 'example.co.uk',

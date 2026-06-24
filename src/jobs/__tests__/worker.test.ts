@@ -55,7 +55,7 @@ describe('JobWorker', () => {
 
   describe('start / stop', () => {
     it('starts and stops gracefully', async () => {
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       worker.start();
@@ -66,7 +66,7 @@ describe('JobWorker', () => {
     });
 
     it('is idempotent on repeated start', () => {
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       worker.start();
@@ -76,7 +76,7 @@ describe('JobWorker', () => {
     });
 
     it('is idempotent on repeated stop', async () => {
-      const worker = new JobWorker(db, handlers);
+      const worker = new JobWorker(dbProvider, handlers);
       workers.push(worker);
 
       worker.start();
@@ -96,7 +96,7 @@ describe('JobWorker', () => {
         deletedWaybackCache: 0,
       }));
       handlers.set('PRUNE', handler);
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       const jobId = await repo.enqueue('PRUNE', { maxAgeDays: 30 });
@@ -117,7 +117,7 @@ describe('JobWorker', () => {
         throw new Error('disk full');
       });
       handlers.set('BACKUP', handler);
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       const jobId = await repo.enqueue('BACKUP', {}, { maxAttempts: 3 });
@@ -136,7 +136,7 @@ describe('JobWorker', () => {
         throw new Error('fatal');
       });
       handlers.set('BACKUP', handler);
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       const jobId = await repo.enqueue('BACKUP', {}, { maxAttempts: 1 });
@@ -155,7 +155,7 @@ describe('JobWorker', () => {
     });
 
     it('moves job to dead letter when no handler registered and maxAttempts exhausted', async () => {
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       const jobId = await repo.enqueue('PIPELINE_RUN', {}, { maxAttempts: 1 });
@@ -184,7 +184,7 @@ describe('JobWorker', () => {
         return { runId: 'ignored', recommended: 0, scored: 0, totalDurationMs: 0, stageErrors: [] };
       });
       handlers.set('PIPELINE_RUN', handler);
-      const worker = new JobWorker(db, handlers, {
+      const worker = new JobWorker(dbProvider, handlers, {
         pollIntervalMs: 20,
         gracefulShutdownTimeoutMs: 200,
       });
@@ -228,7 +228,7 @@ describe('JobWorker', () => {
         };
       });
       handlers.set('PRUNE', handler);
-      const worker = new JobWorker(db, handlers, {
+      const worker = new JobWorker(dbProvider, handlers, {
         concurrency: 3,
         pollIntervalMs: 20,
         gracefulShutdownTimeoutMs: 100,
@@ -248,7 +248,7 @@ describe('JobWorker', () => {
 
   describe('getStatus', () => {
     it('returns correct status before and after start', () => {
-      const worker = new JobWorker(db, handlers, FAST_POLL);
+      const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
       workers.push(worker);
 
       expect(worker.getStatus()).toEqual({ running: false, activeJobs: 0, concurrency: 2 });
