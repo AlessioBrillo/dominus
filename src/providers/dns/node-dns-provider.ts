@@ -9,7 +9,7 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'NS' | 'SOA';
 
-export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback';
+export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
 
 function getLookupTimeout(): number {
   try {
@@ -32,6 +32,14 @@ function getDohEndpoint(): string {
     return loadConfig().DNS_DOH_ENDPOINT;
   } catch {
     return 'https://cloudflare-dns.com/dns-query';
+  }
+}
+
+function getDefaultCacheTtl(): number {
+  try {
+    return loadConfig().DNS_CACHE_TTL_SECONDS * 1000;
+  } catch {
+    return 300_000;
   }
 }
 
@@ -217,8 +225,6 @@ async function resolvesAnyDoh(
   return false;
 }
 
-const DNS_CACHE_TTL_MS = 60_000; // 1 minute cache for DNS results
-
 interface CacheEntry {
   result: DnsCheckResult;
   expiresAt: number;
@@ -226,6 +232,11 @@ interface CacheEntry {
 
 export class NodeDnsProvider implements DnsProvider {
   #cache: Map<string, CacheEntry> = new Map();
+  readonly #cacheTtlMs: number;
+
+  constructor(cacheTtlMs?: number) {
+    this.#cacheTtlMs = cacheTtlMs ?? getDefaultCacheTtl();
+  }
 
   /** Clear cached entries older than TTL */
   pruneCache(): number {
@@ -257,6 +268,19 @@ export class NodeDnsProvider implements DnsProvider {
     const checkedAt = new Date().toISOString();
 
     try {
+      if (strategy === 'doh-only') {
+        const endpoint = getDohEndpoint();
+        const doh = await resolvesAnyDoh(domain, endpoint, timeout, signal);
+        if (doh !== undefined) {
+          return this.#cached(domain, {
+            domain,
+            status: doh ? DomainStatus.Registered : DomainStatus.Available,
+            checkedAt,
+          });
+        }
+        return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+      }
+
       const native = await resolvesAnyNative(domain, timeout, signal);
 
       if (native !== undefined) {
@@ -292,7 +316,7 @@ export class NodeDnsProvider implements DnsProvider {
   }
 
   #cached(domain: string, result: DnsCheckResult): DnsCheckResult {
-    this.#cache.set(domain, { result, expiresAt: Date.now() + DNS_CACHE_TTL_MS });
+    this.#cache.set(domain, { result, expiresAt: Date.now() + this.#cacheTtlMs });
     return result;
   }
 

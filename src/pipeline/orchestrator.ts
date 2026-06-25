@@ -93,7 +93,7 @@ export class PipelineOrchestrator {
     this.#onRunStart = cb;
   }
 
-  async run(input: CandidateGenerationInput): Promise<PipelineResult> {
+  async run(input: CandidateGenerationInput, externalRunId?: string): Promise<PipelineResult> {
     if (this.#running) {
       throw new Error(
         'Pipeline run already in progress — concurrent runs are not supported on this instance',
@@ -102,13 +102,16 @@ export class PipelineOrchestrator {
     this.#running = true;
 
     try {
-      return await this.#runInternal(input);
+      return await this.#runInternal(input, externalRunId);
     } finally {
       this.#running = false;
     }
   }
 
-  async #runInternal(input: CandidateGenerationInput): Promise<PipelineResult> {
+  async #runInternal(
+    input: CandidateGenerationInput,
+    externalRunId?: string,
+  ): Promise<PipelineResult> {
     this.#abortController = new AbortController();
     const signal = this.#abortController.signal;
     const start = Date.now();
@@ -132,7 +135,7 @@ export class PipelineOrchestrator {
     try {
       gen = await this.#withTimeout(
         'CandidateGeneration',
-        (s) => this.generationStage.process([input], s),
+        (s) => this.generationStage.process([input], s, externalRunId),
         start,
         signal,
       );

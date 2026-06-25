@@ -2,6 +2,8 @@ export interface RateLimiterConfig {
   maxTokens: number;
   tokensPerInterval: number;
   intervalMs: number;
+  /** Maximum number of pending acquire requests. 0 = unlimited. When exceeded, acquire() rejects. */
+  maxQueueSize?: number;
 }
 
 export interface RateLimiterMetrics {
@@ -11,10 +13,24 @@ export interface RateLimiterMetrics {
   currentTokens: number;
   /** Number of requests waiting in the queue. */
   queueLength: number;
+  /** Maximum queue size before rejection (0 = unlimited). */
+  maxQueueSize: number;
   /** Tokens added per interval. */
   tokensPerInterval: number;
   /** Refill interval in milliseconds. */
   intervalMs: number;
+}
+
+export class RateLimiterQueueFullError extends Error {
+  readonly queueSize: number;
+  readonly maxQueueSize: number;
+
+  constructor(queueSize: number, maxQueueSize: number) {
+    super(`Rate limiter queue full: ${queueSize} queued, max ${maxQueueSize}`);
+    this.name = 'RateLimiterQueueFullError';
+    this.queueSize = queueSize;
+    this.maxQueueSize = maxQueueSize;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -29,12 +45,14 @@ const UNLIMITED_CONFIG: RateLimiterConfig = {
 
 interface QueuedAcquire {
   resolve: () => void;
+  reject: (err: unknown) => void;
 }
 
 export class RateLimiter {
   readonly #maxTokens: number;
   readonly #tokensPerInterval: number;
   readonly #intervalMs: number;
+  readonly #maxQueueSize: number;
   #tokens: number;
   #lastRefill: number;
   #queue: QueuedAcquire[] = [];
@@ -44,6 +62,7 @@ export class RateLimiter {
     this.#maxTokens = config.maxTokens;
     this.#tokensPerInterval = config.tokensPerInterval;
     this.#intervalMs = config.intervalMs;
+    this.#maxQueueSize = config.maxQueueSize ?? 0;
     this.#tokens = config.maxTokens;
     this.#lastRefill = Date.now();
   }
@@ -64,6 +83,7 @@ export class RateLimiter {
       maxTokens: this.#maxTokens === Number.POSITIVE_INFINITY ? -1 : this.#maxTokens,
       currentTokens: this.#tokens === Number.POSITIVE_INFINITY ? -1 : this.#tokens,
       queueLength: this.#queue.length,
+      maxQueueSize: this.#maxQueueSize,
       tokensPerInterval:
         this.#tokensPerInterval === Number.POSITIVE_INFINITY ? -1 : this.#tokensPerInterval,
       intervalMs: this.#intervalMs,
@@ -75,8 +95,12 @@ export class RateLimiter {
       return;
     }
 
-    return new Promise<void>((resolve) => {
-      this.#queue.push({ resolve });
+    if (this.#maxQueueSize > 0 && this.#queue.length >= this.#maxQueueSize) {
+      throw new RateLimiterQueueFullError(this.#queue.length, this.#maxQueueSize);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      this.#queue.push({ resolve, reject });
       if (!this.#processing) {
         void this.#processQueue();
       }

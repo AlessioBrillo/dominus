@@ -17,6 +17,13 @@ export interface CandidateGenerationInput {
    * as-is. Useful for rescore operations and incremental checks.
    */
   domains?: string[] | undefined;
+  /**
+   * Optional external run ID. When provided, all generated candidates use this
+   * as their pipelineRunId instead of generating a new UUID. This eliminates
+   * the need for a post-generation UPDATE to sync run IDs (previously done in
+   * PipelineRunService).
+   */
+  externalRunId?: string | undefined;
 }
 
 export class CandidateGenerationStage implements Stage<CandidateGenerationInput, DomainCandidate> {
@@ -27,10 +34,11 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
   process(
     inputs: CandidateGenerationInput[],
     _signal?: AbortSignal,
+    externalRunId?: string,
   ): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
     const passed: DomainCandidate[] = [];
-    const runId = randomUUID();
+    const runId = externalRunId ?? inputs[0]?.externalRunId ?? randomUUID();
 
     for (const input of inputs) {
       for (const domain of input.keywords ?? []) {

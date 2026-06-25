@@ -69,7 +69,18 @@ function makeScoredCandidate(domain: string, recommended: boolean, tld = '.com')
 }
 
 function makeMockOrchestrator(result: PipelineResult): PipelineOrchestrator {
-  return { run: () => Promise.resolve(result) } as unknown as PipelineOrchestrator;
+  return {
+    run: (_input: unknown, externalRunId?: string) => {
+      const runId = externalRunId ?? result.runId;
+      return Promise.resolve({
+        ...result,
+        runId,
+        allCandidates: result.allCandidates.map((c) => ({ ...c, pipelineRunId: runId })),
+        recommended: result.recommended.map((c) => ({ ...c, pipelineRunId: runId })),
+        scored: result.scored.map((c) => ({ ...c, pipelineRunId: runId })),
+      });
+    },
+  } as unknown as PipelineOrchestrator;
 }
 
 interface IntegrationDeps {
