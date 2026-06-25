@@ -80,6 +80,7 @@ import type { PurchaseService as PurchaseServiceType } from '../services/purchas
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
+import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
 import { AutoListingService } from '../services/auto-listing-service.js';
@@ -450,7 +451,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
   );
-  const autoListingService = new AutoListingService(listingManager, repos.provider);
+  const autoListingRepo = new AutoListingRepository(repos.provider);
+  const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
   const jobQueueService = createJobQueueService(provider);
   const runService = new PipelineRunService(

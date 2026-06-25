@@ -182,3 +182,41 @@ export interface AccuracyReport {
   calibration: Record<string, CalibrationBucketStat>;
   warnings: string[];
 }
+
+export type ListingStatus =
+  | 'draft'
+  | 'listed'
+  | 'offer_received'
+  | 'sold'
+  | 'expired'
+  | 'unlisted'
+  | 'pending'
+  | 'paused';
+
+export type MarketplaceName = 'dan' | 'afternic' | 'sedo' | 'godaddy' | 'manual';
+
+export interface Listing {
+  id: number;
+  domain: string;
+  marketplace: MarketplaceName;
+  listingUrl: string | null;
+  priceEur: number;
+  status: ListingStatus;
+  scoringSnapshotJson: string | null;
+  listedAt: string | null;
+  expiresAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListingOffer {
+  id: number;
+  listingId: number;
+  amountEur: number;
+  buyer: string;
+  status: string;
+  receivedAt: string;
+  respondedAt: string | null;
+  notes: string | null;
+}

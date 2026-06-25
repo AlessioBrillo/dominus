@@ -7,7 +7,7 @@ import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
-type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'NS' | 'SOA';
+type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
 export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
 
@@ -120,7 +120,7 @@ async function resolveDoh(
   return true;
 }
 
-const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'NS', 'SOA'];
+const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'SOA'];
 
 async function resolvesAnyNative(
   domain: string,

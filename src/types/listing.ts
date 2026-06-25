@@ -76,6 +76,56 @@ export interface ListingsFilter {
   domain?: string;
 }
 
+export type AutoListSource = 'acquisition' | 'purchase' | 'pipeline_run' | 'manual';
+
+export type AutoListStatus = 'active' | 'superseded' | 'cancelled';
+
+export interface AutoListing {
+  id: number;
+  domain: string;
+  portfolioEntryId: number | null;
+  listingId: number;
+  triggerSource: AutoListSource;
+  pipelineRunId: string | null;
+  scoreSnapshotJson: string | null;
+  autoListedAt: string;
+  status: AutoListStatus;
+}
+
+export interface NewAutoListing {
+  domain: string;
+  listingId: number;
+  triggerSource: AutoListSource;
+  pipelineRunId?: string | null;
+  scoreSnapshotJson?: string | null;
+}
+
+export interface AutoListingRow {
+  id: number;
+  domain: string;
+  portfolio_entry_id: number | null;
+  listing_id: number;
+  trigger_source: string;
+  pipeline_run_id: string | null;
+  score_snapshot_json: string | null;
+  auto_listed_at: string;
+  status: string;
+}
+
+export function autoListingFromRow(row: AutoListingRow): AutoListing {
+  return {
+    id: row.id,
+    domain: row.domain,
+    portfolioEntryId: row.portfolio_entry_id,
+    listingId: row.listing_id,
+    triggerSource: row.trigger_source as AutoListSource,
+    pipelineRunId: row.pipeline_run_id,
+    scoreSnapshotJson: row.score_snapshot_json,
+    autoListedAt: row.auto_listed_at,
+    status: row.status as AutoListStatus,
+  };
+}
+
 export interface ListingRow {
   id: number;
   domain: string;
