@@ -50,6 +50,7 @@ describe('registerRunCommand', () => {
     await program.parseAsync(['node', 'cli', 'run', '--keywords', 'nova,saas']);
     expect(runService.runSync).toHaveBeenCalledWith(
       expect.objectContaining({ keywords: ['nova', 'saas'] }),
+      expect.any(Object),
     );
   });
 
@@ -63,6 +64,7 @@ describe('registerRunCommand', () => {
     await program.parseAsync(['node', 'cli', 'run', '--keywords', 'test']);
     expect(runService.runSync).toHaveBeenCalledWith(
       expect.objectContaining({ keywords: ['test'] }),
+      expect.any(Object),
     );
     writeSpy.mockRestore();
   });
@@ -94,6 +96,7 @@ describe('registerRunCommand', () => {
           { domain: 'expired.com', domainAge: 12, backlinks: 340, waybackSnapshots: 87 },
         ],
       }),
+      expect.any(Object),
     );
   });
 });

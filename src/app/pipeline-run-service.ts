@@ -13,8 +13,11 @@ import {
   type PipelineRunResults,
 } from '../db/repositories/pipeline-runs-repository.js';
 import { MetricsRepository } from '../db/repositories/metrics-repository.js';
+import { getLogger } from '../logger.js';
 import { type PipelineProgressService } from './pipeline-progress-service.js';
 import type { JobQueueService } from './job-queue-service.js';
+
+const logger = getLogger();
 
 /** Default retention window for pipeline_runs rows, in days (ADR-0011). */
 export const DEFAULT_PIPELINE_RUN_RETENTION_DAYS = 180;
@@ -44,7 +47,18 @@ export interface PipelineRunOptions {
    * enqueue → process → complete lifecycle.
    */
   externalRunId?: string;
+  /**
+   * When true, create draft marketplace listings for recommended
+   * candidates after the run completes. Requires setOnRunComplete
+   * to be wired with an AutoListingService-compatible handler.
+   */
+  autoList?: boolean;
 }
+
+export type OnRunComplete = (
+  result: PipelineRunResult,
+  options?: PipelineRunOptions,
+) => void | Promise<void>;
 
 export interface EnqueueRunResult {
   runId: string;
@@ -86,6 +100,7 @@ export class PipelineRunService {
   readonly #workerEnabled: boolean;
   /** Dedicated provider for pipeline persistence writes (separate SQLite connection). */
   readonly #bulkWriteProvider: DatabaseProvider | undefined;
+  #onRunComplete: OnRunComplete | undefined;
 
   constructor(
     provider: DatabaseProvider,
@@ -116,6 +131,10 @@ export class PipelineRunService {
     this.#jobQueueService = jobQueueService;
     this.#workerEnabled = workerEnabled;
     this.#bulkWriteProvider = bulkWriteProvider;
+  }
+
+  setOnRunComplete(cb: OnRunComplete): void {
+    this.#onRunComplete = cb;
   }
 
   /** The provider used for persistence writes (bulk-write if available, main otherwise). */
@@ -303,12 +322,20 @@ export class PipelineRunService {
       resultsSummary: buildResultsSummary(result, persistence),
     });
 
-    return {
+    const pipelineResult: PipelineRunResult = {
       ...result,
       persistence,
       startedAt,
       runRowId,
     };
+
+    if (this.#onRunComplete) {
+      Promise.resolve(this.#onRunComplete(pipelineResult, options)).catch((err: unknown) => {
+        logger.error({ err, runId: runRowId }, 'PipelineRunService: onRunComplete hook failed');
+      });
+    }
+
+    return pipelineResult;
   }
 
   async #persistStageMetrics(runId: string, result: PipelineResult): Promise<void> {

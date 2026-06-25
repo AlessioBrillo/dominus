@@ -116,6 +116,11 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       '--wait',
       'Enqueue and poll until completion (requires job queue). Default when no --sync flag.',
       false,
+    )
+    .option(
+      '--auto-list',
+      'Automatically create marketplace draft listings for recommended candidates',
+      false,
     );
 
   run
@@ -157,10 +162,12 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       closeoutCsv?: string;
       sync?: boolean | string;
       wait?: boolean | string;
+      autoList?: boolean | string;
     }) => {
       const input = buildInput(options);
       const useSync = Boolean(options.sync);
       const useWait = Boolean(options.wait);
+      const autoList = Boolean(options.autoList);
       const canEnqueue = jobQueueService !== undefined;
 
       // If --sync is explicitly set, or no job queue available, run sync
@@ -172,8 +179,13 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
         }
 
         try {
-          const result = await runService.runSync(input);
+          const result = await runService.runSync(input, { autoList });
           printResult(result);
+          if (autoList && result.recommended.length > 0) {
+            process.stdout.write(
+              `  Auto-list: ${result.recommended.length} recommended domains listed (or had existing listing)\n`,
+            );
+          }
         } catch (err: unknown) {
           process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
           process.exit(1);

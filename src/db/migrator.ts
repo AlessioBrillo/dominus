@@ -27,6 +27,7 @@ import * as m0024 from './migrations/0024_create_listings.js';
 import * as m0025 from './migrations/0025_create_events_and_onboarding.js';
 import * as m0026 from './migrations/0026_create_public_scores.js';
 import * as m0027 from './migrations/0027_create_wayback_cache.js';
+import * as m0028 from './migrations/0028_create_auto_listings.js';
 
 interface Migration {
   name: string;
@@ -65,6 +66,7 @@ const MIGRATIONS: Migration[] = [
   m0025,
   m0026,
   m0027,
+  m0028,
 ];
 
 export function runMigrations(db: Database.Database): void {

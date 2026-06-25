@@ -7,6 +7,7 @@ import type { PortfolioManager } from '../portfolio/index.js';
 import type { OutcomeRepository } from '../db/index.js';
 import type { ScoringEngine } from '../scoring/index.js';
 import type { TrademarkGate } from '../trademark/index.js';
+import type { AutoListingService } from '../services/auto-listing-service.js';
 
 export function buildRegistrarProvider(config: Config): RegistrarProvider {
   const registrarConfig: Record<string, string> = {};
@@ -55,6 +56,7 @@ export function buildPurchaseService(
   engine: ScoringEngine,
   gate: TrademarkGate,
   config: Config,
+  autoListing?: AutoListingService,
 ): PurchaseService {
   const autoApprovalMap: Record<string, AutoApprovalPolicy> = {
     never: AutoApprovalPolicy.Never,
@@ -70,5 +72,6 @@ export function buildPurchaseService(
     gate,
     autoApproval: autoApprovalMap[config.PURCHASE_AUTO_APPROVAL] ?? AutoApprovalPolicy.Never,
     buyMaxAbsoluteCap: config.BUY_MAX_ABSOLUTE_CAP,
+    autoListing,
   });
 }

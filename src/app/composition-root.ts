@@ -1,6 +1,7 @@
 ﻿import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
+import { getLogger } from '../logger.js';
 import {
   openDatabase,
   runMigrations,
@@ -81,6 +82,7 @@ import { AcquisitionService } from '../services/acquisition-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
+import { AutoListingService } from '../services/auto-listing-service.js';
 import { createJobQueueService } from './job-queue-service.js';
 import {
   JobWorker,
@@ -94,6 +96,8 @@ import {
   WeightTuneHandler,
   HANDLERS,
 } from '../jobs/index.js';
+
+const logger = getLogger();
 
 export interface DominusDependencies {
   db: Database.Database;
@@ -141,6 +145,7 @@ export interface DominusDependencies {
   acquisitionService: AcquisitionService;
   pnlService: PnlService;
   listingManager: ListingManager;
+  autoListingService: AutoListingService;
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
@@ -434,6 +439,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     euipoTmProvider.clearCache();
   });
 
+  // --- Listing / Sales Pipeline (needed before runService for auto-list hook) ---
+  const listingProvider = createListingProvider(config.LISTING_PROVIDER as ListingProviderType, {
+    listingRepo: repos.listingRepo,
+    danApiKey: config.DAN_API_KEY ?? undefined,
+  });
+  const listingManager = new ListingManager(
+    listingProvider,
+    repos.listingRepo,
+    engine,
+    trademarkGate,
+  );
+  const autoListingService = new AutoListingService(listingManager, repos.provider);
+
   const jobQueueService = createJobQueueService(provider);
   const runService = new PipelineRunService(
     repos.provider,
@@ -449,6 +467,27 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config.WORKER_ENABLED,
     bulkWriteProvider,
   );
+  runService.setOnRunComplete(async (result, options) => {
+    if (!options?.autoList) return;
+    const recommended = result.recommended;
+    if (recommended.length === 0) return;
+
+    const domains = recommended.map((c) => ({
+      domain: c.domain,
+      score: c.scoreResult,
+    }));
+
+    const { listed, skipped } = await autoListingService.autoListBatch(
+      domains,
+      'pipeline_run',
+      result.runRowId,
+    );
+
+    logger.info(
+      { runId: result.runRowId, listed: listed.length, skipped: skipped.length },
+      'PipelineRunService: auto-list post-run complete',
+    );
+  });
 
   // --- Portfolio ---
   const portfolioManager = new PortfolioManager(
@@ -533,6 +572,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
     config,
+    autoListingService,
   );
 
   // --- Acquisition ---
@@ -543,6 +583,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     provider,
     engine,
     trademarkGate,
+    autoListingService,
   );
 
   // --- P&L ---
@@ -556,18 +597,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     backupDir: config.BACKUP_DIR,
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });
-
-  // --- Listing / Sales Pipeline ---
-  const listingProvider = createListingProvider(config.LISTING_PROVIDER as ListingProviderType, {
-    listingRepo: repos.listingRepo,
-    danApiKey: config.DAN_API_KEY ?? undefined,
-  });
-  const listingManager = new ListingManager(
-    listingProvider,
-    repos.listingRepo,
-    engine,
-    trademarkGate,
-  );
 
   // --- Worker ---
   const worker = buildWorkerIfEnabled(
@@ -632,6 +661,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     acquisitionService,
     pnlService,
     listingManager,
+    autoListingService,
     jobQueueService,
     worker,
   };

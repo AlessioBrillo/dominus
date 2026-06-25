@@ -11,6 +11,7 @@ import { GateVerdict } from '../trademark/trademark-gate.js';
 import { parseDomain } from '../utils/domain.js';
 import { PurchaseNotApprovedError, type PurchaseRecord } from '../types/registrar.js';
 import { addYearsToDate } from '../types/acquisition.js';
+import type { AutoListingService, AutoListSource } from './auto-listing-service.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -48,6 +49,7 @@ export class PurchaseService {
   readonly #gate: TrademarkGate | undefined;
   readonly #autoApproval: AutoApprovalPolicy;
   readonly #buyMaxAbsoluteCap: number;
+  readonly #autoListing: AutoListingService | undefined;
 
   constructor(options: {
     registrar: RegistrarProvider;
@@ -57,6 +59,7 @@ export class PurchaseService {
     gate?: TrademarkGate | undefined;
     autoApproval?: AutoApprovalPolicy;
     buyMaxAbsoluteCap?: number;
+    autoListing?: AutoListingService | undefined;
   }) {
     this.#registrar = options.registrar;
     this.#portfolioManager = options.portfolioManager;
@@ -65,6 +68,7 @@ export class PurchaseService {
     this.#gate = options.gate;
     this.#autoApproval = options.autoApproval ?? AutoApprovalPolicy.Never;
     this.#buyMaxAbsoluteCap = options.buyMaxAbsoluteCap ?? 500;
+    this.#autoListing = options.autoListing;
   }
 
   get registrarName(): string {
@@ -179,6 +183,8 @@ export class PurchaseService {
 
         logger.info({ domain }, 'Manual purchase recorded in portfolio');
 
+        this.#tryAutoList(domain, check, 'purchase');
+
         return {
           success: true,
           message:
@@ -234,6 +240,8 @@ export class PurchaseService {
         'Domain purchased successfully',
       );
 
+      this.#tryAutoList(domain, check, 'purchase');
+
       return {
         success: true,
         message: result.message ?? 'Domain purchased successfully and added to portfolio',
@@ -252,6 +260,26 @@ export class PurchaseService {
       logger.error({ domain, error: message }, 'Purchase failed');
       return { success: false, error: message };
     }
+  }
+
+  #tryAutoList(domain: string, _check: PurchaseCheckResult, source: AutoListSource): void {
+    if (!this.#autoListing) return;
+    this.#autoListing
+      .autoList(domain, null, source)
+      .then((outcome) => {
+        if (!outcome.skipped) {
+          logger.info(
+            { domain, listingId: outcome.listing.id, source },
+            'PurchaseService: auto-listed after purchase',
+          );
+        }
+      })
+      .catch((err: unknown) => {
+        logger.warn(
+          { domain, err },
+          'PurchaseService: auto-listing failed after purchase (non-fatal)',
+        );
+      });
   }
 
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {
