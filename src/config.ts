@@ -200,13 +200,20 @@ const configSchema = z.object({
    * DoH fallback improves reliability when the system resolver returns
    * sporadic timeouts, at the cost of one extra HTTPS request per timeout.
    */
-  DNS_LOOKUP_STRATEGY: z.enum(['native', 'native-with-doh-fallback']).default('native'),
+  DNS_LOOKUP_STRATEGY: z.enum(['native', 'native-with-doh-fallback', 'doh-only']).default('native'),
   /**
    * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
    * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
    * Default: Cloudflare DNS over HTTPS (privacy-first, no ECS).
    */
   DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
+  /**
+   * TTL for in-memory DNS result cache in seconds.
+   * DNS records for domain availability are relatively stable (hours to days).
+   * Default: 300 seconds (5 minutes). Increase to reduce redundant lookups
+   * across pipeline batches; decrease to detect recent registrations faster.
+   */
+  DNS_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),
   /**
    * Rate limiting: max tokens (burst capacity) for DNS resolution requests.
    * Token bucket refills at DNS_RATE_LIMIT_TOKENS per DNS_RATE_LIMIT_INTERVAL_MS.

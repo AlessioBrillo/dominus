@@ -229,7 +229,7 @@ export class PipelineRunService {
           });
         });
       }
-      result = await this.#orchestrator.run(input);
+      result = await this.#orchestrator.run(input, runRowId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.#runsRepo.complete(runRowId, {
@@ -265,18 +265,6 @@ export class PipelineRunService {
               await this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
               scoresPersisted++;
             }
-          }
-
-          if (result.runId !== runRowId) {
-            const writeConn = this.#persistenceProvider;
-            await writeConn.exec(
-              'UPDATE candidates SET pipeline_run_id = ? WHERE pipeline_run_id = ?',
-              [runRowId, result.runId],
-            );
-            await writeConn.exec('UPDATE scoring_runs SET run_id = ? WHERE run_id = ?', [
-              runRowId,
-              result.runId,
-            ]);
           }
 
           return { candidatesPersisted, scoresPersisted };

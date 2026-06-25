@@ -128,6 +128,6 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
       }),
     );
 
-    return enriched.map((r) => (r.status === 'fulfilled' ? r.value : candidates[0]!));
+    return enriched.map((r, i) => (r.status === 'fulfilled' ? r.value : candidates[i]!));
   }
 }

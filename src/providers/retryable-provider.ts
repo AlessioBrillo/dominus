@@ -1,4 +1,5 @@
 import { getLogger } from '../logger.js';
+import { isTransient } from './retry-policy.js';
 
 const logger = getLogger();
 
@@ -24,58 +25,6 @@ export interface RetryableProvider<T, A extends unknown[]> {
   execute(...args: A): Promise<T>;
 }
 
-export function isTransientError(err: unknown): boolean {
-  if (err === null || err === undefined || typeof err !== 'object') return false;
-
-  const status =
-    ((err as Record<string, unknown>).status as number | undefined) ??
-    ((err as Record<string, unknown>).statusCode as number | undefined);
-
-  if (typeof status === 'number') {
-    if (status === 429 || (status >= 500 && status < 600)) return true;
-  }
-
-  const code = (err as Record<string, unknown>).code;
-  if (typeof code === 'string') {
-    const c = code.toUpperCase();
-    if (
-      c === 'ECONNRESET' ||
-      c === 'ETIMEDOUT' ||
-      c === 'ENOTFOUND' ||
-      c === 'EAI_AGAIN' ||
-      c === 'ECONNREFUSED' ||
-      c === 'ENETUNREACH'
-    ) {
-      return true;
-    }
-  }
-
-  if (err instanceof Error) {
-    const msg = err.message.toLowerCase();
-    if (
-      msg.includes('429') ||
-      msg.includes('503') ||
-      msg.includes('502') ||
-      msg.includes('504') ||
-      msg.includes('econnreset') ||
-      msg.includes('etimedout') ||
-      msg.includes('enotfound') ||
-      msg.includes('eai_again') ||
-      msg.includes('econnrefused') ||
-      msg.includes('fetch failed') ||
-      msg.includes('network') ||
-      msg.includes('timeout')
-    )
-      return true;
-
-    if ('cause' in err && err.cause !== undefined && err.cause !== null) {
-      return isTransientError(err.cause);
-    }
-  }
-
-  return false;
-}
-
 export async function withRetry<T>(
   fn: (signal?: AbortSignal) => Promise<T>,
   label: string,
@@ -94,7 +43,7 @@ export async function withRetry<T>(
       return await fn(signal);
     } catch (err) {
       lastErr = err;
-      if (attempt >= max || !isTransientError(err)) {
+      if (attempt >= max || !isTransient(err)) {
         throw err;
       }
       const exp = Math.pow(p.backoffMultiplier, attempt - 1);
