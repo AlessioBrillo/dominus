@@ -18,13 +18,12 @@ export function createAnalyticsRouter(
     }
   });
 
-  router.get('/accuracy', (_req, res) => {
+  router.get('/accuracy', (_req, res, next: NextFunction) => {
     try {
       const report = accuracyAnalyzer.generate();
       res.json(report);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: { code: 'ANALYTICS_ACCURACY_ERROR', message } });
+      next(err);
     }
   });
 
