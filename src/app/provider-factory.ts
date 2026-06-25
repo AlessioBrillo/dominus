@@ -133,7 +133,7 @@ export function buildRdapProviders(
 }
 
 export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): DnsProvider {
-  const inner = new NodeDnsProvider();
+  const inner = new NodeDnsProvider(undefined, config.DNS_CACHE_MAX_SIZE);
 
   const wrappedCheckAvailability = async (
     domain: string,
