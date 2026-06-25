@@ -194,16 +194,19 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         rdapStatus: rdap.status,
         rdapIsPremium: rdap.isPremium,
         whoisAvailable,
-        resolver: whoisAvailable ? 'whois' : 'rdap',
       },
       `RDAP/WHOIS cross-validation disagreement for ${domain} — ` +
         `RDAP says ${rdapAvailable ? 'available' : 'registered'}, ` +
         `WHOIS says ${whoisAvailable ? 'available' : 'registered'}. ` +
-        `Using ${whoisAvailable ? 'WHOIS' : 'RDAP'} (conservative) result.`,
+        `Conservatively filtering as registered.`,
     );
 
-    const result = whoisAvailable ? whoisToResult(whois) : rdapToResult(rdap);
-    result.source = 'cross-validated';
-    return result;
+    return {
+      domain,
+      status: DomainStatus.Registered,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+      source: 'cross-validated',
+    };
   }
 }
