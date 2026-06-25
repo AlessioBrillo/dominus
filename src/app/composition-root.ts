@@ -410,6 +410,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rawRdapProvider,
     whoisProvider,
     cachedKeywordProvider,
+    {
+      dnsProvider,
+      compsProvider: cachedCompsProvider,
+      ...(waybackProvider !== undefined ? { waybackProvider } : {}),
+    },
   );
 
   // --- Metrics & Pipeline ---

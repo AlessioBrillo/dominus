@@ -215,6 +215,13 @@ const configSchema = z.object({
    */
   DNS_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),
   /**
+   * Maximum number of entries in the in-memory DNS result cache.
+   * When the cache exceeds this size, least-recently-used entries are evicted.
+   * Default: 10000 — sufficient for most pipeline runs (50k candidates × 20% pass rate).
+   * Set to 0 to disable the cache entirely.
+   */
+  DNS_CACHE_MAX_SIZE: z.coerce.number().int().min(0).max(1000000).default(10000),
+  /**
    * Rate limiting: max tokens (burst capacity) for DNS resolution requests.
    * Token bucket refills at DNS_RATE_LIMIT_TOKENS per DNS_RATE_LIMIT_INTERVAL_MS.
    * DNS resolvers are typically permissive but bulk pipelines can still trigger

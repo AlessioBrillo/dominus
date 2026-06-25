@@ -67,12 +67,12 @@ describe('RdapConfirmationStage — integration (RDAP + WHOIS parallel fallback)
     expect(result.filtered).toHaveLength(1);
   });
 
-  it('parallel: both RDAP and WHOIS fire, RDAP result wins', async () => {
+  it('parallel: both RDAP and WHOIS fire, filters on disagreement', async () => {
     const rdap = makeRdap(true);
     const whois = makeWhois(false);
     const stage = new RdapConfirmationStage(rdap, whois);
     const result = await stage.process([makeCandidate('example.com')]);
-    expect(result.passed).toHaveLength(1);
+    expect(result.filtered).toHaveLength(1);
     expect(rdap.confirm).toHaveBeenCalled();
     expect(whois.checkAvailability).toHaveBeenCalled();
   });

@@ -22,6 +22,15 @@ const logger = getLogger();
 /** Default retention window for pipeline_runs rows, in days (ADR-0011). */
 export const DEFAULT_PIPELINE_RUN_RETENTION_DAYS = 180;
 
+/**
+ * Maximum number of candidate/score rows to persist in a single transaction.
+ * Larger batches improve throughput but hold the database lock longer.
+ * For SQLite with a dedicated bulk-write connection (WAL mode), this is
+ * primarily a memory concern. For PostgreSQL, it prevents prolonged
+ * lock contention on the main connection. Default: 500.
+ */
+const PERSISTENCE_BATCH_SIZE = 500;
+
 export interface PersistenceSummary {
   candidatesPersisted: number;
   scoresPersisted: number;
@@ -244,32 +253,43 @@ export class PipelineRunService {
 
     let persistence: PersistenceSummary;
     try {
-      persistence = await this.#persistenceProvider.transaction(
-        async (): Promise<PersistenceSummary> => {
-          let candidatesPersisted = 0;
-          let scoresPersisted = 0;
+      // Phase 1: upsert candidates in batches, building idByDomain across all batches.
+      // Each batch is a separate transaction so no single write holds the
+      // database lock for the entire candidate set (critical for PG, beneficial for SQLite).
+      const idByDomain = new Map<string, number>();
+      let candidatesPersisted = 0;
 
-          const idByDomain = new Map<string, number>();
-          for (const candidate of result.allCandidates) {
+      for (let i = 0; i < result.allCandidates.length; i += PERSISTENCE_BATCH_SIZE) {
+        const batch = result.allCandidates.slice(i, i + PERSISTENCE_BATCH_SIZE);
+        await this.#persistenceProvider.transaction(async () => {
+          for (const candidate of batch) {
             const persisted = await this.#candidateRepo.upsert(candidate);
             if (persisted.id !== undefined) {
               idByDomain.set(persisted.domain, persisted.id);
             }
-            candidatesPersisted++;
           }
+        });
+        candidatesPersisted += batch.length;
+      }
 
-          for (const scored of result.scored) {
-            if (scored.scoreResult === null) continue;
-            const id = idByDomain.get(scored.domain);
-            if (id !== undefined) {
-              await this.#scoringRepo.insert(id, result.runId, scored.scoreResult);
-              scoresPersisted++;
-            }
-          }
-
-          return { candidatesPersisted, scoresPersisted };
-        },
+      // Phase 2: insert scores in batches, each in its own transaction.
+      let scoresPersisted = 0;
+      const scoredWithIds = result.scored.filter(
+        (s) => s.scoreResult !== null && idByDomain.has(s.domain),
       );
+
+      for (let i = 0; i < scoredWithIds.length; i += PERSISTENCE_BATCH_SIZE) {
+        const batch = scoredWithIds.slice(i, i + PERSISTENCE_BATCH_SIZE);
+        await this.#persistenceProvider.transaction(async () => {
+          for (const scored of batch) {
+            const id = idByDomain.get(scored.domain)!;
+            await this.#scoringRepo.insert(id, result.runId, scored.scoreResult!);
+            scoresPersisted++;
+          }
+        });
+      }
+
+      persistence = { candidatesPersisted, scoresPersisted };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.#runsRepo.complete(runRowId, {

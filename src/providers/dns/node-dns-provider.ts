@@ -233,9 +233,11 @@ interface CacheEntry {
 export class NodeDnsProvider implements DnsProvider {
   #cache: Map<string, CacheEntry> = new Map();
   readonly #cacheTtlMs: number;
+  readonly #maxSize: number;
 
-  constructor(cacheTtlMs?: number) {
+  constructor(cacheTtlMs?: number, maxSize?: number) {
     this.#cacheTtlMs = cacheTtlMs ?? getDefaultCacheTtl();
+    this.#maxSize = maxSize ?? 10000;
   }
 
   /** Clear cached entries older than TTL */
@@ -316,7 +318,17 @@ export class NodeDnsProvider implements DnsProvider {
   }
 
   #cached(domain: string, result: DnsCheckResult): DnsCheckResult {
-    this.#cache.set(domain, { result, expiresAt: Date.now() + this.#cacheTtlMs });
+    if (this.#maxSize > 0) {
+      if (this.#cache.has(domain)) {
+        this.#cache.delete(domain);
+      } else if (this.#cache.size >= this.#maxSize) {
+        const oldest = this.#cache.keys().next();
+        if (!oldest.done && oldest.value !== undefined) {
+          this.#cache.delete(oldest.value);
+        }
+      }
+      this.#cache.set(domain, { result, expiresAt: Date.now() + this.#cacheTtlMs });
+    }
     return result;
   }
 

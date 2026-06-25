@@ -360,28 +360,38 @@ function raceWithTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = Date.now() + timeoutMs;
-  const timeout = new Promise<never>((_, reject) => {
-    const onAbort = (): void => {
+  let abortHandler: (() => void) | null = null;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    abortHandler = (): void => {
       clearTimeout(timer);
       reject(new PipelineTimeoutError(timeoutMs, Date.now() - (deadline - timeoutMs)));
     };
+
     if (signal.aborted) {
-      onAbort();
+      abortHandler();
       return;
     }
-    signal.addEventListener('abort', onAbort, { once: true });
+
+    signal.addEventListener('abort', abortHandler, { once: true });
+
     timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
+      signal.removeEventListener('abort', abortHandler!);
+      abortHandler = null;
       abortController?.abort();
       const elapsed = Date.now() - (deadline - timeoutMs);
       logger.warn({ label, timeoutMs, elapsed }, 'Pipeline stage timed out');
       reject(new PipelineTimeoutError(timeoutMs, elapsed));
     }, timeoutMs).unref();
   });
+
   return Promise.race([
     promise.finally(() => {
       clearTimeout(timer);
+      if (abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
+      }
     }),
-    timeout,
+    timeoutPromise,
   ]);
 }
