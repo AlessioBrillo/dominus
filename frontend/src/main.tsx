@@ -13,6 +13,7 @@ import { OnboardingPage } from '@/pages/OnboardingPage';
 import { CandidatesPage } from '@/pages/CandidatesPage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
+import { ListingsPage } from '@/pages/ListingsPage';
 import { BidsPage } from '@/pages/BidsPage';
 import { OutcomesPage } from '@/pages/OutcomesPage';
 import { SettingsPage } from '@/pages/SettingsPage';
@@ -48,6 +49,7 @@ createRoot(document.getElementById('root')!).render(
                     <Route path="onboarding" element={<OnboardingPage />} />
                     <Route path="candidates" element={<CandidatesPage />} />
                     <Route path="analytics" element={<AnalyticsPage />} />
+                    <Route path="listings" element={<ListingsPage />} />
                     <Route path="bids" element={<BidsPage />} />
                     <Route path="portfolio" element={<PortfolioPage />} />
                     <Route path="outcomes" element={<OutcomesPage />} />
