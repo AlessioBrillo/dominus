@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, existsSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import Database from 'better-sqlite3';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { BackupService } from '../backup-service.js';
 
 const TEST_DIR = resolve('./data/tmp/backup-test');
@@ -39,9 +40,9 @@ describe('BackupService', () => {
   });
 
   it('creates a backup file via VACUUM INTO', async () => {
+    const sqliteProvider = new SqliteProvider(db, 30000, true);
     const service = new BackupService({
-      db,
-      dbPath: TEST_DB_PATH,
+      provider: sqliteProvider,
       backupDir: TEST_BACKUP_DIR,
       retentionDays: 30,
     });
@@ -60,9 +61,9 @@ describe('BackupService', () => {
   });
 
   it('lists backups in reverse chronological order', async () => {
+    const sqliteProvider = new SqliteProvider(db, 30000, true);
     const service = new BackupService({
-      db,
-      dbPath: TEST_DB_PATH,
+      provider: sqliteProvider,
       backupDir: TEST_BACKUP_DIR,
       retentionDays: 30,
     });
@@ -79,9 +80,9 @@ describe('BackupService', () => {
   });
 
   it('prunes backups older than retention days', async () => {
+    const sqliteProvider = new SqliteProvider(db, 30000, true);
     const service = new BackupService({
-      db,
-      dbPath: TEST_DB_PATH,
+      provider: sqliteProvider,
       backupDir: TEST_BACKUP_DIR,
       retentionDays: 0,
     });
@@ -95,9 +96,9 @@ describe('BackupService', () => {
   });
 
   it('returns empty list when backup dir does not exist', () => {
+    const sqliteProvider = new SqliteProvider(db, 30000, true);
     const service = new BackupService({
-      db,
-      dbPath: TEST_DB_PATH,
+      provider: sqliteProvider,
       backupDir: join(TEST_DIR, 'nonexistent'),
       retentionDays: 30,
     });
@@ -109,9 +110,9 @@ describe('BackupService', () => {
   it('skips non-db files in backup dir', async () => {
     mkdirSync(TEST_BACKUP_DIR, { recursive: true });
 
+    const sqliteProvider = new SqliteProvider(db, 30000, true);
     const service = new BackupService({
-      db,
-      dbPath: TEST_DB_PATH,
+      provider: sqliteProvider,
       backupDir: TEST_BACKUP_DIR,
       retentionDays: 30,
     });
@@ -124,9 +125,9 @@ describe('BackupService', () => {
 
   it('handles backup when db has no WAL pages', async () => {
     db.pragma('wal_checkpoint(TRUNCATE)');
+    const sqliteProvider = new SqliteProvider(db, 30000, true);
     const service = new BackupService({
-      db,
-      dbPath: TEST_DB_PATH,
+      provider: sqliteProvider,
       backupDir: TEST_BACKUP_DIR,
       retentionDays: 30,
     });

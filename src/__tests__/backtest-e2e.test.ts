@@ -188,7 +188,7 @@ describe('Backtest — end-to-end', () => {
   it('snapshot and report produce correct metrics for one sold outcome', async () => {
     seedScenario(provider);
     await seedOutcome(provider);
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
 
     // Act — snapshot
     const summary = await engine.snapshot();
@@ -215,7 +215,7 @@ describe('Backtest — end-to-end', () => {
 
     // The scoring_run on 2026-06-01 (run-2, ev=900) should NOT be picked
     // because the sale was on 2026-03-01
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
     const summary = await engine.snapshot();
     expect(summary.inserted).toBe(1);
 
@@ -227,7 +227,7 @@ describe('Backtest — end-to-end', () => {
   it('snapshot is idempotent — second call does not create duplicate rows', async () => {
     seedScenario(provider);
     await seedOutcome(provider);
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
 
     const s1 = await engine.snapshot();
     expect(s1.inserted).toBe(1);
@@ -242,7 +242,7 @@ describe('Backtest — end-to-end', () => {
     seedScenario(provider);
     await seedOutcome(provider);
     await seedSecondOutcome(provider);
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
 
     const summary = await engine.snapshot();
     expect(summary.scanned).toBe(2);
@@ -255,10 +255,10 @@ describe('Backtest — end-to-end', () => {
     await seedOutcome(provider);
     await seedSecondOutcome(provider);
 
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
     await engine.snapshot();
 
-    const suggester = new WeightSuggester(provider.rawDb, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(provider, backtestRepo, scoringRepo);
     const suggestion = await suggester.suggest();
     expect(suggestion.sampleSize).toBe(2);
     expect(suggestion.suggestions.length).toBeGreaterThan(0);
@@ -271,7 +271,7 @@ describe('Backtest — end-to-end', () => {
 
   it('report on empty backtest_signals returns zeroes', async () => {
     seedScenario(provider);
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
     const report = await engine.report();
     expect(report.sampleSize).toBe(0);
     expect(report.meanAbsoluteErrorEur).toBe(0);
@@ -302,7 +302,7 @@ describe('Backtest — end-to-end', () => {
     });
     await seedOutcome(provider);
 
-    const engine = new BacktestEngine(provider.rawDb, outcomeRepo, backtestRepo);
+    const engine = new BacktestEngine(provider, outcomeRepo, backtestRepo);
     const summary = await engine.snapshot();
     expect(summary.scanned).toBe(2);
     expect(summary.inserted).toBe(1);

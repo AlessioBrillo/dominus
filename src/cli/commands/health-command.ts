@@ -7,11 +7,12 @@ import { reportProviderStatuses } from '../../app/provider-status.js';
 import type { Config } from '../../config.js';
 
 export interface HealthCommandDeps {
-  db: Database.Database;
+  db: Database.Database | null;
   config: Config;
 }
 
 export function registerHealthCommand(program: Command, deps: HealthCommandDeps): void {
+  const rawDb = deps.db!;
   program
     .command('health')
     .description('Check system health: database, version, providers, uptime')
@@ -19,7 +20,7 @@ export function registerHealthCommand(program: Command, deps: HealthCommandDeps)
     .action((options: { json: boolean }) => {
       const version = readVersion();
       const uptime = process.uptime();
-      const dbOk = checkDatabase(deps.db);
+      const dbOk = checkDatabase(rawDb);
       const providers = reportProviderStatuses(deps.config);
 
       if (options.json) {

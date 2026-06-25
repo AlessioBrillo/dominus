@@ -8,7 +8,7 @@ export {
 } from './database.js';
 export { runMigrations } from './migrator.js';
 export { PostgresAdapter } from './provider/postgres-adapter.js';
-export type { DatabaseProvider, ExecResult } from './provider/interface.js';
+export type { DatabaseProvider, ExecResult, BackupResult } from './provider/interface.js';
 export { SqliteProvider, MockDatabaseProvider } from './provider/index.js';
 
 import type { Config } from '../config.js';

@@ -1,9 +1,10 @@
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { getLogger } from '../../logger.js';
-import type { DatabaseProvider, ExecResult } from './interface.js';
+import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 import { DatabaseError } from './interface.js';
+import { runMigrations as runSqliteMigrations } from '../migrator.js';
 const logger = getLogger();
 
 export class SqliteProvider implements DatabaseProvider {
@@ -67,6 +68,23 @@ export class SqliteProvider implements DatabaseProvider {
 
   get rawDb(): Database.Database {
     return this.#db;
+  }
+
+  async backup(destinationPath: string): Promise<BackupResult> {
+    const start = Date.now();
+    const absPath = resolve(destinationPath);
+    const dir = dirname(absPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    this.#db.pragma('wal_checkpoint(TRUNCATE)');
+    this.#db.exec(`VACUUM INTO '${absPath.replace(/'/g, "''")}'`);
+    const s = statSync(absPath);
+    return { path: absPath, sizeBytes: s.size, durationMs: Date.now() - start };
+  }
+
+  async runMigrations(): Promise<void> {
+    runSqliteMigrations(this.#db);
   }
 
   async exec(sql: string, params?: unknown[]): Promise<ExecResult> {

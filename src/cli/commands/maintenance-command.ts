@@ -11,7 +11,7 @@ import type { BackupService } from '../../scheduler/backup-service.js';
 import { RESCORE_RUN_ID_PREFIX } from '../../portfolio/portfolio-rescore-service.js';
 
 export interface MaintenanceCommandDeps {
-  db: Database.Database;
+  db: Database.Database | null;
   trademarkRepo: TrademarkRepository;
   providerCacheRepo?: ProviderCacheRepository | undefined;
   runsRepo: PipelineRunsRepository;
@@ -20,7 +20,18 @@ export interface MaintenanceCommandDeps {
   backupService?: BackupService | undefined;
 }
 
+function assertDb(db: Database.Database | null, cmd: string): Database.Database {
+  if (!db) {
+    process.stderr.write(
+      `Error: 'dominus ${cmd}' requires a SQLite database. Not available in PostgreSQL mode.\n`,
+    );
+    process.exit(1);
+  }
+  return db;
+}
+
 export function registerMaintenanceCommand(program: Command, deps: MaintenanceCommandDeps): void {
+  const rawDb = assertDb(deps.db, 'maintenance');
   const maintenance = program
     .command('maintenance')
     .description('Prune ephemeral data, backup, and vacuum the database');
@@ -53,12 +64,12 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
       const absPath = resolve(process.cwd(), path);
       mkdirSync(dirname(absPath), { recursive: true });
 
-      deps.db.pragma('wal_checkpoint(TRUNCATE)');
+      rawDb.pragma('wal_checkpoint(TRUNCATE)');
       if (absPath.includes("'")) {
         process.stderr.write('Error: backup path must not contain single quotes\n');
         process.exit(1);
       }
-      deps.db.exec(`VACUUM INTO '${absPath.replace(/'/g, "''")}'`);
+      rawDb.exec(`VACUUM INTO '${absPath.replace(/'/g, "''")}'`);
 
       process.stdout.write(`Backup written to ${absPath}\n`);
     });
@@ -68,7 +79,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     .description('Run integrity_check, WAL checkpoint, and VACUUM to reclaim space')
     .action(() => {
       process.stdout.write('Running integrity_check...\n');
-      const integrity = deps.db.pragma('integrity_check') as unknown as string;
+      const integrity = rawDb.pragma('integrity_check') as unknown as string;
       if (integrity !== 'ok') {
         process.stderr.write(`INTEGRITY CHECK FAILED: ${integrity}\n`);
         process.exit(1);
@@ -76,10 +87,10 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
       process.stdout.write('Integrity check passed.\n');
 
       process.stdout.write('Checkpointing WAL...\n');
-      deps.db.pragma('wal_checkpoint(TRUNCATE)');
+      rawDb.pragma('wal_checkpoint(TRUNCATE)');
 
       process.stdout.write('Running VACUUM...\n');
-      deps.db.exec('VACUUM');
+      rawDb.exec('VACUUM');
 
       process.stdout.write('Database vacuumed successfully.\n');
     });

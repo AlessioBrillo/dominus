@@ -7,7 +7,7 @@ import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 import type { JobQueueService } from '../../app/job-queue-service.js';
 import type { PipelineProgressService } from '../../app/pipeline-progress-service.js';
 import { setupSseResponse } from '../../app/pipeline-progress-service.js';
-import type { Database } from 'better-sqlite3';
+import type Database from 'better-sqlite3';
 import type { CandidateGenerationInput } from '../../pipeline/stages/candidate-generation-stage.js';
 import { getRouteParam } from '../route-utils.js';
 import { getLogger } from '../../logger.js';
@@ -29,7 +29,7 @@ export function createRunsRouter(
   runsRepo: PipelineRunsRepository,
   candidateRepo: CandidateRepository,
   scoringRepo: ScoringRepository,
-  db?: Database,
+  db: Database.Database | null,
   progressService?: PipelineProgressService,
   runService?: PipelineRunService,
   jobQueueService?: JobQueueService,

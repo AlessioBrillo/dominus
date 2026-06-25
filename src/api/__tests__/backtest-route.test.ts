@@ -28,7 +28,7 @@ describe('POST /api/v1/backtest', () => {
   it('snapshot returns scanned/inserted/skipped counters', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/v1/backtest', createBacktestRouter(provider.rawDb, provider, outcomeRepo));
+    app.use('/api/v1/backtest', createBacktestRouter(provider, outcomeRepo));
     app.use(errorHandler);
 
     const res = await request(app).post('/api/v1/backtest/snapshot');
@@ -42,7 +42,7 @@ describe('POST /api/v1/backtest', () => {
   it('report returns calibration metrics', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/v1/backtest', createBacktestRouter(provider.rawDb, provider, outcomeRepo));
+    app.use('/api/v1/backtest', createBacktestRouter(provider, outcomeRepo));
     app.use(errorHandler);
 
     const res = await request(app).post('/api/v1/backtest/report');
@@ -56,7 +56,7 @@ describe('POST /api/v1/backtest', () => {
   it('suggest-weights returns weight suggestion report', async () => {
     const app = express();
     app.use(express.json());
-    app.use('/api/v1/backtest', createBacktestRouter(provider.rawDb, provider, outcomeRepo));
+    app.use('/api/v1/backtest', createBacktestRouter(provider, outcomeRepo));
     app.use(errorHandler);
 
     const res = await request(app).post('/api/v1/backtest/suggest-weights');

@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import { BacktestEngine, WeightSuggester } from '../../scoring/backtest/index.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
@@ -11,7 +10,6 @@ import { DEFAULT_WEIGHTS } from '../../scoring/weights.js';
 import type { AutoWeightTuner } from '../../scoring/auto-tuner.js';
 
 export function createBacktestRouter(
-  db: Database.Database,
   provider: DatabaseProvider,
   outcomeRepo: OutcomeRepository,
   currentWeights: ScoringWeights = DEFAULT_WEIGHTS,
@@ -25,7 +23,7 @@ export function createBacktestRouter(
     '/snapshot',
     async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const engine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+        const engine = new BacktestEngine(provider, outcomeRepo, backtestSignalsRepo);
         const summary = await engine.snapshot();
         res.json(summary);
       } catch (err: unknown) {
@@ -38,7 +36,7 @@ export function createBacktestRouter(
     '/report',
     async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const engine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
+        const engine = new BacktestEngine(provider, outcomeRepo, backtestSignalsRepo);
         const report = await engine.report();
         res.json(report);
       } catch (err: unknown) {
@@ -51,7 +49,12 @@ export function createBacktestRouter(
     '/suggest-weights',
     async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const suggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
+        const suggester = new WeightSuggester(
+          provider,
+          backtestSignalsRepo,
+          scoringRepo,
+          currentWeights,
+        );
         const report = await suggester.suggest();
         res.json(report);
       } catch (err: unknown) {
