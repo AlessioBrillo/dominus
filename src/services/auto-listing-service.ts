@@ -1,7 +1,9 @@
 import type { ListingManager } from '../listing/listing-manager.js';
 import type { ScoreResult } from '../types/score.js';
 import type { MarketplaceName, Listing } from '../types/listing.js';
-import type { DatabaseProvider } from '../db/provider/interface.js';
+import type { AutoListSource } from '../types/listing.js';
+export type { AutoListSource } from '../types/listing.js';
+import type { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -22,15 +24,13 @@ export interface AutoListSkipped {
 
 export type AutoListOutcome = AutoListResult | AutoListSkipped;
 
-export type AutoListSource = 'acquisition' | 'purchase' | 'pipeline_run';
-
 export class AutoListingService {
   readonly #listingManager: ListingManager;
-  readonly #db: DatabaseProvider;
+  readonly #autoListingRepo: AutoListingRepository;
 
-  constructor(listingManager: ListingManager, db: DatabaseProvider) {
+  constructor(listingManager: ListingManager, autoListingRepo: AutoListingRepository) {
     this.#listingManager = listingManager;
-    this.#db = db;
+    this.#autoListingRepo = autoListingRepo;
   }
 
   async autoList(
@@ -53,22 +53,22 @@ export class AutoListingService {
     }
 
     try {
-      // ListingManager prices via engine internally if no price provided
       const listing = await this.#listingManager.listDomain(domain, mkt, score?.suggestedListPrice);
 
-      const scoreJson = score ? JSON.stringify(score) : null;
+      const scoreSnapshotJson = score ? JSON.stringify(score) : null;
 
-      const insertResult = await this.#db.exec(
-        `INSERT INTO auto_listings (domain, listing_id, trigger_source, pipeline_run_id, score_snapshot_json, status)
-         VALUES (?, ?, ?, ?, ?, 'active')`,
-        [domain, listing.id, source, pipelineRunId ?? null, scoreJson],
+      await this.#autoListingRepo.insert({
+        domain,
+        listingId: listing.id,
+        triggerSource: source,
+        pipelineRunId: pipelineRunId ?? null,
+        scoreSnapshotJson: scoreSnapshotJson ?? null,
+      });
+
+      logger.info(
+        { domain, listingId: listing.id, source },
+        'AutoListingService: auto-listing recorded',
       );
-      if (insertResult.lastInsertRowid) {
-        logger.info(
-          { domain, listingId: listing.id, source },
-          'AutoListingService: auto-listing recorded',
-        );
-      }
 
       return { listing, source, skipped: false };
     } catch (err: unknown) {

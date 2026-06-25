@@ -63,6 +63,7 @@ export { SchedulerJobRepository } from './repositories/scheduler-job-repository.
 export { MetricsRepository } from './repositories/metrics-repository.js';
 export { JobQueueRepository } from './repositories/job-queue-repository.js';
 export { ListingRepository } from './repositories/listing-repository.js';
+export { AutoListingRepository } from './repositories/auto-listing-repository.js';
 export type {
   StageMetricRow,
   MetricAggregate,
