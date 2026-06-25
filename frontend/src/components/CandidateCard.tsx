@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ShoppingCart, X } from 'lucide-react';
 import { ScoreGauge } from './ScoreGauge';
+import { ShareButton } from './ShareButton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -107,17 +108,20 @@ export function CandidateCard({ candidate, onBuy, onDismiss }: CandidateCardProp
             </div>
           )}
 
-          {onBuy && candidate.status === 'recommended' && (
-            <Button
-              variant="success"
-              size="sm"
-              className="w-full mt-2"
-              onClick={() => setShowBuyDialog(true)}
-            >
-              <ShoppingCart className="h-4 w-4 mr-1" />
-              Buy €{score?.suggestedBuyMax.toFixed(0) ?? '?'}
-            </Button>
-          )}
+          <div className="flex gap-2 mt-2">
+            {onBuy && candidate.status === 'recommended' && (
+              <Button
+                variant="success"
+                size="sm"
+                className="flex-1"
+                onClick={() => setShowBuyDialog(true)}
+              >
+                <ShoppingCart className="h-4 w-4 mr-1" />
+                Buy €{score?.suggestedBuyMax.toFixed(0) ?? '?'}
+              </Button>
+            )}
+            {score && <ShareButton domain={candidate.domain} />}
+          </div>
         </CardContent>
       </Card>
 

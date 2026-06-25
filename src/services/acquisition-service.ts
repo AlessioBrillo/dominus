@@ -8,6 +8,7 @@ import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import { GateVerdict } from '../trademark/trademark-gate.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
+import type { AutoListingService } from './auto-listing-service.js';
 import { getLogger } from '../logger.js';
 import { parseDomain } from '../utils/domain.js';
 
@@ -20,6 +21,7 @@ export class AcquisitionService {
   readonly #db: DatabaseProvider;
   readonly #engine: ScoringEngine | undefined;
   readonly #gate: TrademarkGate | undefined;
+  readonly #autoListing: AutoListingService | undefined;
 
   constructor(
     repo: AcquisitionRepository,
@@ -28,6 +30,7 @@ export class AcquisitionService {
     db: DatabaseProvider,
     engine?: ScoringEngine,
     gate?: TrademarkGate,
+    autoListing?: AutoListingService,
   ) {
     this.#repo = repo;
     this.#portfolioManager = portfolioManager;
@@ -35,6 +38,7 @@ export class AcquisitionService {
     this.#db = db;
     this.#engine = engine;
     this.#gate = gate;
+    this.#autoListing = autoListing;
   }
 
   async place(input: PlaceBidInput): Promise<Bid> {
@@ -148,6 +152,25 @@ export class AcquisitionService {
             venue: existing.venue,
             notes: `Won auction on ${existing.venue}, bid €${existing.bidAmountEur}`,
           });
+
+          if (this.#autoListing) {
+            this.#autoListing
+              .autoList(input.domain, null, 'acquisition')
+              .then((outcome) => {
+                if (!outcome.skipped) {
+                  logger.info(
+                    { domain: input.domain, listingId: outcome.listing.id },
+                    'AcquisitionService: auto-listed after won bid',
+                  );
+                }
+              })
+              .catch((err: unknown) => {
+                logger.warn(
+                  { domain: input.domain, err },
+                  'AcquisitionService: auto-listing failed after won bid (non-fatal)',
+                );
+              });
+          }
         }
 
         logger.info(
