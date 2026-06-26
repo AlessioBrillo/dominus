@@ -44,12 +44,11 @@ export function buildKeywordProvider(
     providerCacheRepo,
   );
 
-  const cache = new CachedProvider<KeywordMetrics>(
+  const cache = CachedProvider.createJson<KeywordMetrics>(
     (term, signal) => raw.getMetrics(term, signal),
     providerCacheRepo,
     'keyword',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
-    undefined,
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
@@ -70,12 +69,11 @@ export function buildCompsProvider(
     namebioApiKey: config.NAMEBIO_API_KEY,
   });
 
-  const cache = new CachedProvider<ComparableSale[]>(
+  const cache = CachedProvider.createJson<ComparableSale[]>(
     (term, signal) => raw.getSales(term, signal),
     providerCacheRepo,
     'comps',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
-    undefined,
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
@@ -114,12 +112,11 @@ export function buildRdapProviders(
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, RDAP_CIRCUIT_BREAKER);
 
-  const rdapCache = new CachedProvider<RdapResult>(
+  const rdapCache = CachedProvider.createJson<RdapResult>(
     (domain, signal) => withRetryProvider.confirm(domain, signal),
     providerCacheRepo,
     'rdap',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
-    undefined,
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
@@ -226,12 +223,11 @@ export function buildWaybackProvider(
 
   const raw = new CdxWaybackProvider(undefined, waybackLimiter, config.WAYBACK_TIMEOUT_MS);
 
-  const cache = new CachedProvider<WaybackResult>(
+  const cache = CachedProvider.createJson<WaybackResult>(
     (domain, signal) => raw.getExpiryData(domain, signal),
     providerCacheRepo,
     'wayback',
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
-    undefined,
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
