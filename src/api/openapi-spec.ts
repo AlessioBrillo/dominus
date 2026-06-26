@@ -2,7 +2,7 @@ export const OPENAPI_SPEC: Record<string, unknown> = {
   openapi: '3.1.0',
   info: {
     title: 'DOMINUS API',
-    version: '0.4.0-dev',
+    version: '0.5.0-dev',
     description: `REST API for the DOMINUS domain investment decision-support engine.
 
 Authentication via \`Authorization: Bearer <api-key>\` header.
