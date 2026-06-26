@@ -26,14 +26,13 @@ export default defineConfig({
         'src/providers/*/index.ts',
         'src/db/index.ts',
       ],
-      // Current: 64% lines / 65% functions / 55% branches.
-      // Large untested route files (public-router.ts, onboarding.ts, listings.ts)
-      // and API routes (runs.ts, metrics.ts, docs.ts) pull the average down.
-      // Coverage improvement tracked via incremental per-module work.
+      // Current: 63% lines / 65% functions / 55% branches.
+      // Large untested route files (public-router.ts, onboarding.ts, listings.ts, runs.ts)
+      // pull the average down. Incremental improvement target: 70/65/60 per CONTRIBUTING.md.
       thresholds: {
-        lines: 60,
-        functions: 60,
-        branches: 50,
+        lines: 62,
+        functions: 64,
+        branches: 54,
       },
     },
   },
