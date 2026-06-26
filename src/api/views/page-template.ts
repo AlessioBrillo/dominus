@@ -1,0 +1,61 @@
+export const BASE_CSS = [
+  '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}',
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0f;color:#e4e4e7;line-height:1.6;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem}',
+  '.card{background:#18181b;border:1px solid #27272a;border-radius:12px;padding:2rem;max-width:480px;width:100%}',
+  'h1{font-size:1.5rem;font-weight:600;margin-bottom:.25rem;word-break:break-all}',
+  '.subtitle{color:#a1a1aa;font-size:.875rem;margin-bottom:1.5rem}',
+  '.grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}',
+  '.stat{background:#27272a;border-radius:8px;padding:.75rem}',
+  '.stat-label{font-size:.75rem;color:#a1a1aa;text-transform:uppercase;letter-spacing:.05em}',
+  '.stat-value{font-size:1.25rem;font-weight:700;margin-top:.25rem}',
+  '.stat-value.positive{color:#22c55e}',
+  '.stat-value.negative{color:#ef4444}',
+  '.badge{display:inline-block;padding:.25rem .75rem;border-radius:999px;font-size:.75rem;font-weight:600}',
+  '.badge.clear{background:#052e16;color:#22c55e}',
+  '.badge.blocked{background:#450a0a;color:#ef4444}',
+  '.badge.unverified{background:#1c1917;color:#f97316}',
+  '.footer{margin-top:1.5rem;text-align:center;font-size:.75rem;color:#52525b}',
+  '.footer a{color:#818cf8;text-decoration:none}',
+].join('');
+
+export const COMPARE_CSS = [
+  '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}',
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0f;color:#e4e4e7;line-height:1.6;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem}',
+  'h1{font-size:1.25rem;font-weight:600;margin-bottom:1.5rem;text-align:center}',
+  '.row{display:flex;gap:1rem;max-width:800px;width:100%;margin-bottom:1rem}',
+  '.col{flex:1;background:#18181b;border:1px solid #27272a;border-radius:12px;padding:1.25rem}',
+  'h2{font-size:1.1rem;font-weight:600;margin-bottom:.25rem;word-break:break-all}',
+  '.stat{margin-top:.75rem}',
+  '.stat-label{font-size:.75rem;color:#a1a1aa;text-transform:uppercase;letter-spacing:.05em}',
+  '.stat-value{font-size:1.1rem;font-weight:700}',
+  '.stat-value.positive{color:#22c55e}',
+  '.stat-value.negative{color:#ef4444}',
+  '.footer{margin-top:1.5rem;text-align:center;font-size:.75rem;color:#52525b}',
+  '.footer a{color:#818cf8;text-decoration:none}',
+].join('');
+
+export const ERROR_CSS = [
+  'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0f;color:#e4e4e7;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:2rem}',
+  '.card{background:#18181b;border:1px solid #27272a;border-radius:12px;padding:2rem;text-align:center}',
+  'h1{color:#ef4444;margin-bottom:.5rem}',
+  'p{color:#a1a1aa}',
+].join('');
+
+export function pageHtml(
+  title: string,
+  headExtras: string,
+  css: string,
+  bodyContent: string,
+): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${title}</title>
+${headExtras}
+<style>${css}</style>
+</head>
+<body>${bodyContent}</body>
+</html>`;
+}
