@@ -104,3 +104,7 @@ export function extractRegistrarTld(domain: string): string {
   // Strip leading dot, then replace remaining dots with underscores
   return tld.slice(1).replace(/\./g, '_');
 }
+
+export function generateRunId(): string {
+  return `run_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}

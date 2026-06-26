@@ -8,11 +8,7 @@ export {
   WHOIS_CIRCUIT_BREAKER,
 } from './retrying-whois-provider.js';
 export { CircuitOpenError as WhoisCircuitOpenError } from '../providers/retry-policy.js';
-export {
-  reportProviderStatuses,
-  warnEuipoIfMissing,
-  warnCloudflareIfMissing,
-} from './provider-status.js';
+export { reportProviderStatuses, warnEuipoIfMissing } from './provider-status.js';
 export type { ProviderStatus } from './provider-status.js';
 export { MetricsCollector } from './metrics-collector.js';
 export { PipelineProgressService, setupSseResponse } from './pipeline-progress-service.js';

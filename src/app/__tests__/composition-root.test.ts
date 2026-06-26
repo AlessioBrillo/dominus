@@ -16,7 +16,7 @@ import {
 } from '../../db/index.js';
 import { createKeywordProvider } from '../../providers/keyword/index.js';
 import { createCompsProvider } from '../../providers/comps/index.js';
-import { NodeDnsProvider } from '../../providers/dns/index.js';
+import { NodeDnsProvider, type DnsProvider } from '../../providers/dns/index.js';
 import { RateLimiter } from '../../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../../providers/whois/index.js';
@@ -40,7 +40,6 @@ import { PipelineRunService } from '../index.js';
 import { registrarRegistry } from '../../providers/registrar/registrar-registry.js';
 import { PurchaseService, AutoApprovalPolicy } from '../../services/purchase-service.js';
 import { DomainStatus } from '../../types/domain-status.js';
-import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 
 function openTestDb(): SqliteProvider {
   const provider = new SqliteProvider(new Database(':memory:'));
@@ -424,8 +423,6 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       RDAP_BATCH_CONCURRENCY: 5,
       REGISTRAR_PROVIDER: 'manual',
       PURCHASE_AUTO_APPROVAL: 'never' as const,
-      CLOUDFLARE_API_TOKEN: undefined,
-      CLOUDFLARE_ACCOUNT_ID: undefined,
       AUTO_TUNE_ENABLED: false,
       AUTO_TUNE_WEIGHTS_PATH: './data/weights-override.json',
       AUTO_TUNE_MIN_SAMPLE: 20,

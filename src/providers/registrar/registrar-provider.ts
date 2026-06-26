@@ -13,12 +13,6 @@
  *    the operator handles registration, renewal, and DNS management outside
  *    DOMINUS. This is the safe default for the budget-constrained phase.
  *
- * Future implementations (community-contributed or operator-written):
- *  - NamecheapRegistrarProvider (Namecheap API)
- *  - GoDaddyRegistrarProvider (GoDaddy API)
- *  - CloudflareRegistrarProvider (Cloudflare API)
- *  - PorkbunRegistrarProvider (Porkbun API)
- *
  * See ADR-0004 for the provider abstraction pattern.
  */
 

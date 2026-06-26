@@ -1,5 +1,5 @@
 import type { WatchlistRepository } from '../db/repositories/watchlist-repository.js';
-import type { DnsProvider } from '../providers/dns/dns-provider.js';
+import type { DnsProvider } from '../providers/dns/node-dns-provider.js';
 import type { RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { Notifier } from '../notifiers/notifier.js';
 import type { Config } from '../config.js';

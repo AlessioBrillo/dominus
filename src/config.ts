@@ -601,8 +601,6 @@ const configSchema = z.object({
    */
   RATE_LIMIT_MAX: z.coerce.number().int().nonnegative().default(100),
 
-  // ── Cloudflare Registrar config ───────────────────────────────────
-
   // ── API Authentication ────────────────────────────────────────────
 
   /**
@@ -683,18 +681,10 @@ const configSchema = z.object({
    */
   AUTO_TUNE_CRON: z.string().default('0 6 1 * *'),
 
-  /** Cloudflare API token with Zone:Read, Registrar:Read, Registrar:Write permissions. */
-  CLOUDFLARE_API_TOKEN: z.string().optional(),
-
-  /** Cloudflare Account ID (found in the Cloudflare dashboard overview). */
-  CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
-
   // ── Registrar / Purchase config ────────────────────────────────────
 
   /**
-   * Active registrar provider name. Set to one of: cloudflare, namecheap,
-   * godaddy, porkbun, namesilo, dynadot. Default: manual (no automation).
-   * Run `dominus registrars list` to see all available providers.
+   * Active registrar provider name. Default: manual (no automation).
    */
   REGISTRAR_PROVIDER: z.string().default('manual'),
 
@@ -705,23 +695,6 @@ const configSchema = z.object({
    * - 'always' — auto-approve every purchase (use with caution)
    */
   PURCHASE_AUTO_APPROVAL: z.enum(['never', 'under_buy_max', 'always']).default('never'),
-
-  /** Namecheap API key (REGISTRAR_PROVIDER=namecheap). */
-  REGISTRAR_NAMECHEAP_API_KEY: z.string().optional(),
-  /** Namecheap account username. */
-  REGISTRAR_NAMECHEAP_USERNAME: z.string().optional(),
-  /** Namecheap whitelisted client IP. */
-  REGISTRAR_NAMECHEAP_CLIENT_IP: z.string().optional(),
-
-  /** GoDaddy API key (REGISTRAR_PROVIDER=godaddy). */
-  REGISTRAR_GODADDY_API_KEY: z.string().optional(),
-  /** GoDaddy API secret. */
-  REGISTRAR_GODADDY_API_SECRET: z.string().optional(),
-
-  /** Porkbun API key (REGISTRAR_PROVIDER=porkbun). */
-  REGISTRAR_PORKBUN_API_KEY: z.string().optional(),
-  /** Porkbun secret API key. */
-  REGISTRAR_PORKBUN_SECRET_API_KEY: z.string().optional(),
 
   // ── Drop verdict / NPV config ──────────────────────────────────────
 
@@ -747,12 +720,6 @@ const configSchema = z.object({
    * value. Default: 5.
    */
   DROP_NPV_HORIZON_YEARS: z.coerce.number().int().min(1).max(20).default(5),
-
-  /** NameSilo API key (REGISTRAR_PROVIDER=namesilo). */
-  REGISTRAR_NAMESILO_API_KEY: z.string().optional(),
-
-  /** Dynadot API key (REGISTRAR_PROVIDER=dynadot). */
-  REGISTRAR_DYNADOT_API_KEY: z.string().optional(),
 
   /**
    * Optional path to a file containing registrar API keys in `key=value` format.

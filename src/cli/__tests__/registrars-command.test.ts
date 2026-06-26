@@ -39,25 +39,19 @@ describe('CLI: dominus registrars list', () => {
     expect(out).toContain('Active registrar: manual');
     expect(out).toContain('Available registrars');
     expect(out).toContain('Manual');
-    expect(out).toContain('Cloudflare');
-    expect(out).toContain('Namecheap');
-    expect(out).toContain('GoDaddy');
-    expect(out).toContain('Porkbun');
-    expect(out).toContain('NameSilo');
-    expect(out).toContain('Dynadot');
   });
 
   it('emits JSON with --json', async () => {
     const program = new Command();
-    registerRegistrarsCommand(program, { activeRegistrar: 'cloudflare' });
+    registerRegistrarsCommand(program, { activeRegistrar: 'manual' });
 
     const out = await captureStdout(async () => {
       await program.parseAsync(['node', 'dominus', 'registrars', 'list', '--json']);
     });
 
     const parsed = JSON.parse(out);
-    expect(parsed.active).toBe('cloudflare');
-    expect(parsed.registrars.length).toBeGreaterThanOrEqual(7);
+    expect(parsed.active).toBe('manual');
+    expect(parsed.registrars.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -68,15 +62,13 @@ describe('CLI: dominus registrars show', () => {
 
   it('shows active registrar when no name given', async () => {
     const program = new Command();
-    registerRegistrarsCommand(program, { activeRegistrar: 'cloudflare' });
+    registerRegistrarsCommand(program, { activeRegistrar: 'manual' });
 
     const out = await captureStdout(async () => {
       await program.parseAsync(['node', 'dominus', 'registrars', 'show']);
     });
 
-    expect(out).toContain('Cloudflare');
-    expect(out).toContain('apiToken');
-    expect(out).toContain('accountId');
+    expect(out).toContain('Manual');
   });
 
   it('shows a specific registrar by name', async () => {
@@ -84,10 +76,10 @@ describe('CLI: dominus registrars show', () => {
     registerRegistrarsCommand(program, { activeRegistrar: 'manual' });
 
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'registrars', 'show', 'namecheap']);
+      await program.parseAsync(['node', 'dominus', 'registrars', 'show', 'manual']);
     });
 
-    expect(out).toContain('Namecheap');
+    expect(out).toContain('Manual');
   });
 
   it('shows JSON output with --json', async () => {
@@ -95,11 +87,11 @@ describe('CLI: dominus registrars show', () => {
     registerRegistrarsCommand(program, { activeRegistrar: 'manual' });
 
     const out = await captureStdout(async () => {
-      await program.parseAsync(['node', 'dominus', 'registrars', 'show', 'cloudflare', '--json']);
+      await program.parseAsync(['node', 'dominus', 'registrars', 'show', 'manual', '--json']);
     });
 
     const parsed = JSON.parse(out);
-    expect(parsed.name).toBe('cloudflare');
+    expect(parsed.name).toBe('manual');
     expect(parsed.configFields).toBeDefined();
   });
 

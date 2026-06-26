@@ -83,7 +83,7 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
       note:
         config.REGISTRAR_PROVIDER !== 'manual'
           ? `Active provider: ${config.REGISTRAR_PROVIDER}.`
-          : 'REGISTRAR_PROVIDER is unset or set to "manual" — use `dominus registrars list` to see available providers.',
+          : 'REGISTRAR_PROVIDER is unset or set to "manual" — operator handles all registrar interactions.',
     },
   ];
 }
@@ -96,24 +96,6 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
  * `logger` is injected for testability; production code can call with
  * no argument and the default logger is used.
  */
-export function warnCloudflareIfMissing(
-  config: Config,
-  logger: { warn: (msg: string) => void } = getLogger(),
-): void {
-  const cfConfigured =
-    config.CLOUDFLARE_API_TOKEN !== undefined &&
-    config.CLOUDFLARE_API_TOKEN !== '' &&
-    config.CLOUDFLARE_ACCOUNT_ID !== undefined &&
-    config.CLOUDFLARE_ACCOUNT_ID !== '';
-  if (cfConfigured) return;
-
-  logger.warn(
-    'Cloudflare Registrar credentials are missing (CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID). ' +
-      'Registrar operations will use the manual (no-op) provider. ' +
-      'Run `dominus providers status` for details.',
-  );
-}
-
 export function warnEuipoIfMissing(
   config: Config,
   logger: { warn: (msg: string) => void } = getLogger(),
