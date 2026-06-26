@@ -55,7 +55,7 @@ export default [
     },
   },
   {
-    files: ['**/__tests__/**/*.ts', '**/*.test.ts'],
+    files: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.bench.ts'],
     rules: {
       '@typescript-eslint/no-floating-promises': 'off',
       'no-restricted-imports': 'off',
