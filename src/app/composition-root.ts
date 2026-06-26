@@ -64,7 +64,7 @@ import {
 import { type RateLimiter } from '../providers/rate-limiter.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
-import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
+import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
 import {
   buildKeywordProvider,

@@ -23,7 +23,7 @@ import type { WhoisProvider as WhoisProviderInterface } from '../providers/whois
 import type { DnsCheckResult } from '../types/domain-status.js';
 import { DomainStatus } from '../types/domain-status.js';
 import { RetryingRdapProvider } from './retrying-rdap-provider.js';
-import { RDAP_CIRCUIT_BREAKER } from './circuit-breaker.js';
+import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
 
