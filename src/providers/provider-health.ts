@@ -2,7 +2,7 @@ import type { TrademarkProvider } from './trademark/trademark-provider.js';
 import type { RdapProvider } from './rdap/rdap-provider.js';
 import type { WhoisProvider } from './whois/whois-provider.js';
 import type { KeywordProvider } from './keyword/keyword-provider.js';
-import type { DnsProvider } from './dns/dns-provider.js';
+import type { DnsProvider } from './dns/node-dns-provider.js';
 import type { CompsProvider } from './comps/comps-provider.js';
 import type { WaybackProvider } from './wayback/wayback-provider.js';
 import { getLogger } from '../logger.js';

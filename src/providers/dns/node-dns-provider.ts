@@ -1,8 +1,14 @@
 import { promises as dnsPromises } from 'node:dns';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { DnsProvider } from './dns-provider.js';
 import { loadConfig } from '../../config.js';
+
+export interface DnsProvider {
+  checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult>;
+  checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]>;
+  clearCache(): void;
+}
+
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();

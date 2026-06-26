@@ -8,8 +8,7 @@ import {
 import { createCompsProvider, type CompsProvider } from '../providers/comps/index.js';
 import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
-import { NodeDnsProvider } from '../providers/dns/index.js';
-import { type DnsProvider } from '../providers/dns/dns-provider.js';
+import { NodeDnsProvider, type DnsProvider } from '../providers/dns/index.js';
 import { RateLimiter } from '../providers/rate-limiter.js';
 import { FailoverRdapProvider } from '../providers/rdap/index.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';

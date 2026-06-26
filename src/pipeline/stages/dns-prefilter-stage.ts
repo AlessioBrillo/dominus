@@ -1,7 +1,7 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
 import type { CandidateSource, DomainCandidate } from '../../types/candidate.js';
-import type { DnsProvider } from '../../providers/dns/dns-provider.js';
+import type { DnsProvider } from '../../providers/dns/node-dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { Stage, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
