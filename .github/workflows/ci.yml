@@ -65,7 +65,7 @@ jobs:
         run: npm test -- --coverage
 
       - name: Security audit
-        run: npm audit --audit-level=moderate
+        run: npm audit --audit-level=high
 
       - name: PostgreSQL connectivity test
         run: >
