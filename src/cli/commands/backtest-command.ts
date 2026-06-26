@@ -15,14 +15,25 @@ import { DEFAULT_WEIGHTS } from '../../scoring/weights.js';
 import type { BacktestReport, WeightSuggestionReport } from '../../scoring/backtest/index.js';
 
 export interface BacktestCommandDeps {
-  db: Database.Database;
+  db: Database.Database | null;
   outcomeRepo: OutcomeRepository;
   currentWeights: ScoringWeights | undefined;
 }
 
 const DEFAULT_OVERRIDE_PATH = './data/weights-override.json';
 
+function assertDb(db: Database.Database | null, cmd: string): Database.Database {
+  if (!db) {
+    process.stderr.write(
+      `Error: 'dominus ${cmd}' requires a SQLite database. Not available in PostgreSQL mode.\n`,
+    );
+    process.exit(1);
+  }
+  return db;
+}
+
 export function registerBacktestCommand(program: Command, deps: BacktestCommandDeps): void {
+  const rawDb = assertDb(deps.db, 'backtest');
   const backtest = program
     .command('backtest')
     .description('Backtest the scoring engine against realised outcomes (sold only)');
@@ -31,28 +42,29 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
 
   const makeEngine = (): BacktestEngine =>
     new BacktestEngine(
-      deps.db,
+      new SqliteProvider(rawDb),
       deps.outcomeRepo,
-      new BacktestSignalsRepository(new SqliteProvider(deps.db)),
+      new BacktestSignalsRepository(new SqliteProvider(rawDb)),
     );
 
   const makeSuggester = (): WeightSuggester =>
     new WeightSuggester(
-      deps.db,
-      new BacktestSignalsRepository(new SqliteProvider(deps.db)),
-      new ScoringRepository(new SqliteProvider(deps.db)),
+      new SqliteProvider(rawDb),
+      new BacktestSignalsRepository(new SqliteProvider(rawDb)),
+      new ScoringRepository(new SqliteProvider(rawDb)),
       weights,
     );
 
   const makeAutoTuner = (): AutoWeightTuner | null => {
     const config = loadConfig();
     if (!config.AUTO_TUNE_ENABLED) return null;
-    const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(deps.db));
-    const scoringRepo = new ScoringRepository(new SqliteProvider(deps.db));
+    const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(rawDb));
+    const scoringRepo = new ScoringRepository(new SqliteProvider(rawDb));
+    const sqliteProvider = new SqliteProvider(rawDb);
     return new AutoWeightTuner(
-      new BacktestEngine(deps.db, deps.outcomeRepo, backtestSignalsRepo),
-      new WeightSuggester(deps.db, backtestSignalsRepo, scoringRepo, weights),
-      new WeightSnapshotRepository(new SqliteProvider(deps.db)),
+      new BacktestEngine(sqliteProvider, deps.outcomeRepo, backtestSignalsRepo),
+      new WeightSuggester(sqliteProvider, backtestSignalsRepo, scoringRepo, weights),
+      new WeightSnapshotRepository(new SqliteProvider(rawDb)),
       weights,
       {
         enabled: config.AUTO_TUNE_ENABLED,

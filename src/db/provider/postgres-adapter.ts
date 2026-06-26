@@ -1,29 +1,23 @@
+import { execSync } from 'node:child_process';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import pg from 'pg';
 import { getLogger } from '../../logger.js';
-import type { DatabaseProvider, ExecResult } from './interface.js';
+import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 import { DatabaseError } from './interface.js';
+import { PG_MIGRATIONS } from './pg-migrations.js';
 
 const logger = getLogger();
 
-function toCamelCase(key: string): string {
-  return key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-}
-
-function rowToCamel(row: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key of Object.keys(row)) {
-    result[toCamelCase(key)] = row[key];
-  }
-  return result;
-}
-
 export class PostgresAdapter implements DatabaseProvider {
   readonly #pool: pg.Pool;
+  readonly #connectionString: string;
   readonly #schema: string | undefined;
   #open: boolean;
 
-  constructor(pool: pg.Pool, schema?: string) {
+  constructor(pool: pg.Pool, connectionString: string, schema?: string) {
     this.#pool = pool;
+    this.#connectionString = connectionString;
     this.#schema = schema;
     this.#open = true;
   }
@@ -38,7 +32,7 @@ export class PostgresAdapter implements DatabaseProvider {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     });
-    const adapter = new PostgresAdapter(pool, options.schema);
+    const adapter = new PostgresAdapter(pool, connectionString, options.schema);
 
     const client = await pool.connect();
     try {
@@ -79,7 +73,7 @@ export class PostgresAdapter implements DatabaseProvider {
         text: sql,
         values: params ?? [],
       });
-      return result.rows.map((r) => rowToCamel(r as Record<string, unknown>)) as unknown as T[];
+      return result.rows as unknown as T[];
     } catch (err) {
       throw this.#wrapError(err);
     }
@@ -92,7 +86,7 @@ export class PostgresAdapter implements DatabaseProvider {
         values: params ?? [],
       });
       if (result.rows.length === 0) return null;
-      return rowToCamel(result.rows[0] as Record<string, unknown>) as unknown as T;
+      return result.rows[0] as unknown as T;
     } catch (err) {
       throw this.#wrapError(err);
     }
@@ -115,6 +109,55 @@ export class PostgresAdapter implements DatabaseProvider {
       throw err;
     } finally {
       client.release();
+    }
+  }
+
+  async backup(destinationPath: string): Promise<BackupResult> {
+    const start = Date.now();
+    const absPath = resolve(destinationPath);
+    const dir = dirname(absPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    const connString = this.#connectionString;
+
+    try {
+      execSync(
+        `pg_dump "${connString}" --format=custom --file="${absPath}" --no-owner --no-privileges`,
+        { stdio: 'pipe', timeout: 120_000 },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new DatabaseError(`pg_dump backup failed: ${message}`, 'BACKUP_FAILED');
+    }
+
+    const s = statSync(absPath);
+    return { path: absPath, sizeBytes: s.size, durationMs: Date.now() - start };
+  }
+
+  async runMigrations(): Promise<void> {
+    await this.#pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id SERIAL PRIMARY KEY,
+        migration_name TEXT NOT NULL UNIQUE,
+        applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    const result = await this.#pool.query<{ migration_name: string }>(
+      'SELECT migration_name FROM schema_migrations ORDER BY id',
+    );
+    const applied = new Set(result.rows.map((r) => r.migration_name));
+
+    for (const migration of PG_MIGRATIONS) {
+      if (!applied.has(migration.name)) {
+        await migration.up(this);
+        await this.#pool.query('INSERT INTO schema_migrations (migration_name) VALUES ($1)', [
+          migration.name,
+        ]);
+        logger.info({ migration: migration.name }, 'Applied PostgreSQL migration');
+      }
     }
   }
 
@@ -173,7 +216,7 @@ class PostgresTransactionAdapter implements DatabaseProvider {
         text: sql,
         values: params ?? [],
       });
-      return result.rows.map((r) => rowToCamel(r as Record<string, unknown>)) as unknown as T[];
+      return result.rows as unknown as T[];
     } catch (err) {
       throw this.#wrapError(err);
     }
@@ -186,7 +229,7 @@ class PostgresTransactionAdapter implements DatabaseProvider {
         values: params ?? [],
       });
       if (result.rows.length === 0) return null;
-      return rowToCamel(result.rows[0] as Record<string, unknown>) as unknown as T;
+      return result.rows[0] as unknown as T;
     } catch (err) {
       throw this.#wrapError(err);
     }
@@ -194,6 +237,14 @@ class PostgresTransactionAdapter implements DatabaseProvider {
 
   async transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T> {
     return fn(this);
+  }
+
+  async backup(_destinationPath: string): Promise<BackupResult> {
+    throw new DatabaseError('Cannot backup within a transaction', 'TX_BACKUP');
+  }
+
+  async runMigrations(): Promise<void> {
+    throw new DatabaseError('Cannot run migrations within a transaction', 'TX_MIGRATIONS');
   }
 
   async close(): Promise<void> {

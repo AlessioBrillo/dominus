@@ -103,7 +103,6 @@ async function seedSoldOutcome(
 }
 
 describe('BacktestEngine', () => {
-  let db: Database.Database;
   let dbProvider: SqliteProvider;
   let engine: BacktestEngine;
   let backtestRepo: BacktestSignalsRepository;
@@ -111,10 +110,9 @@ describe('BacktestEngine', () => {
 
   beforeEach(() => {
     dbProvider = openTestDb();
-    db = dbProvider.rawDb;
     outcomeRepo = new OutcomeRepository(dbProvider);
     backtestRepo = new BacktestSignalsRepository(dbProvider);
-    engine = new BacktestEngine(db, outcomeRepo, backtestRepo);
+    engine = new BacktestEngine(dbProvider, outcomeRepo, backtestRepo);
   });
 
   describe('snapshot()', () => {

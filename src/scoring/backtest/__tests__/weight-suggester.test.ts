@@ -102,14 +102,12 @@ async function seedSignalRow(dbProvider: SqliteProvider, s: SeedSignal): Promise
 }
 
 describe('WeightSuggester', () => {
-  let db: Database.Database;
   let dbProvider: SqliteProvider;
   let backtestRepo: BacktestSignalsRepository;
   let scoringRepo: ScoringRepository;
 
   beforeEach(() => {
     dbProvider = openTestDb();
-    db = dbProvider.rawDb;
     backtestRepo = new BacktestSignalsRepository(dbProvider);
     scoringRepo = new ScoringRepository(dbProvider);
   });
@@ -127,7 +125,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     expect(report.sampleSize).toBe(4);
     expect(report.suggestions.every((s) => s.action === 'hold')).toBe(true);
@@ -161,7 +159,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.action).toBe('apply');
@@ -194,7 +192,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.action).toBe('revert');
@@ -226,7 +224,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     const total = report.suggestions.reduce((acc, s) => acc + s.suggestedWeight, 0);
     expect(Math.abs(total - 1.0)).toBeLessThan(0.01);
@@ -256,7 +254,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.action).toBe('hold');
@@ -289,7 +287,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     for (const s of report.suggestions) {
       expect(Math.abs(s.delta)).toBeLessThanOrEqual(0.05);
@@ -327,7 +325,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo, customWeights);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo, customWeights);
     const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.currentWeight).toBe(0.5);
@@ -358,7 +356,7 @@ describe('WeightSuggester', () => {
         occurredAt: '2026-04-15T00:00:00.000Z',
       });
     }
-    const suggester = new WeightSuggester(db, backtestRepo, scoringRepo);
+    const suggester = new WeightSuggester(dbProvider, backtestRepo, scoringRepo);
     const report = await suggester.suggest();
     const intrinsic = report.suggestions.find((s) => s.signal === 'intrinsic')!;
     expect(intrinsic.currentWeight).toBe(DEFAULT_WEIGHTS.intrinsic);

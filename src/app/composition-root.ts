@@ -4,7 +4,6 @@ import type { DatabaseProvider } from '../db/provider/interface.js';
 import { getLogger } from '../logger.js';
 import {
   openDatabase,
-  runMigrations,
   createDatabaseProvider,
   createSqliteProvider,
   createBulkWriteDatabaseProvider,
@@ -101,7 +100,7 @@ import {
 const logger = getLogger();
 
 export interface DominusDependencies {
-  db: Database.Database;
+  db: Database.Database | null;
   provider: DatabaseProvider;
   config: Config;
 
@@ -242,7 +241,7 @@ function buildTrademarkProviderStack(
 
 function buildWorkerIfEnabled(
   config: Config,
-  db: Database.Database,
+  db: Database.Database | null,
   provider: DatabaseProvider,
   runService: PipelineRunService,
   portfolioManager: PortfolioManager,
@@ -266,8 +265,13 @@ function buildWorkerIfEnabled(
     rescoreService: portfolioManager.getRescoreService()!,
   });
   const backtestSignalsRepo = new BacktestSignalsRepository(provider);
-  const backtestEngine = new BacktestEngine(db, outcomeRepo, backtestSignalsRepo);
-  const weightSuggester = new WeightSuggester(db, backtestSignalsRepo, scoringRepo, currentWeights);
+  const backtestEngine = new BacktestEngine(provider, outcomeRepo, backtestSignalsRepo);
+  const weightSuggester = new WeightSuggester(
+    provider,
+    backtestSignalsRepo,
+    scoringRepo,
+    currentWeights,
+  );
   const backtestHandler = new BacktestBuildHandler({
     backtestEngine,
     weightSuggester,
@@ -342,16 +346,17 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     ? await createDatabaseProvider(config)
     : createSqliteProvider(config);
 
-  // Open raw SQLite connection for backup, migrations, and SQLite-specific consumers.
-  // When using PostgreSQL (DATABASE_URL set), rawDb is undefined — consumers that
-  // depend on raw SQLite access (backup, backtest engine) must handle that case.
-  const db = config.DATABASE_URL
-    ? (null as unknown as Database.Database)
-    : openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
+  // Run schema migrations through the provider (dialect-aware).
+  await provider.runMigrations();
 
-  if (db) {
-    runMigrations(db);
-  }
+  // Open raw SQLite connection for SQLite-specific consumers (CLI maintenance, health check).
+  // When using PostgreSQL (DATABASE_URL set), rawDb is undefined — these consumers
+  // gracefully handle the absence or are scoped to SQLite-only CLI commands.
+  // Raw SQLite connection for consumers that still need it (CLI maintenance, health check, prune).
+  // null when using PostgreSQL — those consumers handle null gracefully.
+  const db: Database.Database | null = config.DATABASE_URL
+    ? null
+    : openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
 
   warnEuipoIfMissing(config);
   warnCloudflareIfMissing(config);
@@ -524,7 +529,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
     notifiers,
   );
-  const accuracyAnalyzer = new PredictionAccuracyAnalyzer(db, repos.outcomeRepo);
+  const accuracyAnalyzer = new PredictionAccuracyAnalyzer(repos.provider, repos.outcomeRepo);
   const reportService = new PortfolioReportService(
     repos.portfolioRepo,
     repos.outcomeRepo,
@@ -545,9 +550,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
     const backtestSignalsRepo = new BacktestSignalsRepository(repos.provider);
-    const backtestEngine = new BacktestEngine(db, repos.outcomeRepo, backtestSignalsRepo);
+    const backtestEngine = new BacktestEngine(
+      repos.provider,
+      repos.outcomeRepo,
+      backtestSignalsRepo,
+    );
     const weightSuggester = new WeightSuggester(
-      db,
+      repos.provider,
       backtestSignalsRepo,
       repos.scoringRepo,
       currentWeights,
@@ -599,8 +608,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // --- Backup ---
   const backupService = new BackupService({
-    db,
-    dbPath: config.DATABASE_PATH,
+    provider,
     backupDir: config.BACKUP_DIR,
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });

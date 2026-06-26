@@ -1,4 +1,4 @@
-import type { DatabaseProvider, ExecResult } from './interface.js';
+import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 
 interface CallRecord {
   method: string;
@@ -51,6 +51,15 @@ export class MockDatabaseProvider implements DatabaseProvider {
 
   async transaction<T>(fn: (db: DatabaseProvider) => Promise<T>): Promise<T> {
     return fn(this);
+  }
+
+  async backup(destinationPath: string): Promise<BackupResult> {
+    this.#recordCall('backup', destinationPath, undefined);
+    return { path: destinationPath, sizeBytes: 0, durationMs: 0 };
+  }
+
+  async runMigrations(): Promise<void> {
+    this.#recordCall('runMigrations', '', undefined);
   }
 
   async close(): Promise<void> {

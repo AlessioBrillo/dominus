@@ -15,7 +15,8 @@ export interface PruneHandlerDeps {
   pipelineRunsRepo: PipelineRunsRepository;
   providerCacheRepo: ProviderCacheRepository;
   jobQueueRepo: JobQueueRepository;
-  db?: Database.Database;
+  /** Raw SQLite connection for wayback_cache cleanup. null when using PostgreSQL. */
+  db: Database.Database | null;
 }
 
 export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {

@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import type {
   BacktestSignalsRepository,
@@ -23,11 +23,6 @@ interface ScoringSnapshotRow {
   weighted_score: number;
   recommended: number;
   scored_at: string;
-}
-
-interface CandidateLookupRow {
-  id: number;
-  domain: string;
 }
 
 const SMALL_BUCKET_WARN_THRESHOLD = 10;
@@ -79,7 +74,7 @@ function mean(values: number[]): number {
  */
 export class BacktestEngine {
   constructor(
-    private readonly db: Database.Database,
+    private readonly db: DatabaseProvider,
     private readonly outcomeRepo: OutcomeRepository,
     private readonly backtestRepo: BacktestSignalsRepository,
   ) {}
@@ -196,12 +191,12 @@ export class BacktestEngine {
   private async writeSignalForOutcome(outcome: Outcome): Promise<boolean> {
     if (outcome.id === undefined || outcome.salePriceEur === undefined) return false;
 
-    const snapshot = this.findSnapshotForOutcome(outcome.domain, outcome.occurredAt);
+    const snapshot = await this.findSnapshotForOutcome(outcome.domain, outcome.occurredAt);
     if (snapshot === null) {
       return false;
     }
 
-    const costs = this.#computeDomainCosts(outcome.domain, outcome.occurredAt);
+    const costs = await this.#computeDomainCosts(outcome.domain, outcome.occurredAt);
 
     await this.backtestRepo.upsert({
       domain: outcome.domain,
@@ -218,16 +213,16 @@ export class BacktestEngine {
     return true;
   }
 
-  #computeDomainCosts(domain: string, occurredAt: string): DomainCostInfo {
+  async #computeDomainCosts(domain: string, occurredAt: string): Promise<DomainCostInfo> {
     try {
-      const row = this.db
-        .prepare(
-          `SELECT acquisition_cost, renewal_cost, acquired_at
-             FROM portfolio_entries WHERE domain = ?`,
-        )
-        .get(domain) as
-        | { acquisition_cost: number; renewal_cost: number; acquired_at: string }
-        | undefined;
+      const row = await this.db.queryOne<{
+        acquisition_cost: number;
+        renewal_cost: number;
+        acquired_at: string;
+      }>(
+        'SELECT acquisition_cost, renewal_cost, acquired_at FROM portfolio_entries WHERE domain = ?',
+        [domain],
+      );
 
       if (!row) {
         return { acquisitionCostEur: 0, totalRenewalCostPaidEur: 0 };
@@ -253,23 +248,26 @@ export class BacktestEngine {
    * not later than `occurredAt`. Joins through `candidates` because
    * `scoring_runs.candidate_id` is the only stable link to a domain.
    */
-  private findSnapshotForOutcome(domain: string, occurredAt: string): ScoringSnapshotRow | null {
-    const candidate = this.db
-      .prepare('SELECT id, domain FROM candidates WHERE domain = ?')
-      .get(domain) as CandidateLookupRow | undefined;
-    if (candidate === undefined) return null;
+  private async findSnapshotForOutcome(
+    domain: string,
+    occurredAt: string,
+  ): Promise<ScoringSnapshotRow | null> {
+    const candidate = await this.db.queryOne<{ id: number }>(
+      'SELECT id FROM candidates WHERE domain = ?',
+      [domain],
+    );
+    if (candidate === undefined || candidate === null) return null;
 
-    const row = this.db
-      .prepare(
-        `SELECT id, run_id, expected_value, confidence, suggested_buy_max,
-                suggested_list_price, weighted_score, recommended, scored_at
-           FROM scoring_runs
-          WHERE candidate_id = ?
-            AND scored_at <= ?
-          ORDER BY scored_at DESC, id DESC
-          LIMIT 1`,
-      )
-      .get(candidate.id, occurredAt) as ScoringSnapshotRow | undefined;
+    const row = await this.db.queryOne<ScoringSnapshotRow>(
+      `SELECT id, run_id, expected_value, confidence, suggested_buy_max,
+              suggested_list_price, weighted_score, recommended, scored_at
+         FROM scoring_runs
+        WHERE candidate_id = ?
+          AND scored_at <= ?
+        ORDER BY scored_at DESC, id DESC
+        LIMIT 1`,
+      [candidate.id, occurredAt],
+    );
     return row ?? null;
   }
 }

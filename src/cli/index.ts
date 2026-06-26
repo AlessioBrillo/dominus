@@ -18,6 +18,7 @@ import type { Config } from '../config.js';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { RenewalAlertRepository } from '../db/repositories/renewal-alert-repository.js';
 import { BackupService } from '../scheduler/backup-service.js';
+import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
 import type { SchedulerService } from '../scheduler/scheduler-service.js';
 import type { ScoringWeights } from '../scoring/weights.js';
 import type { PurchaseService } from '../services/purchase-service.js';
@@ -58,7 +59,7 @@ import { registerReportCommand } from './commands/report-command.js';
 import { registerAnalyticsCommand } from './commands/analytics-command.js';
 
 export interface CreateCliOptions {
-  db: Database.Database;
+  db: Database.Database | null;
   runService: PipelineRunService;
   manager: PortfolioManager;
   engine: ScoringEngine;
@@ -120,9 +121,9 @@ export function createCli(options: CreateCliOptions): Command {
   registerOutcomeCommand(program, outcomeRepo);
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
   registerRunsCommand(program, { runsRepo, jobQueueService });
+  const backupProvider = db ? new SqliteProvider(db) : undefined;
   const backupService = new BackupService({
-    db,
-    dbPath: config.DATABASE_PATH,
+    provider: backupProvider!,
     backupDir: config.BACKUP_DIR,
     retentionDays: config.BACKUP_RETENTION_DAYS,
   });

@@ -1,6 +1,6 @@
-import { mkdirSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../db/provider/interface.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -12,44 +12,29 @@ export interface BackupResult {
 }
 
 export interface BackupServiceOptions {
-  db: Database.Database;
-  dbPath: string;
+  provider: DatabaseProvider;
   backupDir: string;
   retentionDays: number;
 }
 
 export class BackupService {
-  readonly #db: Database.Database;
+  readonly #provider: DatabaseProvider;
   readonly #backupDir: string;
   readonly #retentionDays: number;
 
   constructor(options: BackupServiceOptions) {
-    this.#db = options.db;
+    this.#provider = options.provider;
     this.#backupDir = resolve(options.backupDir);
     this.#retentionDays = options.retentionDays;
   }
 
   async create(): Promise<BackupResult> {
-    const start = Date.now();
-
-    if (!existsSync(this.#backupDir)) {
-      mkdirSync(this.#backupDir, { recursive: true });
-    }
-
     const dateStr = new Date().toISOString().slice(0, 10);
     const timestamp = Date.now();
     const fileName = `dominus-${dateStr}-${timestamp}.db`;
     const absPath = join(this.#backupDir, fileName);
 
-    this.#db.pragma('wal_checkpoint(TRUNCATE)');
-    this.#db.exec(`VACUUM INTO '${absPath.replace(/'/g, "''")}'`);
-
-    const stat = statSync(absPath);
-    const durationMs = Date.now() - start;
-
-    logger.info({ path: absPath, sizeBytes: stat.size, durationMs }, 'Database backup created');
-
-    return { path: absPath, sizeBytes: stat.size, durationMs };
+    return this.#provider.backup(absPath);
   }
 
   prune(): number {

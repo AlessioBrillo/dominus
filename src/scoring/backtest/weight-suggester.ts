@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { ScoringWeights } from '../weights.js';
 import { DEFAULT_WEIGHTS } from '../weights.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
@@ -38,7 +38,7 @@ function mean(values: number[]): number {
  *  1. For each signal, split the sample into "high" (score >= 0.5) and
  *     "low" (score < 0.5).
  *  2. Compute the lift = mean(realised) in high − mean(realised) in low.
- *  3. If both buckets have n >= 2 and |lift| >= €50:
+ *  3. If both buckets have n >= 2 and |lift| >= 50:
  *       - lift > 0 → propose +0.02 (capped at +0.05)
  *       - lift < 0 → propose -0.02 (capped at -0.05)
  *     else: hold (return delta = 0 with a clear rationale).
@@ -56,7 +56,7 @@ function mean(values: number[]): number {
  */
 export class WeightSuggester {
   constructor(
-    private readonly db: Database.Database,
+    private readonly db: DatabaseProvider,
     private readonly backtestRepo: BacktestSignalsRepository,
     private readonly scoringRepo: ScoringRepository,
     private readonly currentWeights: ScoringWeights = DEFAULT_WEIGHTS,
@@ -115,7 +115,7 @@ export class WeightSuggester {
     };
 
     for (const signal of SIGNAL_NAMES) {
-      predictiveness[signal] = this.computePredictiveness(signal, signals, lookup);
+      predictiveness[signal] = await this.computePredictiveness(signal, signals, lookup);
     }
 
     const rawSuggestions = SIGNAL_NAMES.map((signal) =>
@@ -158,10 +158,11 @@ export class WeightSuggester {
     const out = new Map<number, SignalScores>();
     for (const s of signals) {
       if (s.id === undefined) continue;
-      const candidate = this.db
-        .prepare('SELECT id FROM candidates WHERE domain = ?')
-        .get(s.domain) as { id: number } | undefined;
-      if (candidate === undefined) continue;
+      const candidate = await this.db.queryOne<{ id: number }>(
+        'SELECT id FROM candidates WHERE domain = ?',
+        [s.domain],
+      );
+      if (candidate === undefined || candidate === null) continue;
       const row = await this.scoringRepo.findByRunId(s.scoringRunId, candidate.id);
       if (row === null) continue;
       out.set(s.id, {
@@ -174,11 +175,11 @@ export class WeightSuggester {
     return out;
   }
 
-  private computePredictiveness(
+  private async computePredictiveness(
     signal: SignalName,
     signals: BacktestSignal[],
     lookup: Map<number, SignalScores>,
-  ): SignalPredictiveness {
+  ): Promise<SignalPredictiveness> {
     const high: number[] = [];
     const low: number[] = [];
     for (const s of signals) {
