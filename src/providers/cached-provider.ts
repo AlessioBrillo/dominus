@@ -5,10 +5,16 @@ export interface CacheSerializer<T> {
   deserialize(raw: string): T;
 }
 
-export const JSON_SERIALIZER: CacheSerializer<unknown> = {
-  serialize: (v) => JSON.stringify(v),
-  deserialize: (raw) => JSON.parse(raw) as unknown,
-};
+/** @internal Creates a JSON-based serializer for any type T.
+ * The cast via `JSON.parse(raw) as T` is intentional and contained:
+ * this function is the single chokepoint for JSON serialization in the
+ * caching layer. Callers should ensure T is JSON-serializable. */
+function createJsonSerializer<T>(): CacheSerializer<T> {
+  return {
+    serialize: (v: T) => JSON.stringify(v),
+    deserialize: (raw: string) => JSON.parse(raw) as T,
+  };
+}
 
 interface MemCacheEntry<T> {
   value: T;
@@ -74,12 +80,35 @@ export class CachedProvider<T> {
     private readonly repo: ProviderCacheRepository,
     private readonly providerName: string,
     private readonly ttlDays: number,
-    private readonly serializer: CacheSerializer<T> = JSON_SERIALIZER as unknown as CacheSerializer<T>,
+    private readonly serializer: CacheSerializer<T>,
     memoryCacheSize: number = 0,
     memoryCacheTtlSeconds: number = 300,
   ) {
     this.#memoryCache =
       memoryCacheSize > 0 ? new MemoryCache<T>(memoryCacheSize, memoryCacheTtlSeconds) : null;
+  }
+
+  /**
+   * Create a CachedProvider for JSON-serializable data types.
+   * Uses JSON.stringify/JSON.parse as the serializer.
+   */
+  static createJson<T>(
+    fetchFn: (term: string, signal?: AbortSignal) => Promise<T>,
+    repo: ProviderCacheRepository,
+    providerName: string,
+    ttlDays: number,
+    memoryCacheSize: number = 0,
+    memoryCacheTtlSeconds: number = 300,
+  ): CachedProvider<T> {
+    return new CachedProvider<T>(
+      fetchFn,
+      repo,
+      providerName,
+      ttlDays,
+      createJsonSerializer<T>(),
+      memoryCacheSize,
+      memoryCacheTtlSeconds,
+    );
   }
 
   /** Clear the in-memory cache. Does NOT clear the DB-backed cache (TTL-based). */

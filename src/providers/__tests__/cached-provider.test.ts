@@ -32,7 +32,7 @@ describe('CachedProvider', () => {
 
   it('calls fetchFn on cache miss and returns result', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ id: 1, name: 'test' } satisfies TestData);
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'test-provider', 7);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'test-provider', 7);
 
     const result = await provider.get('key1');
 
@@ -43,7 +43,7 @@ describe('CachedProvider', () => {
 
   it('writes to cache after fetchFn succeeds', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ id: 2, name: 'cached' } satisfies TestData);
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'test-provider', 7);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'test-provider', 7);
 
     await provider.get('write-test');
 
@@ -54,7 +54,7 @@ describe('CachedProvider', () => {
 
   it('returns cached result and does NOT call fetchFn on cache hit', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ id: 3, name: 'hit' } satisfies TestData);
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'test-provider', 7);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'test-provider', 7);
 
     await provider.get('hit-test');
     expect(fetchFn).toHaveBeenCalledOnce();
@@ -83,7 +83,7 @@ describe('CachedProvider', () => {
     await repo.set('corrupt-key', 'corrupt-provider', 'not-valid-json{{{', 7);
 
     const fetchFn = vi.fn().mockResolvedValue({ id: 5, name: 'recovered' } satisfies TestData);
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'corrupt-provider', 7);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'corrupt-provider', 7);
 
     const result = await provider.get('corrupt-key');
 
@@ -93,7 +93,7 @@ describe('CachedProvider', () => {
 
   it('does NOT write to cache when fetchFn throws', async () => {
     const fetchFn = vi.fn().mockRejectedValue(new Error('fetch failed'));
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'error-provider', 7);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'error-provider', 7);
 
     await expect(provider.get('error-key')).rejects.toThrow('fetch failed');
 
@@ -105,8 +105,8 @@ describe('CachedProvider', () => {
     const fetchFnA = vi.fn().mockResolvedValue({ id: 10, name: 'provider-a' } satisfies TestData);
     const fetchFnB = vi.fn().mockResolvedValue({ id: 20, name: 'provider-b' } satisfies TestData);
 
-    const providerA = new CachedProvider<TestData>(fetchFnA, repo, 'provider-a', 7);
-    const providerB = new CachedProvider<TestData>(fetchFnB, repo, 'provider-b', 7);
+    const providerA = CachedProvider.createJson<TestData>(fetchFnA, repo, 'provider-a', 7);
+    const providerB = CachedProvider.createJson<TestData>(fetchFnB, repo, 'provider-b', 7);
 
     await providerA.get('same-key');
     await providerB.get('same-key');
@@ -126,7 +126,7 @@ describe('CachedProvider', () => {
       .mockResolvedValueOnce({ id: 1, name: 'first' } satisfies TestData)
       .mockResolvedValueOnce({ id: 2, name: 'second' } satisfies TestData);
 
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'ttl-provider', 7);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'ttl-provider', 7);
 
     const first = await provider.get('ttl-key');
     expect(first).toEqual({ id: 1, name: 'first' });
@@ -146,7 +146,7 @@ describe('CachedProvider', () => {
 
   it('returns stale cached data when cache is manually overwritten', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ id: 100, name: 'original' } satisfies TestData);
-    const provider = new CachedProvider<TestData>(fetchFn, repo, 'overwrite', 1);
+    const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'overwrite', 1);
 
     await provider.get('overwrite-key');
     expect(fetchFn).toHaveBeenCalledTimes(1);

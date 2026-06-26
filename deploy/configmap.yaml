@@ -32,7 +32,11 @@ data:
   # CORS_ORIGIN: set to your frontend domain in production (e.g. "https://dominus.example.com").
   # Wildcard (*) with credentials:true causes browser CORS failures. When the frontend is served
   # by the same origin as the API, leave this unset or set to the explicit origin.
-  CORS_ORIGIN: "http://localhost:5173"
+  # WARNING: Must be set to your actual frontend domain in production.
+  # For self-hosted Community Edition where the frontend is served on the same origin,
+  # leave unset (the API defaults to the origin of the request).
+  # DO NOT use http://localhost:5173 in production — that's the Vite dev server.
+  CORS_ORIGIN: ""
   RATE_LIMIT_WINDOW_MS: "900000"
   RATE_LIMIT_MAX: "100"
   USPTO_SEARCH_URL: "https://tmsearch.uspto.gov/tmsearch"
