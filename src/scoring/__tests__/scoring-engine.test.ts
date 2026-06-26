@@ -401,4 +401,58 @@ describe('ScoringEngine', () => {
     expect(result.recommended).toBeDefined();
     expect(result.breakdown.expiry.score).toBe(0);
   });
+
+  it('confidence is invariant under weight overrides (ADR-0020 contract)', async () => {
+    const { keyword, comps } = makeProviders(50_000, 5, [3000]);
+    const domain = 'invariant-test.com';
+    const sld = 'invariant-test';
+    const input = {
+      domain,
+      tld: '.com',
+      sld,
+      isCloseout: true,
+      domainAge: 5,
+    };
+
+    const engineDefault = new ScoringEngine(keyword, comps);
+    const resultDefault = await engineDefault.score(input);
+
+    const engineOverride = new ScoringEngine(keyword, comps, {
+      intrinsic: 0.1,
+      commercial: 0.5,
+      market: 0.3,
+      expiry: 0.1,
+    });
+    const resultOverride = await engineOverride.score(input);
+
+    expect(resultOverride.confidence).toBe(resultDefault.confidence);
+  });
+
+  it('confidence uses DEFAULT_WEIGHTS coveredWeight, not overridden weights', async () => {
+    const { keyword: kw1, comps: cp1 } = makeProviders(0, 0, []);
+    const { keyword: kw2, comps: cp2 } = makeProviders(0, 0, []);
+
+    const engineDefault = new ScoringEngine(kw1, cp1);
+    const resultDefault = await engineDefault.score({
+      domain: 'seven-letter.com',
+      tld: '.com',
+      sld: 'seven-letter',
+      isCloseout: false,
+    });
+
+    const engineOverride = new ScoringEngine(kw2, cp2, {
+      intrinsic: 0.5,
+      commercial: 0.2,
+      market: 0.2,
+      expiry: 0.1,
+    });
+    const resultOverride = await engineOverride.score({
+      domain: 'seven-letter.com',
+      tld: '.com',
+      sld: 'seven-letter',
+      isCloseout: false,
+    });
+
+    expect(resultOverride.confidence).toBe(resultDefault.confidence);
+  });
 });

@@ -152,3 +152,34 @@ describe('TrademarkGate — strict USPTO TLDs (ADR-0012)', () => {
     expect(result.matchSource).toBe('EUIPO');
   });
 });
+
+describe('TrademarkGate — abort signal', () => {
+  it('passes the AbortSignal to both providers', async () => {
+    const usp = { search: vi.fn().mockResolvedValue([]) };
+    const eup = { search: vi.fn().mockResolvedValue([]) };
+    const gate = new TrademarkGate(usp, eup);
+    const ac = new AbortController();
+
+    await gate.check('test.io', ac.signal);
+
+    expect(usp.search).toHaveBeenCalledWith('test', ac.signal);
+    expect(eup.search).toHaveBeenCalledWith('test', ac.signal);
+  });
+
+  it('re-throws AbortError from provider', async () => {
+    const usp = {
+      search: vi.fn().mockRejectedValue(new DOMException('Aborted', 'AbortError')),
+    };
+    const eup = { search: vi.fn().mockResolvedValue([]) };
+    const gate = new TrademarkGate(usp, eup);
+
+    let err: unknown;
+    try {
+      await gate.check('test.io', AbortSignal.abort());
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(DOMException);
+    expect((err as DOMException).name).toBe('AbortError');
+  });
+});

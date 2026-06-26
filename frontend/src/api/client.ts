@@ -3,7 +3,7 @@ const BASE_URL = '/api/v1';
 
 export function getStoredApiKey(): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY);
+    return sessionStorage.getItem(STORAGE_KEY);
   } catch {
     return null;
   }
@@ -11,7 +11,7 @@ export function getStoredApiKey(): string | null {
 
 export function storeApiKey(key: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY, key);
+    sessionStorage.setItem(STORAGE_KEY, key);
   } catch {
     /* non-fatal */
   }
@@ -19,7 +19,7 @@ export function storeApiKey(key: string): void {
 
 export function clearApiKey(): void {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    sessionStorage.removeItem(STORAGE_KEY);
   } catch {
     /* non-fatal */
   }

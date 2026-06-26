@@ -121,13 +121,11 @@ export class ScoringEngine {
       },
     ];
 
-    // Confidence uses DEFAULT_WEIGHTS for coverage so it accurately
-    // reflects data sparsity even when weights are redistributed.
     const coveredWeight =
-      this.#weights.intrinsic +
-      (hasCommercialData ? this.#weights.commercial : 0) +
-      (hasMarketData ? this.#weights.market : 0) +
-      (expiryHasData ? this.#weights.expiry : 0);
+      DEFAULT_WEIGHTS.intrinsic +
+      (hasCommercialData ? DEFAULT_WEIGHTS.commercial : 0) +
+      (hasMarketData ? DEFAULT_WEIGHTS.market : 0) +
+      (expiryHasData ? DEFAULT_WEIGHTS.expiry : 0);
 
     const {
       baseMarketValueEur,

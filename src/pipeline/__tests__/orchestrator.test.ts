@@ -1,5 +1,5 @@
 ﻿import { describe, it, expect, vi } from 'vitest';
-import { PipelineOrchestrator } from '../orchestrator.js';
+import { PipelineOrchestrator, PipelineTimeoutError } from '../orchestrator.js';
 import { CandidateGenerationStage } from '../stages/candidate-generation-stage.js';
 import { DnsPreFilterStage } from '../stages/dns-prefilter-stage.js';
 import { RdapConfirmationStage } from '../stages/rdap-confirmation-stage.js';
@@ -219,5 +219,99 @@ describe('PipelineOrchestrator', () => {
     expect(result.scored).toHaveLength(2);
     expect(result.recommended).toHaveLength(1);
     expect(result.recommended[0]?.domain).toBe('nova.com');
+  });
+
+  it('rejects concurrent runs with an error', async () => {
+    // Slow stage (1s delay) + short timeout (50ms) ensures the first run
+    // sets #running = true synchronously, then quickly times out. The
+    // second call is dispatched before the first run's timeout fires.
+    const slowStage: CandidateGenerationStage = {
+      name: 'slow-gen',
+      process: vi.fn().mockImplementation(() => new Promise((r) => setTimeout(r, 1_000))),
+    } as unknown as CandidateGenerationStage;
+    const orchestrator = new PipelineOrchestrator(
+      slowStage,
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      50,
+    );
+
+    void orchestrator.run({ brandableNames: ['nova.com'] });
+    await expect(orchestrator.run({ brandableNames: ['second.com'] })).rejects.toThrow(
+      'concurrent runs are not supported',
+    );
+  });
+
+  it('times out when a stage exceeds the configured timeout', async () => {
+    // CandidateGeneration must finish quickly; a later stage triggers the timeout
+    // so the PipelineTimeoutError propagates past the CandidateGeneration catch block
+    const slowDns: DnsProvider = {
+      name: 'SlowDns',
+      checkAvailability: vi.fn().mockImplementation(() => new Promise((r) => setTimeout(r, 50))),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+    };
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(slowDns),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      10,
+    );
+
+    await expect(orchestrator.run({ brandableNames: ['nova.com'] })).rejects.toThrow(
+      PipelineTimeoutError,
+    );
+  });
+
+  it('skips raceWithTimeout when timeoutMs is 0 (no deadline)', async () => {
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      0,
+    );
+
+    // When timeoutMs = 0, the pipeline runs without a deadline
+    const result = await orchestrator.run({ brandableNames: ['nova.com'] });
+    expect(result.recommended).toHaveLength(1);
+    expect(result.stageSummary).toHaveProperty('CandidateGenerationStage');
+  });
+
+  it('invokes the onStageProgress callback for each non-fatal stage', async () => {
+    const progress = vi.fn();
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+    );
+    orchestrator.setOnStageProgress(progress);
+
+    await orchestrator.run({ brandableNames: ['nova.com'] });
+
+    expect(progress).toHaveBeenCalledTimes(4);
+    expect(progress).toHaveBeenNthCalledWith(
+      1,
+      'DnsPreFilterStage',
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      false,
+    );
+    expect(progress).toHaveBeenNthCalledWith(
+      4,
+      'TrademarkGateStage',
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      false,
+    );
   });
 });

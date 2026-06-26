@@ -20,7 +20,7 @@ describe('useAuth', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
-  it('returns authenticated when key is stored in localStorage', () => {
+  it('returns authenticated when key is stored in sessionStorage', () => {
     vi.spyOn(client, 'getStoredApiKey').mockReturnValue('test-key-123');
     const { result } = renderHook(() => useAuth(), { wrapper });
     expect(result.current.isAuthenticated).toBe(true);

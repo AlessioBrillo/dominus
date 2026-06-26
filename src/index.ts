@@ -61,11 +61,13 @@ async function main(): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  if (corsOrigins.includes('*')) {
-    logger.warn(
-      'CORS is configured with wildcard origin (*). This allows any website to call the API. ' +
-        'Restrict CORS_ORIGIN to specific origins in production.',
+  if (corsOrigins.includes('*') && (config.HOST === '0.0.0.0' || config.HOST === '::')) {
+    logger.fatal(
+      'FATAL: CORS_ORIGIN is wildcard (*) but server is bound to 0.0.0.0 (all interfaces). ' +
+        'This allows any website to call the API. Restrict CORS_ORIGIN to specific origins, ' +
+        'or set HOST to 127.0.0.1 for local-only access. Startup aborted.',
     );
+    process.exit(1);
   }
 
   app.use(
