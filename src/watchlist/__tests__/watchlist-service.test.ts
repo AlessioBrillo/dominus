@@ -4,7 +4,7 @@ import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { WatchlistRepository } from '../../db/repositories/watchlist-repository.js';
 import { WatchlistService } from '../watchlist-service.js';
-import type { DnsProvider } from '../../providers/dns/node-dns-provider.js';
+import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { Notifier } from '../../notifiers/notifier.js';
 import type { Config } from '../../config.js';
@@ -141,6 +141,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 
 function makeDnsMock(results: Record<string, DomainStatus>): DnsProvider {
   return {
+    name: 'MockDns',
     checkAvailability: vi.fn().mockImplementation((domain: string) => {
       const status = results[domain] ?? DomainStatus.Unknown;
       return Promise.resolve({
@@ -359,6 +360,7 @@ describe('WatchlistService', () => {
     it('handles DNS check failure gracefully', async () => {
       service.add('errored.com');
       const dnsMock2: DnsProvider = {
+        name: 'MockDns2',
         checkAvailability: vi.fn().mockRejectedValue(new Error('DNS timeout')),
         checkBulk: vi.fn(),
         clearCache: vi.fn(),

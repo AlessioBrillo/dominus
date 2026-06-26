@@ -1,14 +1,7 @@
 import { promises as dnsPromises } from 'node:dns';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import { loadConfig } from '../../config.js';
-
-export interface DnsProvider {
-  checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult>;
-  checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]>;
-  clearCache(): void;
-}
-
+import type { DnsProvider } from './dns-provider.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -16,38 +9,6 @@ const logger = getLogger();
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
 export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
-
-function getLookupTimeout(): number {
-  try {
-    return loadConfig().DNS_LOOKUP_TIMEOUT_MS;
-  } catch {
-    return 1500;
-  }
-}
-
-function getLookupStrategy(): DnsLookupStrategy {
-  try {
-    return loadConfig().DNS_LOOKUP_STRATEGY;
-  } catch {
-    return 'native';
-  }
-}
-
-function getDohEndpoint(): string {
-  try {
-    return loadConfig().DNS_DOH_ENDPOINT;
-  } catch {
-    return 'https://cloudflare-dns.com/dns-query';
-  }
-}
-
-function getDefaultCacheTtl(): number {
-  try {
-    return loadConfig().DNS_CACHE_TTL_SECONDS * 1000;
-  } catch {
-    return 300_000;
-  }
-}
 
 function resolveWithTimeout(
   domain: string,
@@ -237,13 +198,29 @@ interface CacheEntry {
 }
 
 export class NodeDnsProvider implements DnsProvider {
-  #cache: Map<string, CacheEntry> = new Map();
+  readonly name = 'NodeDnsProvider';
+  readonly #lookupTimeoutMs: number;
+  readonly #lookupStrategy: DnsLookupStrategy;
+  readonly #dohEndpoint: string;
   readonly #cacheTtlMs: number;
   readonly #maxSize: number;
+  readonly #bulkConcurrency: number;
+  #cache: Map<string, CacheEntry> = new Map();
 
-  constructor(cacheTtlMs?: number, maxSize?: number) {
-    this.#cacheTtlMs = cacheTtlMs ?? getDefaultCacheTtl();
-    this.#maxSize = maxSize ?? 10000;
+  constructor(options?: {
+    lookupTimeoutMs?: number;
+    lookupStrategy?: DnsLookupStrategy;
+    dohEndpoint?: string;
+    cacheTtlMs?: number;
+    maxSize?: number;
+    bulkConcurrency?: number;
+  }) {
+    this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
+    this.#lookupStrategy = options?.lookupStrategy ?? 'native';
+    this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
+    this.#cacheTtlMs = options?.cacheTtlMs ?? 300_000;
+    this.#maxSize = options?.maxSize ?? 10000;
+    this.#bulkConcurrency = options?.bulkConcurrency ?? 50;
   }
 
   /** Clear cached entries older than TTL */
@@ -271,14 +248,13 @@ export class NodeDnsProvider implements DnsProvider {
       return cached.result;
     }
 
-    const strategy = getLookupStrategy();
-    const timeout = getLookupTimeout();
+    const strategy = this.#lookupStrategy;
+    const timeout = this.#lookupTimeoutMs;
     const checkedAt = new Date().toISOString();
 
     try {
       if (strategy === 'doh-only') {
-        const endpoint = getDohEndpoint();
-        const doh = await resolvesAnyDoh(domain, endpoint, timeout, signal);
+        const doh = await resolvesAnyDoh(domain, this.#dohEndpoint, timeout, signal);
         if (doh !== undefined) {
           return this.#cached(domain, {
             domain,
@@ -301,9 +277,11 @@ export class NodeDnsProvider implements DnsProvider {
 
       // Native resolver timed out — try DoH fallback if enabled
       if (strategy === 'native-with-doh-fallback') {
-        const endpoint = getDohEndpoint();
-        logger.warn({ domain, endpoint }, 'DNS: native resolver timed out, falling back to DoH');
-        const doh = await resolvesAnyDoh(domain, endpoint, timeout, signal);
+        logger.warn(
+          { domain, endpoint: this.#dohEndpoint },
+          'DNS: native resolver timed out, falling back to DoH',
+        );
+        const doh = await resolvesAnyDoh(domain, this.#dohEndpoint, timeout, signal);
         if (doh !== undefined) {
           return this.#cached(domain, {
             domain,
@@ -340,7 +318,7 @@ export class NodeDnsProvider implements DnsProvider {
 
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const concurrency = loadConfig().DNS_BULK_CONCURRENCY;
+    const concurrency = this.#bulkConcurrency;
     const results: DnsCheckResult[] = [];
     for (let i = 0; i < domains.length; i += concurrency) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');

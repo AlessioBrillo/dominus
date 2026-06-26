@@ -51,6 +51,7 @@ function openTestDb(): SqliteProvider {
 
 function makeDnsProvider(): DnsProvider {
   return {
+    name: 'TestDnsProvider',
     checkAvailability: async (_domain: string) => ({
       domain: 'test.com',
       status: DomainStatus.Available,
