@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { RegistrarRegistry } from '../registrar-registry.js';
 
 describe('RegistrarRegistry', () => {
-  it('registers manual as the only default registrar', () => {
+  it('registers default registrars (manual, cloudflare)', () => {
     const registry = new RegistrarRegistry();
     const names = registry.getNames();
-    expect(names).toEqual(['manual']);
+    expect(names).toContain('manual');
+    expect(names).toContain('cloudflare');
   });
 
   it('returns descriptor for a known registrar', () => {
@@ -20,11 +21,12 @@ describe('RegistrarRegistry', () => {
     expect(registry.getDescriptor('nonexistent')).toBeUndefined();
   });
 
-  it('lists descriptors', () => {
+  it('lists descriptors for all registered providers', () => {
     const registry = new RegistrarRegistry();
     const descriptors = registry.listDescriptors();
-    expect(descriptors).toHaveLength(1);
-    expect(descriptors[0]?.name).toBe('manual');
+    const names = descriptors.map((d) => d.name);
+    expect(names).toContain('manual');
+    expect(names).toContain('cloudflare');
   });
 
   it('creates an instance of a registered registrar', () => {

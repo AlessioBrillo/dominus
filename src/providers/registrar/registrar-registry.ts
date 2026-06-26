@@ -2,6 +2,7 @@ import type { RegistrarProvider } from './registrar-provider.js';
 import type { RegistrarDescriptor } from '../../types/registrar.js';
 import { RegistrarConfigError } from '../../types/registrar.js';
 import { ManualRegistrarProvider } from './manual-registrar-provider.js';
+import { CloudflareRegistrarProvider } from './cloudflare-registrar-provider.js';
 
 export interface RegistrarRegistration {
   name: string;
@@ -19,6 +20,7 @@ export class RegistrarRegistry {
 
   private registerDefaults(): void {
     this.register(ManualRegistrarProvider.registration);
+    this.register(CloudflareRegistrarProvider.registration);
   }
 
   register(registration: RegistrarRegistration): void {

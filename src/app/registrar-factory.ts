@@ -17,7 +17,10 @@ export function buildRegistrarProvider(config: Config): RegistrarProvider {
   // 1. Load from env vars (takes precedence)
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith(registrarEnvPrefix) && value !== undefined) {
-      const fieldKey = key.slice(registrarEnvPrefix.length).toLowerCase();
+      const fieldKey = key
+        .slice(registrarEnvPrefix.length)
+        .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
+        .toLowerCase();
       registrarConfig[fieldKey] = value;
     }
   }

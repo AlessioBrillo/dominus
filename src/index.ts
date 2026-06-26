@@ -157,16 +157,27 @@ async function main(): Promise<void> {
   app.use('/api/v1', protectedRouter);
 
   // ── SPA catch-all with base path isolation ─────────────────────────
+  // Per ADR-0030 (Option B): the SPA catch-all is mounted AFTER the
+  // /api/v1 and /public routers. A middleware gate explicitly rejects
+  // any /api/ or /public/ path that reaches the catch-all (unmatched
+  // route) rather than serving the SPA for them. This provides
+  // router-level isolation: the auth middleware never executes for
+  // /public/* requests, and the SPA never catches /api/ or /public/
+  // paths that have no matching route.
   const frontendDir = resolve(process.cwd(), config.FRONTEND_DIST_PATH);
   const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*` : '*';
 
+  const rejectApiAndPublic: express.RequestHandler = (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
+      return;
+    }
+    next();
+  };
+
   if (existsSync(frontendDir)) {
     app.use(express.static(frontendDir));
-    app.get(spaPattern, (req, res) => {
-      if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) {
-        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
-        return;
-      }
+    app.get(spaPattern, rejectApiAndPublic, (_req, res) => {
       res.sendFile(join(frontendDir, 'index.html'));
     });
     logger.info(
