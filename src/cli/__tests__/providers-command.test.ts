@@ -4,11 +4,7 @@ import { Command } from 'commander';
 import { runMigrations } from '../../db/migrator.js';
 import { registerProvidersCommand } from '../commands/providers-command.js';
 import type { Config } from '../../config.js';
-import {
-  reportProviderStatuses,
-  warnEuipoIfMissing,
-  warnCloudflareIfMissing,
-} from '../../app/provider-status.js';
+import { reportProviderStatuses, warnEuipoIfMissing } from '../../app/provider-status.js';
 
 function buildConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -71,8 +67,6 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     RDAP_BATCH_CONCURRENCY: 5,
     REGISTRAR_PROVIDER: 'manual',
     PURCHASE_AUTO_APPROVAL: 'never',
-    CLOUDFLARE_API_TOKEN: undefined,
-    CLOUDFLARE_ACCOUNT_ID: undefined,
     AUTO_TUNE_ENABLED: false,
     AUTO_TUNE_WEIGHTS_PATH: './data/weights-override.json',
     AUTO_TUNE_MIN_SAMPLE: 20,
@@ -205,30 +199,15 @@ describe('reportProviderStatuses', () => {
     expect(uspto?.configured).toBe(true);
   });
 
-  it('reports Registrar as configured when REGISTRAR_PROVIDER is set', () => {
+  it('reports Registrar as configured when REGISTRAR_PROVIDER is set to a non-manual provider', () => {
     const rows = reportProviderStatuses(
       buildConfig({
-        REGISTRAR_PROVIDER: 'cloudflare',
-        CLOUDFLARE_API_TOKEN: 'token123',
-        CLOUDFLARE_ACCOUNT_ID: 'acc456',
+        REGISTRAR_PROVIDER: 'non-manual',
       }),
     );
     const reg = rows.find((r) => r.name === 'Registrar');
     expect(reg?.configured).toBe(true);
-    expect(reg?.note).toContain('cloudflare');
-  });
-
-  it('reports Registrar as configured when a non-manual provider is selected', () => {
-    const rows = reportProviderStatuses(
-      buildConfig({
-        REGISTRAR_PROVIDER: 'cloudflare',
-        CLOUDFLARE_API_TOKEN: 'token123',
-        CLOUDFLARE_ACCOUNT_ID: 'acc456',
-      }),
-    );
-    const reg = rows.find((r) => r.name === 'Registrar');
-    expect(reg?.configured).toBe(true);
-    expect(reg?.note).toContain('cloudflare');
+    expect(reg?.note).toContain('non-manual');
   });
 
   it('reports 7 provider status rows', () => {
@@ -263,30 +242,6 @@ describe('warnEuipoIfMissing', () => {
     );
 
     // Assert
-    expect(warn).not.toHaveBeenCalled();
-  });
-});
-
-describe('warnCloudflareIfMissing', () => {
-  it('logs a warning when Cloudflare credentials are missing', () => {
-    const warn = vi.fn();
-    const stubLogger = { warn };
-
-    warnCloudflareIfMissing(buildConfig(), stubLogger);
-
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toMatch(/Cloudflare/);
-  });
-
-  it('is silent when Cloudflare credentials are present', () => {
-    const warn = vi.fn();
-    const stubLogger = { warn };
-
-    warnCloudflareIfMissing(
-      buildConfig({ CLOUDFLARE_API_TOKEN: 'token', CLOUDFLARE_ACCOUNT_ID: 'acc' }),
-      stubLogger,
-    );
-
     expect(warn).not.toHaveBeenCalled();
   });
 });

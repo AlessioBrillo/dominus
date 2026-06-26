@@ -424,8 +424,6 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       RDAP_BATCH_CONCURRENCY: 5,
       REGISTRAR_PROVIDER: 'manual',
       PURCHASE_AUTO_APPROVAL: 'never' as const,
-      CLOUDFLARE_API_TOKEN: undefined,
-      CLOUDFLARE_ACCOUNT_ID: undefined,
       AUTO_TUNE_ENABLED: false,
       AUTO_TUNE_WEIGHTS_PATH: './data/weights-override.json',
       AUTO_TUNE_MIN_SAMPLE: 20,

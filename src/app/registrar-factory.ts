@@ -39,13 +39,6 @@ export function buildRegistrarProvider(config: Config): RegistrarProvider {
     }
   }
 
-  // 3. Pass legacy Cloudflare vars for backward compat
-  if (registrarProviderName === 'cloudflare') {
-    registrarConfig['apiToken'] = config.CLOUDFLARE_API_TOKEN ?? registrarConfig['apitoken'] ?? '';
-    registrarConfig['accountId'] =
-      config.CLOUDFLARE_ACCOUNT_ID ?? registrarConfig['accountid'] ?? '';
-  }
-
   return registrarRegistry.createActive(registrarProviderName, registrarConfig);
 }
 

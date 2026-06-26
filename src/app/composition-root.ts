@@ -58,7 +58,6 @@ import {
   CachedTrademarkProvider,
   RetryingTrademarkProvider,
   warnEuipoIfMissing,
-  warnCloudflareIfMissing,
   MetricsCollector,
   PipelineProgressService,
 } from './index.js';
@@ -359,7 +358,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     : openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
 
   warnEuipoIfMissing(config);
-  warnCloudflareIfMissing(config);
 
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);

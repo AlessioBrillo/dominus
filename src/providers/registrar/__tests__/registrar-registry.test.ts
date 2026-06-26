@@ -2,26 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { RegistrarRegistry } from '../registrar-registry.js';
 
 describe('RegistrarRegistry', () => {
-  it('registers all 7 default registrars', () => {
+  it('registers manual as the only default registrar', () => {
     const registry = new RegistrarRegistry();
     const names = registry.getNames();
-    expect(names).toContain('manual');
-    expect(names).toContain('cloudflare');
-    expect(names).toContain('namecheap');
-    expect(names).toContain('godaddy');
-    expect(names).toContain('porkbun');
-    expect(names).toContain('namesilo');
-    expect(names).toContain('dynadot');
-    expect(names).toHaveLength(7);
+    expect(names).toEqual(['manual']);
   });
 
   it('returns descriptor for a known registrar', () => {
     const registry = new RegistrarRegistry();
-    const desc = registry.getDescriptor('cloudflare');
+    const desc = registry.getDescriptor('manual');
     expect(desc).toBeDefined();
-    expect(desc?.name).toBe('cloudflare');
-    expect(desc?.displayName).toBe('Cloudflare');
-    expect(desc?.configFields.length).toBeGreaterThan(0);
+    expect(desc?.name).toBe('manual');
   });
 
   it('returns undefined for unknown registrar', () => {
@@ -29,11 +20,11 @@ describe('RegistrarRegistry', () => {
     expect(registry.getDescriptor('nonexistent')).toBeUndefined();
   });
 
-  it('lists all descriptors', () => {
+  it('lists descriptors', () => {
     const registry = new RegistrarRegistry();
     const descriptors = registry.listDescriptors();
-    expect(descriptors).toHaveLength(7);
-    expect(descriptors.map((d) => d.name)).toContain('manual');
+    expect(descriptors).toHaveLength(1);
+    expect(descriptors[0]?.name).toBe('manual');
   });
 
   it('creates an instance of a registered registrar', () => {
@@ -59,13 +50,9 @@ describe('RegistrarRegistry', () => {
     expect(provider.name).toBe('manual');
   });
 
-  it('createActive creates non-manual registrar', () => {
+  it('createActive throws for unknown non-manual registrar', () => {
     const registry = new RegistrarRegistry();
-    const provider = registry.createActive('cloudflare', {
-      apiToken: 'test-token',
-      accountId: 'test-account',
-    });
-    expect(provider.name).toBe('cloudflare');
+    expect(() => registry.createActive('cloudflare', {})).toThrow();
   });
 
   it('supports custom registration', () => {
