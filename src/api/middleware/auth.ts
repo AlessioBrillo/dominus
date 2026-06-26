@@ -40,8 +40,7 @@ setInterval(cleanupAuthRateMap, 5 * 60_000).unref();
 
 export function createAuthMiddleware(provider: AuthProvider) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const isActive = (provider as { isActive?: boolean }).isActive ?? true;
-    if (!isActive) {
+    if (!provider.isActive) {
       next();
       return;
     }
