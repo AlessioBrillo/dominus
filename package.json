@@ -1,6 +1,6 @@
 {
   "name": "dominus",
-  "version": "0.4.0-dev",
+  "version": "0.5.0-dev",
   "description": "Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios — self-hosted community edition or managed DOMINUS Cloud",
   "private": false,
   "license": "AGPL-3.0-only",
@@ -33,6 +33,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "vitest bench --reporter=default",
     "lint": "eslint src/ --ext .ts",
     "lint:fix": "eslint src/ --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",

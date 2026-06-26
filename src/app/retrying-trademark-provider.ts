@@ -6,15 +6,9 @@ import {
   CircuitBreaker,
   DEFAULT_CIRCUIT_BREAKER,
   type CircuitBreakerPolicy,
-} from './circuit-breaker.js';
-import {
-  DEFAULT_RETRY_POLICY,
-  isTransient,
-  computeDelay,
-  defaultSleep,
-  CircuitOpenError,
-  type RetryPolicy,
-} from '../providers/retry-policy.js';
+} from '../providers/circuit-breaker.js';
+import { DEFAULT_RETRY_POLICY, type RetryPolicy } from '../providers/retry-policy.js';
+import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
 
 /**
  * Retry decorator with circuit breaker for TrademarkProvider.
@@ -40,7 +34,6 @@ export class RetryingTrademarkProvider implements TrademarkProvider {
   readonly #delegate: TrademarkProvider;
   readonly #policy: RetryPolicy;
   readonly #circuitBreaker: CircuitBreaker;
-  readonly #circuitBreakerPolicy: CircuitBreakerPolicy;
 
   constructor(
     delegate: TrademarkProvider,
@@ -49,40 +42,18 @@ export class RetryingTrademarkProvider implements TrademarkProvider {
   ) {
     this.#delegate = delegate;
     this.#policy = { ...DEFAULT_RETRY_POLICY, ...policy };
-    this.#circuitBreakerPolicy = { ...DEFAULT_CIRCUIT_BREAKER, ...circuitBreakerPolicy };
-    this.#circuitBreaker = new CircuitBreaker(this.#circuitBreakerPolicy);
+    this.#circuitBreaker = new CircuitBreaker({
+      ...DEFAULT_CIRCUIT_BREAKER,
+      ...circuitBreakerPolicy,
+    });
   }
 
   async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
-    if (!this.#circuitBreaker.allow()) {
-      throw new CircuitOpenError(
-        'Trademark provider',
-        this.#circuitBreakerPolicy.cooldownMs,
-        this.#circuitBreaker.state,
-      );
-    }
-
-    const random = this.#policy.random ?? Math.random;
-    const sleep = this.#policy.sleep ?? defaultSleep;
-    const max = Math.max(1, this.#policy.maxAttempts);
-
-    let lastErr: unknown;
-    for (let attempt = 1; attempt <= max; attempt++) {
-      try {
-        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        const result = await this.#delegate.search(term, signal);
-        this.#circuitBreaker.onSuccess();
-        return result;
-      } catch (err) {
-        lastErr = err;
-        if (attempt >= max || !isTransient(err)) {
-          this.#circuitBreaker.onFailure();
-          throw err;
-        }
-        const delay = computeDelay(attempt, this.#policy, random);
-        await sleep(delay);
-      }
-    }
-    throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+    return withRetryAndCircuitBreaker(
+      (s) => this.#delegate.search(term, s),
+      'Trademark',
+      { policy: this.#policy, circuitBreaker: this.#circuitBreaker },
+      signal,
+    );
   }
 }

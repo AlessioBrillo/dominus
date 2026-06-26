@@ -5,5 +5,6 @@ export interface AuthResult {
 
 export interface AuthProvider {
   readonly name: string;
+  readonly isActive: boolean;
   validate(apiKey: string): Promise<AuthResult>;
 }

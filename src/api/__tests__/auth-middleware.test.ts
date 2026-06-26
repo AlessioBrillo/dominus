@@ -20,8 +20,9 @@ function buildApp(authProvider: AuthProvider): express.Express {
 
 function makeAuthProvider(
   validate: AuthProvider['validate'] = vi.fn().mockResolvedValue({ authenticated: true }),
+  isActive = true,
 ): AuthProvider {
-  return { name: 'TestAuthProvider', validate };
+  return { name: 'TestAuthProvider', isActive, validate };
 }
 
 describe('auth middleware', () => {
@@ -81,6 +82,21 @@ describe('auth middleware', () => {
       const res = await request(app).get('/api/health');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ status: 'ok' });
+    });
+  });
+
+  describe('without authentication (auth disabled)', () => {
+    let provider: AuthProvider;
+
+    beforeEach(() => {
+      provider = makeAuthProvider(vi.fn().mockResolvedValue({ authenticated: true }), false);
+    });
+
+    it('passes through without API key when auth is disabled', async () => {
+      const app = buildApp(provider);
+      const res = await request(app).get('/api/v1/protected');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ data: 'secret' });
     });
   });
 });

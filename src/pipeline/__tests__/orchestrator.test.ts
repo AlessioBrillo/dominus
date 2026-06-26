@@ -7,13 +7,14 @@ import { ScoringStage } from '../stages/scoring-stage.js';
 import { TrademarkGateStage } from '../stages/trademark-gate-stage.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
-import type { DnsProvider } from '../../providers/dns/node-dns-provider.js';
+import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 
 function makeMockDns(status = DomainStatus.Available): DnsProvider {
   return {
+    name: 'MockDns',
     checkAvailability: vi.fn().mockResolvedValue({ domain: 'x', status, checkedAt: '' }),
     checkBulk: vi
       .fn()

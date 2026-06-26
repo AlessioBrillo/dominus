@@ -7,7 +7,6 @@ import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
-import { EnvApiKeyProvider } from './providers/auth/env-api-key-provider.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
@@ -42,8 +41,7 @@ async function main(): Promise<void> {
   const logger = getLogger();
   const deps = await createDependencies(config);
 
-  const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
-  if (!authProvider.isActive) {
+  if (!deps.authProvider.isActive) {
     if (config.HOST === '0.0.0.0' || config.HOST === '::') {
       logger.fatal(
         'FATAL: API authentication is DISABLED but server is bound to 0.0.0.0 (all interfaces). ' +
@@ -55,7 +53,7 @@ async function main(): Promise<void> {
       logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
     }
   }
-  const authMiddleware = createAuthMiddleware(authProvider);
+  const authMiddleware = createAuthMiddleware(deps.authProvider);
 
   const app = express();
 
@@ -83,20 +81,6 @@ async function main(): Promise<void> {
     }),
   );
 
-  if (config.RATE_LIMIT_MAX > 0) {
-    app.use(
-      rateLimit({
-        windowMs: config.RATE_LIMIT_WINDOW_MS,
-        max: config.RATE_LIMIT_MAX,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: {
-          error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
-        },
-      }),
-    );
-  }
-
   app.use(securityHeaders);
 
   if (config.REQUEST_TIMEOUT_MS > 0) {
@@ -112,10 +96,73 @@ async function main(): Promise<void> {
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
   app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
   app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
-  app.use('/api/v1/auth', createAuthRouter(authProvider));
+
+  // Auth routes: tight per-IP rate limit (separate from global API rate limit)
+  // This limits brute-force attempts on the login endpoint.
+  // The auth middleware also enforces per-IP failure-rate limiting (10 failures/60s).
+  if (config.RATE_LIMIT_MAX > 0) {
+    app.use(
+      '/api/v1/auth',
+      rateLimit({
+        windowMs: Math.min(config.RATE_LIMIT_WINDOW_MS, 60_000),
+        max: Math.min(config.RATE_LIMIT_MAX, 30),
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many authentication attempts. Try again later.',
+          },
+        },
+      }),
+    );
+  }
+  app.use('/api/v1/auth', createAuthRouter(deps.authProvider));
+
+  // Global per-IP rate limit for all remaining API routes (protects against
+  // request floods and resource exhaustion). Applied after auth to separate
+  // auth-throttling from general-API throttling.
+  if (config.RATE_LIMIT_MAX > 0) {
+    app.use(
+      rateLimit({
+        windowMs: config.RATE_LIMIT_WINDOW_MS,
+        max: config.RATE_LIMIT_MAX,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
+        },
+      }),
+    );
+  }
 
   const protectedRouter = express.Router();
   protectedRouter.use(authMiddleware);
+
+  // Per-token rate limit for authenticated API calls. This prevents a single
+  // API key holder from overwhelming the backend or exhausting the global
+  // per-IP rate limit. Key is derived from the authenticated API key hash.
+  if (config.RATE_LIMIT_MAX > 0) {
+    protectedRouter.use(
+      rateLimit({
+        windowMs: config.RATE_LIMIT_WINDOW_MS,
+        max: config.RATE_LIMIT_MAX * 2,
+        standardHeaders: true,
+        legacyHeaders: false,
+        keyGenerator: (req) => {
+          const header = req.headers['authorization'] ?? 'unknown';
+          return `token:${header}`;
+        },
+        message: {
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many requests for this API key. Try again later.',
+          },
+        },
+      }),
+    );
+  }
+
   protectedRouter.use(
     '/backtest',
     createBacktestRouter(deps.provider, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),

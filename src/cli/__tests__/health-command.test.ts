@@ -168,7 +168,7 @@ describe('health command', () => {
   it('reports healthy state when database is connected', async () => {
     const output = await runHealth();
     expect(output).toMatch(/Status:\s+ok/);
-    expect(output).toMatch(/DOMINUS v0\.4\.0-dev/);
+    expect(output).toMatch(/DOMINUS v0\.5\.0-dev/);
     expect(output).toMatch(/Database:\s+connected/);
     expect(output).toMatch(/Providers:/);
   });
@@ -192,7 +192,7 @@ describe('health command', () => {
     const output = await runHealth('--json');
     const parsed = JSON.parse(output.trim());
     expect(parsed).toHaveProperty('status', 'ok');
-    expect(parsed).toHaveProperty('version', '0.4.0-dev');
+    expect(parsed).toHaveProperty('version', '0.5.0-dev');
     expect(parsed).toHaveProperty('uptime');
     expect(parsed).toHaveProperty('database', 'connected');
     expect(parsed).toHaveProperty('providers');

@@ -62,7 +62,9 @@ import {
   PipelineProgressService,
 } from './index.js';
 import { type RateLimiter } from '../providers/rate-limiter.js';
-import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from './circuit-breaker.js';
+import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
+import type { AuthProvider } from '../providers/auth/auth-provider.js';
+import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
 import {
   buildKeywordProvider,
@@ -149,6 +151,7 @@ export interface DominusDependencies {
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
   bulkWriteProvider: DatabaseProvider | undefined;
+  authProvider: AuthProvider;
 }
 
 interface BuiltRepositories {
@@ -358,6 +361,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     : openDatabase(config.DATABASE_PATH, config.DATABASE_BUSY_TIMEOUT);
 
   warnEuipoIfMissing(config);
+
+  // --- Auth Provider ---
+  const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
 
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);
@@ -677,5 +683,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoListingService,
     jobQueueService,
     worker,
+    authProvider,
   };
 }

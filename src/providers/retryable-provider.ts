@@ -1,17 +1,7 @@
 import { getLogger } from '../logger.js';
-import { isTransient } from './retry-policy.js';
+import { isTransient, type RetryPolicy } from './retry-policy.js';
 
 const logger = getLogger();
-
-export interface RetryPolicy {
-  maxAttempts: number;
-  baseDelayMs: number;
-  backoffMultiplier: number;
-  maxDelayMs: number;
-  jitterRatio: number;
-  random?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-}
 
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 3,

@@ -5,7 +5,34 @@ All notable changes to DOMINUS are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0-dev] — 2026-06-18
+## [0.5.0-dev] — 2026-06-26
+
+### Added
+- ADR-0031: Production hardening — CSP, rate limiting, retry consolidation
+- Benchmark suite (vitest bench): pipeline throughput and DNS bulk lookups
+- `npm run bench` script for performance regression testing
+- Per-token rate limiting on authenticated API routes
+- `withRetryAndCircuitBreaker()` utility combining retry + circuit breaker
+- `DnsProvider` interface extracted to own file (`dns-provider.ts`)
+- `CircuitBreaker.cooldownMs` getter
+
+### Changed
+- CSP: removed `'unsafe-inline'` from `script-src` (Vite SPA bundles all scripts)
+- AuthProvider built in `createDependencies()` and injected via `DominusDependencies`
+- Auth middleware: `isActive` uses typed interface instead of unsafe cast
+- Rate limiting split: auth endpoint (30 req/60s) separate from global API (100 req/15min)
+- Circuit breaker moved from `src/app/` to `src/providers/` (cross-cutting pattern)
+- `RetryingWhoisProvider`, `RetryingTrademarkProvider`, `RetryingRdapProvider`: delegated to `withRetryAndCircuitBreaker()`, removing ~50 lines of duplicate retry loop each
+- `NodeDnsProvider`: config injected via constructor options instead of `loadConfig()` at runtime
+- `NodeDnsProvider`: `name` property for observability
+- eslint config: allow `.bench.ts` files to import vitest
+- ROADMAP.md: updated with accurate release status through v0.9.0
+
+### Removed
+- Duplicate `RetryPolicy` interface from `retryable-provider.ts` (now imports from `retry-policy.ts`)
+- `loadConfig()` calls from `NodeDnsProvider.checkAvailability()` and `checkBulk()`
+
+## [0.4.0] — 2026-06-18
 
 ### Added
 - ADR-0025: License change — MIT to AGPL v3 + Commercial

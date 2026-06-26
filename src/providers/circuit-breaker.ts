@@ -94,6 +94,10 @@ export class CircuitBreaker {
     return this.#state;
   }
 
+  get cooldownMs(): number {
+    return this.#policy.cooldownMs;
+  }
+
   reset(): void {
     this.#state = 'closed';
     this.#failureCount = 0;

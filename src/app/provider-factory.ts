@@ -23,7 +23,7 @@ import type { WhoisProvider as WhoisProviderInterface } from '../providers/whois
 import type { DnsCheckResult } from '../types/domain-status.js';
 import { DomainStatus } from '../types/domain-status.js';
 import { RetryingRdapProvider } from './retrying-rdap-provider.js';
-import { RDAP_CIRCUIT_BREAKER } from './circuit-breaker.js';
+import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
 
@@ -132,7 +132,14 @@ export function buildRdapProviders(
 }
 
 export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): DnsProvider {
-  const inner = new NodeDnsProvider(undefined, config.DNS_CACHE_MAX_SIZE);
+  const inner = new NodeDnsProvider({
+    cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+    maxSize: config.DNS_CACHE_MAX_SIZE,
+    lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+    lookupStrategy: config.DNS_LOOKUP_STRATEGY,
+    dohEndpoint: config.DNS_DOH_ENDPOINT,
+    bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+  });
 
   const wrappedCheckAvailability = async (
     domain: string,
@@ -150,14 +157,15 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
   };
 
   const dnsProvider: DnsProvider = {
+    name: 'DnsProvider(withRetry)',
     checkAvailability: wrappedCheckAvailability,
     clearCache: () => inner.clearCache(),
     checkBulk: async (domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> => {
-      const concurrency = config.DNS_BULK_CONCURRENCY;
       const results: DnsCheckResult[] = [];
-      for (let i = 0; i < domains.length; i += concurrency) {
+      const chunkSize = 50;
+      for (let i = 0; i < domains.length; i += chunkSize) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-        const chunk = domains.slice(i, i + concurrency);
+        const chunk = domains.slice(i, i + chunkSize);
         const chunkResults = await Promise.all(
           chunk.map((d) =>
             wrappedCheckAvailability(d, signal).catch(() => ({

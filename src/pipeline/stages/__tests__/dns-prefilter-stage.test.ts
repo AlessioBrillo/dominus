@@ -3,7 +3,7 @@ import { DnsPreFilterStage } from '../dns-prefilter-stage.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import { CandidateSource, CandidateStatus } from '../../../types/candidate.js';
 import type { DomainCandidate } from '../../../types/candidate.js';
-import type { DnsProvider } from '../../../providers/dns/node-dns-provider.js';
+import type { DnsProvider } from '../../../providers/dns/dns-provider.js';
 
 function makeCandidate(domain: string): DomainCandidate {
   return {
@@ -18,6 +18,7 @@ function makeCandidate(domain: string): DomainCandidate {
 
 function makeMockDns(results: DomainStatus[]): DnsProvider {
   return {
+    name: 'MockDns',
     checkAvailability: vi.fn(),
     checkBulk: vi.fn().mockResolvedValue(
       results.map((status) => ({

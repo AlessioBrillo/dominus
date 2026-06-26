@@ -1,8 +1,25 @@
 import type { Request, Response, NextFunction } from 'express';
 
+/**
+ * Content-Security-Policy directives for production.
+ *
+ * Design rationale:
+ * - script-src 'self' only — ALL scripts are Vite-bundled assets served
+ *   from same origin. No inline scripts in the SPA. Server-rendered
+ *   public pages use JSON-LD in script tags with type="application/ld+json"
+ *   which is not executable JS and does not require 'unsafe-inline'.
+ * - style-src 'self' 'unsafe-inline' — KEPT for the server-rendered
+ *   public score pages (public-router.ts) which embed <style> blocks
+ *   for isolated HTML rendering. The SPA (Vite + Tailwind) bundles all
+ *   CSS and would work with style-src 'self' alone.
+ * - TODO(v0.7.0): Remove style-src 'unsafe-inline' by extracting public
+ *   page CSS to external files served from /public/static/assets/.
+ *
+ * See: docs/adr/0031-production-hardening.md
+ */
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
