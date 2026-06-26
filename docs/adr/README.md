@@ -37,6 +37,10 @@ re-running the original arguments.
 | [0028](0028-frontend-architecture-professional-dashboard.md) | Frontend architecture — professional SaaS dashboard                          | 2026-06-18 | Proposed                 |
 | [0029](0029-conversion-driven-features.md)                   | Conversion-driven features for DOMINUS Cloud                                 | 2026-06-21 | Proposed                 |
 | [0030](0030-public-namespace-architecture.md)                | Public namespace architecture                                                | 2026-06-21 | Proposed                 |
+| [0031](0031-production-hardening.md)                         | Production hardening — CSP, auth DI, rate limiting, retry consolidation       | 2026-06-26 | Accepted                 |
+| [0032](0032-cloud-authentication.md)                         | Cloud authentication — external identity provider (Auth0)                     | 2026-06-26 | Proposed                 |
+| [0033](0033-cloud-redis-infrastructure.md)                   | Cloud Redis infrastructure — distributed rate limiting, job queue, cache      | 2026-06-26 | Proposed                 |
+| [0034](0034-multi-tenant-data-model.md)                      | Multi-tenant data model — tenant ID column + PostgreSQL RLS                   | 2026-06-26 | Proposed                 |
 
 ## Conventions
 
