@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeDnsProvider } from '../node-dns-provider.js';
+import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 
 vi.mock('node:dns', () => ({
@@ -13,6 +14,17 @@ import { promises as dnsPromises } from 'node:dns';
 function makeResolved(): never {
   return ['1.2.3.4'] as never;
 }
+
+const PARKING_RANGES: ParkingRange[] = [
+  {
+    name: 'GoDaddy',
+    cidr: ['208.109.0.0/16', '64.202.0.0/16'],
+  },
+  {
+    name: 'TestPark',
+    cidr: ['1.2.3.0/24'],
+  },
+];
 
 describe('NodeDnsProvider', () => {
   let provider: NodeDnsProvider;
@@ -111,5 +123,45 @@ describe('NodeDnsProvider', () => {
     ac.abort();
 
     await expect(provider.checkAvailability('aborted.com', ac.signal)).rejects.toThrow('Aborted');
+  });
+
+  it('returns isParked=true when domain resolves to a known parking IP', async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+    const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
+    const p = new NodeDnsProvider({
+      cacheTtlMs: 60_000,
+      parkingEnabled: true,
+      parkingRegistry,
+    });
+    const result = await p.checkAvailability('parked.com');
+    expect(result.status).toBe(DomainStatus.Registered);
+    expect(result.isParked).toBe(true);
+    expect(result.parkingRegistrar).toBe('TestPark');
+  });
+
+  it('does not set isParked when parking is disabled', async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+    const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
+    const p = new NodeDnsProvider({
+      cacheTtlMs: 60_000,
+      parkingEnabled: false,
+      parkingRegistry,
+    });
+    const result = await p.checkAvailability('parked.com');
+    expect(result.status).toBe(DomainStatus.Registered);
+    expect(result.isParked).toBeUndefined();
+  });
+
+  it('returns isParked=false when domain resolves but IP is not a parking range', async () => {
+    vi.mocked(dnsPromises.resolve).mockResolvedValue(['9.9.9.9'] as never);
+    const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
+    const p = new NodeDnsProvider({
+      cacheTtlMs: 60_000,
+      parkingEnabled: true,
+      parkingRegistry,
+    });
+    const result = await p.checkAvailability('active-site.com');
+    expect(result.status).toBe(DomainStatus.Registered);
+    expect(result.isParked).toBeUndefined();
   });
 });
