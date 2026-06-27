@@ -1,0 +1,62 @@
+[
+  {
+    "name": "GoDaddy",
+    "cidr": ["208.109.0.0/16", "64.202.0.0/16", "97.74.0.0/16", "72.167.0.0/16", "184.168.0.0/16"]
+  },
+  {
+    "name": "Sedo",
+    "cidr": ["91.195.240.0/22"]
+  },
+  {
+    "name": "Dan.com (CSC/HostingEurope)",
+    "cidr": ["3.64.0.0/12", "52.28.0.0/14", "52.212.0.0/15", "34.240.0.0/13"]
+  },
+  {
+    "name": "Afternic (GoDaddy)",
+    "cidr": ["141.8.0.0/15", "185.53.0.0/16"]
+  },
+  {
+    "name": "HugeDomains",
+    "cidr": ["104.18.0.0/15", "104.26.0.0/15", "172.64.0.0/13"]
+  },
+  {
+    "name": "BuyDomains (Rebuild/Afternic)",
+    "cidr": ["52.84.0.0/14", "54.230.0.0/15", "54.239.0.0/16"]
+  },
+  {
+    "name": "Uniregistry (GoDaddy)",
+    "cidr": ["185.53.0.0/16"]
+  },
+  {
+    "name": "Namecheap Parking",
+    "cidr": ["162.255.116.0/22", "216.131.64.0/19"]
+  },
+  {
+    "name": "DomainMarket (ClearSaleSingh)",
+    "cidr": ["35.160.0.0/12", "34.208.0.0/12"]
+  },
+  {
+    "name": "BrandBucket",
+    "cidr": ["52.216.0.0/15", "54.231.0.0/16"]
+  },
+  {
+    "name": "ParkLogic / DomainNameSales",
+    "cidr": ["103.224.212.0/24", "103.224.213.0/24"]
+  },
+  {
+    "name": "Bodis Parking",
+    "cidr": ["104.21.0.0/16", "172.67.0.0/16"]
+  },
+  {
+    "name": "Voodoo / Above.com",
+    "cidr": ["199.59.24.0/22", "208.73.208.0/22"]
+  },
+  {
+    "name": "Cafe24 / Gabia Parking",
+    "cidr": ["211.115.80.0/20"]
+  },
+  {
+    "name": "Cloudflare (SaaS origin — also used by parked domains behind CF proxy)",
+    "cidr": ["104.16.0.0/12", "172.64.0.0/13", "131.0.72.0/22"]
+  }
+]
