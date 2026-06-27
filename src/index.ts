@@ -92,7 +92,10 @@ async function main(): Promise<void> {
   app.use(express.json({ limit: '100kb' }));
   app.use(createRequestLogger(logger));
 
-  app.use('/public', createPublicRouter(deps.provider, deps.engine, deps.trademarkGate));
+  app.use(
+    '/public',
+    createPublicRouter(deps.provider, deps.engine, deps.trademarkGate, deps.anonScoringService),
+  );
 
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));

@@ -31,11 +31,13 @@ const configSchema = z.object({
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
   DROP_RENEWAL_HORIZON_DAYS: z.coerce.number().int().min(1).default(60),
   /**
-   * Optional path to a JSON file produced from Google Keyword Planner export.
+   * Path to a JSON file with keyword metrics (search volume, CPC, competition).
+   * Defaults to bundled seed data at data/keywords.json.
    * Format: array of { term, monthlySearchVolume, cpc, competition }.
-   * When absent, ManualKeywordProvider returns zero-volume for all terms.
+   * When absent or pointing to a non-existent file, ManualKeywordProvider
+   * returns zero-volume for all terms.
    */
-  KEYWORD_DATA_PATH: z.string().optional(),
+  KEYWORD_DATA_PATH: z.string().default('./data/keywords.json'),
   /**
    * Keyword provider implementation to use.
    * Supported values: 'manual' (reads from KEYWORD_DATA_PATH JSON file).
@@ -73,11 +75,13 @@ const configSchema = z.object({
    */
   GOOGLE_ADS_CUSTOMER_ID: z.string().optional(),
   /**
-   * Optional path to a CSV file of NameBio comparable sales.
+   * Path to a CSV file of comparable domain sales.
    * Columns: domain,price,date,venue
-   * When absent, ManualCompsProvider returns no comparables.
+   * Defaults to bundled seed data at data/comps.csv.
+   * When absent or pointing to a non-existent file, ManualCompsProvider
+   * returns no comparables.
    */
-  COMPS_DATA_PATH: z.string().optional(),
+  COMPS_DATA_PATH: z.string().default('./data/comps.csv'),
   /**
    * API key for the NameBio API (namebio.com/api).
    * When absent, NameBioProvider returns zero comparable sales (graceful degrade).
@@ -170,6 +174,12 @@ const configSchema = z.object({
    * Default: 300 (5 minutes).
    */
   PROVIDER_MEMORY_CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86400).default(300),
+  /**
+   * TTL in milliseconds for the public (anonymous) scoring cache.
+   * Controls how long a scored domain stays cached before re-scoring.
+   * Default: 300000 (5 minutes).
+   */
+  PUBLIC_CACHE_TTL_MS: z.coerce.number().int().min(1000).max(86400000).default(300000),
   /**
    * Optional path to a JSON file with operator-approved weight overrides.
    * When set, the scoring engine reads this file at startup and uses the

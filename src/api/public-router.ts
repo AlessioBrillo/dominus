@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
+import { type AnonScoringService, DomainValidationError } from '../services/anon-scoring-service.js';
 import { isValidDomain, parseDomain } from '../utils/domain.js';
 import { getLogger } from '../logger.js';
 import { generateOgPng } from './open-graph.js';
@@ -65,6 +66,7 @@ export function createPublicRouter(
   db: DatabaseProvider,
   engine: ScoringEngine,
   trademarkGate?: TrademarkGate,
+  anonScoring?: AnonScoringService,
 ): Router {
   const router = Router();
   const cache = createCache();
@@ -150,33 +152,17 @@ export function createPublicRouter(
           return;
         }
 
-        const cached = cache.get(`domain:${domain.toLowerCase()}`);
-        if (cached) {
+        if (anonScoring) {
+          const result = await anonScoring.score(domain);
           if (req.accepts('html')) {
-            const d = cached as {
-              domain: string;
-              score: {
-                expectedValue: number;
-                confidence: number;
-                suggestedBuyMax: number;
-                suggestedListPrice: number;
-                weightedScore: number;
-                recommended: boolean;
-                scoredAt: string;
-              };
-              trademark: {
-                verdict: string;
-                verifiedSources: string[];
-                matchedMark?: string | null;
-              } | null;
-            };
-            res.send(renderDomainPage(d.domain, d.score, d.trademark));
+            res.send(renderDomainPage(result.domain, result.score, result.trademark));
           } else {
-            res.json(cached);
+            res.json(result);
           }
           return;
         }
 
+        // Fallback when AnonScoringService not available — score inline
         const parsed = parseDomain(domain);
 
         let trademarkResult: {
@@ -218,6 +204,12 @@ export function createPublicRouter(
           res.json(data);
         }
       } catch (err: unknown) {
+        if (err instanceof DomainValidationError) {
+          res.status(400).json({
+            error: { code: 'INVALID_DOMAIN', message: err.message },
+          });
+          return;
+        }
         next(err);
       }
     },
