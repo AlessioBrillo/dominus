@@ -2,6 +2,7 @@ import { promises as dnsPromises } from 'node:dns';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from './dns-provider.js';
+import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -50,6 +51,13 @@ function resolveWithTimeout(
   });
 }
 
+/** Resolve only A (IPv4) records to collect raw IP addresses for parking detection. */
+async function resolveAddressRecords(domain: string): Promise<string[]> {
+  const result = await dnsPromises.resolve(domain, 'A').catch(() => [] as string[]);
+
+  return result;
+}
+
 async function resolveDoh(
   domain: string,
   recordType: string,
@@ -94,10 +102,6 @@ async function resolvesAnyNative(
   timeout: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
-  // Launch ALL record types in parallel via race.
-  // First resolve → domain is registered (return true).
-  // All reject with NXDOMAIN/NODATA → domain is available (return false).
-  // Any reject with timeout → unknown (return undefined).
   const childAbort = new AbortController();
   const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
 
@@ -120,7 +124,6 @@ async function resolvesAnyNative(
 
   const outcomes = await Promise.all(tasks);
 
-  // If any record type resolved → domain is registered
   for (const o of outcomes) {
     if (o.resolved) return true;
   }
@@ -205,6 +208,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #cacheTtlMs: number;
   readonly #maxSize: number;
   readonly #bulkConcurrency: number;
+  readonly #parkingEnabled: boolean;
+  readonly #parkingRegistry: ParkingIpRegistry;
   #cache: Map<string, CacheEntry> = new Map();
 
   constructor(options?: {
@@ -214,6 +219,8 @@ export class NodeDnsProvider implements DnsProvider {
     cacheTtlMs?: number;
     maxSize?: number;
     bulkConcurrency?: number;
+    parkingEnabled?: boolean;
+    parkingRegistry?: ParkingIpRegistry;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#lookupStrategy = options?.lookupStrategy ?? 'native';
@@ -221,9 +228,10 @@ export class NodeDnsProvider implements DnsProvider {
     this.#cacheTtlMs = options?.cacheTtlMs ?? 300_000;
     this.#maxSize = options?.maxSize ?? 10000;
     this.#bulkConcurrency = options?.bulkConcurrency ?? 50;
+    this.#parkingEnabled = options?.parkingEnabled ?? false;
+    this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
   }
 
-  /** Clear cached entries older than TTL */
   pruneCache(): number {
     const now = Date.now();
     let pruned = 0;
@@ -268,14 +276,26 @@ export class NodeDnsProvider implements DnsProvider {
       const native = await resolvesAnyNative(domain, timeout, signal);
 
       if (native !== undefined) {
+        const status = native ? DomainStatus.Registered : DomainStatus.Available;
+        let isParked: boolean | undefined;
+        let parkingRegistrar: string | undefined;
+
+        if (native && this.#parkingEnabled) {
+          const addresses = await resolveAddressRecords(domain);
+          const parkingCheck = this.#parkingRegistry.checkIps(addresses);
+          isParked = parkingCheck.parked || undefined;
+          parkingRegistrar = parkingCheck.registrar;
+        }
+
         return this.#cached(domain, {
           domain,
-          status: native ? DomainStatus.Registered : DomainStatus.Available,
+          status,
           checkedAt,
+          isParked: isParked,
+          parkingRegistrar,
         });
       }
 
-      // Native resolver timed out — try DoH fallback if enabled
       if (strategy === 'native-with-doh-fallback') {
         logger.warn(
           { domain, endpoint: this.#dohEndpoint },

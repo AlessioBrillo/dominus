@@ -128,6 +128,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     WAYBACK_BATCH_CONCURRENCY: 3,
     SCORING_BATCH_CONCURRENCY: 5,
     WAYBACK_CDX_PAGE_SIZE: 5000,
+    DNS_PARKING_CHECK_ENABLED: false,
+    DNS_PARKING_IPS_PATH: undefined,
     ...overrides,
   };
 }

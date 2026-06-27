@@ -8,7 +8,7 @@ import {
 import { createCompsProvider, type CompsProvider } from '../providers/comps/index.js';
 import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
-import { NodeDnsProvider, type DnsProvider } from '../providers/dns/index.js';
+import { NodeDnsProvider, ParkingIpRegistry, type DnsProvider } from '../providers/dns/index.js';
 import { RateLimiter } from '../providers/rate-limiter.js';
 import { FailoverRdapProvider } from '../providers/rdap/index.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
@@ -129,6 +129,8 @@ export function buildRdapProviders(
 }
 
 export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): DnsProvider {
+  const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
+
   const inner = new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
     maxSize: config.DNS_CACHE_MAX_SIZE,
@@ -136,6 +138,8 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
     lookupStrategy: config.DNS_LOOKUP_STRATEGY,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+    parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
+    parkingRegistry,
   });
 
   const wrappedCheckAvailability = async (

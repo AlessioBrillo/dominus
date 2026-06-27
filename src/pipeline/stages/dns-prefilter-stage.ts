@@ -62,8 +62,20 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         continue;
       }
 
-      if (result.status === DomainStatus.Available || result.status === DomainStatus.Unknown) {
-        passed.push({ ...candidate, dnsStatus: result.status, status: CandidateStatus.Pending });
+      if (
+        result.status === DomainStatus.Available ||
+        result.status === DomainStatus.Unknown ||
+        result.isParked === true
+      ) {
+        const dnsStatus = result.isParked ? 'parked' : result.status;
+        passed.push({
+          ...candidate,
+          dnsStatus,
+          status: CandidateStatus.Pending,
+          ...(result.parkingRegistrar !== undefined
+            ? { whoisMeta: { ...candidate.whoisMeta, registrar: result.parkingRegistrar } }
+            : {}),
+        });
       } else {
         filtered.push({
           ...candidate,

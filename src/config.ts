@@ -218,6 +218,26 @@ const configSchema = z.object({
    */
   DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
   /**
+   * Enable parking page detection for registered domains.
+   * When `true`, registered domains whose A records resolve to known parking
+   * IP ranges (GoDaddy, Sedo, Dan.com, etc.) are NOT filtered by the DNS
+   * prefilter — they pass through with `dnsStatus: 'parked'`, allowing
+   * RDAP confirmation and scoring to evaluate whether the domain is
+   * available via the aftermarket.
+   * Default: false (parked domains are filtered as Registered).
+   */
+  DNS_PARKING_CHECK_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+  /**
+   * Path to a JSON file containing known parking IP ranges for registrar
+   * parking page detection. When absent, a built-in default list is used.
+   * Format: array of { name: string, cidr: string[] } objects.
+   * See data/parking-ips.json for the default format.
+   */
+  DNS_PARKING_IPS_PATH: z.string().optional(),
+
+  /**
    * TTL for in-memory DNS result cache in seconds.
    * DNS records for domain availability are relatively stable (hours to days).
    * Default: 300 seconds (5 minutes). Increase to reduce redundant lookups
