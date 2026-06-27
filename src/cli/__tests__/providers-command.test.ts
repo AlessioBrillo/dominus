@@ -21,7 +21,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_AUTH_URL: 'https://euipo.europa.eu/oauth2/token',
     EUIPO_API_URL: 'https://euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
+    KEYWORD_DATA_PATH: './data/keywords.json',
     KEYWORD_PROVIDER: 'manual',
+    COMPS_DATA_PATH: './data/comps.csv',
     COMPS_PROVIDER: 'manual',
     DNS_BULK_CONCURRENCY: 10,
     DNS_LOOKUP_TIMEOUT_MS: 3000,
@@ -122,6 +124,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     WAYBACK_TIMEOUT_MS: 10000,
     WAYBACK_BATCH_CONCURRENCY: 3,
     SCORING_BATCH_CONCURRENCY: 5,
+    PUBLIC_CACHE_TTL_MS: 300000,
     WAYBACK_CDX_PAGE_SIZE: 5000,
     ...overrides,
   };
@@ -172,7 +175,12 @@ describe('reportProviderStatuses', () => {
 
   it('reports KeywordPlanner as not configured when KEYWORD_DATA_PATH is unset', () => {
     // Act
-    const rows = reportProviderStatuses(buildConfig());
+    const rows = reportProviderStatuses(
+      buildConfig({
+        KEYWORD_DATA_PATH: '',
+        COMPS_DATA_PATH: '',
+      }),
+    );
 
     // Assert
     const kp = rows.find((r) => r.name === 'KeywordPlanner');
@@ -182,7 +190,12 @@ describe('reportProviderStatuses', () => {
 
   it('reports NameBio as not configured when COMPS_DATA_PATH is unset', () => {
     // Act
-    const rows = reportProviderStatuses(buildConfig());
+    const rows = reportProviderStatuses(
+      buildConfig({
+        COMPS_DATA_PATH: '',
+        KEYWORD_DATA_PATH: '',
+      }),
+    );
 
     // Assert
     const nb = rows.find((r) => r.name === 'NameBio');
