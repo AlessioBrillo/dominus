@@ -36,10 +36,10 @@ estimates and subject to change.
 - [x] Benchmark suite (vitest bench): pipeline throughput + DNS bulk lookups
 - [ ] Codecov integration + coverage badge in README
 - [x] API error handler consistency
-- [ ] Architecture diagrams (Mermaid) committed to `docs/diagrams/`
-- [ ] Automated changelog generation (standard-version or semantic-release)
-- [ ] Dockerfile Node version parameterisation
-- [ ] `.dockerignore` fix (tsconfig.json exclusion bug)
+- [x] Architecture diagrams (Mermaid) committed to `docs/diagrams/`
+- [x] Automated changelog generation (standard-version or semantic-release)
+- [x] Dockerfile Node version parameterisation
+- [x] `.dockerignore` fix (tsconfig.json exclusion bug)
 - [ ] SEO-ready README with screenshots/GIF demo
 
 ## v0.6.0 — Database Abstraction (complete)
@@ -112,8 +112,8 @@ estimates and subject to change.
 - [ ] Security audit (dependency scan, CSP review, auth hardening)
 - [ ] CI matrix testing (Node 20 + 22, ubuntu + windows)
 - [ ] Frontend coverage thresholds raised to ≥50%
-- [ ] Automated changelog generation
-- [ ] Architecture diagrams (Mermaid) committed to `docs/diagrams/`
+- [x] Automated changelog generation
+- [x] Architecture diagrams (Mermaid) committed to `docs/diagrams/`
 - [ ] SEO-ready README with screenshots/GIF demo
 
 ## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO

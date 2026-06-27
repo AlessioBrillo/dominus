@@ -1,18 +1,20 @@
 # DOMINUS — Multi-stage production build
 # Requires Docker BuildKit (default since Docker 23.0).
 #
-# Build:    docker build -t dominus .
+# Build:    docker build --build-arg NODE_VERSION=22 -t dominus .
 # Run:      docker run -d -p 3000:3000 -v ./data:/app/data dominus
 
+ARG NODE_VERSION=20
+
 # ---- Stage 1: Install dependencies ----
-FROM node:20-alpine AS deps
+FROM node:${NODE_VERSION}-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci --only=production --ignore-scripts
 
 # ---- Stage 2: Backend Build ----
-FROM node:20-alpine AS backend-build
+FROM node:${NODE_VERSION}-alpine AS backend-build
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json ./
@@ -20,7 +22,7 @@ COPY src/ src/
 RUN npm ci && npm run build
 
 # ---- Stage 3: Frontend Build ----
-FROM node:20-alpine AS frontend-build
+FROM node:${NODE_VERSION}-alpine AS frontend-build
 WORKDIR /app
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -30,7 +32,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 4: Production ----
-FROM node:20-alpine AS production
+FROM node:${NODE_VERSION}-alpine AS production
 WORKDIR /app
 
 RUN addgroup -S dominus && adduser -S dominus -G dominus

@@ -79,6 +79,7 @@ import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
+import { AnonScoringService } from '../services/anon-scoring-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
@@ -152,6 +153,7 @@ export interface DominusDependencies {
   worker: JobWorker | undefined;
   bulkWriteProvider: DatabaseProvider | undefined;
   authProvider: AuthProvider;
+  anonScoringService: AnonScoringService;
 }
 
 interface BuiltRepositories {
@@ -410,6 +412,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
+  );
+
+  // --- Anonymous Scoring Service ---
+  const anonScoringService = new AnonScoringService(
+    engine,
+    trademarkGate,
+    config.PUBLIC_CACHE_TTL_MS,
   );
 
   // --- Health ---
@@ -684,5 +693,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     jobQueueService,
     worker,
     authProvider,
+    anonScoringService,
   };
 }
