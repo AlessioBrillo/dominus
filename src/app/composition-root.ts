@@ -613,6 +613,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
     autoListingService,
+    config.DEFAULT_RENEWAL_COST_EUR,
   );
 
   // --- P&L ---

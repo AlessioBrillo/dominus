@@ -370,6 +370,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       SCHEDULER_BACKUP_CRON: '0 4 * * *',
       RENEWAL_WARNING_DAYS: 30,
       RENEWAL_CRITICAL_DAYS: 7,
+      DEFAULT_RENEWAL_COST_EUR: 10,
       DROP_SCORE_THRESHOLD: 25,
       DROP_RENEWAL_HORIZON_DAYS: 60,
       DROP_METHOD: 'threshold' as const,

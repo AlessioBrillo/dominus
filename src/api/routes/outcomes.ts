@@ -27,7 +27,10 @@ function parseZodError(err: z.ZodError): { code: string; message: string; issues
   };
 }
 
-export function createOutcomesRouter(outcomeRepo: OutcomeRepository): Router {
+export function createOutcomesRouter(
+  outcomeRepo: OutcomeRepository,
+  onSaleRecorded?: (domain: string, salePriceEur: number) => void,
+): Router {
   const router = Router();
 
   router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -62,6 +65,10 @@ export function createOutcomesRouter(outcomeRepo: OutcomeRepository): Router {
         commissionPct: parsed.data.commissionPct,
         notes: parsed.data.notes,
       });
+
+      if (parsed.data.type === 'sold' && parsed.data.salePriceEur !== undefined && onSaleRecorded) {
+        onSaleRecorded(parsed.data.domain, parsed.data.salePriceEur);
+      }
 
       res.status(201).json({ outcome });
     } catch (err: unknown) {

@@ -173,7 +173,14 @@ async function main(): Promise<void> {
     createBacktestRouter(deps.provider, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
   );
   protectedRouter.use('/providers', createProvidersRouter(deps.config));
-  protectedRouter.use('/outcomes', createOutcomesRouter(deps.outcomeRepo));
+  protectedRouter.use(
+    '/outcomes',
+    createOutcomesRouter(deps.outcomeRepo, (domain, salePriceEur) => {
+      deps.jobQueueService.enqueueBacktestBuild().catch((err) => {
+        logger.error({ err, domain, salePriceEur }, 'Failed to enqueue backtest after sale');
+      });
+    }),
+  );
   protectedRouter.use('/candidates', createCandidatesRouter(deps.runService, deps.candidateRepo));
   protectedRouter.use('/portfolio', createPortfolioRouter(deps.portfolioManager, deps.outcomeRepo));
   protectedRouter.use(

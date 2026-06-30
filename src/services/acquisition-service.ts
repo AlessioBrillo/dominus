@@ -22,6 +22,7 @@ export class AcquisitionService {
   readonly #engine: ScoringEngine | undefined;
   readonly #gate: TrademarkGate | undefined;
   readonly #autoListing: AutoListingService | undefined;
+  readonly #defaultRenewalCostEur: number;
 
   constructor(
     repo: AcquisitionRepository,
@@ -31,6 +32,7 @@ export class AcquisitionService {
     engine?: ScoringEngine,
     gate?: TrademarkGate,
     autoListing?: AutoListingService,
+    defaultRenewalCostEur: number = 10,
   ) {
     this.#repo = repo;
     this.#portfolioManager = portfolioManager;
@@ -39,6 +41,7 @@ export class AcquisitionService {
     this.#engine = engine;
     this.#gate = gate;
     this.#autoListing = autoListing;
+    this.#defaultRenewalCostEur = defaultRenewalCostEur;
   }
 
   async place(input: PlaceBidInput): Promise<Bid> {
@@ -139,7 +142,7 @@ export class AcquisitionService {
             acquiredAt: now.toISOString(),
             renewalDate: addYearsToDate(now, years).toISOString(),
             acquisitionCost: price,
-            renewalCost: 0,
+            renewalCost: this.#defaultRenewalCostEur,
             registrar: existing.venue,
             notes: input.notes,
           });

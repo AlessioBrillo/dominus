@@ -30,6 +30,7 @@ const configSchema = z.object({
   SCORING_RECOMMEND_THRESHOLD: z.coerce.number().min(0).max(1).default(0.4),
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
   DROP_RENEWAL_HORIZON_DAYS: z.coerce.number().int().min(1).default(60),
+  DEFAULT_RENEWAL_COST_EUR: z.coerce.number().min(0).max(10_000).default(10),
   /**
    * Path to a JSON file with keyword metrics (search volume, CPC, competition).
    * Defaults to bundled seed data at data/keywords.json.

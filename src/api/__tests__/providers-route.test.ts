@@ -42,6 +42,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     HOST: '127.0.0.1',
     RENEWAL_WARNING_DAYS: 30,
     RENEWAL_CRITICAL_DAYS: 7,
+    DEFAULT_RENEWAL_COST_EUR: 10,
     NOTIFIER_DESKTOP_ENABLED: false,
     NOTIFIER_WEBHOOK_URL: undefined,
     NOTIFIER_TELEGRAM_BOT_TOKEN: undefined,
