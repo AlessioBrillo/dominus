@@ -37,6 +37,7 @@ const EXPECTED_MIGRATIONS = [
   '0026_create_public_scores',
   '0027_create_wayback_cache',
   '0028_create_auto_listings',
+  '0029_add_tenant_id',
 ];
 
 export function validateMigrationSync(): string[] {

@@ -584,4 +584,29 @@ export const PG_MIGRATIONS: Array<{ name: string; up: (db: DatabaseProvider) => 
       );
     },
   },
+  {
+    name: '0029_add_tenant_id',
+    up: async (db): Promise<void> => {
+      const tables = [
+        'candidates',
+        'scoring_runs',
+        'portfolio_entries',
+        'trademark_results',
+        'outcomes',
+        'outcome_scores',
+        'watchlist_entries',
+        'listings',
+        'bids',
+        'renewal_alerts',
+        'public_scores',
+        'auto_listings',
+        'events',
+        'onboarding_state',
+      ];
+      for (const table of tables) {
+        await db.exec(`ALTER TABLE ${table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`);
+        await db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_tenant ON ${table}(tenant_id)`);
+      }
+    },
+  },
 ];
