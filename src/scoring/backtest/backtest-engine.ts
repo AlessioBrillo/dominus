@@ -189,33 +189,44 @@ export class BacktestEngine {
   }
 
   private async writeSignalForOutcome(outcome: Outcome): Promise<boolean> {
-    if (outcome.id === undefined || outcome.salePriceEur === undefined) return false;
+    const outcomeId = outcome.id;
+    const salePriceEur = outcome.salePriceEur;
+    if (outcomeId === undefined || salePriceEur === undefined) return false;
 
-    const snapshot = await this.findSnapshotForOutcome(outcome.domain, outcome.occurredAt);
-    if (snapshot === null) {
-      return false;
-    }
+    // All three operations (SELECT candidates, SELECT scoring_runs, UPSERT backtest_signals)
+    // execute atomically inside a single DB transaction. Without this, a concurrent pipeline
+    // run between the SELECT and UPSERT could mutate scoring data, producing inconsistent
+    // backtest signals. SQLite uses SERIALIZABLE isolation by default within a transaction.
+    return await this.db.transaction(async (txDb) => {
+      const snapshot = await this.findSnapshotForOutcome(outcome.domain, outcome.occurredAt, txDb);
+      if (snapshot === null) return false;
 
-    const costs = await this.#computeDomainCosts(outcome.domain, outcome.occurredAt);
+      const costs = await this.#computeDomainCosts(outcome.domain, outcome.occurredAt);
 
-    await this.backtestRepo.upsert({
-      domain: outcome.domain,
-      outcomeId: outcome.id,
-      scoringRunId: snapshot.run_id,
-      predictedExpectedValue: snapshot.expected_value,
-      predictedBuyMax: snapshot.suggested_buy_max,
-      predictedListPrice: snapshot.suggested_list_price,
-      predictedConfidence: snapshot.confidence,
-      actualSalePriceEur: outcome.salePriceEur,
-      acquisitionCostEur: costs.acquisitionCostEur,
-      totalRenewalCostPaidEur: costs.totalRenewalCostPaidEur,
+      await this.backtestRepo.upsert({
+        domain: outcome.domain,
+        outcomeId,
+        scoringRunId: snapshot.run_id,
+        predictedExpectedValue: snapshot.expected_value,
+        predictedBuyMax: snapshot.suggested_buy_max,
+        predictedListPrice: snapshot.suggested_list_price,
+        predictedConfidence: snapshot.confidence,
+        actualSalePriceEur: salePriceEur,
+        acquisitionCostEur: costs.acquisitionCostEur,
+        totalRenewalCostPaidEur: costs.totalRenewalCostPaidEur,
+      });
+      return true;
     });
-    return true;
   }
 
-  async #computeDomainCosts(domain: string, occurredAt: string): Promise<DomainCostInfo> {
+  async #computeDomainCosts(
+    domain: string,
+    occurredAt: string,
+    txDb?: DatabaseProvider,
+  ): Promise<DomainCostInfo> {
+    const db = txDb ?? this.db;
     try {
-      const row = await this.db.queryOne<{
+      const row = await db.queryOne<{
         acquisition_cost: number;
         renewal_cost: number;
         acquired_at: string;
@@ -251,14 +262,16 @@ export class BacktestEngine {
   private async findSnapshotForOutcome(
     domain: string,
     occurredAt: string,
+    txDb?: DatabaseProvider,
   ): Promise<ScoringSnapshotRow | null> {
-    const candidate = await this.db.queryOne<{ id: number }>(
+    const db = txDb ?? this.db;
+    const candidate = await db.queryOne<{ id: number }>(
       'SELECT id FROM candidates WHERE domain = ?',
       [domain],
     );
     if (candidate === undefined || candidate === null) return null;
 
-    const row = await this.db.queryOne<ScoringSnapshotRow>(
+    const row = await db.queryOne<ScoringSnapshotRow>(
       `SELECT id, run_id, expected_value, confidence, suggested_buy_max,
               suggested_list_price, weighted_score, recommended, scored_at
          FROM scoring_runs
