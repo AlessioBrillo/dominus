@@ -8,14 +8,19 @@
 #
 # Production (with .env file for secrets):
 #   docker compose --env-file .env up -d
+#
+# Service profiles:
+#   All services start by default (api + worker + scheduler).
+#   To run only the API: docker compose up api
 
 services:
-  dominus:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    image: dominus:latest
-    container_name: dominus
+      target: api
+    image: dominus-api:latest
+    container_name: dominus-api
     ports:
       - "${PORT:-3000}:3000"
     volumes:
@@ -44,18 +49,90 @@ services:
       - FRONTEND_DIST_PATH=./frontend/dist
       - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
       - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
-      - WORKER_ENABLED=${WORKER_ENABLED:-true}
-      - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
-      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-false}
+      - WORKER_ENABLED=false
+      - SCHEDULER_ENABLED=false
       - PURCHASE_AUTO_APPROVAL=${PURCHASE_AUTO_APPROVAL:-never}
     restart: unless-stopped
-    profiles:
-      - cloud
-    depends_on:
-      postgres:
-        condition: service_healthy
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: dominus-worker:latest
+    container_name: dominus-worker
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_PATH=/app/data/dominus.db
+      - DATABASE_URL=${DATABASE_URL:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - KEYWORD_DATA_PATH=${KEYWORD_DATA_PATH:-}
+      - COMPS_DATA_PATH=${COMPS_DATA_PATH:-}
+      - EUIPO_CLIENT_ID=${EUIPO_CLIENT_ID:-}
+      - EUIPO_CLIENT_SECRET=${EUIPO_CLIENT_SECRET:-}
+      - USPTO_SEARCH_URL=${USPTO_SEARCH_URL:-}
+      - EUIPO_AUTH_URL=${EUIPO_AUTH_URL:-}
+      - EUIPO_API_URL=${EUIPO_API_URL:-}
+      - TM_CACHE_TTL_DAYS=${TM_CACHE_TTL_DAYS:-7}
+      - SCORING_WEIGHTS_OVERRIDE=${SCORING_WEIGHTS_OVERRIDE:-}
+      - DNS_BULK_CONCURRENCY=${DNS_BULK_CONCURRENCY:-10}
+      - WHOIS_LOOKUP_TIMEOUT=${WHOIS_LOOKUP_TIMEOUT:-10000}
+      - BUY_MAX_ABSOLUTE_CAP=${BUY_MAX_ABSOLUTE_CAP:-500}
+      - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
+      - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
+      - WORKER_ENABLED=true
+      - SCHEDULER_ENABLED=false
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
+      - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
+    restart: unless-stopped
+    profiles:
+      - full
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: scheduler
+    image: dominus-scheduler:latest
+    container_name: dominus-scheduler
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_PATH=/app/data/dominus.db
+      - DATABASE_URL=${DATABASE_URL:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - KEYWORD_DATA_PATH=${KEYWORD_DATA_PATH:-}
+      - COMPS_DATA_PATH=${COMPS_DATA_PATH:-}
+      - EUIPO_CLIENT_ID=${EUIPO_CLIENT_ID:-}
+      - EUIPO_CLIENT_SECRET=${EUIPO_CLIENT_SECRET:-}
+      - USPTO_SEARCH_URL=${USPTO_SEARCH_URL:-}
+      - EUIPO_AUTH_URL=${EUIPO_AUTH_URL:-}
+      - EUIPO_API_URL=${EUIPO_API_URL:-}
+      - TM_CACHE_TTL_DAYS=${TM_CACHE_TTL_DAYS:-7}
+      - SCORING_WEIGHTS_OVERRIDE=${SCORING_WEIGHTS_OVERRIDE:-}
+      - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
+      - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
+      - WORKER_ENABLED=false
+      - SCHEDULER_ENABLED=true
+      - SCHEDULER_RENEWAL_CHECK_CRON=${SCHEDULER_RENEWAL_CHECK_CRON:-0 8 * * *}
+      - SCHEDULER_RESCORE_CRON=${SCHEDULER_RESCORE_CRON:-0 9 * * 1}
+      - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 10 1 * *}
+      - SCHEDULER_WATCHLIST_CRON=${SCHEDULER_WATCHLIST_CRON:-0 */6 * * *}
+      - SCHEDULER_BACKUP_CRON=${SCHEDULER_BACKUP_CRON:-0 4 * * *}
+      - BACKUP_DIR=${BACKUP_DIR:-./data/backup}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
+      - NOTIFIER_DESKTOP_ENABLED=${NOTIFIER_DESKTOP_ENABLED:-false}
+      - NOTIFIER_WEBHOOK_URL=${NOTIFIER_WEBHOOK_URL:-}
+      - NOTIFIER_TELEGRAM_BOT_TOKEN=${NOTIFIER_TELEGRAM_BOT_TOKEN:-}
+      - NOTIFIER_TELEGRAM_CHAT_ID=${NOTIFIER_TELEGRAM_CHAT_ID:-}
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # DOMINUS Cloud (PostgreSQL)
   postgres:
     image: postgres:16-alpine
     container_name: dominus-pg

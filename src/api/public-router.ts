@@ -5,7 +5,10 @@ import { randomUUID } from 'node:crypto';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
-import { type AnonScoringService, DomainValidationError } from '../services/anon-scoring-service.js';
+import {
+  type AnonScoringService,
+  DomainValidationError,
+} from '../services/anon-scoring-service.js';
 import { isValidDomain, parseDomain } from '../utils/domain.js';
 import { getLogger } from '../logger.js';
 import { generateOgPng } from './open-graph.js';
