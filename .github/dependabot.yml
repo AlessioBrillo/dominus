@@ -5,7 +5,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+      time: "08:00"
+    open-pull-requests-limit: 3
     ignore:
       # @types/psl ≥ 1.4.0 is a stub that delegates to psl's own types,
       # but psl's package.json "exports" doesn't expose them under
@@ -26,7 +27,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 5
+      time: "08:00"
+    open-pull-requests-limit: 3
     groups:
       production:
         dependency-type: "production"
