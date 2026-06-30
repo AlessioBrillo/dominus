@@ -8,7 +8,7 @@
 #   docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
-  dominus:
+  api:
     image: ghcr.io/alessiobrillo/dominus:latest
     restart: always
     deploy:
@@ -25,6 +25,40 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    image: ghcr.io/alessiobrillo/dominus:latest-worker
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scheduler:
+    image: ghcr.io/alessiobrillo/dominus:latest-scheduler
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
     logging:
       driver: "json-file"
       options:

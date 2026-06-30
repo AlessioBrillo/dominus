@@ -128,6 +128,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     PUBLIC_CACHE_TTL_MS: 300000,
     WAYBACK_CDX_PAGE_SIZE: 5000,
     DNS_PARKING_CHECK_ENABLED: false,
+    TRUST_PROXY_DEPTH: 1,
     DNS_PARKING_IPS_PATH: undefined,
     ...overrides,
   };

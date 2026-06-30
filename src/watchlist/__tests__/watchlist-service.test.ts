@@ -138,6 +138,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     SCORING_BATCH_CONCURRENCY: 5,
     WAYBACK_CDX_PAGE_SIZE: 5000,
     DNS_PARKING_CHECK_ENABLED: false,
+    TRUST_PROXY_DEPTH: 1,
     DNS_PARKING_IPS_PATH: undefined,
     ...overrides,
   };

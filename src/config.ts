@@ -618,6 +618,15 @@ const configSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   /**
+   * Number of reverse proxy hops to trust for client IP resolution.
+   * Behind a single reverse proxy (K8s nginx-ingress, Cloudflare, Traefik),
+   * set to 1 so req.ip reflects the client IP from X-Forwarded-For.
+   * Without this, rate limiting keys on the proxy IP — all users share a bucket.
+   * Set to 0 for direct deployments (no proxy). Default: 1.
+   */
+  TRUST_PROXY_DEPTH: z.coerce.number().int().min(0).max(10).default(1),
+
+  /**
    * Rate limiting: window duration in milliseconds (default: 15 minutes).
    */
   RATE_LIMIT_WINDOW_MS: z.coerce

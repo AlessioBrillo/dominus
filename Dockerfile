@@ -11,7 +11,7 @@
 #   docker run -d -v ./data:/app/data dominus-worker
 #   docker run -d -v ./data:/app/data dominus-scheduler
 
-ARG NODE_VERSION=20
+ARG NODE_VERSION=22
 
 # ---- Stage 1: Install production dependencies ----
 FROM node:${NODE_VERSION}-alpine AS deps

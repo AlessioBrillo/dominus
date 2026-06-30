@@ -57,6 +57,12 @@ async function main(): Promise<void> {
 
   const app = express();
 
+  // Trust the first reverse proxy for correct req.ip, rate limiting, and logging.
+  // Behind K8s nginx-ingress, Cloudflare, or Traefik, the proxy IP is the first
+  // hop and the client IP is in X-Forwarded-For. Without this, all rate limiting
+  // keys on the same proxy IP — a single bucket for all users.
+  app.set('trust proxy', config.TRUST_PROXY_DEPTH);
+
   const corsOrigins = config.CORS_ORIGIN.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
