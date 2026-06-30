@@ -1,34 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useOutcomesList } from '../useOutcomes';
+import type { Outcome } from '@/types/domain';
+
+const mockOutcomes: Outcome[] = [
+  {
+    id: 1,
+    domain: 'sold.com',
+    type: 'sold',
+    occurredAt: '2026-06-01T00:00:00Z',
+    salePriceEur: 1500,
+  },
+  { id: 2, domain: 'drop.net', type: 'dropped', occurredAt: '2026-05-01T00:00:00Z' },
+];
 
 vi.mock('@/api/outcomes', () => ({
-  fetchOutcomes: vi.fn(),
+  listOutcomes: vi.fn(),
 }));
 
-import { useOutcomesList } from '../useOutcomes';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-
-const mockOutcomesData = {
-  outcomes: [
-    {
-      id: 1,
-      domain: 'sold.com',
-      type: 'sold',
-      occurredAt: '2026-06-01T00:00:00Z',
-      salePriceEur: 1500,
-    },
-    { id: 2, domain: 'drop.net', type: 'dropped', occurredAt: '2026-05-01T00:00:00Z' },
-  ],
-};
-
-// We need to mock the api call that useOutcomesList makes
-vi.mock('@/api/client', () => ({
-  api: {
-    get: vi.fn(),
-  },
-}));
-
-import { api } from '@/api/client';
+import { listOutcomes } from '@/api/outcomes';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -45,17 +36,17 @@ describe('useOutcomesList', () => {
   });
 
   it('returns outcomes', async () => {
-    vi.mocked(api.get).mockResolvedValueOnce(mockOutcomesData);
+    vi.mocked(listOutcomes).mockResolvedValueOnce(mockOutcomes);
     const { result } = renderHook(() => useOutcomesList(), { wrapper: createWrapper() });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(result.current.data).toEqual(mockOutcomesData.outcomes);
+    expect(result.current.data).toEqual(mockOutcomes);
     expect(result.current.data).toHaveLength(2);
   });
 
   it('handles empty outcomes', async () => {
-    vi.mocked(api.get).mockResolvedValueOnce({ outcomes: [] });
+    vi.mocked(listOutcomes).mockResolvedValueOnce([]);
     const { result } = renderHook(() => useOutcomesList(), { wrapper: createWrapper() });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -64,7 +55,7 @@ describe('useOutcomesList', () => {
   });
 
   it('handles error', async () => {
-    vi.mocked(api.get).mockRejectedValueOnce(new Error('API error'));
+    vi.mocked(listOutcomes).mockRejectedValueOnce(new Error('API error'));
     const { result } = renderHook(() => useOutcomesList(), { wrapper: createWrapper() });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
