@@ -11,6 +11,13 @@ type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
 export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
 
+// Phase 1: most discriminating record types — covers ~95% of registered domains.
+// Only falls through to Phase 2 when ALL Phase 1 returns NXDOMAIN.
+const PHASE1_RECORDS: DnsRecordType[] = ['A', 'AAAA'];
+const PHASE2_RECORDS: DnsRecordType[] = ['CNAME', 'MX', 'NS', 'SOA'];
+
+const HEALTH_CHECK_DOMAIN = 'google.com';
+
 function resolveWithTimeout(
   domain: string,
   recordType: DnsRecordType,
@@ -95,9 +102,8 @@ async function resolveDoh(
   return true;
 }
 
-const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'SOA'];
-
-async function resolvesAnyNative(
+async function resolvePhase(
+  phaseRecords: DnsRecordType[],
   domain: string,
   timeout: number,
   signal?: AbortSignal,
@@ -105,16 +111,19 @@ async function resolvesAnyNative(
   const childAbort = new AbortController();
   const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
 
-  const tasks = ALL_RECORDS.map((type) =>
+  const tasks = phaseRecords.map((type) =>
     resolveWithTimeout(domain, type, timeout, combinedSignal)
       .then(() => {
         childAbort.abort();
-        return { type, resolved: true as const, aborted: false as const };
+        return {
+          resolved: true as const,
+          aborted: false as const,
+          code: undefined as string | undefined,
+        };
       })
       .catch((err: unknown) => {
         const e = err as { code?: string; name?: string };
         return {
-          type,
           resolved: false as const,
           aborted: e.name === ('AbortError' as const),
           code: e.code,
@@ -124,28 +133,49 @@ async function resolvesAnyNative(
 
   const outcomes = await Promise.all(tasks);
 
+  // First success — domain is registered
   for (const o of outcomes) {
     if (o.resolved) return true;
   }
 
   let anyTimeout = false;
+  let anyError = false;
   for (const o of outcomes) {
-    if (o.resolved) continue;
     if (o.aborted) continue;
     const c = o.code;
     if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
       anyTimeout = true;
     } else if (c !== 'ENOTFOUND' && c !== 'ENODATA' && c !== undefined) {
-      return undefined;
+      anyError = true;
     }
   }
 
   if (anyTimeout) {
-    logger.warn({ domain }, 'DNS: all record types timed out or NXDOMAIN');
+    // ponytail: single timeout log per domain — repeated warnings across batches
+    // are suppressed. Add per-resolver timeout tracking when the system resolver
+    // spans multiple upstreams.
+    logger.warn({ domain, phase: phaseRecords.join(',') }, 'DNS: phase timed out');
     return undefined;
   }
 
+  if (anyError) return undefined;
+
   return false;
+}
+
+async function resolvesAnyNative(
+  domain: string,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<boolean | undefined> {
+  const phase1 = await resolvePhase(PHASE1_RECORDS, domain, timeout, signal);
+
+  // Phase 1 resolved (registered or available) => return immediately, skip Phase 2
+  if (phase1 !== undefined) return phase1;
+
+  // Phase 1 indeterminate (timeout or error) => fall through to Phase 2
+  // to avoid false negatives from transient A/AAAA failures
+  return resolvePhase(PHASE2_RECORDS, domain, timeout, signal);
 }
 
 const DOH_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
@@ -210,6 +240,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #bulkConcurrency: number;
   readonly #parkingEnabled: boolean;
   readonly #parkingRegistry: ParkingIpRegistry;
+  readonly #healthCheckEnabled: boolean;
+  #healthCheckCache: { healthy: boolean; expiresAt: number } | null = null;
   #cache: Map<string, CacheEntry> = new Map();
 
   constructor(options?: {
@@ -221,6 +253,7 @@ export class NodeDnsProvider implements DnsProvider {
     bulkConcurrency?: number;
     parkingEnabled?: boolean;
     parkingRegistry?: ParkingIpRegistry;
+    healthCheckEnabled?: boolean;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#lookupStrategy = options?.lookupStrategy ?? 'native';
@@ -230,6 +263,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#bulkConcurrency = options?.bulkConcurrency ?? 50;
     this.#parkingEnabled = options?.parkingEnabled ?? false;
     this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
+    this.#healthCheckEnabled = options?.healthCheckEnabled ?? true;
   }
 
   pruneCache(): number {
@@ -336,8 +370,37 @@ export class NodeDnsProvider implements DnsProvider {
     return result;
   }
 
+  async #checkResolverHealth(signal?: AbortSignal): Promise<void> {
+    if (!this.#healthCheckEnabled) return;
+
+    const now = Date.now();
+    if (this.#healthCheckCache && this.#healthCheckCache.expiresAt > now) {
+      if (!this.#healthCheckCache.healthy) {
+        throw new Error(
+          'DNS resolver health check failed — system resolver is unavailable. ' +
+            'Check /etc/resolv.conf or network connectivity.',
+        );
+      }
+      return;
+    }
+
+    try {
+      await resolveWithTimeout(HEALTH_CHECK_DOMAIN, 'A', this.#lookupTimeoutMs, signal);
+      this.#healthCheckCache = { healthy: true, expiresAt: now + 30_000 };
+    } catch {
+      this.#healthCheckCache = { healthy: false, expiresAt: now + 10_000 };
+      throw new Error(
+        'DNS resolver health check failed — system resolver is unavailable. ' +
+          'Check /etc/resolv.conf or network connectivity.',
+      );
+    }
+  }
+
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    await this.#checkResolverHealth(signal);
+
     const concurrency = this.#bulkConcurrency;
     const results: DnsCheckResult[] = [];
     for (let i = 0; i < domains.length; i += concurrency) {

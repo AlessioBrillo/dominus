@@ -55,8 +55,4 @@
     "name": "Cafe24 / Gabia Parking",
     "cidr": ["211.115.80.0/20"]
   },
-  {
-    "name": "Cloudflare (SaaS origin — also used by parked domains behind CF proxy)",
-    "cidr": ["104.16.0.0/12", "172.64.0.0/13", "131.0.72.0/22"]
-  }
 ]
