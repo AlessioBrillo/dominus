@@ -1,15 +1,22 @@
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/api/client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createOutcome, type CreateOutcomeInput } from '@/api/outcomes';
 import { queryKeys } from './query-keys';
-import type { Outcome } from '@/types/domain';
 
 export function useOutcomesList() {
   return useQuery({
     queryKey: queryKeys.outcomes.list(),
-    queryFn: () => api.get<{ outcomes: Outcome[] }>('/outcomes'),
+    queryFn: () => import('@/api/outcomes').then((m) => m.listOutcomes()),
     staleTime: 30_000,
-    select: (data: { outcomes: Outcome[] }) => data.outcomes,
   });
 }
 
-export type { Outcome };
+export function useRecordOutcome() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateOutcomeInput) => createOutcome(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.outcomes.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.analytics.all });
+    },
+  });
+}
