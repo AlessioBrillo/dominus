@@ -3,7 +3,8 @@ import type { ProviderCacheRepository } from '../../db/repositories/provider-cac
 import type { KeywordMetrics, KeywordProvider } from './keyword-provider.js';
 import { ManualKeywordProvider } from './manual-keyword-provider.js';
 import { GoogleAdsProvider } from './google-ads-provider.js';
-export { ManualKeywordProvider, GoogleAdsProvider };
+import { GoogleSuggestKeywordProvider } from './google-suggest-keyword-provider.js';
+export { ManualKeywordProvider, GoogleAdsProvider, GoogleSuggestKeywordProvider };
 export type { KeywordMetrics, KeywordProvider };
 
 export interface KeywordProviderConfig {
@@ -32,9 +33,11 @@ export function createKeywordProvider(
         customerId: config.googleAdsCustomerId,
         cacheRepo,
       });
+    case 'google-suggest':
+      return new GoogleSuggestKeywordProvider();
     default:
       throw new ProviderError(
-        `Unknown keyword provider type: '${type}'. Valid types: manual, google-ads`,
+        `Unknown keyword provider type: '${type}'. Valid types: manual, google-ads, google-suggest`,
         'keyword',
       );
   }
