@@ -150,10 +150,7 @@ export class ScoringEngine {
       intrinsic.score * intrinsicQualityInfluence * (confidenceCap - confidenceBase);
     const confidence = Math.min(confidenceCap, confidenceBase + signalConfidence + qualityBoost);
 
-    const expectedValue =
-      weightedScore *
-      baseMarketValueEur *
-      (1 + (market.medianSalePrice / baseMarketValueEur) * 0.5);
+    const expectedValue = weightedScore * baseMarketValueEur;
 
     let buyMax = expectedValue * buyMaxRatio;
     if (input.renewalCost !== undefined) {
