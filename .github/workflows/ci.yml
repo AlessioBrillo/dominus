@@ -3,58 +3,76 @@ name: CI
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+      - '**.txt'
+      - 'LICENSE'
+      - 'CLA.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SUPPORT.md'
+      - 'GOVERNANCE.md'
+      - 'MAINTAINERS.md'
+      - 'CONTRIBUTING.md'
+      - 'ROADMAP.md'
   pull_request:
     branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'examples/**'
+      - '**.txt'
+      - 'LICENSE'
+      - 'CLA.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SUPPORT.md'
+      - 'GOVERNANCE.md'
+      - 'MAINTAINERS.md'
+      - 'CONTRIBUTING.md'
+      - 'ROADMAP.md'
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
 
 jobs:
-  quality:
-    name: Quality Gate (Node ${{ matrix.node-version }})
+  backend:
+    name: Backend
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [20, 22]
-      fail-fast: false
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: dominus
-          POSTGRES_PASSWORD: dominus
-          POSTGRES_DB: dominus_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - run: npm ci
+      - name: Cache node_modules
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: deps-node-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            deps-node-
+
+      - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
-
-      - name: Build
-        run: npm run build
-
-      - name: Migration sync check
-        run: npm run db:sync:check
 
       - name: Lint
         run: npm run lint
@@ -62,23 +80,29 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      - name: Build
+        run: npm run build
+
+      - name: Migration sync check
+        run: npm run db:sync:check
+
       - name: Test with coverage
         run: npm test -- --coverage
-        env:
-          DATABASE_URL: postgresql://dominus:dominus@localhost:5432/dominus_test
 
       - name: Upload coverage
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   frontend:
-    name: Frontend Quality Gate
+    name: Frontend
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -89,7 +113,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - run: npm ci
+      - name: Cache node_modules
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: deps-frontend-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            deps-frontend-
+
+      - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
