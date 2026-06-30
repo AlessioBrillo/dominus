@@ -9,8 +9,7 @@
 
 ## Checklist
 
-- [ ] `npm run ci:backend` passes (typecheck, build, lint, format, test)
-- [ ] `npm run ci:frontend` passes (typecheck, lint, test, build)
+- [ ] Local quality gate passes: `npm run typecheck && npm run lint && npm test` (backend + frontend)
 - [ ] Architecture principles satisfied (provider abstraction, trademark gate, scoring conservatism)
 - [ ] Security checklist verified (no secrets, no injection vectors)
 - [ ] Provider resilience tested (multi-RDAP failover, circuit breaker, health history)

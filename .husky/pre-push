@@ -1,1 +1,1 @@
-npm run prepush:local
+npm run typecheck && npm run lint && npm test && cd frontend && npm run typecheck && npm run lint && npm test && cd ..
