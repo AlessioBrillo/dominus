@@ -45,37 +45,31 @@ describe('FailoverRdapProvider', () => {
     const provider = new FailoverRdapProvider([first, second]);
     const result = await provider.confirm('example.com');
     expect(result.status).toBe(DomainStatus.Registered);
-    // Both are called in parallel; first fails, second succeeds
+    // Sequential: both are called, first fails, second succeeds
     expect(first.confirm).toHaveBeenCalledTimes(1);
     expect(second.confirm).toHaveBeenCalledTimes(1);
   });
 
-  it('returns first success when multiple providers respond', async () => {
-    const first = makeProvider(
-      'fast',
-      {
-        domain: 'example.com',
-        status: DomainStatus.Available,
-        isPremium: false,
-        checkedAt: new Date().toISOString(),
-      },
-      5,
-    );
-    const second = makeProvider(
-      'slow',
-      {
-        domain: 'example.com',
-        status: DomainStatus.Registered,
-        isPremium: false,
-        checkedAt: new Date().toISOString(),
-      },
-      50,
-    );
+  it('stops at first provider and does not call subsequent ones', async () => {
+    const first = makeProvider('primary', {
+      domain: 'example.com',
+      status: DomainStatus.Available,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const second = makeProvider('unused', {
+      domain: 'example.com',
+      status: DomainStatus.Registered,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
 
     const provider = new FailoverRdapProvider([first, second]);
     const result = await provider.confirm('example.com');
-    // Fast provider wins
     expect(result.status).toBe(DomainStatus.Available);
+    expect(first.confirm).toHaveBeenCalledTimes(1);
+    // Sequential: second should never be called because first succeeded
+    expect(second.confirm).not.toHaveBeenCalled();
   });
 
   it('throws ProviderError when all servers fail', async () => {

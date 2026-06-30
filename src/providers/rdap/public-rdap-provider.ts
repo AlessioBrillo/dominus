@@ -6,10 +6,30 @@ import { RateLimiter } from '../rate-limiter.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
+interface RdapNotice {
+  description?: string[];
+  title?: string;
+  links?: { value?: string; rel?: string; href?: string }[];
+}
+
+interface RdapEvent {
+  eventAction?: string;
+  eventDate?: string;
+}
+
+interface RdapEntity {
+  handle?: string;
+  roles?: string[];
+  vcardArray?: unknown[];
+  entities?: RdapEntity[];
+}
+
 interface RdapResponse {
   ldhName?: string;
   status?: string[];
-  notices?: { description?: string[] }[];
+  notices?: RdapNotice[];
+  events?: RdapEvent[];
+  entities?: RdapEntity[];
 }
 
 export class PublicRdapProvider implements RdapProvider {
@@ -67,7 +87,7 @@ export class PublicRdapProvider implements RdapProvider {
     }
 
     const data = (await response.json()) as RdapResponse;
-    const isPremium = this.detectPremium(data);
+    const isPremium = PublicRdapProvider.detectPremium(data);
 
     return {
       domain,
@@ -78,8 +98,48 @@ export class PublicRdapProvider implements RdapProvider {
     };
   }
 
-  private detectPremium(data: RdapResponse): boolean {
-    const notices = data.notices ?? [];
-    return notices.some((n) => (n.description ?? []).some((d) => /premium/i.test(d)));
+  /**
+   * Multi-strategy premium detection that handles different RDAP
+   * implementations across registries:
+   *
+   * 1. status[] — some registries use "premium domain" status codes
+   * 2. notices[].description[] — most common (registry-specific wording)
+   * 3. notices[].title[] — less common but used by some registries
+   * 4. events[].eventAction[] — premium registration/transfer events
+   * 5. entities[].roles[] — premium-specific entity roles
+   */
+  static detectPremium(data: RdapResponse): boolean {
+    const patterns = [
+      /^premium\b/i,
+      /\bpremium\s+domain\b/i,
+      /\bpremium\s+registration\b/i,
+      /\bpremium\s+listing\b/i,
+      /\bpremium\s+name\b/i,
+      /\bpremium\s+price\b/i,
+      /\bthis\s+is\s+a\s+premium\b/i,
+    ];
+
+    const test = (s: string): boolean => patterns.some((p) => p.test(s));
+
+    if (data.status?.some((s) => test(s))) return true;
+
+    for (const notice of data.notices ?? []) {
+      if (notice.title && test(notice.title)) return true;
+      if (notice.description?.some((d) => test(d))) return true;
+    }
+
+    if (data.events?.some((e) => e.eventAction && test(e.eventAction))) return true;
+
+    const scanEntities = (entities?: RdapEntity[]): boolean => {
+      if (!entities) return false;
+      for (const entity of entities) {
+        if (entity.roles?.some((r) => test(r))) return true;
+        if (entity.entities && scanEntities(entity.entities)) return true;
+      }
+      return false;
+    };
+    if (scanEntities(data.entities)) return true;
+
+    return false;
   }
 }
