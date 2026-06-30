@@ -16,15 +16,19 @@ const DEFAULT_BOOTSTRAP_SERVERS: RdapBootstrapConfig[] = [
 ];
 
 /**
- * FailoverRdapProvider — parallel-first RDAP resolution.
+ * FailoverRdapProvider — sequential RDAP resolution with failover.
  *
- * All configured RDAP servers are queried CONCURRENTLY via Promise.allSettled.
- * The first successful response wins; all other in-flight requests are aborted
- * via a shared AbortController. This eliminates the ~500ms sequential failover
- * delay per domain that the previous implementation incurred.
+ * Queries bootstrap servers one at a time in configured order. Only falls
+ * through to the next server when the current one fails (network error,
+ * timeout, non-2xx response that is not 404).
  *
- * When ALL servers fail, the combined error message is thrown as ProviderError
- * with every server's failure reason listed.
+ * Sequential (not parallel) is deliberate:
+ * - All servers share the same rate limiter in the default setup. Parallel
+ *   queries consume N tokens per domain (3x burst), reducing effective
+ *   throughput and risking 429 from authoritative servers.
+ * - rdap.org covers all TLDs, so >99% of queries resolve on the first
+ *   attempt. Failover is an edge case, not the common path.
+ * - The ~500ms failover penalty is incurred only on actual failures.
  */
 export class FailoverRdapProvider implements RdapProvider {
   readonly name: string;
@@ -55,30 +59,19 @@ export class FailoverRdapProvider implements RdapProvider {
       throw new DOMException('Aborted', 'AbortError');
     }
 
-    // Child controller lets us cancel all in-flight requests once one succeeds.
-    const childAbort = new AbortController();
-    const combinedSignal = signal
-      ? AbortSignal.any([signal, childAbort.signal])
-      : childAbort.signal;
-
-    const results = await Promise.allSettled(
-      this.#providers.map((provider) =>
-        provider.confirm(domain, combinedSignal).then((result) => {
-          childAbort.abort(); // Cancel remaining in-flight requests
-          return result;
-        }),
-      ),
-    );
-
     const errors: string[] = [];
-    for (const result of results) {
-      if (result.status === 'fulfilled') {
-        return result.value;
+    for (const provider of this.#providers) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      try {
+        const result = await provider.confirm(domain, signal);
+        // A successful response (including 404 = Available, 503 = Unknown)
+        // counts as resolved — no need to fall through.
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`${provider.name}: ${msg}`);
+        // Fall through to the next bootstrap server
       }
-      // Collect the failure reason
-      const reason = result.reason;
-      const msg = reason instanceof Error ? reason.message : String(reason);
-      errors.push(msg);
     }
 
     throw new ProviderError(

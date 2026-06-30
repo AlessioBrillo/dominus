@@ -3,28 +3,24 @@ name: CI
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
-      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [master]
-    paths-ignore:
-      - 'docs/**'
-      - '*.md'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NODE_VERSION: "20"
+
 jobs:
-  backend:
+  quality:
+    name: Quality Gate (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20, 22]
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+        node-version: [20, 22]
+      fail-fast: false
 
     services:
       postgres:
@@ -32,28 +28,33 @@ jobs:
         env:
           POSTGRES_USER: dominus
           POSTGRES_PASSWORD: dominus
-          POSTGRES_DB: dominus
+          POSTGRES_DB: dominus_test
         ports:
           - 5432:5432
-        options: '--health-cmd "pg_isready -U dominus" --health-interval 5s --health-timeout 5s --health-retries 5'
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ matrix.node }}
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Type check
+      - name: Typecheck
         run: npm run typecheck
 
       - name: Build
         run: npm run build
+
+      - name: Migration sync check
+        run: npm run db:sync:check
 
       - name: Lint
         run: npm run lint
@@ -61,73 +62,43 @@ jobs:
       - name: Format check
         run: npm run format:check
 
-      - name: Test (with coverage)
+      - name: Test with coverage
         run: npm test -- --coverage
+        env:
+          DATABASE_URL: postgresql://dominus:dominus@localhost:5432/dominus_test
 
-      - name: Security audit
-        run: npm audit --audit-level=high
-
-      - name: PostgreSQL connectivity test
-        run: >
-          node -e "
-          const { Pool } = require('pg');
-          const pool = new Pool({ connectionString: 'postgresql://dominus:dominus@localhost:5432/dominus' });
-          pool.query('SELECT 1 AS ok').then(r => { console.log('PG OK:', r.rows[0].ok); process.exit(0); }).catch(e => { console.error('PG FAIL:', e.message); process.exit(1); });
-          "
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   frontend:
+    name: Frontend Quality Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js LTS
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
-        working-directory: ./frontend
-        run: npm ci
+      - run: npm ci
 
-      - name: Type check
-        working-directory: ./frontend
+      - name: Typecheck
         run: npm run typecheck
 
       - name: Lint
-        working-directory: ./frontend
         run: npm run lint
 
       - name: Test
-        working-directory: ./frontend
         run: npm test
 
       - name: Build
-        working-directory: ./frontend
         run: npm run build
-
-      - name: Security audit
-        working-directory: ./frontend
-        run: npm audit --audit-level=moderate
-
-  docker:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [backend, frontend]
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

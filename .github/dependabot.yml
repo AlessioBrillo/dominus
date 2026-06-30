@@ -20,3 +20,18 @@ updates:
         dependency-type: "development"
     labels:
       - "dependencies"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        dependency-type: "production"
+      development:
+        dependency-type: "development"
+    labels:
+      - "dependencies"
+      - "frontend"

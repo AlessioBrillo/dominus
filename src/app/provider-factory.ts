@@ -146,11 +146,13 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
     domain: string,
     signal?: AbortSignal,
   ): Promise<DnsCheckResult> => {
-    if (rateLimiter) {
-      await rateLimiter.acquire();
-    }
     return withRetry(
-      (s) => inner.checkAvailability(domain, s),
+      async (s) => {
+        // Acquire per attempt, not once per domain, so retries don't
+        // bypass the rate limiter on their second try.
+        if (rateLimiter) await rateLimiter.acquire();
+        return inner.checkAvailability(domain, s);
+      },
       `dns:${domain}`,
       { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
       signal,
@@ -163,7 +165,7 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
     clearCache: () => inner.clearCache(),
     checkBulk: async (domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> => {
       const results: DnsCheckResult[] = [];
-      const chunkSize = 50;
+      const chunkSize = config.DNS_BULK_CONCURRENCY;
       for (let i = 0; i < domains.length; i += chunkSize) {
         if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
         const chunk = domains.slice(i, i + chunkSize);

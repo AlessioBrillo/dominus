@@ -1,4 +1,4 @@
-import type { CompsProvider } from '../../providers/comps/comps-provider.js';
+import type { CompsProvider, ComparableSale } from '../../providers/comps/comps-provider.js';
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
 import type { MarketSignalConfig } from '../scoring-config.js';
 import { DEFAULT_MARKET_CONFIG } from '../scoring-config.js';
@@ -13,7 +13,7 @@ export async function computeMarketScore(
   // Engine always sets sld before calling signal functions;
   // non-null assertion is safe here (see ScoringEngine.score()).
   const sld = input.sld!;
-  let sales: { salePrice: number }[];
+  let sales: ComparableSale[];
   let providerError: string | undefined;
 
   try {
@@ -34,12 +34,42 @@ export async function computeMarketScore(
     };
   }
 
-  const prices = sales.map((s) => s.salePrice).sort((a, b) => a - b);
-  const mid = Math.floor(prices.length / 2);
-  const median =
-    prices.length % 2 === 0
-      ? ((prices[mid - 1] ?? 0) + (prices[mid] ?? 0)) / 2
-      : (prices[mid] ?? 0);
+  const now = Date.now();
+  const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
+
+  const recencyWeight = (saleDate: string): number => {
+    const ageMs = now - new Date(saleDate).getTime();
+    if (Number.isNaN(ageMs) || ageMs < 0) return 0.5;
+    const ageYears = ageMs / YEAR_MS;
+    if (ageYears <= 1) return 1.0;
+    if (ageYears <= 2) return 0.7;
+    if (ageYears <= 5) return 0.4;
+    return 0.2;
+  };
+
+  const weighted = sales
+    .map((s) => ({ price: s.salePrice, weight: recencyWeight(s.saleDate) }))
+    .sort((a, b) => a.price - b.price);
+
+  const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
+  const halfWeight = totalWeight / 2;
+  let cumulative = 0;
+  let median = 0;
+
+  for (let i = 0; i < weighted.length; i++) {
+    cumulative += weighted[i]!.weight;
+    if (cumulative >= halfWeight) {
+      // When cumulative lands exactly on halfWeight and there's a next
+      // element (equal-weight case), interpolate to match simple median.
+      const next = weighted[i + 1];
+      if (cumulative === halfWeight && next) {
+        median = (weighted[i]!.price + next.price) / 2;
+      } else {
+        median = weighted[i]!.price;
+      }
+      break;
+    }
+  }
 
   const score = Math.min(
     1,
