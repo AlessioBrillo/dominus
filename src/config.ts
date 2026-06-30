@@ -771,6 +771,35 @@ const configSchema = z.object({
    */
   FILE_REGISTRAR_CONFIG: z.string().optional(),
 
+  // ── Auth provider selection ────────────────────────────────────────
+
+  /**
+   * Auth provider implementation to use.
+   * - 'env': Use API_KEYS env var / FILE_API_KEYS (community edition, default)
+   * - 'auth0': Use Auth0 for JWT-based authentication (DOMINUS Cloud)
+   */
+  AUTH_PROVIDER: z.enum(['env', 'auth0']).default('env'),
+
+  /**
+   * Auth0 domain (e.g., 'dominus.eu.auth0.com').
+   * Required when AUTH_PROVIDER=auth0.
+   */
+  AUTH0_DOMAIN: z.string().optional(),
+
+  /**
+   * Auth0 API audience (e.g., 'https://api.dominus.app').
+   * Required when AUTH_PROVIDER=auth0. Must match the audience
+   * configured in the Auth0 API definition.
+   */
+  AUTH0_AUDIENCE: z.string().optional(),
+
+  /**
+   * Auth0 JWKS URI for public key discovery.
+   * Defaults to https://{AUTH0_DOMAIN}/.well-known/jwks.json.
+   * Override only if using a custom JWKS endpoint.
+   */
+  AUTH0_JWKS_URI: z.string().url().optional(),
+
   // ── Listing / Sales Pipeline config ────────────────────────────────
 
   /**
