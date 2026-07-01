@@ -1,5 +1,6 @@
 import type { DatabaseProvider } from '../provider/interface.js';
 import { BidStatus, type Bid, type PlaceBidInput } from '../../types/acquisition.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 interface BidRow {
   id: number;
@@ -52,13 +53,14 @@ export class AcquisitionRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
   async insert(input: PlaceBidInput): Promise<Bid> {
+    const tid = resolveTenantId();
     const result = await this.db.exec(
       `INSERT INTO bids
        (domain, venue, bid_amount_eur, max_bid_eur, status,
         expected_value_at_bid, confidence_at_bid,
         suggested_buy_max_at_bid, trademark_clear_at_bid,
-        auction_ends_at, notes)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+        auction_ends_at, notes, tenant_id)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.domain,
         input.venue,
@@ -70,39 +72,46 @@ export class AcquisitionRepository {
         input.trademarkClearAtBid === undefined ? null : input.trademarkClearAtBid ? 1 : 0,
         input.auctionEndsAt ?? null,
         input.notes ?? null,
+        tid,
       ],
     );
     const id = result.lastInsertRowid as number;
-    const row = await this.db.queryOne<BidRow>('SELECT * FROM bids WHERE id = ?', [id]);
+    const row = await this.db.queryOne<BidRow>(
+      'SELECT * FROM bids WHERE id = ? AND tenant_id = ?',
+      [id, tid],
+    );
     return rowToBid(row!);
   }
 
   async findPending(): Promise<Bid[]> {
     const rows = await this.db.query<BidRow>(
-      'SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at ASC',
-      [BidStatus.Pending],
+      'SELECT * FROM bids WHERE status = ? AND tenant_id = ? ORDER BY bid_placed_at ASC',
+      [BidStatus.Pending, resolveTenantId()],
     );
     return rows.map(rowToBid);
   }
 
   async findByDomain(domain: string): Promise<Bid | null> {
     const row = await this.db.queryOne<BidRow>(
-      'SELECT * FROM bids WHERE domain = ? ORDER BY bid_placed_at DESC LIMIT 1',
-      [domain],
+      'SELECT * FROM bids WHERE domain = ? AND tenant_id = ? ORDER BY bid_placed_at DESC LIMIT 1',
+      [domain, resolveTenantId()],
     );
     return row ? rowToBid(row) : null;
   }
 
   async findByStatus(status: BidStatus): Promise<Bid[]> {
     const rows = await this.db.query<BidRow>(
-      'SELECT * FROM bids WHERE status = ? ORDER BY bid_placed_at DESC',
-      [status],
+      'SELECT * FROM bids WHERE status = ? AND tenant_id = ? ORDER BY bid_placed_at DESC',
+      [status, resolveTenantId()],
     );
     return rows.map(rowToBid);
   }
 
   async findAll(): Promise<Bid[]> {
-    const rows = await this.db.query<BidRow>('SELECT * FROM bids ORDER BY bid_placed_at DESC');
+    const rows = await this.db.query<BidRow>(
+      'SELECT * FROM bids WHERE tenant_id = ? ORDER BY bid_placed_at DESC',
+      [resolveTenantId()],
+    );
     return rows.map(rowToBid);
   }
 
@@ -120,8 +129,8 @@ export class AcquisitionRepository {
        SET status = ?, won_price_eur = COALESCE(?, won_price_eur),
            resolved_at = datetime('now'), notes = COALESCE(?, notes),
            updated_at = datetime('now')
-       WHERE id = ?`,
-      [status, wonPriceEur ?? null, notes ?? null, existing.id],
+       WHERE id = ? AND tenant_id = ?`,
+      [status, wonPriceEur ?? null, notes ?? null, existing.id, resolveTenantId()],
     );
 
     return await this.findByDomain(domain);

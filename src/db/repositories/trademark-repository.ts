@@ -1,5 +1,6 @@
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { TrademarkMatch } from '../../providers/trademark/trademark-provider.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 export interface TrademarkResultRow {
   id: number;
@@ -33,10 +34,11 @@ export class TrademarkRepository {
     ttlDays: number,
   ): Promise<void> {
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString();
+    const tid = resolveTenantId();
     await this.db.exec(
       `INSERT INTO trademark_results
-       (search_term, source, match_found, match_details, raw_response, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       (search_term, source, match_found, match_details, raw_response, expires_at, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         searchTerm,
         source,
@@ -44,6 +46,7 @@ export class TrademarkRepository {
         matchDetails ? JSON.stringify(matchDetails) : null,
         rawResponse ? JSON.stringify(rawResponse) : null,
         expiresAt,
+        tid,
       ],
     );
   }
@@ -56,9 +59,9 @@ export class TrademarkRepository {
     const now = new Date().toISOString();
     return await this.db.queryOne<TrademarkResultRow>(
       `SELECT * FROM trademark_results
-       WHERE search_term = ? AND source = ? AND expires_at > ?
+       WHERE search_term = ? AND source = ? AND expires_at > ? AND tenant_id = ?
        ORDER BY checked_at DESC LIMIT 1`,
-      [searchTerm, source, now],
+      [searchTerm, source, now, resolveTenantId()],
     );
   }
 
@@ -75,10 +78,11 @@ export class TrademarkRepository {
     matchDetails: unknown,
   ): Promise<void> {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const tid = resolveTenantId();
     await this.db.exec(
       `INSERT INTO trademark_results
-       (candidate_id, search_term, source, match_found, match_details, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       (candidate_id, search_term, source, match_found, match_details, expires_at, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         candidateId,
         searchTerm,
@@ -86,6 +90,7 @@ export class TrademarkRepository {
         matchFound ? 1 : 0,
         matchDetails ? JSON.stringify(matchDetails) : null,
         expiresAt,
+        tid,
       ],
     );
   }
@@ -93,10 +98,11 @@ export class TrademarkRepository {
   async findValid(candidateId: number, source: string): Promise<TrademarkResultRow | null> {
     const now = new Date().toISOString();
     return await this.db.queryOne<TrademarkResultRow>(
-      `SELECT * FROM trademark_results
-       WHERE candidate_id = ? AND source = ? AND expires_at > ?
-       ORDER BY checked_at DESC LIMIT 1`,
-      [candidateId, source, now],
+      `SELECT tr.* FROM trademark_results tr
+       JOIN candidates c ON c.id = tr.candidate_id
+       WHERE tr.candidate_id = ? AND tr.source = ? AND tr.expires_at > ? AND c.tenant_id = ?
+       ORDER BY tr.checked_at DESC LIMIT 1`,
+      [candidateId, source, now, resolveTenantId()],
     );
   }
 
@@ -114,14 +120,19 @@ export class TrademarkRepository {
    * or as a scheduled job.
    */
   async pruneExpired(now: string = new Date().toISOString()): Promise<number> {
-    const result = await this.db.exec('DELETE FROM trademark_results WHERE expires_at < ?', [now]);
+    const tid = resolveTenantId();
+    const result = await this.db.exec(
+      'DELETE FROM trademark_results WHERE expires_at < ? AND tenant_id = ?',
+      [now, tid],
+    );
     return Number(result.changes);
   }
 
   /** Total row count (for diagnostics). */
   async count(): Promise<number> {
     const row = await this.db.queryOne<{ n: number }>(
-      'SELECT COUNT(*) AS n FROM trademark_results',
+      'SELECT COUNT(*) AS n FROM trademark_results WHERE tenant_id = ?',
+      [resolveTenantId()],
     );
     return row!.n;
   }

@@ -1,5 +1,6 @@
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { ScoreResult } from '../../types/score.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 export interface ScoringRow {
   id: number;
@@ -23,12 +24,13 @@ export class ScoringRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
   async insert(candidateId: number, runId: string, result: ScoreResult): Promise<void> {
+    const tid = resolveTenantId();
     await this.db.exec(
       `INSERT INTO scoring_runs
        (candidate_id, run_id, expected_value, confidence, suggested_buy_max,
         suggested_list_price, intrinsic_score, commercial_score, market_score,
-        expiry_score, weighted_score, recommended, signal_scores)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        expiry_score, weighted_score, recommended, signal_scores, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         candidateId,
         runId,
@@ -43,14 +45,18 @@ export class ScoringRepository {
         result.weightedScore,
         result.recommended ? 1 : 0,
         JSON.stringify(result.breakdown),
+        tid,
       ],
     );
   }
 
   async findLatestByCandidate(candidateId: number): Promise<ScoringRow | null> {
     return await this.db.queryOne<ScoringRow>(
-      'SELECT * FROM scoring_runs WHERE candidate_id = ? ORDER BY scored_at DESC LIMIT 1',
-      [candidateId],
+      `SELECT sr.* FROM scoring_runs sr
+       JOIN candidates c ON c.id = sr.candidate_id
+       WHERE sr.candidate_id = ? AND c.tenant_id = ?
+       ORDER BY sr.scored_at DESC LIMIT 1`,
+      [candidateId, resolveTenantId()],
     );
   }
 
@@ -66,8 +72,11 @@ export class ScoringRepository {
    */
   async findByRunId(runId: string, candidateId: number): Promise<ScoringRow | null> {
     return await this.db.queryOne<ScoringRow>(
-      'SELECT * FROM scoring_runs WHERE run_id = ? AND candidate_id = ? ORDER BY id DESC LIMIT 1',
-      [runId, candidateId],
+      `SELECT sr.* FROM scoring_runs sr
+       JOIN candidates c ON c.id = sr.candidate_id
+       WHERE sr.run_id = ? AND sr.candidate_id = ? AND c.tenant_id = ?
+       ORDER BY sr.id DESC LIMIT 1`,
+      [runId, candidateId, resolveTenantId()],
     );
   }
 
@@ -81,11 +90,15 @@ export class ScoringRepository {
    * the caller controls the prefix scope.
    */
   async pruneByRunIdPrefix(prefix: string, scoredBefore: string): Promise<number> {
+    const tid = resolveTenantId();
     const info = await this.db.exec(
       `DELETE FROM scoring_runs
-        WHERE run_id LIKE ?
-          AND scored_at < ?`,
-      [prefix, scoredBefore],
+       WHERE run_id LIKE ?
+         AND scored_at < ?
+         AND candidate_id IN (
+           SELECT id FROM candidates WHERE tenant_id = ?
+         )`,
+      [prefix, scoredBefore, tid],
     );
     return info.changes;
   }

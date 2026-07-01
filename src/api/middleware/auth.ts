@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
+import { runWithTenant } from '../../utils/tenant-context.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -41,7 +42,8 @@ setInterval(cleanupAuthRateMap, 5 * 60_000).unref();
 export function createAuthMiddleware(provider: AuthProvider) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!provider.isActive) {
-      next();
+      req.tenantId = 'default';
+      runWithTenant('default', () => next());
       return;
     }
 
@@ -109,6 +111,8 @@ export function createAuthMiddleware(provider: AuthProvider) {
 
     // Reset failure count on successful auth
     AUTH_RATE_MAP.delete(clientIp);
-    next();
+
+    req.tenantId = result.tenantId ?? 'default';
+    runWithTenant(req.tenantId, () => next());
   };
 }

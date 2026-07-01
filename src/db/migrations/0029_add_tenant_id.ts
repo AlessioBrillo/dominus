@@ -21,7 +21,12 @@ const ENTITY_TABLES = [
 
 export function up(db: Database.Database): void {
   for (const table of ENTITY_TABLES) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`);
+    const columns = db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as {
+      name: string;
+    }[];
+    if (!columns.some((c) => c.name === 'tenant_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'default'`);
+    }
     db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_tenant ON ${table}(tenant_id)`);
   }
 }

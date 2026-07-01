@@ -9,6 +9,7 @@ import type {
   ListingsFilter,
 } from '../../types/listing.js';
 import { listingFromRow, listingOfferFromRow } from '../../types/listing.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 export class ListingRepository {
   readonly #db: DatabaseProvider;
@@ -18,9 +19,10 @@ export class ListingRepository {
   }
 
   async insert(listing: NewListing): Promise<{ id: number }> {
+    const tid = resolveTenantId();
     const result = await this.#db.exec(
-      `INSERT INTO listings (domain, marketplace, listing_url, price_eur, status, listed_at, expires_at, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO listings (domain, marketplace, listing_url, price_eur, status, listed_at, expires_at, notes, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         listing.domain,
         listing.marketplace,
@@ -30,6 +32,7 @@ export class ListingRepository {
         listing.listedAt,
         listing.expiresAt,
         listing.notes,
+        tid,
       ],
     );
     return { id: result.lastInsertRowid as number };
@@ -64,20 +67,33 @@ export class ListingRepository {
 
     sets.push("updated_at = datetime('now')");
     params.push(id);
-    await this.#db.exec(`UPDATE listings SET ${sets.join(', ')} WHERE id = ?`, params);
+    params.push(resolveTenantId());
+    await this.#db.exec(
+      `UPDATE listings SET ${sets.join(', ')} WHERE id = ? AND tenant_id = ?`,
+      params,
+    );
   }
 
   async delete(id: number): Promise<void> {
-    await this.#db.exec('DELETE FROM listings WHERE id = ?', [id]);
+    await this.#db.exec('DELETE FROM listings WHERE id = ? AND tenant_id = ?', [
+      id,
+      resolveTenantId(),
+    ]);
   }
 
   async findById(id: number): Promise<Listing | undefined> {
-    const row = await this.#db.queryOne<any>('SELECT * FROM listings WHERE id = ?', [id]);
+    const row = await this.#db.queryOne<any>(
+      'SELECT * FROM listings WHERE id = ? AND tenant_id = ?',
+      [id, resolveTenantId()],
+    );
     return row ? listingFromRow(row) : undefined;
   }
 
   async findByDomain(domain: string): Promise<Listing[]> {
-    const rows = await this.#db.query<any>('SELECT * FROM listings WHERE domain = ?', [domain]);
+    const rows = await this.#db.query<any>(
+      'SELECT * FROM listings WHERE domain = ? AND tenant_id = ?',
+      [domain, resolveTenantId()],
+    );
     return rows.map(listingFromRow);
   }
 
@@ -86,15 +102,15 @@ export class ListingRepository {
     marketplace: string,
   ): Promise<Listing | undefined> {
     const row = await this.#db.queryOne<any>(
-      'SELECT * FROM listings WHERE domain = ? AND marketplace = ?',
-      [domain, marketplace],
+      'SELECT * FROM listings WHERE domain = ? AND marketplace = ? AND tenant_id = ?',
+      [domain, marketplace, resolveTenantId()],
     );
     return row ? listingFromRow(row) : undefined;
   }
 
   async findAll(filter?: ListingsFilter): Promise<Listing[]> {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const conditions: string[] = ['tenant_id = ?'];
+    const params: unknown[] = [resolveTenantId()];
 
     if (filter?.status) {
       conditions.push('status = ?');
@@ -109,7 +125,7 @@ export class ListingRepository {
       params.push(`%${filter.domain}%`);
     }
 
-    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const where = ` WHERE ${conditions.join(' AND ')}`;
     const rows = await this.#db.query<any>(
       `SELECT * FROM listings${where} ORDER BY created_at DESC`,
       params,
@@ -119,8 +135,8 @@ export class ListingRepository {
 
   async findByStatus(status: string): Promise<Listing[]> {
     const rows = await this.#db.query<any>(
-      'SELECT * FROM listings WHERE status = ? ORDER BY created_at DESC',
-      [status],
+      'SELECT * FROM listings WHERE status = ? AND tenant_id = ? ORDER BY created_at DESC',
+      [status, resolveTenantId()],
     );
     return rows.map(listingFromRow);
   }

@@ -184,14 +184,7 @@ export interface AccuracyReport {
 }
 
 export type ListingStatus =
-  | 'draft'
-  | 'listed'
-  | 'offer_received'
-  | 'sold'
-  | 'expired'
-  | 'unlisted'
-  | 'pending'
-  | 'paused';
+  'draft' | 'listed' | 'offer_received' | 'sold' | 'expired' | 'unlisted' | 'pending' | 'paused';
 
 export type MarketplaceName = 'dan' | 'afternic' | 'sedo' | 'godaddy' | 'manual';
 
