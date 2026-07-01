@@ -129,22 +129,36 @@ describe('auth middleware', () => {
 describe('API key management endpoints', () => {
   function mockKeyRepo(): ApiKeyRepository {
     const keys: Array<{
-      id: number; tenantId: string; name: string; keyHash: string;
-      keyPrefix: string; role: string; expiresAt: string | null;
-      lastUsedAt: string | null; createdAt: string;
+      id: number;
+      tenantId: string;
+      name: string;
+      keyHash: string;
+      keyPrefix: string;
+      role: string;
+      expiresAt: string | null;
+      lastUsedAt: string | null;
+      createdAt: string;
     }> = [];
     return {
-      create: vi.fn(async (input: {
-        tenantId: string; name: string; keyHash: string;
-        keyPrefix: string; role: string; expiresAt: string | null;
-      }) => {
-        const k = {
-          id: keys.length + 1, ...input, lastUsedAt: null,
-          createdAt: new Date().toISOString(),
-        };
-        keys.push(k);
-        return k;
-      }),
+      create: vi.fn(
+        async (input: {
+          tenantId: string;
+          name: string;
+          keyHash: string;
+          keyPrefix: string;
+          role: string;
+          expiresAt: string | null;
+        }) => {
+          const k = {
+            id: keys.length + 1,
+            ...input,
+            lastUsedAt: null,
+            createdAt: new Date().toISOString(),
+          };
+          keys.push(k);
+          return k;
+        },
+      ),
       findByTenant: vi.fn(async () => [...keys]),
       revoke: vi.fn(async (id: number) => {
         const i = keys.findIndex((k) => k.id === id);
@@ -180,9 +194,7 @@ describe('API key management endpoints', () => {
     app.use(express.json());
     app.use('/api/v1/auth', createAuthRouter(provider, repo));
 
-    const res = await request(app)
-      .post('/api/v1/auth/api-keys')
-      .send({ role: 'admin' });
+    const res = await request(app).post('/api/v1/auth/api-keys').send({ role: 'admin' });
 
     expect(res.status).toBe(400);
   });

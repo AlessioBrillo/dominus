@@ -1,13 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { DbApiKeyProvider } from '../db-api-key-provider.js';
-import type { ApiKeyRepository, StoredApiKey } from '../../../db/repositories/api-key-repository.js';
+import type {
+  ApiKeyRepository,
+  StoredApiKey,
+} from '../../../db/repositories/api-key-repository.js';
 
 function mockRepo(): ApiKeyRepository {
   const store = new Map<string, StoredApiKey>();
   return {
     create: vi.fn(async (input) => {
       const s: StoredApiKey = {
-        id: store.size + 1, ...input, lastUsedAt: null, createdAt: new Date().toISOString(),
+        id: store.size + 1,
+        ...input,
+        lastUsedAt: null,
+        createdAt: new Date().toISOString(),
       };
       store.set(input.keyPrefix, s);
       return s;

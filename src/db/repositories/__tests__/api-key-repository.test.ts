@@ -36,8 +36,12 @@ describe('ApiKeyRepository', () => {
     vi.mocked(db.queryOne).mockResolvedValue(row);
     const repo = new ApiKeyRepository(db);
     const result = await repo.create({
-      tenantId: 'default', name: 'test', keyHash: 'h',
-      keyPrefix: 'sk-', role: 'admin', expiresAt: null,
+      tenantId: 'default',
+      name: 'test',
+      keyHash: 'h',
+      keyPrefix: 'sk-',
+      role: 'admin',
+      expiresAt: null,
     });
     expect(db.exec).toHaveBeenCalled();
     expect(result.id).toBe(1);
