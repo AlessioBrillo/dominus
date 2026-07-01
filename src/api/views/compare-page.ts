@@ -1,5 +1,5 @@
 import { escapeHtml } from './escape.js';
-import { pageHtml, COMPARE_CSS } from './page-template.js';
+import { pageHtml, COMPARE_CSS_HREF } from './page-template.js';
 
 interface CompareScore {
   domain: string;
@@ -53,5 +53,5 @@ export function renderComparePage(
     '<p class="footer">Free domain comparison by <a href="https://dominus.app">DOMINUS</a></p>',
   ].join('\n');
 
-  return pageHtml(title, headExtras, COMPARE_CSS, bodyContent);
+  return pageHtml(title, headExtras, COMPARE_CSS_HREF, bodyContent);
 }

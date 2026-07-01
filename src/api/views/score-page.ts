@@ -1,5 +1,5 @@
 import { escapeHtml } from './escape.js';
-import { pageHtml, BASE_CSS } from './page-template.js';
+import { pageHtml, BASE_CSS_HREF } from './page-template.js';
 
 interface ScoreData {
   slug: string;
@@ -73,5 +73,5 @@ export function renderScorePage(data: ScoreData): string {
     '</div>',
   ].join('\n');
 
-  return pageHtml(title, headExtras, BASE_CSS, bodyContent);
+  return pageHtml(title, headExtras, BASE_CSS_HREF, bodyContent);
 }

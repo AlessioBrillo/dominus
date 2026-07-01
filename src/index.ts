@@ -3,6 +3,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+
 import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
@@ -97,6 +98,13 @@ async function main(): Promise<void> {
 
   app.use(express.json({ limit: '100kb' }));
   app.use(createRequestLogger(logger));
+
+  // Mount public static assets (CSS, images) before routes so they are
+  // served with CSP 'self' scope and no auth required.
+  const publicStaticDir = resolve(process.cwd(), 'public/static');
+  if (existsSync(publicStaticDir)) {
+    app.use('/public/static', express.static(publicStaticDir, { maxAge: '1d' }));
+  }
 
   app.use(
     '/public',
