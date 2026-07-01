@@ -2,8 +2,10 @@
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
 import { getLogger } from './logger.js';
+import { createHealthcheckServer } from './utils/healthcheck-server.js';
 
 const logger = getLogger();
+const HEALTHCHECK_PORT = 9091;
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -26,11 +28,21 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  logger.info('Scheduler entrypoint: SchedulerService started successfully');
+  const healthcheck = createHealthcheckServer({
+    port: HEALTHCHECK_PORT,
+    label: 'scheduler',
+    check: async () => true,
+  });
+
+  logger.info(
+    { healthcheckPort: HEALTHCHECK_PORT },
+    'Scheduler entrypoint: SchedulerService started successfully',
+  );
 
   // Graceful shutdown
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Scheduler entrypoint: received shutdown signal');
+    healthcheck.close();
     scheduler.stop();
     process.exit(0);
   };

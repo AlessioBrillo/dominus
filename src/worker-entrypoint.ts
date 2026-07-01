@@ -2,8 +2,11 @@
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
 import { getLogger } from './logger.js';
+import { createHealthcheckServer } from './utils/healthcheck-server.js';
 
 const logger = getLogger();
+
+const HEALTHCHECK_PORT = 9090;
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -24,11 +27,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  logger.info('Worker entrypoint: JobWorker started successfully');
+  // Start healthcheck HTTP server on loopback (port 9090, never 0.0.0.0).
+  // Docker HEALTHCHECK hits this endpoint to verify the worker is actually
+  // polling and processing jobs, not just the process existing.
+  const healthcheck = createHealthcheckServer({
+    port: HEALTHCHECK_PORT,
+    label: 'worker',
+    check: async () => {
+      const status = worker.getStatus();
+      return status.running;
+    },
+  });
+
+  logger.info(
+    { healthcheckPort: HEALTHCHECK_PORT },
+    'Worker entrypoint: JobWorker started successfully',
+  );
 
   // Graceful shutdown
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Worker entrypoint: received shutdown signal');
+    healthcheck.close();
     await worker.stop();
     process.exit(0);
   };
