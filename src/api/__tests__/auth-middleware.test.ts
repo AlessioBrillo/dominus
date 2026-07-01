@@ -27,7 +27,6 @@ function makeMockDb(): DatabaseProvider {
   };
 }
 
-// codeql[js/missing-rate-limiting] — test fixtures, not production routes
 function buildApp(authProvider: AuthProvider): express.Express {
   const app = express();
   const mockDb = makeMockDb();
