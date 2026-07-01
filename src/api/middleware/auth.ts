@@ -69,7 +69,7 @@ export function createAuthMiddleware(provider: AuthProvider) {
       return;
     }
 
-    const match = /^Bearer\s+(.+)$/i.exec(header);
+    const match = /^Bearer\s+(\S+)$/i.exec(header);
     if (!match || !match[1]) {
       if (!checkAuthRateLimit(clientIp)) {
         res.status(429).json({

@@ -299,7 +299,7 @@ export class GoogleAdsProvider implements KeywordProvider {
 
   // Sanitise GAQL string literal to prevent injection (single quotes only)
   #sanitiseGaql(value: string): string {
-    return value.replace(/'/g, "\\'");
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   }
 }
 

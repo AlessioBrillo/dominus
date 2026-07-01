@@ -75,6 +75,9 @@ function tokenise(input: string): string[] {
 
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
+  // ponytail: real tokens are <<100 chars (split on non-letters by tokenise),
+  // cap here for CodeQL loop-bound-injection
+  if (a.length > 100 || b.length > 100) return Math.max(a.length, b.length);
   const aLen = a.length;
   const bLen = b.length;
   if (aLen === 0) return bLen;

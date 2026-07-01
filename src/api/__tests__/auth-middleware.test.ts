@@ -4,6 +4,7 @@ import request from 'supertest';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
 
+// codeql[js/missing-rate-limiting] — test fixtures, not production routes
 function buildApp(authProvider: AuthProvider): express.Express {
   const app = express();
   app.use('/api/health', (_req, res) => {
