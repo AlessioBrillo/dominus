@@ -86,7 +86,7 @@ ENV NODE_ENV=production \
 # Internal healthcheck HTTP listener on loopback (9090) — not exposed
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:9090/health || exit 1
+  CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["node"]
 CMD ["dist/worker-entrypoint.js"]
@@ -112,7 +112,7 @@ ENV NODE_ENV=production \
 # Internal healthcheck HTTP listener on loopback (9091) — not exposed
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:9091/health || exit 1
+  CMD node -e "fetch('http://127.0.0.1:9091/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["node"]
 CMD ["dist/scheduler-entrypoint.js"]
