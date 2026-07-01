@@ -653,4 +653,18 @@ export const PG_MIGRATIONS: Array<{ name: string; up: (db: DatabaseProvider) => 
       // within their own tenant scope.
     },
   },
+  {
+    name: '0031_create_auth_rate_limits',
+    up: async (db): Promise<void> => {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS auth_rate_limits (
+          ip          TEXT    NOT NULL PRIMARY KEY,
+          failures    INTEGER NOT NULL DEFAULT 0,
+          reset_at    TIMESTAMP NOT NULL,
+          created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    },
+  },
 ];

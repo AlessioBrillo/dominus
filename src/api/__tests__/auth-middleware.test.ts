@@ -3,14 +3,33 @@ import express from 'express';
 import request from 'supertest';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
+import type { DatabaseProvider, ExecResult } from '../../db/provider/interface.js';
+
+function makeMockDb(): DatabaseProvider {
+  return {
+    exec: vi.fn().mockResolvedValue({ changes: 1, lastInsertRowid: undefined } as ExecResult),
+    query: vi.fn().mockResolvedValue([]),
+    queryOne: vi.fn().mockResolvedValue(null),
+    transaction: vi
+      .fn()
+      .mockImplementation(<T>(fn: (db: DatabaseProvider) => Promise<T>) =>
+        fn({} as DatabaseProvider),
+      ),
+    close: vi.fn().mockResolvedValue(undefined),
+    isOpen: vi.fn().mockReturnValue(true),
+    backup: vi.fn(),
+    runMigrations: vi.fn().mockResolvedValue(undefined),
+  };
+}
 
 // codeql[js/missing-rate-limiting] — test fixtures, not production routes
 function buildApp(authProvider: AuthProvider): express.Express {
   const app = express();
+  const mockDb = makeMockDb();
   app.use('/api/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
-  app.use('/api/v1/protected', createAuthMiddleware(authProvider), (_req, res) => {
+  app.use('/api/v1/protected', createAuthMiddleware(authProvider, mockDb), (_req, res) => {
     res.json({ data: 'secret' });
   });
   app.use((_req, res) => {

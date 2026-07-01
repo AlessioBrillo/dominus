@@ -54,7 +54,7 @@ async function main(): Promise<void> {
       logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
     }
   }
-  const authMiddleware = createAuthMiddleware(deps.authProvider);
+  const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider);
 
   const app = express();
 

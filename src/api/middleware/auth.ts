@@ -1,45 +1,46 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import { runWithTenant } from '../../utils/tenant-context.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
-interface AuthRateEntry {
-  failures: number;
-  resetAt: number;
-}
-
-const AUTH_RATE_MAP = new Map<string, AuthRateEntry>();
 const MAX_AUTH_FAILURES = 10;
 const AUTH_WINDOW_MS = 60_000;
 
-function cleanupAuthRateMap(): void {
+async function checkAuthRateLimit(db: DatabaseProvider, ip: string): Promise<boolean> {
   const now = Date.now();
-  for (const [key, entry] of AUTH_RATE_MAP) {
-    if (now >= entry.resetAt) AUTH_RATE_MAP.delete(key);
-  }
-}
 
-function checkAuthRateLimit(ip: string): boolean {
-  const now = Date.now();
-  let entry = AUTH_RATE_MAP.get(ip);
-  if (entry === undefined || now >= entry.resetAt) {
-    entry = { failures: 1, resetAt: now + AUTH_WINDOW_MS };
-    AUTH_RATE_MAP.set(ip, entry);
+  const row = await db.queryOne<{ failures: number; reset_at: number }>(
+    'SELECT failures, reset_at FROM auth_rate_limits WHERE ip = ?',
+    [ip],
+  );
+
+  if (!row || now >= row.reset_at) {
+    await db.exec(
+      `INSERT INTO auth_rate_limits (ip, failures, reset_at)
+       VALUES (?, 1, ?)
+       ON CONFLICT(ip) DO UPDATE SET failures = 1, reset_at = ?, updated_at = datetime('now')`,
+      [ip, now + AUTH_WINDOW_MS, now + AUTH_WINDOW_MS],
+    );
     return true;
   }
-  entry.failures++;
-  if (entry.failures > MAX_AUTH_FAILURES) {
-    return false;
-  }
-  return true;
+
+  const newFailures = row.failures + 1;
+  await db.exec(
+    `UPDATE auth_rate_limits SET failures = ?, updated_at = datetime('now') WHERE ip = ?`,
+    [newFailures, ip],
+  );
+
+  return newFailures <= MAX_AUTH_FAILURES;
 }
 
-// Periodic cleanup every 5 minutes to prevent unbounded map growth
-setInterval(cleanupAuthRateMap, 5 * 60_000).unref();
+async function resetAuthRateLimit(db: DatabaseProvider, ip: string): Promise<void> {
+  await db.exec('DELETE FROM auth_rate_limits WHERE ip = ?', [ip]);
+}
 
-export function createAuthMiddleware(provider: AuthProvider) {
+export function createAuthMiddleware(provider: AuthProvider, db: DatabaseProvider) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!provider.isActive) {
       req.tenantId = 'default';
@@ -51,7 +52,8 @@ export function createAuthMiddleware(provider: AuthProvider) {
 
     const header = req.headers['authorization'];
     if (!header || typeof header !== 'string') {
-      if (!checkAuthRateLimit(clientIp)) {
+      const allowed = await checkAuthRateLimit(db, clientIp);
+      if (!allowed) {
         res.status(429).json({
           error: {
             code: 'RATE_LIMITED',
@@ -71,7 +73,8 @@ export function createAuthMiddleware(provider: AuthProvider) {
 
     const match = /^Bearer\s+(\S+)$/i.exec(header);
     if (!match || !match[1]) {
-      if (!checkAuthRateLimit(clientIp)) {
+      const allowed = await checkAuthRateLimit(db, clientIp);
+      if (!allowed) {
         res.status(429).json({
           error: {
             code: 'RATE_LIMITED',
@@ -93,7 +96,8 @@ export function createAuthMiddleware(provider: AuthProvider) {
     const result = await provider.validate(apiKey);
 
     if (!result.authenticated) {
-      if (!checkAuthRateLimit(clientIp)) {
+      const allowed = await checkAuthRateLimit(db, clientIp);
+      if (!allowed) {
         res.status(429).json({
           error: {
             code: 'RATE_LIMITED',
@@ -110,7 +114,7 @@ export function createAuthMiddleware(provider: AuthProvider) {
     }
 
     // Reset failure count on successful auth
-    AUTH_RATE_MAP.delete(clientIp);
+    await resetAuthRateLimit(db, clientIp);
 
     req.tenantId = result.tenantId ?? 'default';
     runWithTenant(req.tenantId, () => next());
