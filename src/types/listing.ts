@@ -1,22 +1,10 @@
 export type ListingStatus =
-  | 'draft'
-  | 'listed'
-  | 'offer_received'
-  | 'sold'
-  | 'expired'
-  | 'unlisted'
-  | 'pending'
-  | 'paused';
+  'draft' | 'listed' | 'offer_received' | 'sold' | 'expired' | 'unlisted' | 'pending' | 'paused';
 
 export type MarketplaceName = 'dan' | 'afternic' | 'sedo' | 'godaddy' | 'manual';
 
 export type OfferStatus =
-  | 'pending'
-  | 'accepted'
-  | 'declined'
-  | 'countered'
-  | 'expired'
-  | 'withdrawn';
+  'pending' | 'accepted' | 'declined' | 'countered' | 'expired' | 'withdrawn';
 
 export interface ListingOffer {
   id: number;
