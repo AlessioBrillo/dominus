@@ -618,6 +618,15 @@ const configSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   /**
+   * Number of reverse proxy hops to trust for client IP resolution.
+   * Behind a single reverse proxy (K8s nginx-ingress, Cloudflare, Traefik),
+   * set to 1 so req.ip reflects the client IP from X-Forwarded-For.
+   * Without this, rate limiting keys on the proxy IP — all users share a bucket.
+   * Set to 0 for direct deployments (no proxy). Default: 1.
+   */
+  TRUST_PROXY_DEPTH: z.coerce.number().int().min(0).max(10).default(1),
+
+  /**
    * Rate limiting: window duration in milliseconds (default: 15 minutes).
    */
   RATE_LIMIT_WINDOW_MS: z.coerce
@@ -761,6 +770,35 @@ const configSchema = z.object({
    * File should have permissions 0600.
    */
   FILE_REGISTRAR_CONFIG: z.string().optional(),
+
+  // ── Auth provider selection ────────────────────────────────────────
+
+  /**
+   * Auth provider implementation to use.
+   * - 'env': Use API_KEYS env var / FILE_API_KEYS (community edition, default)
+   * - 'auth0': Use Auth0 for JWT-based authentication (DOMINUS Cloud)
+   */
+  AUTH_PROVIDER: z.enum(['env', 'auth0']).default('env'),
+
+  /**
+   * Auth0 domain (e.g., 'dominus.eu.auth0.com').
+   * Required when AUTH_PROVIDER=auth0.
+   */
+  AUTH0_DOMAIN: z.string().optional(),
+
+  /**
+   * Auth0 API audience (e.g., 'https://api.dominus.app').
+   * Required when AUTH_PROVIDER=auth0. Must match the audience
+   * configured in the Auth0 API definition.
+   */
+  AUTH0_AUDIENCE: z.string().optional(),
+
+  /**
+   * Auth0 JWKS URI for public key discovery.
+   * Defaults to https://{AUTH0_DOMAIN}/.well-known/jwks.json.
+   * Override only if using a custom JWKS endpoint.
+   */
+  AUTH0_JWKS_URI: z.string().url().optional(),
 
   // ── Listing / Sales Pipeline config ────────────────────────────────
 

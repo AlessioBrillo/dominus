@@ -42,12 +42,35 @@ jobs:
             type=ref,event=branch
             type=sha,format=long
 
-      - name: Build and push
+      - name: Build and push API image
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: api
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}-worker
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Scheduler image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: scheduler
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}-scheduler
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

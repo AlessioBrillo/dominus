@@ -63,6 +63,7 @@ import {
 } from './index.js';
 import { type RateLimiter } from '../providers/rate-limiter.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
+import { Auth0Provider } from '../providers/auth/auth0-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -365,7 +366,14 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   warnEuipoIfMissing(config);
 
   // --- Auth Provider ---
-  const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
+  const authProvider: AuthProvider =
+    config.AUTH_PROVIDER === 'auth0'
+      ? new Auth0Provider({
+          domain: config.AUTH0_DOMAIN ?? '',
+          audience: config.AUTH0_AUDIENCE ?? '',
+          ...(config.AUTH0_JWKS_URI ? { jwksUri: config.AUTH0_JWKS_URI } : {}),
+        })
+      : new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
 
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);

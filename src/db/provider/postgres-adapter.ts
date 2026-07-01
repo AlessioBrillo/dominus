@@ -1,5 +1,8 @@
-import { execSync } from 'node:child_process';
+import { exec as execCb } from 'node:child_process';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { promisify } from 'node:util';
+
+const exec = promisify(execCb);
 import { resolve, dirname } from 'node:path';
 import pg from 'pg';
 import { getLogger } from '../../logger.js';
@@ -123,9 +126,9 @@ export class PostgresAdapter implements DatabaseProvider {
     const connString = this.#connectionString;
 
     try {
-      execSync(
+      await exec(
         `pg_dump "${connString}" --format=custom --file="${absPath}" --no-owner --no-privileges`,
-        { stdio: 'pipe', timeout: 120_000 },
+        { timeout: 120_000 },
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
