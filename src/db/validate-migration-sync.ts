@@ -38,6 +38,7 @@ const EXPECTED_MIGRATIONS = [
   '0027_create_wayback_cache',
   '0028_create_auto_listings',
   '0029_add_tenant_id',
+  '0030_enable_rls',
 ];
 
 export function validateMigrationSync(): string[] {
