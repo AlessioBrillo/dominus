@@ -6,6 +6,7 @@ const exec = promisify(execCb);
 import { resolve, dirname } from 'node:path';
 import pg from 'pg';
 import { getLogger } from '../../logger.js';
+import { getTenantId } from '../../utils/tenant-context.js';
 import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 import { DatabaseError } from './interface.js';
 import { PG_MIGRATIONS } from './pg-migrations.js';
@@ -55,10 +56,21 @@ export class PostgresAdapter implements DatabaseProvider {
     return this.#pool;
   }
 
+  /** Prepends a SET_CONFIG call when a tenant context is active.
+   *  This lets PostgreSQL RLS policies resolve `current_setting('app.tenant_id')`
+   *  during the same implicit/transaction. The tenant value is set LOCAL to the
+   *  transaction so it never leaks across queries on a pooled connection. */
+  #withTenant(text: string): string {
+    const tenantId = getTenantId();
+    if (!tenantId) return text;
+    const escaped = tenantId.replace(/'/g, "''");
+    return `SELECT set_config('app.tenant_id', '${escaped}', true); ${text}`;
+  }
+
   async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
       const result = await this.#pool.query({
-        text: sql,
+        text: this.#withTenant(sql),
         values: params ?? [],
       });
       return {
@@ -73,7 +85,7 @@ export class PostgresAdapter implements DatabaseProvider {
   async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
     try {
       const result = await this.#pool.query({
-        text: sql,
+        text: this.#withTenant(sql),
         values: params ?? [],
       });
       return result.rows as unknown as T[];
@@ -85,7 +97,7 @@ export class PostgresAdapter implements DatabaseProvider {
   async queryOne<T>(sql: string, params?: unknown[]): Promise<T | null> {
     try {
       const result = await this.#pool.query({
-        text: sql,
+        text: this.#withTenant(sql),
         values: params ?? [],
       });
       if (result.rows.length === 0) return null;
@@ -198,10 +210,18 @@ class PostgresTransactionAdapter implements DatabaseProvider {
     this.#client = client;
   }
 
+  /** Same tenant-aware SQL prepend as PostgresAdapter.#withTenant. */
+  #withTenant(text: string): string {
+    const tenantId = getTenantId();
+    if (!tenantId) return text;
+    const escaped = tenantId.replace(/'/g, "''");
+    return `SELECT set_config('app.tenant_id', '${escaped}', true); ${text}`;
+  }
+
   async exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
       const result = await this.#client.query({
-        text: sql,
+        text: this.#withTenant(sql),
         values: params ?? [],
       });
       return {
@@ -216,7 +236,7 @@ class PostgresTransactionAdapter implements DatabaseProvider {
   async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
     try {
       const result = await this.#client.query({
-        text: sql,
+        text: this.#withTenant(sql),
         values: params ?? [],
       });
       return result.rows as unknown as T[];
@@ -228,7 +248,7 @@ class PostgresTransactionAdapter implements DatabaseProvider {
   async queryOne<T>(sql: string, params?: unknown[]): Promise<T | null> {
     try {
       const result = await this.#client.query({
-        text: sql,
+        text: this.#withTenant(sql),
         values: params ?? [],
       });
       if (result.rows.length === 0) return null;

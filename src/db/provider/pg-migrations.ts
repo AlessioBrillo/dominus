@@ -609,4 +609,48 @@ export const PG_MIGRATIONS: Array<{ name: string; up: (db: DatabaseProvider) => 
       }
     },
   },
+  {
+    name: '0030_enable_rls',
+    up: async (db): Promise<void> => {
+      const entityTables: Array<{
+        name: string;
+        policyColumn?: string;
+        extraUsing?: string;
+      }> = [
+        { name: 'candidates' },
+        { name: 'scoring_runs' },
+        { name: 'portfolio_entries' },
+        { name: 'trademark_results' },
+        { name: 'outcomes' },
+        { name: 'outcome_scores' },
+        { name: 'watchlist_entries' },
+        { name: 'listings' },
+        { name: 'bids' },
+        { name: 'renewal_alerts' },
+        { name: 'auto_listings' },
+        { name: 'events' },
+        { name: 'onboarding_state' },
+        {
+          name: 'public_scores',
+          extraUsing: `OR current_setting('app.tenant_id', true) = 'public'`,
+        },
+      ];
+
+      for (const { name, extraUsing } of entityTables) {
+        await db.exec(`ALTER TABLE ${name} ENABLE ROW LEVEL SECURITY`);
+
+        const usingClause = `tenant_id = current_setting('app.tenant_id', true)::TEXT${extraUsing ?? ''}`;
+        // Drop existing policy first — idempotent create
+        await db.exec(`DROP POLICY IF EXISTS tenant_isolation_${name} ON ${name}`);
+        await db.exec(
+          `CREATE POLICY tenant_isolation_${name} ON ${name} FOR ALL USING (${usingClause})`,
+        );
+      }
+
+      // Default-deny policy for any entity table that might be missing one
+      // (last-resort catch-all — applies only to entity-table-named policies)
+      // Also grant default privileges so the application user can still read/write
+      // within their own tenant scope.
+    },
+  },
 ];

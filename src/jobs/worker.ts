@@ -1,6 +1,7 @@
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type { JobType, JobHandler, JobQueueRow, JobPayload } from '../types/job-queue.js';
+import { runWithTenant } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -163,11 +164,20 @@ export class JobWorker {
     logger.info({ jobId: job.id, jobType: job.jobType, attempt: job.attempts }, 'Processing job');
 
     try {
-      const payload = JSON.parse(job.payloadJson) as JobPayload;
-      const result = await handler.handle(payload, controller.signal);
+      const payload = JSON.parse(job.payloadJson) as JobPayload & { tenantId?: string };
+      const tenantId = payload.tenantId;
 
-      await this.#repo.complete(job.id, result);
-      logger.info({ jobId: job.id, jobType: job.jobType }, 'Job completed');
+      const execute = async (): Promise<void> => {
+        const result = await handler.handle(payload as JobPayload, controller.signal);
+        await this.#repo.complete(job.id, result);
+        logger.info({ jobId: job.id, jobType: job.jobType }, 'Job completed');
+      };
+
+      if (tenantId) {
+        await runWithTenant(tenantId, execute);
+      } else {
+        await execute();
+      }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       if (err instanceof DOMException && err.name === 'AbortError') {
