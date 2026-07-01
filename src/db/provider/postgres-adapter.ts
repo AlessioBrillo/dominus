@@ -176,6 +176,33 @@ export class PostgresAdapter implements DatabaseProvider {
     }
   }
 
+  async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
+    try {
+      // Clear expired locks first
+      await this.exec(`DELETE FROM pipeline_locks WHERE lock_name = $1 AND expires_at < NOW()`, [
+        lockName,
+      ]);
+      // Attempt to acquire — pg_try_advisory_xact_lock + table-based for cross-dialect consistency
+      const result = await this.exec(
+        `INSERT INTO pipeline_locks (lock_name, locked_at, expires_at)
+         VALUES ($1, NOW(), NOW() + $2 * INTERVAL '1 millisecond')
+         ON CONFLICT (lock_name) DO NOTHING`,
+        [lockName, ttlMs],
+      );
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async unlock(lockName: string): Promise<void> {
+    try {
+      await this.exec('DELETE FROM pipeline_locks WHERE lock_name = $1', [lockName]);
+    } catch {
+      // Non-fatal
+    }
+  }
+
   async close(): Promise<void> {
     if (this.#open) {
       await this.#pool.end();
@@ -268,6 +295,35 @@ class PostgresTransactionAdapter implements DatabaseProvider {
 
   async runMigrations(): Promise<void> {
     throw new DatabaseError('Cannot run migrations within a transaction', 'TX_MIGRATIONS');
+  }
+
+  async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
+    try {
+      await this.#client.query({
+        text: `DELETE FROM pipeline_locks WHERE lock_name = $1 AND expires_at < NOW()`,
+        values: [lockName],
+      });
+      const result = await this.#client.query({
+        text: `INSERT INTO pipeline_locks (lock_name, locked_at, expires_at)
+               VALUES ($1, NOW(), NOW() + $2::integer * INTERVAL '1 millisecond')
+               ON CONFLICT (lock_name) DO NOTHING`,
+        values: [lockName, ttlMs],
+      });
+      return (result.rowCount ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async unlock(lockName: string): Promise<void> {
+    try {
+      await this.#client.query({
+        text: 'DELETE FROM pipeline_locks WHERE lock_name = $1',
+        values: [lockName],
+      });
+    } catch {
+      // Non-fatal
+    }
   }
 
   async close(): Promise<void> {

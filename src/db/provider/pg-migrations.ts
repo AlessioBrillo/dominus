@@ -667,4 +667,17 @@ export const PG_MIGRATIONS: Array<{ name: string; up: (db: DatabaseProvider) => 
       `);
     },
   },
+  {
+    name: '0032_create_pipeline_locks',
+    up: async (db): Promise<void> => {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS pipeline_locks (
+          lock_name   TEXT    NOT NULL PRIMARY KEY,
+          locked_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at  TIMESTAMP NOT NULL,
+          created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+    },
+  },
 ];

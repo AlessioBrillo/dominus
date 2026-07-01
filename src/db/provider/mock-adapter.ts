@@ -62,6 +62,15 @@ export class MockDatabaseProvider implements DatabaseProvider {
     this.#recordCall('runMigrations', '', undefined);
   }
 
+  async tryLock(_lockName: string, _ttlMs: number): Promise<boolean> {
+    this.#recordCall('tryLock', _lockName, [_ttlMs]);
+    return true;
+  }
+
+  async unlock(_lockName: string): Promise<void> {
+    this.#recordCall('unlock', _lockName, undefined);
+  }
+
   async close(): Promise<void> {
     this.#open = false;
   }

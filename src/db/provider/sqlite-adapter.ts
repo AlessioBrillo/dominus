@@ -166,6 +166,35 @@ export class SqliteProvider implements DatabaseProvider {
     return this.#open;
   }
 
+  async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
+    const expiresAt = Date.now() + ttlMs;
+    try {
+      // Clear expired locks first (best-effort, non-blocking cleanup)
+      this.#db
+        .prepare(
+          "DELETE FROM pipeline_locks WHERE lock_name = ? AND expires_at < datetime(?, 'unixepoch')",
+        )
+        .run(lockName, Date.now() / 1000);
+      // Attempt to acquire the lock
+      const result = this.#db
+        .prepare(
+          "INSERT OR IGNORE INTO pipeline_locks (lock_name, locked_at, expires_at) VALUES (?, datetime('now'), datetime(? / 1000, 'unixepoch'))",
+        )
+        .run(lockName, expiresAt);
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async unlock(lockName: string): Promise<void> {
+    try {
+      this.#db.prepare('DELETE FROM pipeline_locks WHERE lock_name = ?').run(lockName);
+    } catch {
+      // Non-fatal
+    }
+  }
+
   #wrapError(err: unknown): DatabaseError {
     const message = err instanceof Error ? err.message : String(err);
     const errCode =

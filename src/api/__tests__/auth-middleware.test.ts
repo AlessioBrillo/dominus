@@ -19,6 +19,8 @@ function makeMockDb(): DatabaseProvider {
     isOpen: vi.fn().mockReturnValue(true),
     backup: vi.fn(),
     runMigrations: vi.fn().mockResolvedValue(undefined),
+    tryLock: vi.fn().mockResolvedValue(true),
+    unlock: vi.fn().mockResolvedValue(undefined),
   };
 }
 

@@ -5,6 +5,7 @@ import type { DnsPreFilterStage } from './stages/dns-prefilter-stage.js';
 import type { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 import type { ScoringStage, ScoredCandidate } from './stages/scoring-stage.js';
 import type { TrademarkGateStage } from './stages/trademark-gate-stage.js';
+import type { DatabaseProvider } from '../db/provider/interface.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 
@@ -51,6 +52,8 @@ export class PipelineTimeoutError extends Error {
   }
 }
 
+const PIPELINE_LOCK_NAME = 'pipeline_run';
+
 export class PipelineOrchestrator {
   #abortController: AbortController | null = null;
   #running: boolean = false;
@@ -72,6 +75,10 @@ export class PipelineOrchestrator {
     private readonly trademarkStage: TrademarkGateStage<ScoredCandidate>,
     private readonly timeoutMs: number = 3_600_000,
     private readonly metrics?: PipelineMetricsDelegate,
+    /** Optional DatabaseProvider for advisory lock. When set, the lock
+     *  is shared across instances (PostgreSQL) or within a single instance
+     *  (SQLite). When unset, falls back to the in-memory #running flag. */
+    private readonly db?: DatabaseProvider,
   ) {}
 
   setOnStageProgress(
@@ -99,11 +106,30 @@ export class PipelineOrchestrator {
         'Pipeline run already in progress — concurrent runs are not supported on this instance',
       );
     }
+
+    // Acquire an advisory lock via the database (shared across instances).
+    // Falls back to the in-memory lock when no DatabaseProvider is available.
+    if (this.db) {
+      const acquired = await this.db.tryLock(PIPELINE_LOCK_NAME, this.timeoutMs);
+      if (!acquired) {
+        throw new Error(
+          'Pipeline run already in progress on another instance — ' +
+            `advisory lock '${PIPELINE_LOCK_NAME}' could not be acquired. ` +
+            'Retry when the current run completes or expires.',
+        );
+      }
+      logger.info('Pipeline advisory lock acquired');
+    }
+
     this.#running = true;
 
     try {
       return await this.#runInternal(input, externalRunId);
     } finally {
+      if (this.db) {
+        await this.db.unlock(PIPELINE_LOCK_NAME).catch(() => {});
+        logger.info('Pipeline advisory lock released');
+      }
       this.#running = false;
     }
   }

@@ -458,6 +458,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
     metrics,
+    provider,
   );
   const progressService = new PipelineProgressService();
 
