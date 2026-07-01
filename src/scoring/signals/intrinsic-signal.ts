@@ -123,6 +123,8 @@ function tokenisePronounceability(input: string): string[] {
 function computePronounceability(sld: string): number {
   const normalized = sld.toLowerCase();
   if (normalized.length === 0) return 0;
+  // ponytail: DNS labels max 63 chars, guard here for CodeQL loop-bound-injection
+  if (normalized.length > 100) return 0;
 
   const letters = [...normalized].filter((c) => /[a-z\u00C0-\u024F]/.test(c));
   if (letters.length === 0) return 0;
