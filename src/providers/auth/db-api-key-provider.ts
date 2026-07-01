@@ -52,7 +52,7 @@ export class DbApiKeyProvider implements AuthProvider {
       expiresAt: input.expiresAt ?? null,
     });
 
-    logger.info({ tenantId: input.tenantId, keyName: input.name }, 'API key generated');
+    logger.info({ keyName: input.name }, 'API key generated');
 
     return { fullKey: rawKey, prefix, name: input.name, id: stored.id };
   }
