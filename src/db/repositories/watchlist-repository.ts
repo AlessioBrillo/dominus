@@ -4,6 +4,7 @@ import type {
   InsertWatchlistInput,
   UpdateWatchlistStatusInput,
 } from '../../types/watchlist.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 const ROW_MAPPER =
   'id, domain, tld, notes, last_checked_at, last_status, last_status_change, notified, created_at, updated_at';
@@ -28,19 +29,20 @@ export class WatchlistRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
   async insert(input: InsertWatchlistInput): Promise<WatchlistEntry> {
+    const tid = resolveTenantId();
     const row = await this.db.queryOne<unknown>(
-      `INSERT INTO watchlist_entries (domain, tld, notes)
-       VALUES (?, ?, ?)
+      `INSERT INTO watchlist_entries (domain, tld, notes, tenant_id)
+       VALUES (?, ?, ?, ?)
        RETURNING ${ROW_MAPPER}`,
-      [input.domain, input.tld, input.notes ?? null],
+      [input.domain, input.tld, input.notes ?? null, tid],
     )!;
     return parseRow(row);
   }
 
   async findByDomain(domain: string): Promise<WatchlistEntry | null> {
     const row = await this.db.queryOne<unknown>(
-      `SELECT ${ROW_MAPPER} FROM watchlist_entries WHERE domain = ?`,
-      [domain],
+      `SELECT ${ROW_MAPPER} FROM watchlist_entries WHERE domain = ? AND tenant_id = ?`,
+      [domain, resolveTenantId()],
     );
     if (row === null) return null;
     return parseRow(row);
@@ -48,7 +50,8 @@ export class WatchlistRepository {
 
   async list(): Promise<WatchlistEntry[]> {
     const rows = await this.db.query<unknown>(
-      `SELECT ${ROW_MAPPER} FROM watchlist_entries ORDER BY created_at DESC, id DESC`,
+      `SELECT ${ROW_MAPPER} FROM watchlist_entries WHERE tenant_id = ? ORDER BY created_at DESC, id DESC`,
+      [resolveTenantId()],
     );
     return rows.map(parseRow);
   }
@@ -56,11 +59,12 @@ export class WatchlistRepository {
   async listPendingPoll(hoursSinceLastCheck: number): Promise<WatchlistEntry[]> {
     const rows = await this.db.query<unknown>(
       `SELECT ${ROW_MAPPER} FROM watchlist_entries
-       WHERE notified = 0
-          OR last_checked_at IS NULL
-          OR datetime(last_checked_at) < datetime('now', ?)
+       WHERE tenant_id = ?
+         AND (notified = 0
+           OR last_checked_at IS NULL
+           OR datetime(last_checked_at) < datetime('now', ?))
        ORDER BY last_checked_at ASC NULLS FIRST`,
-      [`-${hoursSinceLastCheck} hours`],
+      [resolveTenantId(), `-${hoursSinceLastCheck} hours`],
     );
     return rows.map(parseRow);
   }
@@ -74,9 +78,16 @@ export class WatchlistRepository {
            last_status_change = ?,
            notified           = ?,
            updated_at         = datetime('now')
-       WHERE domain = ?
+       WHERE domain = ? AND tenant_id = ?
        RETURNING ${ROW_MAPPER}`,
-      [input.lastCheckedAt, input.lastStatus, input.lastStatusChange, notified, domain],
+      [
+        input.lastCheckedAt,
+        input.lastStatus,
+        input.lastStatusChange,
+        notified,
+        domain,
+        resolveTenantId(),
+      ],
     )!;
     return parseRow(row);
   }
@@ -86,21 +97,25 @@ export class WatchlistRepository {
       `UPDATE watchlist_entries
        SET notified   = 1,
            updated_at = datetime('now')
-       WHERE domain = ?
+       WHERE domain = ? AND tenant_id = ?
        RETURNING ${ROW_MAPPER}`,
-      [domain],
+      [domain, resolveTenantId()],
     )!;
     return parseRow(row);
   }
 
   async remove(domain: string): Promise<boolean> {
-    const result = await this.db.exec('DELETE FROM watchlist_entries WHERE domain = ?', [domain]);
+    const result = await this.db.exec(
+      'DELETE FROM watchlist_entries WHERE domain = ? AND tenant_id = ?',
+      [domain, resolveTenantId()],
+    );
     return result.changes > 0;
   }
 
   async count(): Promise<number> {
     const row = (await this.db.queryOne<{ n: number }>(
-      'SELECT COUNT(*) AS n FROM watchlist_entries',
+      'SELECT COUNT(*) AS n FROM watchlist_entries WHERE tenant_id = ?',
+      [resolveTenantId()],
     ))!;
     return row.n;
   }
