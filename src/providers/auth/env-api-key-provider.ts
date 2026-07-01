@@ -73,7 +73,7 @@ export class EnvApiKeyProvider implements AuthProvider {
     }
     const keyName = this.keys.get(apiKey);
     if (keyName !== undefined) {
-      return { authenticated: true, keyName };
+      return { authenticated: true, keyName, tenantId: 'default' };
     }
     return { authenticated: false };
   }
