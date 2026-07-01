@@ -66,7 +66,7 @@ export class DbApiKeyProvider implements AuthProvider {
 
     // Check expiration
     if (stored.expiresAt && new Date(stored.expiresAt) < new Date()) {
-      logger.warn({ keyPrefix: prefix }, 'Expired API key used');
+      logger.warn('Expired API key used');
       return { authenticated: false };
     }
 
