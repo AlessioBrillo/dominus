@@ -52,7 +52,11 @@ import type { Notifier } from '../notifiers/notifier.js';
 import { SchedulerService, BackupService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
 import { PredictionAccuracyAnalyzer } from '../analytics/index.js';
-import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
+import {
+  UsptoCasesProvider,
+  EuipoProvider,
+  FailoverTrademarkProvider,
+} from '../providers/trademark/index.js';
 import {
   PipelineRunService,
   CachedTrademarkProvider,
@@ -206,12 +210,20 @@ function buildTrademarkProviderStack(
   euipoTmProvider: CachedTrademarkProvider;
   trademarkGate: TrademarkGate;
 } {
+  // The USPTO provider chain: raw → retry+circuit-breaker → failover → cache.
+  // FailoverTrademarkProvider enables operator-configured fallback endpoints
+  // (e.g. a self-hosted mirror) via the provider array.
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(
-      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
-      {},
-      USPTO_CIRCUIT_BREAKER,
-    ),
+    new FailoverTrademarkProvider([
+      new RetryingTrademarkProvider(
+        new UsptoCasesProvider({
+          searchUrl: config.USPTO_SEARCH_URL,
+          rateLimiter: usptoRateLimiter,
+        }),
+        {},
+        USPTO_CIRCUIT_BREAKER,
+      ),
+    ]),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
@@ -480,6 +492,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     (cachedCompsProvider as unknown as { clearCache: () => void }).clearCache();
     usptoTmProvider.clearCache();
     euipoTmProvider.clearCache();
+    anonScoringService.clearCache();
   });
 
   // --- Listing / Sales Pipeline (needed before runService for auto-list hook) ---
