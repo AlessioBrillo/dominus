@@ -128,7 +128,11 @@ export function buildRdapProviders(
   return { raw, withRetry: withRetryProvider, cached };
 }
 
-export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): DnsProvider {
+export function buildDnsProvider(
+  config: Config,
+  rateLimiter?: RateLimiter,
+  providerCacheRepo?: ProviderCacheRepository,
+): DnsProvider {
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
 
   const inner = new NodeDnsProvider({
@@ -148,8 +152,6 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
   ): Promise<DnsCheckResult> => {
     return withRetry(
       async (s) => {
-        // Acquire per attempt, not once per domain, so retries don't
-        // bypass the rate limiter on their second try.
         if (rateLimiter) await rateLimiter.acquire();
         return inner.checkAvailability(domain, s);
       },
@@ -159,10 +161,31 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
     );
   };
 
+  // DB-backed persistent cache layer (consistent with keyword, comps, RDAP providers).
+  // When providerCacheRepo is unavailable (tests), skip DB caching.
+  const dnsCache = providerCacheRepo
+    ? CachedProvider.createJson<DnsCheckResult>(
+        (domain, s) => wrappedCheckAvailability(domain, s),
+        providerCacheRepo,
+        'dns',
+        config.PROVIDER_CACHE_TTL_DAYS ?? 7,
+        config.PROVIDER_MEMORY_CACHE_SIZE,
+        config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
+      )
+    : null;
+
+  const cachedCheckAvailability: (domain: string, signal?: AbortSignal) => Promise<DnsCheckResult> =
+    dnsCache
+      ? async (domain, signal): Promise<DnsCheckResult> => dnsCache.get(domain, signal)
+      : wrappedCheckAvailability;
+
   const dnsProvider: DnsProvider = {
-    name: 'DnsProvider(withRetry)',
-    checkAvailability: wrappedCheckAvailability,
-    clearCache: () => inner.clearCache(),
+    name: dnsCache ? 'DnsProvider(cached+retry)' : 'DnsProvider(withRetry)',
+    checkAvailability: cachedCheckAvailability,
+    clearCache: () => {
+      inner.clearCache();
+      dnsCache?.clearCache();
+    },
     checkBulk: async (domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> => {
       const results: DnsCheckResult[] = [];
       const chunkSize = config.DNS_BULK_CONCURRENCY;
@@ -171,7 +194,7 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiter): Dns
         const chunk = domains.slice(i, i + chunkSize);
         const chunkResults = await Promise.all(
           chunk.map((d) =>
-            wrappedCheckAvailability(d, signal).catch(() => ({
+            cachedCheckAvailability(d, signal).catch(() => ({
               domain: d,
               status: DomainStatus.Unknown,
               checkedAt: new Date().toISOString(),

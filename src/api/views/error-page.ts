@@ -1,5 +1,5 @@
 import { escapeHtml } from './escape.js';
-import { pageHtml, ERROR_CSS } from './page-template.js';
+import { pageHtml, ERROR_CSS_HREF } from './page-template.js';
 
 export function renderErrorPage(message: string): string {
   const bodyContent = [
@@ -9,5 +9,5 @@ export function renderErrorPage(message: string): string {
     '</div>',
   ].join('\n');
 
-  return pageHtml('DOMINUS', '', ERROR_CSS, bodyContent);
+  return pageHtml('DOMINUS', '', ERROR_CSS_HREF, bodyContent);
 }

@@ -8,19 +8,16 @@ import type { Request, Response, NextFunction } from 'express';
  *   from same origin. No inline scripts in the SPA. Server-rendered
  *   public pages use JSON-LD in script tags with type="application/ld+json"
  *   which is not executable JS and does not require 'unsafe-inline'.
- * - style-src 'self' 'unsafe-inline' — KEPT for the server-rendered
- *   public score pages (public-router.ts) which embed <style> blocks
- *   for isolated HTML rendering. The SPA (Vite + Tailwind) bundles all
- *   CSS and would work with style-src 'self' alone.
- * - TODO(v0.7.0): Remove style-src 'unsafe-inline' by extracting public
- *   page CSS to external files served from /public/static/assets/.
+ * - style-src 'self' — no 'unsafe-inline'; public pages link to external
+ *   CSS served from /public/static/assets/ (mounted via express.static).
+ *   The SPA (Vite + Tailwind) bundles all CSS and works with 'self' alone.
  *
  * See: docs/adr/0031-production-hardening.md
  */
 const CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self'",
   "connect-src 'self'",
@@ -28,6 +25,9 @@ const CSP_DIRECTIVES = [
   "form-action 'self'",
   "base-uri 'self'",
 ];
+
+/** Restrictive CSP for API routes returning JSON — blocks all content loading. */
+const API_CSP_DIRECTIVES = ["default-src 'none'", "frame-ancestors 'none'", "form-action 'none'"];
 
 export function securityHeaders(req: Request, res: Response, next: NextFunction): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -38,10 +38,15 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  // NOTE: Cross-Origin-Embedder-Policy deliberately omitted.
+  // require-corp breaks loading of any cross-origin resource (CDN fonts,
+  // external images). unsafe-none is sufficient for a first-party SPA
+  // with no cross-origin isolation requirements.
 
   const isApiRequest = req.path.startsWith('/api/');
-  if (!isApiRequest) {
+  if (isApiRequest) {
+    res.setHeader('Content-Security-Policy', API_CSP_DIRECTIVES.join('; '));
+  } else {
     res.setHeader('Content-Security-Policy', CSP_DIRECTIVES.join('; '));
   }
 

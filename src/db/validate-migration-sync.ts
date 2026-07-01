@@ -39,6 +39,9 @@ const EXPECTED_MIGRATIONS = [
   '0028_create_auto_listings',
   '0029_add_tenant_id',
   '0030_enable_rls',
+  '0031_create_auth_rate_limits',
+  '0032_create_pipeline_locks',
+  '0033_create_api_keys',
 ];
 
 export function validateMigrationSync(): string[] {

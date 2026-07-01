@@ -618,3 +618,22 @@ export const PUBLIC_SCORES_CREATED_IDX_DDL = `
 CREATE INDEX IF NOT EXISTS idx_public_scores_created
   ON public_scores(created_at DESC)
 `;
+
+export const PIPELINE_LOCKS_DDL = `
+CREATE TABLE IF NOT EXISTS pipeline_locks (
+  lock_name   TEXT    NOT NULL PRIMARY KEY,
+  locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  expires_at  TEXT    NOT NULL,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+export const AUTH_RATE_LIMITS_DDL = `
+CREATE TABLE IF NOT EXISTS auth_rate_limits (
+  ip          TEXT    NOT NULL PRIMARY KEY,
+  failures    INTEGER NOT NULL DEFAULT 0,
+  reset_at    INTEGER NOT NULL,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+)
+`;
