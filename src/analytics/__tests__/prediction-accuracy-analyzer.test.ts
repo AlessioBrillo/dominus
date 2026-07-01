@@ -13,7 +13,8 @@ function createTestDb(): SqliteProvider {
       domain TEXT NOT NULL UNIQUE,
       tld TEXT NOT NULL,
       source TEXT NOT NULL DEFAULT 'manual',
-      status TEXT NOT NULL DEFAULT 'pending'
+      status TEXT NOT NULL DEFAULT 'pending',
+      tenant_id TEXT NOT NULL DEFAULT 'default'
     );
     CREATE TABLE IF NOT EXISTS scoring_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,7 +31,8 @@ function createTestDb(): SqliteProvider {
       weighted_score REAL NOT NULL DEFAULT 0,
       recommended INTEGER NOT NULL DEFAULT 0,
       signal_scores TEXT NOT NULL DEFAULT '{}',
-      scored_at TEXT NOT NULL DEFAULT (datetime('now'))
+      scored_at TEXT NOT NULL DEFAULT (datetime('now')),
+      tenant_id TEXT NOT NULL DEFAULT 'default'
     );
     CREATE TABLE IF NOT EXISTS portfolio_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +47,8 @@ function createTestDb(): SqliteProvider {
       suggested_list_price REAL,
       verdict TEXT NOT NULL DEFAULT 'keep',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      tenant_id TEXT NOT NULL DEFAULT 'default'
     );
     CREATE TABLE IF NOT EXISTS outcomes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +56,8 @@ function createTestDb(): SqliteProvider {
       type TEXT NOT NULL,
       occurred_at TEXT NOT NULL,
       sale_price_eur REAL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      tenant_id TEXT NOT NULL DEFAULT 'default'
     );
     CREATE TABLE IF NOT EXISTS outcome_scores (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,6 +74,7 @@ function createTestDb(): SqliteProvider {
       commercial_score REAL NOT NULL DEFAULT 0,
       market_score REAL NOT NULL DEFAULT 0,
       expiry_score REAL NOT NULL DEFAULT 0,
+      tenant_id TEXT NOT NULL DEFAULT 'default',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(domain, occurred_at)
     );
