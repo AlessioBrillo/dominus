@@ -1,6 +1,7 @@
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { PortfolioEntry, AddPortfolioEntryInput, Verdict } from '../../types/portfolio.js';
 import { DuplicateDomainError, DomainNotFoundError } from '../../types/errors.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 interface PortfolioRow {
   id: number;
@@ -51,10 +52,11 @@ export class PortfolioRepository {
       throw new DuplicateDomainError(input.domain);
     }
 
+    const tid = resolveTenantId();
     const result = await this.db.exec(
       `INSERT INTO portfolio_entries
-       (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (domain, tld, acquired_at, renewal_date, acquisition_cost, renewal_cost, registrar, notes, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         input.domain,
         input.tld,
@@ -64,27 +66,29 @@ export class PortfolioRepository {
         input.renewalCost,
         input.registrar,
         input.notes ?? null,
+        tid,
       ],
     );
     const id = result.lastInsertRowid as number;
     const row = await this.db.queryOne<PortfolioRow>(
-      'SELECT * FROM portfolio_entries WHERE id = ?',
-      [id],
+      'SELECT * FROM portfolio_entries WHERE id = ? AND tenant_id = ?',
+      [id, tid],
     );
     return rowToEntry(row!);
   }
 
   async findByDomain(domain: string): Promise<PortfolioEntry | null> {
     const row = await this.db.queryOne<PortfolioRow>(
-      'SELECT * FROM portfolio_entries WHERE domain = ?',
-      [domain],
+      'SELECT * FROM portfolio_entries WHERE domain = ? AND tenant_id = ?',
+      [domain, resolveTenantId()],
     );
     return row ? rowToEntry(row) : null;
   }
 
   async findAll(): Promise<PortfolioEntry[]> {
     const rows = await this.db.query<PortfolioRow>(
-      'SELECT * FROM portfolio_entries ORDER BY renewal_date ASC',
+      'SELECT * FROM portfolio_entries WHERE tenant_id = ? ORDER BY renewal_date ASC',
+      [resolveTenantId()],
     );
     return rows.map(rowToEntry);
   }
@@ -96,8 +100,8 @@ export class PortfolioRepository {
       `UPDATE portfolio_entries
        SET verdict = ?, verdict_reason = ?, verdict_updated_at = datetime('now'),
            updated_at = datetime('now')
-       WHERE domain = ?`,
-      [verdict, reason ?? null, domain],
+       WHERE domain = ? AND tenant_id = ?`,
+      [verdict, reason ?? null, domain, resolveTenantId()],
     );
   }
 
@@ -107,14 +111,15 @@ export class PortfolioRepository {
     await this.db.exec(
       `UPDATE portfolio_entries
        SET current_score = ?, suggested_list_price = ?, updated_at = datetime('now')
-       WHERE domain = ?`,
-      [score, listPrice, domain],
+       WHERE domain = ? AND tenant_id = ?`,
+      [score, listPrice, domain, resolveTenantId()],
     );
   }
 
   async updateCosts(domain: string, acquisitionCost?: number, renewalCost?: number): Promise<void> {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
+    const tid = resolveTenantId();
     const sets: string[] = [];
     const params: (number | string)[] = [];
     if (acquisitionCost !== undefined) {
@@ -128,21 +133,28 @@ export class PortfolioRepository {
     if (sets.length === 0) return;
     sets.push("updated_at = datetime('now')");
     params.push(domain);
-    await this.db.exec(`UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ?`, params);
+    params.push(tid);
+    await this.db.exec(
+      `UPDATE portfolio_entries SET ${sets.join(', ')} WHERE domain = ? AND tenant_id = ?`,
+      params,
+    );
   }
 
   async updateNotes(domain: string, notes: string): Promise<void> {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
     await this.db.exec(
-      `UPDATE portfolio_entries SET notes = ?, updated_at = datetime('now') WHERE domain = ?`,
-      [notes, domain],
+      `UPDATE portfolio_entries SET notes = ?, updated_at = datetime('now') WHERE domain = ? AND tenant_id = ?`,
+      [notes, domain, resolveTenantId()],
     );
   }
 
   async delete(domain: string): Promise<void> {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
-    await this.db.exec('DELETE FROM portfolio_entries WHERE domain = ?', [domain]);
+    await this.db.exec('DELETE FROM portfolio_entries WHERE domain = ? AND tenant_id = ?', [
+      domain,
+      resolveTenantId(),
+    ]);
   }
 }

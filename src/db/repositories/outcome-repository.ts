@@ -2,6 +2,7 @@ import type { DatabaseProvider } from '../provider/interface.js';
 import type { Outcome, RecordOutcomeInput, OutcomeType } from '../../types/outcome.js';
 import { isOutcomeType } from '../../types/outcome.js';
 import { DomainNotFoundError } from '../../types/errors.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 interface OutcomeRow {
   id: number;
@@ -54,9 +55,10 @@ export class OutcomeRepository {
 
   /** Insert a new outcome. Throws if `domain` is not in the portfolio. */
   async insert(input: RecordOutcomeInput): Promise<Outcome> {
+    const tid = resolveTenantId();
     const exists = await this.db.queryOne<{ 1: number }>(
-      'SELECT 1 FROM portfolio_entries WHERE domain = ?',
-      [input.domain],
+      'SELECT 1 FROM portfolio_entries WHERE domain = ? AND tenant_id = ?',
+      [input.domain, tid],
     );
     if (exists === null) {
       throw new DomainNotFoundError(input.domain);
@@ -67,8 +69,8 @@ export class OutcomeRepository {
         `INSERT INTO outcomes
              (domain, type, occurred_at, sale_price_eur, listing_price_eur,
               days_listed, venue, commission_pct,
-              acquisition_cost_eur, total_renewal_cost_eur, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              acquisition_cost_eur, total_renewal_cost_eur, notes, tenant_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id`,
         [
           input.domain,
@@ -82,11 +84,13 @@ export class OutcomeRepository {
           input.acquisitionCostEur ?? null,
           input.totalRenewalCostEur ?? null,
           input.notes ?? null,
+          tid,
         ],
       ))!;
-      const inserted = (await this.db.queryOne<OutcomeRow>('SELECT * FROM outcomes WHERE id = ?', [
-        row.id,
-      ]))!;
+      const inserted = (await this.db.queryOne<OutcomeRow>(
+        'SELECT * FROM outcomes WHERE id = ? AND tenant_id = ?',
+        [row.id, tid],
+      ))!;
       return rowToOutcome(inserted);
     } catch (err: unknown) {
       // SQLite FK violation as safety net — should not trigger since we
@@ -100,15 +104,18 @@ export class OutcomeRepository {
   }
 
   async findById(id: number): Promise<Outcome | null> {
-    const row = await this.db.queryOne<OutcomeRow>('SELECT * FROM outcomes WHERE id = ?', [id]);
+    const row = await this.db.queryOne<OutcomeRow>(
+      'SELECT * FROM outcomes WHERE id = ? AND tenant_id = ?',
+      [id, resolveTenantId()],
+    );
     return row ? rowToOutcome(row) : null;
   }
 
   /** All outcomes for one portfolio domain, most recent first. */
   async findByDomain(domain: string): Promise<Outcome[]> {
     const rows = await this.db.query<OutcomeRow>(
-      'SELECT * FROM outcomes WHERE domain = ? ORDER BY occurred_at DESC, id DESC',
-      [domain],
+      'SELECT * FROM outcomes WHERE domain = ? AND tenant_id = ? ORDER BY occurred_at DESC, id DESC',
+      [domain, resolveTenantId()],
     );
     return rows.map(rowToOutcome);
   }
@@ -116,7 +123,8 @@ export class OutcomeRepository {
   /** All outcomes in the database, most recent first. */
   async findAll(): Promise<Outcome[]> {
     const rows = await this.db.query<OutcomeRow>(
-      'SELECT * FROM outcomes ORDER BY occurred_at DESC, id DESC',
+      'SELECT * FROM outcomes WHERE tenant_id = ? ORDER BY occurred_at DESC, id DESC',
+      [resolveTenantId()],
     );
     return rows.map(rowToOutcome);
   }
@@ -124,8 +132,8 @@ export class OutcomeRepository {
   /** Outcomes of a specific type, most recent first. */
   async findByType(type: OutcomeType): Promise<Outcome[]> {
     const rows = await this.db.query<OutcomeRow>(
-      'SELECT * FROM outcomes WHERE type = ? ORDER BY occurred_at DESC, id DESC',
-      [type],
+      'SELECT * FROM outcomes WHERE type = ? AND tenant_id = ? ORDER BY occurred_at DESC, id DESC',
+      [type, resolveTenantId()],
     );
     return rows.map(rowToOutcome);
   }
@@ -151,8 +159,8 @@ export class OutcomeRepository {
            SUM(CASE WHEN type = 'expired' THEN 1 ELSE 0 END) AS expired,
            SUM(CASE WHEN type = 'renewed' THEN 1 ELSE 0 END) AS renewed,
            COALESCE(SUM(CASE WHEN type = 'sold' THEN sale_price_eur ELSE 0 END), 0) AS total_realised_eur
-         FROM outcomes WHERE domain = ?`,
-      [domain],
+         FROM outcomes WHERE domain = ? AND tenant_id = ?`,
+      [domain, resolveTenantId()],
     ))!;
     return {
       sold: row.sold ?? 0,
@@ -165,6 +173,9 @@ export class OutcomeRepository {
 
   /** Hard delete an outcome. Used by tests; the CLI does not expose this. */
   async delete(id: number): Promise<void> {
-    await this.db.exec('DELETE FROM outcomes WHERE id = ?', [id]);
+    await this.db.exec('DELETE FROM outcomes WHERE id = ? AND tenant_id = ?', [
+      id,
+      resolveTenantId(),
+    ]);
   }
 }
