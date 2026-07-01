@@ -35,6 +35,7 @@ import {
   createPublicRouter,
   errorHandler,
   createRequestLogger,
+  responseCache,
 } from './api/index.js';
 
 async function main(): Promise<void> {
@@ -157,6 +158,7 @@ async function main(): Promise<void> {
 
   const protectedRouter = express.Router();
   protectedRouter.use(authMiddleware);
+  protectedRouter.use(responseCache(60));
 
   // Per-token rate limit for authenticated API calls. This prevents a single
   // API key holder from overwhelming the backend or exhausting the global

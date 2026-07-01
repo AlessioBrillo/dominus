@@ -855,7 +855,7 @@ const configSchema = z.object({
    * Higher values increase throughput but may trigger SQLite write contention.
    * Default: 2 (conservative).
    */
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(2),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
 
   /**
    * Poll interval in milliseconds for the job queue worker.

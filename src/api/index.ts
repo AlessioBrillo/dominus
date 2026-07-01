@@ -24,4 +24,5 @@ export { createPublicRouter } from './public-router.js';
 export { createAuthMiddleware } from './middleware/auth.js';
 export { securityHeaders } from './middleware/security-headers.js';
 export { validate } from './middleware/validate.js';
+export { responseCache } from './middleware/response-cache.js';
 export type { ValidationSchemas } from './middleware/validate.js';
