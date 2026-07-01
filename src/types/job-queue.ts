@@ -52,6 +52,7 @@ import type { CandidateGenerationInput } from '../pipeline/stages/candidate-gene
 export interface PipelineRunPayload {
   candidateGenerationInput: CandidateGenerationInput;
   runId: string;
+  tenantId?: string;
 }
 
 export interface PipelineRunResult {
@@ -64,6 +65,7 @@ export interface PipelineRunResult {
 
 export interface PortfolioRescorePayload {
   domain?: string;
+  tenantId?: string;
 }
 
 export interface PortfolioRescoreResult {
@@ -74,6 +76,7 @@ export interface PortfolioRescoreResult {
 
 export interface BacktestBuildPayload {
   minSampleSize?: number;
+  tenantId?: string;
 }
 
 export interface BacktestBuildResult {
@@ -87,6 +90,7 @@ export interface BacktestBuildResult {
 
 export interface BackupPayload {
   retentionDays?: number;
+  tenantId?: string;
 }
 
 export interface BackupResult {
@@ -98,6 +102,7 @@ export interface BackupResult {
 
 export interface PrunePayload {
   maxAgeDays?: number;
+  tenantId?: string;
 }
 
 export interface PruneResult {
@@ -109,7 +114,9 @@ export interface PruneResult {
   deletedWaybackCache: number;
 }
 
-export interface WatchlistPollPayload {}
+export interface WatchlistPollPayload {
+  tenantId?: string;
+}
 
 export interface WatchlistPollResult {
   checked: number;
@@ -118,7 +125,9 @@ export interface WatchlistPollResult {
   errors: number;
 }
 
-export interface RenewalCheckPayload {}
+export interface RenewalCheckPayload {
+  tenantId?: string;
+}
 
 export interface RenewalCheckResult {
   alertsCreated: number;
@@ -126,7 +135,9 @@ export interface RenewalCheckResult {
   domainsChecked: number;
 }
 
-export interface WeightTunePayload {}
+export interface WeightTunePayload {
+  tenantId?: string;
+}
 
 export interface WeightTuneResult {
   sampleSize: number;

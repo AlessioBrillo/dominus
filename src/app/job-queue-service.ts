@@ -10,6 +10,7 @@ import type {
   DeadLetterJobRow,
 } from '../types/job-queue.js';
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
+import { getTenantId } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -50,7 +51,15 @@ export function createJobQueueService(provider: DatabaseProvider): JobQueueServi
     payload: JobPayload,
     options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
   ): Promise<string> {
-    const jobId = await repo.enqueue(jobType, payload, options);
+    // Inject the current tenant context into the job payload so the worker
+    // can re-establish it when processing. The worker reads .tenantId and
+    // wraps handler execution in runWithTenant(), which the PostgreSQL
+    // adapter's #withTenant uses to set app.tenant_id for RLS policies.
+    const tenantId = getTenantId();
+    const augmentedPayload: JobPayload = tenantId
+      ? ({ ...payload, tenantId } as JobPayload)
+      : payload;
+    const jobId = await repo.enqueue(jobType, augmentedPayload, options);
     logger.info({ jobId, jobType }, 'Job enqueued');
     return String(jobId);
   }
@@ -70,19 +79,31 @@ export function createJobQueueService(provider: DatabaseProvider): JobQueueServi
     },
 
     async enqueuePortfolioRescore(domain?: string): Promise<string> {
-      return enqueue('PORTFOLIO_RESCORE', { domain }, { priority: 5 });
+      return enqueue(
+        'PORTFOLIO_RESCORE',
+        { ...(domain !== undefined && { domain }) },
+        { priority: 5 },
+      );
     },
 
     async enqueueBacktestBuild(minSampleSize?: number): Promise<string> {
-      return enqueue('BACKTEST_BUILD', { minSampleSize }, { priority: 0 });
+      return enqueue(
+        'BACKTEST_BUILD',
+        { ...(minSampleSize !== undefined && { minSampleSize }) },
+        { priority: 0 },
+      );
     },
 
     async enqueueBackup(retentionDays?: number): Promise<string> {
-      return enqueue('BACKUP', { retentionDays }, { priority: 0 });
+      return enqueue(
+        'BACKUP',
+        { ...(retentionDays !== undefined && { retentionDays }) },
+        { priority: 0 },
+      );
     },
 
     async enqueuePrune(maxAgeDays?: number): Promise<string> {
-      return enqueue('PRUNE', { maxAgeDays }, { priority: 0 });
+      return enqueue('PRUNE', { ...(maxAgeDays !== undefined && { maxAgeDays }) }, { priority: 0 });
     },
 
     async enqueueWatchlistPoll(): Promise<string> {

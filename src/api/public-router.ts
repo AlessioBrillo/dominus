@@ -10,6 +10,7 @@ import {
   DomainValidationError,
 } from '../services/anon-scoring-service.js';
 import { isValidDomain, parseDomain } from '../utils/domain.js';
+import { runWithTenant } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 import { generateOgPng } from './open-graph.js';
 import {
@@ -85,6 +86,10 @@ export function createPublicRouter(
   });
 
   router.use(publicRateLimiter);
+
+  // Wrap all public routes in the 'public' tenant context so PostgreSQL RLS
+  // policies on public_scores allow both tenant-scoped AND anonymous access.
+  router.use((_req, _res, next) => runWithTenant('public', () => next()));
 
   router.post('/scores', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
