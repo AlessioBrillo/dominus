@@ -136,7 +136,7 @@ async function main(): Promise<void> {
       }),
     );
   }
-  app.use('/api/v1/auth', createAuthRouter(deps.authProvider));
+  app.use('/api/v1/auth', createAuthRouter(deps.authProvider, deps.apiKeyRepo));
 
   // Global per-IP rate limit for all remaining API routes (protects against
   // request floods and resource exhaustion). Applied after auth to separate

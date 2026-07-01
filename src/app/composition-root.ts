@@ -64,6 +64,8 @@ import {
 import { type RateLimiter } from '../providers/rate-limiter.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import { Auth0Provider } from '../providers/auth/auth0-provider.js';
+import { DbApiKeyProvider } from '../providers/auth/db-api-key-provider.js';
+import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -155,6 +157,7 @@ export interface DominusDependencies {
   bulkWriteProvider: DatabaseProvider | undefined;
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
+  apiKeyRepo: ApiKeyRepository | undefined;
 }
 
 interface BuiltRepositories {
@@ -365,18 +368,25 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   warnEuipoIfMissing(config);
 
-  // --- Auth Provider ---
-  const authProvider: AuthProvider =
-    config.AUTH_PROVIDER === 'auth0'
-      ? new Auth0Provider({
-          domain: config.AUTH0_DOMAIN ?? '',
-          audience: config.AUTH0_AUDIENCE ?? '',
-          ...(config.AUTH0_JWKS_URI ? { jwksUri: config.AUTH0_JWKS_URI } : {}),
-        })
-      : new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
-
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);
+
+  // --- Auth Provider ---
+  let apiKeyRepo: ApiKeyRepository | undefined;
+  const authProvider: AuthProvider = ((): AuthProvider => {
+    if (config.AUTH_PROVIDER === 'auth0') {
+      return new Auth0Provider({
+        domain: config.AUTH0_DOMAIN ?? '',
+        audience: config.AUTH0_AUDIENCE ?? '',
+        ...(config.AUTH0_JWKS_URI ? { jwksUri: config.AUTH0_JWKS_URI } : {}),
+      });
+    }
+    if (config.AUTH_PROVIDER === 'db') {
+      apiKeyRepo = new ApiKeyRepository(provider);
+      return new DbApiKeyProvider(apiKeyRepo);
+    }
+    return new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
+  })();
 
   // Dedicated bulk-write connection for pipeline persistence (SQLite only).
   // With WAL mode, this lets the main connection serve reads concurrently
@@ -704,5 +714,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     worker,
     authProvider,
     anonScoringService,
+    apiKeyRepo,
   };
 }

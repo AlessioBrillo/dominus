@@ -32,6 +32,7 @@ import * as m0029 from './migrations/0029_add_tenant_id.js';
 import * as m0030 from './migrations/0030_enable_rls.js';
 import * as m0031 from './migrations/0031_create_auth_rate_limits.js';
 import * as m0032 from './migrations/0032_create_pipeline_locks.js';
+import * as m0033 from './migrations/0033_create_api_keys.js';
 
 interface Migration {
   name: string;
@@ -75,6 +76,7 @@ const MIGRATIONS: Migration[] = [
   m0030,
   m0031,
   m0032,
+  m0033,
 ];
 
 export function runMigrations(db: Database.Database): void {

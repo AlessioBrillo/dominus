@@ -778,7 +778,7 @@ const configSchema = z.object({
    * - 'env': Use API_KEYS env var / FILE_API_KEYS (community edition, default)
    * - 'auth0': Use Auth0 for JWT-based authentication (DOMINUS Cloud)
    */
-  AUTH_PROVIDER: z.enum(['env', 'auth0']).default('env'),
+  AUTH_PROVIDER: z.enum(['env', 'auth0', 'db']).default('env'),
 
   /**
    * Auth0 domain (e.g., 'dominus.eu.auth0.com').
