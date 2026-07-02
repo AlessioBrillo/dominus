@@ -33,6 +33,8 @@ export class RateLimiterQueueFullError extends Error {
   }
 }
 
+import { getLogger } from '../logger.js';
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -62,7 +64,7 @@ export class RateLimiter {
     this.#maxTokens = config.maxTokens;
     this.#tokensPerInterval = config.tokensPerInterval;
     this.#intervalMs = config.intervalMs;
-    this.#maxQueueSize = config.maxQueueSize ?? 0;
+    this.#maxQueueSize = config.maxQueueSize ?? 1000;
     this.#tokens = config.maxTokens;
     this.#lastRefill = Date.now();
   }
@@ -97,6 +99,13 @@ export class RateLimiter {
 
     if (this.#maxQueueSize > 0 && this.#queue.length >= this.#maxQueueSize) {
       throw new RateLimiterQueueFullError(this.#queue.length, this.#maxQueueSize);
+    }
+
+    if (this.#maxQueueSize > 0 && this.#queue.length >= this.#maxQueueSize * 0.8) {
+      getLogger().warn(
+        { queueLength: this.#queue.length, maxQueueSize: this.#maxQueueSize },
+        'Rate limiter queue above 80% capacity',
+      );
     }
 
     return new Promise<void>((resolve, reject) => {
