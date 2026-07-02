@@ -3,7 +3,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { PruneHandler } from '../prune-handler.js';
 
 describe('PruneHandler', () => {
-   
   function makeDeps(overrides: Record<string, unknown> = {}): any {
     return {
       candidateRepo: { pruneRescoreCandidates: vi.fn().mockReturnValue(10) },
