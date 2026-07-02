@@ -8,6 +8,7 @@ import type { TrademarkGateStage } from './stages/trademark-gate-stage.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
+import { resolveTenantId } from '../utils/tenant-context.js';
 
 export interface PipelineMetricsDelegate {
   recordStage(
@@ -52,7 +53,9 @@ export class PipelineTimeoutError extends Error {
   }
 }
 
-const PIPELINE_LOCK_NAME = 'pipeline_run';
+function pipelineLockName(): string {
+  return `pipeline_run:${resolveTenantId()}`;
+}
 
 /**
  * TTL for the pipeline advisory lock, in milliseconds.
@@ -123,11 +126,11 @@ export class PipelineOrchestrator {
     // Uses a short TTL (2 min) with a heartbeat loop so stale locks from
     // crashed containers auto-expire within minutes instead of hours.
     if (this.db) {
-      const acquired = await this.db.tryLock(PIPELINE_LOCK_NAME, PIPELINE_LOCK_TTL_MS);
+      const acquired = await this.db.tryLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS);
       if (!acquired) {
         throw new Error(
           'Pipeline run already in progress on another instance — ' +
-            `advisory lock '${PIPELINE_LOCK_NAME}' could not be acquired. ` +
+            `advisory lock '${pipelineLockName()}' could not be acquired. ` +
             'Retry when the current run completes or expires.',
         );
       }
@@ -142,7 +145,7 @@ export class PipelineOrchestrator {
     } finally {
       this.#stopHeartbeat();
       if (this.db) {
-        await this.db.unlock(PIPELINE_LOCK_NAME).catch(() => {});
+        await this.db.unlock(pipelineLockName()).catch(() => {});
         logger.info('Pipeline advisory lock released');
       }
       this.#running = false;
@@ -155,7 +158,7 @@ export class PipelineOrchestrator {
     this.#heartbeatTimer = setInterval(async () => {
       if (!this.db) return;
       const renewed = await this.db
-        .renewLock(PIPELINE_LOCK_NAME, PIPELINE_LOCK_TTL_MS)
+        .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
         .catch(() => false);
       if (!renewed) {
         logger.warn('Pipeline lock heartbeat failed — lock may have been lost');
