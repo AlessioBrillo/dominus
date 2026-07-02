@@ -94,6 +94,8 @@ describe('JobWorker', () => {
         deletedProviderCache: 0,
         deletedScoringRuns: 0,
         deletedWaybackCache: 0,
+        deletedPublicScores: 0,
+        deletedEvents: 0,
       }));
       handlers.set('PRUNE', handler);
       const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
@@ -225,6 +227,8 @@ describe('JobWorker', () => {
           deletedProviderCache: 0,
           deletedScoringRuns: 0,
           deletedWaybackCache: 0,
+          deletedPublicScores: 0,
+          deletedEvents: 0,
         };
       });
       handlers.set('PRUNE', handler);

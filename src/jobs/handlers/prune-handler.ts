@@ -4,6 +4,7 @@ import type { ScoringRepository } from '../../db/repositories/scoring-repository
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { JobQueueRepository } from '../../db/repositories/job-queue-repository.js';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { PrunePayload, PruneResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
 
@@ -17,6 +18,12 @@ export interface PruneHandlerDeps {
   jobQueueRepo: JobQueueRepository;
   /** Raw SQLite connection for wayback_cache cleanup. null when using PostgreSQL. */
   db: Database.Database | null;
+  /** DatabaseProvider for cross-dialect queries (public_scores, events). */
+  provider: DatabaseProvider;
+  /** Retention days for public_score entries (default: 90). */
+  publicScoresRetentionDays: number;
+  /** Retention days for events entries (default: 180). */
+  eventsRetentionDays: number;
 }
 
 export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
@@ -39,6 +46,22 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
           .changes
       : 0;
 
+    const publicScoresCutoff = new Date(
+      Date.now() - this.deps.publicScoresRetentionDays * 86400000,
+    ).toISOString();
+    const deletedPublicScores = (
+      await this.deps.provider.exec('DELETE FROM public_scores WHERE created_at < ?', [
+        publicScoresCutoff,
+      ])
+    ).changes;
+
+    const eventsCutoff = new Date(
+      Date.now() - this.deps.eventsRetentionDays * 86400000,
+    ).toISOString();
+    const deletedEvents = (
+      await this.deps.provider.exec('DELETE FROM events WHERE created_at < ?', [eventsCutoff])
+    ).changes;
+
     logger.info(
       {
         deletedCandidates,
@@ -47,6 +70,8 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
         deletedProviderCache,
         deletedJobQueue,
         deletedWaybackCache,
+        deletedPublicScores,
+        deletedEvents,
       },
       'PruneHandler: completed',
     );
@@ -58,6 +83,8 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
       deletedProviderCache,
       deletedJobQueue,
       deletedWaybackCache,
+      deletedPublicScores,
+      deletedEvents,
     };
   }
 }
