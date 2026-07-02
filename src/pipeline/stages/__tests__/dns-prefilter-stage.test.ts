@@ -47,7 +47,7 @@ describe('DnsPreFilterStage', () => {
     expect(result.passed[0]!.dnsStatus).toBe('available');
   });
 
-  it('passes through domains with Unknown status', async () => {
+  it('filters domains with Unknown status (fail-closed)', async () => {
     const provider = mockDnsProvider('unknown.net', {
       domain: 'unknown.net',
       status: DomainStatus.Unknown,
@@ -56,9 +56,11 @@ describe('DnsPreFilterStage', () => {
     const stage = new DnsPreFilterStage(provider);
     const candidates = [createMockCandidate({ domain: 'unknown.net' })];
     const result = await stage.process(candidates);
-    expect(result.passed).toHaveLength(1);
-    expect(result.passed[0]!.domain).toBe('unknown.net');
-    expect(result.passed[0]!.dnsStatus).toBe('unknown');
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.domain).toBe('unknown.net');
+    expect(result.filtered[0]!.dnsStatus).toBe('unknown');
+    expect(result.filtered[0]!.status).toBe(CandidateStatus.DnsFiltered);
   });
 
   it('filters registered domains to DnsFiltered', async () => {

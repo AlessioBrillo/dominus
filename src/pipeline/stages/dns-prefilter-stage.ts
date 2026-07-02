@@ -62,11 +62,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         continue;
       }
 
-      if (
-        result.status === DomainStatus.Available ||
-        result.status === DomainStatus.Unknown ||
-        result.isParked === true
-      ) {
+      if (result.status === DomainStatus.Available || result.isParked === true) {
         const dnsStatus = result.isParked ? 'parked' : result.status;
         passed.push({
           ...candidate,
