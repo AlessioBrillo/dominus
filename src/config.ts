@@ -870,6 +870,11 @@ const configSchema = z.object({
    * Default: 300000ms (5 minutes).
    */
   JOB_MAX_RUNNING_AGE_MS: z.coerce.number().int().min(10000).max(86400000).default(300000),
+
+  // ── Data retention ─────────────────────────────────────────────────
+
+  PUBLIC_SCORES_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  EVENTS_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(180),
 });
 
 export type Config = z.infer<typeof configSchema>;

@@ -133,6 +133,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     TRUST_PROXY_DEPTH: 1,
     AUTH_PROVIDER: 'env',
     DNS_PARKING_IPS_PATH: undefined,
+    PUBLIC_SCORES_RETENTION_DAYS: 90,
+    EVENTS_RETENTION_DAYS: 180,
     ...overrides,
   };
 }

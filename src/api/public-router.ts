@@ -314,7 +314,9 @@ export function createPublicRouter(
           slug: string;
           domain: string;
           created_at: string;
-        }>('SELECT slug, domain, created_at FROM public_scores ORDER BY created_at DESC');
+        }>(
+          'SELECT slug, domain, created_at FROM public_scores ORDER BY created_at DESC LIMIT 50000',
+        );
 
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         const urls = rows
