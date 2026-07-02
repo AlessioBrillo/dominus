@@ -94,4 +94,13 @@ describe('MockDatabaseProvider', () => {
       expect(mock.hasTable('unknown')).toBe(false);
     });
   });
+
+  describe('renewLock', () => {
+    it('records the call and returns true', async () => {
+      const result = await mock.renewLock('test-lock', 60_000);
+      expect(result).toBe(true);
+      expect(mock.calls).toHaveLength(1);
+      expect(mock.calls[0]!.method).toBe('renewLock');
+    });
+  });
 });

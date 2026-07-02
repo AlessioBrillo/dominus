@@ -187,6 +187,20 @@ export class SqliteProvider implements DatabaseProvider {
     }
   }
 
+  async renewLock(lockName: string, ttlMs: number): Promise<boolean> {
+    try {
+      const expiresAt = Date.now() + ttlMs;
+      const result = this.#db
+        .prepare(
+          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch') WHERE lock_name = ? AND expires_at >= datetime('now')",
+        )
+        .run(expiresAt, lockName);
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
   async unlock(lockName: string): Promise<void> {
     try {
       this.#db.prepare('DELETE FROM pipeline_locks WHERE lock_name = ?').run(lockName);

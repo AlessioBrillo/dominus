@@ -7,6 +7,7 @@ import { ScoringStage } from '../stages/scoring-stage.js';
 import { TrademarkGateStage } from '../stages/trademark-gate-stage.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
+import { MockDatabaseProvider } from '../../db/provider/mock-adapter.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
@@ -313,5 +314,27 @@ describe('PipelineOrchestrator', () => {
       expect.any(Number),
       false,
     );
+  });
+
+  it('acquires and releases advisory lock when db is provided', async () => {
+    const db = new MockDatabaseProvider();
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      3_600_000,
+      undefined,
+      db,
+    );
+
+    const result = await orchestrator.run({ brandableNames: ['nova.com'] });
+
+    expect(result.recommended).toHaveLength(1);
+    const lockCalls = db.calls.filter((c) => ['tryLock', 'renewLock', 'unlock'].includes(c.method));
+    expect(lockCalls.length).toBeGreaterThanOrEqual(2);
+    expect(lockCalls[0]!.method).toBe('tryLock');
+    expect(lockCalls[lockCalls.length - 1]!.method).toBe('unlock');
   });
 });

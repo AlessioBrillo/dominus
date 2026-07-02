@@ -54,9 +54,20 @@ export class PipelineTimeoutError extends Error {
 
 const PIPELINE_LOCK_NAME = 'pipeline_run';
 
+/**
+ * TTL for the pipeline advisory lock, in milliseconds.
+ * Kept intentionally short (2 min) — a heartbeat loop renews it every 60s
+ * so the lock only lives ~2 min after the process crashes.
+ */
+const PIPELINE_LOCK_TTL_MS = 120_000;
+
+/** Heartbeat interval for lock renewal (every 60s, well within the 120s TTL). */
+const PIPELINE_LOCK_HEARTBEAT_MS = 60_000;
+
 export class PipelineOrchestrator {
   #abortController: AbortController | null = null;
   #running: boolean = false;
+  #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -109,8 +120,10 @@ export class PipelineOrchestrator {
 
     // Acquire an advisory lock via the database (shared across instances).
     // Falls back to the in-memory lock when no DatabaseProvider is available.
+    // Uses a short TTL (2 min) with a heartbeat loop so stale locks from
+    // crashed containers auto-expire within minutes instead of hours.
     if (this.db) {
-      const acquired = await this.db.tryLock(PIPELINE_LOCK_NAME, this.timeoutMs);
+      const acquired = await this.db.tryLock(PIPELINE_LOCK_NAME, PIPELINE_LOCK_TTL_MS);
       if (!acquired) {
         throw new Error(
           'Pipeline run already in progress on another instance — ' +
@@ -119,6 +132,7 @@ export class PipelineOrchestrator {
         );
       }
       logger.info('Pipeline advisory lock acquired');
+      this.#startHeartbeat();
     }
 
     this.#running = true;
@@ -126,11 +140,33 @@ export class PipelineOrchestrator {
     try {
       return await this.#runInternal(input, externalRunId);
     } finally {
+      this.#stopHeartbeat();
       if (this.db) {
         await this.db.unlock(PIPELINE_LOCK_NAME).catch(() => {});
         logger.info('Pipeline advisory lock released');
       }
       this.#running = false;
+    }
+  }
+
+  /** Start periodic lock renewal so the pipeline can outlive the short TTL. */
+  #startHeartbeat(): void {
+    if (this.#heartbeatTimer) return;
+    this.#heartbeatTimer = setInterval(async () => {
+      if (!this.db) return;
+      const renewed = await this.db
+        .renewLock(PIPELINE_LOCK_NAME, PIPELINE_LOCK_TTL_MS)
+        .catch(() => false);
+      if (!renewed) {
+        logger.warn('Pipeline lock heartbeat failed — lock may have been lost');
+      }
+    }, PIPELINE_LOCK_HEARTBEAT_MS).unref();
+  }
+
+  #stopHeartbeat(): void {
+    if (this.#heartbeatTimer) {
+      clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = null;
     }
   }
 

@@ -44,6 +44,12 @@ export interface DatabaseProvider {
    */
   tryLock(lockName: string, ttlMs: number): Promise<boolean>;
 
+  /** Renew (extend) an already-held advisory lock's TTL.
+   *  Used as a heartbeat to prevent lock expiry during long operations.
+   *  Returns false if the lock does not exist (lost or stolen).
+   */
+  renewLock(lockName: string, ttlMs: number): Promise<boolean>;
+
   /** Release a previously acquired advisory lock. */
   unlock(lockName: string): Promise<void>;
 }

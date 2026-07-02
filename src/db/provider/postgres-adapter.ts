@@ -195,6 +195,19 @@ export class PostgresAdapter implements DatabaseProvider {
     }
   }
 
+  async renewLock(lockName: string, ttlMs: number): Promise<boolean> {
+    try {
+      const result = await this.exec(
+        `UPDATE pipeline_locks SET expires_at = NOW() + $2 * INTERVAL '1 millisecond'
+         WHERE lock_name = $1 AND expires_at >= NOW()`,
+        [lockName, ttlMs],
+      );
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
   async unlock(lockName: string): Promise<void> {
     try {
       await this.exec('DELETE FROM pipeline_locks WHERE lock_name = $1', [lockName]);
@@ -307,6 +320,19 @@ class PostgresTransactionAdapter implements DatabaseProvider {
         text: `INSERT INTO pipeline_locks (lock_name, locked_at, expires_at)
                VALUES ($1, NOW(), NOW() + $2::integer * INTERVAL '1 millisecond')
                ON CONFLICT (lock_name) DO NOTHING`,
+        values: [lockName, ttlMs],
+      });
+      return (result.rowCount ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async renewLock(lockName: string, ttlMs: number): Promise<boolean> {
+    try {
+      const result = await this.#client.query({
+        text: `UPDATE pipeline_locks SET expires_at = NOW() + $2::integer * INTERVAL '1 millisecond'
+               WHERE lock_name = $1 AND expires_at >= NOW()`,
         values: [lockName, ttlMs],
       });
       return (result.rowCount ?? 0) > 0;

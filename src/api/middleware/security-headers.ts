@@ -8,17 +8,18 @@ import type { Request, Response, NextFunction } from 'express';
  *   from same origin. No inline scripts in the SPA. Server-rendered
  *   public pages use JSON-LD in script tags with type="application/ld+json"
  *   which is not executable JS and does not require 'unsafe-inline'.
- * - style-src 'self' — no 'unsafe-inline'; public pages link to external
- *   CSS served from /public/static/assets/ (mounted via express.static).
- *   The SPA (Vite + Tailwind) bundles all CSS and works with 'self' alone.
- *
- * See: docs/adr/0031-production-hardening.md
+ * - style-src 'self' 'unsafe-inline' — Recharts renders SVG elements with
+ *   inline style props at runtime (position, size, color). Tailwind v4
+ *   bundles utility classes into files but React components (shadcn/ui,
+ *   Radix) may use dynamic style objects. 'unsafe-inline' is required
+ *   until we can adopt strict-dynamic or nonce-based CSP.
+ *   See: docs/adr/0031-production-hardening.md
  */
 const CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: https:",
   "font-src 'self'",
   "connect-src 'self'",
   "frame-ancestors 'none'",
