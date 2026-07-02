@@ -488,8 +488,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // DNS, trademark, keyword, or comps data from being reused across runs.
   orchestrator.setOnRunStart(() => {
     dnsProvider.clearCache();
-    (cachedKeywordProvider as unknown as { clearCache: () => void }).clearCache();
-    (cachedCompsProvider as unknown as { clearCache: () => void }).clearCache();
+    cachedKeywordProvider.clearCache?.();
+    cachedCompsProvider.clearCache?.();
     usptoTmProvider.clearCache();
     euipoTmProvider.clearCache();
     anonScoringService.clearCache();

@@ -30,7 +30,7 @@ import type { WaybackProvider, WaybackResult } from '../providers/wayback/waybac
 export function buildKeywordProvider(
   config: Config,
   providerCacheRepo: ProviderCacheRepository,
-): { raw: KeywordProvider; cached: KeywordProvider } {
+): { raw: KeywordProvider; cached: KeywordProvider & { clearCache(): void } } {
   const raw = createKeywordProvider(
     config.KEYWORD_PROVIDER,
     {
@@ -57,13 +57,13 @@ export function buildKeywordProvider(
     clearCache: () => cache.clearCache(),
   };
 
-  return { raw, cached: cached as KeywordProvider };
+  return { raw, cached };
 }
 
 export function buildCompsProvider(
   config: Config,
   providerCacheRepo: ProviderCacheRepository,
-): { raw: CompsProvider; cached: CompsProvider } {
+): { raw: CompsProvider; cached: CompsProvider & { clearCache(): void } } {
   const raw = createCompsProvider(config.COMPS_PROVIDER, {
     csvFilePath: config.COMPS_DATA_PATH,
     namebioApiKey: config.NAMEBIO_API_KEY,
@@ -82,7 +82,7 @@ export function buildCompsProvider(
     clearCache: () => cache.clearCache(),
   };
 
-  return { raw, cached: cached as CompsProvider };
+  return { raw, cached };
 }
 
 export interface BuiltRdapProviders {
