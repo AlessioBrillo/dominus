@@ -67,6 +67,11 @@ export class MockDatabaseProvider implements DatabaseProvider {
     return true;
   }
 
+  async renewLock(_lockName: string, _ttlMs: number): Promise<boolean> {
+    this.#recordCall('renewLock', _lockName, [_ttlMs]);
+    return true;
+  }
+
   async unlock(_lockName: string): Promise<void> {
     this.#recordCall('unlock', _lockName, undefined);
   }

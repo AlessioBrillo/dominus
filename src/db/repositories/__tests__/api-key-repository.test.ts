@@ -13,6 +13,7 @@ function mockDb(): DatabaseProvider {
     backup: vi.fn(),
     runMigrations: vi.fn(),
     tryLock: vi.fn(),
+    renewLock: vi.fn(),
     unlock: vi.fn(),
   };
 }
