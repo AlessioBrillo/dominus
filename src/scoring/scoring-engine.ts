@@ -136,7 +136,7 @@ export class ScoringEngine {
       intrinsicQualityInfluence,
     } = this.scoringConfig.constants;
 
-    const minCovered = this.#weights.intrinsic;
+    const minCovered = DEFAULT_WEIGHTS.intrinsic;
     const variableRange = 1 - minCovered;
     const extraCovered = Math.max(0, coveredWeight - minCovered);
 

@@ -52,6 +52,6 @@ describe('PipelineRunHandler', () => {
       runId: 'run-err',
     });
 
-    expect(result.stageErrors).toEqual(['Error: boom']);
+    expect(result.stageErrors).toEqual([JSON.stringify({ message: 'boom' })]);
   });
 });

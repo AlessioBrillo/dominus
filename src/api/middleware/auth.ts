@@ -43,13 +43,24 @@ async function resetAuthRateLimit(db: DatabaseProvider, ip: string): Promise<voi
 
 export function createAuthMiddleware(provider: AuthProvider, db: DatabaseProvider) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const clientIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+
     if (!provider.isActive) {
+      // Apply IP-based rate limiting even when auth is disabled
+      const allowed = await checkAuthRateLimit(db, clientIp).catch(() => true);
+      if (!allowed) {
+        res.status(429).json({
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many requests. Try again later.',
+          },
+        });
+        return;
+      }
       req.tenantId = 'default';
       runWithTenant('default', () => next());
       return;
     }
-
-    const clientIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
 
     const header = req.headers['authorization'];
     if (!header || typeof header !== 'string') {

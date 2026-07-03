@@ -703,4 +703,49 @@ export const PG_MIGRATIONS: Array<{ name: string; up: (db: DatabaseProvider) => 
       );
     },
   },
+  {
+    name: '0034_fix_listings_schema_divergence',
+    up: async (db): Promise<void> => {
+      const listingsExist = await db.queryOne<{ exists: number }>(
+        `SELECT 1 as exists FROM information_schema.tables WHERE table_name = 'listings'`,
+      );
+      if (!listingsExist?.exists) return;
+
+      const cols = await db.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'listings'`,
+      );
+      const colNames = new Set(cols.map((c: { column_name: string }) => c.column_name));
+
+      if (!colNames.has('price_eur')) {
+        await db.exec(`ALTER TABLE listings ADD COLUMN price_eur REAL`);
+        await db.exec(`UPDATE listings SET price_eur = list_price_eur WHERE price_eur IS NULL`);
+      }
+      if (!colNames.has('expires_at')) {
+        await db.exec(`ALTER TABLE listings ADD COLUMN expires_at TIMESTAMP`);
+      }
+    },
+  },
+  {
+    name: '0035_fix_wayback_cache_divergence',
+    up: async (db): Promise<void> => {
+      const wbExist = await db.queryOne<{ exists: number }>(
+        `SELECT 1 as exists FROM information_schema.tables WHERE table_name = 'wayback_cache'`,
+      );
+      if (!wbExist?.exists) return;
+
+      const cols = await db.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns WHERE table_name = 'wayback_cache'`,
+      );
+      const colNames = new Set(cols.map((c: { column_name: string }) => c.column_name));
+
+      if (!colNames.has('domain_age')) {
+        await db.exec(`ALTER TABLE wayback_cache ADD COLUMN domain_age REAL NOT NULL DEFAULT 0`);
+      }
+      if (!colNames.has('wayback_snapshots')) {
+        await db.exec(
+          `ALTER TABLE wayback_cache ADD COLUMN wayback_snapshots INTEGER NOT NULL DEFAULT 0`,
+        );
+      }
+    },
+  },
 ];

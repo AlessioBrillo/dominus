@@ -297,9 +297,17 @@ describe('PipelineOrchestrator', () => {
 
     await orchestrator.run({ brandableNames: ['nova.com'] });
 
-    expect(progress).toHaveBeenCalledTimes(4);
+    expect(progress).toHaveBeenCalledTimes(5);
     expect(progress).toHaveBeenNthCalledWith(
       1,
+      'CandidateGenerationStage',
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      false,
+    );
+    expect(progress).toHaveBeenNthCalledWith(
+      2,
       'DnsPreFilterStage',
       expect.any(Number),
       expect.any(Number),
@@ -307,7 +315,7 @@ describe('PipelineOrchestrator', () => {
       false,
     );
     expect(progress).toHaveBeenNthCalledWith(
-      4,
+      5,
       'TrademarkGateStage',
       expect.any(Number),
       expect.any(Number),

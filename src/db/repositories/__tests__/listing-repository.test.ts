@@ -13,6 +13,7 @@ function createTestDb(): SqliteProvider {
       marketplace TEXT NOT NULL,
       listing_url TEXT,
       price_eur REAL NOT NULL,
+      list_price_eur REAL,
       status TEXT NOT NULL DEFAULT 'draft',
       tenant_id TEXT NOT NULL DEFAULT 'default',
       scoring_snapshot_json TEXT,

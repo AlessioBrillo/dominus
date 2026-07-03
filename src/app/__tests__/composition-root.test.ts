@@ -497,6 +497,8 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       DNS_PARKING_IPS_PATH: undefined,
       PUBLIC_SCORES_RETENTION_DAYS: 90,
       EVENTS_RETENTION_DAYS: 180,
+      DNS_SEMAPHORE_CONCURRENCY: 100,
+      DNS_RESOLVER_URLS: undefined,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

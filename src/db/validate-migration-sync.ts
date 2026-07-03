@@ -42,6 +42,8 @@ const EXPECTED_MIGRATIONS = [
   '0031_create_auth_rate_limits',
   '0032_create_pipeline_locks',
   '0033_create_api_keys',
+  '0034_fix_listings_schema_divergence',
+  '0035_fix_wayback_cache_divergence',
 ];
 
 export function validateMigrationSync(): string[] {

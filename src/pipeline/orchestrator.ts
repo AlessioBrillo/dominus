@@ -206,17 +206,22 @@ export class PipelineOrchestrator {
       );
     } catch (err) {
       logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
+      const errDuration = Date.now() - start;
       return {
         runId: 'unknown',
         recommended: [],
         scored: [],
         allCandidates: [],
         stageSummary: {
-          CandidateGeneration: { passed: 0, filtered: 0, durationMs: Date.now() - start },
+          CandidateGeneration: { passed: 0, filtered: 0, durationMs: errDuration },
         },
-        totalDurationMs: Date.now() - start,
+        totalDurationMs: errDuration,
         stageErrors: [
-          { stageName: 'CandidateGeneration', message: String(err), candidateCount: 0 },
+          {
+            stageName: 'CandidateGeneration',
+            message: String(err),
+            candidateCount: input ? 1 : 0,
+          },
         ],
       };
     }
@@ -226,6 +231,13 @@ export class PipelineOrchestrator {
       durationMs: gen.durationMs,
     };
     this.metrics?.recordStage(
+      gen.stageName,
+      gen.passed.length,
+      gen.filtered.length,
+      gen.durationMs,
+      false,
+    );
+    this.#onStageProgress?.(
       gen.stageName,
       gen.passed.length,
       gen.filtered.length,

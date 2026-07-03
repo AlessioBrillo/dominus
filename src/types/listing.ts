@@ -119,7 +119,8 @@ export interface ListingRow {
   domain: string;
   marketplace: string;
   listing_url: string | null;
-  price_eur: number;
+  list_price_eur?: number;
+  price_eur?: number;
   status: string;
   scoring_snapshot_json: string | null;
   listed_at: string | null;
@@ -146,7 +147,7 @@ export function listingFromRow(row: ListingRow): Listing {
     domain: row.domain,
     marketplace: row.marketplace as MarketplaceName,
     listingUrl: row.listing_url,
-    priceEur: row.price_eur,
+    priceEur: row.list_price_eur ?? row.price_eur ?? 0,
     status: row.status as ListingStatus,
     scoringSnapshotJson: row.scoring_snapshot_json,
     listedAt: row.listed_at,
