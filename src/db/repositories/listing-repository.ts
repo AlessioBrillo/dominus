@@ -65,7 +65,7 @@ export class ListingRepository {
 
     if (sets.length === 0) return;
 
-    sets.push("updated_at = datetime('now')");
+    sets.push('updated_at = CURRENT_TIMESTAMP');
     params.push(id);
     params.push(resolveTenantId());
     await this.#db.exec(
@@ -168,7 +168,7 @@ export class ListingRepository {
 
   async updateOfferStatus(id: number, status: string, notes?: string): Promise<void> {
     await this.#db.exec(
-      "UPDATE listing_offers SET status = ?, responded_at = datetime('now'), notes = COALESCE(?, notes) WHERE id = ?",
+      'UPDATE listing_offers SET status = ?, responded_at = CURRENT_TIMESTAMP, notes = COALESCE(?, notes) WHERE id = ?',
       [status, notes ?? null, id],
     );
   }

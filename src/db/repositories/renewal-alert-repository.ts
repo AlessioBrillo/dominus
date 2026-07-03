@@ -100,14 +100,14 @@ export class RenewalAlertRepository {
 
   async acknowledge(id: number): Promise<void> {
     await this.db.exec(
-      "UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE id = ? AND tenant_id = ?",
+      'UPDATE renewal_alerts SET acknowledged_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?',
       [id, resolveTenantId()],
     );
   }
 
   async acknowledgeAll(domain?: string): Promise<number> {
     let sql =
-      "UPDATE renewal_alerts SET acknowledged_at = datetime('now') WHERE acknowledged_at IS NULL AND tenant_id = ?";
+      'UPDATE renewal_alerts SET acknowledged_at = CURRENT_TIMESTAMP WHERE acknowledged_at IS NULL AND tenant_id = ?';
     const params: unknown[] = [resolveTenantId()];
     if (domain !== undefined) {
       sql += ' AND domain = ?';

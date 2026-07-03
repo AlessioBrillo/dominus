@@ -92,7 +92,7 @@ export class ApiKeyRepository {
 
   async updateLastUsed(id: number): Promise<void> {
     await this.db.exec(
-      `UPDATE api_keys SET last_used_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
+      `UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [id],
     );
   }

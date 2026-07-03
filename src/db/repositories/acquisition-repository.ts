@@ -127,8 +127,8 @@ export class AcquisitionRepository {
     await this.db.exec(
       `UPDATE bids
        SET status = ?, won_price_eur = COALESCE(?, won_price_eur),
-           resolved_at = datetime('now'), notes = COALESCE(?, notes),
-           updated_at = datetime('now')
+           resolved_at = CURRENT_TIMESTAMP, notes = COALESCE(?, notes),
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND tenant_id = ?`,
       [status, wonPriceEur ?? null, notes ?? null, existing.id, resolveTenantId()],
     );

@@ -11,25 +11,26 @@ const AUTH_WINDOW_MS = 60_000;
 
 async function checkAuthRateLimit(db: DatabaseProvider, ip: string): Promise<boolean> {
   const now = Date.now();
+  const resetAt = new Date(now + AUTH_WINDOW_MS).toISOString();
 
-  const row = await db.queryOne<{ failures: number; reset_at: number }>(
+  const row = await db.queryOne<{ failures: number; reset_at: string }>(
     'SELECT failures, reset_at FROM auth_rate_limits WHERE ip = ?',
     [ip],
   );
 
-  if (!row || now >= row.reset_at) {
+  if (!row || now >= new Date(row.reset_at).getTime()) {
     await db.exec(
       `INSERT INTO auth_rate_limits (ip, failures, reset_at)
        VALUES (?, 1, ?)
-       ON CONFLICT(ip) DO UPDATE SET failures = 1, reset_at = ?, updated_at = datetime('now')`,
-      [ip, now + AUTH_WINDOW_MS, now + AUTH_WINDOW_MS],
+       ON CONFLICT(ip) DO UPDATE SET failures = 1, reset_at = ?, updated_at = CURRENT_TIMESTAMP`,
+      [ip, resetAt, resetAt],
     );
     return true;
   }
 
   const newFailures = row.failures + 1;
   await db.exec(
-    `UPDATE auth_rate_limits SET failures = ?, updated_at = datetime('now') WHERE ip = ?`,
+    `UPDATE auth_rate_limits SET failures = ?, updated_at = CURRENT_TIMESTAMP WHERE ip = ?`,
     [newFailures, ip],
   );
 

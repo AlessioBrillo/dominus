@@ -79,7 +79,7 @@ export class CandidateRepository {
 
   async updateStatus(id: number, status: CandidateStatus): Promise<void> {
     await this.db.exec(
-      `UPDATE candidates SET status = ?, updated_at = datetime('now') WHERE id = ? AND tenant_id = ?`,
+      `UPDATE candidates SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ?`,
       [status, id, resolveTenantId()],
     );
   }
@@ -139,7 +139,7 @@ export class CandidateRepository {
          rdap_status     = excluded.rdap_status,
          is_premium      = excluded.is_premium,
          pipeline_run_id = excluded.pipeline_run_id,
-         updated_at      = datetime('now')
+         updated_at      = CURRENT_TIMESTAMP
        RETURNING id`,
       [
         candidate.domain,

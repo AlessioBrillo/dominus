@@ -57,14 +57,18 @@ export class WatchlistRepository {
   }
 
   async listPendingPoll(hoursSinceLastCheck: number): Promise<WatchlistEntry[]> {
+    const cutoff = new Date(Date.now() - hoursSinceLastCheck * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d{3}Z$/, '');
     const rows = await this.db.query<unknown>(
       `SELECT ${ROW_MAPPER} FROM watchlist_entries
        WHERE tenant_id = ?
          AND (notified = 0
            OR last_checked_at IS NULL
-           OR datetime(last_checked_at) < datetime('now', ?))
+           OR last_checked_at < ?)
        ORDER BY last_checked_at ASC NULLS FIRST`,
-      [resolveTenantId(), `-${hoursSinceLastCheck} hours`],
+      [resolveTenantId(), cutoff],
     );
     return rows.map(parseRow);
   }
@@ -77,7 +81,7 @@ export class WatchlistRepository {
            last_status       = ?,
            last_status_change = ?,
            notified           = ?,
-           updated_at         = datetime('now')
+            updated_at         = CURRENT_TIMESTAMP
        WHERE domain = ? AND tenant_id = ?
        RETURNING ${ROW_MAPPER}`,
       [
@@ -95,8 +99,8 @@ export class WatchlistRepository {
   async markNotified(domain: string): Promise<WatchlistEntry> {
     const row = await this.db.queryOne<unknown>(
       `UPDATE watchlist_entries
-       SET notified   = 1,
-           updated_at = datetime('now')
+        SET notified   = 1,
+            updated_at = CURRENT_TIMESTAMP
        WHERE domain = ? AND tenant_id = ?
        RETURNING ${ROW_MAPPER}`,
       [domain, resolveTenantId()],

@@ -98,8 +98,8 @@ export class PortfolioRepository {
     if (existing === null) throw new DomainNotFoundError(domain);
     await this.db.exec(
       `UPDATE portfolio_entries
-       SET verdict = ?, verdict_reason = ?, verdict_updated_at = datetime('now'),
-           updated_at = datetime('now')
+       SET verdict = ?, verdict_reason = ?, verdict_updated_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
        WHERE domain = ? AND tenant_id = ?`,
       [verdict, reason ?? null, domain, resolveTenantId()],
     );
@@ -110,7 +110,7 @@ export class PortfolioRepository {
     if (existing === null) throw new DomainNotFoundError(domain);
     await this.db.exec(
       `UPDATE portfolio_entries
-       SET current_score = ?, suggested_list_price = ?, updated_at = datetime('now')
+       SET current_score = ?, suggested_list_price = ?, updated_at = CURRENT_TIMESTAMP
        WHERE domain = ? AND tenant_id = ?`,
       [score, listPrice, domain, resolveTenantId()],
     );
@@ -131,7 +131,7 @@ export class PortfolioRepository {
       params.push(renewalCost);
     }
     if (sets.length === 0) return;
-    sets.push("updated_at = datetime('now')");
+    sets.push('updated_at = CURRENT_TIMESTAMP');
     params.push(domain);
     params.push(tid);
     await this.db.exec(
@@ -144,7 +144,7 @@ export class PortfolioRepository {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
     await this.db.exec(
-      `UPDATE portfolio_entries SET notes = ?, updated_at = datetime('now') WHERE domain = ? AND tenant_id = ?`,
+      `UPDATE portfolio_entries SET notes = ?, updated_at = CURRENT_TIMESTAMP WHERE domain = ? AND tenant_id = ?`,
       [notes, domain, resolveTenantId()],
     );
   }

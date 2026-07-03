@@ -129,7 +129,7 @@ export class BacktestSignalsRepository {
          confidence_bucket         = excluded.confidence_bucket,
          acquisition_cost_eur      = excluded.acquisition_cost_eur,
          total_renewal_cost_paid_eur = excluded.total_renewal_cost_paid_eur,
-         recorded_at               = datetime('now')
+         recorded_at               = CURRENT_TIMESTAMP
        RETURNING id`,
       [
         input.domain,
