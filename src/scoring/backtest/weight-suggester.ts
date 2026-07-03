@@ -1,5 +1,6 @@
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { ScoringWeights } from '../weights.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 import { DEFAULT_WEIGHTS } from '../weights.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import type {
@@ -159,8 +160,8 @@ export class WeightSuggester {
     for (const s of signals) {
       if (s.id === undefined) continue;
       const candidate = await this.db.queryOne<{ id: number }>(
-        'SELECT id FROM candidates WHERE domain = ?',
-        [s.domain],
+        'SELECT id FROM candidates WHERE domain = ? AND tenant_id = ?',
+        [s.domain, resolveTenantId()],
       );
       if (candidate === undefined || candidate === null) continue;
       const row = await this.scoringRepo.findByRunId(s.scoringRunId, candidate.id);
