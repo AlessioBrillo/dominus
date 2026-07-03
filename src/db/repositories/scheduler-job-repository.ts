@@ -49,7 +49,7 @@ export class SchedulerJobRepository {
        ON CONFLICT(job_name) DO UPDATE SET
          cron_expression = excluded.cron_expression,
          description = excluded.description,
-         updated_at = datetime('now')`,
+          updated_at = CURRENT_TIMESTAMP`,
       [input.jobName, input.cronExpression, input.description],
     );
     return (await this.findByJobName(input.jobName))!;
@@ -65,8 +65,8 @@ export class SchedulerJobRepository {
          last_result = ?,
          last_duration_ms = ?,
          consecutive_failures = CASE WHEN ? THEN consecutive_failures + 1 ELSE 0 END,
-         updated_at = datetime('now')
-       WHERE job_name = ?`,
+         updated_at = CURRENT_TIMESTAMP
+        WHERE job_name = ?`,
       [result.lastRunAt, result.lastResult, result.durationMs, result.isError ? 1 : 0, jobName],
     );
   }
@@ -86,10 +86,11 @@ export class SchedulerJobRepository {
   }
 
   async prune(maxAgeDays: number = 90): Promise<number> {
-    const result = await this.db.exec(
-      "DELETE FROM scheduler_jobs WHERE updated_at < datetime('now', ?)",
-      [`-${maxAgeDays} days`],
-    );
+    const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d{3}Z$/, '');
+    const result = await this.db.exec('DELETE FROM scheduler_jobs WHERE updated_at < ?', [cutoff]);
     return result.changes;
   }
 }

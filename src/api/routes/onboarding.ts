@@ -282,17 +282,17 @@ export function createOnboardingRouter(
       const { currentStep, stepData } = parsed.data;
       await db.exec(
         `INSERT INTO onboarding_state (tenant_id, current_step, step_data, updated_at)
-         VALUES (?, ?, ?, datetime('now'))
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
          ON CONFLICT(tenant_id) DO UPDATE SET
            current_step = excluded.current_step,
            step_data = excluded.step_data,
-           updated_at = datetime('now')`,
+           updated_at = CURRENT_TIMESTAMP`,
         [tid, currentStep, stepData ? JSON.stringify(stepData) : null],
       );
 
       if (currentStep === 'complete') {
         await db.exec(
-          "UPDATE onboarding_state SET completed_at = datetime('now'), updated_at = datetime('now') WHERE tenant_id = ?",
+          'UPDATE onboarding_state SET completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?',
           [tid],
         );
         await db.exec('INSERT INTO events (tenant_id, type, props) VALUES (?, ?, ?)', [

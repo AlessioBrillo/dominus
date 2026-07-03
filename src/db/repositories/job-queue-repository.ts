@@ -9,6 +9,13 @@ export class JobQueueRepository {
     this.#db = db;
   }
 
+  #ts(date: Date = new Date()): string {
+    return date
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d{3}Z$/, '');
+  }
+
   #rowToJob(row: any): JobQueueRow {
     return {
       id: row.id,
@@ -54,7 +61,7 @@ export class JobQueueRepository {
         JSON.stringify(payload),
         options.priority ?? 0,
         options.maxAttempts ?? 3,
-        options.scheduledAt ?? new Date().toISOString(),
+        options.scheduledAt ?? this.#ts(),
       ],
     );
     return result.lastInsertRowid as number;
@@ -65,12 +72,12 @@ export class JobQueueRepository {
       `UPDATE job_queue
        SET status = 'running',
            attempts = attempts + 1,
-           started_at = datetime('now'),
-           updated_at = datetime('now')
+           started_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = (
          SELECT id FROM job_queue
          WHERE status = 'queued'
-           AND datetime(scheduled_at) <= datetime('now')
+           AND scheduled_at <= CURRENT_TIMESTAMP
          ORDER BY priority DESC, scheduled_at ASC
          LIMIT 1
        )
@@ -83,9 +90,9 @@ export class JobQueueRepository {
     await this.#db.exec(
       `UPDATE job_queue
        SET status = 'completed',
-           finished_at = datetime('now'),
+           finished_at = CURRENT_TIMESTAMP,
            result_json = ?,
-           updated_at = datetime('now')
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [JSON.stringify(result), jobId],
     );
@@ -107,7 +114,7 @@ export class JobQueueRepository {
       `UPDATE job_queue
        SET status = 'queued',
            error = ?,
-           updated_at = datetime('now')
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [error, jobId],
     );
@@ -129,15 +136,16 @@ export class JobQueueRepository {
   }
 
   async requeueStuck(maxRunningAgeMs: number = 300000): Promise<number> {
+    const cutoff = this.#ts(new Date(Date.now() - maxRunningAgeMs));
     const result = await this.#db.exec(
       `UPDATE job_queue
        SET status = 'queued',
            started_at = NULL,
-           updated_at = datetime('now')
+           updated_at = CURRENT_TIMESTAMP
        WHERE status = 'running'
          AND started_at IS NOT NULL
-         AND (strftime('%s', 'now') - strftime('%s', started_at)) * 1000 > ?`,
-      [maxRunningAgeMs],
+         AND started_at <= ?`,
+      [cutoff],
     );
     return result.changes;
   }
@@ -244,20 +252,22 @@ export class JobQueueRepository {
   }
 
   async deleteCompleted(olderThanDays: number = 7): Promise<number> {
+    const cutoff = this.#ts(new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000));
     const result = await this.#db.exec(
       `DELETE FROM job_queue
        WHERE status = 'completed'
-         AND finished_at < datetime('now', ?)`,
-      [`-${olderThanDays} days`],
+         AND finished_at < ?`,
+      [cutoff],
     );
     return result.changes;
   }
 
   async deleteDeadLetter(olderThanDays: number = 30): Promise<number> {
+    const cutoff = this.#ts(new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000));
     const result = await this.#db.exec(
       `DELETE FROM dead_letter_jobs
-       WHERE failed_at < datetime('now', ?)`,
-      [`-${olderThanDays} days`],
+       WHERE failed_at < ?`,
+      [cutoff],
     );
     return result.changes;
   }
