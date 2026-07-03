@@ -499,6 +499,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       EVENTS_RETENTION_DAYS: 180,
       DNS_SEMAPHORE_CONCURRENCY: 100,
       DNS_RESOLVER_URLS: undefined,
+      DNS_HEALTH_CHECK_DOMAIN: 'google.com',
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

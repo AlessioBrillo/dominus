@@ -27,8 +27,6 @@ const DEFAULT_DOH_RESOLVERS: DohResolver[] = [
 const PHASE1_RECORDS: DnsRecordType[] = ['A', 'AAAA'];
 const PHASE2_RECORDS: DnsRecordType[] = ['CNAME', 'MX', 'NS', 'SOA'];
 
-const HEALTH_CHECK_DOMAIN = 'google.com';
-
 function resolveWithTimeout(
   domain: string,
   recordType: DnsRecordType,
@@ -186,18 +184,20 @@ async function resolvesAnyNative(
   return resolvePhase(PHASE2_RECORDS, domain, timeout, signal);
 }
 
-const DOH_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
+const DOH_PHASE1_TYPES = ['A', 'AAAA'];
+const DOH_PHASE2_TYPES = ['NS', 'SOA'];
 
-async function resolvesAnyDoh(
+async function resolveDohPhase(
   domain: string,
   endpoint: string,
+  recordTypes: string[],
   timeout: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
   const childAbort = new AbortController();
   const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
 
-  const tasks = DOH_TYPES.map((type) => {
+  const tasks = recordTypes.map((type) => {
     const timeoutSignal = AbortSignal.timeout(timeout);
     const merged = AbortSignal.any([combinedSignal, timeoutSignal]);
     return resolveDoh(domain, type, endpoint, merged)
@@ -221,16 +221,74 @@ async function resolvesAnyDoh(
     if (o.resolved) return true;
   }
 
-  const anyUnknown = outcomes.some(
-    (o) =>
-      !o.resolved &&
-      !o.aborted &&
-      o.code !== undefined &&
-      o.code !== 'ENOTFOUND' &&
-      o.code !== 'ENODATA',
-  );
-  if (anyUnknown) return undefined;
+  let anyTimeout = false;
+  let anyError = false;
+  for (const o of outcomes) {
+    if (o.aborted) continue;
+    if (!('code' in o)) continue;
+    const outcome = o as { resolved: false; aborted: boolean; code: string | undefined };
+    const c = outcome.code;
+    if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
+      anyTimeout = true;
+    } else if (c !== 'ENOTFOUND' && c !== 'ENODATA' && c !== undefined) {
+      anyError = true;
+    }
+  }
+
+  if (anyTimeout) return undefined;
+  if (anyError) return undefined;
   return false;
+}
+
+/**
+ * Two-phase DoH resolution matching the native resolver pattern:
+ * Phase 1 (A/AAAA) covers ~95% of domains — registered or available.
+ * Phase 2 (NS/SOA) only fires when Phase 1 returns ambiguous (timeout/error).
+ * This avoids 2 redundant HTTP requests per domain for the common case.
+ */
+async function resolvesAnyDoh(
+  domain: string,
+  endpoint: string,
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<boolean | undefined> {
+  const phase1 = await resolveDohPhase(domain, endpoint, DOH_PHASE1_TYPES, timeout, signal);
+  if (phase1 !== undefined) return phase1;
+  return resolveDohPhase(domain, endpoint, DOH_PHASE2_TYPES, timeout, signal);
+}
+
+/** Run all healthy DoH resolvers in parallel; first clear result wins. */
+async function raceDohResolvers(
+  domain: string,
+  resolvers: DohResolver[],
+  timeout: number,
+  signal?: AbortSignal,
+): Promise<boolean | undefined> {
+  if (resolvers.length === 0) return undefined;
+
+  const winnerAc = new AbortController();
+  const combined = signal ? AbortSignal.any([signal, winnerAc.signal]) : winnerAc.signal;
+
+  const promises = resolvers.map(async (resolver) => {
+    try {
+      const result = await resolvesAnyDoh(domain, resolver.url, timeout, combined);
+      if (result !== undefined) {
+        winnerAc.abort();
+        return { result, resolver };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  const settled = await Promise.allSettled(promises);
+  for (const s of settled) {
+    if (s.status === 'fulfilled' && s.value !== null) {
+      return s.value.result;
+    }
+  }
+  return undefined;
 }
 
 /** Semaphore to cap concurrent DNS operations and prevent event-loop starvation. */
@@ -302,6 +360,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #parkingEnabled: boolean;
   readonly #parkingRegistry: ParkingIpRegistry;
   readonly #healthCheckEnabled: boolean;
+  readonly #healthCheckDomain: string;
   readonly #semaphore: DnsSemaphore;
   #resolverHealth: Map<string, { healthy: boolean; lastCheck: number }> = new Map();
   #healthCheckCache: { healthy: boolean; expiresAt: number } | null = null;
@@ -318,6 +377,7 @@ export class NodeDnsProvider implements DnsProvider {
     parkingEnabled?: boolean;
     parkingRegistry?: ParkingIpRegistry;
     healthCheckEnabled?: boolean;
+    healthCheckDomain?: string;
     semaphoreConcurrency?: number;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
@@ -339,6 +399,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#parkingEnabled = options?.parkingEnabled ?? false;
     this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
     this.#healthCheckEnabled = options?.healthCheckEnabled ?? true;
+    this.#healthCheckDomain = options?.healthCheckDomain ?? 'google.com';
     this.#semaphore = new DnsSemaphore(options?.semaphoreConcurrency ?? 100);
   }
 
@@ -363,29 +424,31 @@ export class NodeDnsProvider implements DnsProvider {
     timeout: number,
     signal?: AbortSignal,
   ): Promise<boolean | undefined> {
-    let lastError: unknown;
+    const healthy = this.#dohResolvers.filter((r) => {
+      const health = this.#resolverHealth.get(r.url);
+      if (health && !health.healthy && Date.now() - health.lastCheck < 30_000) return false;
+      return true;
+    });
 
-    for (const resolver of this.#dohResolvers) {
-      // Skip resolver we know is unhealthy (checked within last 30s)
-      const health = this.#resolverHealth.get(resolver.url);
-      if (health && !health.healthy && Date.now() - health.lastCheck < 30_000) continue;
+    if (healthy.length === 0) return undefined;
 
-      try {
-        const result = await resolvesAnyDoh(domain, resolver.url, timeout, signal);
-        if (result !== undefined) {
-          this.#resolverHealth.set(resolver.url, { healthy: true, lastCheck: Date.now() });
-          return result;
+    try {
+      const result = await raceDohResolvers(domain, healthy, timeout, signal);
+      if (result !== undefined) {
+        // We don't know which resolver won, so optimistically mark all as healthy
+        for (const r of healthy) {
+          this.#resolverHealth.set(r.url, { healthy: true, lastCheck: Date.now() });
         }
-      } catch (err) {
-        lastError = err;
-        this.#resolverHealth.set(resolver.url, { healthy: false, lastCheck: Date.now() });
-        logger.warn({ domain, resolver: resolver.name, err }, 'DNS: DoH resolver failed');
-        // Try next resolver
-        continue;
+        return result;
+      }
+    } catch {
+      // All resolvers failed — mark as unhealthy
+      for (const r of healthy) {
+        this.#resolverHealth.set(r.url, { healthy: false, lastCheck: Date.now() });
+        logger.warn({ domain, resolver: r.name }, 'DNS: DoH resolver failed in parallel race');
       }
     }
 
-    if (lastError !== undefined) throw lastError;
     return undefined;
   }
 
@@ -501,12 +564,13 @@ export class NodeDnsProvider implements DnsProvider {
     }
 
     try {
-      await resolveWithTimeout(HEALTH_CHECK_DOMAIN, 'A', this.#lookupTimeoutMs, signal);
+      await resolveWithTimeout(this.#healthCheckDomain, 'A', this.#lookupTimeoutMs, signal);
       this.#healthCheckCache = { healthy: true, expiresAt: now + 30_000 };
     } catch {
       this.#healthCheckCache = { healthy: false, expiresAt: now + 10_000 };
       throw new Error(
-        'DNS resolver health check failed — system resolver is unavailable. ' +
+        `DNS resolver health check failed for ${this.#healthCheckDomain} — ` +
+          'system resolver is unavailable. ' +
           'Check /etc/resolv.conf or network connectivity.',
       );
     }

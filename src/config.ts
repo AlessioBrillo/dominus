@@ -289,6 +289,15 @@ const configSchema = z.object({
    * Set to 0 to disable the cache entirely.
    */
   DNS_CACHE_MAX_SIZE: z.coerce.number().int().min(0).max(1000000).default(10000),
+
+  /**
+   * Domain used for the DNS resolver health check probe.
+   * Must be a domain that is reliably resolvable. Change this if your
+   * network blocks google.com (e.g. corporate proxy, China firewall).
+   * Default: 'google.com'. Set to empty string to disable the health check
+   * (not recommended — the bulk resolver runs the probe before every batch).
+   */
+  DNS_HEALTH_CHECK_DOMAIN: z.string().min(1).default('google.com'),
   /**
    * Rate limiting: max tokens (burst capacity) for DNS resolution requests.
    * Token bucket refills at DNS_RATE_LIMIT_TOKENS per DNS_RATE_LIMIT_INTERVAL_MS.
