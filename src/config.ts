@@ -195,7 +195,15 @@ const configSchema = z.object({
    * Defaults to 10 to avoid overwhelming the system resolver or triggering
    * rate-limiting by upstream DNS servers.
    */
-  DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
+  DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(200),
+
+  /**
+   * Maximum number of concurrent DNS resolution operations (semaphore).
+   * Controls how many DNS operations can be in-flight simultaneously
+   * to prevent event-loop starvation. Higher values increase throughput
+   * but may cause event-loop lag on large batches. Default: 100.
+   */
+  DNS_SEMAPHORE_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(100),
   /**
    * Per-domain DNS lookup timeout in milliseconds.
    * Each individual DNS resolution (A, AAAA, CNAME, NS, SOA) has this timeout.
@@ -218,6 +226,35 @@ const configSchema = z.object({
    * Default: Cloudflare DNS over HTTPS (privacy-first, no ECS).
    */
   DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
+
+  /**
+   * JSON array of DNS-over-HTTPS resolver URLs for multi-resolver failover.
+   * When set, the DNS provider tries each resolver in order on timeout/error.
+   * Format: '[{"name":"Cloudflare","url":"https://cloudflare-dns.com/dns-query"},{"name":"Google","url":"https://dns.google/dns-query"},{"name":"Quad9","url":"https://dns.quad9.net/dns-query"}]'
+   * When absent, defaults to Cloudflare + Google + Quad9.
+   */
+  DNS_RESOLVER_URLS: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined) return true;
+        try {
+          const parsed = JSON.parse(val) as unknown;
+          if (!Array.isArray(parsed)) return false;
+          return parsed.every(
+            (r: unknown) =>
+              typeof r === 'object' &&
+              r !== null &&
+              typeof (r as { name: string }).name === 'string' &&
+              typeof (r as { url: string }).url === 'string',
+          );
+        } catch {
+          return false;
+        }
+      },
+      { message: 'Must be a JSON array of { name: string, url: string } objects' },
+    ),
   /**
    * Enable parking page detection for registered domains.
    * When `true`, registered domains whose A records resolve to known parking
@@ -639,7 +676,14 @@ const configSchema = z.object({
    * Rate limiting: max requests per window per IP (default: 100).
    * Set to 0 to disable rate limiting entirely.
    */
-  RATE_LIMIT_MAX: z.coerce.number().int().nonnegative().default(100),
+  RATE_LIMIT_MAX: z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .default(100)
+    .refine((val) => val !== 0 || process.env.NODE_ENV === 'development', {
+      message: 'RATE_LIMIT_MAX=0 disables rate limiting. Set NODE_ENV=development to allow this.',
+    }),
 
   // ── API Authentication ────────────────────────────────────────────
 

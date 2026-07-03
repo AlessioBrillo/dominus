@@ -11,6 +11,17 @@ type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
 export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
 
+export interface DohResolver {
+  name: string;
+  url: string;
+}
+
+const DEFAULT_DOH_RESOLVERS: DohResolver[] = [
+  { name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query' },
+  { name: 'Google', url: 'https://dns.google/dns-query' },
+  { name: 'Quad9', url: 'https://dns.quad9.net/dns-query' },
+];
+
 // Phase 1: most discriminating record types — covers ~95% of registered domains.
 // Only falls through to Phase 2 when ALL Phase 1 returns NXDOMAIN.
 const PHASE1_RECORDS: DnsRecordType[] = ['A', 'AAAA'];
@@ -151,9 +162,6 @@ async function resolvePhase(
   }
 
   if (anyTimeout) {
-    // ponytail: single timeout log per domain — repeated warnings across batches
-    // are suppressed. Add per-resolver timeout tracking when the system resolver
-    // spans multiple upstreams.
     logger.warn({ domain, phase: phaseRecords.join(',') }, 'DNS: phase timed out');
     return undefined;
   }
@@ -225,6 +233,59 @@ async function resolvesAnyDoh(
   return false;
 }
 
+/** Semaphore to cap concurrent DNS operations and prevent event-loop starvation. */
+class DnsSemaphore {
+  #active = 0;
+  readonly #max: number;
+  readonly #queue: Array<{
+    resolve: () => void;
+    timer: ReturnType<typeof setTimeout>;
+  }> = [];
+
+  constructor(max: number) {
+    this.#max = max;
+  }
+
+  async acquire(timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
+    if (this.#active < this.#max) {
+      this.#active++;
+      return true;
+    }
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        const idx = this.#queue.findIndex((e) => e.timer === timer);
+        if (idx !== -1) this.#queue.splice(idx, 1);
+        resolve(false);
+      }, timeoutMs);
+      const abortHandler = (): void => {
+        clearTimeout(timer);
+        const idx = this.#queue.findIndex((e) => e.timer === timer);
+        if (idx !== -1) this.#queue.splice(idx, 1);
+        resolve(false);
+      };
+      signal?.addEventListener('abort', abortHandler, { once: true });
+      this.#queue.push({
+        resolve: () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', abortHandler);
+          this.#active++;
+          resolve(true);
+        },
+        timer,
+      });
+    });
+  }
+
+  release(): void {
+    const next = this.#queue.shift();
+    if (next) {
+      next.resolve();
+    } else {
+      this.#active = Math.max(0, this.#active - 1);
+    }
+  }
+}
+
 interface CacheEntry {
   result: DnsCheckResult;
   expiresAt: number;
@@ -234,13 +295,15 @@ export class NodeDnsProvider implements DnsProvider {
   readonly name = 'NodeDnsProvider';
   readonly #lookupTimeoutMs: number;
   readonly #lookupStrategy: DnsLookupStrategy;
-  readonly #dohEndpoint: string;
+  readonly #dohResolvers: DohResolver[];
   readonly #cacheTtlMs: number;
   readonly #maxSize: number;
   readonly #bulkConcurrency: number;
   readonly #parkingEnabled: boolean;
   readonly #parkingRegistry: ParkingIpRegistry;
   readonly #healthCheckEnabled: boolean;
+  readonly #semaphore: DnsSemaphore;
+  #resolverHealth: Map<string, { healthy: boolean; lastCheck: number }> = new Map();
   #healthCheckCache: { healthy: boolean; expiresAt: number } | null = null;
   #cache: Map<string, CacheEntry> = new Map();
 
@@ -248,22 +311,35 @@ export class NodeDnsProvider implements DnsProvider {
     lookupTimeoutMs?: number;
     lookupStrategy?: DnsLookupStrategy;
     dohEndpoint?: string;
+    dohResolvers?: DohResolver[];
     cacheTtlMs?: number;
     maxSize?: number;
     bulkConcurrency?: number;
     parkingEnabled?: boolean;
     parkingRegistry?: ParkingIpRegistry;
     healthCheckEnabled?: boolean;
+    semaphoreConcurrency?: number;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#lookupStrategy = options?.lookupStrategy ?? 'native';
-    this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
+    // If custom resolvers are provided, use them; otherwise fall back to defaults
+    const customResolvers = options?.dohResolvers;
+    if (customResolvers && customResolvers.length > 0) {
+      this.#dohResolvers = customResolvers;
+    } else {
+      const defaultUrl = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
+      this.#dohResolvers = [
+        { name: 'primary', url: defaultUrl },
+        ...DEFAULT_DOH_RESOLVERS.filter((r) => r.url !== defaultUrl),
+      ];
+    }
     this.#cacheTtlMs = options?.cacheTtlMs ?? 300_000;
     this.#maxSize = options?.maxSize ?? 10000;
     this.#bulkConcurrency = options?.bulkConcurrency ?? 50;
     this.#parkingEnabled = options?.parkingEnabled ?? false;
     this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
     this.#healthCheckEnabled = options?.healthCheckEnabled ?? true;
+    this.#semaphore = new DnsSemaphore(options?.semaphoreConcurrency ?? 100);
   }
 
   pruneCache(): number {
@@ -282,6 +358,37 @@ export class NodeDnsProvider implements DnsProvider {
     this.#cache.clear();
   }
 
+  async #tryDohWithFailover(
+    domain: string,
+    timeout: number,
+    signal?: AbortSignal,
+  ): Promise<boolean | undefined> {
+    let lastError: unknown;
+
+    for (const resolver of this.#dohResolvers) {
+      // Skip resolver we know is unhealthy (checked within last 30s)
+      const health = this.#resolverHealth.get(resolver.url);
+      if (health && !health.healthy && Date.now() - health.lastCheck < 30_000) continue;
+
+      try {
+        const result = await resolvesAnyDoh(domain, resolver.url, timeout, signal);
+        if (result !== undefined) {
+          this.#resolverHealth.set(resolver.url, { healthy: true, lastCheck: Date.now() });
+          return result;
+        }
+      } catch (err) {
+        lastError = err;
+        this.#resolverHealth.set(resolver.url, { healthy: false, lastCheck: Date.now() });
+        logger.warn({ domain, resolver: resolver.name, err }, 'DNS: DoH resolver failed');
+        // Try next resolver
+        continue;
+      }
+    }
+
+    if (lastError !== undefined) throw lastError;
+    return undefined;
+  }
+
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
@@ -294,65 +401,74 @@ export class NodeDnsProvider implements DnsProvider {
     const timeout = this.#lookupTimeoutMs;
     const checkedAt = new Date().toISOString();
 
+    const acquired = await this.#semaphore.acquire(timeout, signal);
+    if (!acquired) {
+      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+    }
+
     try {
-      if (strategy === 'doh-only') {
-        const doh = await resolvesAnyDoh(domain, this.#dohEndpoint, timeout, signal);
-        if (doh !== undefined) {
-          return this.#cached(domain, {
-            domain,
-            status: doh ? DomainStatus.Registered : DomainStatus.Available,
-            checkedAt,
-          });
-        }
-        return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
-      }
+      return await this.#checkWithStrategy(domain, strategy, timeout, signal);
+    } finally {
+      this.#semaphore.release();
+    }
+  }
 
-      const native = await resolvesAnyNative(domain, timeout, signal);
+  async #checkWithStrategy(
+    domain: string,
+    strategy: DnsLookupStrategy,
+    timeout: number,
+    signal?: AbortSignal,
+  ): Promise<DnsCheckResult> {
+    const checkedAt = new Date().toISOString();
 
-      if (native !== undefined) {
-        const status = native ? DomainStatus.Registered : DomainStatus.Available;
-        let isParked: boolean | undefined;
-        let parkingRegistrar: string | undefined;
-
-        if (native && this.#parkingEnabled) {
-          const addresses = await resolveAddressRecords(domain);
-          const parkingCheck = this.#parkingRegistry.checkIps(addresses);
-          isParked = parkingCheck.parked || undefined;
-          parkingRegistrar = parkingCheck.registrar;
-        }
-
+    if (strategy === 'doh-only') {
+      const doh = await this.#tryDohWithFailover(domain, timeout, signal);
+      if (doh !== undefined) {
         return this.#cached(domain, {
           domain,
-          status,
+          status: doh ? DomainStatus.Registered : DomainStatus.Available,
           checkedAt,
-          isParked: isParked,
-          parkingRegistrar,
         });
-      }
-
-      if (strategy === 'native-with-doh-fallback') {
-        logger.warn(
-          { domain, endpoint: this.#dohEndpoint },
-          'DNS: native resolver timed out, falling back to DoH',
-        );
-        const doh = await resolvesAnyDoh(domain, this.#dohEndpoint, timeout, signal);
-        if (doh !== undefined) {
-          return this.#cached(domain, {
-            domain,
-            status: doh ? DomainStatus.Registered : DomainStatus.Available,
-            checkedAt,
-          });
-        }
-      }
-
-      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
-      if (code === 'ENOTFOUND' || code === 'ENODATA') {
-        return this.#cached(domain, { domain, status: DomainStatus.Available, checkedAt });
       }
       return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
     }
+
+    const native = await resolvesAnyNative(domain, timeout, signal);
+
+    if (native !== undefined) {
+      const status = native ? DomainStatus.Registered : DomainStatus.Available;
+      let isParked: boolean | undefined;
+      let parkingRegistrar: string | undefined;
+
+      if (native && this.#parkingEnabled) {
+        const addresses = await resolveAddressRecords(domain);
+        const parkingCheck = this.#parkingRegistry.checkIps(addresses);
+        isParked = parkingCheck.parked || undefined;
+        parkingRegistrar = parkingCheck.registrar;
+      }
+
+      return this.#cached(domain, {
+        domain,
+        status,
+        checkedAt,
+        isParked: isParked,
+        parkingRegistrar,
+      });
+    }
+
+    if (strategy === 'native-with-doh-fallback') {
+      logger.warn({ domain }, 'DNS: native resolver timed out, falling back to multi-resolver DoH');
+      const doh = await this.#tryDohWithFailover(domain, timeout, signal);
+      if (doh !== undefined) {
+        return this.#cached(domain, {
+          domain,
+          status: doh ? DomainStatus.Registered : DomainStatus.Available,
+          checkedAt,
+        });
+      }
+    }
+
+    return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
   }
 
   #cached(domain: string, result: DnsCheckResult): DnsCheckResult {
@@ -401,11 +517,10 @@ export class NodeDnsProvider implements DnsProvider {
 
     await this.#checkResolverHealth(signal);
 
-    const concurrency = this.#bulkConcurrency;
     const results: DnsCheckResult[] = [];
-    for (let i = 0; i < domains.length; i += concurrency) {
+    for (let i = 0; i < domains.length; i += this.#bulkConcurrency) {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const chunk = domains.slice(i, i + concurrency);
+      const chunk = domains.slice(i, i + this.#bulkConcurrency);
       const chunkResults = await Promise.all(
         chunk.map((d) =>
           this.checkAvailability(d, signal).catch(() => ({

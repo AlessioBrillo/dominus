@@ -33,6 +33,8 @@ import * as m0030 from './migrations/0030_enable_rls.js';
 import * as m0031 from './migrations/0031_create_auth_rate_limits.js';
 import * as m0032 from './migrations/0032_create_pipeline_locks.js';
 import * as m0033 from './migrations/0033_create_api_keys.js';
+import * as m0034 from './migrations/0034_fix_listings_schema_divergence.js';
+import * as m0035 from './migrations/0035_fix_wayback_cache_divergence.js';
 
 interface Migration {
   name: string;
@@ -77,6 +79,8 @@ const MIGRATIONS: Migration[] = [
   m0031,
   m0032,
   m0033,
+  m0034,
+  m0035,
 ];
 
 export function runMigrations(db: Database.Database): void {

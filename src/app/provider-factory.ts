@@ -135,12 +135,23 @@ export function buildDnsProvider(
 ): DnsProvider {
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
 
+  const dohResolvers: { name: string; url: string }[] = ((): { name: string; url: string }[] => {
+    if (!config.DNS_RESOLVER_URLS) return [];
+    try {
+      return JSON.parse(config.DNS_RESOLVER_URLS) as { name: string; url: string }[];
+    } catch {
+      return [];
+    }
+  })();
+
   const inner = new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
     maxSize: config.DNS_CACHE_MAX_SIZE,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
     lookupStrategy: config.DNS_LOOKUP_STRATEGY,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
+    dohResolvers,
+    semaphoreConcurrency: config.DNS_SEMAPHORE_CONCURRENCY,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
     parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
     parkingRegistry,

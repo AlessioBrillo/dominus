@@ -21,12 +21,13 @@ export class ListingRepository {
   async insert(listing: NewListing): Promise<{ id: number }> {
     const tid = resolveTenantId();
     const result = await this.#db.exec(
-      `INSERT INTO listings (domain, marketplace, listing_url, price_eur, status, listed_at, expires_at, notes, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO listings (domain, marketplace, listing_url, list_price_eur, price_eur, status, listed_at, expires_at, notes, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         listing.domain,
         listing.marketplace,
         listing.listingUrl,
+        listing.priceEur,
         listing.priceEur,
         listing.status,
         listing.listedAt,
@@ -43,8 +44,9 @@ export class ListingRepository {
     const params: unknown[] = [];
 
     if (update.priceEur !== undefined) {
+      sets.push('list_price_eur = ?');
       sets.push('price_eur = ?');
-      params.push(update.priceEur);
+      params.push(update.priceEur, update.priceEur);
     }
     if (update.status !== undefined) {
       sets.push('status = ?');
