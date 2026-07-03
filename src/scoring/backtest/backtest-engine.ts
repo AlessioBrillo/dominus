@@ -1,5 +1,6 @@
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 import type {
   BacktestSignalsRepository,
   BacktestSignal,
@@ -231,8 +232,8 @@ export class BacktestEngine {
         renewal_cost: number;
         acquired_at: string;
       }>(
-        'SELECT acquisition_cost, renewal_cost, acquired_at FROM portfolio_entries WHERE domain = ?',
-        [domain],
+        'SELECT acquisition_cost, renewal_cost, acquired_at FROM portfolio_entries WHERE domain = ? AND tenant_id = ?',
+        [domain, resolveTenantId()],
       );
 
       if (!row) {
@@ -266,20 +267,22 @@ export class BacktestEngine {
   ): Promise<ScoringSnapshotRow | null> {
     const db = txDb ?? this.db;
     const candidate = await db.queryOne<{ id: number }>(
-      'SELECT id FROM candidates WHERE domain = ?',
-      [domain],
+      'SELECT id FROM candidates WHERE domain = ? AND tenant_id = ?',
+      [domain, resolveTenantId()],
     );
     if (candidate === undefined || candidate === null) return null;
 
     const row = await db.queryOne<ScoringSnapshotRow>(
-      `SELECT id, run_id, expected_value, confidence, suggested_buy_max,
-              suggested_list_price, weighted_score, recommended, scored_at
-         FROM scoring_runs
-        WHERE candidate_id = ?
-          AND scored_at <= ?
-        ORDER BY scored_at DESC, id DESC
+      `SELECT sr.id, sr.run_id, sr.expected_value, sr.confidence, sr.suggested_buy_max,
+              sr.suggested_list_price, sr.weighted_score, sr.recommended, sr.scored_at
+         FROM scoring_runs sr
+         JOIN candidates c ON c.id = sr.candidate_id
+        WHERE sr.candidate_id = ?
+          AND sr.scored_at <= ?
+          AND c.tenant_id = ?
+        ORDER BY sr.scored_at DESC, sr.id DESC
         LIMIT 1`,
-      [candidate.id, occurredAt],
+      [candidate.id, occurredAt, resolveTenantId()],
     );
     return row ?? null;
   }

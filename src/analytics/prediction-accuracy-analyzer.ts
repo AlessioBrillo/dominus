@@ -1,5 +1,6 @@
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
+import { resolveTenantId } from '../utils/tenant-context.js';
 import type {
   AccuracyReport,
   AccuracyMetrics,
@@ -83,8 +84,8 @@ export class PredictionAccuracyAnalyzer {
         continue;
       }
       const candidate = await this.db.queryOne<{ id: number; domain: string; tld: string }>(
-        'SELECT id, domain, tld FROM candidates WHERE domain = ?',
-        [domain],
+        'SELECT id, domain, tld FROM candidates WHERE domain = ? AND tenant_id = ?',
+        [domain, resolveTenantId()],
       );
 
       if (!candidate) {
@@ -397,8 +398,8 @@ export class PredictionAccuracyAnalyzer {
     scored_at: string;
   } | null> {
     const candidate = await this.db.queryOne<{ id: number }>(
-      'SELECT id FROM candidates WHERE domain = ?',
-      [domain],
+      'SELECT id FROM candidates WHERE domain = ? AND tenant_id = ?',
+      [domain, resolveTenantId()],
     );
     if (candidate === null) return null;
 
@@ -417,26 +418,28 @@ export class PredictionAccuracyAnalyzer {
       expiry_score: number;
       scored_at: string;
     }>(
-      `SELECT id, run_id, candidate_id, expected_value, confidence, suggested_buy_max,
-              suggested_list_price, weighted_score, recommended, commercial_score,
-              market_score, expiry_score, scored_at
-         FROM scoring_runs
-        WHERE candidate_id = ? AND scored_at <= ?
-        ORDER BY scored_at DESC, id DESC
+      `SELECT sr.id, sr.run_id, sr.candidate_id, sr.expected_value, sr.confidence, sr.suggested_buy_max,
+              sr.suggested_list_price, sr.weighted_score, sr.recommended, sr.commercial_score,
+              sr.market_score, sr.expiry_score, sr.scored_at
+         FROM scoring_runs sr
+         JOIN candidates c ON c.id = sr.candidate_id
+        WHERE sr.candidate_id = ? AND sr.scored_at <= ? AND c.tenant_id = ?
+        ORDER BY sr.scored_at DESC, sr.id DESC
         LIMIT 1`,
-      [candidate.id, before],
+      [candidate.id, before, resolveTenantId()],
     );
 
     return row ?? null;
   }
 
   async #upsertOutcomeScore(score: OutcomeAccuracyScore): Promise<void> {
+    const tid = resolveTenantId();
     await this.db.exec(
       `INSERT INTO outcome_scores
          (domain, outcome_type, recommended, weighted_score, confidence,
           expected_value, actual_sale_price, tld, scored_at, occurred_at,
-          commercial_score, market_score, expiry_score)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          commercial_score, market_score, expiry_score, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(domain, occurred_at) DO UPDATE SET
          recommended          = excluded.recommended,
          weighted_score       = excluded.weighted_score,
@@ -462,6 +465,7 @@ export class PredictionAccuracyAnalyzer {
         score.commercialScore,
         score.marketScore,
         score.expiryScore,
+        tid,
       ],
     );
   }
@@ -486,7 +490,9 @@ export class PredictionAccuracyAnalyzer {
               expected_value, actual_sale_price, tld, scored_at, occurred_at,
               commercial_score, market_score, expiry_score
          FROM outcome_scores
+        WHERE tenant_id = ?
         ORDER BY occurred_at DESC`,
+      [resolveTenantId()],
     );
 
     return rows.map((r) => ({
