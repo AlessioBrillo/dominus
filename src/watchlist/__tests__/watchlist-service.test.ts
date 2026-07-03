@@ -145,6 +145,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     EVENTS_RETENTION_DAYS: 180,
     DNS_SEMAPHORE_CONCURRENCY: 100,
     DNS_RESOLVER_URLS: undefined,
+    DNS_HEALTH_CHECK_DOMAIN: 'google.com',
     ...overrides,
   };
 }

@@ -155,6 +155,7 @@ export function buildDnsProvider(
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
     parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
     parkingRegistry,
+    healthCheckDomain: config.DNS_HEALTH_CHECK_DOMAIN,
   });
 
   const wrappedCheckAvailability = async (
