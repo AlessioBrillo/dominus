@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../useAuth.js';
 import * as client from '../../api/client.js';
+import * as auth from '../../api/auth.js';
 import type { ReactNode } from 'react';
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -26,16 +27,30 @@ describe('useAuth', () => {
     expect(result.current.isAuthenticated).toBe(true);
   });
 
-  it('login stores key and sets authenticated', () => {
-    const storeSpy = vi.spyOn(client, 'storeApiKey');
+  it('login validates key and sets authenticated on success', async () => {
+    const verifySpy = vi.spyOn(auth, 'verifyAndStoreKey').mockResolvedValue({ success: true });
     const { result } = renderHook(() => useAuth(), { wrapper });
 
-    act(() => {
-      result.current.login('new-key-456');
+    await act(async () => {
+      await result.current.login('new-key-456');
     });
 
-    expect(storeSpy).toHaveBeenCalledWith('new-key-456');
+    expect(verifySpy).toHaveBeenCalledWith('new-key-456');
     expect(result.current.isAuthenticated).toBe(true);
+  });
+
+  it('login throws on invalid key and does not set authenticated', async () => {
+    vi.spyOn(auth, 'verifyAndStoreKey').mockResolvedValue({
+      success: false,
+      error: 'Invalid API key',
+    });
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.login('bad-key')).rejects.toThrow('Invalid API key');
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
   });
 
   it('logout clears key and sets unauthenticated', () => {
