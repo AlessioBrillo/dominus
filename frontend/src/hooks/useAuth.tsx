@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { getStoredApiKey, clearApiKey, storeApiKey, setOnUnauthorized } from '@/api/client';
+import { getStoredApiKey, clearApiKey, setOnUnauthorized } from '@/api/client';
+import { verifyAndStoreKey } from '@/api/auth';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (key: string) => void;
+  login: (key: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -24,8 +25,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const login = useCallback((key: string) => {
-    storeApiKey(key);
+  const login = useCallback(async (key: string) => {
+    const result = await verifyAndStoreKey(key);
+    if (!result.success) {
+      throw new Error(result.error ?? 'Authentication failed');
+    }
     setIsAuthenticated(true);
   }, []);
 

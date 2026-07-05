@@ -13,11 +13,20 @@ const logger = getLogger();
 
 const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4';
 
+interface CfResultInfo {
+  page: number;
+  per_page: number;
+  total_pages: number;
+  count: number;
+  total_count: number;
+}
+
 interface CfApiResponse<T> {
   success: boolean;
   errors: Array<{ code: number; message: string }>;
   messages: string[];
   result: T;
+  result_info?: CfResultInfo;
 }
 
 interface CfRegistrarDomain {
@@ -257,7 +266,7 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
       domain: request.domain,
       success: true,
       orderId: json.result.id,
-      priceEur: 0,
+      priceEur: (request.expectedPriceEur ?? 0) * request.years,
       renewalPriceEur: renewPriceEur,
       activeAt: json.result.expires_at,
       message: `Domain registered via Cloudflare Registrar. Expires: ${json.result.expires_at}`,
@@ -265,41 +274,58 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
   }
 
   async listDomains(): Promise<RegistrarDomainInfo[]> {
-    const url = `${CLOUDFLARE_API_BASE}/accounts/${this.#accountId}/registrar/domains?per_page=100`;
+    // ponytail: sequential page fetch. If Cloudflare API performance
+    // degrades at scale, parallelise with Promise.all across pages.
+    const PER_PAGE = 100;
+    const all: RegistrarDomainInfo[] = [];
+    let page = 1;
+    let totalPages = 1;
 
-    let response: Response;
-    try {
-      response = await fetch(url, { headers: this.#headers() });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error({ error: msg }, 'Cloudflare list domains: network error');
-      return [];
+    while (page <= totalPages) {
+      const url = `${CLOUDFLARE_API_BASE}/accounts/${this.#accountId}/registrar/domains?per_page=${PER_PAGE}&page=${page}`;
+      let response: Response;
+      try {
+        response = await fetch(url, { headers: this.#headers() });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error({ error: msg }, 'Cloudflare list domains: network error');
+        return [];
+      }
+
+      if (!response.ok) {
+        logger.error({ httpStatus: response.status }, 'Cloudflare list domains: API error');
+        return [];
+      }
+
+      let json: CfApiResponse<CfRegistrarDomain[]>;
+      try {
+        json = (await response.json()) as CfApiResponse<CfRegistrarDomain[]>;
+      } catch {
+        return [];
+      }
+
+      if (!json.success || !Array.isArray(json.result)) {
+        return [];
+      }
+
+      all.push(
+        ...json.result.map((d) => ({
+          domain: d.domain,
+          registrar: 'cloudflare',
+          expiryDate: d.expires_at,
+          autoRenew: d.auto_renew,
+          locked: d.locked,
+          nameServers: [] as string[],
+        })),
+      );
+
+      if (json.result_info) {
+        totalPages = json.result_info.total_pages;
+      }
+      page++;
     }
 
-    if (!response.ok) {
-      logger.error({ httpStatus: response.status }, 'Cloudflare list domains: API error');
-      return [];
-    }
-
-    let json: CfApiResponse<CfRegistrarDomain[]>;
-    try {
-      json = (await response.json()) as CfApiResponse<CfRegistrarDomain[]>;
-    } catch {
-      return [];
-    }
-
-    if (!json.success || !Array.isArray(json.result)) {
-      return [];
-    }
-
-    return json.result.map((d) => ({
-      domain: d.domain,
-      registrar: 'cloudflare',
-      expiryDate: d.expires_at,
-      autoRenew: d.auto_renew,
-      locked: d.locked,
-      nameServers: [],
-    }));
+    return all;
   }
 
   async getRenewalCost(domain: string): Promise<number> {

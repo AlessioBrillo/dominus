@@ -147,6 +147,18 @@ export function createPortfolioRouter(
   );
 
   router.post(
+    '/verdicts',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        await manager.refreshVerdicts();
+        res.json({ ok: true });
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
+
+  router.post(
     '/rescore',
     async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
