@@ -230,7 +230,7 @@ async function resolveDohPhase(
     const c = outcome.code;
     if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
       anyTimeout = true;
-    } else if (c !== 'ENOTFOUND' && c !== 'ENODATA' && c !== undefined) {
+    } else if (c !== 'ENOTFOUND' && c !== 'ENODATA') {
       anyError = true;
     }
   }
