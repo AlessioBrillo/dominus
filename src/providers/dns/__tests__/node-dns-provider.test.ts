@@ -164,4 +164,41 @@ describe('NodeDnsProvider', () => {
     expect(result.status).toBe(DomainStatus.Registered);
     expect(result.isParked).toBeUndefined();
   });
+
+  describe('doh-only strategy', () => {
+    let dohProvider: NodeDnsProvider;
+
+    beforeEach(() => {
+      dohProvider = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      vi.clearAllMocks();
+    });
+
+    function mockFetchResponse(
+      status: number,
+      answer?: Array<{ type: number; data: string }>,
+    ): void {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ Status: status, Answer: answer }),
+      } as Response);
+    }
+
+    it('returns Registered when DoH Phase 1 resolves', async () => {
+      mockFetchResponse(0, [{ type: 1, data: '1.2.3.4' }]);
+      const result = await dohProvider.checkAvailability('taken-doh.com');
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+
+    it('returns Available on DoH NXDOMAIN', async () => {
+      mockFetchResponse(3);
+      const result = await dohProvider.checkAvailability('free-doh.com');
+      expect(result.status).toBe(DomainStatus.Available);
+    });
+
+    it('returns Unknown when all DoH resolvers fail', async () => {
+      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+      const result = await dohProvider.checkAvailability('fail-doh.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+  });
 });
