@@ -74,6 +74,32 @@ describe('Portfolio API', () => {
     });
   });
 
+  describe('POST /api/v1/portfolio/verdicts', () => {
+    it('refreshes verdicts on a non-empty portfolio', async () => {
+      const { app, manager } = buildApp(provider);
+      await manager.add({
+        domain: 'alpha.com',
+        tld: '.com',
+        acquiredAt: '2025-01-01T00:00:00.000Z',
+        renewalDate: '2026-12-31T00:00:00.000Z',
+        acquisitionCost: 12,
+        renewalCost: 12,
+        registrar: 'namecheap',
+      });
+
+      const res = await request(app).post('/api/v1/portfolio/verdicts');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true });
+    });
+
+    it('returns ok on an empty portfolio', async () => {
+      const { app } = buildApp(provider);
+      const res = await request(app).post('/api/v1/portfolio/verdicts');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: true });
+    });
+  });
+
   describe('POST /api/v1/portfolio/rescore', () => {
     it('returns a per-domain summary for a non-empty portfolio', async () => {
       const { app, manager } = buildApp(provider);
