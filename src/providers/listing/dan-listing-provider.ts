@@ -186,10 +186,21 @@ export class DanListingProvider implements ListingProvider {
       };
     }
 
-    let danListings: DanApiListing[];
+    // ponytail: naive page-at-a-time pagination with page size derived from
+    // the first response. If Dan API performance degrades at scale, replace
+    // with concurrent page fetches.
+    const allDanListings: DanApiListing[] = [];
+
     try {
-      const response = await this.#request<DanListingsResponse>('/listings');
-      danListings = response.listings;
+      let response = await this.#request<DanListingsResponse>('/listings?page=1');
+      allDanListings.push(...response.listings);
+
+      let page = 2;
+      while (allDanListings.length < response.total) {
+        response = await this.#request<DanListingsResponse>(`/listings?page=${page}`);
+        allDanListings.push(...response.listings);
+        page++;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error({ err }, 'DanListingProvider: sync failed');
@@ -205,7 +216,7 @@ export class DanListingProvider implements ListingProvider {
     const listings: Listing[] = [];
     const allOffers: ListingOffer[] = [];
 
-    for (const dl of danListings) {
+    for (const dl of allDanListings) {
       try {
         const listing = this.#toInternal(dl);
         listings.push(listing);

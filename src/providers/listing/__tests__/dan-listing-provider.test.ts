@@ -198,6 +198,33 @@ describe('DanListingProvider', () => {
       expect(result.listings).toHaveLength(0);
     });
 
+    it('paginates through multiple pages', async () => {
+      const page1 = Array.from({ length: 25 }, (_, i) => ({
+        ...testListing,
+        id: `${i + 1}`,
+        domain: `page1-${i}.com`,
+      }));
+      const page2 = Array.from({ length: 5 }, (_, i) => ({
+        ...testListing,
+        id: `${i + 26}`,
+        domain: `page2-${i}.io`,
+      }));
+
+      mockFetch
+        .mockResolvedValueOnce(mockResponse({ listings: page1, total: 30, page: 1 }))
+        .mockResolvedValueOnce(mockResponse({ listings: page2, total: 30, page: 2 }));
+
+      const page1Offers = page1.map(() => mockResponse([]));
+      const page2Offers = page2.map(() => mockResponse([]));
+      for (const r of [...page1Offers, ...page2Offers]) {
+        mockFetch.mockResolvedValueOnce(r);
+      }
+
+      const result = await provider.sync();
+      expect(result.listings).toHaveLength(30);
+      expect(result.errors).toHaveLength(0);
+    });
+
     it('fetches all listings and their offers', async () => {
       mockFetch
         .mockResolvedValueOnce(
