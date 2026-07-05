@@ -257,7 +257,7 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
       domain: request.domain,
       success: true,
       orderId: json.result.id,
-      priceEur: 0,
+      priceEur: (request.expectedPriceEur ?? 0) * request.years,
       renewalPriceEur: renewPriceEur,
       activeAt: json.result.expires_at,
       message: `Domain registered via Cloudflare Registrar. Expires: ${json.result.expires_at}`,

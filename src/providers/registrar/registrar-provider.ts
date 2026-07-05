@@ -19,6 +19,10 @@
 export interface RegistrarPurchaseRequest {
   domain: string;
   years: number;
+  /** Expected purchase price per year in EUR from preflight check.
+   *  Providers should use this as the recorded price when the purchase
+   *  API response does not include pricing. */
+  expectedPriceEur?: number | undefined;
 }
 
 export interface RegistrarPurchaseResult {

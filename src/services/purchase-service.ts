@@ -209,7 +209,11 @@ export class PurchaseService {
       }
 
       const tld = parseDomain(domain).tld ?? '';
-      const result: RegistrarPurchaseResult = await this.#registrar.purchase({ domain, years });
+      const result: RegistrarPurchaseResult = await this.#registrar.purchase({
+        domain,
+        years,
+        expectedPriceEur: check.registerPriceEur ?? undefined,
+      });
 
       if (!result.success) {
         return { success: false, error: result.error ?? 'Purchase failed at registrar' };

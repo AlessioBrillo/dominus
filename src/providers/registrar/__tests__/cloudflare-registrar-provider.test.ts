@@ -135,7 +135,7 @@ describe('CloudflareRegistrarProvider', () => {
   });
 
   describe('purchase', () => {
-    it('registers a domain successfully', async () => {
+    it('registers a domain successfully and uses expectedPriceEur', async () => {
       mockFetch
         .mockResolvedValueOnce(
           mockCfResponse({
@@ -156,10 +156,45 @@ describe('CloudflareRegistrarProvider', () => {
           }),
         );
 
-      const result = await provider.purchase({ domain: 'example.com', years: 1 });
+      const result = await provider.purchase({
+        domain: 'example.com',
+        years: 1,
+        expectedPriceEur: 9.77,
+      });
       expect(result.success).toBe(true);
       expect(result.orderId).toBe('order-123');
+      expect(result.priceEur).toBe(9.77);
       expect(result.activeAt).toBe('2027-06-26T00:00:00Z');
+    });
+
+    it('registers and multiplies expectedPriceEur by years', async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          mockCfResponse({
+            id: 'order-456',
+            domain: 'example.com',
+            expires_at: '2029-06-26T00:00:00Z',
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockCfResponse({
+            id: 'info-2',
+            domain: 'example.com',
+            available: false,
+            supported_tld: true,
+            register_price: null,
+            renew_price: 9.77,
+            transfer_in: null,
+          }),
+        );
+
+      const result = await provider.purchase({
+        domain: 'example.com',
+        years: 3,
+        expectedPriceEur: 9.77,
+      });
+      expect(result.success).toBe(true);
+      expect(result.priceEur).toBe(29.31);
     });
 
     it('returns failure on HTTP error', async () => {

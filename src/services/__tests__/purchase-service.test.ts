@@ -306,6 +306,35 @@ describe('PurchaseService', () => {
       await expect(svc.execute('example.com')).rejects.toThrow(PurchaseNotApprovedError);
     });
 
+    it('passes expectedPriceEur to registrar purchase', async () => {
+      const reg = createMockRegistrar();
+      reg.checkPrice.mockResolvedValue([makePriceCheck({ registerPriceEur: 9.77 })]);
+      reg.purchase.mockResolvedValue({
+        domain: 'example.com',
+        success: true,
+        priceEur: 9.77,
+        renewalPriceEur: 10,
+        orderId: 'ord-123',
+        message: 'Registered!',
+      });
+      const pm = createMockPortfolioManager();
+      const outcomeRepo = createMockOutcomeRepo();
+      const svc = new PurchaseService({
+        registrar: reg,
+        portfolioManager: pm,
+        outcomeRepo,
+        autoApproval: AutoApprovalPolicy.Always,
+      });
+
+      await svc.execute('example.com', 1, true);
+
+      expect(reg.purchase).toHaveBeenCalledWith({
+        domain: 'example.com',
+        years: 1,
+        expectedPriceEur: 9.77,
+      });
+    });
+
     it('executes purchase, adds to portfolio, records outcome', async () => {
       const reg = createMockRegistrar();
       reg.checkPrice.mockResolvedValue([makePriceCheck()]);
