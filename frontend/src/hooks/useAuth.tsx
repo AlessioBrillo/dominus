@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { getStoredApiKey, clearApiKey, storeApiKey, setOnUnauthorized } from '@/api/client';
+import { getStoredApiKey, clearApiKey, setOnUnauthorized } from '@/api/client';
 import { verifyAndStoreKey } from '@/api/auth';
 
 interface AuthContextValue {
