@@ -1,24 +1,37 @@
-// ADR-0007: backtest_signals schema for prediction-vs-reality audit
-
 import type Database from 'better-sqlite3';
-import {
-  BACKTEST_SIGNALS_DDL,
-  BACKTEST_SIGNALS_OUTCOME_IDX_DDL,
-  BACKTEST_SIGNALS_DOMAIN_IDX_DDL,
-  BACKTEST_SIGNALS_UNIQUE_IDX_DDL,
-} from '../schema.js';
 
-/**
- * Immutable audit table that joins scoring predictions to realised outcomes.
- *
- * One row per (outcome, scoring_run) pair. Written by the backtest engine
- * (see ADR-0008) at snapshot time. The UNIQUE(outcome_id, scoring_run_id)
- * index makes `buildSignals()` idempotent: re-running it never duplicates
- * rows.
- *
- * Forward-only: no backfill, no destructive change. Safe on existing
- * databases — we only create a new table + 3 indexes.
- */
+const BACKTEST_SIGNALS_DDL = `
+CREATE TABLE IF NOT EXISTS backtest_signals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL,
+  outcome_id INTEGER NOT NULL REFERENCES outcomes(id) ON DELETE CASCADE,
+  scoring_run_id TEXT NOT NULL,
+  predicted_expected_value REAL NOT NULL,
+  predicted_buy_max REAL NOT NULL,
+  predicted_list_price REAL NOT NULL,
+  predicted_confidence REAL NOT NULL,
+  actual_sale_price_eur REAL NOT NULL,
+  absolute_error_eur REAL NOT NULL,
+  signed_error_eur REAL NOT NULL,
+  confidence_bucket TEXT NOT NULL,
+  acquisition_cost_eur REAL NOT NULL DEFAULT 0,
+  total_renewal_cost_paid_eur REAL NOT NULL DEFAULT 0,
+  recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+const BACKTEST_SIGNALS_OUTCOME_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_backtest_outcome ON backtest_signals(outcome_id)
+`;
+
+const BACKTEST_SIGNALS_DOMAIN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_backtest_domain ON backtest_signals(domain)
+`;
+
+const BACKTEST_SIGNALS_UNIQUE_IDX_DDL = `
+CREATE UNIQUE INDEX IF NOT EXISTS uq_backtest_outcome_run
+  ON backtest_signals(outcome_id, scoring_run_id)
+`;
 
 export const name = '0007_create_backtest_signals';
 
