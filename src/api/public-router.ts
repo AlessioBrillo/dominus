@@ -373,19 +373,25 @@ export function createPublicRouter(
             const lastmod = r.created_at
               ? new Date(r.created_at).toISOString().split('T')[0]
               : new Date().toISOString().split('T')[0];
+            const encodedSlug = escapeHtml(r.slug);
             return `
   <url>
-    <loc>${escapeHtml(baseUrl)}/public/s/${escapeHtml(r.slug)}</loc>
+    <loc>${escapeHtml(baseUrl)}/public/s/${encodedSlug}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
+    <image:image>
+      <image:loc>${escapeHtml(baseUrl)}/public/s/${encodedSlug}/og.png</image:loc>
+      <image:title>${escapeHtml(r.domain)} — DOMINUS Score</image:title>
+    </image:image>
   </url>`;
           })
           .join('');
 
         res.type('application/xml');
         res.send(`<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urls}
 </urlset>`);
       } catch (err: unknown) {
         logger.error({ err }, 'Failed to generate sitemap');
@@ -503,6 +509,10 @@ export function createPublicRouter(
       cache.set(`score:${slug}`, data);
 
       if (req.accepts('html')) {
+        // Preload the OG image so the browser starts fetching it before
+        // parsing the stylesheet — cuts perceived LCP by ~1 round-trip.
+        const ogImageUrl = `/public/s/${slug}/og.png`;
+        res.set('Link', `<${ogImageUrl}>; rel=preload; as=image`);
         res.send(renderScorePage(data));
       } else {
         res.json(data);

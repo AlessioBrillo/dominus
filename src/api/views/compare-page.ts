@@ -1,5 +1,7 @@
 import { escapeHtml } from './escape.js';
-import { pageHtml, COMPARE_CSS_HREF, SITE_NAME, SITE_URL, TWITTER_SITE } from './page-template.js';
+import { pageHtml, COMPARE_CSS_HREF, SITE_NAME } from './page-template.js';
+import { compareItemListJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
+import type { JsonLdScoreData } from './jsonld.js';
 
 interface CompareScore {
   domain: string;
@@ -9,8 +11,21 @@ interface CompareScore {
     suggestedBuyMax: number;
     weightedScore: number;
     recommended: boolean;
+    scoredAt?: string;
   };
   trademark: unknown | null;
+}
+
+function toJsonLd(s: CompareScore['score'], domain: string): JsonLdScoreData {
+  return {
+    domain,
+    expectedValue: s.expectedValue,
+    confidence: s.confidence,
+    suggestedBuyMax: s.suggestedBuyMax,
+    weightedScore: s.weightedScore,
+    recommended: s.recommended,
+    scoredAt: s.scoredAt ?? new Date().toISOString(),
+  };
 }
 
 export function renderComparePage(
@@ -25,34 +40,24 @@ export function renderComparePage(
   const ogTitle = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)}`;
   const ogDescription = `${escapeHtml(domain1)}: €${score1.score.expectedValue.toFixed(0)} EV — ${escapeHtml(domain2)}: €${score2.score.expectedValue.toFixed(0)} EV`;
 
-  const breadcrumb = {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/` },
-      {
-        '@type': 'ListItem',
-        position: 2,
-        name: `Compare: ${domain1} vs ${domain2}`,
-        item: `${SITE_URL}/public/compare/${domain1}/${domain2}`,
-      },
-    ],
-  };
+  const il = compareItemListJsonLd(
+    domain1,
+    toJsonLd(score1.score, domain1),
+    domain2,
+    toJsonLd(score2.score, domain2),
+  );
+  const bc = breadcrumbJsonLd([
+    { position: 1, name: 'Home', path: '/' },
+    { position: 2, name: `Compare: ${domain1} vs ${domain2}`, path: canon },
+  ]);
+  const org = organizationJsonLd();
 
   const headExtras = [
-    `<meta name="description" content="${description}">`,
-    `<link rel="canonical" href="${canon}">`,
-    `<meta property="og:title" content="${ogTitle}">`,
-    `<meta property="og:description" content="${ogDescription}">`,
-    '<meta property="og:type" content="website">',
-    `<meta property="og:site_name" content="${SITE_NAME}">`,
-    `<meta property="og:url" content="${SITE_URL}${canon}">`,
-    '<meta property="og:locale" content="en_US">',
-    '<meta name="twitter:card" content="summary_large_image">',
-    `<meta name="twitter:site" content="${TWITTER_SITE}">`,
-    `<meta name="twitter:title" content="${ogTitle}">`,
-    `<meta name="twitter:description" content="${ogDescription}">`,
-    `<script type="application/ld+json">${JSON.stringify(breadcrumb)}</script>`,
+    metaTags({ title, description, canonical: canon, ogTitle, ogDescription }),
+    `<meta name="twitter:site" content="@dominusapp">`,
+    il,
+    bc,
+    org,
   ].join('\n');
 
   const col = (d: string, s: CompareScore): string =>
