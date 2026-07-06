@@ -1,5 +1,6 @@
 import { getLogger } from '../logger.js';
 import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
+import { getSldForTrademark } from '../utils/domain-validator.js';
 import {
   detectMatch,
   extractSld,
@@ -77,7 +78,7 @@ export class TrademarkGate {
   ) {}
 
   async check(domain: string, signal?: AbortSignal): Promise<GateResult> {
-    const sld = extractSld(domain);
+    const sld = getSldForTrademark(domain) || extractSld(domain);
 
     function isAbortError(err: unknown): boolean {
       return err instanceof DOMException && err.name === 'AbortError';

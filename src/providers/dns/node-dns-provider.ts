@@ -4,6 +4,7 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { getLogger } from '../../logger.js';
+import { normalizeDomain } from '../../utils/domain-validator.js';
 
 const logger = getLogger();
 
@@ -455,7 +456,10 @@ export class NodeDnsProvider implements DnsProvider {
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const cached = this.#cache.get(domain);
+    const norm = normalizeDomain(domain);
+    const lookupDomain = norm.isValid ? norm.normalized : domain;
+
+    const cached = this.#cache.get(lookupDomain);
     if (cached !== undefined && cached.expiresAt > Date.now()) {
       return cached.result;
     }
@@ -470,7 +474,7 @@ export class NodeDnsProvider implements DnsProvider {
     }
 
     try {
-      return await this.#checkWithStrategy(domain, strategy, timeout, signal);
+      return await this.#checkWithStrategy(lookupDomain, strategy, timeout, signal);
     } finally {
       this.#semaphore.release();
     }

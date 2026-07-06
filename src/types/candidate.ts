@@ -44,6 +44,8 @@ export interface RawCandidate {
   pipelineRunId: string;
 }
 
+import type { NormalizedDomain } from '../utils/domain-validator.js';
+
 export interface DomainCandidate extends RawCandidate {
   id?: number;
   tld: string;
@@ -51,6 +53,7 @@ export interface DomainCandidate extends RawCandidate {
   dnsStatus?: string | undefined;
   rdapStatus?: string | undefined;
   isPremium: boolean;
+  normalizedDomain?: NormalizedDomain | undefined;
   closeoutMeta?: CloseoutMeta | undefined;
   whoisMeta?: WhoisMeta | undefined;
   createdAt?: string | undefined;
