@@ -1,5 +1,8 @@
 import type Database from 'better-sqlite3';
-import { TRADEMARK_TERM_INDEX_DDL } from '../schema.js';
+
+const TRADEMARK_TERM_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_trademark_term ON trademark_results(search_term, source)
+`;
 
 /**
  * Make trademark_results.candidate_id nullable and add a (search_term, source)

@@ -1,15 +1,30 @@
 import type Database from 'better-sqlite3';
-import { OUTCOMES_DDL, OUTCOMES_INDEX_DDL, OUTCOMES_TYPE_INDEX_DDL } from '../schema.js';
 
-/**
- * Real-world outcomes for portfolio domains. The `type` column is a free
- * TEXT (validated at the application boundary) so the taxonomy can evolve
- * without a migration. The future weight-retraining loop will read this
- * table to compare predictions against realised events.
- *
- * Forward-only: no backfill. Safe on existing databases because we only
- * create a new table + two indexes.
- */
+const OUTCOMES_DDL = `
+CREATE TABLE IF NOT EXISTS outcomes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL REFERENCES portfolio_entries(domain) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  sale_price_eur REAL,
+  listing_price_eur REAL,
+  days_listed INTEGER,
+  venue TEXT,
+  commission_pct REAL,
+  acquisition_cost_eur REAL,
+  total_renewal_cost_eur REAL,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+const OUTCOMES_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_outcomes_domain ON outcomes(domain)
+`;
+
+const OUTCOMES_TYPE_INDEX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_outcomes_type ON outcomes(type, occurred_at)
+`;
 
 export const name = '0006_create_outcomes';
 

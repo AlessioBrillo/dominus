@@ -1,10 +1,36 @@
 import type Database from 'better-sqlite3';
-import {
-  RENEWAL_ALERTS_DDL,
-  RENEWAL_ALERTS_DOMAIN_IDX_DDL,
-  RENEWAL_ALERTS_UNACK_IDX_DDL,
-  RENEWAL_ALERTS_UNIQUE_DDL,
-} from '../schema.js';
+
+const RENEWAL_ALERTS_DDL = `
+CREATE TABLE IF NOT EXISTS renewal_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL,
+  portfolio_entry_id INTEGER NOT NULL REFERENCES portfolio_entries(id) ON DELETE CASCADE,
+  alert_type TEXT NOT NULL
+    CHECK(alert_type IN ('renewal_imminent','renewal_critical','renewal_past_due','score_dropped')),
+  severity TEXT NOT NULL
+    CHECK(severity IN ('info','warning','critical')),
+  message TEXT NOT NULL,
+  details TEXT,
+  acknowledged_at TEXT,
+  notified_channels TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+`;
+
+const RENEWAL_ALERTS_DOMAIN_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_renewal_alerts_domain
+  ON renewal_alerts(domain)
+`;
+
+const RENEWAL_ALERTS_UNACK_IDX_DDL = `
+CREATE INDEX IF NOT EXISTS idx_renewal_alerts_unack
+  ON renewal_alerts(acknowledged_at)
+`;
+
+const RENEWAL_ALERTS_UNIQUE_DDL = `
+CREATE UNIQUE INDEX IF NOT EXISTS uq_renewal_alerts_domain_type
+  ON renewal_alerts(domain, alert_type)
+`;
 
 export const name = '0009_create_renewal_alerts';
 
