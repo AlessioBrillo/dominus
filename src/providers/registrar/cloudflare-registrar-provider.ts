@@ -55,10 +55,12 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
 
   readonly #apiToken: string;
   readonly #accountId: string;
+  readonly #priceConcurrency: number;
 
-  constructor(apiToken: string, accountId: string) {
+  constructor(apiToken: string, accountId: string, priceConcurrency?: number) {
     this.#apiToken = apiToken;
     this.#accountId = accountId;
+    this.#priceConcurrency = priceConcurrency ?? 5;
   }
 
   static readonly registration: RegistrarRegistration = {
@@ -138,55 +140,74 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
 
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {
     const checkedAt = new Date().toISOString();
-    const results: RegistrarPriceCheck[] = [];
+    const n = domains.length;
+    const results = new Array<RegistrarPriceCheck>(n);
+    let nextIndex = 0;
 
-    for (const domain of domains) {
-      try {
-        const info = await this.#fetchDomainInfo(domain);
-        if (info && info.available) {
-          results.push({
-            domain,
-            available: true,
-            registerPriceEur: info.register_price ?? null,
-            renewalPriceEur: info.renew_price ?? null,
-            transferPriceEur: info.transfer_in?.renew_price ?? null,
-            checkedAt,
-          });
-        } else if (info && !info.available) {
-          results.push({
-            domain,
-            available: false,
-            registerPriceEur: null,
-            renewalPriceEur: info.renew_price ?? null,
-            transferPriceEur: null,
-            checkedAt,
-          });
-        } else {
-          results.push({
+    const worker = async (): Promise<void> => {
+      while (nextIndex < n) {
+        const i = nextIndex++;
+        const domain = domains[i]!;
+        try {
+          const info = await this.#fetchDomainInfo(domain);
+          if (info && info.available) {
+            results[i] = {
+              domain,
+              available: true,
+              registerPriceEur: info.register_price ?? null,
+              renewalPriceEur: info.renew_price ?? null,
+              transferPriceEur: info.transfer_in?.renew_price ?? null,
+              checkedAt,
+            };
+          } else if (info && !info.available) {
+            results[i] = {
+              domain,
+              available: false,
+              registerPriceEur: null,
+              renewalPriceEur: info.renew_price ?? null,
+              transferPriceEur: null,
+              checkedAt,
+            };
+          } else {
+            results[i] = {
+              domain,
+              available: true,
+              registerPriceEur: null,
+              renewalPriceEur: null,
+              transferPriceEur: null,
+              checkedAt,
+            };
+          }
+        } catch {
+          results[i] = {
             domain,
             available: true,
             registerPriceEur: null,
             renewalPriceEur: null,
             transferPriceEur: null,
             checkedAt,
-          });
+          };
         }
-      } catch {
-        results.push({
-          domain,
-          available: true,
-          registerPriceEur: null,
-          renewalPriceEur: null,
-          transferPriceEur: null,
-          checkedAt,
-        });
       }
-    }
+    };
 
+    const workers = Math.min(this.#priceConcurrency, n);
+    await Promise.all(Array.from({ length: workers }, () => worker()));
     return results;
   }
 
   async purchase(request: RegistrarPurchaseRequest): Promise<RegistrarPurchaseResult> {
+    // Fetch actual price from API before purchase — never trust expectedPriceEur
+    let actualRegisterPrice: number | null = null;
+    try {
+      const info = await this.#fetchDomainInfo(request.domain);
+      if (info?.register_price != null) actualRegisterPrice = info.register_price;
+    } catch {
+      // Non-fatal: fall back to expectedPriceEur or 0
+    }
+
+    const priceEur = (actualRegisterPrice ?? request.expectedPriceEur ?? 0) * request.years;
+
     const url = `${CLOUDFLARE_API_BASE}/accounts/${this.#accountId}/registrar/domains/${encodeURIComponent(request.domain)}/register`;
 
     let response: Response;
@@ -266,7 +287,7 @@ export class CloudflareRegistrarProvider implements RegistrarProvider {
       domain: request.domain,
       success: true,
       orderId: json.result.id,
-      priceEur: (request.expectedPriceEur ?? 0) * request.years,
+      priceEur,
       renewalPriceEur: renewPriceEur,
       activeAt: json.result.expires_at,
       message: `Domain registered via Cloudflare Registrar. Expires: ${json.result.expires_at}`,
