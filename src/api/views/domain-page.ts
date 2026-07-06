@@ -1,5 +1,7 @@
 import { escapeHtml } from './escape.js';
-import { pageHtml, BASE_CSS_HREF, SITE_NAME, SITE_URL, TWITTER_SITE } from './page-template.js';
+import { pageHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
+import { productJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
+import type { JsonLdScoreData } from './jsonld.js';
 
 interface DomainScore {
   expectedValue: number;
@@ -9,6 +11,18 @@ interface DomainScore {
   weightedScore: number;
   recommended: boolean;
   scoredAt: string;
+}
+
+function toJsonLd(s: DomainScore, domain: string): JsonLdScoreData {
+  return {
+    domain,
+    expectedValue: s.expectedValue,
+    confidence: s.confidence,
+    suggestedBuyMax: s.suggestedBuyMax,
+    weightedScore: s.weightedScore,
+    recommended: s.recommended,
+    scoredAt: s.scoredAt,
+  };
 }
 
 export function renderDomainPage(
@@ -32,55 +46,20 @@ export function renderDomainPage(
   const ogTitle = `${escapeHtml(domain)} — Domain Investment Score`;
   const ogDescription = `Expected Value: €${score.expectedValue.toFixed(0)} | Confidence: ${(score.confidence * 100).toFixed(0)}% | Weighted Score: ${score.weightedScore.toFixed(2)}`;
 
-  const breadcrumb = {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
-    itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/` },
-      {
-        '@type': 'ListItem',
-        position: 2,
-        name: `Domain: ${domain}`,
-        item: `${SITE_URL}/public/domain/${domain}`,
-      },
-    ],
-  };
-
-  const productJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: domain,
-    description: 'Domain investment score and appraisal',
-    offers: { '@type': 'Offer', price: score.suggestedBuyMax, priceCurrency: 'EUR' },
-    ...(score.weightedScore > 0
-      ? {
-          aggregateRating: {
-            '@type': 'AggregateRating',
-            ratingValue: (score.weightedScore / 10).toFixed(1),
-            bestRating: '10',
-            worstRating: '0',
-            ratingCount: 1,
-          },
-        }
-      : {}),
-  };
+  const jsld = productJsonLd(toJsonLd(score, domain));
+  const bc = breadcrumbJsonLd([
+    { position: 1, name: 'Home', path: '/' },
+    { position: 2, name: `Domain: ${domain}`, path: canon },
+  ]);
+  const org = organizationJsonLd();
 
   const headExtras = [
-    `<meta name="description" content="${description}">`,
-    `<link rel="canonical" href="${canon}">`,
-    `<meta property="og:title" content="${ogTitle}">`,
-    `<meta property="og:description" content="${ogDescription}">`,
-    '<meta property="og:type" content="website">',
-    `<meta property="og:site_name" content="${SITE_NAME}">`,
-    `<meta property="og:url" content="${SITE_URL}${canon}">`,
-    '<meta property="og:locale" content="en_US">',
-    '<meta name="twitter:card" content="summary_large_image">',
-    `<meta name="twitter:site" content="${TWITTER_SITE}">`,
-    `<meta name="twitter:title" content="${ogTitle}">`,
-    `<meta name="twitter:description" content="${ogDescription}">`,
+    metaTags({ title, description, canonical: canon, ogTitle, ogDescription }),
+    `<meta name="twitter:site" content="@dominusapp">`,
     `<link rel="alternate" type="application/json" href="/public/domain/${escapeHtml(domain)}">`,
-    `<script type="application/ld+json">${JSON.stringify(productJsonLd)}</script>`,
-    `<script type="application/ld+json">${JSON.stringify(breadcrumb)}</script>`,
+    jsld,
+    bc,
+    org,
   ].join('\n');
 
   const tmHtml = tmStatus
