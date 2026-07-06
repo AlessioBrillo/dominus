@@ -3,6 +3,7 @@ import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { CloseoutEntry, DomainCandidate } from '../../types/candidate.js';
 import type { Stage, StageResult } from '../stage.js';
 import { extractTld } from '../../utils/domain.js';
+import { normalizeDomain } from '../../utils/domain-validator.js';
 
 export interface CandidateGenerationInput {
   keywords?: string[] | undefined;
@@ -110,9 +111,20 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
       return true;
     });
 
+    const validated: DomainCandidate[] = [];
+    const filtered: DomainCandidate[] = [];
+    for (const c of deduped) {
+      const norm = normalizeDomain(c.domain);
+      if (!norm.isValid) {
+        filtered.push({ ...c, status: CandidateStatus.Unscored });
+        continue;
+      }
+      validated.push({ ...c, normalizedDomain: norm, tld: norm.tld, domain: norm.normalized });
+    }
+
     return Promise.resolve({
-      passed: deduped,
-      filtered: [],
+      passed: validated,
+      filtered,
       stageName: this.name,
       durationMs: Date.now() - start,
     });
