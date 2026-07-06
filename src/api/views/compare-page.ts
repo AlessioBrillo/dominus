@@ -1,5 +1,5 @@
 import { escapeHtml } from './escape.js';
-import { pageHtml, COMPARE_CSS_HREF } from './page-template.js';
+import { pageHtml, COMPARE_CSS_HREF, SITE_NAME, SITE_URL, TWITTER_SITE } from './page-template.js';
 
 interface CompareScore {
   domain: string;
@@ -19,11 +19,25 @@ export function renderComparePage(
   domain2: string,
   score2: CompareScore,
 ): string {
-  const title = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)} — Domain Scores | DOMINUS`;
+  const title = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)} — Domain Scores | ${SITE_NAME}`;
   const description = `Side-by-side comparison of ${escapeHtml(domain1)} (EV: €${score1.score.expectedValue.toFixed(0)}) and ${escapeHtml(domain2)} (EV: €${score2.score.expectedValue.toFixed(0)}). Free domain investment comparison tool.`;
   const canon = `/public/compare/${escapeHtml(domain1)}/${escapeHtml(domain2)}`;
   const ogTitle = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)}`;
   const ogDescription = `${escapeHtml(domain1)}: €${score1.score.expectedValue.toFixed(0)} EV — ${escapeHtml(domain2)}: €${score2.score.expectedValue.toFixed(0)} EV`;
+
+  const breadcrumb = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: `${SITE_URL}/` },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: `Compare: ${domain1} vs ${domain2}`,
+        item: `${SITE_URL}/public/compare/${domain1}/${domain2}`,
+      },
+    ],
+  };
 
   const headExtras = [
     `<meta name="description" content="${description}">`,
@@ -31,6 +45,14 @@ export function renderComparePage(
     `<meta property="og:title" content="${ogTitle}">`,
     `<meta property="og:description" content="${ogDescription}">`,
     '<meta property="og:type" content="website">',
+    `<meta property="og:site_name" content="${SITE_NAME}">`,
+    `<meta property="og:url" content="${SITE_URL}${canon}">`,
+    '<meta property="og:locale" content="en_US">',
+    '<meta name="twitter:card" content="summary_large_image">',
+    `<meta name="twitter:site" content="${TWITTER_SITE}">`,
+    `<meta name="twitter:title" content="${ogTitle}">`,
+    `<meta name="twitter:description" content="${ogDescription}">`,
+    `<script type="application/ld+json">${JSON.stringify(breadcrumb)}</script>`,
   ].join('\n');
 
   const col = (d: string, s: CompareScore): string =>

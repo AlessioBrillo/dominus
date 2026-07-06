@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
+import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
@@ -11,6 +12,7 @@ import {
 } from '../services/anon-scoring-service.js';
 import { isValidDomain, parseDomain } from '../utils/domain.js';
 import { runWithTenant } from '../utils/tenant-context.js';
+import { MemoryCache } from '../providers/cached-provider.js';
 import { getLogger } from '../logger.js';
 import { generateOgPng } from './open-graph.js';
 import {
@@ -25,45 +27,52 @@ const logger = getLogger();
 
 const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000;
 const PUBLIC_RATE_LIMIT_MAX = 30;
+const PER_DOMAIN_RATE_LIMIT_WINDOW_MS = 60_000;
+const PER_DOMAIN_RATE_LIMIT_MAX = 5;
+const CACHE_MAX_SIZE = 500;
+const CACHE_TTL_SECONDS = 300;
+const VIEW_COUNT_FLUSH_INTERVAL_MS = 60_000;
 
-const CACHE_TTL_MS = 300_000; // 5 minutes
-
-interface CacheEntry {
-  data: unknown;
-  expiresAt: number;
+interface ViewCountEntry {
+  slug: string;
+  count: number;
 }
 
-function createCache(): {
-  get: (key: string) => unknown | undefined;
-  set: (key: string, data: unknown) => void;
+function createPerDomainRateLimiter(): {
+  check: (ip: string, domain: string) => boolean;
 } {
-  const store = new Map<string, CacheEntry>();
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  const windows = new Map<string, { count: number; resetAt: number }>();
+  const MAX_WINDOWS = 10_000;
 
-  function get(key: string): unknown | undefined {
-    const entry = store.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      store.delete(key);
-      return undefined;
+  function key(ip: string, domain: string): string {
+    return `${ip}:${domain.toLowerCase()}`;
+  }
+
+  function prune(): void {
+    const now = Date.now();
+    for (const [k, v] of windows) {
+      if (now > v.resetAt) windows.delete(k);
     }
-    return entry.data;
   }
 
-  function set(key: string, data: unknown): void {
-    const existing = timers.get(key);
-    if (existing) clearTimeout(existing);
-    store.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-    timers.set(
-      key,
-      setTimeout(() => {
-        store.delete(key);
-        timers.delete(key);
-      }, CACHE_TTL_MS).unref(),
-    );
-  }
+  setInterval(prune, 60_000).unref();
 
-  return { get, set };
+  return {
+    check(ip: string, domain: string): boolean {
+      const k = key(ip, domain);
+      const now = Date.now();
+      let entry = windows.get(k);
+      if (!entry || now > entry.resetAt) {
+        if (windows.size >= MAX_WINDOWS && !windows.has(k)) {
+          return true;
+        }
+        windows.set(k, { count: 1, resetAt: now + PER_DOMAIN_RATE_LIMIT_WINDOW_MS });
+        return true;
+      }
+      entry.count++;
+      return entry.count <= PER_DOMAIN_RATE_LIMIT_MAX;
+    },
+  };
 }
 
 export function createPublicRouter(
@@ -73,7 +82,40 @@ export function createPublicRouter(
   anonScoring?: AnonScoringService,
 ): Router {
   const router = Router();
-  const cache = createCache();
+  const cache = new MemoryCache<unknown>(CACHE_MAX_SIZE, CACHE_TTL_SECONDS);
+  const domainRateLimiter = createPerDomainRateLimiter();
+
+  let viewCountBuffer: ViewCountEntry[] = [];
+  let viewCountFlushTimer: ReturnType<typeof setInterval> | null = null;
+
+  function scheduleViewCountFlush(): void {
+    if (viewCountFlushTimer) return;
+    viewCountFlushTimer = setInterval(async () => {
+      const batch = viewCountBuffer;
+      viewCountBuffer = [];
+      if (batch.length === 0) return;
+      for (const entry of batch) {
+        await db
+          .exec('UPDATE public_scores SET view_count = view_count + ? WHERE slug = ?', [
+            entry.count,
+            entry.slug,
+          ])
+          .catch((err: unknown) => {
+            logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
+          });
+      }
+    }, VIEW_COUNT_FLUSH_INTERVAL_MS).unref();
+  }
+
+  function bumpViewCount(slug: string): void {
+    scheduleViewCountFlush();
+    const existing = viewCountBuffer.find((e) => e.slug === slug);
+    if (existing) {
+      existing.count++;
+    } else {
+      viewCountBuffer.push({ slug, count: 1 });
+    }
+  }
 
   const publicRateLimiter = rateLimit({
     windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
@@ -85,10 +127,9 @@ export function createPublicRouter(
     },
   });
 
+  router.use(cors({ origin: '*', methods: ['GET', 'POST', 'HEAD'] }));
   router.use(publicRateLimiter);
 
-  // Wrap all public routes in the 'public' tenant context so PostgreSQL RLS
-  // policies on public_scores allow both tenant-scoped AND anonymous access.
   router.use((_req, _res, next) => runWithTenant('public', () => next()));
 
   router.post('/scores', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -160,6 +201,21 @@ export function createPublicRouter(
           return;
         }
 
+        const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+        if (!domainRateLimiter.check(ip, domain)) {
+          if (req.accepts('html')) {
+            res.status(429).send(renderErrorPage('Too many requests for this domain'));
+          } else {
+            res.status(429).json({
+              error: {
+                code: 'RATE_LIMITED',
+                message: 'Too many requests for this domain, please try again later',
+              },
+            });
+          }
+          return;
+        }
+
         if (anonScoring) {
           const result = await anonScoring.score(domain);
           if (req.accepts('html')) {
@@ -170,7 +226,6 @@ export function createPublicRouter(
           return;
         }
 
-        // Fallback when AnonScoringService not available — score inline
         const parsed = parseDomain(domain);
 
         let trademarkResult: {
@@ -201,11 +256,6 @@ export function createPublicRouter(
         const data = { domain, score: scoreResult, trademark: trademarkResult };
         cache.set(`domain:${domain.toLowerCase()}`, data);
 
-        logger.info(
-          { domain, trademarkVerdict: trademarkResult?.verdict },
-          'Public domain score served',
-        );
-
         if (req.accepts('html')) {
           res.send(renderDomainPage(domain, scoreResult, trademarkResult));
         } else {
@@ -227,7 +277,8 @@ export function createPublicRouter(
     '/compare/:slug1/:slug2',
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const { slug1, slug2 } = req.params;
+        const slug1 = req.params.slug1 as string | undefined;
+        const slug2 = req.params.slug2 as string | undefined;
         if (!slug1 || slug1.length < 8 || !slug2 || slug2.length < 8) {
           if (req.accepts('html')) {
             res.status(400).send(renderErrorPage('Invalid score slugs'));
@@ -241,6 +292,8 @@ export function createPublicRouter(
 
         const cached = cache.get(`compare:${slug1}:${slug2}`);
         if (cached && !req.accepts('html')) {
+          bumpViewCount(slug1);
+          bumpViewCount(slug2);
           res.json(cached);
           return;
         }
@@ -285,12 +338,8 @@ export function createPublicRouter(
           trademark: row2.trademark_json ? JSON.parse(row2.trademark_json) : null,
         };
 
-        await db.exec('UPDATE public_scores SET view_count = view_count + 1 WHERE slug = ?', [
-          slug1,
-        ]);
-        await db.exec('UPDATE public_scores SET view_count = view_count + 1 WHERE slug = ?', [
-          slug2,
-        ]);
+        bumpViewCount(slug1);
+        bumpViewCount(slug2);
 
         const data = { score1, score2 };
         cache.set(`compare:${slug1}:${slug2}`, data);
@@ -315,7 +364,7 @@ export function createPublicRouter(
           domain: string;
           created_at: string;
         }>(
-          'SELECT slug, domain, created_at FROM public_scores ORDER BY created_at DESC LIMIT 50000',
+          "SELECT slug, domain, created_at FROM public_scores WHERE created_at > datetime('now', '-90 days') ORDER BY created_at DESC LIMIT 50000",
         );
 
         const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -349,8 +398,8 @@ export function createPublicRouter(
     '/s/:slug/og.png',
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
-        const { slug } = req.params;
-        if (!slug || slug.length < 8) {
+        const slugOg = req.params.slug as string | undefined;
+        if (!slugOg || slugOg.length < 8) {
           res.status(400).json({
             error: { code: 'INVALID_SLUG', message: 'Invalid score slug' },
           });
@@ -363,7 +412,7 @@ export function createPublicRouter(
           score_json: string;
           trademark_json: string | null;
         }>('SELECT slug, domain, score_json, trademark_json FROM public_scores WHERE slug = ?', [
-          slug,
+          slugOg,
         ]);
 
         if (!row) {
@@ -399,7 +448,7 @@ export function createPublicRouter(
 
   router.get('/s/:slug', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { slug } = req.params;
+      const slug = req.params.slug as string | undefined;
       if (!slug || slug.length < 8) {
         res.status(400).json({
           error: { code: 'INVALID_SLUG', message: 'Invalid score slug' },
@@ -409,9 +458,7 @@ export function createPublicRouter(
 
       const cached = cache.get(`score:${slug}`);
       if (cached && !req.accepts('html')) {
-        await db.exec('UPDATE public_scores SET view_count = view_count + 1 WHERE slug = ?', [
-          slug,
-        ]);
+        bumpViewCount(slug);
         res.json(cached);
         return;
       }
@@ -441,16 +488,15 @@ export function createPublicRouter(
 
       const score = JSON.parse(row.score_json);
       const trademark = row.trademark_json ? JSON.parse(row.trademark_json) : null;
-      const viewCount = row.view_count + 1;
 
-      await db.exec('UPDATE public_scores SET view_count = view_count + 1 WHERE slug = ?', [slug]);
+      bumpViewCount(slug);
 
       const data = {
         slug: row.slug,
         domain: row.domain,
         score,
         trademark,
-        viewCount,
+        viewCount: row.view_count + 1,
         createdAt: row.created_at,
       };
 
