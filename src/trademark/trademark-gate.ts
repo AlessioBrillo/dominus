@@ -1,6 +1,7 @@
 import { getLogger } from '../logger.js';
 import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
 import { getSldForTrademark } from '../utils/domain-validator.js';
+import { parseDomain } from '../utils/domain.js';
 import {
   detectMatch,
   extractSld,
@@ -52,11 +53,7 @@ export interface GateResult {
 export const STRICT_USPTO_TLDS: ReadonlySet<string> = new Set(['.com', '.us']);
 
 function isStrictTld(domain: string): boolean {
-  const lower = domain.toLowerCase();
-  for (const tld of STRICT_USPTO_TLDS) {
-    if (lower.endsWith(tld)) return true;
-  }
-  return false;
+  return STRICT_USPTO_TLDS.has(parseDomain(domain).tld);
 }
 
 /**

@@ -68,6 +68,20 @@ export class PublicRdapProvider implements RdapProvider {
       throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
     }
 
+    if (response.status === 429) {
+      const retryAfter = response.headers.get('Retry-After');
+      let waitMs = 5000;
+      if (retryAfter) {
+        const parsed = parseInt(retryAfter, 10);
+        waitMs = isNaN(parsed) ? 5000 : parsed * 1000;
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, 30_000)));
+      throw new ProviderError(
+        `RDAP rate limited (429) for ${domain} — retried after ${waitMs}ms`,
+        this.name,
+      );
+    }
+
     if (response.status === 404) {
       return {
         domain,
