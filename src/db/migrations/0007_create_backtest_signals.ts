@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const BACKTEST_SIGNALS_DDL = `
 CREATE TABLE IF NOT EXISTS backtest_signals (
@@ -40,4 +42,11 @@ export function up(db: Database.Database): void {
   db.exec(BACKTEST_SIGNALS_OUTCOME_IDX_DDL);
   db.exec(BACKTEST_SIGNALS_DOMAIN_IDX_DDL);
   db.exec(BACKTEST_SIGNALS_UNIQUE_IDX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, BACKTEST_SIGNALS_DDL);
+  await execPg(db, BACKTEST_SIGNALS_OUTCOME_IDX_DDL);
+  await execPg(db, BACKTEST_SIGNALS_DOMAIN_IDX_DDL);
+  await execPg(db, BACKTEST_SIGNALS_UNIQUE_IDX_DDL);
 }

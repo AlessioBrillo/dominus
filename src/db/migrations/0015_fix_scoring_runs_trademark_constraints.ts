@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 interface ColumnInfo {
   cid: number;
@@ -92,4 +93,8 @@ export function up(db: Database.Database): void {
       ON provider_cache(expires_at)
     `);
   }
+}
+
+export async function upPg(_db: DatabaseProvider): Promise<void> {
+  // PG schema already has correct constraints from creation
 }

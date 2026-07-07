@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0011_rename_weights_snapshot';
 
@@ -11,4 +12,8 @@ export function up(db: Database.Database): void {
   if (hasOld && !hasNew) {
     db.exec(`ALTER TABLE scoring_runs RENAME COLUMN weights_snapshot TO signal_scores`);
   }
+}
+
+export async function upPg(_db: DatabaseProvider): Promise<void> {
+  // PG schema already has signal_scores from creation
 }

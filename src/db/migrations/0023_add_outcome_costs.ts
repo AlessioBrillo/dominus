@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0023_add_outcome_costs';
 
@@ -20,6 +21,10 @@ export function up(db: Database.Database): void {
       ADD COLUMN total_renewal_cost_eur REAL
     `);
   }
+}
+
+export async function upPg(_db: DatabaseProvider): Promise<void> {
+  // PG schema already has these columns from creation
 }
 
 export function down(_db: Database.Database): void {

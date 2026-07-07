@@ -1,6 +1,27 @@
 import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0034_fix_listings_schema_divergence';
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  const listingsExist = await db.queryOne<{ exists: number }>(
+    `SELECT 1 as exists FROM information_schema.tables WHERE table_name = 'listings'`,
+  );
+  if (!listingsExist?.exists) return;
+
+  const cols = await db.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'listings'`,
+  );
+  const colNames = new Set(cols.map((c: { column_name: string }) => c.column_name));
+
+  if (!colNames.has('price_eur')) {
+    await db.exec(`ALTER TABLE listings ADD COLUMN price_eur REAL`);
+    await db.exec(`UPDATE listings SET price_eur = list_price_eur WHERE price_eur IS NULL`);
+  }
+  if (!colNames.has('expires_at')) {
+    await db.exec(`ALTER TABLE listings ADD COLUMN expires_at TIMESTAMP`);
+  }
+}
 
 export function up(db: Database.Database): void {
   const tables = db

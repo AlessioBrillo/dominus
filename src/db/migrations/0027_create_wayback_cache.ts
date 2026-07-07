@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0027_create_wayback_cache';
 
@@ -18,6 +20,26 @@ export function up(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_wayback_cache_expires
       ON wayback_cache(expires_at)
   `);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(
+    db,
+    `
+    CREATE TABLE IF NOT EXISTS wayback_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL UNIQUE,
+      domain_age REAL NOT NULL DEFAULT 0,
+      wayback_snapshots INTEGER NOT NULL DEFAULT 0,
+      cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    )
+  `,
+  );
+  await execPg(
+    db,
+    'CREATE INDEX IF NOT EXISTS idx_wayback_cache_expires ON wayback_cache(expires_at)',
+  );
 }
 
 export function down(db: Database.Database): void {

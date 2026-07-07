@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const RENEWAL_ALERTS_DDL = `
 CREATE TABLE IF NOT EXISTS renewal_alerts (
@@ -39,4 +41,11 @@ export function up(db: Database.Database): void {
   db.exec(RENEWAL_ALERTS_DOMAIN_IDX_DDL);
   db.exec(RENEWAL_ALERTS_UNACK_IDX_DDL);
   db.exec(RENEWAL_ALERTS_UNIQUE_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, RENEWAL_ALERTS_DDL);
+  await execPg(db, RENEWAL_ALERTS_DOMAIN_IDX_DDL);
+  await execPg(db, RENEWAL_ALERTS_UNACK_IDX_DDL);
+  await execPg(db, RENEWAL_ALERTS_UNIQUE_DDL);
 }

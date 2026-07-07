@@ -2,7 +2,7 @@ import { validateMigrationSync } from './migrator.js';
 
 const errors = validateMigrationSync();
 if (errors.length === 0) {
-  console.log('✓ SQLite and PostgreSQL migrations are in sync');
+  console.log('✓ All migrations have PostgreSQL (upPg) equivalents');
   process.exit(0);
 }
 

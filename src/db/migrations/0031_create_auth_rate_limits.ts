@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0031_create_auth_rate_limits';
 
@@ -12,6 +14,21 @@ export function up(db: Database.Database): void {
       updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
     )
   `);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(
+    db,
+    `
+    CREATE TABLE IF NOT EXISTS auth_rate_limits (
+      ip          TEXT    NOT NULL PRIMARY KEY,
+      failures    INTEGER NOT NULL DEFAULT 0,
+      reset_at    INTEGER NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `,
+  );
 }
 
 export function down(db: Database.Database): void {

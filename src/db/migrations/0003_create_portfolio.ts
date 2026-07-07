@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const PORTFOLIO_ENTRIES_DDL = `
 CREATE TABLE IF NOT EXISTS portfolio_entries (
@@ -25,4 +27,8 @@ export const name = '0003_create_portfolio';
 
 export function up(db: Database.Database): void {
   db.exec(PORTFOLIO_ENTRIES_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, PORTFOLIO_ENTRIES_DDL);
 }
