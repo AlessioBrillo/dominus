@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0028_create_auto_listings';
 
@@ -31,6 +33,34 @@ export function up(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_auto_listings_source
       ON auto_listings(trigger_source)
   `);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(
+    db,
+    `
+    CREATE TABLE IF NOT EXISTS auto_listings (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain            TEXT    NOT NULL,
+      portfolio_entry_id INTEGER,
+      listing_id        INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+      trigger_source    TEXT    NOT NULL CHECK(trigger_source IN ('acquisition','purchase','pipeline_run','manual')),
+      pipeline_run_id   TEXT,
+      score_snapshot_json TEXT,
+      auto_listed_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      status            TEXT    NOT NULL DEFAULT 'active' CHECK(status IN ('active','superseded','cancelled'))
+    )
+  `,
+  );
+  await execPg(db, 'CREATE INDEX IF NOT EXISTS idx_auto_listings_domain ON auto_listings(domain)');
+  await execPg(
+    db,
+    'CREATE INDEX IF NOT EXISTS idx_auto_listings_listing ON auto_listings(listing_id)',
+  );
+  await execPg(
+    db,
+    'CREATE INDEX IF NOT EXISTS idx_auto_listings_source ON auto_listings(trigger_source)',
+  );
 }
 
 export function down(db: Database.Database): void {

@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const PIPELINE_RUNS_DDL = `
 CREATE TABLE IF NOT EXISTS pipeline_runs (
@@ -31,4 +33,10 @@ export function up(db: Database.Database): void {
   db.exec(PIPELINE_RUNS_DDL);
   db.exec(PIPELINE_RUNS_STARTED_AT_IDX_DDL);
   db.exec(PIPELINE_RUNS_RETAINED_IDX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, PIPELINE_RUNS_DDL);
+  await execPg(db, PIPELINE_RUNS_STARTED_AT_IDX_DDL);
+  await execPg(db, PIPELINE_RUNS_RETAINED_IDX_DDL);
 }

@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0026_create_public_scores';
 
@@ -23,6 +25,27 @@ export function up(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_public_scores_created
       ON public_scores(created_at DESC)
   `);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(
+    db,
+    `
+    CREATE TABLE IF NOT EXISTS public_scores (
+      slug           TEXT    NOT NULL PRIMARY KEY,
+      domain         TEXT    NOT NULL,
+      score_json     TEXT    NOT NULL,
+      trademark_json TEXT,
+      view_count     INTEGER NOT NULL DEFAULT 0,
+      created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `,
+  );
+  await execPg(db, 'CREATE INDEX IF NOT EXISTS idx_public_scores_domain ON public_scores(domain)');
+  await execPg(
+    db,
+    'CREATE INDEX IF NOT EXISTS idx_public_scores_created ON public_scores(created_at DESC)',
+  );
 }
 
 export function down(db: Database.Database): void {

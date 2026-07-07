@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const WEIGHT_SNAPSHOTS_DDL = `
 CREATE TABLE IF NOT EXISTS weight_snapshots (
@@ -32,4 +34,10 @@ export function up(db: Database.Database): void {
   db.exec(WEIGHT_SNAPSHOTS_DDL);
   db.exec(WEIGHT_SNAPSHOTS_IDX_DDL);
   db.exec(WEIGHT_SNAPSHOTS_SOURCE_IDX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, WEIGHT_SNAPSHOTS_DDL);
+  await execPg(db, WEIGHT_SNAPSHOTS_IDX_DDL);
+  await execPg(db, WEIGHT_SNAPSHOTS_SOURCE_IDX_DDL);
 }

@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0017_add_pipeline_run_index';
 
@@ -14,4 +15,8 @@ export function up(db: Database.Database): void {
       ON candidates(pipeline_run_id)
     `);
   }
+}
+
+export async function upPg(_db: DatabaseProvider): Promise<void> {
+  // PG schema already has this index from creation
 }

@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const SCORING_RUNS_DDL = `
 CREATE TABLE IF NOT EXISTS scoring_runs (
@@ -29,4 +31,9 @@ export const name = '0002_create_scoring_runs';
 export function up(db: Database.Database): void {
   db.exec(SCORING_RUNS_DDL);
   db.exec(SCORING_RUNS_INDEX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, SCORING_RUNS_DDL);
+  await execPg(db, SCORING_RUNS_INDEX_DDL);
 }

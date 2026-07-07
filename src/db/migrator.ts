@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
-import { getMigrations, getMigrationNames } from './migrations/registry.js';
-import { PG_MIGRATIONS } from './provider/pg-migrations.js';
+import type { DatabaseProvider } from './provider/interface.js';
+import { getMigrations, getPgMigrations, getMigrationNames } from './migrations/registry.js';
 
 const SCHEMA_MIGRATIONS_DDL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -34,24 +34,49 @@ export function runMigrations(db: Database.Database): void {
 }
 
 /**
- * Validate that SQLite and PostgreSQL migration lists are in sync.
+ * Return PostgreSQL migrations derived from the same source files.
+ * Only migrations that export `upPg` are included — when a new SQLite
+ * migration is added without `upPg`, the PG migration simply won't run,
+ * making drift visible immediately at deploy time.
+ */
+export function getDerivedPgMigrations(): Array<{
+  name: string;
+  up: (db: DatabaseProvider) => Promise<void>;
+}> {
+  return getPgMigrations().map((m) => ({
+    name: m.name,
+    up: m.upPg!,
+  }));
+}
+
+/**
+ * Validate that every SQLite migration has a corresponding `upPg` export.
+ * All migrations live in the SQLite files with `upPg` for PostgreSQL.
+ * See ADR-0005 for the migration strategy.
+ *
  * Returns an array of error messages (empty = all good).
  */
 export function validateMigrationSync(): string[] {
+  const sqliteMigrations = getMigrations();
   const sqliteNames = getMigrationNames();
-  const pgNames = PG_MIGRATIONS.map((m) => m.name).sort();
+  const derivedNames = getPgMigrations()
+    .map((m) => m.name)
+    .sort();
 
   const errors: string[] = [];
 
-  for (const name of sqliteNames) {
-    if (!pgNames.includes(name)) {
-      errors.push(`SQLite migration '${name}' is missing from PG_MIGRATIONS in pg-migrations.ts`);
+  for (const migration of sqliteMigrations) {
+    if (!migration.upPg) {
+      errors.push(
+        `Migration '${migration.name}' has no upPg export — PostgreSQL deployments will skip it. ` +
+          `Add an upPg function to src/db/migrations/${migration.name}.ts`,
+      );
     }
   }
 
-  for (const name of pgNames) {
+  for (const name of derivedNames) {
     if (!sqliteNames.includes(name)) {
-      errors.push(`PG_MIGRATIONS entry '${name}' has no corresponding SQLite migration file`);
+      errors.push(`Derived PG migration '${name}' has no corresponding SQLite migration file`);
     }
   }
 

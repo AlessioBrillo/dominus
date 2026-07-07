@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const WATCHLIST_ENTRIES_DDL = `
 CREATE TABLE IF NOT EXISTS watchlist_entries (
@@ -31,4 +33,10 @@ export function up(db: Database.Database): void {
   db.exec(WATCHLIST_ENTRIES_DDL);
   db.exec(WATCHLIST_CHECKED_AT_IDX_DDL);
   db.exec(WATCHLIST_NOTIFIED_IDX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, WATCHLIST_ENTRIES_DDL);
+  await execPg(db, WATCHLIST_CHECKED_AT_IDX_DDL);
+  await execPg(db, WATCHLIST_NOTIFIED_IDX_DDL);
 }

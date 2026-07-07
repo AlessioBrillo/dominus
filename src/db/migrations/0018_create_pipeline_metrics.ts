@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0018_create_pipeline_metrics';
 
@@ -21,4 +23,30 @@ export function up(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_pipeline_metrics_run
       ON pipeline_metrics(pipeline_run_id)
   `);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(
+    db,
+    `
+    CREATE TABLE IF NOT EXISTS pipeline_metrics (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      pipeline_run_id TEXT    NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
+      stage_name      TEXT    NOT NULL,
+      passed          INTEGER NOT NULL DEFAULT 0,
+      filtered        INTEGER NOT NULL DEFAULT 0,
+      duration_ms     INTEGER NOT NULL DEFAULT 0,
+      error           INTEGER NOT NULL DEFAULT 0,
+      recorded_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(pipeline_run_id, stage_name)
+    )
+  `,
+  );
+  await execPg(
+    db,
+    `
+    CREATE INDEX IF NOT EXISTS idx_pipeline_metrics_run
+      ON pipeline_metrics(pipeline_run_id)
+  `,
+  );
 }

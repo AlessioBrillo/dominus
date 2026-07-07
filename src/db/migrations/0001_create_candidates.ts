@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const CANDIDATES_DDL = `
 CREATE TABLE IF NOT EXISTS candidates (
@@ -25,4 +27,9 @@ export const name = '0001_create_candidates';
 export function up(db: Database.Database): void {
   db.exec(CANDIDATES_DDL);
   db.exec(CANDIDATES_INDEX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, CANDIDATES_DDL);
+  await execPg(db, CANDIDATES_INDEX_DDL);
 }

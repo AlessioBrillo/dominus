@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { execPg } from '../pg-ddl.js';
+import type { DatabaseProvider } from '../provider/interface.js';
 
 const TRADEMARK_RESULTS_DDL = `
 CREATE TABLE IF NOT EXISTS trademark_results (
@@ -23,4 +25,9 @@ export const name = '0004_create_trademark';
 export function up(db: Database.Database): void {
   db.exec(TRADEMARK_RESULTS_DDL);
   db.exec(TRADEMARK_INDEX_DDL);
+}
+
+export async function upPg(db: DatabaseProvider): Promise<void> {
+  await execPg(db, TRADEMARK_RESULTS_DDL);
+  await execPg(db, TRADEMARK_INDEX_DDL);
 }

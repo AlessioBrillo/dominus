@@ -9,7 +9,7 @@ import { getLogger } from '../../logger.js';
 import { getTenantId } from '../../utils/tenant-context.js';
 import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 import { DatabaseError } from './interface.js';
-import { PG_MIGRATIONS } from './pg-migrations.js';
+import { getPgMigrations } from '../migrations/registry.js';
 
 const logger = getLogger();
 
@@ -300,9 +300,10 @@ export class PostgresAdapter implements DatabaseProvider {
     );
     const applied = new Set(result.rows.map((r) => r.migration_name));
 
-    for (const migration of PG_MIGRATIONS) {
-      if (!applied.has(migration.name)) {
-        await migration.up(this);
+    const migrations = getPgMigrations();
+    for (const migration of migrations) {
+      if (!applied.has(migration.name) && migration.upPg) {
+        await migration.upPg(this);
         await this.#pool.query('INSERT INTO schema_migrations (migration_name) VALUES ($1)', [
           migration.name,
         ]);
