@@ -461,6 +461,9 @@ export class NodeDnsProvider implements DnsProvider {
 
     const cached = this.#cache.get(lookupDomain);
     if (cached !== undefined && cached.expiresAt > Date.now()) {
+      // LRU: re-insert to move to end of Map iteration order
+      this.#cache.delete(lookupDomain);
+      this.#cache.set(lookupDomain, cached);
       return cached.result;
     }
 
@@ -585,21 +588,31 @@ export class NodeDnsProvider implements DnsProvider {
 
     await this.#checkResolverHealth(signal);
 
-    const results: DnsCheckResult[] = [];
-    for (let i = 0; i < domains.length; i += this.#bulkConcurrency) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const chunk = domains.slice(i, i + this.#bulkConcurrency);
-      const chunkResults = await Promise.all(
-        chunk.map((d) =>
-          this.checkAvailability(d, signal).catch(() => ({
-            domain: d,
+    const n = domains.length;
+    if (n === 0) return [];
+
+    const results = new Array<DnsCheckResult>(n);
+    let nextIndex = 0;
+
+    const worker = async (): Promise<void> => {
+      while (nextIndex < n) {
+        if (signal?.aborted) return;
+        const i = nextIndex++;
+        const domain = domains[i]!;
+        try {
+          results[i] = await this.checkAvailability(domain, signal);
+        } catch {
+          results[i] = {
+            domain,
             status: DomainStatus.Unknown,
             checkedAt: new Date().toISOString(),
-          })),
-        ),
-      );
-      results.push(...chunkResults);
-    }
+          };
+        }
+      }
+    };
+
+    const workers = Math.min(this.#bulkConcurrency, n);
+    await Promise.all(Array.from({ length: workers }, () => worker()));
     return results;
   }
 }

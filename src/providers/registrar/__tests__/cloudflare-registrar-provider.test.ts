@@ -136,7 +136,19 @@ describe('CloudflareRegistrarProvider', () => {
 
   describe('purchase', () => {
     it('registers a domain successfully and uses expectedPriceEur', async () => {
+      // pre-purchase price fetch returns null price → falls back to expectedPriceEur
       mockFetch
+        .mockResolvedValueOnce(
+          mockCfResponse({
+            id: 'price-check',
+            domain: 'example.com',
+            available: false,
+            supported_tld: true,
+            register_price: null,
+            renew_price: 9.77,
+            transfer_in: null,
+          }),
+        )
         .mockResolvedValueOnce(
           mockCfResponse({
             id: 'order-123',
@@ -171,6 +183,17 @@ describe('CloudflareRegistrarProvider', () => {
       mockFetch
         .mockResolvedValueOnce(
           mockCfResponse({
+            id: 'price-check',
+            domain: 'example.com',
+            available: false,
+            supported_tld: true,
+            register_price: null,
+            renew_price: 9.77,
+            transfer_in: null,
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockCfResponse({
             id: 'order-456',
             domain: 'example.com',
             expires_at: '2029-06-26T00:00:00Z',
@@ -198,7 +221,10 @@ describe('CloudflareRegistrarProvider', () => {
     });
 
     it('returns failure on HTTP error', async () => {
-      mockFetch.mockResolvedValue(mockCfError(403, 'Insufficient permissions'));
+      // pre-purchase fetch fails on HTTP 403 → falls through gracefully
+      mockFetch
+        .mockResolvedValueOnce(mockCfError(403, 'Insufficient permissions'))
+        .mockResolvedValueOnce(mockCfError(403, 'Insufficient permissions'));
 
       const result = await provider.purchase({ domain: 'example.com', years: 1 });
       expect(result.success).toBe(false);
@@ -214,17 +240,29 @@ describe('CloudflareRegistrarProvider', () => {
     });
 
     it('returns failure when API returns success=false', async () => {
-      mockFetch.mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: false,
-            errors: [{ code: 10000, message: 'Domain not available for registration' }],
-            messages: [],
-            result: null,
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
-      );
+      mockFetch
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: false,
+              errors: [{ code: 10000, message: 'Domain not available for registration' }],
+              messages: [],
+              result: null,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: false,
+              errors: [{ code: 10000, message: 'Domain not available for registration' }],
+              messages: [],
+              result: null,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
 
       const result = await provider.purchase({ domain: 'example.com', years: 1 });
       expect(result.success).toBe(false);
