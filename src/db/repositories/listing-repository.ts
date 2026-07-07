@@ -144,34 +144,43 @@ export class ListingRepository {
   }
 
   async insertOffer(offer: NewListingOffer): Promise<{ id: number }> {
+    const tid = resolveTenantId();
     const result = await this.#db.exec(
-      `INSERT INTO listing_offers (listing_id, amount_eur, buyer, status, notes)
-       VALUES (?, ?, ?, 'pending', ?)`,
-      [offer.listingId, offer.amountEur, offer.buyer, offer.notes ?? null],
+      `INSERT INTO listing_offers (listing_id, amount_eur, buyer, status, notes, tenant_id)
+       VALUES (?, ?, ?, 'pending', ?, ?)`,
+      [offer.listingId, offer.amountEur, offer.buyer, offer.notes ?? null, tid],
     );
     return { id: result.lastInsertRowid as number };
   }
 
   async findOffersByListingId(listingId: number): Promise<ListingOffer[]> {
+    const tid = resolveTenantId();
     const rows = await this.#db.query<any>(
-      'SELECT * FROM listing_offers WHERE listing_id = ? ORDER BY received_at DESC',
-      [listingId],
+      `SELECT o.* FROM listing_offers o
+       INNER JOIN listings l ON l.id = o.listing_id AND l.tenant_id = ?
+       WHERE o.listing_id = ? ORDER BY o.received_at DESC`,
+      [tid, listingId],
     );
     return rows.map(listingOfferFromRow);
   }
 
   async findPendingOffer(listingId: number): Promise<ListingOffer | undefined> {
+    const tid = resolveTenantId();
     const row = await this.#db.queryOne<any>(
-      "SELECT * FROM listing_offers WHERE listing_id = ? AND status = 'pending' ORDER BY received_at DESC LIMIT 1",
-      [listingId],
+      `SELECT o.* FROM listing_offers o
+       INNER JOIN listings l ON l.id = o.listing_id AND l.tenant_id = ?
+       WHERE o.listing_id = ? AND o.status = 'pending' ORDER BY o.received_at DESC LIMIT 1`,
+      [tid, listingId],
     );
     return row ? listingOfferFromRow(row) : undefined;
   }
 
   async updateOfferStatus(id: number, status: string, notes?: string): Promise<void> {
+    const tid = resolveTenantId();
     await this.#db.exec(
-      'UPDATE listing_offers SET status = ?, responded_at = CURRENT_TIMESTAMP, notes = COALESCE(?, notes) WHERE id = ?',
-      [status, notes ?? null, id],
+      `UPDATE listing_offers SET status = ?, responded_at = CURRENT_TIMESTAMP, notes = COALESCE(?, notes)
+       WHERE id = ? AND listing_id IN (SELECT id FROM listings WHERE tenant_id = ?)`,
+      [status, notes ?? null, id, tid],
     );
   }
 }
