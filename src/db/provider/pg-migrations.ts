@@ -704,6 +704,20 @@ export const PG_MIGRATIONS: Array<{ name: string; up: (db: DatabaseProvider) => 
     },
   },
   {
+    name: '0036_add_pipeline_lock_worker_id',
+    up: async (db): Promise<void> => {
+      const colExists = await db.queryOne<{ exists: number }>(
+        `SELECT 1 as exists FROM information_schema.columns WHERE table_name = 'pipeline_locks' AND column_name = 'worker_id'`,
+      );
+      if (!colExists?.exists) {
+        await db.exec(`ALTER TABLE pipeline_locks ADD COLUMN worker_id TEXT`);
+        await db.exec(
+          `CREATE INDEX IF NOT EXISTS idx_pipeline_locks_worker ON pipeline_locks(worker_id)`,
+        );
+      }
+    },
+  },
+  {
     name: '0034_fix_listings_schema_divergence',
     up: async (db): Promise<void> => {
       const listingsExist = await db.queryOne<{ exists: number }>(
