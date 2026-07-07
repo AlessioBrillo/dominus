@@ -6,9 +6,17 @@ import type { WhoisProvider, WhoisResult } from './whois-provider.js';
 import { resolveWhoisServer } from './iana-server-lookup.js';
 import { RateLimiter } from '../rate-limiter.js';
 import type { RateLimiterConfig } from '../rate-limiter.js';
+import { CircuitBreaker } from '../circuit-breaker.js';
+import type { CircuitBreakerPolicy } from '../circuit-breaker.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_RESPONSE_BYTES = 65_536;
+
+const WHOIS_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
+  failureThreshold: 3,
+  windowMs: 30_000,
+  cooldownMs: 60_000,
+};
 
 const WHOIS_SERVERS: Record<string, string> = {
   '.com': 'whois.verisign-grs.com',
@@ -191,6 +199,7 @@ export class NodeWhoisProvider implements WhoisProvider {
   readonly #connectFn: (port: number, host: string, callback?: () => void) => Socket;
   readonly #defaultRateLimiter: RateLimiter;
   readonly #perTldRateLimiters: Record<string, RateLimiter>;
+  readonly #circuitBreaker: CircuitBreaker;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -198,6 +207,7 @@ export class NodeWhoisProvider implements WhoisProvider {
     this.#connectFn = config.connect ?? netConnect;
     this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
     this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
+    this.#circuitBreaker = new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
   }
 
   #rateLimiterFor(tld: string): RateLimiter {
@@ -214,8 +224,18 @@ export class NodeWhoisProvider implements WhoisProvider {
 
   async #doCheckAvailability(domain: string, _signal?: AbortSignal): Promise<WhoisResult> {
     if (_signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    if (!this.#circuitBreaker.allow()) {
+      throw new ProviderError(
+        `WHOIS circuit breaker open for ${domain} — cooldown ${this.#circuitBreaker.cooldownMs}ms remaining`,
+        'NodeWhoisProvider',
+        'WHOIS_CIRCUIT_OPEN',
+      );
+    }
+
     const tld = extractTld(domain);
     if (tld === '') {
+      this.#circuitBreaker.onFailure();
       throw new ProviderError(
         `Cannot determine TLD for domain: ${domain}`,
         'NodeWhoisProvider',
@@ -234,8 +254,10 @@ export class NodeWhoisProvider implements WhoisProvider {
 
     try {
       const raw = await queryWhoisServer(server, domain, this.#timeoutMs, this.#connectFn);
+      this.#circuitBreaker.onSuccess();
       return parseWhoisResponse(domain, raw);
     } catch (err: unknown) {
+      this.#circuitBreaker.onFailure();
       const message = err instanceof Error ? err.message : String(err);
       throw new ProviderError(
         `WHOIS lookup failed for ${domain} on ${server}: ${message}`,
