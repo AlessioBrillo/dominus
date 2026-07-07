@@ -166,8 +166,13 @@ export class SqliteProvider implements DatabaseProvider {
     return this.#open;
   }
 
+  #workerId(lockName: string): string {
+    return `${lockName}:worker:${process.pid}`;
+  }
+
   async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
     const expiresAt = Date.now() + ttlMs;
+    const workerId = this.#workerId(lockName);
     try {
       // Clear expired locks first (best-effort, non-blocking cleanup)
       this.#db
@@ -175,12 +180,12 @@ export class SqliteProvider implements DatabaseProvider {
           "DELETE FROM pipeline_locks WHERE lock_name = ? AND expires_at < datetime(?, 'unixepoch')",
         )
         .run(lockName, Date.now() / 1000);
-      // Attempt to acquire the lock
+      // Attempt to acquire the lock with worker_id
       const result = this.#db
         .prepare(
-          "INSERT OR IGNORE INTO pipeline_locks (lock_name, locked_at, expires_at) VALUES (?, datetime('now'), datetime(? / 1000, 'unixepoch'))",
+          "INSERT OR IGNORE INTO pipeline_locks (lock_name, locked_at, expires_at, worker_id) VALUES (?, datetime('now'), datetime(? / 1000, 'unixepoch'), ?)",
         )
-        .run(lockName, expiresAt);
+        .run(lockName, expiresAt, workerId);
       return result.changes > 0;
     } catch {
       return false;
@@ -190,11 +195,12 @@ export class SqliteProvider implements DatabaseProvider {
   async renewLock(lockName: string, ttlMs: number): Promise<boolean> {
     try {
       const expiresAt = Date.now() + ttlMs;
+      const workerId = this.#workerId(lockName);
       const result = this.#db
         .prepare(
-          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch') WHERE lock_name = ? AND expires_at >= datetime('now')",
+          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch') WHERE lock_name = ? AND expires_at >= datetime('now') AND worker_id = ?",
         )
-        .run(expiresAt, lockName);
+        .run(expiresAt, lockName, workerId);
       return result.changes > 0;
     } catch {
       return false;
@@ -203,7 +209,10 @@ export class SqliteProvider implements DatabaseProvider {
 
   async unlock(lockName: string): Promise<void> {
     try {
-      this.#db.prepare('DELETE FROM pipeline_locks WHERE lock_name = ?').run(lockName);
+      const workerId = this.#workerId(lockName);
+      this.#db
+        .prepare('DELETE FROM pipeline_locks WHERE lock_name = ? AND worker_id = ?')
+        .run(lockName, workerId);
     } catch {
       // Non-fatal
     }

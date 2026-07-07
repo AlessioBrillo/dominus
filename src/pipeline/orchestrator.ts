@@ -134,7 +134,7 @@ export class PipelineOrchestrator {
             'Retry when the current run completes or expires.',
         );
       }
-      logger.info('Pipeline advisory lock acquired');
+      logger.info({ workerId: process.pid }, 'Pipeline advisory lock acquired');
       this.#startHeartbeat();
     }
 
@@ -146,7 +146,7 @@ export class PipelineOrchestrator {
       this.#stopHeartbeat();
       if (this.db) {
         await this.db.unlock(pipelineLockName()).catch(() => {});
-        logger.info('Pipeline advisory lock released');
+        logger.info({ workerId: process.pid }, 'Pipeline advisory lock released');
       }
       this.#running = false;
     }

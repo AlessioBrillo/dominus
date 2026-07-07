@@ -75,16 +75,21 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
     }
   }
 
+  function workerId(lockName: string): string {
+    const pid = typeof process !== 'undefined' ? process.pid : 0;
+    return `${lockName}:worker:${pid}`;
+  }
+
   async function tryLock(lockName: string, ttlMs: number): Promise<boolean> {
     try {
       await queryFn(`DELETE FROM pipeline_locks WHERE lock_name = $1 AND expires_at < NOW()`, [
         lockName,
       ]);
       const result = await queryFn(
-        `INSERT INTO pipeline_locks (lock_name, locked_at, expires_at)
-         VALUES ($1, NOW(), NOW() + $2::integer * INTERVAL '1 millisecond')
+        `INSERT INTO pipeline_locks (lock_name, locked_at, expires_at, worker_id)
+         VALUES ($1, NOW(), NOW() + $2::integer * INTERVAL '1 millisecond', $3)
          ON CONFLICT (lock_name) DO NOTHING`,
-        [lockName, ttlMs],
+        [lockName, ttlMs, workerId(lockName)],
       );
       return (result.rowCount ?? 0) > 0;
     } catch {
@@ -96,8 +101,8 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
     try {
       const result = await queryFn(
         `UPDATE pipeline_locks SET expires_at = NOW() + $2::integer * INTERVAL '1 millisecond'
-         WHERE lock_name = $1 AND expires_at >= NOW()`,
-        [lockName, ttlMs],
+         WHERE lock_name = $1 AND expires_at >= NOW() AND worker_id = $3`,
+        [lockName, ttlMs, workerId(lockName)],
       );
       return (result.rowCount ?? 0) > 0;
     } catch {
@@ -107,7 +112,10 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
 
   async function unlock(lockName: string): Promise<void> {
     try {
-      await queryFn('DELETE FROM pipeline_locks WHERE lock_name = $1', [lockName]);
+      await queryFn('DELETE FROM pipeline_locks WHERE lock_name = $1 AND worker_id = $2', [
+        lockName,
+        workerId(lockName),
+      ]);
     } catch {
       // Non-fatal
     }
