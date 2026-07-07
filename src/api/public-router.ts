@@ -29,6 +29,9 @@ const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000;
 const PUBLIC_RATE_LIMIT_MAX = 30;
 const PER_DOMAIN_RATE_LIMIT_WINDOW_MS = 60_000;
 const PER_DOMAIN_RATE_LIMIT_MAX = 5;
+const POST_RATE_LIMIT_WINDOW_MS = 60_000;
+const POST_RATE_LIMIT_MAX = 10;
+const POST_BODY_MAX_BYTES = 1000;
 const CACHE_MAX_SIZE = 500;
 const CACHE_TTL_SECONDS = 300;
 const VIEW_COUNT_FLUSH_INTERVAL_MS = 60_000;
@@ -127,63 +130,89 @@ export function createPublicRouter(
     },
   });
 
+  const postRateLimiter = rateLimit({
+    windowMs: POST_RATE_LIMIT_WINDOW_MS,
+    max: POST_RATE_LIMIT_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      error: {
+        code: 'RATE_LIMITED',
+        message: 'Too many score requests for your IP. Please wait before creating more.',
+      },
+    },
+  });
+
   router.use(cors({ origin: '*', methods: ['GET', 'POST', 'HEAD'] }));
   router.use(publicRateLimiter);
 
   router.use((_req, _res, next) => runWithTenant('public', () => next()));
 
-  router.post('/scores', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { domain } = req.body as { domain?: string };
-      if (!domain || !isValidDomain(domain)) {
-        res.status(400).json({
-          error: { code: 'INVALID_DOMAIN', message: `'${domain ?? ''}' is not a valid domain` },
-        });
-        return;
-      }
-
-      const parsed = parseDomain(domain);
-      const scoreResult = await engine.score({
-        domain,
-        tld: parsed.tld,
-        sld: parsed.sld,
-        isCloseout: false,
-      });
-
-      let trademarkJson: string | null = null;
-      if (trademarkGate) {
-        try {
-          const gateResult = await trademarkGate.check(domain);
-          trademarkJson = JSON.stringify({
-            verdict: gateResult.verdict,
-            verifiedSources: gateResult.verifiedSources,
-            matchedMark: gateResult.matchedMark ?? null,
-            matchedOwner: gateResult.matchedOwner ?? null,
+  router.post(
+    '/scores',
+    postRateLimiter,
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const rawBody = typeof req.body === 'object' && req.body !== null ? req.body : {};
+        const bodyStr = JSON.stringify(rawBody);
+        if (bodyStr.length > POST_BODY_MAX_BYTES) {
+          res.status(413).json({
+            error: { code: 'PAYLOAD_TOO_LARGE', message: 'Request body too large' },
           });
-        } catch {
-          trademarkJson = JSON.stringify({ verdict: 'unverified', verifiedSources: [] });
+          return;
         }
+
+        const { domain } = rawBody as { domain?: string };
+        if (!domain || !isValidDomain(domain)) {
+          res.status(400).json({
+            error: { code: 'INVALID_DOMAIN', message: `'${domain ?? ''}' is not a valid domain` },
+          });
+          return;
+        }
+
+        const parsed = parseDomain(domain);
+        const scoreResult = await engine.score({
+          domain,
+          tld: parsed.tld,
+          sld: parsed.sld,
+          isCloseout: false,
+        });
+
+        let trademarkJson: string | null = null;
+        if (trademarkGate) {
+          try {
+            const gateResult = await trademarkGate.check(domain);
+            trademarkJson = JSON.stringify({
+              verdict: gateResult.verdict,
+              verifiedSources: gateResult.verifiedSources,
+              matchedMark: gateResult.matchedMark ?? null,
+              matchedOwner: gateResult.matchedOwner ?? null,
+            });
+          } catch {
+            trademarkJson = JSON.stringify({ verdict: 'unverified', verifiedSources: [] });
+          }
+        }
+
+        const slug = randomUUID().replace(/-/g, '').slice(0, 12);
+        const scoreJson = JSON.stringify(scoreResult);
+
+        await db.exec(
+          'INSERT INTO public_scores (slug, domain, score_json, trademark_json) VALUES (?, ?, ?, ?)',
+          [slug, domain, scoreJson, trademarkJson],
+        );
+
+        logger.info({ slug, domain }, 'Public score created');
+
+        res.status(201).json({
+          slug,
+          url: `/public/s/${slug}`,
+          domain,
+        });
+      } catch (err: unknown) {
+        next(err);
       }
-
-      const slug = randomUUID().replace(/-/g, '').slice(0, 12);
-      const scoreJson = JSON.stringify(scoreResult);
-
-      await db.exec(
-        'INSERT INTO public_scores (slug, domain, score_json, trademark_json) VALUES (?, ?, ?, ?)',
-        [slug, domain, scoreJson, trademarkJson],
-      );
-
-      logger.info({ slug, domain }, 'Public score created');
-
-      res.status(201).json({
-        slug,
-        url: `/public/s/${slug}`,
-        domain,
-      });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+    },
+  );
 
   router.get(
     '/domain/:domain',
