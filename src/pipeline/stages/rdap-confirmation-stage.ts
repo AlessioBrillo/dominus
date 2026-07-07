@@ -145,13 +145,13 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
   }
 
   async #checkAvailability(domain: string, signal?: AbortSignal): Promise<AvailabilityResult> {
-    if (this.whoisProvider === undefined) {
-      const rdap = await this.rdapProvider.confirm(domain, signal);
-      return rdapToResult(rdap);
-    }
-
     const timeoutSignal = AbortSignal.timeout(this.enrichTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+    if (this.whoisProvider === undefined) {
+      const rdap = await this.rdapProvider.confirm(domain, combined);
+      return rdapToResult(rdap);
+    }
 
     const [rdapSettled, whoisSettled] = await Promise.allSettled([
       this.rdapProvider.confirm(domain, combined),
