@@ -21,6 +21,7 @@ const ENTITY_TABLES = [
   'outcome_scores',
   'watchlist_entries',
   'listings',
+  'listing_offers',
   'bids',
   'renewal_alerts',
   'auto_listings',

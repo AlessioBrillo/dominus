@@ -37,6 +37,7 @@ function createTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
       received_at TEXT NOT NULL DEFAULT (datetime('now')),
       responded_at TEXT,
       notes TEXT,
+      tenant_id TEXT NOT NULL DEFAULT 'default',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);

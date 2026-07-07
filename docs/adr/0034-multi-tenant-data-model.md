@@ -4,12 +4,13 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Date** | 2026-06-26 |
 | **Authors** | AlessioBrillo |
 | **Deciders** | AlessioBrillo |
 | **Supersedes** | N/A |
 | **Relates to** | ADR-0027, ADR-0032, ADR-0033 |
+| **Implemented** | 2026-07-07 — see PR #140 |
 | **Project** | DOMINUS |
 
 ## Context
@@ -24,7 +25,7 @@ The core tension is between **isolation** (tenants must never see each other's d
 
 The database has 28 tables (defined in `src/db/schema.ts` at ~620 lines). Of these:
 
-- **Entity tables** (tenant-owned): `candidates`, `portfolio_entries`, `scoring_runs`, `trademark_results`, `outcomes`, `outcome_scores`, `watchlist_entries`, `listings`, `bids`, `renewal_alerts`, `public_scores`, `auto_listings`, `events`, `onboarding_state`
+- **Entity tables** (tenant-owned): `candidates`, `portfolio_entries`, `scoring_runs`, `trademark_results`, `outcomes`, `outcome_scores`, `watchlist_entries`, `listings`, `listing_offers`, `bids`, `renewal_alerts`, `public_scores`, `auto_listings`, `events`, `onboarding_state`
 - **Cross-tenant tables** (system-owned): `schema_migrations`, `pipeline_runs`, `pipeline_metrics`, `provider_cache`, `weight_snapshots`, `backtest_signals`, `scheduler_jobs`, `job_queue`
 - **Multi-instance tables** (per-instance configuration): `api_keys` (Cloud only), `trademark_term_cache`
 
@@ -171,7 +172,7 @@ The rationale:
 
 | Table Category | Tables | tenant_id? | RLS? |
 |----------------|--------|------------|------|
-| **Entity** | candidates, portfolio_entries, scoring_runs, trademark_results, outcomes, outcome_scores, watchlist_entries, listings, bids, renewal_alerts, public_scores (double-keyed — also accessible by slug), auto_listings, events, onboarding_state, api_keys | YES | YES |
+| **Entity** | candidates, portfolio_entries, scoring_runs, trademark_results, outcomes, outcome_scores, watchlist_entries, listings, listing_offers, bids, renewal_alerts, public_scores (double-keyed — also accessible by slug), auto_listings, events, onboarding_state, api_keys | YES | YES |
 | **Cross-tenant** | pipeline_runs, pipeline_metrics, provider_cache, weight_snapshots, backtest_signals, scheduler_jobs, job_queue, trademark_term_cache | NO | NO |
 | **System** | schema_migrations | NO | NO |
 
@@ -267,21 +268,23 @@ The base repository approach is intentionally minimal. RLS is the primary enforc
 
 ### Migration and Monitoring Plan
 
-**Phase 1 — Schema Migration (reversible):**
-1. Create migration `0029-add-tenant-id.ts` that adds `tenant_id TEXT NOT NULL DEFAULT 'default'` to all entity tables
-2. Create composite indexes: `CREATE INDEX idx_candidates_tenant ON candidates(tenant_id, id)`
-3. Run migration on CE (SQLite) — all existing rows get `tenant_id = 'default'`
-4. Run migration on Cloud (PostgreSQL) — same effect, RLS not yet enabled
+**Phase 1 — Schema Migration (completed):**
+1. Migration `0029-add-tenant-id.ts` adds `tenant_id TEXT NOT NULL DEFAULT 'default'` to all entity tables — coverage verified: 15 entity tables + `listing_offers` (added post-audit)
+2. Composite indexes created: `CREATE INDEX IF NOT EXISTS idx_<table>_tenant ON <table>(tenant_id)` on every entity table
+3. Migration `0030-enable-rls.ts` creates RLS policies for all entity tables on PostgreSQL (SQLite no-op)
+4. All migrations run on CE (SQLite) — existing rows get `tenant_id = 'default'`
+5. All migrations run on Cloud (PostgreSQL) — same effect, RLS enforced
 
-**Phase 2 — Repository Updates:**
-1. Update every repository method for entity tables to include `tenant_id` in SELECT, INSERT, UPDATE, DELETE
-2. Add `tenantId: string` parameter to repository constructor or method signatures
-3. Verify all existing tests pass — CE tests use `tenantId = 'default'`
+**Phase 2 — Repository Updates (completed):**
+1. Every entity repository method includes `tenant_id` in SELECT, INSERT, UPDATE, DELETE
+2. Tenant ID resolved via `resolveTenantId()` from `AsyncLocalStorage` context — no method signature changes needed
+3. `listing_offers` discovered as missing during audit (PR #140); corrected in both migration and repository
+4. All 138 test files pass with `tenantId = 'default'` (no behaviour change for CE)
 
-**Phase 3 — RLS Enablement (Cloud only, feature-flagged):**
-1. Add `ENABLE_RLS` configuration flag (default `false` for CE, `true` for Cloud)
-2. When `ENABLE_RLS=true`, run `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` and create RLS policies on startup
-3. Integration tests verify RLS isolation: set `app.tenant_id` to `'A'`, query for tenant `'B'` data — expect zero rows
+**Phase 3 — RLS Enablement (completed):**
+1. Migration `0030-enable-rls.ts` applies RLS on PostgreSQL startup — no feature flag needed (SQLite is no-op)
+2. Integration tests verify RLS isolation: 15 test cases covering cross-tenant reads, writes, updates, and boundary enforcement
+3. `public_scores` has a special RLS exception for the `'public'` tenant (anonymous access)
 
 **Rollback:**
 - Schema: run `ALTER TABLE ... DROP COLUMN tenant_id` (loses multi-tenant data, restores single-tenant schema)
