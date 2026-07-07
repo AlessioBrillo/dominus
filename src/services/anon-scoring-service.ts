@@ -30,12 +30,36 @@ export class AnonScoringService {
   readonly #trademarkGate: TrademarkGate | undefined;
   readonly #cacheTtlMs: number;
   readonly #cache: Map<string, CacheEntry> = new Map();
-  readonly #timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  readonly #maxCacheSize: number;
 
-  constructor(engine: ScoringEngine, trademarkGate?: TrademarkGate, cacheTtlMs: number = 300_000) {
+  constructor(
+    engine: ScoringEngine,
+    trademarkGate?: TrademarkGate,
+    cacheTtlMs: number = 300_000,
+    maxCacheSize: number = 500,
+  ) {
     this.#engine = engine;
     this.#trademarkGate = trademarkGate;
     this.#cacheTtlMs = cacheTtlMs;
+    this.#maxCacheSize = maxCacheSize;
+  }
+
+  #prune(): void {
+    if (this.#cache.size <= this.#maxCacheSize) return;
+    const now = Date.now();
+    let pruned = 0;
+    for (const [key, entry] of this.#cache) {
+      if (now >= entry.expiresAt) {
+        this.#cache.delete(key);
+        pruned++;
+      }
+    }
+    if (pruned > 0) {
+      logger.debug(
+        { pruned, remaining: this.#cache.size },
+        'AnonScoringService: pruned expired entries',
+      );
+    }
   }
 
   async score(domain: string): Promise<AnonScoreResult> {
@@ -81,31 +105,14 @@ export class AnonScoringService {
       scoredAt: new Date().toISOString(),
     };
 
-    this.#set(cacheKey, result);
+    this.#cache.set(cacheKey, { data: result, expiresAt: Date.now() + this.#cacheTtlMs });
+    this.#prune();
 
     return result;
   }
 
-  #set(key: string, data: AnonScoreResult): void {
-    const existing = this.#timers.get(key);
-    if (existing) clearTimeout(existing);
-
-    this.#cache.set(key, { data, expiresAt: Date.now() + this.#cacheTtlMs });
-    this.#timers.set(
-      key,
-      setTimeout(() => {
-        this.#cache.delete(key);
-        this.#timers.delete(key);
-      }, this.#cacheTtlMs).unref(),
-    );
-  }
-
   clearCache(): void {
     this.#cache.clear();
-    for (const timer of this.#timers.values()) {
-      clearTimeout(timer);
-    }
-    this.#timers.clear();
   }
 }
 

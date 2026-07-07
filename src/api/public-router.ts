@@ -35,6 +35,7 @@ const POST_BODY_MAX_BYTES = 1000;
 const CACHE_MAX_SIZE = 500;
 const CACHE_TTL_SECONDS = 300;
 const VIEW_COUNT_FLUSH_INTERVAL_MS = 60_000;
+const VIEW_COUNT_BUFFER_MAX = 5_000;
 
 interface ViewCountEntry {
   slug: string;
@@ -90,25 +91,46 @@ export function createPublicRouter(
 
   let viewCountBuffer: ViewCountEntry[] = [];
   let viewCountFlushTimer: ReturnType<typeof setInterval> | null = null;
+  let viewCountFlushRunning = false;
+
+  async function flushViewCounts(): Promise<void> {
+    if (viewCountFlushRunning) return;
+    viewCountFlushRunning = true;
+    const batch = viewCountBuffer;
+    viewCountBuffer = [];
+    if (batch.length === 0) {
+      viewCountFlushRunning = false;
+      return;
+    }
+    for (const entry of batch) {
+      await db
+        .exec('UPDATE public_scores SET view_count = view_count + ? WHERE slug = ?', [
+          entry.count,
+          entry.slug,
+        ])
+        .catch((err: unknown) => {
+          logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
+          // Re-queue on failure so counts are not silently lost
+          const existing = viewCountBuffer.find((e) => e.slug === entry.slug);
+          if (existing) {
+            existing.count += entry.count;
+          } else {
+            viewCountBuffer.push(entry);
+          }
+        });
+    }
+    viewCountFlushRunning = false;
+  }
 
   function scheduleViewCountFlush(): void {
     if (viewCountFlushTimer) return;
-    viewCountFlushTimer = setInterval(async () => {
-      const batch = viewCountBuffer;
-      viewCountBuffer = [];
-      if (batch.length === 0) return;
-      for (const entry of batch) {
-        await db
-          .exec('UPDATE public_scores SET view_count = view_count + ? WHERE slug = ?', [
-            entry.count,
-            entry.slug,
-          ])
-          .catch((err: unknown) => {
-            logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
-          });
-      }
-    }, VIEW_COUNT_FLUSH_INTERVAL_MS).unref();
+    viewCountFlushTimer = setInterval(flushViewCounts, VIEW_COUNT_FLUSH_INTERVAL_MS).unref();
   }
+
+  // Flush remaining view counts before process exit (e.g. SIGTERM, SIGINT)
+  process.once('beforeExit', () => {
+    void flushViewCounts();
+  });
 
   function bumpViewCount(slug: string): void {
     scheduleViewCountFlush();
@@ -116,6 +138,10 @@ export function createPublicRouter(
     if (existing) {
       existing.count++;
     } else {
+      if (viewCountBuffer.length >= VIEW_COUNT_BUFFER_MAX) {
+        logger.warn({ slug }, 'View count buffer at max capacity, dropping entry');
+        return;
+      }
       viewCountBuffer.push({ slug, count: 1 });
     }
   }
