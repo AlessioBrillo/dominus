@@ -9,21 +9,21 @@ import {
   createBulkWriteDatabaseProvider,
 } from '../db/index.js';
 import {
-  CandidateRepository,
-  ScoringRepository,
-  PortfolioRepository,
-  TrademarkRepository,
-  ProviderCacheRepository,
-  OutcomeRepository,
-  RenewalAlertRepository,
-  PipelineRunsRepository,
-  WatchlistRepository,
+  type CandidateRepository,
+  type ScoringRepository,
+  type PortfolioRepository,
+  type TrademarkRepository,
+  type ProviderCacheRepository,
+  type OutcomeRepository,
+  type RenewalAlertRepository,
+  type PipelineRunsRepository,
   BacktestSignalsRepository,
   WeightSnapshotRepository,
   SchedulerJobRepository,
-  MetricsRepository,
-  JobQueueRepository,
+  type MetricsRepository,
+  type JobQueueRepository,
 } from '../db/index.js';
+import { buildRepositories } from './repository-factory.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
 import { ProviderHealthCheck } from '../providers/provider-health.js';
@@ -69,7 +69,7 @@ import { type RateLimiter } from '../providers/rate-limiter.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import { Auth0Provider } from '../providers/auth/auth0-provider.js';
 import { DbApiKeyProvider } from '../providers/auth/db-api-key-provider.js';
-import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
+import { ApiKeyRepository } from '../db/index.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -84,11 +84,9 @@ import {
 } from './provider-factory.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
-import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
-import { ListingRepository } from '../db/repositories/listing-repository.js';
-import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
+import { type ListingRepository, AutoListingRepository } from '../db/index.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
 import { AutoListingService } from '../services/auto-listing-service.js';
@@ -164,41 +162,7 @@ export interface DominusDependencies {
   apiKeyRepo: ApiKeyRepository | undefined;
 }
 
-interface BuiltRepositories {
-  provider: DatabaseProvider;
-  candidateRepo: CandidateRepository;
-  scoringRepo: ScoringRepository;
-  trademarkRepo: TrademarkRepository;
-  providerCacheRepo: ProviderCacheRepository;
-  outcomeRepo: OutcomeRepository;
-  portfolioRepo: PortfolioRepository;
-  alertRepo: RenewalAlertRepository;
-  pipelineRunsRepo: PipelineRunsRepository;
-  metricsRepo: MetricsRepository;
-  jobQueueRepo: JobQueueRepository;
-  watchlistRepo: WatchlistRepository;
-  acquisitionRepo: AcquisitionRepository;
-  listingRepo: ListingRepository;
-}
-
-function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
-  return {
-    provider,
-    candidateRepo: new CandidateRepository(provider),
-    scoringRepo: new ScoringRepository(provider),
-    trademarkRepo: new TrademarkRepository(provider),
-    providerCacheRepo: new ProviderCacheRepository(provider),
-    outcomeRepo: new OutcomeRepository(provider),
-    portfolioRepo: new PortfolioRepository(provider),
-    alertRepo: new RenewalAlertRepository(provider),
-    pipelineRunsRepo: new PipelineRunsRepository(provider),
-    metricsRepo: new MetricsRepository(provider),
-    jobQueueRepo: new JobQueueRepository(provider),
-    watchlistRepo: new WatchlistRepository(provider),
-    acquisitionRepo: new AcquisitionRepository(provider),
-    listingRepo: new ListingRepository(provider),
-  };
-}
+// BuiltRepositories and buildRepositories moved to repository-factory.ts
 
 function buildTrademarkProviderStack(
   config: Config,
