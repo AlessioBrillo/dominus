@@ -5,6 +5,7 @@ import type {
   JobPayload,
   JobResult,
   PipelineRunPayload,
+  AutoListPayload,
   JobQueueRow,
   JobQueueStats,
   DeadLetterJobRow,
@@ -39,6 +40,11 @@ export interface JobQueueService {
   enqueueRenewalCheck(): Promise<string>;
   enqueueWeightTune(): Promise<string>;
   enqueuePortfolioHealthcheck(horizonDays?: number, batchSize?: number): Promise<string>;
+  enqueueAutoList(
+    domains: AutoListPayload['domains'],
+    pipelineRunId: string,
+    source?: string,
+  ): Promise<string>;
   getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null>;
   getQueueStats(): Promise<JobQueueStats>;
   listJobs(options?: {
@@ -153,6 +159,16 @@ export function createJobQueueService(
         },
         { priority: 0 },
       );
+    },
+
+    async enqueueAutoList(
+      domains: AutoListPayload['domains'],
+      pipelineRunId: string,
+      source: string = 'pipeline_run',
+    ): Promise<string> {
+      return enqueue('AUTO_LIST', { domains, pipelineRunId, source } as AutoListPayload, {
+        priority: 0,
+      });
     },
 
     async getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {

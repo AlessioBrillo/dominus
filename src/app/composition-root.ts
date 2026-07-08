@@ -103,6 +103,7 @@ import {
   RenewalCheckHandler,
   WeightTuneHandler,
   PortfolioHealthcheckHandler,
+  AutoListHandler,
   HANDLERS,
 } from '../jobs/index.js';
 import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
@@ -244,6 +245,7 @@ function buildWorkerIfEnabled(
   alertEngine: RenewalAlertEngine,
   autoTuner: AutoWeightTuner | undefined,
   healthcheckService: PortfolioRdapService,
+  autoListingService: AutoListingService,
 ): JobWorker | undefined {
   if (!config.WORKER_ENABLED) return undefined;
 
@@ -283,6 +285,8 @@ function buildWorkerIfEnabled(
 
   const portfolioHealthcheckHandler = new PortfolioHealthcheckHandler({ healthcheckService });
 
+  const autoListHandler = new AutoListHandler({ autoListingService });
+
   const handlers = [
     pipelineRunHandler,
     portfolioRescoreHandler,
@@ -292,6 +296,7 @@ function buildWorkerIfEnabled(
     watchlistHandler,
     renewalHandler,
     portfolioHealthcheckHandler,
+    autoListHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
   for (const handler of handlers) {
@@ -547,19 +552,25 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
     const domains = recommended.map((c) => ({
       domain: c.domain,
-      score: c.scoreResult,
+      scoreJson: c.scoreResult ? JSON.stringify(c.scoreResult) : null,
     }));
 
-    const { listed, skipped } = await autoListingService.autoListBatch(
-      domains,
-      'pipeline_run',
-      result.runRowId,
-    );
-
-    logger.info(
-      { runId: result.runRowId, listed: listed.length, skipped: skipped.length },
-      'PipelineRunService: auto-list post-run complete',
-    );
+    // Enqueue asynchronously — the job worker processes the listing
+    // outside the pipeline completion path so the HTTP response or
+    // worker slot is not blocked by marketplace API latency.
+    try {
+      const jobId = await jobQueueService.enqueueAutoList(domains, result.runRowId, 'pipeline_run');
+      logger.info(
+        { runId: result.runRowId, jobId, domainCount: domains.length },
+        'PipelineRunService: auto-list job enqueued',
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { runId: result.runRowId, err: message },
+        'PipelineRunService: failed to enqueue auto-list job',
+      );
+    }
   });
 
   // --- Portfolio ---
@@ -694,6 +705,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     alertEngine,
     autoTuner,
     healthcheckService,
+    autoListingService,
   );
 
   // --- Scheduler ---
