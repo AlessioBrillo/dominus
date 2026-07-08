@@ -147,6 +147,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_SEMAPHORE_CONCURRENCY: 100,
     DNS_RESOLVER_URLS: undefined,
     DNS_HEALTH_CHECK_DOMAIN: 'google.com',
+    REDIS_TLS_ENABLED: false,
+    REDIS_KEY_PREFIX: 'dominus:',
+    REDIS_MAX_RETRIES: 10,
+    REDIS_RETRY_BASE_MS: 200,
     ...overrides,
   };
 }

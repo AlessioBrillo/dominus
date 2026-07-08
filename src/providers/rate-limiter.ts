@@ -1,3 +1,13 @@
+/**
+ * Minimal interface that both in-memory RateLimiter and RedisRateLimiter
+ * implement. Used where the rate limiter implementation is injected but
+ * only acquire() and throttle() are consumed.
+ */
+export interface RateLimiterLike {
+  acquire(): Promise<void>;
+  throttle<T>(fn: () => Promise<T>): Promise<T>;
+}
+
 export interface RateLimiterConfig {
   maxTokens: number;
   tokensPerInterval: number;

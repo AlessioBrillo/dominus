@@ -10,6 +10,12 @@ import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 import { resolveTenantId } from '../utils/tenant-context.js';
 
+export interface LockProvider {
+  tryLock(lockName: string, ttlMs: number): Promise<boolean>;
+  renewLock(lockName: string, ttlMs: number): Promise<boolean>;
+  unlock(lockName: string): Promise<void>;
+}
+
 export interface PipelineMetricsDelegate {
   recordStage(
     stageName: string,
@@ -81,6 +87,8 @@ export class PipelineOrchestrator {
   /** Called at the start of each run to clear provider caches. */
   #onRunStart?: () => void;
 
+  #lock: LockProvider | null = null;
+
   constructor(
     private readonly generationStage: CandidateGenerationStage,
     private readonly dnsStage: DnsPreFilterStage,
@@ -92,8 +100,15 @@ export class PipelineOrchestrator {
     /** Optional DatabaseProvider for advisory lock. When set, the lock
      *  is shared across instances (PostgreSQL) or within a single instance
      *  (SQLite). When unset, falls back to the in-memory #running flag. */
-    private readonly db?: DatabaseProvider,
-  ) {}
+    db?: DatabaseProvider,
+    /** Optional LockProvider (e.g. RedisLock) that takes precedence over db
+     *  for distributed locking. When set, lock operations use this instead
+     *  of the DatabaseProvider, enabling cross-process locking without
+     *  database contention. See ADR-0033. */
+    lockProvider?: LockProvider,
+  ) {
+    this.#lock = lockProvider ?? db ?? null;
+  }
 
   setOnStageProgress(
     cb: (
@@ -121,12 +136,8 @@ export class PipelineOrchestrator {
       );
     }
 
-    // Acquire an advisory lock via the database (shared across instances).
-    // Falls back to the in-memory lock when no DatabaseProvider is available.
-    // Uses a short TTL (2 min) with a heartbeat loop so stale locks from
-    // crashed containers auto-expire within minutes instead of hours.
-    if (this.db) {
-      const acquired = await this.db.tryLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS);
+    if (this.#lock) {
+      const acquired = await this.#lock.tryLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS);
       if (!acquired) {
         throw new Error(
           'Pipeline run already in progress on another instance — ' +
@@ -144,20 +155,19 @@ export class PipelineOrchestrator {
       return await this.#runInternal(input, externalRunId);
     } finally {
       this.#stopHeartbeat();
-      if (this.db) {
-        await this.db.unlock(pipelineLockName()).catch(() => {});
+      if (this.#lock) {
+        await this.#lock.unlock(pipelineLockName()).catch(() => {});
         logger.info({ workerId: process.pid }, 'Pipeline advisory lock released');
       }
       this.#running = false;
     }
   }
 
-  /** Start periodic lock renewal so the pipeline can outlive the short TTL. */
   #startHeartbeat(): void {
     if (this.#heartbeatTimer) return;
     this.#heartbeatTimer = setInterval(async () => {
-      if (!this.db) return;
-      const renewed = await this.db
+      if (!this.#lock) return;
+      const renewed = await this.#lock
         .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
         .catch(() => false);
       if (!renewed) {
@@ -166,13 +176,9 @@ export class PipelineOrchestrator {
     }, PIPELINE_LOCK_HEARTBEAT_MS).unref();
   }
 
-  /** Verify the lock is still held before executing the next stage.
-   *  Prevents split-brain: if the heartbeat failed and another worker
-   *  acquired the lock (e.g. after OOM kill of this process), we abort
-   *  before writing stale results. */
   async #ensureLockHeld(): Promise<void> {
-    if (!this.db) return;
-    const renewed = await this.db
+    if (!this.#lock) return;
+    const renewed = await this.#lock
       .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
       .catch(() => false);
     if (!renewed) {
