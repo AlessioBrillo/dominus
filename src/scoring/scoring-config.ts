@@ -11,6 +11,13 @@ export interface CommercialSignalConfig {
 export interface MarketSignalConfig {
   floorValue: number;
   highValue: number;
+  /** Number of comparable sales needed for full confidence in the market signal.
+   *  Used by dataDensity calculation to scale market weight proportionally
+   *  to available evidence. Default: 20. */
+  salesTarget?: number;
+  /** Maximum age in years for a comparable sale to be considered relevant.
+   *  Sales older than this get minimal recency weight. Default: 5. */
+  maxSaleAgeYears?: number;
 }
 
 export interface ExpirySignalConfig {

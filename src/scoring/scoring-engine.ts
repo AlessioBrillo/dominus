@@ -97,11 +97,25 @@ export class ScoringEngine {
     const { effectiveRecommendThreshold, effectiveConfidenceThreshold } =
       computeEffectiveThresholds(availability, this.#weights);
 
+    // When the market signal has sparse data (few comparable sales), scale
+    // its effective weight proportionally to data density and redistribute
+    // the remainder to intrinsic (always available) so the recommendation
+    // threshold remains achievable. A domain with 2 old sales gets ~10% of
+    // the market weight; one with 50 recent sales gets the full weight.
+    const marketDensity = market.dataDensity ?? (hasMarketData ? 1 : 0);
+    const densityAdjustedWeights = { ...effectiveWeights };
+    if (hasMarketData && marketDensity < 1) {
+      const marketScale = marketDensity;
+      const surplus = densityAdjustedWeights.market * (1 - marketScale);
+      densityAdjustedWeights.market *= marketScale;
+      densityAdjustedWeights.intrinsic += surplus;
+    }
+
     const weightedScore =
-      intrinsic.score * effectiveWeights.intrinsic +
-      commercial.score * effectiveWeights.commercial +
-      market.score * effectiveWeights.market +
-      expiry.score * effectiveWeights.expiry;
+      intrinsic.score * densityAdjustedWeights.intrinsic +
+      commercial.score * densityAdjustedWeights.commercial +
+      market.score * densityAdjustedWeights.market +
+      expiry.score * densityAdjustedWeights.expiry;
 
     const signalStatus: SignalStatusItem[] = [
       { name: 'intrinsic', available: true },
@@ -114,6 +128,7 @@ export class ScoringEngine {
         name: 'market',
         available: hasMarketData,
         ...(market.providerError ? { error: market.providerError } : {}),
+        ...(hasMarketData ? { dataDensity: market.dataDensity } : {}),
       },
       {
         name: 'expiry',
@@ -183,10 +198,10 @@ export class ScoringEngine {
       scoredAt: new Date().toISOString(),
       signalStatus,
       effectiveWeights: {
-        intrinsic: Math.round(effectiveWeights.intrinsic * 100) / 100,
-        commercial: Math.round(effectiveWeights.commercial * 100) / 100,
-        market: Math.round(effectiveWeights.market * 100) / 100,
-        expiry: Math.round(effectiveWeights.expiry * 100) / 100,
+        intrinsic: Math.round(densityAdjustedWeights.intrinsic * 100) / 100,
+        commercial: Math.round(densityAdjustedWeights.commercial * 100) / 100,
+        market: Math.round(densityAdjustedWeights.market * 100) / 100,
+        expiry: Math.round(densityAdjustedWeights.expiry * 100) / 100,
       },
       effectiveRecommendThreshold: Math.round(effectiveRecommendThreshold * 100) / 100,
       effectiveConfidenceThreshold: Math.round(effectiveConfidenceThreshold * 100) / 100,

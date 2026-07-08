@@ -3,13 +3,24 @@ import type { SignalOutput, ScoringInput } from '../../types/score.js';
 import type { MarketSignalConfig } from '../scoring-config.js';
 import { DEFAULT_MARKET_CONFIG } from '../scoring-config.js';
 
+export interface MarketSignalDetails {
+  comparables: number;
+  medianSalePrice: number;
+  /** 0-1 measure of how much evidence the market signal has.
+   *  Derived from the number of comparable sales weighted by recency.
+   *  A domain with 50+ recent sales gets 1.0; one with 2 old sales
+   *  gets ~0.05. Used by resolveEffectiveWeights() to scale the
+   *  market weight contribution proportionally. */
+  dataDensity: number;
+}
+
 export async function computeMarketScore(
   input: ScoringInput,
   provider: CompsProvider,
   weight: number,
   config: MarketSignalConfig = DEFAULT_MARKET_CONFIG,
   signal?: AbortSignal,
-): Promise<SignalOutput & { medianSalePrice: number }> {
+): Promise<SignalOutput & MarketSignalDetails> {
   // Engine always sets sld before calling signal functions;
   // non-null assertion is safe here (see ScoringEngine.score()).
   const sld = input.sld!;
@@ -23,14 +34,18 @@ export async function computeMarketScore(
     sales = [];
   }
 
+  const salesTarget = config.salesTarget ?? 20;
+
   if (sales.length === 0) {
     return {
       score: 0,
       weight,
       dataAvailable: false,
       providerError,
-      details: { comparables: 0, medianSalePrice: 0 },
+      details: { comparables: 0, medianSalePrice: 0, dataDensity: 0 },
       medianSalePrice: 0,
+      comparables: 0,
+      dataDensity: 0,
     };
   }
 
@@ -71,6 +86,13 @@ export async function computeMarketScore(
     }
   }
 
+  // Data density: how much evidence do we have for this median?
+  // Combines sale count (vs target) and recency into a 0-1 measure.
+  const recencyFactor =
+    totalWeight > 0 ? Math.min(1, weighted.slice(0, 10).reduce((s, w) => s + w.weight, 0) / 5) : 0;
+  const countFactor = Math.min(1, sales.length / salesTarget);
+  const dataDensity = Math.round((countFactor * 0.7 + recencyFactor * 0.3) * 1000) / 1000;
+
   const score = Math.min(
     1,
     Math.max(0, (median - config.floorValue) / (config.highValue - config.floorValue)),
@@ -81,7 +103,9 @@ export async function computeMarketScore(
     weight,
     dataAvailable: true,
     providerError,
-    details: { comparables: sales.length, medianSalePrice: median },
+    details: { comparables: sales.length, medianSalePrice: median, dataDensity },
     medianSalePrice: median,
+    comparables: sales.length,
+    dataDensity,
   };
 }

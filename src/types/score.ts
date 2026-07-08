@@ -13,6 +13,8 @@ export interface SignalStatusItem {
   name: string;
   available: boolean;
   error?: string | undefined;
+  /** 0-1 measure of signal data density (market only). */
+  dataDensity?: number | undefined;
 }
 
 export interface SignalOutput {
