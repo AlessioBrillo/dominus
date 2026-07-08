@@ -274,6 +274,7 @@ export function createPublicRouter(
         if (anonScoring) {
           const result = await anonScoring.score(domain);
           if (req.accepts('html')) {
+            res.set('Cache-Control', 'public, max-age=86400');
             res.send(renderDomainPage(result.domain, result.score, result.trademark));
           } else {
             res.json(result);
@@ -312,6 +313,7 @@ export function createPublicRouter(
         cache.set(`domain:${domain.toLowerCase()}`, data);
 
         if (req.accepts('html')) {
+          res.set('Cache-Control', 'public, max-age=86400');
           res.send(renderDomainPage(domain, scoreResult, trademarkResult));
         } else {
           res.json(data);
@@ -400,6 +402,7 @@ export function createPublicRouter(
         cache.set(`compare:${slug1}:${slug2}`, data);
 
         if (req.accepts('html')) {
+          res.set('Cache-Control', 'public, max-age=600');
           res.send(renderComparePage(score1.domain, score1, score2.domain, score2));
         } else {
           res.json(data);
@@ -443,6 +446,7 @@ export function createPublicRouter(
           })
           .join('');
 
+        res.set('Cache-Control', 'public, max-age=3600');
         res.type('application/xml');
         res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
@@ -567,6 +571,7 @@ export function createPublicRouter(
         // Preload the OG image so the browser starts fetching it before
         // parsing the stylesheet — cuts perceived LCP by ~1 round-trip.
         const ogImageUrl = `/public/s/${slug}/og.png`;
+        res.set('Cache-Control', 'public, max-age=3600');
         res.set('Link', `<${ogImageUrl}>; rel=preload; as=image`);
         res.send(renderScorePage(data));
       } else {
