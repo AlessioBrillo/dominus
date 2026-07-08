@@ -4,7 +4,7 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { getLogger } from '../../logger.js';
-import { normalizeDomain } from '../../utils/domain-validator.js';
+import { normalizeDomain } from '../../utils/domain.js';
 
 const logger = getLogger();
 
