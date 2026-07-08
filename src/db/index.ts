@@ -66,6 +66,7 @@ export { ListingRepository } from './repositories/listing-repository.js';
 export { AutoListingRepository } from './repositories/auto-listing-repository.js';
 export { AcquisitionRepository } from './repositories/acquisition-repository.js';
 export { ApiKeyRepository } from './repositories/api-key-repository.js';
+export { TldCostRepository } from './repositories/tld-cost-repository.js';
 export type {
   StageMetricRow,
   MetricAggregate,

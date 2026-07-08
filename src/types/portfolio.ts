@@ -26,6 +26,8 @@ export interface PortfolioEntry {
   verdictReason?: string | undefined;
   verdictUpdatedAt?: string | undefined;
   notes?: string | undefined;
+  lastRdapVerifiedAt?: string | undefined;
+  lastWhoisRenewalDate?: string | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }
