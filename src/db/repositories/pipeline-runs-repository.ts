@@ -261,6 +261,36 @@ export class PipelineRunsRepository {
     return result.changes;
   }
 
+  /**
+   * Mark orphaned pipeline_runs (started but never completed) as errored.
+   * Runs with `finished_at IS NULL` and `started_at` older than `maxAgeMs`
+   * are updated with an error message to close the orphaned lifecycle.
+   * Called at worker startup to clean up rows left by crashed workers.
+   * Returns the number of orphaned runs that were reaped.
+   */
+  async reapOrphanedRuns(
+    maxAgeMs: number = 3_600_000,
+    hostVersion: string = 'unknown',
+  ): Promise<number> {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const result = await this.db.exec(
+      `UPDATE pipeline_runs
+          SET finished_at = ?,
+              total_duration_ms = 0,
+              results_summary = ?,
+              error = ?
+        WHERE finished_at IS NULL
+          AND started_at < ?`,
+      [
+        new Date().toISOString(),
+        JSON.stringify(EMPTY_RESULTS),
+        `Orphaned — reaped at startup by ${hostVersion} (worker crash recovery)`,
+        cutoff,
+      ],
+    );
+    return result.changes;
+  }
+
   /** Test helper: clear every row. Not exposed via CLI. */
   async deleteAll(): Promise<void> {
     await this.db.exec('DELETE FROM pipeline_runs');

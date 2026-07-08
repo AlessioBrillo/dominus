@@ -213,13 +213,30 @@ export class PipelineRunService {
     const inputs = snapshotInputs(input);
     const hostVersion = options.hostVersion ?? this.#hostVersion;
 
-    await this.#runsRepo.insert({
-      runId: runRowId,
-      startedAt,
-      hostVersion,
-      retainedUntil,
-      inputs,
-    });
+    // When an externalRunId is provided (async path via enqueueRun), the
+    // pipeline_runs row was already inserted before enqueuing so the operator
+    // can observe a 'started' row if the worker crashes (ADR-0011 §5.2).
+    // Skip the insert and use the existing row's values.
+    if (options.externalRunId) {
+      const existing = await this.#runsRepo.findById(runRowId);
+      if (!existing) {
+        await this.#runsRepo.insert({
+          runId: runRowId,
+          startedAt,
+          hostVersion,
+          retainedUntil,
+          inputs,
+        });
+      }
+    } else {
+      await this.#runsRepo.insert({
+        runId: runRowId,
+        startedAt,
+        hostVersion,
+        retainedUntil,
+        inputs,
+      });
+    }
 
     const startedMs = Date.now();
     let result: PipelineResult;
@@ -338,9 +355,19 @@ export class PipelineRunService {
     };
 
     if (this.#onRunComplete) {
-      Promise.resolve(this.#onRunComplete(pipelineResult, options)).catch((err: unknown) => {
+      try {
+        await Promise.race([
+          Promise.resolve(this.#onRunComplete(pipelineResult, options)),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error('onRunComplete hook timed out after 10s')),
+              10_000,
+            ).unref(),
+          ),
+        ]);
+      } catch (err) {
         logger.error({ err, runId: runRowId }, 'PipelineRunService: onRunComplete hook failed');
-      });
+      }
     }
 
     return pipelineResult;
