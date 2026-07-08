@@ -38,6 +38,7 @@ export interface JobQueueService {
   enqueueWatchlistPoll(): Promise<string>;
   enqueueRenewalCheck(): Promise<string>;
   enqueueWeightTune(): Promise<string>;
+  enqueuePortfolioHealthcheck(horizonDays?: number, batchSize?: number): Promise<string>;
   getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null>;
   getQueueStats(): Promise<JobQueueStats>;
   listJobs(options?: {
@@ -141,6 +142,17 @@ export function createJobQueueService(
 
     async enqueueWeightTune(): Promise<string> {
       return enqueue('WEIGHT_TUNE', {}, { priority: 0 });
+    },
+
+    async enqueuePortfolioHealthcheck(horizonDays?: number, batchSize?: number): Promise<string> {
+      return enqueue(
+        'PORTFOLIO_HEALTHCHECK',
+        {
+          ...(horizonDays !== undefined && { horizonDays }),
+          ...(batchSize !== undefined && { batchSize }),
+        },
+        { priority: 0 },
+      );
     },
 
     async getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {

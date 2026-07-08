@@ -6,7 +6,8 @@ export type JobType =
   | 'PRUNE'
   | 'WATCHLIST_POLL'
   | 'RENEWAL_CHECK'
-  | 'WEIGHT_TUNE';
+  | 'WEIGHT_TUNE'
+  | 'PORTFOLIO_HEALTHCHECK';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead_letter';
 
@@ -141,6 +142,18 @@ export interface WeightTunePayload {
   tenantId?: string;
 }
 
+export interface PortfolioHealthcheckPayload {
+  horizonDays?: number;
+  batchSize?: number;
+  tenantId?: string;
+}
+
+export interface PortfolioHealthcheckResult {
+  checked: number;
+  updated: number;
+  errors: number;
+}
+
 export interface WeightTuneResult {
   sampleSize: number;
   applied: boolean;
@@ -156,7 +169,8 @@ export type JobPayload =
   | PrunePayload
   | WatchlistPollPayload
   | RenewalCheckPayload
-  | WeightTunePayload;
+  | WeightTunePayload
+  | PortfolioHealthcheckPayload;
 
 export type JobResult =
   | PipelineRunResult
@@ -166,7 +180,8 @@ export type JobResult =
   | PruneResult
   | WatchlistPollResult
   | RenewalCheckResult
-  | WeightTuneResult;
+  | WeightTuneResult
+  | PortfolioHealthcheckResult;
 
 export interface JobHandler<P extends JobPayload = JobPayload, R extends JobResult = JobResult> {
   jobType: JobType;

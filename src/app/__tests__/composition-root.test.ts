@@ -368,6 +368,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       BACKUP_DIR: './data/backup',
       BACKUP_RETENTION_DAYS: 30,
       SCHEDULER_BACKUP_CRON: '0 4 * * *',
+      SCHEDULER_PORTFOLIO_HEALTHCHECK_CRON: '0 2 * * 0',
       RENEWAL_WARNING_DAYS: 30,
       RENEWAL_CRITICAL_DAYS: 7,
       DEFAULT_RENEWAL_COST_EUR: 10,

@@ -74,6 +74,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     BACKUP_DIR: './data/backup',
     BACKUP_RETENTION_DAYS: 30,
     SCHEDULER_BACKUP_CRON: '0 4 * * *',
+    SCHEDULER_PORTFOLIO_HEALTHCHECK_CRON: '0 2 * * 0',
     WATCHLIST_POLL_INTERVAL_HOURS: 6,
     WATCHLIST_RDAP_DELAY_MS: 200,
     CORS_ORIGIN: '*',

@@ -6,6 +6,7 @@ import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-re
 import type { ProviderCacheRepository } from '../db/repositories/provider-cache-repository.js';
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
+import type { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
 import type { BackupService } from './backup-service.js';
 import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
@@ -34,6 +35,7 @@ export interface SchedulerOptions {
   jobRepo?: SchedulerJobRepository;
   backupService?: BackupService;
   jobQueueService?: JobQueueService;
+  portfolioHealthcheckService?: PortfolioRdapService;
 }
 
 export class SchedulerService {
@@ -49,6 +51,7 @@ export class SchedulerService {
   private readonly backupService: BackupService | undefined;
   private readonly jobRepo: SchedulerJobRepository | undefined;
   private readonly jobQueueService: JobQueueService | undefined;
+  private readonly portfolioHealthcheckService: PortfolioRdapService | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -63,6 +66,7 @@ export class SchedulerService {
     this.backupService = options.backupService;
     this.jobRepo = options.jobRepo;
     this.jobQueueService = options.jobQueueService;
+    this.portfolioHealthcheckService = options.portfolioHealthcheckService;
   }
 
   start(): void {
@@ -81,6 +85,23 @@ export class SchedulerService {
       },
       'RENEWAL_CHECK',
     );
+
+    if (this.portfolioHealthcheckService) {
+      this.#register(
+        'portfolio-healthcheck',
+        this.config.SCHEDULER_PORTFOLIO_HEALTHCHECK_CRON,
+        'Verify portfolio domains against live RDAP/WHOIS for renewal date accuracy',
+        async () => {
+          const result = await this.portfolioHealthcheckService!.checkExpiring(90, 100);
+          const msg = `Healthchecked ${result.checked} domain(s), updated ${result.updated}, errors ${result.errors}`;
+          logger.info(msg);
+          return msg;
+        },
+        'PORTFOLIO_HEALTHCHECK',
+      );
+    } else {
+      logger.warn('portfolio-healthcheck job disabled (PortfolioRdapService not provided)');
+    }
 
     if (this.portfolioManager) {
       this.#register(
@@ -234,6 +255,9 @@ export class SchedulerService {
                 break;
               case 'WEIGHT_TUNE':
                 jobId = await this.jobQueueService!.enqueueWeightTune();
+                break;
+              case 'PORTFOLIO_HEALTHCHECK':
+                jobId = await this.jobQueueService!.enqueuePortfolioHealthcheck();
                 break;
               default:
                 return await execute();
