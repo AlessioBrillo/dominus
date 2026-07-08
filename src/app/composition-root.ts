@@ -66,6 +66,7 @@ import {
   PipelineProgressService,
 } from './index.js';
 import { type RateLimiter } from '../providers/rate-limiter.js';
+import { RedisLock, getRedisClient } from '../providers/redis/index.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import { Auth0Provider } from '../providers/auth/auth0-provider.js';
 import { DbApiKeyProvider } from '../providers/auth/db-api-key-provider.js';
@@ -446,6 +447,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     },
   );
 
+  // --- Redis (distributed locking, caching) ---
+  let redisLock: RedisLock | undefined;
+  if (config.REDIS_URL) {
+    const redisClient = getRedisClient({
+      url: config.REDIS_URL,
+      tlsEnabled: config.REDIS_TLS_ENABLED,
+      keyPrefix: config.REDIS_KEY_PREFIX,
+      maxRetries: config.REDIS_MAX_RETRIES,
+      retryBaseMs: config.REDIS_RETRY_BASE_MS,
+    });
+    redisLock = new RedisLock(redisClient);
+  }
+
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
   const orchestrator = new PipelineOrchestrator(
@@ -462,6 +476,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config.PIPELINE_TIMEOUT_MS,
     metrics,
     provider,
+    redisLock,
   );
   const progressService = new PipelineProgressService();
 

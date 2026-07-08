@@ -935,6 +935,45 @@ const configSchema = z.object({
    */
   JOB_QUEUE_MAX_DEPTH: z.coerce.number().int().min(0).max(100000).default(1000),
 
+  // ── Redis (DOMINUS Cloud) ──────────────────────────────────────────
+
+  /**
+   * Redis connection URL for distributed rate limiting, caching, and locking.
+   * Format: redis://:password@host:6379/0
+   * When set, the application uses Redis-backed implementations of rate limiters,
+   * cache providers, and distributed locks. When unset (community edition),
+   * all services fall back to in-memory implementations.
+   * See ADR-0033 for the architecture.
+   */
+  REDIS_URL: z.string().optional(),
+
+  /**
+   * Enable TLS for Redis connections (required for managed Redis services
+   * like Upstash, Redis Cloud, or AWS ElastiCache with in-transit encryption).
+   */
+  REDIS_TLS_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+
+  /**
+   * Key prefix for all Redis keys to namespace multi-service Redis instances.
+   * Default: 'dominus:'.
+   */
+  REDIS_KEY_PREFIX: z.string().default('dominus:'),
+
+  /**
+   * Maximum Redis connection retry attempts before permanent fallback.
+   * Default: 10 (exponential backoff: 200ms, 400ms, …, ~3.4min total).
+   */
+  REDIS_MAX_RETRIES: z.coerce.number().int().min(0).max(100).default(10),
+
+  /**
+   * Base delay in ms for Redis connection retry exponential backoff.
+   * Actual delay = min(REDIS_RETRY_BASE_MS * 2^(attempt-1), 30000).
+   * Default: 200ms.
+   */
+  REDIS_RETRY_BASE_MS: z.coerce.number().int().min(50).max(10000).default(200),
+
   // ── Data retention ─────────────────────────────────────────────────
 
   PUBLIC_SCORES_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),

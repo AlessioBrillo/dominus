@@ -280,6 +280,14 @@ export function buildWaybackProvider(
   return cached;
 }
 
+function createRateLimiter(tokens: number, intervalMs: number): RateLimiter {
+  return new RateLimiter({
+    maxTokens: tokens,
+    tokensPerInterval: tokens,
+    intervalMs,
+  });
+}
+
 export interface BuiltRateLimiters {
   rdap: RateLimiter;
   uspto: RateLimiter;
@@ -289,30 +297,19 @@ export interface BuiltRateLimiters {
 }
 
 export function buildRateLimiters(config: Config): BuiltRateLimiters {
-  const rdap = new RateLimiter({
-    maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
-    intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
-  });
-  const uspto = new RateLimiter({
-    maxTokens: config.USPTO_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.USPTO_RATE_LIMIT_TOKENS,
-    intervalMs: config.USPTO_RATE_LIMIT_INTERVAL_MS,
-  });
-  const euipo = new RateLimiter({
-    maxTokens: config.EUIPO_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.EUIPO_RATE_LIMIT_TOKENS,
-    intervalMs: config.EUIPO_RATE_LIMIT_INTERVAL_MS,
-  });
-  const wayback = new RateLimiter({
-    maxTokens: config.WAYBACK_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.WAYBACK_RATE_LIMIT_TOKENS,
-    intervalMs: config.WAYBACK_RATE_LIMIT_INTERVAL_MS,
-  });
-  const dns = new RateLimiter({
-    maxTokens: config.DNS_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.DNS_RATE_LIMIT_TOKENS,
-    intervalMs: config.DNS_RATE_LIMIT_INTERVAL_MS,
-  });
+  const rdap = createRateLimiter(config.RDAP_RATE_LIMIT_TOKENS, config.RDAP_RATE_LIMIT_INTERVAL_MS);
+  const uspto = createRateLimiter(
+    config.USPTO_RATE_LIMIT_TOKENS,
+    config.USPTO_RATE_LIMIT_INTERVAL_MS,
+  );
+  const euipo = createRateLimiter(
+    config.EUIPO_RATE_LIMIT_TOKENS,
+    config.EUIPO_RATE_LIMIT_INTERVAL_MS,
+  );
+  const wayback = createRateLimiter(
+    config.WAYBACK_RATE_LIMIT_TOKENS,
+    config.WAYBACK_RATE_LIMIT_INTERVAL_MS,
+  );
+  const dns = createRateLimiter(config.DNS_RATE_LIMIT_TOKENS, config.DNS_RATE_LIMIT_INTERVAL_MS);
   return { rdap, uspto, euipo, wayback, dns };
 }
