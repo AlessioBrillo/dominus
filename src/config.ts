@@ -920,9 +920,20 @@ const configSchema = z.object({
   /**
    * Maximum time a job can stay in 'running' status before being
    * auto-requeued by the worker (stuck-job recovery).
-   * Default: 300000ms (5 minutes).
+   * Default: 3600000ms (1 hour) — matches PIPELINE_TIMEOUT_MS to prevent
+   * long-running pipeline jobs from being prematurely requeued and
+   * dead-lettered (see ADR-0023 §4.6).
    */
-  JOB_MAX_RUNNING_AGE_MS: z.coerce.number().int().min(10000).max(86400000).default(300000),
+  JOB_MAX_RUNNING_AGE_MS: z.coerce.number().int().min(10000).max(86400000).default(3600000),
+
+  /**
+   * Maximum depth (queued jobs) allowed in the job queue before new
+   * enqueue attempts are rejected. Prevents unbounded queue growth
+   * when the worker cannot keep up with producers (ADR-0023 §4.7).
+   * Set to 0 to disable the limit entirely.
+   * Default: 1000
+   */
+  JOB_QUEUE_MAX_DEPTH: z.coerce.number().int().min(0).max(100000).default(1000),
 
   // ── Data retention ─────────────────────────────────────────────────
 

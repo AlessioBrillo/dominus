@@ -64,6 +64,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     NOTIFIER_TELEGRAM_BOT_TOKEN: undefined,
     NOTIFIER_TELEGRAM_CHAT_ID: undefined,
     PIPELINE_TIMEOUT_MS: 3_600_000,
+    JOB_QUEUE_MAX_DEPTH: 1000,
     SCHEDULER_ENABLED: false,
     SCHEDULER_RENEWAL_CHECK_CRON: '0 8 * * *',
     SCHEDULER_RESCORE_CRON: '0 9 * * 1',

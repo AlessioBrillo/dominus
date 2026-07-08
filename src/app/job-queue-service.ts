@@ -20,6 +20,15 @@ export interface EnqueueResult {
   runId: string;
 }
 
+export interface JobQueueServiceOptions {
+  /**
+   * Maximum number of queued jobs allowed. When exceeded, enqueue()
+   * throws a DominusError. Set to 0 to disable (unbounded).
+   * Default: 1000
+   */
+  maxQueueDepth?: number;
+}
+
 export interface JobQueueService {
   enqueuePipelineRun(input: CandidateGenerationInput, runId?: string): Promise<EnqueueResult>;
   enqueuePortfolioRescore(domain?: string): Promise<string>;
@@ -43,14 +52,30 @@ export interface JobQueueService {
   deleteDeadLetterJobs(olderThanDays?: number): Promise<number>;
 }
 
-export function createJobQueueService(provider: DatabaseProvider): JobQueueService {
+export function createJobQueueService(
+  provider: DatabaseProvider,
+  options: JobQueueServiceOptions = {},
+): JobQueueService {
   const repo = new JobQueueRepository(provider);
+  const maxDepth = options.maxQueueDepth ?? 1000;
 
   async function enqueue(
     jobType: JobType,
     payload: JobPayload,
     options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
   ): Promise<string> {
+    // Reject when the queue has grown beyond the configured limit to prevent
+    // unbounded growth when the worker cannot keep up (ADR-0023 §4.7).
+    if (maxDepth > 0) {
+      const stats = await repo.getStats();
+      if (stats.queued + stats.running >= maxDepth) {
+        throw new Error(
+          `Job queue depth limit reached (${maxDepth}) — rejecting enqueue of ${jobType}. ` +
+            'Increase JOB_QUEUE_MAX_DEPTH or wait for the worker to drain pending jobs.',
+        );
+      }
+    }
+
     // Inject the current tenant context into the job payload so the worker
     // can re-establish it when processing. The worker reads .tenantId and
     // wraps handler execution in runWithTenant(), which the PostgreSQL

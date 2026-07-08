@@ -295,6 +295,20 @@ function buildWorkerIfEnabled(
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
   });
+
+  // Reap orphaned pipeline_runs left by a previously crashed worker so the
+  // operator sees a clean run history (ADR-0011 §5.2).
+  pipelineRunsRepo
+    .reapOrphanedRuns(config.JOB_MAX_RUNNING_AGE_MS)
+    .then((count) => {
+      if (count > 0) {
+        logger.info({ count }, 'Reaped orphaned pipeline runs at worker startup');
+      }
+    })
+    .catch((err: unknown) => {
+      logger.warn({ err }, 'Failed to reap orphaned pipeline runs at startup');
+    });
+
   worker.start();
   return worker;
 }
@@ -476,7 +490,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const autoListingRepo = new AutoListingRepository(repos.provider);
   const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
-  const jobQueueService = createJobQueueService(provider);
+  const jobQueueService = createJobQueueService(provider, {
+    maxQueueDepth: config.JOB_QUEUE_MAX_DEPTH,
+  });
   const runService = new PipelineRunService(
     repos.provider,
     orchestrator,

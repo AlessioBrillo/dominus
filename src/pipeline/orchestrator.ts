@@ -64,8 +64,8 @@ function pipelineLockName(): string {
  */
 const PIPELINE_LOCK_TTL_MS = 120_000;
 
-/** Heartbeat interval for lock renewal (every 60s, well within the 120s TTL). */
-const PIPELINE_LOCK_HEARTBEAT_MS = 60_000;
+/** Heartbeat interval for lock renewal (every 30s, well within the 120s TTL). */
+const PIPELINE_LOCK_HEARTBEAT_MS = 30_000;
 
 export class PipelineOrchestrator {
   #abortController: AbortController | null = null;
