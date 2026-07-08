@@ -44,7 +44,7 @@ export interface RawCandidate {
   pipelineRunId: string;
 }
 
-import type { NormalizedDomain } from '../utils/domain-validator.js';
+import type { NormalizedDomain } from '../utils/domain.js';
 
 export interface DomainCandidate extends RawCandidate {
   id?: number;

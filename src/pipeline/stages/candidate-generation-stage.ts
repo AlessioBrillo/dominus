@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { CloseoutEntry, DomainCandidate } from '../../types/candidate.js';
 import type { Stage, StageResult } from '../stage.js';
-import { extractTld } from '../../utils/domain.js';
-import { normalizeDomain } from '../../utils/domain-validator.js';
+import { extractTld, normalizeDomain } from '../../utils/domain.js';
 
 export interface CandidateGenerationInput {
   keywords?: string[] | undefined;

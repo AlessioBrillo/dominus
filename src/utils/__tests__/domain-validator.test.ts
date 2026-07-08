@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeDomain, isValidDomain, getSldForTrademark } from '../domain-validator.js';
+import { normalizeDomain, isValidDomain, getSldForTrademark } from '../domain.js';
 
 describe('normalizeDomain', () => {
   it('normalises a vanilla ASCII domain', () => {

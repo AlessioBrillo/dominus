@@ -1,7 +1,6 @@
 import { getLogger } from '../logger.js';
 import type { TrademarkProvider } from '../providers/trademark/trademark-provider.js';
-import { getSldForTrademark } from '../utils/domain-validator.js';
-import { parseDomain } from '../utils/domain.js';
+import { getSldForTrademark, parseDomain } from '../utils/domain.js';
 import {
   detectMatch,
   extractSld,

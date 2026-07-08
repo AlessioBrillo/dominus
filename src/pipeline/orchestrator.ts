@@ -166,6 +166,24 @@ export class PipelineOrchestrator {
     }, PIPELINE_LOCK_HEARTBEAT_MS).unref();
   }
 
+  /** Verify the lock is still held before executing the next stage.
+   *  Prevents split-brain: if the heartbeat failed and another worker
+   *  acquired the lock (e.g. after OOM kill of this process), we abort
+   *  before writing stale results. */
+  async #ensureLockHeld(): Promise<void> {
+    if (!this.db) return;
+    const renewed = await this.db
+      .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
+      .catch(() => false);
+    if (!renewed) {
+      this.#abortController?.abort();
+      throw new Error(
+        'Pipeline lock lost — another worker may have acquired it. ' +
+          'Aborting to prevent split-brain writes.',
+      );
+    }
+  }
+
   #stopHeartbeat(): void {
     if (this.#heartbeatTimer) {
       clearInterval(this.#heartbeatTimer);
@@ -347,6 +365,10 @@ export class PipelineOrchestrator {
     signal: AbortSignal,
   ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
     try {
+      // Verify lock is still held before executing each stage.
+      // If the heartbeat failed and another worker stole the lock,
+      // we catch it here before writing potentially stale results.
+      await this.#ensureLockHeld();
       const result = await this.#withTimeout(label, fn, startMs, signal);
       summary[result.stageName] = {
         passed: result.passed.length,

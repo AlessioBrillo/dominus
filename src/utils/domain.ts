@@ -1,26 +1,186 @@
 /**
  * Domain-name utilities.
  *
- * Two responsibilities, layered:
- *  1. `isValidDomain` — RFC-1123-ish syntactic check (ASCII, label rules).
- *  2. `parseDomain`  — split a domain into its second-level label (SLD)
+ * Three responsibilities, layered:
+ *  1. `normalizeDomain` — full validation pipeline: BOM strip, IDN→ASCII,
+ *     PSL parse, label syntax check, punycode→unicode.
+ *  2. `isValidDomain`  — RFC-1123-ish syntactic check delegating to
+ *     `normalizeDomain`.
+ *  3. `parseDomain`    — split a domain into its second-level label (SLD)
  *     and top-level label (TLD) using the full Public Suffix List via the
- *     `psl` npm package. This replaces the hand-curated `MULTI_PART_TLDS`
- *     set (see ADR-0015).
+ *     `psl` npm package.
  *
  * Lower-case normalisation is the parser's responsibility — callers can
  * pass mixed case and trust the output to be lowercase.
  *
  * ADR-0013 and ADR-0015 record the rationale for this module.
+ *
+ * This module is the SINGLE source of truth for domain validation.
+ * `src/utils/domain-validator.ts` is a deprecated re-export shim.
  */
 
 import psl from 'psl';
+import { domainToASCII, domainToUnicode } from 'node:url';
 
-const DOMAIN_RE = /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+export interface NormalizedDomain {
+  raw: string;
+  normalized: string;
+  sld: string;
+  tld: string;
+  sldUnicode: string;
+  isValid: boolean;
+  invalidReason?: string | undefined;
+}
 
-/** Syntactic validity (RFC-1123-ish, ASCII-only). */
+const DOMAIN_RE =
+  /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:xn--[a-z0-9-]+|[a-z]{2,})$/;
+
+const PUNY_RE = /^xn--/i;
+
+const BOM_RE = /^\uFEFF/;
+
+function hasNonAscii(input: string): boolean {
+  for (let i = 0; i < input.length; i++) {
+    if (input.charCodeAt(i) > 127) return true;
+  }
+  return false;
+}
+
+function validateLabelSyntax(label: string): string | null {
+  if (label.length === 0) return 'empty label';
+  if (label.length > 63) return 'label exceeds 63 characters';
+  if (label.startsWith('-')) return 'label starts with hyphen';
+  if (label.endsWith('-')) return 'label ends with hyphen';
+  for (let i = 0; i < label.length; i++) {
+    const c = label.charCodeAt(i);
+    if (!(c === 45 || (c >= 48 && c <= 57) || (c >= 97 && c <= 122))) {
+      return `invalid character in label: ${label[i]}`;
+    }
+  }
+  return null;
+}
+
+/** Full validation pipeline: BOM strip, IDN→ASCII, PSL parse, label syntax. */
+export function normalizeDomain(input: string): NormalizedDomain {
+  const raw = input.replace(BOM_RE, '').trim();
+  if (raw === '') {
+    return {
+      raw,
+      normalized: '',
+      sld: '',
+      tld: '',
+      sldUnicode: '',
+      isValid: false,
+      invalidReason: 'empty domain',
+    };
+  }
+
+  let ascii: string;
+  let hasIdn = false;
+  try {
+    if (hasNonAscii(raw)) {
+      ascii = domainToASCII(raw);
+      hasIdn = true;
+    } else {
+      ascii = raw.toLowerCase();
+    }
+  } catch {
+    return {
+      raw,
+      normalized: '',
+      sld: '',
+      tld: '',
+      sldUnicode: '',
+      isValid: false,
+      invalidReason: 'IDN conversion failed',
+    };
+  }
+
+  const lower = ascii.toLowerCase();
+
+  if (!hasIdn && lower.includes('.')) {
+    for (const label of lower.split('.')) {
+      if (PUNY_RE.test(label)) {
+        hasIdn = true;
+        break;
+      }
+    }
+  }
+
+  if (!DOMAIN_RE.test(lower)) {
+    let reason = 'syntax validation failed';
+    const labels = lower.split('.');
+    for (const label of labels) {
+      const labelErr = validateLabelSyntax(label);
+      if (labelErr) {
+        reason = labelErr;
+        break;
+      }
+    }
+    return {
+      raw,
+      normalized: lower,
+      sld: '',
+      tld: '',
+      sldUnicode: '',
+      isValid: false,
+      invalidReason: reason,
+    };
+  }
+
+  let sld: string;
+  let tld: string;
+  try {
+    const parsed = psl.parse(lower);
+    if (parsed.error || !parsed.sld || !parsed.tld) {
+      return {
+        raw,
+        normalized: lower,
+        sld: '',
+        tld: '',
+        sldUnicode: '',
+        isValid: false,
+        invalidReason: 'unrecognisable domain',
+      };
+    }
+    sld = parsed.sld;
+    tld = `.${parsed.tld}`;
+  } catch {
+    return {
+      raw,
+      normalized: lower,
+      sld: '',
+      tld: '',
+      sldUnicode: '',
+      isValid: false,
+      invalidReason: 'PSL parse failed',
+    };
+  }
+
+  let sldUnicode: string;
+  if (hasIdn && PUNY_RE.test(sld)) {
+    try {
+      sldUnicode = domainToUnicode(sld);
+    } catch {
+      sldUnicode = sld;
+    }
+  } else {
+    sldUnicode = sld;
+  }
+
+  return { raw, normalized: lower, sld, tld, sldUnicode, isValid: true };
+}
+
+/** Syntactic validity delegating to `normalizeDomain`. */
 export function isValidDomain(value: string): boolean {
-  return DOMAIN_RE.test(value.toLowerCase());
+  return normalizeDomain(value).isValid;
+}
+
+/** Extract the SLD with Unicode decoding (for trademark matching). */
+export function getSldForTrademark(domain: string): string {
+  const norm = normalizeDomain(domain);
+  if (!norm.isValid) return '';
+  return norm.sldUnicode || norm.sld;
 }
 
 /**
