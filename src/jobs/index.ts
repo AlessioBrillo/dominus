@@ -14,6 +14,11 @@ export { PruneHandler, type PruneHandlerDeps } from './handlers/prune-handler.js
 export { WatchlistPollHandler, type WatchlistHandlerDeps } from './handlers/watchlist-handler.js';
 export { RenewalCheckHandler, type RenewalHandlerDeps } from './handlers/renewal-handler.js';
 export { WeightTuneHandler, type WeightTuneHandlerDeps } from './handlers/weight-tune-handler.js';
+export {
+  PortfolioHealthcheckHandler,
+  type PortfolioHealthcheckHandlerDeps,
+} from './handlers/portfolio-healthcheck-handler.js';
+export { AutoListHandler, type AutoListHandlerDeps } from './handlers/auto-list-handler.js';
 export type {
   JobType,
   JobStatus,

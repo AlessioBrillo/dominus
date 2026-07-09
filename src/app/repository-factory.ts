@@ -13,6 +13,7 @@ import {
   JobQueueRepository,
   AcquisitionRepository,
   ListingRepository,
+  TldCostRepository,
 } from '../db/index.js';
 
 export interface BuiltRepositories {
@@ -30,6 +31,7 @@ export interface BuiltRepositories {
   watchlistRepo: WatchlistRepository;
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
+  tldCostRepo: TldCostRepository;
 }
 
 export function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
@@ -48,5 +50,6 @@ export function buildRepositories(provider: DatabaseProvider): BuiltRepositories
     watchlistRepo: new WatchlistRepository(provider),
     acquisitionRepo: new AcquisitionRepository(provider),
     listingRepo: new ListingRepository(provider),
+    tldCostRepo: new TldCostRepository(provider),
   };
 }

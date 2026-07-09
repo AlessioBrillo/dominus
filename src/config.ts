@@ -574,6 +574,13 @@ const configSchema = z.object({
   /** Cron expression for watchlist RDAP polling. Default: every 6 hours. */
   SCHEDULER_WATCHLIST_CRON: z.string().default('0 */6 * * *'),
 
+  /**
+   * Cron expression for portfolio RDAP/WHOIS healthcheck.
+   * Verifies renewal dates and detects registrar changes for portfolio domains.
+   * Default: weekly on Sunday at 02:00 (off-peak).
+   */
+  SCHEDULER_PORTFOLIO_HEALTHCHECK_CRON: z.string().default('0 2 * * 0'),
+
   // ── Backup config ─────────────────────────────────────────────────
 
   /**

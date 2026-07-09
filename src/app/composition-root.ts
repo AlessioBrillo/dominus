@@ -102,8 +102,11 @@ import {
   WatchlistPollHandler,
   RenewalCheckHandler,
   WeightTuneHandler,
+  PortfolioHealthcheckHandler,
+  AutoListHandler,
   HANDLERS,
 } from '../jobs/index.js';
+import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
 
 const logger = getLogger();
 
@@ -241,6 +244,8 @@ function buildWorkerIfEnabled(
   watchlistService: WatchlistService,
   alertEngine: RenewalAlertEngine,
   autoTuner: AutoWeightTuner | undefined,
+  healthcheckService: PortfolioRdapService,
+  autoListingService: AutoListingService,
 ): JobWorker | undefined {
   if (!config.WORKER_ENABLED) return undefined;
 
@@ -278,6 +283,10 @@ function buildWorkerIfEnabled(
   const renewalHandler = new RenewalCheckHandler({ alertEngine });
   const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
 
+  const portfolioHealthcheckHandler = new PortfolioHealthcheckHandler({ healthcheckService });
+
+  const autoListHandler = new AutoListHandler({ autoListingService });
+
   const handlers = [
     pipelineRunHandler,
     portfolioRescoreHandler,
@@ -286,6 +295,8 @@ function buildWorkerIfEnabled(
     pruneHandler,
     watchlistHandler,
     renewalHandler,
+    portfolioHealthcheckHandler,
+    autoListHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
   for (const handler of handlers) {
@@ -326,6 +337,7 @@ function buildSchedulerIfEnabled(
   backupService: BackupService,
   jobQueueService: ReturnType<typeof createJobQueueService>,
   autoTuner: AutoWeightTuner | undefined,
+  portfolioHealthcheckService?: PortfolioRdapService,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
   return new SchedulerService({
@@ -340,6 +352,7 @@ function buildSchedulerIfEnabled(
     jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
     ...(autoTuner ? { autoTuner } : {}),
+    ...(portfolioHealthcheckService ? { portfolioHealthcheckService } : {}),
   });
 }
 
@@ -424,6 +437,16 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
+  );
+
+  // --- Portfolio RDAP/WHOIS Healthcheck Service ---
+  // Verifies portfolio domains against live RDAP/WHOIS for renewal date accuracy.
+  // Uses the raw (uncached) RDAP provider because healthchecks must always fetch
+  // fresh data — stale cached responses defeat the purpose of the check.
+  const healthcheckService = new PortfolioRdapService(
+    rawRdapProvider,
+    whoisProvider,
+    repos.portfolioRepo,
   );
 
   // --- Anonymous Scoring Service ---
@@ -529,19 +552,25 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
     const domains = recommended.map((c) => ({
       domain: c.domain,
-      score: c.scoreResult,
+      scoreJson: c.scoreResult ? JSON.stringify(c.scoreResult) : null,
     }));
 
-    const { listed, skipped } = await autoListingService.autoListBatch(
-      domains,
-      'pipeline_run',
-      result.runRowId,
-    );
-
-    logger.info(
-      { runId: result.runRowId, listed: listed.length, skipped: skipped.length },
-      'PipelineRunService: auto-list post-run complete',
-    );
+    // Enqueue asynchronously — the job worker processes the listing
+    // outside the pipeline completion path so the HTTP response or
+    // worker slot is not blocked by marketplace API latency.
+    try {
+      const jobId = await jobQueueService.enqueueAutoList(domains, result.runRowId, 'pipeline_run');
+      logger.info(
+        { runId: result.runRowId, jobId, domainCount: domains.length },
+        'PipelineRunService: auto-list job enqueued',
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { runId: result.runRowId, err: message },
+        'PipelineRunService: failed to enqueue auto-list job',
+      );
+    }
   });
 
   // --- Portfolio ---
@@ -675,6 +704,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     watchlistService,
     alertEngine,
     autoTuner,
+    healthcheckService,
+    autoListingService,
   );
 
   // --- Scheduler ---
@@ -690,6 +721,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     backupService,
     jobQueueService,
     autoTuner,
+    healthcheckService,
   );
 
   return {

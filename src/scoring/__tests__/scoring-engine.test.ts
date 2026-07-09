@@ -7,10 +7,12 @@ function makeProviders(
   volume = 0,
   cpc = 0,
   compPrices: number[] = [],
+  saleDate?: string,
 ): {
   keyword: KeywordProvider;
   comps: CompsProvider;
 } {
+  const date = saleDate ?? '2024-01-01';
   return {
     keyword: {
       getMetrics: vi
@@ -22,7 +24,7 @@ function makeProviders(
         compPrices.map((p) => ({
           domain: 'comp.com',
           salePrice: p,
-          saleDate: '2024-01-01',
+          saleDate: date,
           venue: 'namebio',
         })),
       ),
@@ -238,7 +240,8 @@ describe('ScoringEngine', () => {
       isCloseout: false,
     });
 
-    // With all data available, effectiveWeights should equal DEFAULT_WEIGHTS
+    // weightedScore must equal the dot product of breakdown scores
+    // and effectiveWeights (which include data-density adjustment).
     const { intrinsic, commercial, market, expiry } = result.breakdown;
     const ew = result.effectiveWeights;
     const expected =
@@ -253,10 +256,13 @@ describe('ScoringEngine', () => {
     expect(result.weightedScore).toBe(expected);
     expect(result.weightedScore).toBeGreaterThanOrEqual(0);
     expect(result.weightedScore).toBeLessThanOrEqual(1);
-    expect(ew.intrinsic).toBe(0.3);
+    // With only 2 sales, market weight is scaled down by dataDensity
+    // and the surplus is redistributed to intrinsic.
+    expect(ew.intrinsic).toBeGreaterThan(0.3);
+    expect(ew.market).toBeLessThan(0.25);
     expect(ew.commercial).toBe(0.35);
-    expect(ew.market).toBe(0.25);
     expect(ew.expiry).toBe(0.1);
+    expect(ew.intrinsic + ew.commercial + ew.market + ew.expiry).toBeCloseTo(1, 5);
   });
 
   it('approaches confidenceBase when intrinsic quality is near zero', async () => {
@@ -313,7 +319,11 @@ describe('ScoringEngine', () => {
   });
 
   it('uses default weights unchanged when all signals have data', async () => {
-    const { keyword, comps } = makeProviders(100_000, 10, [5000]);
+    // 50 recent sales triggers full dataDensity so market weight is not scaled down.
+    const recent = new Date();
+    recent.setMonth(recent.getMonth() - 3);
+    const prices = Array.from({ length: 50 }, () => 5000);
+    const { keyword, comps } = makeProviders(100_000, 10, prices, recent.toISOString());
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
       domain: 'saas.com',
