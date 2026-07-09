@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execCb);
 import { resolve, dirname } from 'node:path';
-import pg from 'pg';
+import type { Pool, PoolClient, QueryResult } from 'pg';
 import { getLogger } from '../../logger.js';
 import { getTenantId } from '../../utils/tenant-context.js';
 import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
@@ -30,7 +30,7 @@ function hasReturning(sql: string): boolean {
 //  Tenant config is managed externally — this class only runs queries.
 // ─────────────────────────────────────────────────────────────
 
-type QueryFn = (text: string, values: unknown[]) => Promise<pg.QueryResult>;
+type QueryFn = (text: string, values: unknown[]) => Promise<QueryResult>;
 
 interface PgExecutor {
   exec(sql: string, params?: unknown[]): Promise<ExecResult>;
@@ -144,12 +144,12 @@ function wrapError(err: unknown): DatabaseError {
 // ─────────────────────────────────────────────────────────────
 
 export class PostgresAdapter implements DatabaseProvider {
-  readonly #pool: pg.Pool;
+  readonly #pool: Pool;
   readonly #connectionString: string;
   readonly #schema: string | undefined;
   #open: boolean;
 
-  constructor(pool: pg.Pool, connectionString: string, schema?: string) {
+  constructor(pool: Pool, connectionString: string, schema?: string) {
     this.#pool = pool;
     this.#connectionString = connectionString;
     this.#schema = schema;
@@ -160,12 +160,13 @@ export class PostgresAdapter implements DatabaseProvider {
     connectionString: string,
     options: { max?: number; schema?: string } = {},
   ): Promise<PostgresAdapter> {
-    const pool = new pg.Pool({
+    const { default: Pg } = await import('pg');
+    const pool = new Pg.Pool({
       connectionString,
       max: options.max ?? 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-    });
+    }) as Pool;
     const adapter = new PostgresAdapter(pool, connectionString, options.schema);
 
     const client = await pool.connect();
@@ -182,7 +183,7 @@ export class PostgresAdapter implements DatabaseProvider {
     return adapter;
   }
 
-  get pool(): pg.Pool {
+  get pool(): Pool {
     return this.#pool;
   }
 
@@ -357,9 +358,9 @@ export class PostgresAdapter implements DatabaseProvider {
 
 class PostgresTransactionAdapter implements DatabaseProvider {
   readonly #executor: PgExecutor;
-  readonly #client: pg.PoolClient;
+  readonly #client: PoolClient;
 
-  constructor(client: pg.PoolClient, _schema?: string) {
+  constructor(client: PoolClient, _schema?: string) {
     this.#client = client;
     this.#executor = createPgExecutor((text: string, values: unknown[]) =>
       client.query({ text, values }),
