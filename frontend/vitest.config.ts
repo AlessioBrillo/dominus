@@ -29,9 +29,9 @@ export default defineConfig({
         'src/main.tsx',
       ],
       thresholds: {
-        lines: 40,
-        functions: 40,
-        branches: 35,
+        lines: 50,
+        functions: 50,
+        branches: 42,
       },
     },
   },
