@@ -12,7 +12,6 @@ export function BuyPage() {
   const navigate = useNavigate();
   const domain = searchParams.get('domain');
   const [years, setYears] = useState(1);
-  const [confirmed, setConfirmed] = useState(false);
 
   const { data, isLoading, error } = usePreflight(domain);
   const execute = useExecutePurchase();
@@ -41,11 +40,7 @@ export function BuyPage() {
     execute.mutate(
       { domain, years, operatorApproved: true },
       {
-        onSuccess: (result) => {
-          if (result.success) {
-            setConfirmed(true);
-          }
-        },
+        onSuccess: () => {},
       },
     );
   };
