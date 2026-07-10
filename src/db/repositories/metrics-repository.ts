@@ -7,6 +7,8 @@ export interface StageMetricRow {
   filtered: number;
   durationMs: number;
   error: boolean;
+  retries?: number;
+  errorCodes?: string[];
 }
 
 interface MetricRecord {
@@ -17,6 +19,8 @@ interface MetricRecord {
   filtered: number;
   duration_ms: number;
   error: number;
+  retries: number;
+  error_codes: string;
   recorded_at: string;
 }
 
@@ -47,9 +51,18 @@ export class MetricsRepository {
       for (const row of stages) {
         await this.db.exec(
           `INSERT OR REPLACE INTO pipeline_metrics
-            (pipeline_run_id, stage_name, passed, filtered, duration_ms, error)
-          VALUES (?, ?, ?, ?, ?, ?)`,
-          [runId, row.stageName, row.passed, row.filtered, row.durationMs, row.error ? 1 : 0],
+            (pipeline_run_id, stage_name, passed, filtered, duration_ms, error, retries, error_codes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            runId,
+            row.stageName,
+            row.passed,
+            row.filtered,
+            row.durationMs,
+            row.error ? 1 : 0,
+            row.retries ?? 0,
+            JSON.stringify(row.errorCodes ?? []),
+          ],
         );
       }
     });
@@ -152,5 +165,16 @@ function toMetricRow(r: MetricRecord): StageMetricRow {
     filtered: r.filtered,
     durationMs: r.duration_ms,
     error: r.error !== 0,
+    retries: r.retries,
+    errorCodes: safeParseJsonArray(r.error_codes),
   };
+}
+
+function safeParseJsonArray(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
