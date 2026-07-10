@@ -35,6 +35,8 @@ export class MetricsCollector {
     filtered: number,
     durationMs: number,
     error: boolean,
+    retries?: number,
+    _errorCodes?: string[],
   ): void {
     const existing = this.#stageMetrics.get(stageName) ?? {
       stageName,
@@ -44,6 +46,7 @@ export class MetricsCollector {
       runCount: 0,
       lastRunAt: null,
       errorCount: 0,
+      totalRetries: 0,
     };
     existing.totalDurationMs += durationMs;
     existing.totalPassed += passed;
@@ -51,6 +54,7 @@ export class MetricsCollector {
     existing.runCount++;
     existing.lastRunAt = new Date().toISOString();
     if (error) existing.errorCount++;
+    if (retries) existing.totalRetries = (existing.totalRetries ?? 0) + retries;
     this.#stageMetrics.set(stageName, existing);
   }
 

@@ -380,16 +380,21 @@ export class PipelineRunService {
       filtered: number;
       durationMs: number;
       error: boolean;
+      retries?: number;
+      errorCodes?: string[];
     }> = [];
 
     for (const [name, summary] of Object.entries(result.stageSummary)) {
-      const hasError = result.stageErrors.some((e) => e.stageName === name);
+      const stageErrors = result.stageErrors.filter((e) => e.stageName === name);
+      const hasError = stageErrors.length > 0;
       stages.push({
         stageName: name,
         passed: summary.passed,
         filtered: summary.filtered,
         durationMs: summary.durationMs,
         error: hasError,
+        retries: hasError ? 1 : 0,
+        errorCodes: hasError ? stageErrors.map((e) => e.message.substring(0, 50)) : [],
       });
     }
 

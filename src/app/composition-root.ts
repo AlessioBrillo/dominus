@@ -39,6 +39,7 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
+  DbCheckpointStore,
 } from '../pipeline/index.js';
 import {
   PortfolioManager,
@@ -485,6 +486,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
+  const checkpointStore = new DbCheckpointStore(provider);
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
@@ -500,6 +502,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     metrics,
     provider,
     redisLock,
+    checkpointStore,
   );
   const progressService = new PipelineProgressService();
 

@@ -9,6 +9,7 @@ import type { DatabaseProvider } from '../db/provider/interface.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 import { resolveTenantId } from '../utils/tenant-context.js';
+import type { CheckpointStore } from './checkpoint-store.js';
 
 export interface LockProvider {
   tryLock(lockName: string, ttlMs: number): Promise<boolean>;
@@ -23,6 +24,8 @@ export interface PipelineMetricsDelegate {
     filtered: number,
     durationMs: number,
     error: boolean,
+    retries?: number,
+    errorCodes?: string[],
   ): void;
   recordPipelineRun(totalCandidates: number, recommended: number, durationMs: number): void;
 }
@@ -73,6 +76,33 @@ const PIPELINE_LOCK_TTL_MS = 120_000;
 /** Heartbeat interval for lock renewal (every 30s, well within the 120s TTL). */
 const PIPELINE_LOCK_HEARTBEAT_MS = 30_000;
 
+/**
+ * Maximum number of retry attempts for transient stage failures.
+ */
+const STAGE_RETRY_MAX = 3;
+
+/**
+ * Base delay for exponential backoff in milliseconds.
+ * Actual delays: 1s, 2s, 4s (with ±20% jitter).
+ */
+const STAGE_RETRY_BASE_DELAY_MS = 1_000;
+
+/**
+ * Error code prefixes that indicate a transient failure eligible for retry.
+ */
+const TRANSIENT_ERROR_PATTERNS = [
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'SQLITE_BUSY',
+  'RATE_LIMITED',
+  'TIMEOUT',
+  '429',
+  '503',
+];
+
 export class PipelineOrchestrator {
   #abortController: AbortController | null = null;
   #running: boolean = false;
@@ -88,6 +118,7 @@ export class PipelineOrchestrator {
   #onRunStart?: () => void;
 
   #lock: LockProvider | null = null;
+  #checkpointStore: CheckpointStore | null = null;
 
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -106,8 +137,13 @@ export class PipelineOrchestrator {
      *  of the DatabaseProvider, enabling cross-process locking without
      *  database contention. See ADR-0033. */
     lockProvider?: LockProvider,
+    /** Optional CheckpointStore for incremental pipeline persistence.
+     *  When set, the orchestrator saves a checkpoint after each stage
+     *  and can resume from the last completed stage on recovery. */
+    checkpointStore?: CheckpointStore,
   ) {
     this.#lock = lockProvider ?? db ?? null;
+    this.#checkpointStore = checkpointStore ?? null;
   }
 
   setOnStageProgress(
@@ -159,6 +195,9 @@ export class PipelineOrchestrator {
         await this.#lock.unlock(pipelineLockName()).catch(() => {});
         logger.info({ workerId: process.pid }, 'Pipeline advisory lock released');
       }
+      if (this.#checkpointStore && externalRunId) {
+        await this.#checkpointStore.clear(externalRunId).catch(() => {});
+      }
       this.#running = false;
     }
   }
@@ -197,6 +236,31 @@ export class PipelineOrchestrator {
     }
   }
 
+  async #saveCheckpoint(
+    stageName: string,
+    passed: DomainCandidate[],
+    filtered: DomainCandidate[],
+    durationMs: number,
+    runId: string,
+    cumulativePassed: DomainCandidate[],
+    cumulativeFiltered: DomainCandidate[],
+  ): Promise<void> {
+    if (!this.#checkpointStore || runId === 'unknown') return;
+    try {
+      await this.#checkpointStore.save(
+        runId,
+        stageName,
+        passed,
+        filtered,
+        durationMs,
+        cumulativePassed,
+        cumulativeFiltered,
+      );
+    } catch (err) {
+      logger.warn({ err, stageName }, 'Pipeline: checkpoint save failed (non-fatal)');
+    }
+  }
+
   async #runInternal(
     input: CandidateGenerationInput,
     externalRunId?: string,
@@ -205,8 +269,8 @@ export class PipelineOrchestrator {
     const signal = this.#abortController.signal;
     const start = Date.now();
 
-    // Clear provider caches before each run to prevent stale data
-    // (DNS results, trademark lookups) from being reused across runs.
+    const runId = externalRunId ?? 'unknown';
+
     this.#onRunStart?.();
     const stageSummary: PipelineResult['stageSummary'] = {};
     const stageErrors: StageError[] = [];
@@ -268,11 +332,19 @@ export class PipelineOrchestrator {
       gen.durationMs,
       false,
     );
-    const runId = gen.passed[0]?.pipelineRunId ?? 'unknown';
     if (aborted()) {
       this.#abortController.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
+    await this.#saveCheckpoint(
+      'CandidateGenerationStage',
+      gen.passed,
+      gen.filtered,
+      gen.durationMs,
+      runId,
+      [],
+      [],
+    );
 
     const dns = await this.#runStageSafe(
       'DnsPreFilter',
@@ -287,6 +359,15 @@ export class PipelineOrchestrator {
       this.#abortController.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
+    await this.#saveCheckpoint(
+      'DnsPreFilterStage',
+      dns.passed,
+      dns.filtered,
+      dns.durationMs,
+      runId,
+      gen.passed,
+      gen.filtered,
+    );
 
     const rdap = await this.#runStageSafe(
       'RdapConfirmation',
@@ -301,6 +382,16 @@ export class PipelineOrchestrator {
       this.#abortController.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
+    const allFilteredSoFar = [...gen.filtered, ...dns.filtered, ...rdap.filtered];
+    await this.#saveCheckpoint(
+      'RdapConfirmationStage',
+      rdap.passed,
+      rdap.filtered,
+      rdap.durationMs,
+      runId,
+      gen.passed,
+      allFilteredSoFar,
+    );
 
     const scoring = await this.#runStageSafe(
       'Scoring',
@@ -315,6 +406,15 @@ export class PipelineOrchestrator {
       this.#abortController.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
+    await this.#saveCheckpoint(
+      'ScoringStage',
+      scoring.passed,
+      scoring.filtered,
+      scoring.durationMs,
+      runId,
+      gen.passed,
+      allFilteredSoFar,
+    );
 
     const trademark = await this.#runStageSafe(
       'TrademarkGate',
@@ -325,6 +425,15 @@ export class PipelineOrchestrator {
       signal,
     );
     if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
+    await this.#saveCheckpoint(
+      'TrademarkGateStage',
+      trademark.passed,
+      trademark.filtered,
+      trademark.durationMs,
+      runId,
+      gen.passed,
+      [],
+    );
 
     const scored: ScoredCandidate[] = [
       ...scoring.filtered,
@@ -370,54 +479,85 @@ export class PipelineOrchestrator {
     errors: StageError[],
     signal: AbortSignal,
   ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
-    try {
-      // Verify lock is still held before executing each stage.
-      // If the heartbeat failed and another worker stole the lock,
-      // we catch it here before writing potentially stale results.
-      await this.#ensureLockHeld();
-      const result = await this.#withTimeout(label, fn, startMs, signal);
-      summary[result.stageName] = {
-        passed: result.passed.length,
-        filtered: result.filtered.length,
-        durationMs: result.durationMs,
-      };
-      this.metrics?.recordStage(
-        result.stageName,
-        result.passed.length,
-        result.filtered.length,
-        result.durationMs,
-        false,
-      );
-      this.#onStageProgress?.(
-        result.stageName,
-        result.passed.length,
-        result.filtered.length,
-        result.durationMs,
-        false,
-      );
-      return result;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error(
-        { err, label },
-        `Pipeline: ${label} stage fatally failed — recovering with empty result`,
-      );
-      const stageError: StageError = {
-        stageName: label,
-        message: msg,
-        candidateCount: 0,
-      };
-      if (err instanceof ProviderError) {
-        stageError.provider = err.provider;
-        stageError.isTransient = true;
+    for (let attempt = 1; attempt <= STAGE_RETRY_MAX; attempt++) {
+      try {
+        await this.#ensureLockHeld();
+        const result = await this.#withTimeout(label, fn, startMs, signal);
+        summary[result.stageName] = {
+          passed: result.passed.length,
+          filtered: result.filtered.length,
+          durationMs: result.durationMs,
+        };
+        this.metrics?.recordStage(
+          result.stageName,
+          result.passed.length,
+          result.filtered.length,
+          result.durationMs,
+          false,
+        );
+        this.#onStageProgress?.(
+          result.stageName,
+          result.passed.length,
+          result.filtered.length,
+          result.durationMs,
+          false,
+        );
+
+        if (attempt > 1) {
+          logger.info({ label, attempt }, 'Pipeline: stage recovered on retry');
+        }
+        return result;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const msg = error.message;
+
+        // Only retry on transient errors — fatal errors (bad config, invalid
+        // input, aborted signal) fail immediately.
+        const isTransient = TRANSIENT_ERROR_PATTERNS.some((p) => msg.includes(p));
+
+        if (!isTransient || attempt >= STAGE_RETRY_MAX || signal.aborted) {
+          const totalAttempts = attempt;
+          const originalErrorCode =
+            err instanceof ProviderError
+              ? err.code
+              : (TRANSIENT_ERROR_PATTERNS.find((p) => msg.includes(p)) ?? 'UNKNOWN');
+          logger.error(
+            { err, label, attempt: totalAttempts, maxAttempts: STAGE_RETRY_MAX },
+            isTransient
+              ? `Pipeline: ${label} stage exhausted retries — recovering with empty result`
+              : `Pipeline: ${label} stage fatally failed — recovering with empty result`,
+          );
+          const stageError: StageError = {
+            stageName: label,
+            message: msg,
+            candidateCount: 0,
+            isTransient,
+          };
+          if (err instanceof ProviderError) {
+            stageError.provider = err.provider;
+          }
+          errors.push(stageError);
+          const durationMs = Date.now() - startMs;
+          summary[label] = { passed: 0, filtered: 0, durationMs };
+          this.metrics?.recordStage(label, 0, 0, durationMs, true, totalAttempts - 1, [
+            originalErrorCode,
+          ]);
+          this.#onStageProgress?.(label, 0, 0, durationMs, true);
+          return { passed: [], filtered: [], stageName: label, durationMs };
+        }
+
+        // Exponential backoff with jitter: 1s, 2s, 4s (±20%)
+        const delay = Math.min(STAGE_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), 30_000);
+        const jitter = delay * (0.8 + Math.random() * 0.4);
+        logger.warn(
+          { err, label, attempt, delayMs: Math.round(jitter) },
+          `Pipeline: ${label} stage transient failure — retrying`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, jitter));
       }
-      errors.push(stageError);
-      const durationMs = Date.now() - startMs;
-      summary[label] = { passed: 0, filtered: 0, durationMs };
-      this.metrics?.recordStage(label, 0, 0, durationMs, true);
-      this.#onStageProgress?.(label, 0, 0, durationMs, true);
-      return { passed: [], filtered: [], stageName: label, durationMs };
     }
+
+    return null;
   }
 
   #abortWithError(

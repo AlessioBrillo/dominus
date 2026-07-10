@@ -6,6 +6,7 @@ export interface StageMetrics {
   runCount: number;
   lastRunAt: string | null;
   errorCount: number;
+  totalRetries?: number;
 }
 
 export interface ProviderErrorMetric {
