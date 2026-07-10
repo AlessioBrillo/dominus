@@ -8,3 +8,5 @@ export { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 export { ScoringStage } from './stages/scoring-stage.js';
 export type { ScoredCandidate } from './stages/scoring-stage.js';
 export { TrademarkGateStage } from './stages/trademark-gate-stage.js';
+export { DbCheckpointStore } from './db-checkpoint-store.js';
+export type { CheckpointStore, CheckpointData } from './checkpoint-store.js';
