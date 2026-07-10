@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Play } from 'lucide-react';
 import { useCandidatesList, useRunsList, useRunPipeline } from '@/hooks/useCandidates';
 import { CandidateCard } from '@/components/CandidateCard';
@@ -9,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export function CandidatesPage() {
+  const navigate = useNavigate();
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>();
   const { data: candidates = [], isLoading, error } = useCandidatesList(selectedRunId);
   const { data: runs = [] } = useRunsList();
@@ -85,7 +87,11 @@ export function CandidatesPage() {
               </h3>
               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                 {recommended.map((c) => (
-                  <CandidateCard key={c.domain} candidate={c} />
+                  <CandidateCard
+                    key={c.domain}
+                    candidate={c}
+                    onBuy={(domain) => navigate(`/buy?domain=${encodeURIComponent(domain)}`)}
+                  />
                 ))}
               </div>
             </div>
