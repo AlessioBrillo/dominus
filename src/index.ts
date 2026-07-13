@@ -32,6 +32,7 @@ import {
   createListingsRouter,
   createOnboardingRouter,
   createDocsRouter,
+  createWorkerRouter,
   createPublicRouter,
   errorHandler,
   createRequestLogger,
@@ -229,6 +230,9 @@ async function main(): Promise<void> {
   protectedRouter.use('/report', createReportRouter(deps.reportService));
   protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
   protectedRouter.use('/listings', createListingsRouter(deps.listingManager));
+  if (deps.worker) {
+    protectedRouter.use('/system', createWorkerRouter(deps.worker, deps.jobQueueService));
+  }
   app.use('/api/v1', protectedRouter);
 
   // ── SPA catch-all with base path isolation ─────────────────────────
