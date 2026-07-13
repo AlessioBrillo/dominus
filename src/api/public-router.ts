@@ -47,28 +47,47 @@ function createPerDomainRateLimiter(): {
 } {
   const windows = new Map<string, { count: number; resetAt: number }>();
   const MAX_WINDOWS = 10_000;
+  let pruneWarningLogged = false;
 
   function key(ip: string, domain: string): string {
     return `${ip}:${domain.toLowerCase()}`;
   }
 
-  function prune(): void {
-    const now = Date.now();
+  function prune(now: number): void {
     for (const [k, v] of windows) {
       if (now > v.resetAt) windows.delete(k);
     }
   }
 
-  setInterval(prune, 60_000).unref();
-
   return {
     check(ip: string, domain: string): boolean {
       const k = key(ip, domain);
       const now = Date.now();
+
+      // Prune expired entries before every check to prevent the map from
+      // accumulating stale entries under sustained traffic (ponytail: no
+      // background interval — proactive per-check pruning is simpler and
+      // keeps memory pressure bounded between checks).
+      prune(now);
+
       let entry = windows.get(k);
       if (!entry || now > entry.resetAt) {
-        if (windows.size >= MAX_WINDOWS && !windows.has(k)) {
-          return true;
+        if (windows.size >= MAX_WINDOWS) {
+          if (!pruneWarningLogged) {
+            logger.warn(
+              {
+                maxWindows: MAX_WINDOWS,
+                currentSize: windows.size,
+              },
+              'Per-domain rate limiter at capacity — evicting oldest entry',
+            );
+            pruneWarningLogged = true;
+          }
+          // Evict the oldest entry (Map preserves insertion order)
+          const oldest = windows.keys().next();
+          if (!oldest.done && oldest.value !== undefined) {
+            windows.delete(oldest.value);
+          }
         }
         windows.set(k, { count: 1, resetAt: now + PER_DOMAIN_RATE_LIMIT_WINDOW_MS });
         return true;
