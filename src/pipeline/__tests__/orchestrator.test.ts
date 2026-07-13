@@ -8,6 +8,7 @@ import { TrademarkGateStage } from '../stages/trademark-gate-stage.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import { MockDatabaseProvider } from '../../db/provider/mock-adapter.js';
+import { runWithTenant } from '../../utils/tenant-context.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
@@ -222,9 +223,9 @@ describe('PipelineOrchestrator', () => {
     expect(result.recommended[0]?.domain).toBe('nova.com');
   });
 
-  it('rejects concurrent runs with an error', async () => {
+  it('rejects concurrent runs for the same tenant', async () => {
     // Slow stage (1s delay) + short timeout (50ms) ensures the first run
-    // sets #running = true synchronously, then quickly times out. The
+    // sets #activeTenants synchronously, then quickly times out. The
     // second call is dispatched before the first run's timeout fires.
     const slowStage: CandidateGenerationStage = {
       name: 'slow-gen',
@@ -241,8 +242,29 @@ describe('PipelineOrchestrator', () => {
 
     void orchestrator.run({ brandableNames: ['nova.com'] });
     await expect(orchestrator.run({ brandableNames: ['second.com'] })).rejects.toThrow(
-      'concurrent runs are not supported',
+      'concurrent per-tenant runs are not supported',
     );
+  });
+
+  it('allows concurrent runs for different tenants', async () => {
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+    );
+
+    const runA = runWithTenant('tenant-a', () =>
+      orchestrator.run({ brandableNames: ['nova.com'] }),
+    );
+    const runB = runWithTenant('tenant-b', () =>
+      orchestrator.run({ brandableNames: ['zenify.io'] }),
+    );
+
+    const results = await Promise.allSettled([runA, runB]);
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1].status).toBe('fulfilled');
   });
 
   it('times out when a stage exceeds the configured timeout', async () => {
