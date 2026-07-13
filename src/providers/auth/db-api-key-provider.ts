@@ -22,6 +22,7 @@ export interface GeneratedApiKey {
  */
 export class DbApiKeyProvider implements AuthProvider {
   readonly name = 'DbApiKeyProvider';
+  readonly supportsKeyManagement = true;
 
   constructor(private readonly repo: ApiKeyRepository) {}
 

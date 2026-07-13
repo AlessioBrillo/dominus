@@ -21,6 +21,7 @@ const logger = getLogger();
  */
 export class EnvApiKeyProvider implements AuthProvider {
   readonly name = 'EnvApiKeyProvider';
+  readonly supportsKeyManagement = false;
 
   private readonly keys: Map<string, string> = new Map();
   private readonly active: boolean;

@@ -11,6 +11,7 @@ const JWKS_CACHE_TTL_MS = 300_000;
 
 export class Auth0Provider implements AuthProvider {
   readonly name = 'Auth0Provider';
+  readonly supportsKeyManagement = false;
   readonly #jwks: ReturnType<typeof createRemoteJWKSet>;
   readonly #expectedIssuer: string;
   readonly #expectedAudience: string;
