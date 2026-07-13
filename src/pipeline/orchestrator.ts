@@ -104,8 +104,8 @@ const TRANSIENT_ERROR_PATTERNS = [
 ];
 
 export class PipelineOrchestrator {
-  #abortController: AbortController | null = null;
-  #running: boolean = false;
+  #activeTenants: Set<string> = new Set();
+  #runControllers: Map<string, AbortController> = new Map();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #onStageProgress?: (
     stageName: string,
@@ -166,15 +166,23 @@ export class PipelineOrchestrator {
   }
 
   async run(input: CandidateGenerationInput, externalRunId?: string): Promise<PipelineResult> {
-    if (this.#running) {
+    const tenantId = resolveTenantId();
+
+    if (this.#activeTenants.has(tenantId)) {
       throw new Error(
-        'Pipeline run already in progress — concurrent runs are not supported on this instance',
+        `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
       );
     }
+
+    const controller = new AbortController();
+    this.#activeTenants.add(tenantId);
+    this.#runControllers.set(tenantId, controller);
 
     if (this.#lock) {
       const acquired = await this.#lock.tryLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS);
       if (!acquired) {
+        this.#activeTenants.delete(tenantId);
+        this.#runControllers.delete(tenantId);
         throw new Error(
           'Pipeline run already in progress on another instance — ' +
             `advisory lock '${pipelineLockName()}' could not be acquired. ` +
@@ -185,10 +193,8 @@ export class PipelineOrchestrator {
       this.#startHeartbeat();
     }
 
-    this.#running = true;
-
     try {
-      return await this.#runInternal(input, externalRunId);
+      return await this.#runInternal(input, controller, tenantId, externalRunId);
     } finally {
       this.#stopHeartbeat();
       if (this.#lock) {
@@ -198,7 +204,8 @@ export class PipelineOrchestrator {
       if (this.#checkpointStore && externalRunId) {
         await this.#checkpointStore.clear(externalRunId).catch(() => {});
       }
-      this.#running = false;
+      this.#runControllers.delete(tenantId);
+      this.#activeTenants.delete(tenantId);
     }
   }
 
@@ -215,13 +222,13 @@ export class PipelineOrchestrator {
     }, PIPELINE_LOCK_HEARTBEAT_MS).unref();
   }
 
-  async #ensureLockHeld(): Promise<void> {
+  async #ensureLockHeld(key: string): Promise<void> {
     if (!this.#lock) return;
     const renewed = await this.#lock
       .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
       .catch(() => false);
     if (!renewed) {
-      this.#abortController?.abort();
+      this.#runControllers.get(key)?.abort();
       throw new Error(
         'Pipeline lock lost — another worker may have acquired it. ' +
           'Aborting to prevent split-brain writes.',
@@ -263,13 +270,14 @@ export class PipelineOrchestrator {
 
   async #runInternal(
     input: CandidateGenerationInput,
+    controller: AbortController,
+    key: string,
     externalRunId?: string,
   ): Promise<PipelineResult> {
-    this.#abortController = new AbortController();
-    const signal = this.#abortController.signal;
+    const signal = controller.signal;
     const start = Date.now();
 
-    const runId = externalRunId ?? 'unknown';
+    const runId = externalRunId ?? key;
 
     this.#onRunStart?.();
     const stageSummary: PipelineResult['stageSummary'] = {};
@@ -290,7 +298,7 @@ export class PipelineOrchestrator {
         'CandidateGeneration',
         (s) => this.generationStage.process([input], s, externalRunId),
         start,
-        signal,
+        controller,
       );
     } catch (err) {
       logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
@@ -333,7 +341,7 @@ export class PipelineOrchestrator {
       false,
     );
     if (aborted()) {
-      this.#abortController.abort();
+      controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
     await this.#saveCheckpoint(
@@ -352,11 +360,12 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
-      signal,
+      controller,
+      key,
     );
     if (dns === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (aborted()) {
-      this.#abortController.abort();
+      controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
     await this.#saveCheckpoint(
@@ -375,11 +384,12 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
-      signal,
+      controller,
+      key,
     );
     if (rdap === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (aborted()) {
-      this.#abortController.abort();
+      controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
     const allFilteredSoFar = [...gen.filtered, ...dns.filtered, ...rdap.filtered];
@@ -399,11 +409,12 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
-      signal,
+      controller,
+      key,
     );
     if (scoring === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (aborted()) {
-      this.#abortController.abort();
+      controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
     await this.#saveCheckpoint(
@@ -422,7 +433,8 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
-      signal,
+      controller,
+      key,
     );
     if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     await this.#saveCheckpoint(
@@ -450,8 +462,6 @@ export class PipelineOrchestrator {
       ...trademark.passed,
     ];
 
-    this.#abortController = null;
-
     this.metrics?.recordPipelineRun(
       allCandidates.length,
       trademark.passed.length,
@@ -477,12 +487,14 @@ export class PipelineOrchestrator {
     startMs: number,
     summary: PipelineResult['stageSummary'],
     errors: StageError[],
-    signal: AbortSignal,
+    controller: AbortController,
+    key: string,
   ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
+    const signal = controller.signal;
     for (let attempt = 1; attempt <= STAGE_RETRY_MAX; attempt++) {
       try {
-        await this.#ensureLockHeld();
-        const result = await this.#withTimeout(label, fn, startMs, signal);
+        await this.#ensureLockHeld(key);
+        const result = await this.#withTimeout(label, fn, startMs, controller);
         summary[result.stageName] = {
           passed: result.passed.length,
           filtered: result.filtered.length,
@@ -581,18 +593,19 @@ export class PipelineOrchestrator {
     label: string,
     fn: (signal: AbortSignal) => Promise<T>,
     startMs: number,
-    signal: AbortSignal,
+    controller: AbortController,
   ): Promise<T> {
+    const signal = controller.signal;
     if (this.timeoutMs <= 0) return fn(signal);
 
     const elapsed = Date.now() - startMs;
     const remaining = this.timeoutMs - elapsed;
     if (remaining <= 0) {
-      this.#abortController?.abort();
+      controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, elapsed);
     }
 
-    return raceWithTimeout(fn(signal), remaining, label, signal, this.#abortController);
+    return raceWithTimeout(fn(signal), remaining, label, signal, controller);
   }
 }
 
