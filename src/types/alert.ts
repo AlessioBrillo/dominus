@@ -4,6 +4,7 @@ export enum AlertType {
   RenewalPastDue = 'renewal_past_due',
   ScoreDropped = 'score_dropped',
   DomainAvailable = 'domain_available',
+  SystemError = 'system_error',
 }
 
 export enum AlertSeverity {

@@ -134,16 +134,16 @@ export class JobQueueRepository {
     );
   }
 
-  async fail(jobId: number, error: string): Promise<void> {
+  async fail(jobId: number, error: string): Promise<boolean> {
     const job = await this.getById(jobId);
-    if (!job) return;
+    if (!job) return false;
 
     const nextAttempt = job.attempts + 1;
     const isDeadLetter = nextAttempt > job.maxAttempts;
 
     if (isDeadLetter) {
       await this.moveToDeadLetter(jobId, error, nextAttempt);
-      return;
+      return true;
     }
 
     await this.#db.exec(
@@ -154,6 +154,7 @@ export class JobQueueRepository {
        WHERE id = ?`,
       [error, jobId],
     );
+    return false;
   }
 
   private async moveToDeadLetter(jobId: number, error: string, attempts: number): Promise<void> {

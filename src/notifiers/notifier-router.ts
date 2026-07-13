@@ -4,6 +4,7 @@ import { DesktopNotifier } from './desktop-notifier.js';
 import { WebhookNotifier } from './webhook-notifier.js';
 import { TelegramNotifier } from './telegram-notifier.js';
 import type { Config } from '../config.js';
+import { AlertType, AlertSeverity } from '../types/alert.js';
 
 export function buildNotifiers(config: Config): Notifier[] {
   const notifiers: Notifier[] = [];
@@ -44,4 +45,24 @@ export async function sendAlert(
     }
   }
   return channels;
+}
+
+/**
+ * Send a system-level alert (non-domain-specific) through the notifier chain.
+ * Uses 'system' as the domain placeholder to fit the existing Notification
+ * interface without adding a new type.
+ */
+export async function sendSystemAlert(
+  notifiers: Notifier[],
+  message: string,
+  details?: string,
+): Promise<string[]> {
+  return sendAlert(notifiers, {
+    domain: 'system',
+    alertType: AlertType.SystemError,
+    severity: AlertSeverity.Critical,
+    message,
+    details,
+    createdAt: new Date().toISOString(),
+  } as Parameters<Notifier['send']>[0]);
 }

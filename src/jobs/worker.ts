@@ -1,6 +1,8 @@
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type { JobType, JobHandler, JobQueueRow, JobPayload } from '../types/job-queue.js';
+import type { Notifier } from '../notifiers/notifier.js';
+import { sendSystemAlert } from '../notifiers/notifier-router.js';
 import { runWithTenant } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 
@@ -11,6 +13,8 @@ export interface WorkerConfig {
   pollIntervalMs: number;
   maxRunningAgeMs: number;
   gracefulShutdownTimeoutMs: number;
+  /** Optional notifier chain for dead-letter and critical job failures. */
+  notifiers?: Notifier[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,7 +159,10 @@ export class JobWorker {
     if (!handler) {
       const error = `No handler registered for job type: ${job.jobType}`;
       logger.error({ jobId: job.id, jobType: job.jobType }, error);
-      await this.#repo.fail(job.id, error);
+      const wasDeadLetter = await this.#repo.fail(job.id, error);
+      if (wasDeadLetter) {
+        this.#notifyDeadLetter(job, error);
+      }
       this.#activeJobs.delete(job.id);
       this.#checkShutdown();
       return;
@@ -184,12 +191,27 @@ export class JobWorker {
         logger.warn({ jobId: job.id }, 'Job aborted during shutdown');
       } else {
         logger.error({ jobId: job.id, jobType: job.jobType, error }, 'Job failed');
-        await this.#repo.fail(job.id, error);
+        const wasDeadLetter = await this.#repo.fail(job.id, error);
+        if (wasDeadLetter) {
+          this.#notifyDeadLetter(job, error);
+        }
       }
     } finally {
       this.#activeJobs.delete(job.id);
       this.#checkShutdown();
     }
+  }
+
+  /** Fire notification when a job exhausts all retries and enters dead letter. */
+  #notifyDeadLetter(job: JobQueueRow, error: string): void {
+    if (!this.#config.notifiers || this.#config.notifiers.length === 0) return;
+    sendSystemAlert(
+      this.#config.notifiers,
+      `Job dead-lettered: ${job.jobType} #${job.id}`,
+      `Error: ${error}\nAttempts: ${job.attempts}/${job.maxAttempts}`,
+    ).catch((notifyErr: unknown) => {
+      logger.warn({ err: notifyErr }, 'Failed to send dead-letter notification');
+    });
   }
 
   #checkShutdown(): void {

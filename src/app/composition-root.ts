@@ -247,6 +247,7 @@ function buildWorkerIfEnabled(
   autoTuner: AutoWeightTuner | undefined,
   healthcheckService: PortfolioRdapService,
   autoListingService: AutoListingService,
+  notifiers: Notifier[],
 ): JobWorker | undefined {
   if (!config.WORKER_ENABLED) return undefined;
 
@@ -307,6 +308,7 @@ function buildWorkerIfEnabled(
     concurrency: config.WORKER_CONCURRENCY,
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
+    notifiers,
   });
 
   // Reap orphaned pipeline_runs left by a previously crashed worker so the
@@ -709,6 +711,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoTuner,
     healthcheckService,
     autoListingService,
+    notifiers,
   );
 
   // --- Scheduler ---
