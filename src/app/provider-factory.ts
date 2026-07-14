@@ -26,7 +26,7 @@ import { RetryingRdapProvider } from './retrying-rdap-provider.js';
 import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
-import { type RedisClient } from '../providers/redis/index.js';
+import { type RedisClient, type RedisCacheProvider } from '../providers/redis/index.js';
 import { RedisRateLimiter } from '../providers/redis/redis-rate-limiter.js';
 
 export function buildKeywordProvider(
@@ -134,6 +134,7 @@ export function buildDnsProvider(
   config: Config,
   rateLimiter?: RateLimiterLike,
   providerCacheRepo?: ProviderCacheRepository,
+  redisCache?: RedisCacheProvider<DnsCheckResult>,
 ): DnsProvider {
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
 
@@ -158,6 +159,7 @@ export function buildDnsProvider(
     parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
     parkingRegistry,
     healthCheckDomain: config.DNS_HEALTH_CHECK_DOMAIN,
+    ...(redisCache !== undefined ? { redisCache } : {}),
   });
 
   const wrappedCheckAvailability = async (

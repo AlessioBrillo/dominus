@@ -67,7 +67,8 @@ import {
   PipelineProgressService,
 } from './index.js';
 import { type RateLimiterLike } from '../providers/rate-limiter.js';
-import { RedisLock, getRedisClient } from '../providers/redis/index.js';
+import type { DnsCheckResult } from '../types/domain-status.js';
+import { RedisLock, getRedisClient, RedisCacheProvider } from '../providers/redis/index.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import { Auth0Provider } from '../providers/auth/auth0-provider.js';
 import { DbApiKeyProvider } from '../providers/auth/db-api-key-provider.js';
@@ -436,7 +437,14 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rdapRateLimiter,
     repos.providerCacheRepo,
   );
-  const dnsProvider = buildDnsProvider(config, dnsRateLimiter, repos.providerCacheRepo);
+  const dnsCache = redisClient
+    ? new RedisCacheProvider<DnsCheckResult>({
+        namespace: 'dns',
+        defaultTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+        redisClient,
+      })
+    : undefined;
+  const dnsProvider = buildDnsProvider(config, dnsRateLimiter, repos.providerCacheRepo, dnsCache);
   const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
   // --- Wayback Machine (expiry data enrichment) ---
@@ -485,6 +493,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       dnsProvider,
       compsProvider: cachedCompsProvider,
       ...(waybackProvider !== undefined ? { waybackProvider } : {}),
+      ...(redisClient !== undefined ? { redisClient } : {}),
     },
   );
 
