@@ -66,7 +66,7 @@ import {
   MetricsCollector,
   PipelineProgressService,
 } from './index.js';
-import { type RateLimiter } from '../providers/rate-limiter.js';
+import { type RateLimiterLike } from '../providers/rate-limiter.js';
 import { RedisLock, getRedisClient } from '../providers/redis/index.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import { Auth0Provider } from '../providers/auth/auth0-provider.js';
@@ -172,8 +172,8 @@ export interface DominusDependencies {
 function buildTrademarkProviderStack(
   config: Config,
   providerCacheRepo: ProviderCacheRepository,
-  usptoRateLimiter: RateLimiter,
-  euipoRateLimiter: RateLimiter,
+  usptoRateLimiter: RateLimiterLike,
+  euipoRateLimiter: RateLimiterLike,
 ): {
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
@@ -405,13 +405,28 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     ? undefined
     : createBulkWriteDatabaseProvider(config.DATABASE_PATH, 5000);
 
-  // --- Rate Limiters ---
+  // --- Redis (distributed locking, caching, rate limiting) ---
+  // Declared here so it's available for Redis-backed rate limiters below.
+  let redisClient: ReturnType<typeof getRedisClient> | undefined;
+  let redisLock: RedisLock | undefined;
+  if (config.REDIS_URL) {
+    redisClient = getRedisClient({
+      url: config.REDIS_URL,
+      tlsEnabled: config.REDIS_TLS_ENABLED,
+      keyPrefix: config.REDIS_KEY_PREFIX,
+      maxRetries: config.REDIS_MAX_RETRIES,
+      retryBaseMs: config.REDIS_RETRY_BASE_MS,
+    });
+    redisLock = new RedisLock(redisClient);
+  }
+
+  // --- Rate Limiters (Redis-backed when REDIS_URL is configured) ---
   const {
     rdap: rdapRateLimiter,
     uspto: usptoRateLimiter,
     euipo: euipoRateLimiter,
     dns: dnsRateLimiter,
-  } = buildRateLimiters(config);
+  } = buildRateLimiters(config, redisClient);
 
   // --- Providers ---
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, repos.providerCacheRepo);
@@ -472,19 +487,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       ...(waybackProvider !== undefined ? { waybackProvider } : {}),
     },
   );
-
-  // --- Redis (distributed locking, caching) ---
-  let redisLock: RedisLock | undefined;
-  if (config.REDIS_URL) {
-    const redisClient = getRedisClient({
-      url: config.REDIS_URL,
-      tlsEnabled: config.REDIS_TLS_ENABLED,
-      keyPrefix: config.REDIS_KEY_PREFIX,
-      maxRetries: config.REDIS_MAX_RETRIES,
-      retryBaseMs: config.REDIS_RETRY_BASE_MS,
-    });
-    redisLock = new RedisLock(redisClient);
-  }
 
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();

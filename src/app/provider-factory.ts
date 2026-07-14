@@ -9,7 +9,7 @@ import { createCompsProvider, type CompsProvider } from '../providers/comps/inde
 import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
 import { NodeDnsProvider, ParkingIpRegistry, type DnsProvider } from '../providers/dns/index.js';
-import { RateLimiter } from '../providers/rate-limiter.js';
+import { type RateLimiterLike, RateLimiter } from '../providers/rate-limiter.js';
 import { FailoverRdapProvider } from '../providers/rdap/index.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { RdapResult } from '../types/domain-status.js';
@@ -26,6 +26,8 @@ import { RetryingRdapProvider } from './retrying-rdap-provider.js';
 import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
+import { type RedisClient } from '../providers/redis/index.js';
+import { RedisRateLimiter } from '../providers/redis/redis-rate-limiter.js';
 
 export function buildKeywordProvider(
   config: Config,
@@ -93,7 +95,7 @@ export interface BuiltRdapProviders {
 
 export function buildRdapProviders(
   config: Config,
-  rdapRateLimiter: RateLimiter,
+  rdapRateLimiter: RateLimiterLike,
   providerCacheRepo: ProviderCacheRepository,
 ): BuiltRdapProviders {
   const rdapBootstrapUrls: string[] = ((): string[] => {
@@ -130,7 +132,7 @@ export function buildRdapProviders(
 
 export function buildDnsProvider(
   config: Config,
-  rateLimiter?: RateLimiter,
+  rateLimiter?: RateLimiterLike,
   providerCacheRepo?: ProviderCacheRepository,
 ): DnsProvider {
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
@@ -280,7 +282,15 @@ export function buildWaybackProvider(
   return cached;
 }
 
-function createRateLimiter(tokens: number, intervalMs: number): RateLimiter {
+function createRateLimiter(
+  tokens: number,
+  intervalMs: number,
+  namespace: string,
+  redisClient?: RedisClient | undefined,
+): RateLimiterLike {
+  if (redisClient) {
+    return new RedisRateLimiter({ tokens, intervalMs, namespace }, redisClient);
+  }
   return new RateLimiter({
     maxTokens: tokens,
     tokensPerInterval: tokens,
@@ -289,27 +299,46 @@ function createRateLimiter(tokens: number, intervalMs: number): RateLimiter {
 }
 
 export interface BuiltRateLimiters {
-  rdap: RateLimiter;
-  uspto: RateLimiter;
-  euipo: RateLimiter;
-  wayback: RateLimiter;
-  dns: RateLimiter;
+  rdap: RateLimiterLike;
+  uspto: RateLimiterLike;
+  euipo: RateLimiterLike;
+  wayback: RateLimiterLike;
+  dns: RateLimiterLike;
 }
 
-export function buildRateLimiters(config: Config): BuiltRateLimiters {
-  const rdap = createRateLimiter(config.RDAP_RATE_LIMIT_TOKENS, config.RDAP_RATE_LIMIT_INTERVAL_MS);
+export function buildRateLimiters(
+  config: Config,
+  redisClient?: RedisClient | undefined,
+): BuiltRateLimiters {
+  const rdap = createRateLimiter(
+    config.RDAP_RATE_LIMIT_TOKENS,
+    config.RDAP_RATE_LIMIT_INTERVAL_MS,
+    'rdap',
+    redisClient,
+  );
   const uspto = createRateLimiter(
     config.USPTO_RATE_LIMIT_TOKENS,
     config.USPTO_RATE_LIMIT_INTERVAL_MS,
+    'uspto',
+    redisClient,
   );
   const euipo = createRateLimiter(
     config.EUIPO_RATE_LIMIT_TOKENS,
     config.EUIPO_RATE_LIMIT_INTERVAL_MS,
+    'euipo',
+    redisClient,
   );
   const wayback = createRateLimiter(
     config.WAYBACK_RATE_LIMIT_TOKENS,
     config.WAYBACK_RATE_LIMIT_INTERVAL_MS,
+    'wayback',
+    redisClient,
   );
-  const dns = createRateLimiter(config.DNS_RATE_LIMIT_TOKENS, config.DNS_RATE_LIMIT_INTERVAL_MS);
+  const dns = createRateLimiter(
+    config.DNS_RATE_LIMIT_TOKENS,
+    config.DNS_RATE_LIMIT_INTERVAL_MS,
+    'dns',
+    redisClient,
+  );
   return { rdap, uspto, euipo, wayback, dns };
 }

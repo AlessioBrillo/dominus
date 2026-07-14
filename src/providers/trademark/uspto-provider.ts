@@ -1,6 +1,6 @@
 import { ProviderError } from '../../types/errors.js';
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
-import { RateLimiter } from '../rate-limiter.js';
+import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 
 /**
  * Keyless USPTO trademark search provider.
@@ -40,12 +40,12 @@ const ACTIVE_STATUS_PREFIX = '6-'; // USPTO status codes starting with 6 are reg
 
 export interface UsptoProviderConfig {
   searchUrl: string;
-  rateLimiter?: RateLimiter;
+  rateLimiter?: RateLimiterLike;
 }
 
 export class UsptoCasesProvider implements TrademarkProvider {
   readonly #searchUrl: string;
-  readonly #rateLimiter: RateLimiter;
+  readonly #rateLimiter: RateLimiterLike;
 
   constructor(config: UsptoProviderConfig) {
     this.#searchUrl = config.searchUrl;

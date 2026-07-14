@@ -2,7 +2,7 @@ import type { RdapResult } from '../../types/domain-status.js';
 import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
 import { PublicRdapProvider } from './public-rdap-provider.js';
-import { type RateLimiter } from '../rate-limiter.js';
+import { type RateLimiterLike } from '../rate-limiter.js';
 
 export interface RdapBootstrapConfig {
   baseUrl: string;
@@ -46,7 +46,7 @@ export class FailoverRdapProvider implements RdapProvider {
     }
   }
 
-  static fromConfig(urls: string[], rateLimiter?: RateLimiter): FailoverRdapProvider {
+  static fromConfig(urls: string[], rateLimiter?: RateLimiterLike): FailoverRdapProvider {
     const providers = urls.map((url, i) => {
       const name = `rdap-server-${i + 1}`;
       return new PublicRdapProvider(url, name, rateLimiter);
