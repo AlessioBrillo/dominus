@@ -67,6 +67,42 @@ export class JobQueueRepository {
     return result.lastInsertRowid as number;
   }
 
+  /**
+   * Atomically enqueue a job only if the queue depth is below the given limit.
+   * Prevents TOCTOU races between depth check and insert in concurrent scenarios
+   * (multiple workers or API servers sharing the same queue).
+   *
+   * Returns the new job id on success, or throws an error if the queue is full.
+   */
+  async enqueueWithDepthCheck(
+    jobType: string,
+    payload: object,
+    maxDepth: number,
+    options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
+  ): Promise<number> {
+    const row = await this.#db.queryOne<{ id: number }>(
+      `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at)
+       SELECT ?, ?, ?, ?, ?
+       WHERE (SELECT COUNT(*) FROM job_queue WHERE status IN ('queued', 'running')) < ?
+       RETURNING id`,
+      [
+        jobType,
+        JSON.stringify(payload),
+        options.priority ?? 0,
+        options.maxAttempts ?? 3,
+        options.scheduledAt ?? this.#ts(),
+        maxDepth,
+      ],
+    );
+    if (!row) {
+      throw new Error(
+        `Job queue depth limit reached (${maxDepth}) — rejecting enqueue of ${jobType}. ` +
+          'Increase JOB_QUEUE_MAX_DEPTH or wait for the worker to drain pending jobs.',
+      );
+    }
+    return row.id;
+  }
+
   async dequeue(): Promise<JobQueueRow | null> {
     const row = await this.#db.queryOne<any>(
       `UPDATE job_queue
@@ -98,16 +134,16 @@ export class JobQueueRepository {
     );
   }
 
-  async fail(jobId: number, error: string): Promise<void> {
+  async fail(jobId: number, error: string): Promise<boolean> {
     const job = await this.getById(jobId);
-    if (!job) return;
+    if (!job) return false;
 
     const nextAttempt = job.attempts + 1;
     const isDeadLetter = nextAttempt > job.maxAttempts;
 
     if (isDeadLetter) {
       await this.moveToDeadLetter(jobId, error, nextAttempt);
-      return;
+      return true;
     }
 
     await this.#db.exec(
@@ -118,6 +154,7 @@ export class JobQueueRepository {
        WHERE id = ?`,
       [error, jobId],
     );
+    return false;
   }
 
   private async moveToDeadLetter(jobId: number, error: string, attempts: number): Promise<void> {

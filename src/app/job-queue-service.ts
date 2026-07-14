@@ -71,18 +71,6 @@ export function createJobQueueService(
     payload: JobPayload,
     options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
   ): Promise<string> {
-    // Reject when the queue has grown beyond the configured limit to prevent
-    // unbounded growth when the worker cannot keep up (ADR-0023 §4.7).
-    if (maxDepth > 0) {
-      const stats = await repo.getStats();
-      if (stats.queued + stats.running >= maxDepth) {
-        throw new Error(
-          `Job queue depth limit reached (${maxDepth}) — rejecting enqueue of ${jobType}. ` +
-            'Increase JOB_QUEUE_MAX_DEPTH or wait for the worker to drain pending jobs.',
-        );
-      }
-    }
-
     // Inject the current tenant context into the job payload so the worker
     // can re-establish it when processing. The worker reads .tenantId and
     // wraps handler execution in runWithTenant(), which the PostgreSQL
@@ -91,7 +79,14 @@ export function createJobQueueService(
     const augmentedPayload: JobPayload = tenantId
       ? ({ ...payload, tenantId } as JobPayload)
       : payload;
-    const jobId = await repo.enqueue(jobType, augmentedPayload, options);
+
+    // Atomically check depth and insert — prevents TOCTOU races when
+    // multiple workers or API servers enqueue concurrently.
+    const jobId =
+      maxDepth > 0
+        ? await repo.enqueueWithDepthCheck(jobType, augmentedPayload, maxDepth, options)
+        : await repo.enqueue(jobType, augmentedPayload, options);
+
     logger.info({ jobId, jobType }, 'Job enqueued');
     return String(jobId);
   }
