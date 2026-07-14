@@ -2,7 +2,7 @@ import { DomainStatus } from '../../types/domain-status.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
-import { RateLimiter } from '../rate-limiter.js';
+import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
@@ -35,13 +35,13 @@ interface RdapResponse {
 export class PublicRdapProvider implements RdapProvider {
   readonly name: string;
   readonly #baseUrl: string;
-  readonly #rateLimiter: RateLimiter;
+  readonly #rateLimiter: RateLimiterLike;
   readonly #timeoutMs: number;
 
   constructor(
     baseUrl = 'https://rdap.org/domain/',
     name?: string,
-    rateLimiter?: RateLimiter,
+    rateLimiter?: RateLimiterLike,
     timeoutMs = DEFAULT_RDAP_TIMEOUT_MS,
   ) {
     this.#baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;

@@ -5,6 +5,7 @@ import type { DnsProvider } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { getLogger } from '../../logger.js';
 import { normalizeDomain } from '../../utils/domain.js';
+import type { RedisCacheProvider } from '../redis/redis-cache-provider.js';
 
 const logger = getLogger();
 
@@ -68,11 +69,13 @@ function resolveWithTimeout(
   });
 }
 
-/** Resolve only A (IPv4) records to collect raw IP addresses for parking detection. */
+/** Resolve A (IPv4) and AAAA (IPv6) records to collect raw IP addresses for parking detection. */
 async function resolveAddressRecords(domain: string): Promise<string[]> {
-  const result = await dnsPromises.resolve(domain, 'A').catch(() => [] as string[]);
-
-  return result;
+  const [a, aaaa] = await Promise.all([
+    dnsPromises.resolve(domain, 'A').catch(() => [] as string[]),
+    dnsPromises.resolve(domain, 'AAAA').catch(() => [] as string[]),
+  ]);
+  return [...a, ...aaaa];
 }
 
 async function resolveDoh(
@@ -363,6 +366,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #healthCheckEnabled: boolean;
   readonly #healthCheckDomain: string;
   readonly #semaphore: DnsSemaphore;
+  readonly #redisCache: RedisCacheProvider<DnsCheckResult> | undefined;
   #resolverHealth: Map<string, { healthy: boolean; lastCheck: number }> = new Map();
   #healthCheckCache: { healthy: boolean; expiresAt: number } | null = null;
   #cache: Map<string, CacheEntry> = new Map();
@@ -380,6 +384,7 @@ export class NodeDnsProvider implements DnsProvider {
     healthCheckEnabled?: boolean;
     healthCheckDomain?: string;
     semaphoreConcurrency?: number;
+    redisCache?: RedisCacheProvider<DnsCheckResult>;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#lookupStrategy = options?.lookupStrategy ?? 'native';
@@ -402,6 +407,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#healthCheckEnabled = options?.healthCheckEnabled ?? true;
     this.#healthCheckDomain = options?.healthCheckDomain ?? 'google.com';
     this.#semaphore = new DnsSemaphore(options?.semaphoreConcurrency ?? 100);
+    this.#redisCache = options?.redisCache;
   }
 
   pruneCache(): number {
@@ -459,6 +465,15 @@ export class NodeDnsProvider implements DnsProvider {
     const norm = normalizeDomain(domain);
     const lookupDomain = norm.isValid ? norm.normalized : domain;
 
+    // Redis cache (shared across instances, survives restarts)
+    if (this.#redisCache) {
+      const redisResult = await this.#redisCache.get(lookupDomain);
+      if (redisResult !== null) {
+        return redisResult;
+      }
+    }
+
+    // In-memory cache (fastest, per-instance)
     const cached = this.#cache.get(lookupDomain);
     if (cached !== undefined && cached.expiresAt > Date.now()) {
       // LRU: re-insert to move to end of Map iteration order
@@ -477,7 +492,12 @@ export class NodeDnsProvider implements DnsProvider {
     }
 
     try {
-      return await this.#checkWithStrategy(lookupDomain, strategy, timeout, signal);
+      const result = await this.#checkWithStrategy(lookupDomain, strategy, timeout, signal);
+      // Populate Redis cache on fresh result
+      if (this.#redisCache && result.status !== DomainStatus.Unknown) {
+        this.#redisCache.set(lookupDomain, result).catch(() => {});
+      }
+      return result;
     } finally {
       this.#semaphore.release();
     }

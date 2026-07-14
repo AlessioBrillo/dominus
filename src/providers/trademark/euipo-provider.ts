@@ -1,6 +1,6 @@
 import { ProviderError } from '../../types/errors.js';
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
-import { RateLimiter } from '../rate-limiter.js';
+import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 
 /**
  * EUIPO trademark search provider using the Trademark Search 1.1.0
@@ -67,7 +67,7 @@ export interface EuipoProviderConfig {
   apiUrl: string;
   /** Page size requested from EUIPO (default: 50, EUIPO max is 100). */
   pageSize?: number;
-  rateLimiter?: RateLimiter;
+  rateLimiter?: RateLimiterLike;
 }
 
 export class EuipoProvider implements TrademarkProvider {
@@ -76,7 +76,7 @@ export class EuipoProvider implements TrademarkProvider {
   readonly #authUrl: string;
   readonly #apiUrl: string;
   readonly #pageSize: number;
-  readonly #rateLimiter: RateLimiter;
+  readonly #rateLimiter: RateLimiterLike;
 
   #token: string | null = null;
   #tokenExpiresAt: number = 0;

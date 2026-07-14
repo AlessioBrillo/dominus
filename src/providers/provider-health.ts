@@ -5,6 +5,7 @@ import type { KeywordProvider } from './keyword/keyword-provider.js';
 import type { DnsProvider } from './dns/dns-provider.js';
 import type { CompsProvider } from './comps/comps-provider.js';
 import type { WaybackProvider } from './wayback/wayback-provider.js';
+import type { RedisClient } from './redis/redis-client.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -20,6 +21,7 @@ export class ProviderHealthCheck {
   readonly #dnsProvider: DnsProvider | undefined;
   readonly #compsProvider: CompsProvider | undefined;
   readonly #waybackProvider: WaybackProvider | undefined;
+  readonly #redisClient: RedisClient | undefined;
 
   constructor(
     private readonly usptoProvider: TrademarkProvider,
@@ -31,11 +33,13 @@ export class ProviderHealthCheck {
       dnsProvider?: DnsProvider;
       compsProvider?: CompsProvider;
       waybackProvider?: WaybackProvider;
+      redisClient?: RedisClient;
     },
   ) {
     this.#dnsProvider = options?.dnsProvider;
     this.#compsProvider = options?.compsProvider;
     this.#waybackProvider = options?.waybackProvider;
+    this.#redisClient = options?.redisClient;
   }
 
   async checkAll(): Promise<ProviderHealth[]> {
@@ -57,6 +61,12 @@ export class ProviderHealthCheck {
       checks.push({
         name: 'Wayback',
         fn: () => this.#waybackProvider!.getExpiryData('example.com'),
+      });
+    }
+    if (this.#redisClient) {
+      checks.push({
+        name: 'Redis',
+        fn: () => this.#redisClient!.ping(),
       });
     }
 
