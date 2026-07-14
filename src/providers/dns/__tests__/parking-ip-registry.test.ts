@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 
@@ -130,5 +133,31 @@ describe('ParkingIpRegistry', () => {
   it('load returns empty registry for undefined path', () => {
     const registry = ParkingIpRegistry.load(undefined);
     expect(registry.checkIp('1.2.3.4')).toBeNull();
+  });
+
+  it('load parses valid JSON file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dominus-test-'));
+    const file = join(dir, 'parking.json');
+    writeFileSync(file, JSON.stringify(TEST_RANGES));
+    const registry = ParkingIpRegistry.load(file);
+    expect(registry.checkIp('208.109.100.50')).toBe('GoDaddy');
+  });
+
+  it('load returns empty registry for malformed JSON', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dominus-test-'));
+    const file = join(dir, 'bad.json');
+    writeFileSync(file, 'not json');
+    const registry = ParkingIpRegistry.load(file);
+    expect(registry.checkIp('1.2.3.4')).toBeNull();
+  });
+
+  it('handles IPv6 address in full form without ::', () => {
+    const registry = new ParkingIpRegistry([{ name: 'V6Full', cidr: ['2001:db8::/32'] }]);
+    expect(registry.checkIp('2001:0db8:0000:0000:0000:0000:0000:0001')).toBe('V6Full');
+  });
+
+  it('handles IPv6 address with zone ID', () => {
+    const registry = new ParkingIpRegistry([{ name: 'V6Zone', cidr: ['fe80::/10'] }]);
+    expect(registry.checkIp('fe80::1%eth0')).toBe('V6Zone');
   });
 });
