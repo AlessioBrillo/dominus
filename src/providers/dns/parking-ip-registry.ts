@@ -20,7 +20,7 @@ interface CidrEntryV6 {
 
 function cidrToMask(prefix: number): number {
   if (prefix === 0) return 0;
-  return ~0 << (32 - prefix);
+  return (~0 << (32 - prefix)) >>> 0;
 }
 
 function ipToInt(ip: string): number {
@@ -29,44 +29,20 @@ function ipToInt(ip: string): number {
 }
 
 function ipv6ToBigint(ip: string): bigint {
-  const bytes = ip.includes('%') ? ip.split('%')[0]! : ip;
-  const buf = new Uint8Array(16);
-  if (bytes === '::') return 0n;
-  const groups = bytes.split(':');
-  let i = 0;
-  for (const g of groups) {
-    if (g === '') continue;
-    const val = parseInt(g, 16);
-    if (!isNaN(val)) {
-      buf[i++] = (val >> 8) & 0xff;
-      buf[i++] = val & 0xff;
-    }
-  }
-  // Handle :: compression
-  if (bytes.includes('::')) {
-    const parts = bytes.split('::');
-    const left = parts[0]!.split(':').filter(Boolean);
-    const right = parts[1]!.split(':').filter(Boolean);
+  const clean = ip.includes('%') ? ip.split('%')[0]! : ip;
+  const groups: string[] = [];
+  if (clean.includes('::')) {
+    const parts = clean.split('::');
+    const left = parts[0] ? parts[0].split(':') : [];
+    const right = parts[1] ? parts[1].split(':') : [];
     const missing = 8 - left.length - right.length;
-    const expanded: string[] = [];
-    for (const p of left) expanded.push(p);
-    for (let j = 0; j < missing; j++) expanded.push('0');
-    for (const p of right) expanded.push(p);
-    const buf2 = new Uint8Array(16);
-    for (let j = 0; j < 8; j++) {
-      const val = parseInt(expanded[j] || '0', 16);
-      buf2[j * 2] = (val >> 8) & 0xff;
-      buf2[j * 2 + 1] = val & 0xff;
-    }
-    let result = 0n;
-    for (let j = 0; j < 16; j++) {
-      result = (result << 8n) | BigInt(buf2[j]!);
-    }
-    return result;
+    groups.push(...left, ...Array<string>(missing).fill('0'), ...right);
+  } else {
+    groups.push(...clean.split(':'));
   }
   let result = 0n;
-  for (let j = 0; j < i; j++) {
-    result = (result << 8n) | BigInt(buf[j]!);
+  for (const g of groups) {
+    result = (result << 16n) | BigInt(parseInt(g || '0', 16));
   }
   return result;
 }
@@ -74,10 +50,9 @@ function ipv6ToBigint(ip: string): bigint {
 function cidrToMaskV6(prefix: number): bigint {
   if (prefix === 0) return 0n;
   if (prefix >= 128) return 0xffffffffffffffffffffffffffffffffn;
-  return (
-    (0xffffffffffffffffffffffffffffffffn << BigInt(128 - prefix)) &
-    0xffffffffffffffffffffffffffffffffn
-  );
+  const allOnes = (1n << 128n) - 1n;
+  const lowerZeros = (1n << BigInt(128 - prefix)) - 1n;
+  return allOnes ^ lowerZeros;
 }
 
 function parseCidrV4(cidr: string): { base: number; mask: number } | null {
@@ -86,7 +61,8 @@ function parseCidrV4(cidr: string): { base: number; mask: number } | null {
   const ip = cidr.slice(0, idx);
   const prefix = parseInt(cidr.slice(idx + 1), 10);
   if (!isIPv4(ip) || Number.isNaN(prefix) || prefix < 0 || prefix > 32) return null;
-  return { base: ipToInt(ip), mask: cidrToMask(prefix) };
+  const mask = cidrToMask(prefix);
+  return { base: (ipToInt(ip) & mask) >>> 0, mask };
 }
 
 function parseCidrV6(cidr: string): { base: bigint; mask: bigint } | null {
@@ -95,7 +71,8 @@ function parseCidrV6(cidr: string): { base: bigint; mask: bigint } | null {
   const ip = cidr.slice(0, idx);
   const prefix = parseInt(cidr.slice(idx + 1), 10);
   if (!isIPv6(ip) || Number.isNaN(prefix) || prefix < 0 || prefix > 128) return null;
-  return { base: ipv6ToBigint(ip), mask: cidrToMaskV6(prefix) };
+  const mask = cidrToMaskV6(prefix);
+  return { base: ipv6ToBigint(ip) & mask, mask };
 }
 
 export class ParkingIpRegistry {
