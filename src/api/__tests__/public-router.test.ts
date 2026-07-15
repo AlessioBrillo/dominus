@@ -293,7 +293,7 @@ describe('Public Router — /public', () => {
   });
 
   describe('CORS Headers', () => {
-    it('sets Access-Control-Allow-Origin to *', async () => {
+    it('does not set CORS headers directly (handled by global middleware)', async () => {
       const app = express();
       app.use('/public', createPublicRouter(db, engine));
       app.use(errorHandler);
@@ -302,20 +302,7 @@ describe('Public Router — /public', () => {
         .get('/public/sitemap.xml')
         .set('Origin', 'https://example.com');
 
-      expect(res.headers['access-control-allow-origin']).toBe('*');
-    });
-
-    it('allows OPTIONS preflight', async () => {
-      const app = express();
-      app.use('/public', createPublicRouter(db, engine));
-      app.use(errorHandler);
-
-      const res = await request(app)
-        .options('/public/sitemap.xml')
-        .set('Origin', 'https://example.com')
-        .set('Access-Control-Request-Method', 'GET');
-
-      expect(res.status).toBe(204);
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
     });
   });
 

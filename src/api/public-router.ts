@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
-import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
@@ -188,7 +187,6 @@ export function createPublicRouter(
     },
   });
 
-  router.use(cors({ origin: '*', methods: ['GET', 'POST', 'HEAD'] }));
   router.use(publicRateLimiter);
 
   router.use((_req, _res, next) => runWithTenant('public', () => next()));
