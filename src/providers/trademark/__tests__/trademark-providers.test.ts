@@ -110,12 +110,13 @@ describe('UsptoCasesProvider', () => {
     await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
   });
 
-  it('throws ProviderError on non-OK HTTP status', async () => {
+  it('returns empty array on non-OK HTTP status (graceful degrade)', async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('') });
-    await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
+    const results = await provider.search('nike');
+    expect(results).toEqual([]);
   });
 
-  it('throws ProviderError on malformed JSON response', async () => {
+  it('returns empty array on malformed JSON response (graceful degrade)', async () => {
     mockFetch.mockResolvedValue(mockOkResponse({}));
     // Override json to reject after ok response is set up
     mockFetch.mockResolvedValueOnce({
@@ -125,7 +126,8 @@ describe('UsptoCasesProvider', () => {
       json: () => Promise.reject(new SyntaxError('Unexpected token')),
       text: () => Promise.resolve(''),
     });
-    await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
+    const results = await provider.search('test');
+    expect(results).toEqual([]);
   });
 });
 

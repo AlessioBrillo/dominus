@@ -13,6 +13,7 @@ import { type RateLimiterLike, RateLimiter } from '../providers/rate-limiter.js'
 import { FailoverRdapProvider } from '../providers/rdap/index.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { RdapResult } from '../types/domain-status.js';
+import type { WhoisResult } from '../providers/whois/whois-provider.js';
 import {
   NodeWhoisProviderWithIanaFallback,
   buildPerTldWhoisRateLimiters,
@@ -93,10 +94,18 @@ export interface BuiltRdapProviders {
   cached: RdapProvider;
 }
 
+/**
+ * Build RDAP provider chain with per-server rate limiters.
+ *
+ * Each bootstrap server gets its own rate limiter instance to prevent
+ * cross-server interference: a rate limit hit on rdap.org (the primary
+ * server) should not consume tokens for verisign-rdap or google-rdap
+ * during failover.
+ */
 export function buildRdapProviders(
   config: Config,
-  rdapRateLimiter: RateLimiterLike,
   providerCacheRepo: ProviderCacheRepository,
+  redisClient?: RedisClient | undefined,
 ): BuiltRdapProviders {
   const rdapBootstrapUrls: string[] = ((): string[] => {
     if (!config.RDAP_BOOTSTRAP_URLS) return [];
@@ -107,10 +116,32 @@ export function buildRdapProviders(
     }
   })();
 
+  // Rate limiter factory: each call creates an independent instance so
+  // every bootstrap server has its own token bucket. Without this,
+  // a rate-limited rdap.org would deplete tokens for verisign-rdap
+  // during failover, making the retry pointless.
+  const makeRateLimiter = (): RateLimiterLike => {
+    if (redisClient) {
+      return new RedisRateLimiter(
+        {
+          tokens: config.RDAP_RATE_LIMIT_TOKENS,
+          intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
+          namespace: 'rdap',
+        },
+        redisClient,
+      );
+    }
+    return new RateLimiter({
+      maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
+      tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
+      intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
+    });
+  };
+
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
-      ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, rdapRateLimiter)
-      : new FailoverRdapProvider();
+      ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, makeRateLimiter)
+      : FailoverRdapProvider.withDefaults(makeRateLimiter);
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, RDAP_CIRCUIT_BREAKER);
 
@@ -228,9 +259,13 @@ export function buildDnsProvider(
 export interface BuiltWhoisProvider {
   raw: NodeWhoisProviderWithIanaFallback;
   withRetry: WhoisProviderInterface;
+  cached: WhoisProviderInterface | undefined;
 }
 
-export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
+export function buildWhoisProviders(
+  config: Config,
+  providerCacheRepo?: ProviderCacheRepository,
+): BuiltWhoisProvider {
   const whoisDefaultLimiter = new RateLimiter({
     maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
     tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
@@ -251,7 +286,26 @@ export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
 
   const withRetry = new RetryingWhoisProvider(raw, {}, WHOIS_CIRCUIT_BREAKER);
 
-  return { raw, withRetry };
+  // WHOIS cache: 24h TTL via the shared provider_cache table.
+  // WHOIS data changes slowly (registrar, expiry dates), so caching
+  // eliminates redundant TCP port-43 connections across pipeline runs.
+  // Cache key = domain name, namespace = 'whois'.
+  const cached = providerCacheRepo
+    ? CachedProvider.createJson<WhoisResult>(
+        (domain, signal) => withRetry.checkAvailability(domain, signal),
+        providerCacheRepo,
+        'whois',
+        1, // TTL: 1 day — WHOIS data is relatively stable
+        config.PROVIDER_MEMORY_CACHE_SIZE ?? 1000,
+        config.PROVIDER_MEMORY_CACHE_TTL_SECONDS ?? 300,
+      )
+    : null;
+
+  const cachedProvider: WhoisProviderInterface | undefined = cached
+    ? { checkAvailability: (domain: string, signal?: AbortSignal) => cached.get(domain, signal) }
+    : undefined;
+
+  return { raw, withRetry, cached: cachedProvider };
 }
 
 export function buildWaybackProvider(
