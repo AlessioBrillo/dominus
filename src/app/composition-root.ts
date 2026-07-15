@@ -423,7 +423,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // --- Rate Limiters (Redis-backed when REDIS_URL is configured) ---
   const {
-    rdap: rdapRateLimiter,
     uspto: usptoRateLimiter,
     euipo: euipoRateLimiter,
     dns: dnsRateLimiter,
@@ -434,8 +433,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const { cached: cachedCompsProvider } = buildCompsProvider(config, repos.providerCacheRepo);
   const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
     config,
-    rdapRateLimiter,
     repos.providerCacheRepo,
+    redisClient,
   );
   const dnsCache = redisClient
     ? new RedisCacheProvider<DnsCheckResult>({
@@ -445,7 +444,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       })
     : undefined;
   const dnsProvider = buildDnsProvider(config, dnsRateLimiter, repos.providerCacheRepo, dnsCache);
-  const { withRetry: whoisProvider } = buildWhoisProviders(config);
+  const { withRetry: whoisProvider, cached: cachedWhoisProvider } = buildWhoisProviders(
+    config,
+    repos.providerCacheRepo,
+  );
 
   // --- Wayback Machine (expiry data enrichment) ---
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
@@ -505,7 +507,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
     new RdapConfirmationStage(
       cachedRdapProvider,
-      whoisProvider,
+      cachedWhoisProvider ?? whoisProvider,
       config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
     ),

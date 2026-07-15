@@ -1,6 +1,7 @@
 import { ProviderError } from '../../types/errors.js';
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
 import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
+import { getLogger } from '../../logger.js';
 
 /**
  * Keyless USPTO trademark search provider.
@@ -37,6 +38,8 @@ interface UsptoResponse {
 }
 
 const ACTIVE_STATUS_PREFIX = '6-'; // USPTO status codes starting with 6 are registered/active
+
+const logger = getLogger();
 
 export interface UsptoProviderConfig {
   searchUrl: string;
@@ -94,34 +97,35 @@ export class UsptoCasesProvider implements TrademarkProvider {
     }
 
     if (!response.ok) {
-      throw new ProviderError(
-        `USPTO search returned HTTP ${response.status} for term "${term}"`,
-        'UsptoCasesProvider',
-        'USPTO_HTTP_ERROR',
+      logger.warn(
+        { httpStatus: response.status, term },
+        'USPTO returned non-OK HTTP status — degrading to empty result set.',
       );
+      return [];
     }
 
     const contentType = response.headers?.get?.('content-type') ?? '';
     if (!contentType.includes('application/json')) {
       const text = await response.text().catch(() => '');
       const snippet = text.length > 200 ? text.slice(0, 200) : text;
-      throw new ProviderError(
-        `USPTO returned non-JSON response for term "${term}" (content-type: ${contentType}). ` +
-          `This may indicate AWS WAF blocking. Response: ${snippet}`,
-        'UsptoCasesProvider',
-        'USPTO_WAF_BLOCK',
+      logger.warn(
+        { contentType, snippet, term },
+        'USPTO returned non-JSON response — WAF blocking or backend change. ' +
+          'Degrading: treating as no matches found.',
       );
+      return [];
     }
 
     let data: unknown;
     try {
       data = await response.json();
     } catch (err: unknown) {
-      throw new ProviderError(
-        `USPTO response is not valid JSON for term "${term}": ${String(err)}`,
-        'UsptoCasesProvider',
-        'USPTO_PARSE_ERROR',
+      logger.warn(
+        { err, term },
+        'USPTO response not valid JSON — backend may have changed. ' +
+          'Degrading: treating as no matches found.',
       );
+      return [];
     }
 
     return this.#parseResponse(data);

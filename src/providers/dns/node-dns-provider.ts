@@ -576,30 +576,26 @@ export class NodeDnsProvider implements DnsProvider {
     return result;
   }
 
-  async #checkResolverHealth(signal?: AbortSignal): Promise<void> {
-    if (!this.#healthCheckEnabled) return;
+  async #checkResolverHealth(signal?: AbortSignal): Promise<boolean> {
+    if (!this.#healthCheckEnabled) return true;
 
     const now = Date.now();
     if (this.#healthCheckCache && this.#healthCheckCache.expiresAt > now) {
-      if (!this.#healthCheckCache.healthy) {
-        throw new Error(
-          'DNS resolver health check failed — system resolver is unavailable. ' +
-            'Check /etc/resolv.conf or network connectivity.',
-        );
-      }
-      return;
+      return this.#healthCheckCache.healthy;
     }
 
     try {
       await resolveWithTimeout(this.#healthCheckDomain, 'A', this.#lookupTimeoutMs, signal);
       this.#healthCheckCache = { healthy: true, expiresAt: now + 30_000 };
+      return true;
     } catch {
       this.#healthCheckCache = { healthy: false, expiresAt: now + 10_000 };
-      throw new Error(
-        `DNS resolver health check failed for ${this.#healthCheckDomain} — ` +
-          'system resolver is unavailable. ' +
-          'Check /etc/resolv.conf or network connectivity.',
+      logger.warn(
+        { healthCheckDomain: this.#healthCheckDomain },
+        'DNS resolver health check failed — proceeding with best-effort. ' +
+          'Individual lookups may still succeed.',
       );
+      return false;
     }
   }
 

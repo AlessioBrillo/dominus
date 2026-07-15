@@ -23,9 +23,8 @@ const DEFAULT_BOOTSTRAP_SERVERS: RdapBootstrapConfig[] = [
  * timeout, non-2xx response that is not 404).
  *
  * Sequential (not parallel) is deliberate:
- * - All servers share the same rate limiter in the default setup. Parallel
- *   queries consume N tokens per domain (3x burst), reducing effective
- *   throughput and risking 429 from authoritative servers.
+ * - Each server has its own rate limiter, so the failover penalty is
+ *   independent of the primary server's rate limit state.
  * - rdap.org covers all TLDs, so >99% of queries resolve on the first
  *   attempt. Failover is an edge case, not the common path.
  * - The ~500ms failover penalty is incurred only on actual failures.
@@ -46,10 +45,30 @@ export class FailoverRdapProvider implements RdapProvider {
     }
   }
 
-  static fromConfig(urls: string[], rateLimiter?: RateLimiterLike): FailoverRdapProvider {
+  /**
+   * Create from custom URLs, each with its own rate limiter instance.
+   * When makeRateLimiter is provided, each bootstrap server gets a separate
+   * rate limiter via the factory function, preventing cross-server interference.
+   */
+  static fromConfig(urls: string[], makeRateLimiter?: () => RateLimiterLike): FailoverRdapProvider {
     const providers = urls.map((url, i) => {
       const name = `rdap-server-${i + 1}`;
+      const rateLimiter = makeRateLimiter ? makeRateLimiter() : undefined;
       return new PublicRdapProvider(url, name, rateLimiter);
+    });
+    return new FailoverRdapProvider(providers);
+  }
+
+  /**
+   * Create with default bootstrap servers, each with its own rate limiter.
+   * When makeRateLimiter is provided, each default server gets a separate
+   * rate limiter via the factory function. Without it, servers are unlimited
+   * (backward-compatible default).
+   */
+  static withDefaults(makeRateLimiter?: () => RateLimiterLike): FailoverRdapProvider {
+    const providers = DEFAULT_BOOTSTRAP_SERVERS.map((cfg) => {
+      const rateLimiter = makeRateLimiter ? makeRateLimiter() : undefined;
+      return new PublicRdapProvider(cfg.baseUrl, cfg.name, rateLimiter);
     });
     return new FailoverRdapProvider(providers);
   }

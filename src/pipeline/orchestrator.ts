@@ -243,31 +243,6 @@ export class PipelineOrchestrator {
     }
   }
 
-  async #saveCheckpoint(
-    stageName: string,
-    passed: DomainCandidate[],
-    filtered: DomainCandidate[],
-    durationMs: number,
-    runId: string,
-    cumulativePassed: DomainCandidate[],
-    cumulativeFiltered: DomainCandidate[],
-  ): Promise<void> {
-    if (!this.#checkpointStore || runId === 'unknown') return;
-    try {
-      await this.#checkpointStore.save(
-        runId,
-        stageName,
-        passed,
-        filtered,
-        durationMs,
-        cumulativePassed,
-        cumulativeFiltered,
-      );
-    } catch (err) {
-      logger.warn({ err, stageName }, 'Pipeline: checkpoint save failed (non-fatal)');
-    }
-  }
-
   async #runInternal(
     input: CandidateGenerationInput,
     controller: AbortController,
@@ -344,15 +319,6 @@ export class PipelineOrchestrator {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
-    await this.#saveCheckpoint(
-      'CandidateGenerationStage',
-      gen.passed,
-      gen.filtered,
-      gen.durationMs,
-      runId,
-      [],
-      [],
-    );
 
     const dns = await this.#runStageSafe(
       'DnsPreFilter',
@@ -368,15 +334,6 @@ export class PipelineOrchestrator {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
-    await this.#saveCheckpoint(
-      'DnsPreFilterStage',
-      dns.passed,
-      dns.filtered,
-      dns.durationMs,
-      runId,
-      gen.passed,
-      gen.filtered,
-    );
 
     const rdap = await this.#runStageSafe(
       'RdapConfirmation',
@@ -392,16 +349,6 @@ export class PipelineOrchestrator {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
-    const allFilteredSoFar = [...gen.filtered, ...dns.filtered, ...rdap.filtered];
-    await this.#saveCheckpoint(
-      'RdapConfirmationStage',
-      rdap.passed,
-      rdap.filtered,
-      rdap.durationMs,
-      runId,
-      gen.passed,
-      allFilteredSoFar,
-    );
 
     const scoring = await this.#runStageSafe(
       'Scoring',
@@ -417,15 +364,6 @@ export class PipelineOrchestrator {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
-    await this.#saveCheckpoint(
-      'ScoringStage',
-      scoring.passed,
-      scoring.filtered,
-      scoring.durationMs,
-      runId,
-      gen.passed,
-      allFilteredSoFar,
-    );
 
     const trademark = await this.#runStageSafe(
       'TrademarkGate',
@@ -437,15 +375,6 @@ export class PipelineOrchestrator {
       key,
     );
     if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    await this.#saveCheckpoint(
-      'TrademarkGateStage',
-      trademark.passed,
-      trademark.filtered,
-      trademark.durationMs,
-      runId,
-      gen.passed,
-      [],
-    );
 
     const scored: ScoredCandidate[] = [
       ...scoring.filtered,
