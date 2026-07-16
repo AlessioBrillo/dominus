@@ -10,3 +10,10 @@ export type { AlertEngineResult } from './renewal-alert-engine.js';
 export { PortfolioReportService } from './portfolio-report-service.js';
 export { PnlService } from './pnl-service.js';
 export type { PnlSummary, PnlPerDomain, PnlMonthlyTrend, PnlReport } from './pnl-service.js';
+export { ExpiryWatcher, ExpiryWindow } from './expiry-watcher.js';
+export type {
+  DomainExpiryInfo,
+  ExpiryWatcherConfig,
+  ExpiryWatcherPollResult,
+  DomainExpiryCallback,
+} from './expiry-watcher.js';

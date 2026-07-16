@@ -576,6 +576,11 @@ export class NodeDnsProvider implements DnsProvider {
     return result;
   }
 
+  /** Fixed fallback probe domains used when the configured health-check domain is
+   *  the only probe. Kept minimal — example.com (IANA reserved, always resolves),
+   *  cloudflare-dns.com (the default DoH endpoint), plus the configured domain. */
+  static readonly #FALLBACK_PROBE_DOMAINS = ['example.com', 'cloudflare-dns.com'];
+
   async #checkResolverHealth(signal?: AbortSignal): Promise<boolean> {
     if (!this.#healthCheckEnabled) return true;
 
@@ -584,19 +589,42 @@ export class NodeDnsProvider implements DnsProvider {
       return this.#healthCheckCache.healthy;
     }
 
-    try {
-      await resolveWithTimeout(this.#healthCheckDomain, 'A', this.#lookupTimeoutMs, signal);
+    const probes = [
+      this.#healthCheckDomain,
+      ...NodeDnsProvider.#FALLBACK_PROBE_DOMAINS.filter((d) => d !== this.#healthCheckDomain),
+    ];
+
+    const probeTimeout = Math.max(500, Math.round(this.#lookupTimeoutMs / 2));
+    const results = await Promise.allSettled(
+      probes.map((d) => resolveWithTimeout(d, 'A', probeTimeout, signal)),
+    );
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const total = results.length;
+    const healthy = succeeded >= Math.ceil(total / 2);
+
+    if (healthy) {
       this.#healthCheckCache = { healthy: true, expiresAt: now + 30_000 };
-      return true;
-    } catch {
+      if (succeeded < total) {
+        logger.debug(
+          { succeeded, total, probes: probes.join(',') },
+          'DNS resolver health check: some probes failed, threshold met',
+        );
+      }
+    } else {
       this.#healthCheckCache = { healthy: false, expiresAt: now + 10_000 };
+      const failures = results
+        .map((r, i) => (r.status === 'rejected' ? `${probes[i]}: ${r.reason}` : null))
+        .filter(Boolean)
+        .join('; ');
       logger.warn(
-        { healthCheckDomain: this.#healthCheckDomain },
-        'DNS resolver health check failed — proceeding with best-effort. ' +
+        { succeeded, total, failures },
+        'DNS resolver health check: majority failed — proceeding with best-effort. ' +
           'Individual lookups may still succeed.',
       );
-      return false;
     }
+
+    return healthy;
   }
 
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {

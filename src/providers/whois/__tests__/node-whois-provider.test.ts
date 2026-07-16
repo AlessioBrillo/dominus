@@ -185,7 +185,11 @@ describe('NodeWhoisProvider', () => {
   });
 
   it('rejects with ProviderError on timeout', async () => {
-    const provider = new NodeWhoisProvider({ timeoutMs: 5000, connect: mockConnect });
+    const provider = new NodeWhoisProvider({
+      timeoutMs: 5000,
+      connect: mockConnect,
+      tlsEnabled: false,
+    });
     const promise = provider.checkAvailability('timeout-test.com');
     process.nextTick(() => {
       lastEvents().emit('timeout');

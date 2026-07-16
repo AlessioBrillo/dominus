@@ -92,8 +92,11 @@ export class JobWorker {
 
   #schedulePoll(): void {
     if (!this.#running) return;
-    const delay = this.#consecutiveBusy > 0 ? this.#pollDelayMs() : this.#config.pollIntervalMs;
-    this.#pollTimer = setTimeout(() => this.#poll(), delay).unref();
+    const base = this.#consecutiveBusy > 0 ? this.#pollDelayMs() : this.#config.pollIntervalMs;
+    // ±20% jitter prevents thundering-herd when multiple workers
+    // share the same pollIntervalMs (K8s, Hazelcast, etc.).
+    const jitter = base * (0.8 + Math.random() * 0.4);
+    this.#pollTimer = setTimeout(() => this.#poll(), jitter).unref();
   }
 
   async #poll(): Promise<void> {

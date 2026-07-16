@@ -6,6 +6,25 @@ import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
+/** Sleep for `ms` milliseconds, aborting early when `signal` is triggered. */
+function raceTimeout(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms).unref();
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 interface RdapNotice {
   description?: string[];
   title?: string;
@@ -75,9 +94,10 @@ export class PublicRdapProvider implements RdapProvider {
         const parsed = parseInt(retryAfter, 10);
         waitMs = isNaN(parsed) ? 5000 : parsed * 1000;
       }
-      await new Promise((resolve) => setTimeout(resolve, Math.min(waitMs, 30_000)));
+      const capped = Math.min(waitMs, 30_000);
+      await raceTimeout(capped, signal);
       throw new ProviderError(
-        `RDAP rate limited (429) for ${domain} — retried after ${waitMs}ms`,
+        `RDAP rate limited (429) for ${domain} — retried after ${capped}ms`,
         this.name,
       );
     }
