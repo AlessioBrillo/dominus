@@ -9,7 +9,9 @@ import type { DatabaseProvider } from '../db/provider/interface.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 import { resolveTenantId } from '../utils/tenant-context.js';
-import type { CheckpointStore } from './checkpoint-store.js';
+import type { StageResult } from './stage.js';
+import type { CheckpointStore, StageCheckpoint } from './checkpoint-store.js';
+import { getResumeIndex } from './db-checkpoint-store.js';
 
 export interface LockProvider {
   tryLock(lockName: string, ttlMs: number): Promise<boolean>;
@@ -257,72 +259,132 @@ export class PipelineOrchestrator {
     this.#onRunStart?.();
     const stageSummary: PipelineResult['stageSummary'] = {};
     const stageErrors: StageError[] = [];
-    const aborted = (): boolean =>
+    const isAborted = (): boolean =>
       signal.aborted || (this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs);
 
-    if (aborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
+    if (isAborted()) throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
 
+    // --- Checkpoint resume load ---
+    let resumeIndex = -1; // -1 = no resume; N = skip first N stages
+    const cpResults: Record<string, StageCheckpoint> = {};
+
+    if (this.#checkpointStore && runId) {
+      const cp = await this.#checkpointStore.load(runId);
+      if (cp) {
+        resumeIndex = getResumeIndex(cp.lastCompletedStage);
+        Object.assign(cpResults, cp.allStageResults);
+        logger.info(
+          { runId, lastCompletedStage: cp.lastCompletedStage, resumeIndex },
+          'Pipeline: resuming from checkpoint',
+        );
+      }
+    }
+
+    const saveCheckpoint = (
+      stageName: string,
+      passed: DomainCandidate[],
+      filtered: DomainCandidate[],
+      durationMs: number,
+    ): void => {
+      if (!this.#checkpointStore || !runId) return;
+      this.#checkpointStore
+        .save(runId, stageName, passed, filtered, durationMs)
+        .catch((err: unknown) =>
+          logger.warn({ err, stage: stageName }, 'Pipeline: checkpoint save failed'),
+        );
+    };
+
+    // --- Stage 1: CandidateGeneration ---
     let gen: {
       passed: DomainCandidate[];
       filtered: DomainCandidate[];
       stageName: string;
       durationMs: number;
     };
-    try {
-      gen = await this.#withTimeout(
-        'CandidateGeneration',
-        (s) => this.generationStage.process([input], s, externalRunId),
-        start,
-        controller,
-      );
-    } catch (err) {
-      logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
-      const errDuration = Date.now() - start;
-      return {
-        runId: 'unknown',
-        recommended: [],
-        scored: [],
-        allCandidates: [],
-        stageSummary: {
-          CandidateGeneration: { passed: 0, filtered: 0, durationMs: errDuration },
-        },
-        totalDurationMs: errDuration,
-        stageErrors: [
-          {
-            stageName: 'CandidateGeneration',
-            message: String(err),
-            candidateCount: input ? 1 : 0,
-          },
-        ],
+
+    if (resumeIndex > 0 && cpResults['CandidateGenerationStage']) {
+      const saved = cpResults['CandidateGenerationStage']!;
+      gen = {
+        passed: saved.passed,
+        filtered: saved.filtered,
+        stageName: 'CandidateGenerationStage',
+        durationMs: saved.durationMs,
       };
+      stageSummary[gen.stageName] = {
+        passed: gen.passed.length,
+        filtered: gen.filtered.length,
+        durationMs: gen.durationMs,
+      };
+      this.#onStageProgress?.(
+        gen.stageName,
+        gen.passed.length,
+        gen.filtered.length,
+        gen.durationMs,
+        false,
+      );
+    } else {
+      try {
+        gen = await this.#withTimeout(
+          'CandidateGeneration',
+          (s) => this.generationStage.process([input], s, externalRunId),
+          start,
+          controller,
+        );
+      } catch (err) {
+        logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
+        const errDuration = Date.now() - start;
+        return {
+          runId: 'unknown',
+          recommended: [],
+          scored: [],
+          allCandidates: [],
+          stageSummary: {
+            CandidateGeneration: { passed: 0, filtered: 0, durationMs: errDuration },
+          },
+          totalDurationMs: errDuration,
+          stageErrors: [
+            {
+              stageName: 'CandidateGeneration',
+              message: String(err),
+              candidateCount: input ? 1 : 0,
+            },
+          ],
+        };
+      }
+      stageSummary[gen.stageName] = {
+        passed: gen.passed.length,
+        filtered: gen.filtered.length,
+        durationMs: gen.durationMs,
+      };
+      this.metrics?.recordStage(
+        gen.stageName,
+        gen.passed.length,
+        gen.filtered.length,
+        gen.durationMs,
+        false,
+      );
+      this.#onStageProgress?.(
+        gen.stageName,
+        gen.passed.length,
+        gen.filtered.length,
+        gen.durationMs,
+        false,
+      );
+      saveCheckpoint(gen.stageName, gen.passed, gen.filtered, gen.durationMs);
     }
-    stageSummary[gen.stageName] = {
-      passed: gen.passed.length,
-      filtered: gen.filtered.length,
-      durationMs: gen.durationMs,
-    };
-    this.metrics?.recordStage(
-      gen.stageName,
-      gen.passed.length,
-      gen.filtered.length,
-      gen.durationMs,
-      false,
-    );
-    this.#onStageProgress?.(
-      gen.stageName,
-      gen.passed.length,
-      gen.filtered.length,
-      gen.durationMs,
-      false,
-    );
-    if (aborted()) {
+    if (isAborted()) {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
 
-    const dns = await this.#runStageSafe(
+    // --- Stage 2: DnsPreFilter ---
+    const dns = await this.#runStageWithCheckpoint(
+      1,
       'DnsPreFilter',
       (s) => this.dnsStage.process(gen.passed, s),
+      resumeIndex,
+      cpResults,
+      runId,
       start,
       stageSummary,
       stageErrors,
@@ -330,14 +392,19 @@ export class PipelineOrchestrator {
       key,
     );
     if (dns === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    if (aborted()) {
+    if (isAborted()) {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
 
-    const rdap = await this.#runStageSafe(
+    // --- Stage 3: RdapConfirmation ---
+    const rdap = await this.#runStageWithCheckpoint(
+      2,
       'RdapConfirmation',
       (s) => this.rdapStage.process(dns.passed, s),
+      resumeIndex,
+      cpResults,
+      runId,
       start,
       stageSummary,
       stageErrors,
@@ -345,14 +412,19 @@ export class PipelineOrchestrator {
       key,
     );
     if (rdap === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    if (aborted()) {
+    if (isAborted()) {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
 
-    const scoring = await this.#runStageSafe(
+    // --- Stage 4: Scoring ---
+    const scoring = await this.#runStageWithCheckpoint(
+      3,
       'Scoring',
       (s) => this.scoringStage.process(rdap.passed, s),
+      resumeIndex,
+      cpResults,
+      runId,
       start,
       stageSummary,
       stageErrors,
@@ -360,14 +432,19 @@ export class PipelineOrchestrator {
       key,
     );
     if (scoring === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
-    if (aborted()) {
+    if (isAborted()) {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
     }
 
-    const trademark = await this.#runStageSafe(
+    // --- Stage 5: TrademarkGate ---
+    const trademark = await this.#runStageWithCheckpoint(
+      4,
       'TrademarkGate',
       (s) => this.trademarkStage.process(scoring.passed, s),
+      resumeIndex,
+      cpResults,
+      runId,
       start,
       stageSummary,
       stageErrors,
@@ -376,6 +453,7 @@ export class PipelineOrchestrator {
     );
     if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
 
+    // --- Assemble final result ---
     const scored: ScoredCandidate[] = [
       ...scoring.filtered,
       ...trademark.passed,
@@ -499,6 +577,68 @@ export class PipelineOrchestrator {
     }
 
     return null;
+  }
+
+  /** Run a stage with optional checkpoint resume.
+   *  If {@link resumeIndex} > {@link index}, the stage is reconstructed from
+   *  checkpoint data and the live execution branch is skipped entirely.
+   *  Otherwise the stage runs normally and a checkpoint is persisted on success. */
+  async #runStageWithCheckpoint<T>(
+    index: number,
+    label: string,
+    fn: (signal: AbortSignal) => Promise<StageResult<T>>,
+    resumeIndex: number,
+    cpResults: Record<string, StageCheckpoint>,
+    runId: string | undefined,
+    startMs: number,
+    summary: PipelineResult['stageSummary'],
+    errors: StageError[],
+    controller: AbortController,
+    key: string,
+  ): Promise<StageResult<T> | null> {
+    if (resumeIndex > index) {
+      const saved = cpResults[label];
+      if (saved) {
+        const result: StageResult<T> = {
+          passed: saved.passed as unknown as T[],
+          filtered: saved.filtered as unknown as T[],
+          stageName: label,
+          durationMs: saved.durationMs,
+        };
+        summary[label] = {
+          passed: result.passed.length,
+          filtered: result.filtered.length,
+          durationMs: result.durationMs,
+        };
+        this.#onStageProgress?.(
+          label,
+          result.passed.length,
+          result.filtered.length,
+          result.durationMs,
+          false,
+        );
+        return result;
+      }
+    }
+
+    const result = await this.#runStageSafe(label, fn, startMs, summary, errors, controller, key);
+    if (result === null) return null;
+
+    if (this.#checkpointStore && runId) {
+      this.#checkpointStore
+        .save(
+          runId,
+          label,
+          result.passed as unknown as DomainCandidate[],
+          result.filtered as unknown as DomainCandidate[],
+          result.durationMs,
+        )
+        .catch((err: unknown) =>
+          logger.warn({ err, stage: label }, 'Pipeline: checkpoint save failed'),
+        );
+    }
+
+    return result;
   }
 
   #abortWithError(
