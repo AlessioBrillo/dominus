@@ -1,8 +1,8 @@
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { DomainCandidate } from '../types/candidate.js';
-import type { CheckpointData, CheckpointStore } from './checkpoint-store.js';
+import type { CheckpointData, CheckpointStore, StageCheckpoint } from './checkpoint-store.js';
 
-const STAGES = [
+const STAGES: string[] = [
   'CandidateGenerationStage',
   'DnsPreFilterStage',
   'RdapConfirmationStage',
@@ -10,50 +10,76 @@ const STAGES = [
   'TrademarkGateStage',
 ];
 
+interface CheckpointRow {
+  run_id: string;
+  stage_name: string;
+  passed_ids: string;
+  filtered_ids: string;
+}
+
+function parseCandidates(json: string): DomainCandidate[] {
+  try {
+    return JSON.parse(json) as DomainCandidate[];
+  } catch {
+    return [];
+  }
+}
+
 export class DbCheckpointStore implements CheckpointStore {
   constructor(private readonly db: DatabaseProvider) {}
 
   async save(
     runId: string,
     stageName: string,
-    _passed: DomainCandidate[],
+    passed: DomainCandidate[],
     filtered: DomainCandidate[],
-    _stageDurationMs: number,
-    cumulativePassed: DomainCandidate[],
-    cumulativeFiltered: DomainCandidate[],
   ): Promise<void> {
     await this.db.exec(
       `INSERT OR REPLACE INTO pipeline_checkpoints
         (run_id, stage_name, passed_ids, filtered_ids, created_at)
       VALUES (?, ?, ?, ?, datetime('now'))`,
-      [
-        runId,
-        stageName,
-        JSON.stringify(cumulativePassed.map((c) => c.domain)),
-        JSON.stringify([...cumulativeFiltered, ...filtered].map((c) => c.domain)),
-      ],
+      [runId, stageName, JSON.stringify(passed), JSON.stringify(filtered)],
     );
   }
 
+  async hasCheckpoint(runId: string): Promise<boolean> {
+    const row = await this.db.queryOne<{ cnt: number }>(
+      'SELECT COUNT(*) as cnt FROM pipeline_checkpoints WHERE run_id = ?',
+      [runId],
+    );
+    return (row?.cnt ?? 0) > 0;
+  }
+
   async load(runId: string): Promise<CheckpointData | null> {
-    const row = await this.db.queryOne<{
-      run_id: string;
-      stage_name: string;
-      passed_ids: string;
-      filtered_ids: string;
-    }>(
-      'SELECT run_id, stage_name, passed_ids, filtered_ids FROM pipeline_checkpoints WHERE run_id = ? ORDER BY rowid DESC LIMIT 1',
+    const rows = await this.db.query<CheckpointRow>(
+      'SELECT run_id, stage_name, passed_ids, filtered_ids FROM pipeline_checkpoints WHERE run_id = ? ORDER BY rowid ASC',
       [runId],
     );
 
-    if (!row) return null;
+    if (!rows || rows.length === 0) return null;
+
+    const allStageResults: Record<string, StageCheckpoint> = {};
+    let lastCompletedStage = '';
+
+    for (const row of rows) {
+      const passed = parseCandidates(row.passed_ids);
+      const filtered = parseCandidates(row.filtered_ids);
+      allStageResults[row.stage_name] = { passed, filtered, durationMs: 0 };
+      lastCompletedStage = row.stage_name;
+    }
+
+    const lastResult = allStageResults[lastCompletedStage]!;
+    const cumulativeFiltered: DomainCandidate[] = [];
+    for (const result of Object.values(allStageResults)) {
+      cumulativeFiltered.push(...result.filtered);
+    }
 
     return {
-      runId: row.run_id,
-      lastCompletedStage: row.stage_name,
-      passed: [],
-      filtered: [],
-      allStageResults: {},
+      runId,
+      lastCompletedStage,
+      passed: lastResult.passed,
+      filtered: cumulativeFiltered,
+      allStageResults,
     };
   }
 
@@ -75,3 +101,5 @@ export function getResumeIndex(lastCompletedStage: string): number {
   if (idx === -1) return 0;
   return idx + 1;
 }
+
+export const RESUME_STAGES: readonly string[] = STAGES;
