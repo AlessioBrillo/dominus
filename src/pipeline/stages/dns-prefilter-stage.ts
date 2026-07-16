@@ -84,6 +84,9 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
   }
 
+  /** Threshold fraction of undefined results that triggers a cross-validation retry. */
+  static readonly #CROSS_VALIDATE_UNDEFINED_THRESHOLD = 0.1;
+
   async #resolveBulkWithFallback(
     domains: DomainCandidate[],
     signal?: AbortSignal,
@@ -91,21 +94,69 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     if (domains.length === 0) return [];
     if (signal?.aborted) return new Array(domains.length);
 
+    // Stage 1: fast bulk check from the DNS provider.
+    const [bulkOk, results] = await this.#tryBulkCheck(domains, signal);
+    if (!bulkOk || results === null) {
+      return this.#perDomainFallback(results ?? new Array(domains.length), domains, signal);
+    }
+
+    // Stage 2: cross-validation when bulk has >10% undefined (timeout/error).
+    const undefinedCount = results.filter((r) => r === undefined).length;
+    if (undefinedCount > 0) {
+      if (
+        undefinedCount / results.length >=
+        DnsPreFilterStage.#CROSS_VALIDATE_UNDEFINED_THRESHOLD
+      ) {
+        logger.warn(
+          {
+            undefinedCount,
+            total: results.length,
+            threshold: DnsPreFilterStage.#CROSS_VALIDATE_UNDEFINED_THRESHOLD,
+          },
+          'DNS bulk check high undefined ratio — cross-validating with individual retries',
+        );
+        const retried = await this.#retryUndefinedBatch(results, domains, signal);
+        if (retried !== null) {
+          const stillUndefined = retried.filter((r) => r === undefined).length;
+          if (stillUndefined === 0) return retried;
+          return this.#perDomainFallback(retried, domains, signal);
+        }
+      }
+      return this.#perDomainFallback(results, domains, signal);
+    }
+
+    return results;
+  }
+
+  /** Attempt the bulk DNS check. Returns [true, results] on full success,
+   *  [false, null] on complete failure, [false, partial] on mismatch. */
+  async #tryBulkCheck(
+    domains: DomainCandidate[],
+    signal?: AbortSignal,
+  ): Promise<[boolean, (DnsCheckResult | undefined)[] | null]> {
     try {
       const results = await this.dnsProvider.checkBulk(
         domains.map((c) => c.domain),
         signal,
       );
-      if (results.length === domains.length) return results;
+      if (results.length === domains.length) return [true, results];
       logger.warn(
         { expected: domains.length, got: results.length },
         'DNS bulk check returned mismatched result count — falling back to per-domain checks',
       );
+      return [false, results];
     } catch (err) {
       logger.warn({ err }, 'DNS bulk check threw — falling back to per-domain checks');
+      return [false, null];
     }
+  }
 
-    const results: (DnsCheckResult | undefined)[] = new Array(domains.length);
+  /** Per-domain fallback with concurrency control. */
+  async #perDomainFallback(
+    results: (DnsCheckResult | undefined)[],
+    domains: DomainCandidate[],
+    signal?: AbortSignal,
+  ): Promise<(DnsCheckResult | undefined)[]> {
     for (let i = 0; i < domains.length; i += this.fallbackConcurrency) {
       if (signal?.aborted) return results;
       const batch = domains.slice(i, i + this.fallbackConcurrency);
@@ -123,6 +174,54 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         results[i + j] = batchResults[j];
       }
     }
+    return results;
+  }
+
+  /** Retry only the undefined entries from a bulk check result using
+   *  individual checkAvailability calls. Returns null if the caller should
+   *  fall through to the full per-domain fallback instead. */
+  async #retryUndefinedBatch(
+    results: (DnsCheckResult | undefined)[],
+    domains: DomainCandidate[],
+    signal?: AbortSignal,
+  ): Promise<(DnsCheckResult | undefined)[] | null> {
+    const undefinedIndices: number[] = [];
+    for (let i = 0; i < results.length; i++) {
+      if (results[i] === undefined) undefinedIndices.push(i);
+    }
+    if (undefinedIndices.length === 0) return results;
+
+    // Retry undefined domains individually with a short delay between batches
+    // to avoid hammering the resolver again with the same batch.
+    let retried = 0;
+    for (let i = 0; i < undefinedIndices.length; i += this.fallbackConcurrency) {
+      if (signal?.aborted) return null;
+      const batch = undefinedIndices.slice(i, i + this.fallbackConcurrency);
+      const batchResults = await Promise.all(
+        batch.map(async (idx) => {
+          try {
+            return await this.dnsProvider.checkAvailability(domains[idx]!.domain, signal);
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      for (let j = 0; j < batchResults.length; j++) {
+        const result = batchResults[j];
+        if (result !== undefined) {
+          results[batch[j]!] = result;
+          retried++;
+        }
+      }
+    }
+
+    if (retried > 0) {
+      logger.info(
+        { retried, remainingUndefined: undefinedIndices.length - retried },
+        'DNS cross-validation recovered some undefined results',
+      );
+    }
+
     return results;
   }
 }

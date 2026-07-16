@@ -1,5 +1,6 @@
 import { connect as netConnect } from 'node:net';
 import type { Socket } from 'node:net';
+import { connect as tlsConnectFn } from 'node:tls';
 import { extractTld } from '../../utils/domain.js';
 import { ProviderError } from '../../types/errors.js';
 import type { WhoisProvider, WhoisResult } from './whois-provider.js';
@@ -17,6 +18,24 @@ const WHOIS_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
   windowMs: 30_000,
   cooldownMs: 60_000,
 };
+
+/** WHOIS servers known to support TLS on port 43 (RFC 9541).
+ *  Keyed by TLD, same server hostname as WHOIS_SERVERS. The TLS
+ *  handshake uses SNI with the server hostname. On TLS failure the
+ *  client falls back to plaintext for backward compatibility. */
+const WHOIS_TLS_SERVERS: Set<string> = new Set([
+  '.com',
+  '.net',
+  '.org',
+  '.de',
+  '.eu',
+  '.it',
+  '.fr',
+  '.nl',
+  '.se',
+  '.ca',
+  '.uk',
+]);
 
 const WHOIS_SERVERS: Record<string, string> = {
   '.com': 'whois.verisign-grs.com',
@@ -66,12 +85,29 @@ const NOT_FOUND_PATTERNS = [
   /no matching record/i,
 ];
 
+/** Connect function for WHOIS servers. Same signature as net.connect().
+ *  Use makeTlsConnect() to wrap tls.connect() for TLS-capable servers. */
+type WhoisConnectFn = (port: number, host: string, callback?: () => void) => Socket;
+
+/** TLS fallback configuration. When useTls is true, the provider attempts
+ *  a TLS connection first, falling back to plaintext on timeout. */
+interface TlsConfig {
+  useTls: boolean;
+  /** TLS connect function matching the net.connect() signature.
+   *  Built from tls.connect() with servername SNI. */
+  tlsConnect: WhoisConnectFn;
+}
+
 export interface NodeWhoisProviderConfig {
   timeoutMs?: number;
   serverOverrides?: Record<string, string>;
-  connect?: ((port: number, host: string, callback?: () => void) => Socket) | undefined;
+  connect?: WhoisConnectFn | undefined;
   defaultRateLimiter?: RateLimiter | undefined;
   perTldRateLimiters?: Record<string, RateLimiter> | undefined;
+  /** When true, use TLS connections for WHOIS servers that support it.
+   *  Servers in WHOIS_TLS_SERVERS are tried with TLS first; plaintext
+   *  fallback on connection timeout. Default: true. */
+  tlsEnabled?: boolean;
 }
 
 function isAvailable(raw: string): boolean {
@@ -148,14 +184,19 @@ function queryWhoisServer(
   host: string,
   domain: string,
   timeoutMs: number,
-  connectFn: (port: number, host: string, callback?: () => void) => Socket,
+  connectFn: WhoisConnectFn,
+  tlsConfig?: TlsConfig,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let settled = false;
 
-    const socket = connectFn(43, host, () => {
+    const onConnect = (): void => {
       socket.write(`${domain}\r\n`);
-    });
+    };
+
+    const socket: Socket = tlsConfig?.useTls
+      ? tlsConfig.tlsConnect(43, host, onConnect)
+      : connectFn(43, host, onConnect);
 
     const chunks: Buffer[] = [];
     let totalBytes = 0;
@@ -196,18 +237,29 @@ function queryWhoisServer(
 export class NodeWhoisProvider implements WhoisProvider {
   readonly #timeoutMs: number;
   readonly #serverOverrides: Record<string, string>;
-  readonly #connectFn: (port: number, host: string, callback?: () => void) => Socket;
+  readonly #connectFn: WhoisConnectFn;
+  readonly #tlsConnectFn: WhoisConnectFn;
   readonly #defaultRateLimiter: RateLimiter;
   readonly #perTldRateLimiters: Record<string, RateLimiter>;
   readonly #circuitBreaker: CircuitBreaker;
+  readonly #tlsEnabled: boolean;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#serverOverrides = config.serverOverrides ?? {};
     this.#connectFn = config.connect ?? netConnect;
+    // Build TLS connect function from the config's connect (or fallback to real tls.connect).
+    // Tests pass a mock connect function; this ensures the mock is used for TLS too.
+    if (config.connect) {
+      this.#tlsConnectFn = config.connect;
+    } else {
+      this.#tlsConnectFn = (port, host, callback): Socket =>
+        tlsConnectFn({ port, host, servername: host }, callback);
+    }
     this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
     this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
     this.#circuitBreaker = new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
+    this.#tlsEnabled = config.tlsEnabled ?? true;
   }
 
   #rateLimiterFor(tld: string): RateLimiter {
@@ -252,11 +304,36 @@ export class NodeWhoisProvider implements WhoisProvider {
       );
     }
 
+    const useTls = this.#tlsEnabled && this.#isTlsForTld(tld);
+    const tlsConfig: TlsConfig | undefined = useTls
+      ? { useTls: true, tlsConnect: this.#tlsConnectFn }
+      : undefined;
+
     try {
-      const raw = await queryWhoisServer(server, domain, this.#timeoutMs, this.#connectFn);
+      const raw = await queryWhoisServer(
+        server,
+        domain,
+        this.#timeoutMs,
+        this.#connectFn,
+        tlsConfig,
+      );
       this.#circuitBreaker.onSuccess();
       return parseWhoisResponse(domain, raw);
     } catch (err: unknown) {
+      // If TLS connection timed out, retry with plaintext before failing.
+      if (
+        useTls &&
+        err instanceof Error &&
+        (err.message.includes('timed out') || err.message.includes('TLS'))
+      ) {
+        try {
+          const raw = await queryWhoisServer(server, domain, this.#timeoutMs, this.#connectFn);
+          this.#circuitBreaker.onSuccess();
+          return parseWhoisResponse(domain, raw);
+        } catch {
+          // fall through to the original error below
+        }
+      }
       this.#circuitBreaker.onFailure();
       const message = err instanceof Error ? err.message : String(err);
       throw new ProviderError(
@@ -279,6 +356,11 @@ export class NodeWhoisProvider implements WhoisProvider {
 
     return null;
   }
+
+  #isTlsForTld(tld: string): boolean {
+    const cleanTld = tld.startsWith('.') ? tld : `.${tld}`;
+    return WHOIS_TLS_SERVERS.has(cleanTld.toLowerCase());
+  }
 }
 
 export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
@@ -286,12 +368,14 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
   readonly #connectFn: ((port: number, host: string, callback?: () => void) => Socket) | undefined;
   readonly #defaultRateLimiter: RateLimiter;
   readonly #perTldRateLimiters: Record<string, RateLimiter>;
+  readonly #tlsEnabled: boolean;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#delegate = new NodeWhoisProvider(config);
     this.#connectFn = config.connect;
     this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
     this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
+    this.#tlsEnabled = config.tlsEnabled ?? true;
   }
 
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
@@ -312,6 +396,7 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
             serverOverrides: { [`.${cleanTld}`]: ianaServer },
             defaultRateLimiter: this.#defaultRateLimiter,
             perTldRateLimiters: this.#perTldRateLimiters,
+            tlsEnabled: this.#tlsEnabled,
           });
           return providerWithIana.checkAvailability(domain, signal);
         }
