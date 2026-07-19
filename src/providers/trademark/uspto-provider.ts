@@ -4,7 +4,7 @@ import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 import { getLogger } from '../../logger.js';
 
 /**
- * Keyless USPTO trademark search provider.
+ * Keyless USPTO trademark search provider with WAF resilience.
  *
  * Uses the tmsearch.uspto.gov Elasticsearch backend (POST /tmsearch).
  * The endpoint accepts queries over Elasticsearch fields:
@@ -12,9 +12,16 @@ import { getLogger } from '../../logger.js';
  *   SN — serial number, RN — registration number.
  *
  * The endpoint is protected by AWS WAF on the browser-facing path; server-side
- * requests may be blocked depending on the WAF configuration. Any network or
- * HTTP failure is wrapped in a ProviderError and allows the trademark gate to
- * degrade gracefully (Principle 1 / Principle 6).
+ * requests may be blocked depending on the WAF configuration. This provider
+ * implements:
+ *   - User-Agent rotation across realistic browser values to reduce WAF
+ *     challenge probability
+ *   - Automatic retry with exponential backoff on WAF block (non-JSON
+ *     response, 403/503)
+ *   - WAF block counter exposed via `wafBlockCount` for operator visibility
+ *
+ * Any network or HTTP failure after retries is wrapped in a ProviderError
+ * and allows the trademark gate to degrade gracefully (Principle 1 / §6).
  */
 
 interface UsptoBucket {
@@ -41,6 +48,33 @@ const ACTIVE_STATUS_PREFIX = '6-'; // USPTO status codes starting with 6 are reg
 
 const logger = getLogger();
 
+const USER_AGENTS: readonly string[] = [
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0',
+];
+
+const MAX_WAF_RETRIES = 3;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isWafBlock(response: Response): boolean {
+  const contentType = response.headers?.get?.('content-type') ?? '';
+  const status = response.status;
+  // AWS WAF typically returns 403, 503, or 200 with HTML/JavaScript content
+  if (status === 403 || status === 503) return true;
+  if (
+    status === 200 &&
+    !contentType.includes('application/json') &&
+    !contentType.includes('text/json')
+  )
+    return true;
+  return false;
+}
+
 export interface UsptoProviderConfig {
   searchUrl: string;
   rateLimiter?: RateLimiterLike;
@@ -49,13 +83,39 @@ export interface UsptoProviderConfig {
 export class UsptoCasesProvider implements TrademarkProvider {
   readonly #searchUrl: string;
   readonly #rateLimiter: RateLimiterLike;
+  #wafBlockCount: number = 0;
+  #requestCount: number = 0;
 
   constructor(config: UsptoProviderConfig) {
     this.#searchUrl = config.searchUrl;
     this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
   }
 
+  /** Number of WAF blocks detected since provider creation. */
+  get wafBlockCount(): number {
+    return this.#wafBlockCount;
+  }
+
+  /** Total search requests made since provider creation. */
+  get requestCount(): number {
+    return this.#requestCount;
+  }
+
+  /** Ratio of WAF-blocked requests to total (0-1). NaN when no requests made. */
+  get wafBlockRate(): number {
+    if (this.#requestCount === 0) return NaN;
+    return this.#wafBlockCount / this.#requestCount;
+  }
+
   async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
+    return this.#searchWithRetry(term, 0, signal);
+  }
+
+  async #searchWithRetry(
+    term: string,
+    attempt: number,
+    signal?: AbortSignal,
+  ): Promise<TrademarkMatch[]> {
     const body = JSON.stringify({
       query: {
         bool: {
@@ -72,6 +132,8 @@ export class UsptoCasesProvider implements TrademarkProvider {
       size: 50,
     });
 
+    const userAgent = USER_AGENTS[(attempt + this.#requestCount) % USER_AGENTS.length]!;
+
     let response: Response;
     try {
       const abortTimeout = AbortSignal.timeout(8_000);
@@ -82,18 +144,52 @@ export class UsptoCasesProvider implements TrademarkProvider {
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
-            'User-Agent': 'Mozilla/5.0 (compatible; DOMINUS/1.0 trademark-check)',
+            'User-Agent': userAgent,
           },
           body,
           signal: combined,
         }),
       );
     } catch (err: unknown) {
+      this.#requestCount++;
+      if (attempt < MAX_WAF_RETRIES) {
+        const delay = Math.min(1_000 * 2 ** attempt, 8_000);
+        await sleep(delay);
+        return this.#searchWithRetry(term, attempt + 1, signal);
+      }
       throw new ProviderError(
-        `USPTO request failed for term "${term}": ${String(err)}`,
+        `USPTO request failed for term "${term}" after ${attempt + 1} attempts: ${String(err)}`,
         'UsptoCasesProvider',
         'USPTO_REQUEST_FAILED',
       );
+    }
+
+    this.#requestCount++;
+
+    if (!response.ok && isWafBlock(response)) {
+      this.#wafBlockCount++;
+      const text = await response.text().catch(() => '');
+      const snippet = text.length > 200 ? text.slice(0, 200) : text;
+      logger.warn(
+        {
+          httpStatus: response.status,
+          contentType: response.headers?.get?.('content-type'),
+          snippet,
+          term,
+          attempt,
+        },
+        `USPTO WAF block on attempt ${attempt + 1}`,
+      );
+      if (attempt < MAX_WAF_RETRIES) {
+        const delay = Math.min(1_000 * 2 ** attempt, 8_000);
+        await sleep(delay);
+        return this.#searchWithRetry(term, attempt + 1, signal);
+      }
+      logger.error(
+        { httpStatus: response.status, term, wafBlockCount: this.#wafBlockCount },
+        'USPTO WAF block persists after all retries — degrading to empty result set.',
+      );
+      return [];
     }
 
     if (!response.ok) {
@@ -106,12 +202,22 @@ export class UsptoCasesProvider implements TrademarkProvider {
 
     const contentType = response.headers?.get?.('content-type') ?? '';
     if (!contentType.includes('application/json')) {
+      // WAF block detection on 200 OK with non-JSON content
+      this.#wafBlockCount++;
       const text = await response.text().catch(() => '');
       const snippet = text.length > 200 ? text.slice(0, 200) : text;
       logger.warn(
-        { contentType, snippet, term },
-        'USPTO returned non-JSON response — WAF blocking or backend change. ' +
-          'Degrading: treating as no matches found.',
+        { contentType, snippet, term, attempt },
+        `USPTO returned non-JSON response (attempt ${attempt + 1}) — likely WAF blocking.`,
+      );
+      if (attempt < MAX_WAF_RETRIES) {
+        const delay = Math.min(1_000 * 2 ** attempt, 8_000);
+        await sleep(delay);
+        return this.#searchWithRetry(term, attempt + 1, signal);
+      }
+      logger.error(
+        { term, wafBlockCount: this.#wafBlockCount },
+        'USPTO WAF block persists after all retries — degrading to empty result set.',
       );
       return [];
     }
@@ -131,9 +237,6 @@ export class UsptoCasesProvider implements TrademarkProvider {
     const result = this.#parseResponse(data);
     if (result.length > 0) return result;
 
-    // Zero results from a structurally valid response is expected behavior
-    // (no trademark match). But if the response structure itself is invalid,
-    // log a diagnostic so operators can detect USPTO API changes quickly.
     if (!isUsptoResponse(data)) {
       const preview = JSON.stringify(data).slice(0, 300);
       logger.warn(
