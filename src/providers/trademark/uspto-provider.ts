@@ -128,7 +128,23 @@ export class UsptoCasesProvider implements TrademarkProvider {
       return [];
     }
 
-    return this.#parseResponse(data);
+    const result = this.#parseResponse(data);
+    if (result.length > 0) return result;
+
+    // Zero results from a structurally valid response is expected behavior
+    // (no trademark match). But if the response structure itself is invalid,
+    // log a diagnostic so operators can detect USPTO API changes quickly.
+    if (!isUsptoResponse(data)) {
+      const preview = JSON.stringify(data).slice(0, 300);
+      logger.warn(
+        { term, preview },
+        'USPTO response structure unrecognised — expected { hits: { hits: [...] } }. ' +
+          'The USPTO Elasticsearch backend may have changed its response format. ' +
+          'Degrading: treating as no matches found. If this persists, check tmsearch.uspto.gov.',
+      );
+    }
+
+    return result;
   }
 
   #parseResponse(raw: unknown): TrademarkMatch[] {

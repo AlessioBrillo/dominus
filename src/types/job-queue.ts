@@ -63,6 +63,7 @@ export interface PipelineRunResult {
   scored: number;
   totalDurationMs: number;
   stageErrors: string[];
+  degraded?: boolean;
 }
 
 export interface PortfolioRescorePayload {

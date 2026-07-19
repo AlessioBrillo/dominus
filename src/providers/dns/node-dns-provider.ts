@@ -11,7 +11,7 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
-export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
+export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only' | 'doh-primary';
 
 export interface DohResolver {
   name: string;
@@ -387,7 +387,7 @@ export class NodeDnsProvider implements DnsProvider {
     redisCache?: RedisCacheProvider<DnsCheckResult>;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
-    this.#lookupStrategy = options?.lookupStrategy ?? 'native';
+    this.#lookupStrategy = options?.lookupStrategy ?? 'doh-primary';
     // If custom resolvers are provided, use them; otherwise fall back to defaults
     const customResolvers = options?.dohResolvers;
     if (customResolvers && customResolvers.length > 0) {
@@ -405,7 +405,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#parkingEnabled = options?.parkingEnabled ?? false;
     this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
     this.#healthCheckEnabled = options?.healthCheckEnabled ?? true;
-    this.#healthCheckDomain = options?.healthCheckDomain ?? 'google.com';
+    this.#healthCheckDomain = options?.healthCheckDomain ?? 'example.com';
     this.#semaphore = new DnsSemaphore(options?.semaphoreConcurrency ?? 100);
     this.#redisCache = options?.redisCache;
   }
@@ -523,6 +523,27 @@ export class NodeDnsProvider implements DnsProvider {
       return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
     }
 
+    // doh-primary: try multi-resolver DoH first (fastest path in containerized envs),
+    // fall back to native node:dns if all DoH resolvers fail or return ambiguous.
+    if (strategy === 'doh-primary') {
+      const doh = await this.#tryDohWithFailover(domain, timeout, signal);
+      if (doh !== undefined) {
+        return this.#cached(domain, {
+          domain,
+          status: doh ? DomainStatus.Registered : DomainStatus.Available,
+          checkedAt,
+        });
+      }
+      logger.debug({ domain }, 'DNS: DoH resolvers all failed, falling back to native');
+      const native = await resolvesAnyNative(domain, timeout, signal);
+      if (native !== undefined) {
+        const status = native ? DomainStatus.Registered : DomainStatus.Available;
+        return this.#cached(domain, { domain, status, checkedAt });
+      }
+      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+    }
+
+    // native / native-with-doh-fallback
     const native = await resolvesAnyNative(domain, timeout, signal);
 
     if (native !== undefined) {
@@ -589,33 +610,70 @@ export class NodeDnsProvider implements DnsProvider {
       return this.#healthCheckCache.healthy;
     }
 
-    const probes = [
-      this.#healthCheckDomain,
-      ...NodeDnsProvider.#FALLBACK_PROBE_DOMAINS.filter((d) => d !== this.#healthCheckDomain),
-    ];
+    // For doh-primary and doh-only strategies, probe the DoH resolvers directly.
+    // Native resolver probe is only relevant when it's in the resolution path.
+    const usesDoh = this.#lookupStrategy === 'doh-primary' || this.#lookupStrategy === 'doh-only';
+    const usesNative = this.#lookupStrategy !== 'doh-only';
+
+    type ProbeResult = { type: 'native' | 'doh'; name: string; ok: boolean };
+    const probeResults: ProbeResult[] = [];
 
     const probeTimeout = Math.max(500, Math.round(this.#lookupTimeoutMs / 2));
-    const results = await Promise.allSettled(
-      probes.map((d) => resolveWithTimeout(d, 'A', probeTimeout, signal)),
-    );
 
-    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
-    const total = results.length;
-    const healthy = succeeded >= Math.ceil(total / 2);
+    // Probe DoH resolvers: try example.com A record via each resolver
+    if (usesDoh && this.#dohResolvers.length > 0) {
+      const dohProbes = this.#dohResolvers.map(async (resolver) => {
+        try {
+          const ac = new AbortController();
+          const timeoutId = setTimeout(() => ac.abort(), probeTimeout);
+          const merged = signal ? AbortSignal.any([signal, ac.signal]) : ac.signal;
+          await resolveDoh('example.com', 'A', resolver.url, merged);
+          clearTimeout(timeoutId);
+          probeResults.push({ type: 'doh', name: resolver.name, ok: true });
+        } catch {
+          probeResults.push({ type: 'doh', name: resolver.name, ok: false });
+        }
+      });
+      await Promise.allSettled(dohProbes);
+    }
+
+    // Probe native DNS resolver
+    if (usesNative) {
+      const nativeProbes = [
+        this.#healthCheckDomain,
+        ...NodeDnsProvider.#FALLBACK_PROBE_DOMAINS.filter((d) => d !== this.#healthCheckDomain),
+      ];
+      await Promise.allSettled(
+        nativeProbes.map(async (d) => {
+          try {
+            await resolveWithTimeout(d, 'A', probeTimeout, signal);
+            probeResults.push({ type: 'native', name: d, ok: true });
+          } catch {
+            probeResults.push({ type: 'native', name: d, ok: false });
+          }
+        }),
+      );
+    }
+
+    const succeeded = probeResults.filter((r) => r.ok).length;
+    const total = probeResults.length;
+    const healthy = total === 0 || succeeded >= Math.ceil(total / 2);
 
     if (healthy) {
       this.#healthCheckCache = { healthy: true, expiresAt: now + 30_000 };
       if (succeeded < total) {
+        const dohOk = probeResults.filter((r) => r.type === 'doh' && r.ok).length;
+        const dohTotal = probeResults.filter((r) => r.type === 'doh').length;
         logger.debug(
-          { succeeded, total, probes: probes.join(',') },
+          { succeeded, total, nativeOk: succeeded - dohOk, dohOk, dohTotal },
           'DNS resolver health check: some probes failed, threshold met',
         );
       }
     } else {
       this.#healthCheckCache = { healthy: false, expiresAt: now + 10_000 };
-      const failures = results
-        .map((r, i) => (r.status === 'rejected' ? `${probes[i]}: ${r.reason}` : null))
-        .filter(Boolean)
+      const failures = probeResults
+        .filter((r) => !r.ok)
+        .map((r) => `${r.type}:${r.name}`)
         .join('; ');
       logger.warn(
         { succeeded, total, failures },

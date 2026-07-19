@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { PipelineOrchestrator, PipelineResult } from '../pipeline/orchestrator.js';
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
+import type { DomainCandidate } from '../types/candidate.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../db/repositories/scoring-repository.js';
 import {
@@ -27,9 +28,21 @@ export const DEFAULT_PIPELINE_RUN_RETENTION_DAYS = 180;
  * Larger batches improve throughput but hold the database lock longer.
  * For SQLite with a dedicated bulk-write connection (WAL mode), this is
  * primarily a memory concern. For PostgreSQL, it prevents prolonged
- * lock contention on the main connection. Default: 500.
+ * lock contention on the main connection.
+ *
+ * Adaptive batch sizing: the persistence loop measures write duration and
+ * reduces batch size when writes take too long (SQLite contention). The
+ * batch size can range between MIN and MAX. Default: 500.
+ * See: ponytail: adaptive batch sizing — global lock, per-account locks if
+ * throughput matters on multi-tenant PG.
  */
-const PERSISTENCE_BATCH_SIZE = 500;
+const PERSISTENCE_BATCH_SIZE_INITIAL = 500;
+const PERSISTENCE_BATCH_SIZE_MIN = 100;
+const PERSISTENCE_BATCH_SIZE_MAX = 1000;
+/** If a write batch takes longer than this (ms), halve the batch size. */
+const PERSISTENCE_BATCH_SLOW_THRESHOLD_MS = 500;
+/** If a write batch finishes faster than this (ms), double the batch size. */
+const PERSISTENCE_BATCH_FAST_THRESHOLD_MS = 100;
 
 export interface PersistenceSummary {
   candidatesPersisted: number;
@@ -62,6 +75,14 @@ export interface PipelineRunOptions {
    * to be wired with an AutoListingService-compatible handler.
    */
   autoList?: boolean;
+  /**
+   * External AbortSignal for cancellation (e.g., from worker shutdown).
+   * When the signal fires, the orchestrator aborts the current run.
+   * Previously, the worker's abort signal was never forwarded to the
+   * pipeline, causing in-flight runs to continue until timeout even
+   * during graceful shutdown. Default: undefined (no external signal).
+   */
+  signal?: AbortSignal;
 }
 
 export type OnRunComplete = (
@@ -255,7 +276,7 @@ export class PipelineRunService {
           });
         });
       }
-      result = await this.#orchestrator.run(input, runRowId);
+      result = await this.#orchestrator.run(input, runRowId, options.signal);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await this.#runsRepo.complete(runRowId, {
@@ -270,14 +291,17 @@ export class PipelineRunService {
 
     let persistence: PersistenceSummary;
     try {
-      // Phase 1: upsert candidates in batches, building idByDomain across all batches.
+      // Phase 1: upsert candidates in batches with adaptive sizing.
       // Each batch is a separate transaction so no single write holds the
       // database lock for the entire candidate set (critical for PG, beneficial for SQLite).
+      // Adaptive batch sizing monitors write duration and adjusts batch size
+      // to avoid prolonged lock contention under load.
       const idByDomain = new Map<string, number>();
       let candidatesPersisted = 0;
 
-      for (let i = 0; i < result.allCandidates.length; i += PERSISTENCE_BATCH_SIZE) {
-        const batch = result.allCandidates.slice(i, i + PERSISTENCE_BATCH_SIZE);
+      let batchSize = PERSISTENCE_BATCH_SIZE_INITIAL;
+      const upsertBatch = async (batch: DomainCandidate[]): Promise<void> => {
+        const start = Date.now();
         await this.#persistenceProvider.transaction(async () => {
           for (const candidate of batch) {
             const persisted = await this.#candidateRepo.upsert(candidate);
@@ -286,6 +310,23 @@ export class PipelineRunService {
             }
           }
         });
+        const elapsed = Date.now() - start;
+        if (
+          elapsed > PERSISTENCE_BATCH_SLOW_THRESHOLD_MS &&
+          batchSize > PERSISTENCE_BATCH_SIZE_MIN
+        ) {
+          batchSize = Math.max(PERSISTENCE_BATCH_SIZE_MIN, Math.floor(batchSize / 2));
+        } else if (
+          elapsed < PERSISTENCE_BATCH_FAST_THRESHOLD_MS &&
+          batchSize < PERSISTENCE_BATCH_SIZE_MAX
+        ) {
+          batchSize = Math.min(PERSISTENCE_BATCH_SIZE_MAX, batchSize * 2);
+        }
+      };
+
+      for (let i = 0; i < result.allCandidates.length; i += batchSize) {
+        const batch = result.allCandidates.slice(i, i + batchSize);
+        await upsertBatch(batch);
         candidatesPersisted += batch.length;
       }
 
@@ -295,8 +336,11 @@ export class PipelineRunService {
         (s) => s.scoreResult !== null && idByDomain.has(s.domain),
       );
 
-      for (let i = 0; i < scoredWithIds.length; i += PERSISTENCE_BATCH_SIZE) {
-        const batch = scoredWithIds.slice(i, i + PERSISTENCE_BATCH_SIZE);
+      // Reset batch size for score inserts (different write pattern)
+      batchSize = PERSISTENCE_BATCH_SIZE_INITIAL;
+      for (let i = 0; i < scoredWithIds.length; i += batchSize) {
+        const batch = scoredWithIds.slice(i, i + batchSize);
+        const start = Date.now();
         await this.#persistenceProvider.transaction(async () => {
           for (const scored of batch) {
             const id = idByDomain.get(scored.domain)!;
@@ -304,6 +348,18 @@ export class PipelineRunService {
             scoresPersisted++;
           }
         });
+        const elapsed = Date.now() - start;
+        if (
+          elapsed > PERSISTENCE_BATCH_SLOW_THRESHOLD_MS &&
+          batchSize > PERSISTENCE_BATCH_SIZE_MIN
+        ) {
+          batchSize = Math.max(PERSISTENCE_BATCH_SIZE_MIN, Math.floor(batchSize / 2));
+        } else if (
+          elapsed < PERSISTENCE_BATCH_FAST_THRESHOLD_MS &&
+          batchSize < PERSISTENCE_BATCH_SIZE_MAX
+        ) {
+          batchSize = Math.min(PERSISTENCE_BATCH_SIZE_MAX, batchSize * 2);
+        }
       }
 
       persistence = { candidatesPersisted, scoresPersisted };

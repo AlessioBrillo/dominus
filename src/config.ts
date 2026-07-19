@@ -213,13 +213,21 @@ const configSchema = z.object({
   DNS_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).optional().default(1500),
   /**
    * DNS lookup strategy for availability checks.
-   * - 'native': Use Node.js built-in resolver only (default).
+   * - 'doh-primary' (default): Try multi-resolver DNS-over-HTTPS (Cloudflare,
+   *   Google, Quad9 in parallel) first, fall back to native Node.js resolver
+   *   on timeout or error. Best performance in containerized environments
+   *   where the system resolver may be slow or non-authoritative.
+   * - 'native': Use Node.js built-in resolver only.
    * - 'native-with-doh-fallback': Use native resolver; on timeout, fall back to
    *   DNS-over-HTTPS (Cloudflare by default) for a second attempt.
+   * - 'doh-only': Use DNS-over-HTTPS exclusively (no native fallback).
+   *   Use when the system resolver is unreliable or unavailable.
    * DoH fallback improves reliability when the system resolver returns
    * sporadic timeouts, at the cost of one extra HTTPS request per timeout.
    */
-  DNS_LOOKUP_STRATEGY: z.enum(['native', 'native-with-doh-fallback', 'doh-only']).default('native'),
+  DNS_LOOKUP_STRATEGY: z
+    .enum(['native', 'native-with-doh-fallback', 'doh-only', 'doh-primary'])
+    .default('doh-primary'),
   /**
    * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
    * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
@@ -292,12 +300,15 @@ const configSchema = z.object({
 
   /**
    * Domain used for the DNS resolver health check probe.
-   * Must be a domain that is reliably resolvable. Change this if your
-   * network blocks google.com (e.g. corporate proxy, China firewall).
-   * Default: 'google.com'. Set to empty string to disable the health check
+   * Must be a domain that is reliably resolvable via both native DNS and
+   * DoH. Default: 'example.com' (IANA reserved, always resolves, no
+   * blocking risk in any jurisdiction). Previously 'google.com' — changed
+   * because many cloud/corporate networks block or redirect google.com DNS
+   * queries, causing false unhealthy state in the DNS prefilter stage.
+   * Set to empty string to disable the health check
    * (not recommended — the bulk resolver runs the probe before every batch).
    */
-  DNS_HEALTH_CHECK_DOMAIN: z.string().min(1).default('google.com'),
+  DNS_HEALTH_CHECK_DOMAIN: z.string().min(1).default('example.com'),
   /**
    * Rate limiting: max tokens (burst capacity) for DNS resolution requests.
    * Token bucket refills at DNS_RATE_LIMIT_TOKENS per DNS_RATE_LIMIT_INTERVAL_MS.
