@@ -22,12 +22,49 @@ function mockOkResponse(body: unknown): {
   };
 }
 
+function mockHtmlResponse(
+  status: number,
+  body?: string,
+): {
+  ok: boolean;
+  status: number;
+  headers: { get: () => string };
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+} {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (): string => 'text/html' },
+    json: () => Promise.reject(new SyntaxError('not JSON')),
+    text: () => Promise.resolve(body ?? '<html><body>WAF Blocked</body></html>'),
+  };
+}
+
+function mockTextResponse(body: string): {
+  ok: boolean;
+  status: number;
+  headers: { get: () => string };
+  json: () => Promise<unknown>;
+  text: () => Promise<string>;
+} {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: (): string => 'text/plain' },
+    json: () => Promise.reject(new SyntaxError('not JSON')),
+    text: () => Promise.resolve(body),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // UsptoCasesProvider
 // ---------------------------------------------------------------------------
 
+const INSTANT_SLEEP = (): Promise<void> => Promise.resolve();
+
 describe('UsptoCasesProvider', () => {
-  const config = { searchUrl: 'https://tmsearch.uspto.gov/tmsearch' };
+  const config = { searchUrl: 'https://tmsearch.uspto.gov/tmsearch', sleepFn: INSTANT_SLEEP };
   let provider: UsptoCasesProvider;
 
   beforeEach(() => {
@@ -128,6 +165,140 @@ describe('UsptoCasesProvider', () => {
     });
     const results = await provider.search('test');
     expect(results).toEqual([]);
+  });
+
+  // ── WAF resilience ───────────────────────────────────────────────
+
+  it('retries on WAF HTML response (403) and succeeds on second attempt', async () => {
+    const nikeResponse = mockOkResponse({
+      hits: {
+        hits: [
+          {
+            _source: {
+              WM: 'NIKE',
+              ST: '6-REGISTERED',
+              ON: 'NIKE, INC.',
+              SN: '72072310',
+              RN: '0978952',
+            },
+          },
+        ],
+      },
+    });
+    mockFetch.mockResolvedValueOnce(mockHtmlResponse(403)).mockResolvedValueOnce(nikeResponse);
+
+    const results = await provider.search('nike');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.markName).toBe('NIKE');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('increments wafBlockCount on WAF block', async () => {
+    const nikeResponse = mockOkResponse({
+      hits: { hits: [{ _source: { WM: 'NIKE', ST: '6-REGISTERED', ON: 'Nike', SN: '1' } }] },
+    });
+    mockFetch.mockResolvedValueOnce(mockHtmlResponse(403)).mockResolvedValueOnce(nikeResponse);
+
+    await provider.search('nike');
+
+    expect(provider.wafBlockCount).toBe(1);
+    expect(provider.requestCount).toBe(2);
+    expect(provider.wafBlockRate).toBe(0.5);
+  });
+
+  it('wafBlockCount is 0 after clean responses only', async () => {
+    mockFetch.mockResolvedValue(mockOkResponse({ hits: { hits: [] } }));
+    await provider.search('clean1');
+    await provider.search('clean2');
+
+    expect(provider.wafBlockCount).toBe(0);
+    expect(provider.requestCount).toBe(2);
+    expect(provider.wafBlockRate).toBe(0);
+  });
+
+  it('retries on 200 HTML WAF response and succeeds', async () => {
+    const nikeResponse = mockOkResponse({
+      hits: { hits: [{ _source: { WM: 'NIKE', ST: '6-REGISTERED', ON: 'Nike', SN: '1' } }] },
+    });
+    mockFetch
+      .mockResolvedValueOnce(mockTextResponse('<html>WAF Challenge</html>'))
+      .mockResolvedValueOnce(nikeResponse);
+
+    const results = await provider.search('nike');
+    expect(results).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns empty array after exhausting WAF retries', async () => {
+    // All 4 attempts (1 initial + 3 retries) return HTML WAF responses
+    mockFetch
+      .mockResolvedValueOnce(mockHtmlResponse(403))
+      .mockResolvedValueOnce(mockHtmlResponse(403))
+      .mockResolvedValueOnce(mockHtmlResponse(503))
+      .mockResolvedValueOnce(mockTextResponse('<html>Blocked</html>'));
+
+    const results = await provider.search('nike');
+    expect(results).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    expect(provider.wafBlockCount).toBe(4);
+  });
+
+  it('recovers after WAF retries and later requests work', async () => {
+    const nikeResponse = mockOkResponse({
+      hits: { hits: [{ _source: { WM: 'NIKE', ST: '6-REGISTERED', ON: 'Nike', SN: '1' } }] },
+    });
+    mockFetch
+      .mockResolvedValueOnce(mockHtmlResponse(403))
+      .mockResolvedValueOnce(nikeResponse)
+      .mockResolvedValue(nikeResponse);
+
+    const first = await provider.search('nike');
+    expect(first).toHaveLength(1);
+
+    // Second search: no WAF
+    const second = await provider.search('nike');
+    expect(second).toHaveLength(1);
+    expect(provider.wafBlockCount).toBe(1);
+    expect(provider.requestCount).toBe(3);
+  });
+
+  it('does NOT retry on a standard 403 that is not a WAF block', async () => {
+    const json403 = {
+      ok: false,
+      status: 403,
+      headers: { get: (): string => 'application/json' },
+      json: (): Promise<{ error: string }> => Promise.resolve({ error: 'forbidden' }),
+      text: (): Promise<string> => Promise.resolve('{"error":"forbidden"}'),
+    };
+    mockFetch.mockResolvedValue(json403);
+
+    const results = await provider.search('test');
+    expect(results).toEqual([]);
+    // No retry for a JSON 403 (not a WAF block)
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rotates User-Agent across retry attempts', async () => {
+    const nikeResponse = mockOkResponse({
+      hits: { hits: [{ _source: { WM: 'NIKE', ST: '6-REGISTERED', ON: 'Nike', SN: '1' } }] },
+    });
+    mockFetch
+      .mockResolvedValueOnce(mockHtmlResponse(403))
+      .mockResolvedValueOnce(mockHtmlResponse(503))
+      .mockResolvedValueOnce(nikeResponse);
+
+    await provider.search('nike');
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+
+    // Verify different User-Agents used
+    const agents = mockFetch.mock.calls
+      .slice(0, 3)
+      .map(
+        (call: unknown[]) => (call[1] as { headers: Record<string, string> }).headers['User-Agent'],
+      );
+    const uniqueAgents = new Set(agents);
+    // At least 2 different UAs used across 3 attempts
+    expect(uniqueAgents.size).toBeGreaterThanOrEqual(2);
   });
 });
 

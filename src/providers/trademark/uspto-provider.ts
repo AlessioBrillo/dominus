@@ -64,31 +64,34 @@ function sleep(ms: number): Promise<void> {
 function isWafBlock(response: Response): boolean {
   const contentType = response.headers?.get?.('content-type') ?? '';
   const status = response.status;
-  // AWS WAF typically returns 403, 503, or 200 with HTML/JavaScript content
+  // AWS WAF typically returns 403, 503, or 200 with HTML/JavaScript content.
+  // A JSON response at any status is a legitimate API response, never a WAF block.
+  const isJson = contentType.includes('application/json') || contentType.includes('text/json');
+  if (isJson) return false;
   if (status === 403 || status === 503) return true;
-  if (
-    status === 200 &&
-    !contentType.includes('application/json') &&
-    !contentType.includes('text/json')
-  )
-    return true;
+  if (status === 200) return true;
   return false;
 }
 
 export interface UsptoProviderConfig {
   searchUrl: string;
   rateLimiter?: RateLimiterLike;
+  /** Delay function for WAF retry backoff. Defaults to setTimeout-based sleep.
+   *  Override in tests to avoid real delays (e.g. () => Promise.resolve()). */
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 export class UsptoCasesProvider implements TrademarkProvider {
   readonly #searchUrl: string;
   readonly #rateLimiter: RateLimiterLike;
+  readonly #sleepFn: (ms: number) => Promise<void>;
   #wafBlockCount: number = 0;
   #requestCount: number = 0;
 
   constructor(config: UsptoProviderConfig) {
     this.#searchUrl = config.searchUrl;
     this.#rateLimiter = config.rateLimiter ?? RateLimiter.unlimited();
+    this.#sleepFn = config.sleepFn ?? sleep;
   }
 
   /** Number of WAF blocks detected since provider creation. */
@@ -154,7 +157,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
       this.#requestCount++;
       if (attempt < MAX_WAF_RETRIES) {
         const delay = Math.min(1_000 * 2 ** attempt, 8_000);
-        await sleep(delay);
+        await this.#sleepFn(delay);
         return this.#searchWithRetry(term, attempt + 1, signal);
       }
       throw new ProviderError(
@@ -182,7 +185,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
       );
       if (attempt < MAX_WAF_RETRIES) {
         const delay = Math.min(1_000 * 2 ** attempt, 8_000);
-        await sleep(delay);
+        await this.#sleepFn(delay);
         return this.#searchWithRetry(term, attempt + 1, signal);
       }
       logger.error(
@@ -212,7 +215,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
       );
       if (attempt < MAX_WAF_RETRIES) {
         const delay = Math.min(1_000 * 2 ** attempt, 8_000);
-        await sleep(delay);
+        await this.#sleepFn(delay);
         return this.#searchWithRetry(term, attempt + 1, signal);
       }
       logger.error(
