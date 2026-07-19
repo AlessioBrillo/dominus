@@ -1,4 +1,4 @@
-import { promises as dnsPromises } from 'node:dns';
+import { promises as dnsPromises, setServers } from 'node:dns';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from './dns-provider.js';
@@ -367,6 +367,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #healthCheckDomain: string;
   readonly #semaphore: DnsSemaphore;
   readonly #redisCache: RedisCacheProvider<DnsCheckResult> | undefined;
+  readonly #nameservers: string[] | undefined;
   #resolverHealth: Map<string, { healthy: boolean; lastCheck: number }> = new Map();
   #healthCheckCache: { healthy: boolean; expiresAt: number } | null = null;
   #cache: Map<string, CacheEntry> = new Map();
@@ -374,6 +375,7 @@ export class NodeDnsProvider implements DnsProvider {
   constructor(options?: {
     lookupTimeoutMs?: number;
     lookupStrategy?: DnsLookupStrategy;
+    nameservers?: string[] | undefined;
     dohEndpoint?: string;
     dohResolvers?: DohResolver[];
     cacheTtlMs?: number;
@@ -408,6 +410,25 @@ export class NodeDnsProvider implements DnsProvider {
     this.#healthCheckDomain = options?.healthCheckDomain ?? 'example.com';
     this.#semaphore = new DnsSemaphore(options?.semaphoreConcurrency ?? 100);
     this.#redisCache = options?.redisCache;
+    this.#nameservers = options?.nameservers;
+
+    // Override the system resolver with custom nameservers when configured.
+    // This is the single highest-impact change for DNS throughput in Docker
+    // where the embedded resolver (127.0.0.11) is a bottleneck.
+    if (this.#nameservers && this.#nameservers.length > 0) {
+      try {
+        setServers(this.#nameservers);
+        logger.info(
+          { nameservers: this.#nameservers.join(', ') },
+          'DNS: custom nameservers configured',
+        );
+      } catch (err: unknown) {
+        logger.warn(
+          { nameservers: this.#nameservers, err },
+          'DNS: failed to set custom nameservers, falling back to system resolver',
+        );
+      }
+    }
   }
 
   pruneCache(): number {
