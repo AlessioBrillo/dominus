@@ -114,6 +114,7 @@ function buildIntegration(provider: SqliteProvider): IntegrationDeps {
         pipelineRunId: 'orchestrator-run-id',
       } as DomainCandidate,
     ],
+    degraded: false,
     stageSummary: {
       CandidateGenerationStage: { passed: 3, filtered: 0, durationMs: 1 },
       DnsPreFilterStage: { passed: 2, filtered: 1, durationMs: 1 },

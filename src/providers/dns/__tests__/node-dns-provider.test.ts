@@ -31,7 +31,7 @@ describe('NodeDnsProvider', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    provider = new NodeDnsProvider({ cacheTtlMs: 60_000 });
+    provider = new NodeDnsProvider({ cacheTtlMs: 60_000, lookupStrategy: 'native' });
     vi.clearAllMocks();
   });
 
@@ -130,6 +130,7 @@ describe('NodeDnsProvider', () => {
     const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
     const p = new NodeDnsProvider({
       cacheTtlMs: 60_000,
+      lookupStrategy: 'native',
       parkingEnabled: true,
       parkingRegistry,
     });
@@ -144,6 +145,7 @@ describe('NodeDnsProvider', () => {
     const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
     const p = new NodeDnsProvider({
       cacheTtlMs: 60_000,
+      lookupStrategy: 'native',
       parkingEnabled: false,
       parkingRegistry,
     });
@@ -157,6 +159,7 @@ describe('NodeDnsProvider', () => {
     const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
     const p = new NodeDnsProvider({
       cacheTtlMs: 60_000,
+      lookupStrategy: 'native',
       parkingEnabled: true,
       parkingRegistry,
     });

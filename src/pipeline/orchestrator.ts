@@ -42,6 +42,10 @@ export interface PipelineResult {
   stageSummary: Record<string, { passed: number; filtered: number; durationMs: number }>;
   totalDurationMs: number;
   stageErrors: StageError[];
+  /** True when one or more stages exhausted retries and produced empty results.
+   *  The pipeline continued but output is degraded (missing candidates that
+   *  would have flowed through the failed stage). */
+  degraded: boolean;
 }
 
 export interface StageError {
@@ -167,7 +171,11 @@ export class PipelineOrchestrator {
     this.#onRunStart = cb;
   }
 
-  async run(input: CandidateGenerationInput, externalRunId?: string): Promise<PipelineResult> {
+  async run(
+    input: CandidateGenerationInput,
+    externalRunId?: string,
+    externalSignal?: AbortSignal,
+  ): Promise<PipelineResult> {
     const tenantId = resolveTenantId();
 
     if (this.#activeTenants.has(tenantId)) {
@@ -177,6 +185,17 @@ export class PipelineOrchestrator {
     }
 
     const controller = new AbortController();
+    // Merge external signal (e.g. from worker shutdown) with internal controller:
+    // when either fires, both fire.
+    if (externalSignal) {
+      externalSignal.addEventListener(
+        'abort',
+        () => {
+          if (!controller.signal.aborted) controller.abort(externalSignal.reason);
+        },
+        { once: true },
+      );
+    }
     this.#activeTenants.add(tenantId);
     this.#runControllers.set(tenantId, controller);
 
@@ -349,6 +368,7 @@ export class PipelineOrchestrator {
               candidateCount: input ? 1 : 0,
             },
           ],
+          degraded: true,
         };
       }
       stageSummary[gen.stageName] = {
@@ -483,6 +503,7 @@ export class PipelineOrchestrator {
       stageSummary,
       totalDurationMs: Date.now() - start,
       stageErrors,
+      degraded: stageErrors.length > 0,
     };
   }
 
@@ -655,6 +676,7 @@ export class PipelineOrchestrator {
       stageSummary,
       totalDurationMs: Date.now() - start,
       stageErrors,
+      degraded: true,
     };
   }
 

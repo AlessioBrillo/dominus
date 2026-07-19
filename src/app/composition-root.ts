@@ -233,6 +233,11 @@ function buildWorkerIfEnabled(
   config: Config,
   db: Database.Database | null,
   provider: DatabaseProvider,
+  /** Dedicated provider for worker dequeue operations. When running on SQLite,
+   *  using a separate connection isolates the worker's polling from the main
+   *  write-heavy connection (pipeline persistence), reducing SQLITE_BUSY
+   *  contention. Falls back to the main provider when not provided. */
+  workerDbProvider: DatabaseProvider | undefined,
   runService: PipelineRunService,
   portfolioManager: PortfolioManager,
   scoringRepo: ScoringRepository,
@@ -305,7 +310,10 @@ function buildWorkerIfEnabled(
   for (const handler of handlers) {
     HANDLERS.set(handler.jobType, handler);
   }
-  const worker = new JobWorker(provider, HANDLERS, {
+  // Use a dedicated provider for the worker when available (isolated SQLite connection).
+  // This prevents the worker's polling from contending with pipeline write operations.
+  const workerProvider = workerDbProvider ?? provider;
+  const worker = new JobWorker(workerProvider, HANDLERS, {
     concurrency: config.WORKER_CONCURRENCY,
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
@@ -525,6 +533,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // DNS, trademark, keyword, or comps data from being reused across runs.
   orchestrator.setOnRunStart(() => {
     dnsProvider.clearCache();
+    rawRdapProvider.clearCache?.();
     cachedKeywordProvider.clearCache?.();
     cachedCompsProvider.clearCache?.();
     usptoTmProvider.clearCache();
@@ -705,10 +714,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   });
 
   // --- Worker ---
+  // Create a dedicated database provider for the worker when on SQLite, so the
+  // worker's polling doesn't contend with pipeline write operations. PostgreSQL
+  // handles concurrent connections natively — the main provider is sufficient.
+  const workerDbProvider: DatabaseProvider | undefined = config.DATABASE_URL
+    ? undefined
+    : createSqliteProvider({
+        ...config,
+        DATABASE_PATH: config.DATABASE_PATH,
+        DATABASE_BUSY_TIMEOUT: Math.min(config.DATABASE_BUSY_TIMEOUT, 5000),
+      });
   const worker = buildWorkerIfEnabled(
     config,
     db,
     repos.provider,
+    workerDbProvider,
     runService,
     portfolioManager,
     repos.scoringRepo,

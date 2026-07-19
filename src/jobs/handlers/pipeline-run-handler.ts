@@ -1,5 +1,6 @@
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
-import type { PipelineRunPayload, PipelineRunResult, JobHandler } from '../../types/job-queue.js';
+import type { JobHandler } from '../../types/job-queue.js';
+import type { PipelineRunPayload, PipelineRunResult } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -13,20 +14,24 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
 
   constructor(private readonly deps: PipelineRunHandlerDeps) {}
 
-  async handle(payload: PipelineRunPayload): Promise<PipelineRunResult> {
+  async handle(payload: PipelineRunPayload, signal?: AbortSignal): Promise<PipelineRunResult> {
     const { candidateGenerationInput, runId } = payload;
 
     logger.info({ runId }, 'PipelineRunHandler: starting pipeline run');
 
     const result = await this.deps.runService.runSync(candidateGenerationInput, {
       externalRunId: runId,
+      ...(signal !== undefined ? { signal } : {}),
     });
 
     logger.info(
       {
         runId: result.runId,
         recommended: result.recommended.length,
+        scored: result.scored.length,
         durationMs: result.totalDurationMs,
+        degraded: result.degraded,
+        stageErrors: result.stageErrors.length,
       },
       'PipelineRunHandler: pipeline run completed',
     );
@@ -36,6 +41,7 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
       recommended: result.recommended.length,
       scored: result.scored.length,
       totalDurationMs: result.totalDurationMs,
+      degraded: result.degraded,
       stageErrors: result.stageErrors.map((e: unknown) =>
         typeof e === 'object' && e !== null
           ? JSON.stringify({

@@ -50,7 +50,7 @@ describe('FailoverRdapProvider', () => {
     expect(second.confirm).toHaveBeenCalledTimes(1);
   });
 
-  it('stops at first provider and does not call subsequent ones', async () => {
+  it('returns first provider result when multiple providers race in parallel', async () => {
     const first = makeProvider('primary', {
       domain: 'example.com',
       status: DomainStatus.Available,
@@ -68,8 +68,8 @@ describe('FailoverRdapProvider', () => {
     const result = await provider.confirm('example.com');
     expect(result.status).toBe(DomainStatus.Available);
     expect(first.confirm).toHaveBeenCalledTimes(1);
-    // Sequential: second should never be called because first succeeded
-    expect(second.confirm).not.toHaveBeenCalled();
+    // Parallel: all providers are called, first win returned
+    expect(second.confirm).toHaveBeenCalledTimes(1);
   });
 
   it('throws ProviderError when all servers fail', async () => {

@@ -116,32 +116,30 @@ export function buildRdapProviders(
     }
   })();
 
-  // Rate limiter factory: each call creates an independent instance so
-  // every bootstrap server has its own token bucket. Without this,
-  // a rate-limited rdap.org would deplete tokens for verisign-rdap
-  // during failover, making the retry pointless.
-  const makeRateLimiter = (): RateLimiterLike => {
-    if (redisClient) {
-      return new RedisRateLimiter(
+  // Shared rate limiter: all bootstrap servers share a single token bucket
+  // so that parallel failover doesn't exceed the global RDAP rate limit.
+  // With parallel racing, per-server rate limiters would allow N simultaneous
+  // requests (one per server), potentially triggering rate limits on the
+  // RDAP ecosystem as a whole. A shared limiter prevents this.
+  const sharedRateLimiter: RateLimiterLike = redisClient
+    ? new RedisRateLimiter(
         {
           tokens: config.RDAP_RATE_LIMIT_TOKENS,
           intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
           namespace: 'rdap',
         },
         redisClient,
-      );
-    }
-    return new RateLimiter({
-      maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
-      tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
-      intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
-    });
-  };
+      )
+    : new RateLimiter({
+        maxTokens: config.RDAP_RATE_LIMIT_TOKENS,
+        tokensPerInterval: config.RDAP_RATE_LIMIT_TOKENS,
+        intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
+      });
 
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
-      ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, makeRateLimiter)
-      : FailoverRdapProvider.withDefaults(makeRateLimiter);
+      ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, sharedRateLimiter)
+      : FailoverRdapProvider.withDefaults(sharedRateLimiter);
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, RDAP_CIRCUIT_BREAKER);
 
