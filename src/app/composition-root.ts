@@ -176,23 +176,22 @@ function buildTrademarkProviderStack(
   usptoRateLimiter: RateLimiterLike,
   euipoRateLimiter: RateLimiterLike,
 ): {
+  rawUsptoProvider: UsptoCasesProvider;
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
   trademarkGate: TrademarkGate;
 } {
-  // The USPTO provider chain: raw → retry+circuit-breaker → failover → cache.
-  // FailoverTrademarkProvider enables operator-configured fallback endpoints
-  // (e.g. a self-hosted mirror) via the provider array.
+  // Keep a reference to the raw USPTO provider to read WAF block stats
+  // for monitoring (wafBlockCount is not part of the TrademarkProvider
+  // interface and would be lost through the cache/retry chain).
+  const rawUsptoProvider = new UsptoCasesProvider({
+    searchUrl: config.USPTO_SEARCH_URL,
+    rateLimiter: usptoRateLimiter,
+  });
+
   const usptoTmProvider = new CachedTrademarkProvider(
     new FailoverTrademarkProvider([
-      new RetryingTrademarkProvider(
-        new UsptoCasesProvider({
-          searchUrl: config.USPTO_SEARCH_URL,
-          rateLimiter: usptoRateLimiter,
-        }),
-        {},
-        USPTO_CIRCUIT_BREAKER,
-      ),
+      new RetryingTrademarkProvider(rawUsptoProvider, {}, USPTO_CIRCUIT_BREAKER),
     ]),
     providerCacheRepo,
     'USPTO',
@@ -226,7 +225,7 @@ function buildTrademarkProviderStack(
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
-  return { usptoTmProvider, euipoTmProvider, trademarkGate };
+  return { rawUsptoProvider, usptoTmProvider, euipoTmProvider, trademarkGate };
 }
 
 function buildWorkerIfEnabled(
@@ -461,12 +460,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
 
   // --- Trademark Gate ---
-  const { usptoTmProvider, euipoTmProvider, trademarkGate } = buildTrademarkProviderStack(
-    config,
-    repos.providerCacheRepo,
-    usptoRateLimiter,
-    euipoRateLimiter,
-  );
+  const { rawUsptoProvider, usptoTmProvider, euipoTmProvider, trademarkGate } =
+    buildTrademarkProviderStack(
+      config,
+      repos.providerCacheRepo,
+      usptoRateLimiter,
+      euipoRateLimiter,
+    );
 
   // --- Scoring ---
   const { currentWeights, engine } = buildScoringEngine(
@@ -504,6 +504,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       compsProvider: cachedCompsProvider,
       ...(waybackProvider !== undefined ? { waybackProvider } : {}),
       ...(redisClient !== undefined ? { redisClient } : {}),
+      usptoWafStats: (): { wafBlockCount: number; requestCount: number; wafBlockRate: number } => ({
+        wafBlockCount: rawUsptoProvider.wafBlockCount,
+        requestCount: rawUsptoProvider.requestCount,
+        wafBlockRate: rawUsptoProvider.wafBlockRate,
+      }),
     },
   );
 
