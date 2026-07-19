@@ -935,9 +935,11 @@ const configSchema = z.object({
   /**
    * Maximum number of jobs processed concurrently by the worker.
    * Higher values increase throughput but may trigger SQLite write contention.
-   * Default: 2 (conservative).
+   * For community edition (SQLite), the safe default is 2.
+   * For DOMINUS Cloud (PostgreSQL), increase to 4+.
+   * Default: 2 (SQLite-safe conservative).
    */
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(2),
 
   /**
    * Poll interval in milliseconds for the job queue worker.
