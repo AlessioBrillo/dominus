@@ -13,6 +13,12 @@ import {
   LogOut,
   Sun,
   Moon,
+  Play,
+  Search,
+  Eye,
+  TrendingUp,
+  Clock,
+  Server,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -23,11 +29,17 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/candidates', label: 'Candidates', icon: ListChecks },
-  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/runs', label: 'Runs', icon: Play },
+  { to: '/score', label: 'Score', icon: Search },
+  { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/listings', label: 'Listings', icon: ShoppingCart },
   { to: '/bids', label: 'Bids', icon: Gavel },
-  { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
   { to: '/outcomes', label: 'Outcomes', icon: History },
+  { to: '/watchlist', label: 'Watchlist', icon: Eye },
+  { to: '/backtest', label: 'Backtest', icon: TrendingUp },
+  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/scheduler', label: 'Scheduler', icon: Clock },
+  { to: '/providers', label: 'Providers', icon: Server },
   { to: '/settings', label: 'Settings', icon: Settings },
 ] as const;
 

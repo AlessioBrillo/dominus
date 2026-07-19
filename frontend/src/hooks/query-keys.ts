@@ -32,5 +32,18 @@ export const queryKeys = {
   runs: {
     all: ['runs'] as const,
     list: () => [...queryKeys.runs.all, 'list'] as const,
+    detail: (id?: string) => [...queryKeys.runs.all, 'detail', id] as const,
+  },
+  watchlist: {
+    all: ['watchlist'] as const,
+    list: () => [...queryKeys.watchlist.all, 'list'] as const,
+  },
+  backtest: {
+    all: ['backtest'] as const,
+    report: () => [...queryKeys.backtest.all, 'report'] as const,
+  },
+  scheduler: {
+    all: ['scheduler'] as const,
+    list: () => [...queryKeys.scheduler.all, 'list'] as const,
   },
 };
