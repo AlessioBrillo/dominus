@@ -11,12 +11,18 @@ import { Layout } from '@/components/Layout';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { OnboardingPage } from '@/pages/OnboardingPage';
 import { CandidatesPage } from '@/pages/CandidatesPage';
+import { RunsPage } from '@/pages/RunsPage';
+import { ScorePage } from '@/pages/ScorePage';
 import { AnalyticsPage } from '@/pages/AnalyticsPage';
 import { PortfolioPage } from '@/pages/PortfolioPage';
 import { BuyPage } from '@/pages/BuyPage';
 import { ListingsPage } from '@/pages/ListingsPage';
 import { BidsPage } from '@/pages/BidsPage';
 import { OutcomesPage } from '@/pages/OutcomesPage';
+import { WatchlistPage } from '@/pages/WatchlistPage';
+import { BacktestPage } from '@/pages/BacktestPage';
+import { SchedulerPage } from '@/pages/SchedulerPage';
+import { ProvidersPage } from '@/pages/ProvidersPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import '@/styles/globals.css';
@@ -49,12 +55,18 @@ createRoot(document.getElementById('root')!).render(
                     <Route index element={<DashboardPage />} />
                     <Route path="onboarding" element={<OnboardingPage />} />
                     <Route path="candidates" element={<CandidatesPage />} />
+                    <Route path="runs" element={<RunsPage />} />
+                    <Route path="score" element={<ScorePage />} />
                     <Route path="analytics" element={<AnalyticsPage />} />
                     <Route path="listings" element={<ListingsPage />} />
                     <Route path="buy" element={<BuyPage />} />
                     <Route path="bids" element={<BidsPage />} />
                     <Route path="portfolio" element={<PortfolioPage />} />
                     <Route path="outcomes" element={<OutcomesPage />} />
+                    <Route path="watchlist" element={<WatchlistPage />} />
+                    <Route path="backtest" element={<BacktestPage />} />
+                    <Route path="scheduler" element={<SchedulerPage />} />
+                    <Route path="providers" element={<ProvidersPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                   </Route>
