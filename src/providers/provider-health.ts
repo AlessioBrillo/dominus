@@ -10,11 +10,19 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
+export interface WafStats {
+  wafBlockCount: number;
+  requestCount: number;
+  wafBlockRate: number;
+}
+
 export interface ProviderHealth {
   provider: string;
   status: 'ok' | 'unavailable' | 'error';
   latencyMs: number;
   message?: string;
+  wafBlockCount?: number;
+  wafBlockRate?: number;
 }
 
 export class ProviderHealthCheck {
@@ -22,6 +30,7 @@ export class ProviderHealthCheck {
   readonly #compsProvider: CompsProvider | undefined;
   readonly #waybackProvider: WaybackProvider | undefined;
   readonly #redisClient: RedisClient | undefined;
+  readonly #usptoWafStats: (() => WafStats) | undefined;
 
   constructor(
     private readonly usptoProvider: TrademarkProvider,
@@ -34,12 +43,15 @@ export class ProviderHealthCheck {
       compsProvider?: CompsProvider;
       waybackProvider?: WaybackProvider;
       redisClient?: RedisClient;
+      /** Callback to read live USPTO WAF block stats after the health probe. */
+      usptoWafStats?: () => WafStats;
     },
   ) {
     this.#dnsProvider = options?.dnsProvider;
     this.#compsProvider = options?.compsProvider;
     this.#waybackProvider = options?.waybackProvider;
     this.#redisClient = options?.redisClient;
+    this.#usptoWafStats = options?.usptoWafStats;
   }
 
   async checkAll(): Promise<ProviderHealth[]> {
@@ -72,7 +84,7 @@ export class ProviderHealthCheck {
 
     const results = await Promise.allSettled(checks.map((c) => this.checkProvider(c.name, c.fn)));
 
-    return results.map((r) => {
+    const mapped = results.map((r) => {
       if (r.status === 'fulfilled') return r.value;
       return {
         provider: 'unknown',
@@ -81,6 +93,19 @@ export class ProviderHealthCheck {
         message: r.reason instanceof Error ? r.reason.message : String(r.reason),
       };
     });
+
+    // Attach USPTO WAF stats to the USPTO health entry
+    if (this.#usptoWafStats) {
+      const waf = this.#usptoWafStats();
+      const usptoEntry = mapped.find((p) => p.provider === 'USPTO');
+      if (usptoEntry && waf.wafBlockCount > 0) {
+        usptoEntry.wafBlockCount = waf.wafBlockCount;
+        usptoEntry.wafBlockRate = waf.wafBlockRate;
+        usptoEntry.message = `${waf.wafBlockCount} WAF blocks in ${waf.requestCount} requests (rate: ${(waf.wafBlockRate * 100).toFixed(1)}%)`;
+      }
+    }
+
+    return mapped;
   }
 
   private async checkProvider(name: string, fn: () => Promise<unknown>): Promise<ProviderHealth> {
