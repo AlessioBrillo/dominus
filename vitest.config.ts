@@ -25,6 +25,7 @@ export default defineConfig({
         'src/cli/commands/**',
         'src/providers/*/index.ts',
         'src/db/index.ts',
+        'src/benchmarks/**',
       ],
       // Current: 63% lines / 63% functions / 54% branches.
       // Large untested route files (public-router.ts, onboarding.ts, listings.ts, runs.ts)

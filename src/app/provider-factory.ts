@@ -167,6 +167,12 @@ export function buildDnsProvider(
 ): DnsProvider {
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
 
+  const nameservers: string[] | undefined = config.DNS_NAMESERVERS
+    ? config.DNS_NAMESERVERS.split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    : undefined;
+
   const dohResolvers: { name: string; url: string }[] = ((): { name: string; url: string }[] => {
     if (!config.DNS_RESOLVER_URLS) return [];
     try {
@@ -188,6 +194,7 @@ export function buildDnsProvider(
     parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
     parkingRegistry,
     healthCheckDomain: config.DNS_HEALTH_CHECK_DOMAIN,
+    ...(nameservers !== undefined ? { nameservers } : {}),
     ...(redisCache !== undefined ? { redisCache } : {}),
   });
 

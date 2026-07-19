@@ -236,6 +236,17 @@ const configSchema = z.object({
   DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
 
   /**
+   * Comma-separated list of custom DNS resolver IP addresses for the native
+   * Node.js resolver. When set, `dns.setServers()` is called at startup to
+   * override the system resolver (e.g. `/etc/resolv.conf` in Docker).
+   * In containerized environments where the embedded DNS (127.0.0.11) is a
+   * throughput bottleneck, setting this to public resolvers like
+   * `1.1.1.1,8.8.8.8` can dramatically improve bulk lookup performance.
+   * Leave unset to keep the system resolver (default).
+   */
+  DNS_NAMESERVERS: z.string().optional(),
+
+  /**
    * JSON array of DNS-over-HTTPS resolver URLs for multi-resolver failover.
    * When set, the DNS provider tries each resolver in order on timeout/error.
    * Format: '[{"name":"Cloudflare","url":"https://cloudflare-dns.com/dns-query"},{"name":"Google","url":"https://dns.google/dns-query"},{"name":"Quad9","url":"https://dns.quad9.net/dns-query"}]'
@@ -924,9 +935,11 @@ const configSchema = z.object({
   /**
    * Maximum number of jobs processed concurrently by the worker.
    * Higher values increase throughput but may trigger SQLite write contention.
-   * Default: 2 (conservative).
+   * For community edition (SQLite), the safe default is 2.
+   * For DOMINUS Cloud (PostgreSQL), increase to 4+.
+   * Default: 2 (SQLite-safe conservative).
    */
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(2),
 
   /**
    * Poll interval in milliseconds for the job queue worker.
