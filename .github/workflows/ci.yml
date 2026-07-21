@@ -131,9 +131,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: frontend/node_modules
-          key: deps-frontend-v2-${{ hashFiles('frontend/package-lock.json') }}
+          key: deps-frontend-${{ hashFiles('frontend/package-lock.json') }}
           restore-keys: |
-            deps-frontend-v2-
+            deps-frontend-
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
