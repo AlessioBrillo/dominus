@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
+import type { AcquisitionFunnelService } from '../../services/acquisition-funnel-service.js';
 import type { JobQueueService } from '../../app/job-queue-service.js';
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import { parseCloseoutCsv } from '../../candidates/index.js';
@@ -9,6 +10,7 @@ import type { CloseoutEntry } from '../../types/candidate.js';
 
 export interface RunCommandDeps {
   runService: PipelineRunService;
+  funnelService?: AcquisitionFunnelService | undefined;
   jobQueueService?: JobQueueService | undefined;
   runsRepo?: PipelineRunsRepository | undefined;
 }
@@ -121,7 +123,8 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       '--auto-list',
       'Automatically create marketplace draft listings for recommended candidates',
       false,
-    );
+    )
+    .option('--funnel', 'Generate acquisition funnel after pipeline run completes', false);
 
   run
     .command('submit')
@@ -163,11 +166,13 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       sync?: boolean | string;
       wait?: boolean | string;
       autoList?: boolean | string;
+      funnel?: boolean | string;
     }) => {
       const input = buildInput(options);
       const useSync = Boolean(options.sync);
       const useWait = Boolean(options.wait);
       const autoList = Boolean(options.autoList);
+      const funnelEnabled = Boolean(options.funnel);
       const canEnqueue = jobQueueService !== undefined;
 
       // If --sync is explicitly set, or no job queue available, run sync
@@ -185,6 +190,36 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
             process.stdout.write(
               `  Auto-list: ${result.recommended.length} recommended domains listed (or had existing listing)\n`,
             );
+          }
+
+          // Generate acquisition funnel after run if requested
+          if (funnelEnabled) {
+            if (deps.funnelService) {
+              const funnel = await deps.funnelService.generateFunnel(result.runId);
+              process.stdout.write(`\nAcquisition Funnel:\n`);
+              process.stdout.write(
+                `  Budget: \u20ac${funnel.config.budgetEur}  ` +
+                  `Used: \u20ac${funnel.breakdown.budgetUsedEur.toFixed(0)}  ` +
+                  `Entries: ${funnel.entries.length}  ` +
+                  `Expected ROI: ${(funnel.breakdown.expectedRoi * 100).toFixed(1)}%\n`,
+              );
+              if (funnel.entries.length > 0) {
+                for (const e of funnel.entries.slice(0, 10)) {
+                  process.stdout.write(
+                    `    ${e.domain.padEnd(28)} ` +
+                      `EV: \u20ac${e.expectedValue.toFixed(0).padStart(6)} ` +
+                      `Alloc: \u20ac${e.budgetAllocationEur.toFixed(0).padStart(5)}\n`,
+                  );
+                }
+                if (funnel.entries.length > 10) {
+                  process.stdout.write(`    ... and ${funnel.entries.length - 10} more\n`);
+                }
+              }
+            } else {
+              process.stdout.write(
+                '\n  --funnel requires the acquisition funnel service (not available in this context).\n',
+              );
+            }
           }
         } catch (err: unknown) {
           process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);

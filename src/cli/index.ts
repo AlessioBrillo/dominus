@@ -117,7 +117,12 @@ export function createCli(options: CreateCliOptions): Command {
     .description('Personal DNS domain investment decision-support tool')
     .version(loadCliVersion());
 
-  registerRunCommand(program, { runService, jobQueueService, runsRepo });
+  registerRunCommand(program, {
+    runService,
+    funnelService: options.funnelService,
+    jobQueueService,
+    runsRepo,
+  });
   registerCandidatesCommand(program, { candidateRepo });
   registerPortfolioCommand(program, { manager, alertEngine, alertRepo, jobQueueService });
   registerScoreCommand(program, engine, gate);
