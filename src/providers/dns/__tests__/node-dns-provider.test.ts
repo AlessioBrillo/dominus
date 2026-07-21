@@ -5,16 +5,14 @@ import { DomainStatus } from '../../../types/domain-status.js';
 
 vi.mock('node:dns', () => {
   const resolveFn = vi.fn();
-  const setServersFn = vi.fn();
   return {
-    setServers: setServersFn,
     promises: {
       resolve: resolveFn,
     },
   };
 });
 
-import { promises as dnsPromises, setServers } from 'node:dns';
+import { promises as dnsPromises } from 'node:dns';
 
 function makeResolved(): never {
   return ['1.2.3.4'] as never;
@@ -123,22 +121,16 @@ describe('NodeDnsProvider', () => {
     expect(dnsPromises.resolve).toHaveBeenCalled();
   });
 
-  it('configures custom nameservers when provided', () => {
+  it('configures resolver groups from constructor', () => {
     const nsProvider = new NodeDnsProvider({
-      nameservers: ['1.1.1.1', '8.8.8.8'],
-      lookupStrategy: 'native',
+      resolverGroups: [
+        {
+          name: 'test',
+          lookups: [{ type: 'native' }, { type: 'doh', endpoint: 'https://dns.google/dns-query' }],
+        },
+      ],
     });
-    expect(setServers).toHaveBeenCalledWith(['1.1.1.1', '8.8.8.8']);
     expect(nsProvider).toBeDefined();
-  });
-
-  it('handles invalid nameserver gracefully', () => {
-    vi.mocked(setServers).mockImplementationOnce(() => {
-      throw new Error('invalid address');
-    });
-    expect(
-      () => new NodeDnsProvider({ nameservers: ['not-an-ip'], lookupStrategy: 'native' }),
-    ).not.toThrow();
   });
 
   it('checkAvailability rejects when signal is already aborted', async () => {

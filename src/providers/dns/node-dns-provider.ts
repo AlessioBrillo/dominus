@@ -13,7 +13,7 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
-export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
+export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only' | 'doh-primary';
 
 function resolveWithTimeout(
   domain: string,
@@ -191,9 +191,7 @@ async function resolvesAnyDoh(
     (o) =>
       !o.resolved &&
       !o.aborted &&
-      o.code !== undefined &&
-      o.code !== 'ENOTFOUND' &&
-      o.code !== 'ENODATA',
+      (o.code === undefined || (o.code !== 'ENOTFOUND' && o.code !== 'ENODATA')),
   );
   if (anyUnknown) return undefined;
   return false;

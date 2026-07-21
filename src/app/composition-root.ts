@@ -289,6 +289,9 @@ function buildWorkerIfEnabled(
     providerCacheRepo,
     jobQueueRepo,
     db,
+    provider,
+    publicScoresRetentionDays: config.PUBLIC_SCORES_RETENTION_DAYS,
+    eventsRetentionDays: config.EVENTS_RETENTION_DAYS,
   });
   const watchlistHandler = new WatchlistPollHandler({ watchlistService });
   const renewalHandler = new RenewalCheckHandler({ alertEngine });

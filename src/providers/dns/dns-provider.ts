@@ -16,6 +16,7 @@ export function strategyToResolverGroups(
 ): DnsResolverGroup[] {
   switch (strategy) {
     case 'doh-only':
+    case 'doh-primary':
       return [{ name: 'default', lookups: [{ type: 'doh', endpoint: defaultDohEndpoint }] }];
     case 'native-with-doh-fallback':
       return [
