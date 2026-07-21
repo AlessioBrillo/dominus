@@ -1,6 +1,10 @@
 import type { WhoisProvider, WhoisResult } from '../providers/whois/whois-provider.js';
 import { type RetryPolicy } from '../providers/retry-policy.js';
-import { CircuitBreaker, type CircuitBreakerPolicy } from '../providers/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  type CircuitBreakerPolicy,
+  type ICircuitBreaker,
+} from '../providers/circuit-breaker.js';
 import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
 
 export const WHOIS_RETRY_POLICY: RetryPolicy = {
@@ -20,19 +24,24 @@ export const WHOIS_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
 export class RetryingWhoisProvider implements WhoisProvider {
   readonly #delegate: WhoisProvider;
   readonly #policy: RetryPolicy;
-  readonly #circuitBreaker: CircuitBreaker;
+  readonly #circuitBreaker: ICircuitBreaker;
 
   constructor(
     delegate: WhoisProvider,
     policy: Partial<RetryPolicy> = {},
-    circuitBreakerPolicy: Partial<CircuitBreakerPolicy> = {},
+    circuitBreakerOrPolicy?: ICircuitBreaker | Partial<CircuitBreakerPolicy>,
   ) {
     this.#delegate = delegate;
     this.#policy = { ...WHOIS_RETRY_POLICY, ...policy };
-    this.#circuitBreaker = new CircuitBreaker({
-      ...WHOIS_CIRCUIT_BREAKER,
-      ...circuitBreakerPolicy,
-    });
+
+    if (circuitBreakerOrPolicy && 'allow' in circuitBreakerOrPolicy) {
+      this.#circuitBreaker = circuitBreakerOrPolicy as ICircuitBreaker;
+    } else {
+      this.#circuitBreaker = new CircuitBreaker({
+        ...WHOIS_CIRCUIT_BREAKER,
+        ...(circuitBreakerOrPolicy as Partial<CircuitBreakerPolicy>),
+      });
+    }
   }
 
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {

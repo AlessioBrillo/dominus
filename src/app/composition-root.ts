@@ -65,13 +65,19 @@ import { type RateLimiterLike } from '../providers/rate-limiter.js';
 import {
   RedisLock,
   CompositeLockProvider,
+  DistributedCircuitBreaker,
   getRedisClient,
   type RedisClient,
 } from '../providers/redis/index.js';
 import type { LockProvider } from '../types/lock.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
-import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  USPTO_CIRCUIT_BREAKER,
+  EUIPO_CIRCUIT_BREAKER,
+  type ICircuitBreaker,
+} from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
 import {
   buildKeywordProvider,
@@ -207,6 +213,7 @@ function buildTrademarkProviderStack(
   providerCacheRepo: ProviderCacheRepository,
   usptoRateLimiter: RateLimiterLike,
   euipoRateLimiter: RateLimiterLike,
+  redisClient?: RedisClient,
 ): {
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
@@ -217,14 +224,24 @@ function buildTrademarkProviderStack(
     searchUrl: config.USPTO_SEARCH_URL,
     rateLimiter: usptoRateLimiter,
   });
+
+  const usptoCircuitBreaker: ICircuitBreaker = redisClient?.isConnected
+    ? new DistributedCircuitBreaker('uspto', USPTO_CIRCUIT_BREAKER, redisClient)
+    : new CircuitBreaker(USPTO_CIRCUIT_BREAKER);
+
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(rawUsptoProvider, {}, USPTO_CIRCUIT_BREAKER),
+    new RetryingTrademarkProvider(rawUsptoProvider, {}, usptoCircuitBreaker),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
+
+  const euipoCircuitBreaker: ICircuitBreaker = redisClient?.isConnected
+    ? new DistributedCircuitBreaker('euipo', EUIPO_CIRCUIT_BREAKER, redisClient)
+    : new CircuitBreaker(EUIPO_CIRCUIT_BREAKER);
+
   const euipoTmProvider = new CachedTrademarkProvider(
     new RetryingTrademarkProvider(
       new EuipoProvider({
@@ -235,7 +252,7 @@ function buildTrademarkProviderStack(
         rateLimiter: euipoRateLimiter,
       }),
       {},
-      EUIPO_CIRCUIT_BREAKER,
+      euipoCircuitBreaker,
     ),
     providerCacheRepo,
     'EUIPO',
@@ -446,6 +463,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       repos.providerCacheRepo,
       usptoRateLimiter,
       euipoRateLimiter,
+      redisClient,
     );
 
   // --- Scoring ---

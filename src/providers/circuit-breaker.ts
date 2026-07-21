@@ -38,9 +38,17 @@ export const RDAP_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
   cooldownMs: 30_000,
 };
 
-type CircuitState = 'closed' | 'open' | 'half-open';
+export type CircuitState = 'closed' | 'open' | 'half-open';
 
-export class CircuitBreaker {
+export interface ICircuitBreaker {
+  allow(): boolean | Promise<boolean>;
+  onSuccess(): void | Promise<void>;
+  onFailure(): void | Promise<void>;
+  readonly state: CircuitState;
+  readonly cooldownMs: number;
+}
+
+export class CircuitBreaker implements ICircuitBreaker {
   #state: CircuitState = 'closed';
   #failureCount = 0;
   #windowStart = 0;

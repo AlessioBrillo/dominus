@@ -285,35 +285,65 @@ async function main(): Promise<void> {
     }
   });
 
-  function shutdown(signal: string): void {
+  async function shutdown(signal: string): Promise<void> {
     logger.info({ signal }, 'Shutdown signal received — draining connections');
 
-    if (typeof server.closeIdleConnections === 'function') {
-      server.closeIdleConnections();
-    }
-    server.close(() => {
+    const drainMs = 5_000;
+    const graceMs = 25_000;
+    const forceExitMs = drainMs + graceMs;
+
+    const forceTimer = setTimeout(() => {
+      logger.error('Forced exit after shutdown timeout');
+      if (typeof server.closeAllConnections === 'function') {
+        server.closeAllConnections();
+      }
+      process.exit(1);
+    }, forceExitMs).unref();
+
+    try {
+      // Step 1: Stop accepting new connections on the HTTP server
+      if (typeof server.closeIdleConnections === 'function') {
+        server.closeIdleConnections();
+      }
+
+      // Step 2: Stop the job worker first — it may have active pipeline runs.
+      // The worker abort controller will propagate to PipelineRunService via
+      // the AbortSignal in PipelineRunOptions. Wait for all active jobs to
+      // complete or abort (gracefulShutdownTimeoutMs default: 30s).
+      if (deps.worker) {
+        logger.info('Stopping job worker...');
+        await deps.worker.stop();
+        logger.info('Job worker stopped');
+      }
+
+      // Step 3: Stop the background scheduler
       if (deps.scheduler) {
         deps.scheduler.stop();
         logger.info('Scheduler stopped');
       }
+
+      // Step 4: Close the HTTP server (drain active requests)
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          resolve();
+        });
+        setTimeout(() => {
+          if (typeof server.closeAllConnections === 'function') {
+            server.closeAllConnections();
+          }
+        }, drainMs).unref();
+      });
+      logger.info('HTTP server closed');
+
+      // Step 5: Close the database last, after all workers and connections are drained
       closeDatabase();
       logger.info('Database closed');
+    } catch (err) {
+      logger.error({ err }, 'Error during shutdown');
+    } finally {
+      clearTimeout(forceTimer);
       process.exit(0);
-    });
-
-    const drainMs = 5_000;
-    const graceMs = 25_000;
-    setTimeout(() => {
-      if (typeof server.closeAllConnections === 'function') {
-        server.closeAllConnections();
-      }
-    }, drainMs).unref();
-
-    const forceExitMs = drainMs + graceMs;
-    setTimeout(() => {
-      logger.error('Forced exit after shutdown timeout');
-      process.exit(1);
-    }, forceExitMs).unref();
+    }
   }
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));

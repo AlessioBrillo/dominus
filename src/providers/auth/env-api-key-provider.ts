@@ -1,8 +1,10 @@
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import type { AuthProvider, AuthResult } from './auth-provider.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
+
+const OWNER_ONLY_MODE = 0o600;
 
 /**
  * Reads API keys from the `API_KEYS` environment variable or from a file
@@ -18,6 +20,9 @@ const logger = getLogger();
  *   monitor=sk-mon-key
  *
  * When no keys are configured, auth is disabled.
+ *
+ * Security: when loading from a file, the file permissions are validated
+ * to warn if the file is world-readable (permissions > 0600).
  */
 export class EnvApiKeyProvider implements AuthProvider {
   readonly name = 'EnvApiKeyProvider';
@@ -27,8 +32,8 @@ export class EnvApiKeyProvider implements AuthProvider {
   private readonly active: boolean;
 
   constructor(apiKeysEnv: string | undefined, fileApiKeysPath?: string | undefined) {
-    // FILE_API_KEYS takes precedence over API_KEYS env var
     if (fileApiKeysPath && fileApiKeysPath.length > 0) {
+      checkFilePermissions(fileApiKeysPath);
       const parsed = parseFileKeys(fileApiKeysPath);
       if (parsed.length > 0) {
         this.active = true;
@@ -77,6 +82,32 @@ export class EnvApiKeyProvider implements AuthProvider {
       return { authenticated: true, keyName, tenantId: 'default' };
     }
     return { authenticated: false };
+  }
+}
+
+function checkFilePermissions(filePath: string): void {
+  try {
+    const stats = statSync(filePath);
+    if (process.platform !== 'win32') {
+      const mode = stats.mode & 0o777;
+      const isWorldReadable = (mode & 0o004) !== 0 || (mode & 0o044) !== 0;
+      if (isWorldReadable) {
+        logger.warn(
+          { path: filePath, mode: mode.toString(8) },
+          `API keys file has permissions ${mode.toString(8)} — world-readable. ` +
+            `Recommended: chmod ${OWNER_ONLY_MODE.toString(8)} to restrict access to owner only.`,
+        );
+      }
+    } else {
+      if (existsSync(filePath)) {
+        logger.info(
+          { path: filePath },
+          'File permission check skipped on Windows (POSIX permissions not applicable)',
+        );
+      }
+    }
+  } catch (err) {
+    logger.warn({ path: filePath, err }, 'Could not check file permissions for API keys file');
   }
 }
 

@@ -5,3 +5,5 @@ export type { RedisRateLimiterConfig, RedisRateLimiterMetrics } from './redis-ra
 export { RedisCacheProvider } from './redis-cache-provider.js';
 export { RedisLock } from './redis-lock.js';
 export { CompositeLockProvider } from './composite-lock-provider.js';
+export { DistributedCircuitBreaker } from './distributed-circuit-breaker.js';
+export type { CircuitBreakerPolicy } from './distributed-circuit-breaker.js';

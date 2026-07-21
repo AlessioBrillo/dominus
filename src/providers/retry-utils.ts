@@ -6,13 +6,13 @@ import {
   CircuitOpenError,
   type RetryPolicy,
 } from './retry-policy.js';
-import { type CircuitBreaker } from './circuit-breaker.js';
+import { type ICircuitBreaker } from './circuit-breaker.js';
 
 const logger = getLogger();
 
 export interface RetryAndCircuitBreakerOptions {
   policy: RetryPolicy;
-  circuitBreaker: CircuitBreaker;
+  circuitBreaker: ICircuitBreaker;
 }
 
 export async function withRetryAndCircuitBreaker<T>(
@@ -23,7 +23,8 @@ export async function withRetryAndCircuitBreaker<T>(
 ): Promise<T> {
   const { policy, circuitBreaker } = options;
 
-  if (!circuitBreaker.allow()) {
+  const allowed = await circuitBreaker.allow();
+  if (!allowed) {
     throw new CircuitOpenError(label, circuitBreaker.cooldownMs, circuitBreaker.state);
   }
 
@@ -36,13 +37,13 @@ export async function withRetryAndCircuitBreaker<T>(
     try {
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const result = await fn(signal);
-      circuitBreaker.onSuccess();
+      await circuitBreaker.onSuccess();
       return result;
     } catch (err) {
       lastErr = err;
       if (err instanceof CircuitOpenError) throw err;
       if (attempt >= max || !isTransient(err)) {
-        circuitBreaker.onFailure();
+        await circuitBreaker.onFailure();
         if (attempt >= max && isTransient(err)) {
           logger.warn(
             { label, attempt, max, err },
