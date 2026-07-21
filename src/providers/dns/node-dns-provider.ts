@@ -4,10 +4,10 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsResolverGroup } from './dns-provider.js';
 import { strategyToResolverGroups } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
-import type { RateLimiter } from '../rate-limiter.js';
 import { withRetry } from '../retryable-provider.js';
 import type { RetryPolicy } from '../retry-policy.js';
 import { getLogger } from '../../logger.js';
+import type { RateLimiterLike } from '../rate-limiter.js';
 
 const logger = getLogger();
 
@@ -212,7 +212,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #bulkConcurrency: number;
   readonly #parkingEnabled: boolean;
   readonly #parkingRegistry: ParkingIpRegistry;
-  readonly #rateLimiter: RateLimiter | undefined;
+  readonly #rateLimiter: RateLimiterLike | undefined;
   readonly #retryPolicy: Partial<RetryPolicy> | undefined;
   #cache: Map<string, CacheEntry> = new Map();
 
@@ -226,7 +226,7 @@ export class NodeDnsProvider implements DnsProvider {
     bulkConcurrency?: number;
     parkingEnabled?: boolean;
     parkingRegistry?: ParkingIpRegistry;
-    rateLimiter?: RateLimiter | undefined;
+    rateLimiter?: RateLimiterLike | undefined;
     retryPolicy?: Partial<RetryPolicy> | undefined;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;

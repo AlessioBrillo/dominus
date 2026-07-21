@@ -1,5 +1,5 @@
 import { ProviderError } from '../../types/errors.js';
-import { RateLimiter } from '../rate-limiter.js';
+import { RateLimiter, type RateLimiterLike } from '../rate-limiter.js';
 import type { WaybackProvider, WaybackResult } from './wayback-provider.js';
 
 const CDX_SEARCH_URL = 'https://web.archive.org/cdx/search/cdx';
@@ -52,11 +52,11 @@ export class CdxWaybackProvider implements WaybackProvider {
   readonly name: string;
   readonly #baseUrl: string;
   readonly #timeoutMs: number;
-  readonly #rateLimiter: RateLimiter;
+  readonly #rateLimiter: RateLimiterLike;
 
   constructor(
     baseUrl: string = CDX_SEARCH_URL,
-    rateLimiter?: RateLimiter,
+    rateLimiter?: RateLimiterLike,
     timeoutMs: number = DEFAULT_TIMEOUT_MS,
   ) {
     this.#baseUrl = baseUrl;
