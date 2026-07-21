@@ -29,11 +29,29 @@ describe('RenewalClock', () => {
     expect(clock.daysUntilRenewal).toBeLessThan(0);
   });
 
+  it('computes zero for today', () => {
+    const clock = computeRenewalClock(makeEntry(0));
+    expect(clock.daysUntilRenewal).toBeGreaterThanOrEqual(0);
+    expect(clock.daysUntilRenewal).toBeLessThanOrEqual(1);
+  });
+
   it('isRenewalImminent returns true when within horizon', () => {
     expect(isRenewalImminent(makeEntry(30), 60)).toBe(true);
   });
 
   it('isRenewalImminent returns false when outside horizon', () => {
     expect(isRenewalImminent(makeEntry(90), 60)).toBe(false);
+  });
+
+  it('isRenewalImminent returns true for past-due renewal (negative days)', () => {
+    expect(isRenewalImminent(makeEntry(-5), 60)).toBe(true);
+  });
+
+  it('includes domain name, renewalDate, and renewalCost in clock data', () => {
+    const entry = makeEntry(30);
+    const clock = computeRenewalClock(entry);
+    expect(clock.domain).toBe('nova.com');
+    expect(clock.renewalDate).toBe(entry.renewalDate);
+    expect(clock.renewalCost).toBe(12);
   });
 });
