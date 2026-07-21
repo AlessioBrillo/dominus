@@ -24,6 +24,7 @@ function makeMockDns(status = DomainStatus.Available): DnsProvider {
         Promise.resolve(domains.map((d) => ({ domain: d, status, checkedAt: '' }))),
       ),
     clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
   };
 }
 
@@ -275,6 +276,7 @@ describe('PipelineOrchestrator', () => {
       checkAvailability: vi.fn().mockImplementation(() => new Promise((r) => setTimeout(r, 50))),
       checkBulk: vi.fn(),
       clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
     };
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),

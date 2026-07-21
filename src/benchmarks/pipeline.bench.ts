@@ -30,6 +30,7 @@ function makeDnsProvider(): DnsProvider {
         ),
       ),
     clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
   };
 }
 

@@ -9,21 +9,21 @@ import {
   createBulkWriteDatabaseProvider,
 } from '../db/index.js';
 import {
-  type CandidateRepository,
-  type ScoringRepository,
-  type PortfolioRepository,
-  type TrademarkRepository,
-  type ProviderCacheRepository,
-  type OutcomeRepository,
-  type RenewalAlertRepository,
-  type PipelineRunsRepository,
+  CandidateRepository,
+  ScoringRepository,
+  PortfolioRepository,
+  TrademarkRepository,
+  ProviderCacheRepository,
+  OutcomeRepository,
+  RenewalAlertRepository,
+  PipelineRunsRepository,
+  WatchlistRepository,
   BacktestSignalsRepository,
   WeightSnapshotRepository,
   SchedulerJobRepository,
-  type MetricsRepository,
-  type JobQueueRepository,
+  MetricsRepository,
+  JobQueueRepository,
 } from '../db/index.js';
-import { buildRepositories } from './repository-factory.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
 import { ProviderHealthCheck } from '../providers/provider-health.js';
@@ -39,7 +39,6 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
-  DbCheckpointStore,
 } from '../pipeline/index.js';
 import {
   PortfolioManager,
@@ -53,11 +52,7 @@ import type { Notifier } from '../notifiers/notifier.js';
 import { SchedulerService, BackupService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
 import { PredictionAccuracyAnalyzer } from '../analytics/index.js';
-import {
-  UsptoCasesProvider,
-  EuipoProvider,
-  FailoverTrademarkProvider,
-} from '../providers/trademark/index.js';
+import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
 import {
   PipelineRunService,
   CachedTrademarkProvider,
@@ -66,13 +61,8 @@ import {
   MetricsCollector,
   PipelineProgressService,
 } from './index.js';
-import { type RateLimiterLike } from '../providers/rate-limiter.js';
-import type { DnsCheckResult } from '../types/domain-status.js';
-import { RedisLock, getRedisClient, RedisCacheProvider } from '../providers/redis/index.js';
+import { type RateLimiter } from '../providers/rate-limiter.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
-import { Auth0Provider } from '../providers/auth/auth0-provider.js';
-import { DbApiKeyProvider } from '../providers/auth/db-api-key-provider.js';
-import { ApiKeyRepository } from '../db/index.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { buildRegistrarProvider, buildPurchaseService } from './registrar-factory.js';
@@ -87,9 +77,11 @@ import {
 } from './provider-factory.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
+import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
-import { type ListingRepository, AutoListingRepository } from '../db/index.js';
+import { ListingRepository } from '../db/repositories/listing-repository.js';
+import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
 import { AutoListingService } from '../services/auto-listing-service.js';
@@ -104,11 +96,8 @@ import {
   WatchlistPollHandler,
   RenewalCheckHandler,
   WeightTuneHandler,
-  PortfolioHealthcheckHandler,
-  AutoListHandler,
   HANDLERS,
 } from '../jobs/index.js';
-import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
 
 const logger = getLogger();
 
@@ -165,34 +154,60 @@ export interface DominusDependencies {
   bulkWriteProvider: DatabaseProvider | undefined;
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
-  apiKeyRepo: ApiKeyRepository | undefined;
 }
 
-// BuiltRepositories and buildRepositories moved to repository-factory.ts
+interface BuiltRepositories {
+  provider: DatabaseProvider;
+  candidateRepo: CandidateRepository;
+  scoringRepo: ScoringRepository;
+  trademarkRepo: TrademarkRepository;
+  providerCacheRepo: ProviderCacheRepository;
+  outcomeRepo: OutcomeRepository;
+  portfolioRepo: PortfolioRepository;
+  alertRepo: RenewalAlertRepository;
+  pipelineRunsRepo: PipelineRunsRepository;
+  metricsRepo: MetricsRepository;
+  jobQueueRepo: JobQueueRepository;
+  watchlistRepo: WatchlistRepository;
+  acquisitionRepo: AcquisitionRepository;
+  listingRepo: ListingRepository;
+}
+
+function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
+  return {
+    provider,
+    candidateRepo: new CandidateRepository(provider),
+    scoringRepo: new ScoringRepository(provider),
+    trademarkRepo: new TrademarkRepository(provider),
+    providerCacheRepo: new ProviderCacheRepository(provider),
+    outcomeRepo: new OutcomeRepository(provider),
+    portfolioRepo: new PortfolioRepository(provider),
+    alertRepo: new RenewalAlertRepository(provider),
+    pipelineRunsRepo: new PipelineRunsRepository(provider),
+    metricsRepo: new MetricsRepository(provider),
+    jobQueueRepo: new JobQueueRepository(provider),
+    watchlistRepo: new WatchlistRepository(provider),
+    acquisitionRepo: new AcquisitionRepository(provider),
+    listingRepo: new ListingRepository(provider),
+  };
+}
 
 function buildTrademarkProviderStack(
   config: Config,
   providerCacheRepo: ProviderCacheRepository,
-  usptoRateLimiter: RateLimiterLike,
-  euipoRateLimiter: RateLimiterLike,
+  usptoRateLimiter: RateLimiter,
+  euipoRateLimiter: RateLimiter,
 ): {
-  rawUsptoProvider: UsptoCasesProvider;
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
   trademarkGate: TrademarkGate;
 } {
-  // Keep a reference to the raw USPTO provider to read WAF block stats
-  // for monitoring (wafBlockCount is not part of the TrademarkProvider
-  // interface and would be lost through the cache/retry chain).
-  const rawUsptoProvider = new UsptoCasesProvider({
-    searchUrl: config.USPTO_SEARCH_URL,
-    rateLimiter: usptoRateLimiter,
-  });
-
   const usptoTmProvider = new CachedTrademarkProvider(
-    new FailoverTrademarkProvider([
-      new RetryingTrademarkProvider(rawUsptoProvider, {}, USPTO_CIRCUIT_BREAKER),
-    ]),
+    new RetryingTrademarkProvider(
+      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
+      {},
+      USPTO_CIRCUIT_BREAKER,
+    ),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
@@ -225,18 +240,13 @@ function buildTrademarkProviderStack(
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
-  return { rawUsptoProvider, usptoTmProvider, euipoTmProvider, trademarkGate };
+  return { usptoTmProvider, euipoTmProvider, trademarkGate };
 }
 
 function buildWorkerIfEnabled(
   config: Config,
   db: Database.Database | null,
   provider: DatabaseProvider,
-  /** Dedicated provider for worker dequeue operations. When running on SQLite,
-   *  using a separate connection isolates the worker's polling from the main
-   *  write-heavy connection (pipeline persistence), reducing SQLITE_BUSY
-   *  contention. Falls back to the main provider when not provided. */
-  workerDbProvider: DatabaseProvider | undefined,
   runService: PipelineRunService,
   portfolioManager: PortfolioManager,
   scoringRepo: ScoringRepository,
@@ -250,9 +260,6 @@ function buildWorkerIfEnabled(
   watchlistService: WatchlistService,
   alertEngine: RenewalAlertEngine,
   autoTuner: AutoWeightTuner | undefined,
-  healthcheckService: PortfolioRdapService,
-  autoListingService: AutoListingService,
-  notifiers: Notifier[],
 ): JobWorker | undefined {
   if (!config.WORKER_ENABLED) return undefined;
 
@@ -282,17 +289,10 @@ function buildWorkerIfEnabled(
     providerCacheRepo,
     jobQueueRepo,
     db,
-    provider,
-    publicScoresRetentionDays: config.PUBLIC_SCORES_RETENTION_DAYS,
-    eventsRetentionDays: config.EVENTS_RETENTION_DAYS,
   });
   const watchlistHandler = new WatchlistPollHandler({ watchlistService });
   const renewalHandler = new RenewalCheckHandler({ alertEngine });
   const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
-
-  const portfolioHealthcheckHandler = new PortfolioHealthcheckHandler({ healthcheckService });
-
-  const autoListHandler = new AutoListHandler({ autoListingService });
 
   const handlers = [
     pipelineRunHandler,
@@ -302,36 +302,16 @@ function buildWorkerIfEnabled(
     pruneHandler,
     watchlistHandler,
     renewalHandler,
-    portfolioHealthcheckHandler,
-    autoListHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
   for (const handler of handlers) {
     HANDLERS.set(handler.jobType, handler);
   }
-  // Use a dedicated provider for the worker when available (isolated SQLite connection).
-  // This prevents the worker's polling from contending with pipeline write operations.
-  const workerProvider = workerDbProvider ?? provider;
-  const worker = new JobWorker(workerProvider, HANDLERS, {
+  const worker = new JobWorker(provider, HANDLERS, {
     concurrency: config.WORKER_CONCURRENCY,
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
-    notifiers,
   });
-
-  // Reap orphaned pipeline_runs left by a previously crashed worker so the
-  // operator sees a clean run history (ADR-0011 §5.2).
-  pipelineRunsRepo
-    .reapOrphanedRuns(config.JOB_MAX_RUNNING_AGE_MS)
-    .then((count) => {
-      if (count > 0) {
-        logger.info({ count }, 'Reaped orphaned pipeline runs at worker startup');
-      }
-    })
-    .catch((err: unknown) => {
-      logger.warn({ err }, 'Failed to reap orphaned pipeline runs at startup');
-    });
-
   worker.start();
   return worker;
 }
@@ -348,7 +328,6 @@ function buildSchedulerIfEnabled(
   backupService: BackupService,
   jobQueueService: ReturnType<typeof createJobQueueService>,
   autoTuner: AutoWeightTuner | undefined,
-  portfolioHealthcheckService?: PortfolioRdapService,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
   return new SchedulerService({
@@ -363,7 +342,6 @@ function buildSchedulerIfEnabled(
     jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
     ...(autoTuner ? { autoTuner } : {}),
-    ...(portfolioHealthcheckService ? { portfolioHealthcheckService } : {}),
   });
 }
 
@@ -386,25 +364,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   warnEuipoIfMissing(config);
 
+  // --- Auth Provider ---
+  const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
+
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);
-
-  // --- Auth Provider ---
-  let apiKeyRepo: ApiKeyRepository | undefined;
-  const authProvider: AuthProvider = ((): AuthProvider => {
-    if (config.AUTH_PROVIDER === 'auth0') {
-      return new Auth0Provider({
-        domain: config.AUTH0_DOMAIN ?? '',
-        audience: config.AUTH0_AUDIENCE ?? '',
-        ...(config.AUTH0_JWKS_URI ? { jwksUri: config.AUTH0_JWKS_URI } : {}),
-      });
-    }
-    if (config.AUTH_PROVIDER === 'db') {
-      apiKeyRepo = new ApiKeyRepository(provider);
-      return new DbApiKeyProvider(apiKeyRepo);
-    }
-    return new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
-  })();
 
   // Dedicated bulk-write connection for pipeline persistence (SQLite only).
   // With WAL mode, this lets the main connection serve reads concurrently
@@ -413,76 +377,41 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     ? undefined
     : createBulkWriteDatabaseProvider(config.DATABASE_PATH, 5000);
 
-  // --- Redis (distributed locking, caching, rate limiting) ---
-  // Declared here so it's available for Redis-backed rate limiters below.
-  let redisClient: ReturnType<typeof getRedisClient> | undefined;
-  let redisLock: RedisLock | undefined;
-  if (config.REDIS_URL) {
-    redisClient = getRedisClient({
-      url: config.REDIS_URL,
-      tlsEnabled: config.REDIS_TLS_ENABLED,
-      keyPrefix: config.REDIS_KEY_PREFIX,
-      maxRetries: config.REDIS_MAX_RETRIES,
-      retryBaseMs: config.REDIS_RETRY_BASE_MS,
-    });
-    redisLock = new RedisLock(redisClient);
-  }
-
-  // --- Rate Limiters (Redis-backed when REDIS_URL is configured) ---
+  // --- Rate Limiters ---
   const {
+    rdap: rdapRateLimiter,
     uspto: usptoRateLimiter,
     euipo: euipoRateLimiter,
     dns: dnsRateLimiter,
-  } = buildRateLimiters(config, redisClient);
+  } = buildRateLimiters(config);
 
   // --- Providers ---
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, repos.providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, repos.providerCacheRepo);
   const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
     config,
-    repos.providerCacheRepo,
-    redisClient,
-  );
-  const dnsCache = redisClient
-    ? new RedisCacheProvider<DnsCheckResult>({
-        namespace: 'dns',
-        defaultTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
-        redisClient,
-      })
-    : undefined;
-  const dnsProvider = buildDnsProvider(config, dnsRateLimiter, repos.providerCacheRepo, dnsCache);
-  const { withRetry: whoisProvider, cached: cachedWhoisProvider } = buildWhoisProviders(
-    config,
+    rdapRateLimiter,
     repos.providerCacheRepo,
   );
+  const dnsProvider = buildDnsProvider(config, dnsRateLimiter);
+  const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
   // --- Wayback Machine (expiry data enrichment) ---
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
 
   // --- Trademark Gate ---
-  const { rawUsptoProvider, usptoTmProvider, euipoTmProvider, trademarkGate } =
-    buildTrademarkProviderStack(
-      config,
-      repos.providerCacheRepo,
-      usptoRateLimiter,
-      euipoRateLimiter,
-    );
+  const { usptoTmProvider, euipoTmProvider, trademarkGate } = buildTrademarkProviderStack(
+    config,
+    repos.providerCacheRepo,
+    usptoRateLimiter,
+    euipoRateLimiter,
+  );
 
   // --- Scoring ---
   const { currentWeights, engine } = buildScoringEngine(
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
-  );
-
-  // --- Portfolio RDAP/WHOIS Healthcheck Service ---
-  // Verifies portfolio domains against live RDAP/WHOIS for renewal date accuracy.
-  // Uses the raw (uncached) RDAP provider because healthchecks must always fetch
-  // fresh data — stale cached responses defeat the purpose of the check.
-  const healthcheckService = new PortfolioRdapService(
-    rawRdapProvider,
-    whoisProvider,
-    repos.portfolioRepo,
   );
 
   // --- Anonymous Scoring Service ---
@@ -503,24 +432,17 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       dnsProvider,
       compsProvider: cachedCompsProvider,
       ...(waybackProvider !== undefined ? { waybackProvider } : {}),
-      ...(redisClient !== undefined ? { redisClient } : {}),
-      usptoWafStats: (): { wafBlockCount: number; requestCount: number; wafBlockRate: number } => ({
-        wafBlockCount: rawUsptoProvider.wafBlockCount,
-        requestCount: rawUsptoProvider.requestCount,
-        wafBlockRate: rawUsptoProvider.wafBlockRate,
-      }),
     },
   );
 
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
-  const checkpointStore = new DbCheckpointStore(provider);
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
     new RdapConfirmationStage(
       cachedRdapProvider,
-      cachedWhoisProvider ?? whoisProvider,
+      whoisProvider,
       config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
     ),
@@ -528,22 +450,27 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
     metrics,
-    provider,
-    redisLock,
-    checkpointStore,
   );
   const progressService = new PipelineProgressService();
 
-  // Clear in-memory provider caches before each pipeline run to prevent stale
-  // DNS, trademark, keyword, or comps data from being reused across runs.
+  // Evict expired entries from in-memory caches before each pipeline run.
+  // TTL-based expiry handles freshness; prune avoids the nuclear clearCache().
   orchestrator.setOnRunStart(() => {
-    dnsProvider.clearCache();
-    rawRdapProvider.clearCache?.();
-    cachedKeywordProvider.clearCache?.();
-    cachedCompsProvider.clearCache?.();
-    usptoTmProvider.clearCache();
-    euipoTmProvider.clearCache();
-    anonScoringService.clearCache();
+    dnsProvider.pruneCache();
+    (
+      cachedKeywordProvider as unknown as {
+        clearCache: () => void;
+        pruneCache: () => void;
+      }
+    ).pruneCache();
+    (
+      cachedCompsProvider as unknown as {
+        clearCache: () => void;
+        pruneCache: () => void;
+      }
+    ).pruneCache();
+    usptoTmProvider.pruneCache();
+    euipoTmProvider.pruneCache();
   });
 
   // --- Listing / Sales Pipeline (needed before runService for auto-list hook) ---
@@ -560,9 +487,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const autoListingRepo = new AutoListingRepository(repos.provider);
   const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
-  const jobQueueService = createJobQueueService(provider, {
-    maxQueueDepth: config.JOB_QUEUE_MAX_DEPTH,
-  });
+  const jobQueueService = createJobQueueService(provider);
   const runService = new PipelineRunService(
     repos.provider,
     orchestrator,
@@ -584,25 +509,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
     const domains = recommended.map((c) => ({
       domain: c.domain,
-      scoreJson: c.scoreResult ? JSON.stringify(c.scoreResult) : null,
+      score: c.scoreResult,
     }));
 
-    // Enqueue asynchronously — the job worker processes the listing
-    // outside the pipeline completion path so the HTTP response or
-    // worker slot is not blocked by marketplace API latency.
-    try {
-      const jobId = await jobQueueService.enqueueAutoList(domains, result.runRowId, 'pipeline_run');
-      logger.info(
-        { runId: result.runRowId, jobId, domainCount: domains.length },
-        'PipelineRunService: auto-list job enqueued',
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error(
-        { runId: result.runRowId, err: message },
-        'PipelineRunService: failed to enqueue auto-list job',
-      );
-    }
+    const { listed, skipped } = await autoListingService.autoListBatch(
+      domains,
+      'pipeline_run',
+      result.runRowId,
+    );
+
+    logger.info(
+      { runId: result.runRowId, listed: listed.length, skipped: skipped.length },
+      'PipelineRunService: auto-list post-run complete',
+    );
   });
 
   // --- Portfolio ---
@@ -704,7 +623,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
     autoListingService,
-    config.DEFAULT_RENEWAL_COST_EUR,
   );
 
   // --- P&L ---
@@ -719,21 +637,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   });
 
   // --- Worker ---
-  // Create a dedicated database provider for the worker when on SQLite, so the
-  // worker's polling doesn't contend with pipeline write operations. PostgreSQL
-  // handles concurrent connections natively — the main provider is sufficient.
-  const workerDbProvider: DatabaseProvider | undefined = config.DATABASE_URL
-    ? undefined
-    : createSqliteProvider({
-        ...config,
-        DATABASE_PATH: config.DATABASE_PATH,
-        DATABASE_BUSY_TIMEOUT: Math.min(config.DATABASE_BUSY_TIMEOUT, 5000),
-      });
   const worker = buildWorkerIfEnabled(
     config,
     db,
     repos.provider,
-    workerDbProvider,
     runService,
     portfolioManager,
     repos.scoringRepo,
@@ -747,9 +654,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     watchlistService,
     alertEngine,
     autoTuner,
-    healthcheckService,
-    autoListingService,
-    notifiers,
   );
 
   // --- Scheduler ---
@@ -765,7 +669,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     backupService,
     jobQueueService,
     autoTuner,
-    healthcheckService,
   );
 
   return {
@@ -801,6 +704,5 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     worker,
     authProvider,
     anonScoringService,
-    apiKeyRepo,
   };
 }

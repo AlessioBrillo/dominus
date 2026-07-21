@@ -330,6 +330,40 @@ const configSchema = z.object({
   /** Rate limiting: refill interval in ms for DNS resolution requests (default: 1000). */
   DNS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
   /**
+   * Custom DNS resolver groups for multi-resolver resolution.
+   * When set, overrides DNS_LOOKUP_STRATEGY. Each group contains one or more
+   * lookup specs that race in parallel; groups are tried sequentially.
+   * Format: JSON array of { name, lookups: [{ type: 'native'|'doh', endpoint? }] }
+   * Example: [{"name":"primary","lookups":[{"type":"native"},{"type":"doh","endpoint":"https://dns.google/dns-query"}]}]
+   * Default: undefined (uses DNS_LOOKUP_STRATEGY to build groups).
+   */
+  DNS_RESOLVER_GROUPS: z
+    .string()
+    .optional()
+    .refine(
+      (val) => {
+        if (val === undefined) return true;
+        try {
+          const parsed = JSON.parse(val) as unknown;
+          if (!Array.isArray(parsed)) return false;
+          return parsed.every(
+            (g: unknown) =>
+              typeof g === 'object' &&
+              g !== null &&
+              'name' in g &&
+              'lookups' in g &&
+              Array.isArray((g as Record<string, unknown>).lookups),
+          );
+        } catch {
+          return false;
+        }
+      },
+      {
+        message:
+          'Must be a JSON array of resolver groups, e.g. [{"name":"primary","lookups":[{"type":"native"}]}]',
+      },
+    ),
+  /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */

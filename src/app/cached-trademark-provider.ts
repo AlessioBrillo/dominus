@@ -41,4 +41,8 @@ export class CachedTrademarkProvider implements TrademarkProvider {
   clearCache(): void {
     this.cache.clearCache();
   }
+
+  pruneCache(): void {
+    this.cache.pruneCache();
+  }
 }

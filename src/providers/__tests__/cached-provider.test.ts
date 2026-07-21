@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
-import { CachedProvider } from '../cached-provider.js';
+import { CachedProvider, MemoryCache } from '../cached-provider.js';
 
 interface TestData {
   id: number;
@@ -142,6 +142,48 @@ describe('CachedProvider', () => {
     const second = await provider.get('ttl-key');
     expect(second).toEqual({ id: 2, name: 'second' });
     expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('prune removes expired entries but keeps fresh ones', () => {
+    const cache = new MemoryCache<number>(100, -1);
+    cache.set('stale', 99);
+
+    expect(cache.size).toBe(1);
+
+    const pruned = cache.prune();
+
+    expect(pruned).toBe(1);
+    expect(cache.size).toBe(0);
+    expect(cache.get('stale')).toBeUndefined();
+  });
+
+  it('prune with no expired entries returns 0', () => {
+    const cache = new MemoryCache<number>(100, 3600);
+    cache.set('a', 1);
+    const pruned = cache.prune();
+    expect(pruned).toBe(0);
+    expect(cache.size).toBe(1);
+  });
+
+  it('pruneCache removes only expired entries from memory cache', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({ id: 1, name: 'prune-test' } satisfies TestData);
+    const provider = CachedProvider.createJson<TestData>(
+      fetchFn,
+      repo,
+      'prune-provider',
+      7,
+      100,
+      0,
+    );
+
+    await provider.get('prune-key');
+    expect(fetchFn).toHaveBeenCalledOnce();
+
+    provider.pruneCache();
+
+    const result = await provider.get('prune-key');
+    expect(result).toEqual({ id: 1, name: 'prune-test' });
+    expect(fetchFn).toHaveBeenCalledOnce();
   });
 
   it('returns stale cached data when cache is manually overwritten', async () => {

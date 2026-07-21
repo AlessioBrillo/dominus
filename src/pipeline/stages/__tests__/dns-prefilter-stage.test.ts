@@ -14,6 +14,7 @@ const mockDnsProvider = (domain: string, checkResult: DnsCheckResult): DnsProvid
       : { domain: d, status: DomainStatus.Unknown, checkedAt: '' };
   }),
   clearCache: vi.fn(),
+  pruneCache: vi.fn().mockReturnValue(0),
   checkBulk: async (domains: string[]) => domains.map(() => checkResult),
 });
 

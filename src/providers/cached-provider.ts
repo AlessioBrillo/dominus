@@ -69,6 +69,19 @@ export class MemoryCache<T> {
   clear(): void {
     this.#entries.clear();
   }
+
+  /** Remove only expired entries. Returns count of evicted entries. */
+  prune(): number {
+    const now = Date.now();
+    let pruned = 0;
+    for (const [key, entry] of this.#entries) {
+      if (entry.expiresAt < now) {
+        this.#entries.delete(key);
+        pruned++;
+      }
+    }
+    return pruned;
+  }
 }
 
 export class CachedProvider<T> {
@@ -115,6 +128,13 @@ export class CachedProvider<T> {
   clearCache(): void {
     if (this.#memoryCache !== null) {
       this.#memoryCache.clear();
+    }
+  }
+
+  /** Evict only expired entries from in-memory cache. Does NOT touch DB-backed cache. */
+  pruneCache(): void {
+    if (this.#memoryCache !== null) {
+      this.#memoryCache.prune();
     }
   }
 

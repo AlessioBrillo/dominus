@@ -1,33 +1,19 @@
-import { promises as dnsPromises, setServers } from 'node:dns';
+import { promises as dnsPromises } from 'node:dns';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { DnsProvider } from './dns-provider.js';
+import type { DnsProvider, DnsResolverGroup } from './dns-provider.js';
+import { strategyToResolverGroups } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
+import type { RateLimiter } from '../rate-limiter.js';
+import { withRetry } from '../retryable-provider.js';
+import type { RetryPolicy } from '../retry-policy.js';
 import { getLogger } from '../../logger.js';
-import { normalizeDomain } from '../../utils/domain.js';
-import type { RedisCacheProvider } from '../redis/redis-cache-provider.js';
 
 const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
-export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only' | 'doh-primary';
-
-export interface DohResolver {
-  name: string;
-  url: string;
-}
-
-const DEFAULT_DOH_RESOLVERS: DohResolver[] = [
-  { name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query' },
-  { name: 'Google', url: 'https://dns.google/dns-query' },
-  { name: 'Quad9', url: 'https://dns.quad9.net/dns-query' },
-];
-
-// Phase 1: most discriminating record types — covers ~95% of registered domains.
-// Only falls through to Phase 2 when ALL Phase 1 returns NXDOMAIN.
-const PHASE1_RECORDS: DnsRecordType[] = ['A', 'AAAA'];
-const PHASE2_RECORDS: DnsRecordType[] = ['CNAME', 'MX', 'NS', 'SOA'];
+export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only';
 
 function resolveWithTimeout(
   domain: string,
@@ -69,13 +55,11 @@ function resolveWithTimeout(
   });
 }
 
-/** Resolve A (IPv4) and AAAA (IPv6) records to collect raw IP addresses for parking detection. */
+/** Resolve only A (IPv4) records to collect raw IP addresses for parking detection. */
 async function resolveAddressRecords(domain: string): Promise<string[]> {
-  const [a, aaaa] = await Promise.all([
-    dnsPromises.resolve(domain, 'A').catch(() => [] as string[]),
-    dnsPromises.resolve(domain, 'AAAA').catch(() => [] as string[]),
-  ]);
-  return [...a, ...aaaa];
+  const result = await dnsPromises.resolve(domain, 'A').catch(() => [] as string[]);
+
+  return result;
 }
 
 async function resolveDoh(
@@ -115,8 +99,9 @@ async function resolveDoh(
   return true;
 }
 
-async function resolvePhase(
-  phaseRecords: DnsRecordType[],
+const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'SOA'];
+
+async function resolvesAnyNative(
   domain: string,
   timeout: number,
   signal?: AbortSignal,
@@ -124,19 +109,16 @@ async function resolvePhase(
   const childAbort = new AbortController();
   const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
 
-  const tasks = phaseRecords.map((type) =>
+  const tasks = ALL_RECORDS.map((type) =>
     resolveWithTimeout(domain, type, timeout, combinedSignal)
       .then(() => {
         childAbort.abort();
-        return {
-          resolved: true as const,
-          aborted: false as const,
-          code: undefined as string | undefined,
-        };
+        return { type, resolved: true as const, aborted: false as const };
       })
       .catch((err: unknown) => {
         const e = err as { code?: string; name?: string };
         return {
+          type,
           resolved: false as const,
           aborted: e.name === ('AbortError' as const),
           code: e.code,
@@ -146,62 +128,42 @@ async function resolvePhase(
 
   const outcomes = await Promise.all(tasks);
 
-  // First success — domain is registered
   for (const o of outcomes) {
     if (o.resolved) return true;
   }
 
   let anyTimeout = false;
-  let anyError = false;
   for (const o of outcomes) {
+    if (o.resolved) continue;
     if (o.aborted) continue;
     const c = o.code;
     if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
       anyTimeout = true;
     } else if (c !== 'ENOTFOUND' && c !== 'ENODATA' && c !== undefined) {
-      anyError = true;
+      return undefined;
     }
   }
 
   if (anyTimeout) {
-    logger.warn({ domain, phase: phaseRecords.join(',') }, 'DNS: phase timed out');
+    logger.warn({ domain }, 'DNS: all record types timed out or NXDOMAIN');
     return undefined;
   }
-
-  if (anyError) return undefined;
 
   return false;
 }
 
-async function resolvesAnyNative(
-  domain: string,
-  timeout: number,
-  signal?: AbortSignal,
-): Promise<boolean | undefined> {
-  const phase1 = await resolvePhase(PHASE1_RECORDS, domain, timeout, signal);
+const DOH_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
 
-  // Phase 1 resolved (registered or available) => return immediately, skip Phase 2
-  if (phase1 !== undefined) return phase1;
-
-  // Phase 1 indeterminate (timeout or error) => fall through to Phase 2
-  // to avoid false negatives from transient A/AAAA failures
-  return resolvePhase(PHASE2_RECORDS, domain, timeout, signal);
-}
-
-const DOH_PHASE1_TYPES = ['A', 'AAAA'];
-const DOH_PHASE2_TYPES = ['NS', 'SOA'];
-
-async function resolveDohPhase(
+async function resolvesAnyDoh(
   domain: string,
   endpoint: string,
-  recordTypes: string[],
   timeout: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
   const childAbort = new AbortController();
   const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
 
-  const tasks = recordTypes.map((type) => {
+  const tasks = DOH_TYPES.map((type) => {
     const timeoutSignal = AbortSignal.timeout(timeout);
     const merged = AbortSignal.any([combinedSignal, timeoutSignal]);
     return resolveDoh(domain, type, endpoint, merged)
@@ -225,127 +187,16 @@ async function resolveDohPhase(
     if (o.resolved) return true;
   }
 
-  let anyTimeout = false;
-  let anyError = false;
-  for (const o of outcomes) {
-    if (o.aborted) continue;
-    if (!('code' in o)) continue;
-    const outcome = o as { resolved: false; aborted: boolean; code: string | undefined };
-    const c = outcome.code;
-    if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
-      anyTimeout = true;
-    } else if (c !== 'ENOTFOUND' && c !== 'ENODATA') {
-      anyError = true;
-    }
-  }
-
-  if (anyTimeout) return undefined;
-  if (anyError) return undefined;
+  const anyUnknown = outcomes.some(
+    (o) =>
+      !o.resolved &&
+      !o.aborted &&
+      o.code !== undefined &&
+      o.code !== 'ENOTFOUND' &&
+      o.code !== 'ENODATA',
+  );
+  if (anyUnknown) return undefined;
   return false;
-}
-
-/**
- * Two-phase DoH resolution matching the native resolver pattern:
- * Phase 1 (A/AAAA) covers ~95% of domains — registered or available.
- * Phase 2 (NS/SOA) only fires when Phase 1 returns ambiguous (timeout/error).
- * This avoids 2 redundant HTTP requests per domain for the common case.
- */
-async function resolvesAnyDoh(
-  domain: string,
-  endpoint: string,
-  timeout: number,
-  signal?: AbortSignal,
-): Promise<boolean | undefined> {
-  const phase1 = await resolveDohPhase(domain, endpoint, DOH_PHASE1_TYPES, timeout, signal);
-  if (phase1 !== undefined) return phase1;
-  return resolveDohPhase(domain, endpoint, DOH_PHASE2_TYPES, timeout, signal);
-}
-
-/** Run all healthy DoH resolvers in parallel; first clear result wins. */
-async function raceDohResolvers(
-  domain: string,
-  resolvers: DohResolver[],
-  timeout: number,
-  signal?: AbortSignal,
-): Promise<boolean | undefined> {
-  if (resolvers.length === 0) return undefined;
-
-  const winnerAc = new AbortController();
-  const combined = signal ? AbortSignal.any([signal, winnerAc.signal]) : winnerAc.signal;
-
-  const promises = resolvers.map(async (resolver) => {
-    try {
-      const result = await resolvesAnyDoh(domain, resolver.url, timeout, combined);
-      if (result !== undefined) {
-        winnerAc.abort();
-        return { result, resolver };
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  });
-
-  const settled = await Promise.allSettled(promises);
-  for (const s of settled) {
-    if (s.status === 'fulfilled' && s.value !== null) {
-      return s.value.result;
-    }
-  }
-  return undefined;
-}
-
-/** Semaphore to cap concurrent DNS operations and prevent event-loop starvation. */
-class DnsSemaphore {
-  #active = 0;
-  readonly #max: number;
-  readonly #queue: Array<{
-    resolve: () => void;
-    timer: ReturnType<typeof setTimeout>;
-  }> = [];
-
-  constructor(max: number) {
-    this.#max = max;
-  }
-
-  async acquire(timeoutMs: number, signal?: AbortSignal): Promise<boolean> {
-    if (this.#active < this.#max) {
-      this.#active++;
-      return true;
-    }
-    return new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => {
-        const idx = this.#queue.findIndex((e) => e.timer === timer);
-        if (idx !== -1) this.#queue.splice(idx, 1);
-        resolve(false);
-      }, timeoutMs);
-      const abortHandler = (): void => {
-        clearTimeout(timer);
-        const idx = this.#queue.findIndex((e) => e.timer === timer);
-        if (idx !== -1) this.#queue.splice(idx, 1);
-        resolve(false);
-      };
-      signal?.addEventListener('abort', abortHandler, { once: true });
-      this.#queue.push({
-        resolve: () => {
-          clearTimeout(timer);
-          signal?.removeEventListener('abort', abortHandler);
-          this.#active++;
-          resolve(true);
-        },
-        timer,
-      });
-    });
-  }
-
-  release(): void {
-    const next = this.#queue.shift();
-    if (next) {
-      next.resolve();
-    } else {
-      this.#active = Math.max(0, this.#active - 1);
-    }
-  }
 }
 
 interface CacheEntry {
@@ -356,79 +207,42 @@ interface CacheEntry {
 export class NodeDnsProvider implements DnsProvider {
   readonly name = 'NodeDnsProvider';
   readonly #lookupTimeoutMs: number;
-  readonly #lookupStrategy: DnsLookupStrategy;
-  readonly #dohResolvers: DohResolver[];
+  readonly #resolverGroups: DnsResolverGroup[];
+  readonly #dohEndpoint: string;
   readonly #cacheTtlMs: number;
   readonly #maxSize: number;
   readonly #bulkConcurrency: number;
   readonly #parkingEnabled: boolean;
   readonly #parkingRegistry: ParkingIpRegistry;
-  readonly #healthCheckEnabled: boolean;
-  readonly #healthCheckDomain: string;
-  readonly #semaphore: DnsSemaphore;
-  readonly #redisCache: RedisCacheProvider<DnsCheckResult> | undefined;
-  readonly #nameservers: string[] | undefined;
-  #resolverHealth: Map<string, { healthy: boolean; lastCheck: number }> = new Map();
-  #healthCheckCache: { healthy: boolean; expiresAt: number } | null = null;
+  readonly #rateLimiter: RateLimiter | undefined;
+  readonly #retryPolicy: Partial<RetryPolicy> | undefined;
   #cache: Map<string, CacheEntry> = new Map();
 
   constructor(options?: {
     lookupTimeoutMs?: number;
     lookupStrategy?: DnsLookupStrategy;
-    nameservers?: string[] | undefined;
+    resolverGroups?: DnsResolverGroup[];
     dohEndpoint?: string;
-    dohResolvers?: DohResolver[];
     cacheTtlMs?: number;
     maxSize?: number;
     bulkConcurrency?: number;
     parkingEnabled?: boolean;
     parkingRegistry?: ParkingIpRegistry;
-    healthCheckEnabled?: boolean;
-    healthCheckDomain?: string;
-    semaphoreConcurrency?: number;
-    redisCache?: RedisCacheProvider<DnsCheckResult>;
+    rateLimiter?: RateLimiter | undefined;
+    retryPolicy?: Partial<RetryPolicy> | undefined;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
-    this.#lookupStrategy = options?.lookupStrategy ?? 'doh-primary';
-    // If custom resolvers are provided, use them; otherwise fall back to defaults
-    const customResolvers = options?.dohResolvers;
-    if (customResolvers && customResolvers.length > 0) {
-      this.#dohResolvers = customResolvers;
-    } else {
-      const defaultUrl = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
-      this.#dohResolvers = [
-        { name: 'primary', url: defaultUrl },
-        ...DEFAULT_DOH_RESOLVERS.filter((r) => r.url !== defaultUrl),
-      ];
-    }
+    this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
     this.#cacheTtlMs = options?.cacheTtlMs ?? 300_000;
     this.#maxSize = options?.maxSize ?? 10000;
     this.#bulkConcurrency = options?.bulkConcurrency ?? 50;
     this.#parkingEnabled = options?.parkingEnabled ?? false;
     this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
-    this.#healthCheckEnabled = options?.healthCheckEnabled ?? true;
-    this.#healthCheckDomain = options?.healthCheckDomain ?? 'example.com';
-    this.#semaphore = new DnsSemaphore(options?.semaphoreConcurrency ?? 100);
-    this.#redisCache = options?.redisCache;
-    this.#nameservers = options?.nameservers;
-
-    // Override the system resolver with custom nameservers when configured.
-    // This is the single highest-impact change for DNS throughput in Docker
-    // where the embedded resolver (127.0.0.11) is a bottleneck.
-    if (this.#nameservers && this.#nameservers.length > 0) {
-      try {
-        setServers(this.#nameservers);
-        logger.info(
-          { nameservers: this.#nameservers.join(', ') },
-          'DNS: custom nameservers configured',
-        );
-      } catch (err: unknown) {
-        logger.warn(
-          { nameservers: this.#nameservers, err },
-          'DNS: failed to set custom nameservers, falling back to system resolver',
-        );
-      }
-    }
+    this.#rateLimiter = options?.rateLimiter;
+    this.#retryPolicy = options?.retryPolicy;
+    this.#resolverGroups =
+      options?.resolverGroups ??
+      strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
   }
 
   pruneCache(): number {
@@ -447,160 +261,131 @@ export class NodeDnsProvider implements DnsProvider {
     this.#cache.clear();
   }
 
-  async #tryDohWithFailover(
-    domain: string,
-    timeout: number,
-    signal?: AbortSignal,
-  ): Promise<boolean | undefined> {
-    const healthy = this.#dohResolvers.filter((r) => {
-      const health = this.#resolverHealth.get(r.url);
-      if (health && !health.healthy && Date.now() - health.lastCheck < 30_000) return false;
-      return true;
-    });
-
-    if (healthy.length === 0) return undefined;
-
-    try {
-      const result = await raceDohResolvers(domain, healthy, timeout, signal);
-      if (result !== undefined) {
-        // We don't know which resolver won, so optimistically mark all as healthy
-        for (const r of healthy) {
-          this.#resolverHealth.set(r.url, { healthy: true, lastCheck: Date.now() });
-        }
-        return result;
-      }
-    } catch {
-      // All resolvers failed — mark as unhealthy
-      for (const r of healthy) {
-        this.#resolverHealth.set(r.url, { healthy: false, lastCheck: Date.now() });
-        logger.warn({ domain, resolver: r.name }, 'DNS: DoH resolver failed in parallel race');
-      }
-    }
-
-    return undefined;
-  }
-
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const norm = normalizeDomain(domain);
-    const lookupDomain = norm.isValid ? norm.normalized : domain;
-
-    // Redis cache (shared across instances, survives restarts)
-    if (this.#redisCache) {
-      const redisResult = await this.#redisCache.get(lookupDomain);
-      if (redisResult !== null) {
-        return redisResult;
-      }
-    }
-
-    // In-memory cache (fastest, per-instance)
-    const cached = this.#cache.get(lookupDomain);
+    const cached = this.#cache.get(domain);
     if (cached !== undefined && cached.expiresAt > Date.now()) {
-      // LRU: re-insert to move to end of Map iteration order
-      this.#cache.delete(lookupDomain);
-      this.#cache.set(lookupDomain, cached);
       return cached.result;
     }
 
-    const strategy = this.#lookupStrategy;
-    const timeout = this.#lookupTimeoutMs;
     const checkedAt = new Date().toISOString();
 
-    const acquired = await this.#semaphore.acquire(timeout, signal);
-    if (!acquired) {
-      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
-    }
-
     try {
-      const result = await this.#checkWithStrategy(lookupDomain, strategy, timeout, signal);
-      // Populate Redis cache on fresh result
-      if (this.#redisCache && result.status !== DomainStatus.Unknown) {
-        this.#redisCache.set(lookupDomain, result).catch(() => {});
+      const resolveFn = (s?: AbortSignal): Promise<boolean | undefined> =>
+        this.#resolveDomain(domain, s);
+
+      let resolved: boolean | undefined;
+
+      if (this.#rateLimiter && this.#retryPolicy) {
+        await this.#rateLimiter.acquire();
+        resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, signal);
+      } else if (this.#rateLimiter) {
+        await this.#rateLimiter.acquire();
+        resolved = await resolveFn(signal);
+      } else if (this.#retryPolicy) {
+        resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, signal);
+      } else {
+        resolved = await resolveFn(signal);
       }
-      return result;
-    } finally {
-      this.#semaphore.release();
+
+      if (resolved !== undefined) {
+        const status = resolved ? DomainStatus.Registered : DomainStatus.Available;
+        let isParked: boolean | undefined;
+        let parkingRegistrar: string | undefined;
+
+        if (resolved && this.#parkingEnabled) {
+          const addresses = await resolveAddressRecords(domain);
+          const parkingCheck = this.#parkingRegistry.checkIps(addresses);
+          isParked = parkingCheck.parked || undefined;
+          parkingRegistrar = parkingCheck.registrar;
+        }
+
+        return this.#cached(domain, { domain, status, checkedAt, isParked, parkingRegistrar });
+      }
+
+      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+    } catch (err: unknown) {
+      const code = (err as { code?: string }).code;
+      if (code === 'ENOTFOUND' || code === 'ENODATA') {
+        return this.#cached(domain, { domain, status: DomainStatus.Available, checkedAt });
+      }
+      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
     }
   }
 
-  async #checkWithStrategy(
+  async #resolveDomain(domain: string, signal?: AbortSignal): Promise<boolean | undefined> {
+    for (let i = 0; i < this.#resolverGroups.length; i++) {
+      const group = this.#resolverGroups[i];
+      if (group === undefined) continue;
+      const result = await this.#raceGroup(domain, group, signal);
+      if (result !== undefined) return result;
+      if (i < this.#resolverGroups.length - 1) {
+        logger.warn(
+          { domain, group: group.name, remaining: this.#resolverGroups.length - i - 1 },
+          'DNS: resolver group failed, trying next group',
+        );
+      }
+    }
+    return undefined;
+  }
+
+  async #raceGroup(
     domain: string,
-    strategy: DnsLookupStrategy,
-    timeout: number,
+    group: DnsResolverGroup,
     signal?: AbortSignal,
-  ): Promise<DnsCheckResult> {
-    const checkedAt = new Date().toISOString();
+  ): Promise<boolean | undefined> {
+    const childAbort = new AbortController();
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, childAbort.signal])
+      : childAbort.signal;
 
-    if (strategy === 'doh-only') {
-      const doh = await this.#tryDohWithFailover(domain, timeout, signal);
-      if (doh !== undefined) {
-        return this.#cached(domain, {
-          domain,
-          status: doh ? DomainStatus.Registered : DomainStatus.Available,
-          checkedAt,
-        });
+    const timeout = this.#lookupTimeoutMs;
+
+    const tasks = group.lookups.map((spec) => {
+      if (spec.type === 'native') {
+        return resolvesAnyNative(domain, timeout, combinedSignal);
       }
-      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
-    }
+      return resolvesAnyDoh(domain, spec.endpoint ?? this.#dohEndpoint, timeout, combinedSignal);
+    });
 
-    // doh-primary: try multi-resolver DoH first (fastest path in containerized envs),
-    // fall back to native node:dns if all DoH resolvers fail or return ambiguous.
-    if (strategy === 'doh-primary') {
-      const doh = await this.#tryDohWithFailover(domain, timeout, signal);
-      if (doh !== undefined) {
-        return this.#cached(domain, {
-          domain,
-          status: doh ? DomainStatus.Registered : DomainStatus.Available,
-          checkedAt,
-        });
-      }
-      logger.debug({ domain }, 'DNS: DoH resolvers all failed, falling back to native');
-      const native = await resolvesAnyNative(domain, timeout, signal);
-      if (native !== undefined) {
-        const status = native ? DomainStatus.Registered : DomainStatus.Available;
-        return this.#cached(domain, { domain, status, checkedAt });
-      }
-      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
-    }
+    const outcomes = await Promise.allSettled(tasks);
 
-    // native / native-with-doh-fallback
-    const native = await resolvesAnyNative(domain, timeout, signal);
-
-    if (native !== undefined) {
-      const status = native ? DomainStatus.Registered : DomainStatus.Available;
-      let isParked: boolean | undefined;
-      let parkingRegistrar: string | undefined;
-
-      if (native && this.#parkingEnabled) {
-        const addresses = await resolveAddressRecords(domain);
-        const parkingCheck = this.#parkingRegistry.checkIps(addresses);
-        isParked = parkingCheck.parked || undefined;
-        parkingRegistrar = parkingCheck.registrar;
-      }
-
-      return this.#cached(domain, {
-        domain,
-        status,
-        checkedAt,
-        isParked: isParked,
-        parkingRegistrar,
-      });
-    }
-
-    if (strategy === 'native-with-doh-fallback') {
-      logger.warn({ domain }, 'DNS: native resolver timed out, falling back to multi-resolver DoH');
-      const doh = await this.#tryDohWithFailover(domain, timeout, signal);
-      if (doh !== undefined) {
-        return this.#cached(domain, {
-          domain,
-          status: doh ? DomainStatus.Registered : DomainStatus.Available,
-          checkedAt,
-        });
+    for (const o of outcomes) {
+      if (o.status === 'fulfilled' && o.value === true) {
+        childAbort.abort();
+        return true;
       }
     }
 
-    return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+    childAbort.abort();
+
+    let anyDefinitive = false;
+    for (const o of outcomes) {
+      if (o.status === 'fulfilled' && o.value !== undefined) {
+        anyDefinitive = true;
+      }
+    }
+
+    if (anyDefinitive) return false;
+
+    let anyRejected = false;
+    for (const o of outcomes) {
+      if (o.status === 'rejected') {
+        anyRejected = true;
+        break;
+      }
+    }
+
+    if (anyRejected) return undefined;
+
+    for (const o of outcomes) {
+      if (o.status === 'fulfilled' && o.value === undefined) {
+        return undefined;
+      }
+    }
+
+    return false;
   }
 
   #cached(domain: string, result: DnsCheckResult): DnsCheckResult {
@@ -618,124 +403,24 @@ export class NodeDnsProvider implements DnsProvider {
     return result;
   }
 
-  /** Fixed fallback probe domains used when the configured health-check domain is
-   *  the only probe. Kept minimal — example.com (IANA reserved, always resolves),
-   *  cloudflare-dns.com (the default DoH endpoint), plus the configured domain. */
-  static readonly #FALLBACK_PROBE_DOMAINS = ['example.com', 'cloudflare-dns.com'];
-
-  async #checkResolverHealth(signal?: AbortSignal): Promise<boolean> {
-    if (!this.#healthCheckEnabled) return true;
-
-    const now = Date.now();
-    if (this.#healthCheckCache && this.#healthCheckCache.expiresAt > now) {
-      return this.#healthCheckCache.healthy;
-    }
-
-    // For doh-primary and doh-only strategies, probe the DoH resolvers directly.
-    // Native resolver probe is only relevant when it's in the resolution path.
-    const usesDoh = this.#lookupStrategy === 'doh-primary' || this.#lookupStrategy === 'doh-only';
-    const usesNative = this.#lookupStrategy !== 'doh-only';
-
-    type ProbeResult = { type: 'native' | 'doh'; name: string; ok: boolean };
-    const probeResults: ProbeResult[] = [];
-
-    const probeTimeout = Math.max(500, Math.round(this.#lookupTimeoutMs / 2));
-
-    // Probe DoH resolvers: try example.com A record via each resolver
-    if (usesDoh && this.#dohResolvers.length > 0) {
-      const dohProbes = this.#dohResolvers.map(async (resolver) => {
-        try {
-          const ac = new AbortController();
-          const timeoutId = setTimeout(() => ac.abort(), probeTimeout);
-          const merged = signal ? AbortSignal.any([signal, ac.signal]) : ac.signal;
-          await resolveDoh('example.com', 'A', resolver.url, merged);
-          clearTimeout(timeoutId);
-          probeResults.push({ type: 'doh', name: resolver.name, ok: true });
-        } catch {
-          probeResults.push({ type: 'doh', name: resolver.name, ok: false });
-        }
-      });
-      await Promise.allSettled(dohProbes);
-    }
-
-    // Probe native DNS resolver
-    if (usesNative) {
-      const nativeProbes = [
-        this.#healthCheckDomain,
-        ...NodeDnsProvider.#FALLBACK_PROBE_DOMAINS.filter((d) => d !== this.#healthCheckDomain),
-      ];
-      await Promise.allSettled(
-        nativeProbes.map(async (d) => {
-          try {
-            await resolveWithTimeout(d, 'A', probeTimeout, signal);
-            probeResults.push({ type: 'native', name: d, ok: true });
-          } catch {
-            probeResults.push({ type: 'native', name: d, ok: false });
-          }
-        }),
-      );
-    }
-
-    const succeeded = probeResults.filter((r) => r.ok).length;
-    const total = probeResults.length;
-    const healthy = total === 0 || succeeded >= Math.ceil(total / 2);
-
-    if (healthy) {
-      this.#healthCheckCache = { healthy: true, expiresAt: now + 30_000 };
-      if (succeeded < total) {
-        const dohOk = probeResults.filter((r) => r.type === 'doh' && r.ok).length;
-        const dohTotal = probeResults.filter((r) => r.type === 'doh').length;
-        logger.debug(
-          { succeeded, total, nativeOk: succeeded - dohOk, dohOk, dohTotal },
-          'DNS resolver health check: some probes failed, threshold met',
-        );
-      }
-    } else {
-      this.#healthCheckCache = { healthy: false, expiresAt: now + 10_000 };
-      const failures = probeResults
-        .filter((r) => !r.ok)
-        .map((r) => `${r.type}:${r.name}`)
-        .join('; ');
-      logger.warn(
-        { succeeded, total, failures },
-        'DNS resolver health check: majority failed — proceeding with best-effort. ' +
-          'Individual lookups may still succeed.',
-      );
-    }
-
-    return healthy;
-  }
-
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
-    await this.#checkResolverHealth(signal);
-
-    const n = domains.length;
-    if (n === 0) return [];
-
-    const results = new Array<DnsCheckResult>(n);
-    let nextIndex = 0;
-
-    const worker = async (): Promise<void> => {
-      while (nextIndex < n) {
-        if (signal?.aborted) return;
-        const i = nextIndex++;
-        const domain = domains[i]!;
-        try {
-          results[i] = await this.checkAvailability(domain, signal);
-        } catch {
-          results[i] = {
-            domain,
+    const concurrency = this.#bulkConcurrency;
+    const results: DnsCheckResult[] = [];
+    for (let i = 0; i < domains.length; i += concurrency) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      const chunk = domains.slice(i, i + concurrency);
+      const chunkResults = await Promise.all(
+        chunk.map((d) =>
+          this.checkAvailability(d, signal).catch(() => ({
+            domain: d,
             status: DomainStatus.Unknown,
             checkedAt: new Date().toISOString(),
-          };
-        }
-      }
-    };
-
-    const workers = Math.min(this.#bulkConcurrency, n);
-    await Promise.all(Array.from({ length: workers }, () => worker()));
+          })),
+        ),
+      );
+      results.push(...chunkResults);
+    }
     return results;
   }
 }

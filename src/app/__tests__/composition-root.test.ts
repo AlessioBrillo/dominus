@@ -59,6 +59,7 @@ function makeDnsProvider(): DnsProvider {
     }),
     checkBulk: async (_domains: string[]) => [],
     clearCache: (): void => {},
+    pruneCache: (): number => 0,
   };
 }
 
