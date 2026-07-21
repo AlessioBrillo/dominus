@@ -26,6 +26,7 @@ import {
   createWatchlistRouter,
   createPurchaseRouter,
   createBidsRouter,
+  createFunnelRouter,
   createReportRouter,
   createMetricsRouter,
   createAnalyticsRouter,
@@ -227,6 +228,7 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
+  protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));
   protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
   protectedRouter.use('/listings', createListingsRouter(deps.listingManager));

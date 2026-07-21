@@ -62,8 +62,13 @@ import {
   PipelineProgressService,
 } from './index.js';
 import { type RateLimiterLike } from '../providers/rate-limiter.js';
-import { RedisLock, getRedisClient, type RedisClient } from '../providers/redis/index.js';
-import type { LockProvider } from '../pipeline/orchestrator.js';
+import {
+  RedisLock,
+  CompositeLockProvider,
+  getRedisClient,
+  type RedisClient,
+} from '../providers/redis/index.js';
+import type { LockProvider } from '../types/lock.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
@@ -81,6 +86,8 @@ import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
+import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
+import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
@@ -147,6 +154,7 @@ export interface DominusDependencies {
   progressService: PipelineProgressService;
   accuracyAnalyzer: PredictionAccuracyAnalyzer;
   acquisitionService: AcquisitionService;
+  funnelService: AcquisitionFunnelService;
   pnlService: PnlService;
   listingManager: ListingManager;
   autoListingService: AutoListingService;
@@ -203,13 +211,14 @@ function buildTrademarkProviderStack(
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
   trademarkGate: TrademarkGate;
+  usptoWafStats: () => { wafBlockCount: number; requestCount: number; wafBlockRate: number };
 } {
+  const rawUsptoProvider = new UsptoCasesProvider({
+    searchUrl: config.USPTO_SEARCH_URL,
+    rateLimiter: usptoRateLimiter,
+  });
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(
-      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
-      {},
-      USPTO_CIRCUIT_BREAKER,
-    ),
+    new RetryingTrademarkProvider(rawUsptoProvider, {}, USPTO_CIRCUIT_BREAKER),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
@@ -242,7 +251,16 @@ function buildTrademarkProviderStack(
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
-  return { usptoTmProvider, euipoTmProvider, trademarkGate };
+  return {
+    usptoTmProvider,
+    euipoTmProvider,
+    trademarkGate,
+    usptoWafStats: () => ({
+      wafBlockCount: rawUsptoProvider.wafBlockCount,
+      requestCount: rawUsptoProvider.requestCount,
+      wafBlockRate: rawUsptoProvider.wafBlockRate,
+    }),
+  };
 }
 
 function buildWorkerIfEnabled(
@@ -422,12 +440,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
 
   // --- Trademark Gate ---
-  const { usptoTmProvider, euipoTmProvider, trademarkGate } = buildTrademarkProviderStack(
-    config,
-    repos.providerCacheRepo,
-    usptoRateLimiter,
-    euipoRateLimiter,
-  );
+  const { usptoTmProvider, euipoTmProvider, trademarkGate, usptoWafStats } =
+    buildTrademarkProviderStack(
+      config,
+      repos.providerCacheRepo,
+      usptoRateLimiter,
+      euipoRateLimiter,
+    );
 
   // --- Scoring ---
   const { currentWeights, engine } = buildScoringEngine(
@@ -454,16 +473,26 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       dnsProvider,
       compsProvider: cachedCompsProvider,
       ...(waybackProvider !== undefined ? { waybackProvider } : {}),
+      usptoWafStats,
     },
   );
 
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
 
-  // When Redis is available, use RedisLock for distributed pipeline locking.
-  // Without Redis, falls back to the database-based advisory lock (single-instance).
+  // When Redis is available, use CompositeLockProvider with Redis primary
+  // and database-based advisory lock as fallback. This handles the case
+  // where Redis goes down mid-operation — the lock falls back to the DB
+  // with a clear warning instead of failing all pipeline acquisitions.
+  // Without Redis, uses only the database-based advisory lock.
   const lockProvider: LockProvider | undefined = redisClient
-    ? new RedisLock(redisClient)
+    ? new CompositeLockProvider(
+        [
+          { name: 'RedisLock', provider: new RedisLock(redisClient) },
+          { name: 'DatabaseLock', provider },
+        ],
+        redisClient,
+      )
     : undefined;
 
   const orchestrator = new PipelineOrchestrator(
@@ -658,6 +687,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoListingService,
   );
 
+  // --- Acquisition Funnel ---
+  const funnelRepo = new FunnelRepository(provider);
+  const funnelService = new AcquisitionFunnelService(
+    funnelRepo,
+    repos.candidateRepo,
+    repos.scoringRepo,
+    repos.pipelineRunsRepo,
+    {
+      budgetEur: config.ACQUISITION_BUDGET_EUR,
+      minConfidence: config.ACQUISITION_MIN_CONFIDENCE,
+      minBuyMaxEur: config.ACQUISITION_MIN_BUY_MAX,
+      maxEntries: config.ACQUISITION_FUNNEL_MAX_ENTRIES,
+    },
+  );
+
   // --- P&L ---
   const allOutcomes = await repos.outcomeRepo.findAll();
   const pnlService = new PnlService(repos.portfolioRepo, allOutcomes);
@@ -730,6 +774,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     progressService,
     accuracyAnalyzer,
     acquisitionService,
+    funnelService,
     pnlService,
     listingManager,
     autoListingService,

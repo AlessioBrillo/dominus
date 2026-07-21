@@ -17,6 +17,7 @@ export { createReportRouter } from './routes/report-routes.js';
 export { createMetricsRouter } from './routes/metrics.js';
 export { createAnalyticsRouter } from './routes/analytics.js';
 export { createBidsRouter } from './routes/bids.js';
+export { createFunnelRouter } from './routes/funnel.js';
 export { createListingsRouter } from './routes/listings.js';
 export { createOnboardingRouter } from './routes/onboarding.js';
 export { createDocsRouter } from './routes/docs.js';

@@ -44,18 +44,25 @@ async function main(): Promise<void> {
     'Worker entrypoint: JobWorker started successfully',
   );
 
-  // Graceful shutdown
+  // Graceful shutdown — resolve the keepalive promise instead of calling
+  // process.exit(0), allowing the event loop to drain naturally.  In K8s
+  // the terminationGracePeriodSeconds still bounds total shutdown time;
+  // if worker.stop() exceeds the window, SIGKILL takes over.
+  let shutdownComplete: () => void;
+  const shutdownPromise = new Promise<void>((resolve) => {
+    shutdownComplete = resolve;
+  });
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Worker entrypoint: received shutdown signal');
     healthcheck.close();
     await worker.stop();
-    process.exit(0);
+    shutdownComplete();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Keep alive
-  await new Promise(() => {});
+  await shutdownPromise;
 }
 
 main().catch((err) => {
