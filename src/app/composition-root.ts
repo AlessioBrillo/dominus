@@ -61,7 +61,9 @@ import {
   MetricsCollector,
   PipelineProgressService,
 } from './index.js';
-import { type RateLimiter } from '../providers/rate-limiter.js';
+import { type RateLimiterLike } from '../providers/rate-limiter.js';
+import { RedisLock, getRedisClient, type RedisClient } from '../providers/redis/index.js';
+import type { LockProvider } from '../pipeline/orchestrator.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
@@ -195,8 +197,8 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
 function buildTrademarkProviderStack(
   config: Config,
   providerCacheRepo: ProviderCacheRepository,
-  usptoRateLimiter: RateLimiter,
-  euipoRateLimiter: RateLimiter,
+  usptoRateLimiter: RateLimiterLike,
+  euipoRateLimiter: RateLimiterLike,
 ): {
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
@@ -380,13 +382,30 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     ? undefined
     : createBulkWriteDatabaseProvider(config.DATABASE_PATH, 5000);
 
+  // --- Redis (distributed rate limiting, caching, locking) ---
+  // When REDIS_URL is configured, create a shared Redis client and pass it
+  // to the provider factory so rate limiters and locks are coordinated
+  // across all processes (api, worker, scheduler). Without Redis, all
+  // services fall back to in-memory implementations (community edition).
+  // See ADR-0033 for the architecture decision.
+  let redisClient: RedisClient | undefined;
+  if (config.REDIS_URL) {
+    redisClient = getRedisClient({
+      url: config.REDIS_URL,
+      tlsEnabled: config.REDIS_TLS_ENABLED,
+      keyPrefix: config.REDIS_KEY_PREFIX,
+      maxRetries: config.REDIS_MAX_RETRIES,
+      retryBaseMs: config.REDIS_RETRY_BASE_MS,
+    });
+  }
+
   // --- Rate Limiters ---
   const {
     rdap: rdapRateLimiter,
     uspto: usptoRateLimiter,
     euipo: euipoRateLimiter,
     dns: dnsRateLimiter,
-  } = buildRateLimiters(config);
+  } = buildRateLimiters(config, redisClient);
 
   // --- Providers ---
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, repos.providerCacheRepo);
@@ -440,6 +459,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
+
+  // When Redis is available, use RedisLock for distributed pipeline locking.
+  // Without Redis, falls back to the database-based advisory lock (single-instance).
+  const lockProvider: LockProvider | undefined = redisClient
+    ? new RedisLock(redisClient)
+    : undefined;
+
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
@@ -453,6 +479,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
     metrics,
+    // db (8th param): omitted — delegating to lockProvider when Redis is available
+    undefined,
+    // lockProvider (9th param): Redis-backed distributed lock when configured
+    lockProvider,
   );
   const progressService = new PipelineProgressService();
 
