@@ -208,13 +208,14 @@ function buildTrademarkProviderStack(
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
   trademarkGate: TrademarkGate;
+  usptoWafStats: () => { wafBlockCount: number; requestCount: number; wafBlockRate: number };
 } {
+  const rawUsptoProvider = new UsptoCasesProvider({
+    searchUrl: config.USPTO_SEARCH_URL,
+    rateLimiter: usptoRateLimiter,
+  });
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(
-      new UsptoCasesProvider({ searchUrl: config.USPTO_SEARCH_URL, rateLimiter: usptoRateLimiter }),
-      {},
-      USPTO_CIRCUIT_BREAKER,
-    ),
+    new RetryingTrademarkProvider(rawUsptoProvider, {}, USPTO_CIRCUIT_BREAKER),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
@@ -247,7 +248,16 @@ function buildTrademarkProviderStack(
   };
   const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
 
-  return { usptoTmProvider, euipoTmProvider, trademarkGate };
+  return {
+    usptoTmProvider,
+    euipoTmProvider,
+    trademarkGate,
+    usptoWafStats: () => ({
+      wafBlockCount: rawUsptoProvider.wafBlockCount,
+      requestCount: rawUsptoProvider.requestCount,
+      wafBlockRate: rawUsptoProvider.wafBlockRate,
+    }),
+  };
 }
 
 function buildWorkerIfEnabled(
@@ -427,12 +437,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
 
   // --- Trademark Gate ---
-  const { usptoTmProvider, euipoTmProvider, trademarkGate } = buildTrademarkProviderStack(
-    config,
-    repos.providerCacheRepo,
-    usptoRateLimiter,
-    euipoRateLimiter,
-  );
+  const { usptoTmProvider, euipoTmProvider, trademarkGate, usptoWafStats } =
+    buildTrademarkProviderStack(
+      config,
+      repos.providerCacheRepo,
+      usptoRateLimiter,
+      euipoRateLimiter,
+    );
 
   // --- Scoring ---
   const { currentWeights, engine } = buildScoringEngine(
@@ -459,6 +470,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       dnsProvider,
       compsProvider: cachedCompsProvider,
       ...(waybackProvider !== undefined ? { waybackProvider } : {}),
+      usptoWafStats,
     },
   );
 
