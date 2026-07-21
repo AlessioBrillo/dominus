@@ -5,6 +5,7 @@ import {
   CircuitBreaker,
   DEFAULT_CIRCUIT_BREAKER,
   type CircuitBreakerPolicy,
+  type ICircuitBreaker,
 } from '../providers/circuit-breaker.js';
 import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
 
@@ -20,19 +21,24 @@ export class RetryingRdapProvider implements RdapProvider {
   readonly name: string;
   readonly #delegate: RdapProvider;
   readonly #policy: RetryPolicy;
-  readonly #circuitBreaker: CircuitBreaker;
+  readonly #circuitBreaker: ICircuitBreaker;
 
   constructor(
     delegate: RdapProvider,
     policy: Partial<RetryPolicy> = {},
-    circuitBreakerPolicy: Partial<CircuitBreakerPolicy> = {},
+    circuitBreakerOrPolicy?: ICircuitBreaker | Partial<CircuitBreakerPolicy>,
   ) {
     this.#delegate = delegate;
     this.#policy = { ...RDAP_RETRY_POLICY, ...policy };
-    this.#circuitBreaker = new CircuitBreaker({
-      ...DEFAULT_CIRCUIT_BREAKER,
-      ...circuitBreakerPolicy,
-    });
+
+    if (circuitBreakerOrPolicy && 'allow' in circuitBreakerOrPolicy) {
+      this.#circuitBreaker = circuitBreakerOrPolicy as ICircuitBreaker;
+    } else {
+      this.#circuitBreaker = new CircuitBreaker({
+        ...DEFAULT_CIRCUIT_BREAKER,
+        ...(circuitBreakerOrPolicy as Partial<CircuitBreakerPolicy>),
+      });
+    }
     this.name = `RetryingRdapProvider(${delegate.name})`;
   }
 

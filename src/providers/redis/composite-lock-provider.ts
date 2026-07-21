@@ -12,7 +12,7 @@ export interface NamedLockProvider {
 export class CompositeLockProvider implements LockProvider {
   readonly #providers: NamedLockProvider[];
   readonly #redisClient: RedisClient | null;
-  #activeIndex: number = 0;
+  readonly #lockOwners: Map<string, string> = new Map();
 
   constructor(providers: NamedLockProvider[], redisClient?: RedisClient) {
     this.#providers = providers;
@@ -20,65 +20,94 @@ export class CompositeLockProvider implements LockProvider {
     logger.info({ providers: providers.map((p) => p.name) }, 'CompositeLockProvider initialized');
   }
 
-  #active(): NamedLockProvider {
-    return this.#providers[this.#activeIndex]!;
+  #findProvider(name: string): NamedLockProvider | undefined {
+    return this.#providers.find((p) => p.name === name);
+  }
+
+  #getStartIndex(): number {
+    if (this.#redisClient && !this.#redisClient.isConnected && this.#providers.length > 1) {
+      const redisName = this.#providers[0]?.name ?? '';
+      if (redisName.startsWith('Redis')) {
+        logger.warn('Redis not connected — starting with database lock provider');
+        return 1;
+      }
+    }
+    return 0;
   }
 
   async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
-    if (this.#redisClient && !this.#redisClient.isConnected && this.#activeIndex === 0) {
-      logger.warn({ lockName }, 'Redis not connected — falling back to database lock provider');
-      this.#activeIndex = 1;
-    }
+    const startIndex = this.#getStartIndex();
 
-    for (
-      let i = this.#activeIndex;
-      i < Math.min(this.#activeIndex + 1, this.#providers.length);
-      i++
-    ) {
+    for (let i = startIndex; i < this.#providers.length; i++) {
       const { name, provider } = this.#providers[i]!;
       try {
         const result = await provider.tryLock(lockName, ttlMs);
-        if (!result && name.startsWith('Redis') && i < this.#providers.length - 1) {
-          logger.warn(
-            { lockName, provider: name },
-            'Redis lock provider returned false — falling back to database lock',
-          );
-          this.#activeIndex = i + 1;
-          return this.#providers[this.#activeIndex]!.provider.tryLock(lockName, ttlMs);
+        if (result) {
+          this.#lockOwners.set(lockName, name);
+          logger.debug({ lockName, provider: name }, 'CompositeLockProvider: lock acquired');
+          return true;
         }
-        return result;
+        logger.warn(
+          { lockName, provider: name },
+          'CompositeLockProvider: lock refused (contended)',
+        );
       } catch (err) {
         logger.error({ err, lockName, provider: name }, 'CompositeLockProvider: provider error');
-        if (i < this.#providers.length - 1) {
-          this.#activeIndex = i + 1;
-          logger.warn(
-            { lockName, fallbackProvider: this.#providers[this.#activeIndex]!.name },
-            'CompositeLockProvider: switching to fallback',
-          );
-          return this.#providers[this.#activeIndex]!.provider.tryLock(lockName, ttlMs);
-        }
-        return false;
       }
     }
+
+    logger.error(
+      { lockName, attempted: this.#providers.slice(startIndex).map((p) => p.name) },
+      'CompositeLockProvider: all providers failed to acquire lock',
+    );
     return false;
   }
 
   async renewLock(lockName: string, ttlMs: number): Promise<boolean> {
-    const { name, provider } = this.#active();
+    const ownerName = this.#lockOwners.get(lockName);
+    if (!ownerName) {
+      logger.warn({ lockName }, 'CompositeLockProvider: renew called on unknown lock');
+      return false;
+    }
+
+    const named = this.#findProvider(ownerName);
+    if (!named) {
+      logger.error({ lockName, ownerName }, 'CompositeLockProvider: lock owner provider not found');
+      this.#lockOwners.delete(lockName);
+      return false;
+    }
+
     try {
-      return await provider.renewLock(lockName, ttlMs);
+      return await named.provider.renewLock(lockName, ttlMs);
     } catch (err) {
-      logger.error({ err, lockName, provider: name }, 'CompositeLockProvider: renew failed');
+      logger.error({ err, lockName, provider: ownerName }, 'CompositeLockProvider: renew failed');
       return false;
     }
   }
 
   async unlock(lockName: string): Promise<void> {
-    const { name, provider } = this.#active();
-    try {
-      await provider.unlock(lockName);
-    } catch (err) {
-      logger.error({ err, lockName, provider: name }, 'CompositeLockProvider: unlock failed');
+    const ownerName = this.#lockOwners.get(lockName);
+    if (!ownerName) {
+      logger.warn({ lockName }, 'CompositeLockProvider: unlock called on unknown lock');
+      return;
     }
+
+    const named = this.#findProvider(ownerName);
+    if (named) {
+      try {
+        await named.provider.unlock(lockName);
+      } catch (err) {
+        logger.error(
+          { err, lockName, provider: ownerName },
+          'CompositeLockProvider: unlock failed',
+        );
+      }
+    }
+
+    this.#lockOwners.delete(lockName);
+  }
+
+  clearLockOwners(): void {
+    this.#lockOwners.clear();
   }
 }

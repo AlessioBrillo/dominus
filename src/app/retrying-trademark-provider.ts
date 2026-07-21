@@ -6,6 +6,7 @@ import {
   CircuitBreaker,
   DEFAULT_CIRCUIT_BREAKER,
   type CircuitBreakerPolicy,
+  type ICircuitBreaker,
 } from '../providers/circuit-breaker.js';
 import { DEFAULT_RETRY_POLICY, type RetryPolicy } from '../providers/retry-policy.js';
 import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
@@ -29,23 +30,32 @@ import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
  * (closer to the network than the cache) so cache hits never trigger
  * a retry loop and a transient error on the live call is retried
  * before it gets a chance to be cached as a failure.
+ *
+ * Accepts either an in-memory CircuitBreaker or a DistributedCircuitBreaker
+ * via the ICircuitBreaker interface. When no circuitBreaker is provided,
+ * creates an in-memory one with the given policy.
  */
 export class RetryingTrademarkProvider implements TrademarkProvider {
   readonly #delegate: TrademarkProvider;
   readonly #policy: RetryPolicy;
-  readonly #circuitBreaker: CircuitBreaker;
+  readonly #circuitBreaker: ICircuitBreaker;
 
   constructor(
     delegate: TrademarkProvider,
     policy: Partial<RetryPolicy> = {},
-    circuitBreakerPolicy: Partial<CircuitBreakerPolicy> = {},
+    circuitBreakerOrPolicy?: ICircuitBreaker | Partial<CircuitBreakerPolicy>,
   ) {
     this.#delegate = delegate;
     this.#policy = { ...DEFAULT_RETRY_POLICY, ...policy };
-    this.#circuitBreaker = new CircuitBreaker({
-      ...DEFAULT_CIRCUIT_BREAKER,
-      ...circuitBreakerPolicy,
-    });
+
+    if (circuitBreakerOrPolicy && 'allow' in circuitBreakerOrPolicy) {
+      this.#circuitBreaker = circuitBreakerOrPolicy as ICircuitBreaker;
+    } else {
+      this.#circuitBreaker = new CircuitBreaker({
+        ...DEFAULT_CIRCUIT_BREAKER,
+        ...(circuitBreakerOrPolicy as Partial<CircuitBreakerPolicy>),
+      });
+    }
   }
 
   async search(term: string, signal?: AbortSignal): Promise<TrademarkMatch[]> {
