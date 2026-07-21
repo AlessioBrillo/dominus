@@ -39,18 +39,23 @@ async function main(): Promise<void> {
     'Scheduler entrypoint: SchedulerService started successfully',
   );
 
-  // Graceful shutdown
+  // Graceful shutdown — resolve the keepalive promise instead of calling
+  // process.exit(0), allowing the event loop to drain naturally.
+  let shutdownComplete: () => void;
+  const shutdownPromise = new Promise<void>((resolve) => {
+    shutdownComplete = resolve;
+  });
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'Scheduler entrypoint: received shutdown signal');
     healthcheck.close();
     scheduler.stop();
-    process.exit(0);
+    shutdownComplete();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // Keep alive
-  await new Promise(() => {});
+  await shutdownPromise;
 }
 
 main().catch((err) => {
