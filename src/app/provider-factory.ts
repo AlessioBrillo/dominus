@@ -1,3 +1,4 @@
+import { setServers } from 'node:dns';
 import type { Config } from '../config.js';
 import type { ProviderCacheRepository } from '../db/index.js';
 import {
@@ -29,6 +30,7 @@ import { RetryingRdapProvider } from './retrying-rdap-provider.js';
 import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
+import { getLogger } from '../logger.js';
 
 export function buildKeywordProvider(
   config: Config,
@@ -132,6 +134,18 @@ export function buildRdapProviders(
 }
 
 export function buildDnsProvider(config: Config, rateLimiter?: RateLimiterLike): DnsProvider {
+  if (config.DNS_NAMESERVERS && config.DNS_NAMESERVERS.trim().length > 0) {
+    const servers = config.DNS_NAMESERVERS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    try {
+      setServers(servers);
+      getLogger().info({ servers }, 'DNS: custom nameservers configured via dns.setServers()');
+    } catch (err) {
+      getLogger().error({ err, servers }, 'DNS: failed to set custom nameservers');
+    }
+  }
+
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
 
   const resolverGroups: DnsResolverGroup[] | undefined = ((): DnsResolverGroup[] | undefined => {
