@@ -62,8 +62,13 @@ import {
   PipelineProgressService,
 } from './index.js';
 import { type RateLimiterLike } from '../providers/rate-limiter.js';
-import { RedisLock, getRedisClient, type RedisClient } from '../providers/redis/index.js';
-import type { LockProvider } from '../pipeline/orchestrator.js';
+import {
+  RedisLock,
+  CompositeLockProvider,
+  getRedisClient,
+  type RedisClient,
+} from '../providers/redis/index.js';
+import type { LockProvider } from '../types/lock.js';
 import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
 import { USPTO_CIRCUIT_BREAKER, EUIPO_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
@@ -460,10 +465,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Metrics & Pipeline ---
   const metrics = new MetricsCollector();
 
-  // When Redis is available, use RedisLock for distributed pipeline locking.
-  // Without Redis, falls back to the database-based advisory lock (single-instance).
+  // When Redis is available, use CompositeLockProvider with Redis primary
+  // and database-based advisory lock as fallback. This handles the case
+  // where Redis goes down mid-operation — the lock falls back to the DB
+  // with a clear warning instead of failing all pipeline acquisitions.
+  // Without Redis, uses only the database-based advisory lock.
   const lockProvider: LockProvider | undefined = redisClient
-    ? new RedisLock(redisClient)
+    ? new CompositeLockProvider(
+        [
+          { name: 'RedisLock', provider: new RedisLock(redisClient) },
+          { name: 'DatabaseLock', provider },
+        ],
+        redisClient,
+      )
     : undefined;
 
   const orchestrator = new PipelineOrchestrator(

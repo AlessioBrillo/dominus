@@ -6,18 +6,13 @@ import type { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js'
 import type { ScoringStage, ScoredCandidate } from './stages/scoring-stage.js';
 import type { TrademarkGateStage } from './stages/trademark-gate-stage.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
+import type { LockProvider } from '../types/lock.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 import { resolveTenantId } from '../utils/tenant-context.js';
 import type { StageResult } from './stage.js';
 import type { CheckpointStore, StageCheckpoint } from './checkpoint-store.js';
 import { getResumeIndex } from './db-checkpoint-store.js';
-
-export interface LockProvider {
-  tryLock(lockName: string, ttlMs: number): Promise<boolean>;
-  renewLock(lockName: string, ttlMs: number): Promise<boolean>;
-  unlock(lockName: string): Promise<void>;
-}
 
 export interface PipelineMetricsDelegate {
   recordStage(
