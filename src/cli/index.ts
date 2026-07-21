@@ -26,6 +26,7 @@ import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { PortfolioReportService } from '../portfolio/portfolio-report-service.js';
 import type { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import type { AcquisitionService } from '../services/acquisition-service.js';
+import type { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import type { ListingManager } from '../listing/listing-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -54,6 +55,7 @@ import { registerHealthCommand } from './commands/health-command.js';
 import { registerSchedulerCommand } from './commands/scheduler-command.js';
 import { registerWatchlistCommand } from './commands/watchlist-command.js';
 import { registerBuyCommand } from './commands/buy-command.js';
+import { registerFunnelCommand } from './commands/funnel-command.js';
 import { registerRegistrarsCommand } from './commands/registrars-command.js';
 import { registerReportCommand } from './commands/report-command.js';
 import { registerAnalyticsCommand } from './commands/analytics-command.js';
@@ -81,6 +83,7 @@ export interface CreateCliOptions {
   reportService?: PortfolioReportService;
   accuracyAnalyzer?: PredictionAccuracyAnalyzer;
   acquisitionService?: AcquisitionService;
+  funnelService?: AcquisitionFunnelService;
   listingManager?: ListingManager;
 }
 
@@ -161,6 +164,10 @@ export function createCli(options: CreateCliOptions): Command {
 
   if (options.acquisitionService) {
     registerBidCommand(program, { acquisitionService: options.acquisitionService });
+  }
+
+  if (options.funnelService) {
+    registerFunnelCommand(program, { funnelService: options.funnelService });
   }
 
   if (options.listingManager) {

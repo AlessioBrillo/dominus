@@ -141,6 +141,10 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     REDIS_KEY_PREFIX: 'dominus:',
     REDIS_MAX_RETRIES: 10,
     REDIS_RETRY_BASE_MS: 200,
+    ACQUISITION_BUDGET_EUR: 500,
+    ACQUISITION_MIN_CONFIDENCE: 0.3,
+    ACQUISITION_MIN_BUY_MAX: 20,
+    ACQUISITION_FUNNEL_MAX_ENTRIES: 0,
     ...overrides,
   };
 }

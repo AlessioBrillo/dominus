@@ -86,6 +86,8 @@ import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
+import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
+import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
@@ -152,6 +154,7 @@ export interface DominusDependencies {
   progressService: PipelineProgressService;
   accuracyAnalyzer: PredictionAccuracyAnalyzer;
   acquisitionService: AcquisitionService;
+  funnelService: AcquisitionFunnelService;
   pnlService: PnlService;
   listingManager: ListingManager;
   autoListingService: AutoListingService;
@@ -684,6 +687,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoListingService,
   );
 
+  // --- Acquisition Funnel ---
+  const funnelRepo = new FunnelRepository(provider);
+  const funnelService = new AcquisitionFunnelService(
+    funnelRepo,
+    repos.candidateRepo,
+    repos.scoringRepo,
+    repos.pipelineRunsRepo,
+    {
+      budgetEur: config.ACQUISITION_BUDGET_EUR,
+      minConfidence: config.ACQUISITION_MIN_CONFIDENCE,
+      minBuyMaxEur: config.ACQUISITION_MIN_BUY_MAX,
+      maxEntries: config.ACQUISITION_FUNNEL_MAX_ENTRIES,
+    },
+  );
+
   // --- P&L ---
   const allOutcomes = await repos.outcomeRepo.findAll();
   const pnlService = new PnlService(repos.portfolioRepo, allOutcomes);
@@ -756,6 +774,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     progressService,
     accuracyAnalyzer,
     acquisitionService,
+    funnelService,
     pnlService,
     listingManager,
     autoListingService,

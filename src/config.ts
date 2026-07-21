@@ -852,6 +852,35 @@ const configSchema = z.object({
    */
   PURCHASE_AUTO_APPROVAL: z.enum(['never', 'under_buy_max', 'always']).default('never'),
 
+  // ── Acquisition Funnel config ───────────────────────────────────────
+
+  /**
+   * Monthly budget cap for domain acquisition (EUR). The acquisition funnel
+   * uses this to prioritise candidates and produce a buy-list that stays
+   * within budget. Default: 500 EUR.
+   */
+  ACQUISITION_BUDGET_EUR: z.coerce.number().min(0).default(500),
+
+  /**
+   * Minimum confidence score (0-1) for a candidate to be included in the
+   * acquisition funnel. Candidates below this threshold are filtered out
+   * regardless of expected value. Default: 0.3 (matches SCORING_CONFIDENCE_THRESHOLD).
+   */
+  ACQUISITION_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.3),
+
+  /**
+   * Minimum suggestedBuyMax (EUR) for a candidate to be included in the
+   * acquisition funnel. Candidates whose buy-max is below this threshold
+   * are considered too low-value to pursue. Default: 20 EUR.
+   */
+  ACQUISITION_MIN_BUY_MAX: z.coerce.number().min(0).default(20),
+
+  /**
+   * Maximum number of entries in the acquisition funnel buy-list.
+   * Zero means no limit (all passing candidates, budget-bound). Default: 0.
+   */
+  ACQUISITION_FUNNEL_MAX_ENTRIES: z.coerce.number().int().min(0).default(0),
+
   // ── Drop verdict / NPV config ──────────────────────────────────────
 
   /**

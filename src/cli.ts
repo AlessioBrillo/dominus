@@ -27,6 +27,7 @@ async function main(): Promise<void> {
     reportService: deps.reportService,
     accuracyAnalyzer: deps.accuracyAnalyzer,
     acquisitionService: deps.acquisitionService,
+    funnelService: deps.funnelService,
     listingManager: deps.listingManager,
   });
   cli.parse(process.argv);
