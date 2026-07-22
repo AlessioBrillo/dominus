@@ -1,4 +1,5 @@
 import { promises as dnsPromises } from 'node:dns';
+import { LRUCache } from 'lru-cache';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsResolverGroup } from './dns-provider.js';
@@ -197,11 +198,6 @@ async function resolvesAnyDoh(
   return false;
 }
 
-interface CacheEntry {
-  result: DnsCheckResult;
-  expiresAt: number;
-}
-
 export class NodeDnsProvider implements DnsProvider {
   readonly name = 'NodeDnsProvider';
   readonly #lookupTimeoutMs: number;
@@ -214,7 +210,9 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #parkingRegistry: ParkingIpRegistry;
   readonly #rateLimiter: RateLimiterLike | undefined;
   readonly #retryPolicy: Partial<RetryPolicy> | undefined;
-  #cache: Map<string, CacheEntry> = new Map();
+  readonly #cache: LRUCache<string, DnsCheckResult>;
+  /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
+  readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
 
   constructor(options?: {
     lookupTimeoutMs?: number;
@@ -241,18 +239,22 @@ export class NodeDnsProvider implements DnsProvider {
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
+
+    const ttlMs = this.#cacheTtlMs > 0 ? this.#cacheTtlMs : 300_000;
+    this.#cache = new LRUCache<string, DnsCheckResult>({
+      max: this.#maxSize > 0 ? this.#maxSize : 10_000,
+      ttl: ttlMs,
+      noUpdateTTL: false,
+      allowStale: false,
+      perf: { now: (): number => Date.now() },
+    });
   }
 
   pruneCache(): number {
-    const now = Date.now();
-    let pruned = 0;
-    for (const [key, entry] of this.#cache) {
-      if (entry.expiresAt < now) {
-        this.#cache.delete(key);
-        pruned++;
-      }
-    }
-    return pruned;
+    const before = this.#cache.size;
+    this.#cache.purgeStale();
+    const after = this.#cache.size;
+    return before - after;
   }
 
   clearCache(): void {
@@ -263,10 +265,21 @@ export class NodeDnsProvider implements DnsProvider {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
     const cached = this.#cache.get(domain);
-    if (cached !== undefined && cached.expiresAt > Date.now()) {
-      return cached.result;
-    }
+    if (cached !== undefined) return cached;
 
+    const existing = this.#pending.get(domain);
+    if (existing !== undefined) return existing;
+
+    const promise = this.#lookup(domain, signal);
+    this.#pending.set(domain, promise);
+    try {
+      return await promise;
+    } finally {
+      this.#pending.delete(domain);
+    }
+  }
+
+  async #lookup(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
     const checkedAt = new Date().toISOString();
 
     try {
@@ -299,16 +312,24 @@ export class NodeDnsProvider implements DnsProvider {
           parkingRegistrar = parkingCheck.registrar;
         }
 
-        return this.#cached(domain, { domain, status, checkedAt, isParked, parkingRegistrar });
+        const result: DnsCheckResult = { domain, status, checkedAt, isParked, parkingRegistrar };
+        this.#cache.set(domain, result);
+        return result;
       }
 
-      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+      const unknown: DnsCheckResult = { domain, status: DomainStatus.Unknown, checkedAt };
+      this.#cache.set(domain, unknown);
+      return unknown;
     } catch (err: unknown) {
       const code = (err as { code?: string }).code;
       if (code === 'ENOTFOUND' || code === 'ENODATA') {
-        return this.#cached(domain, { domain, status: DomainStatus.Available, checkedAt });
+        const result: DnsCheckResult = { domain, status: DomainStatus.Available, checkedAt };
+        this.#cache.set(domain, result);
+        return result;
       }
-      return this.#cached(domain, { domain, status: DomainStatus.Unknown, checkedAt });
+      const unknown: DnsCheckResult = { domain, status: DomainStatus.Unknown, checkedAt };
+      this.#cache.set(domain, unknown);
+      return unknown;
     }
   }
 
@@ -384,21 +405,6 @@ export class NodeDnsProvider implements DnsProvider {
     }
 
     return false;
-  }
-
-  #cached(domain: string, result: DnsCheckResult): DnsCheckResult {
-    if (this.#maxSize > 0) {
-      if (this.#cache.has(domain)) {
-        this.#cache.delete(domain);
-      } else if (this.#cache.size >= this.#maxSize) {
-        const oldest = this.#cache.keys().next();
-        if (!oldest.done && oldest.value !== undefined) {
-          this.#cache.delete(oldest.value);
-        }
-      }
-      this.#cache.set(domain, { result, expiresAt: Date.now() + this.#cacheTtlMs });
-    }
-    return result;
   }
 
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {

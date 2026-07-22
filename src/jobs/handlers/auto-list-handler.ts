@@ -41,6 +41,8 @@ export class AutoListHandler implements JobHandler<AutoListPayload, AutoListResu
       domains,
       source,
       payload.pipelineRunId,
+      undefined,
+      _signal,
     );
 
     logger.info({ listed: listed.length, skipped: skipped.length }, 'AutoListHandler: complete');

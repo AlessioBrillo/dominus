@@ -596,6 +596,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       domains,
       'pipeline_run',
       result.runRowId,
+      undefined,
+      options?.signal,
     );
 
     logger.info(

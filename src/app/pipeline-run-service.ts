@@ -43,6 +43,16 @@ const PERSISTENCE_BATCH_SIZE_MAX = 1000;
 const PERSISTENCE_BATCH_SLOW_THRESHOLD_MS = 500;
 /** If a write batch finishes faster than this (ms), double the batch size. */
 const PERSISTENCE_BATCH_FAST_THRESHOLD_MS = 100;
+/**
+ * Total wall-clock timeout for the persistence phase (candidate upsert +
+ * score insert). When exceeded, the run is marked as error and an exception
+ * is thrown. Must be shorter than the pipeline lock TTL (120s) to prevent
+ * another worker from acquiring the lock and starting a concurrent run on the
+ * same pipeline while persistence is still in-flight (split-brain write).
+ * Default: 90s — well within the 120s lock TTL, with 30s margin for heartbeat
+ * renewal overhead.
+ */
+const PERSISTENCE_TOTAL_TIMEOUT_MS = 90_000;
 
 export interface PersistenceSummary {
   candidatesPersisted: number;
@@ -290,6 +300,9 @@ export class PipelineRunService {
     }
 
     let persistence: PersistenceSummary;
+    const deadline = Date.now() + PERSISTENCE_TOTAL_TIMEOUT_MS;
+    const remainingBudget = (): number => Math.max(0, deadline - Date.now());
+
     try {
       // Phase 1: upsert candidates in batches with adaptive sizing.
       // Each batch is a separate transaction so no single write holds the
@@ -325,6 +338,12 @@ export class PipelineRunService {
       };
 
       for (let i = 0; i < result.allCandidates.length; i += batchSize) {
+        if (remainingBudget() <= 0) {
+          throw new Error(
+            `Persistence deadline exceeded after ${candidatesPersisted} candidates persisted ` +
+              `(${result.allCandidates.length} total). Run will be marked as error.`,
+          );
+        }
         const batch = result.allCandidates.slice(i, i + batchSize);
         await upsertBatch(batch);
         candidatesPersisted += batch.length;
@@ -339,6 +358,12 @@ export class PipelineRunService {
       // Reset batch size for score inserts (different write pattern)
       batchSize = PERSISTENCE_BATCH_SIZE_INITIAL;
       for (let i = 0; i < scoredWithIds.length; i += batchSize) {
+        if (remainingBudget() <= 0) {
+          throw new Error(
+            `Persistence deadline exceeded after ${scoresPersisted} scores persisted ` +
+              `(${scoredWithIds.length} total). Candidates were already committed.`,
+          );
+        }
         const batch = scoredWithIds.slice(i, i + batchSize);
         const start = Date.now();
         await this.#persistenceProvider.transaction(async () => {
@@ -411,18 +436,23 @@ export class PipelineRunService {
     };
 
     if (this.#onRunComplete) {
+      const timeoutSignal = new AbortController();
+      const timer = setTimeout(
+        () => timeoutSignal.abort(new Error('onRunComplete hook timed out after 10s')),
+        10_000,
+      ).unref();
+      const optionsWithTimeout: PipelineRunOptions = {
+        ...options,
+        signal: options.signal
+          ? AbortSignal.any([options.signal, timeoutSignal.signal])
+          : timeoutSignal.signal,
+      };
       try {
-        await Promise.race([
-          Promise.resolve(this.#onRunComplete(pipelineResult, options)),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error('onRunComplete hook timed out after 10s')),
-              10_000,
-            ).unref(),
-          ),
-        ]);
+        await this.#onRunComplete(pipelineResult, optionsWithTimeout);
       } catch (err) {
         logger.error({ err, runId: runRowId }, 'PipelineRunService: onRunComplete hook failed');
+      } finally {
+        clearTimeout(timer);
       }
     }
 
