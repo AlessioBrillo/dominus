@@ -70,19 +70,30 @@ export class PublicRdapProvider implements RdapProvider {
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
-    return this.#rateLimiter.throttle(() => this.#doConfirm(domain, signal));
+    const waitStart = Date.now();
+    try {
+      await this.#rateLimiter.acquire();
+    } catch (err) {
+      throw new ProviderError(
+        `RDAP rate-limiter wait failed for ${domain}: ${String(err)}`,
+        this.name,
+      );
+    }
+    const rateLimitWaitMs = Date.now() - waitStart;
+
+    const remainingMs = Math.max(1000, this.#timeoutMs - rateLimitWaitMs);
+    const combinedSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(remainingMs)])
+      : AbortSignal.timeout(remainingMs);
+    return this.#doConfirm(domain, combinedSignal);
   }
 
-  async #doConfirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
+  async #doConfirm(domain: string, signal: AbortSignal): Promise<RdapResult> {
     const url = `${this.#baseUrl}${encodeURIComponent(domain)}`;
     let response: Response;
 
     try {
-      response = await fetch(url, {
-        signal: signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(this.#timeoutMs)])
-          : AbortSignal.timeout(this.#timeoutMs),
-      });
+      response = await fetch(url, { signal });
     } catch (err: unknown) {
       throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
     }

@@ -233,7 +233,10 @@ export class PipelineOrchestrator {
         .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
         .catch(() => false);
       if (!renewed) {
-        logger.warn('Pipeline lock heartbeat failed — lock may have been lost');
+        logger.error('Pipeline lock heartbeat failed — lock may have been lost. Aborting run.');
+        for (const [, ac] of this.#runControllers) {
+          ac.abort();
+        }
       }
     }, PIPELINE_LOCK_HEARTBEAT_MS).unref();
   }
@@ -393,6 +396,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 2: DnsPreFilter ---
+    await this.#ensureLockHeld(key);
     const dns = await this.#runStageWithCheckpoint(
       1,
       'DnsPreFilter',
@@ -413,6 +417,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 3: RdapConfirmation ---
+    await this.#ensureLockHeld(key);
     const rdap = await this.#runStageWithCheckpoint(
       2,
       'RdapConfirmation',
@@ -433,6 +438,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 4: Scoring ---
+    await this.#ensureLockHeld(key);
     const scoring = await this.#runStageWithCheckpoint(
       3,
       'Scoring',
@@ -453,6 +459,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 5: TrademarkGate ---
+    await this.#ensureLockHeld(key);
     const trademark = await this.#runStageWithCheckpoint(
       4,
       'TrademarkGate',

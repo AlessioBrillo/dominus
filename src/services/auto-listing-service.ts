@@ -83,11 +83,19 @@ export class AutoListingService {
     source: AutoListSource,
     pipelineRunId?: string,
     marketplace?: MarketplaceName,
+    signal?: AbortSignal,
   ): Promise<{ listed: AutoListResult[]; skipped: AutoListSkipped[] }> {
     const listed: AutoListResult[] = [];
     const skipped: AutoListSkipped[] = [];
 
     for (const { domain, score } of domains) {
+      if (signal?.aborted) {
+        logger.warn(
+          { listed: listed.length, skipped: skipped.length, source },
+          'AutoListingService: batch auto-list aborted early',
+        );
+        return { listed, skipped };
+      }
       const outcome = await this.autoList(domain, score, source, pipelineRunId, marketplace);
       if (outcome.skipped) {
         skipped.push(outcome);
