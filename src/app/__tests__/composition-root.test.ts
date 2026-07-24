@@ -511,6 +511,8 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       ACQUISITION_MIN_CONFIDENCE: 0.3,
       ACQUISITION_MIN_BUY_MAX: 20,
       ACQUISITION_FUNNEL_MAX_ENTRIES: 0,
+      DNS_PERSISTENT_CACHE_ENABLED: true,
+      DNS_PERSISTENT_CACHE_TTL_HOURS: 24,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

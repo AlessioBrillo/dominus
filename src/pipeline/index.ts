@@ -4,6 +4,7 @@ export type { Stage, StageResult } from './stage.js';
 export { CandidateGenerationStage } from './stages/candidate-generation-stage.js';
 export type { CandidateGenerationInput } from './stages/candidate-generation-stage.js';
 export { DnsPreFilterStage } from './stages/dns-prefilter-stage.js';
+export type { ConsensusDnsConfig } from './stages/dns-prefilter-stage.js';
 export { RdapConfirmationStage } from './stages/rdap-confirmation-stage.js';
 export { ScoringStage } from './stages/scoring-stage.js';
 export type { ScoredCandidate } from './stages/scoring-stage.js';

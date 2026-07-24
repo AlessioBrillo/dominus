@@ -133,7 +133,11 @@ export function buildRdapProviders(
   return { raw, withRetry: withRetryProvider, cached };
 }
 
-export function buildDnsProvider(config: Config, rateLimiter?: RateLimiterLike): DnsProvider {
+export function buildDnsProvider(
+  config: Config,
+  providerCacheRepo?: ProviderCacheRepository,
+  rateLimiter?: RateLimiterLike,
+): DnsProvider {
   if (config.DNS_NAMESERVERS && config.DNS_NAMESERVERS.trim().length > 0) {
     const servers = config.DNS_NAMESERVERS.split(',')
       .map((s) => s.trim())
@@ -169,6 +173,10 @@ export function buildDnsProvider(config: Config, rateLimiter?: RateLimiterLike):
     parkingRegistry,
     rateLimiter,
     retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+    persistentCache:
+      config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
+        ? providerCacheRepo
+        : undefined,
   });
 }
 

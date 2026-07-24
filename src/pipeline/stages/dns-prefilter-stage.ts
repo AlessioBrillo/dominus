@@ -9,6 +9,13 @@ import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
+export interface ConsensusDnsConfig {
+  /** Second DNS provider for cross-validation (e.g., using a different resolver group). */
+  secondaryProvider: DnsProvider;
+  /** TLDs requiring cross-validation. Default: all TLDs. */
+  requiredTlds?: string[];
+}
+
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
   readonly name = 'DnsPreFilterStage';
 
@@ -16,6 +23,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     private readonly dnsProvider: DnsProvider,
     private readonly fallbackConcurrency: number = 10,
     private readonly skipSources: CandidateSource[] = [],
+    private readonly consensusConfig?: ConsensusDnsConfig,
   ) {}
 
   async process(
@@ -94,7 +102,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     if (domains.length === 0) return [];
     if (signal?.aborted) return new Array(domains.length);
 
-    // Stage 1: fast bulk check from the DNS provider.
+    // Stage 1: fast bulk check from the DNS provider (multi-resolver race internally).
     const [bulkOk, results] = await this.#tryBulkCheck(domains, signal);
     if (!bulkOk || results === null) {
       return this.#perDomainFallback(results ?? new Array(domains.length), domains, signal);
@@ -118,11 +126,100 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         const retried = await this.#retryUndefinedBatch(results, domains, signal);
         if (retried !== null) {
           const stillUndefined = retried.filter((r) => r === undefined).length;
-          if (stillUndefined === 0) return retried;
+          if (stillUndefined === 0) {
+            // Stage 3: 2-of-3 consensus on Available results
+            if (this.consensusConfig !== undefined) {
+              return await this.#applyConsensusCheck(retried, domains, signal);
+            }
+            return retried;
+          }
           return this.#perDomainFallback(retried, domains, signal);
         }
       }
       return this.#perDomainFallback(results, domains, signal);
+    }
+
+    // Stage 3: 2-of-3 consensus on Available results
+    if (this.consensusConfig !== undefined) {
+      return await this.#applyConsensusCheck(results, domains, signal);
+    }
+
+    return results;
+  }
+
+  /**
+   * 2-of-3 resolver consensus check: for each domain that passed the primary
+   * check as Available, query a secondary (independent) DNS provider.
+   * If the secondary disagrees (Registered), mark the domain as Unknown
+   * (conservative: when resolvers disagree, do not pass).
+   */
+  async #applyConsensusCheck(
+    results: (DnsCheckResult | undefined)[],
+    domains: DomainCandidate[],
+    signal?: AbortSignal,
+  ): Promise<(DnsCheckResult | undefined)[]> {
+    if (signal?.aborted) return results;
+    const cfg = this.consensusConfig!;
+    const tldSet = cfg.requiredTlds !== undefined ? new Set(cfg.requiredTlds) : undefined;
+
+    const toVerify: Array<{ index: number; domain: string }> = [];
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      if (r === undefined) continue;
+      if (r.status !== DomainStatus.Available) continue;
+      if (tldSet !== undefined) {
+        const tld = domains[i]?.tld;
+        if (tld !== undefined && !tldSet.has(tld)) continue;
+      }
+      toVerify.push({ index: i, domain: r.domain });
+    }
+
+    if (toVerify.length === 0) return results;
+
+    logger.info(
+      { verifyCount: toVerify.length, totalAvailable: toVerify.length },
+      'DNS: 2-of-3 consensus check on Available domains',
+    );
+
+    // Batch-verify with concurrency control
+    let verified = 0;
+    let disagreed = 0;
+    for (let i = 0; i < toVerify.length; i += this.fallbackConcurrency) {
+      if (signal?.aborted) return results;
+      const batch = toVerify.slice(i, i + this.fallbackConcurrency);
+      const batchResults = await Promise.all(
+        batch.map(async ({ index, domain }) => {
+          try {
+            const secondary = await cfg.secondaryProvider.checkAvailability(domain, signal);
+            return { index, domain, secondary };
+          } catch {
+            return { index, domain, secondary: undefined as DnsCheckResult | undefined };
+          }
+        }),
+      );
+
+      for (const { index, secondary } of batchResults) {
+        if (secondary === undefined) continue;
+        if (secondary.status === DomainStatus.Registered) {
+          // Resolver disagreement: primary says Available, secondary says Registered
+          disagreed++;
+          results[index] = {
+            domain: domains[index]!.domain,
+            status: DomainStatus.Unknown,
+            checkedAt: new Date().toISOString(),
+          };
+          logger.warn(
+            { domain: domains[index]!.domain },
+            'DNS: 2-of-3 consensus disagreement — primary Available, secondary Registered',
+          );
+        } else {
+          verified++;
+        }
+      }
+    }
+
+    if (disagreed > 0) {
+      logger.info({ verified, disagreed }, 'DNS: 2-of-3 consensus check complete');
     }
 
     return results;
