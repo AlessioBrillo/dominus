@@ -226,7 +226,15 @@ const configSchema = z.object({
    * sporadic timeouts, at the cost of one extra HTTPS request per timeout.
    */
   DNS_LOOKUP_STRATEGY: z
-    .enum(['native', 'native-with-doh-fallback', 'doh-only', 'doh-primary'])
+    .enum([
+      'native',
+      'native-with-doh-fallback',
+      'doh-only',
+      'doh-primary',
+      'dot-only',
+      'dot-with-doh-fallback',
+      'multi-doh-plus-native',
+    ])
     .default('doh-primary'),
   /**
    * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
@@ -308,6 +316,23 @@ const configSchema = z.object({
    * Set to 0 to disable the cache entirely.
    */
   DNS_CACHE_MAX_SIZE: z.coerce.number().int().min(0).max(1000000).default(10000),
+
+  /**
+   * Enable persistent DNS cache via the provider_cache database table.
+   * When true, DNS lookup results are persisted across process restarts
+   * with a TTL of DNS_PERSISTENT_CACHE_TTL_HOURS hours.
+   * Default: true — avoids redundant lookups after pipeline restarts.
+   * Set to false to use only the in-memory LRU cache.
+   */
+  DNS_PERSISTENT_CACHE_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
+  /**
+   * TTL for persistent DNS cache entries in hours.
+   * Default: 24 (1 day). DNS availability is relatively stable but not
+   * immutable — domains can be registered or expire at any time.
+   */
+  DNS_PERSISTENT_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(24),
 
   /**
    * Domain used for the DNS resolver health check probe.

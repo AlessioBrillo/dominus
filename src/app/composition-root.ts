@@ -450,7 +450,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rdapRateLimiter,
     repos.providerCacheRepo,
   );
-  const dnsProvider = buildDnsProvider(config, dnsRateLimiter);
+  const dnsProvider = buildDnsProvider(config, repos.providerCacheRepo, dnsRateLimiter);
   const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
   // --- Wayback Machine (expiry data enrichment) ---

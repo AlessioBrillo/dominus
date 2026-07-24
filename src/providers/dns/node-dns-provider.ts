@@ -1,3 +1,4 @@
+import { connect as tlsConnect, type ConnectionOptions } from 'node:tls';
 import { promises as dnsPromises } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import { DomainStatus } from '../../types/domain-status.js';
@@ -7,6 +8,7 @@ import { strategyToResolverGroups } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { withRetry } from '../retryable-provider.js';
 import type { RetryPolicy } from '../retry-policy.js';
+import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { getLogger } from '../../logger.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
 
@@ -14,7 +16,14 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
-export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only' | 'doh-primary';
+export type DnsLookupStrategy =
+  | 'native'
+  | 'native-with-doh-fallback'
+  | 'doh-only'
+  | 'doh-primary'
+  | 'dot-only'
+  | 'dot-with-doh-fallback'
+  | 'multi-doh-plus-native';
 
 function resolveWithTimeout(
   domain: string,
@@ -56,11 +65,13 @@ function resolveWithTimeout(
   });
 }
 
-/** Resolve only A (IPv4) records to collect raw IP addresses for parking detection. */
+/** Resolve A and AAAA records for IP-based parking detection. */
 async function resolveAddressRecords(domain: string): Promise<string[]> {
-  const result = await dnsPromises.resolve(domain, 'A').catch(() => [] as string[]);
-
-  return result;
+  const [v4, v6] = await Promise.all([
+    dnsPromises.resolve(domain, 'A').catch(() => [] as string[]),
+    dnsPromises.resolve(domain, 'AAAA').catch(() => [] as string[]),
+  ]);
+  return [...v4, ...v6];
 }
 
 async function resolveDoh(
@@ -98,6 +109,173 @@ async function resolveDoh(
   }
 
   return true;
+}
+
+/**
+ * DNS-over-TLS resolver using raw TCP+TLS sockets.
+ * Implements RFC 7858 — sends wire-format DNS queries over a TLS connection.
+ */
+function resolveDot(
+  domain: string,
+  recordType: string,
+  endpoint: string,
+  timeoutMs: number,
+  servername?: string,
+  port?: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const destPort = port ?? 853;
+
+    const dnsQuery = buildDnsQuery(domain, recordTypeToQtype(recordType));
+
+    const tlsOpts: ConnectionOptions = {
+      host: endpoint,
+      port: destPort,
+      servername: servername ?? endpoint,
+      rejectUnauthorized: true,
+    };
+
+    const tlsSocket = tlsConnect(tlsOpts);
+
+    const cleanup = (): void => {
+      tlsSocket.destroy();
+      if (abortHandler !== undefined && signal !== undefined) {
+        signal.removeEventListener('abort', abortHandler);
+      }
+    };
+
+    const abortHandler = (): void => {
+      tlsSocket.destroy();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    if (signal !== undefined) {
+      signal.addEventListener('abort', abortHandler, { once: true });
+    }
+
+    const timer = setTimeout(() => {
+      tlsSocket.destroy();
+      const err = new Error(`DoT lookup timed out for ${domain}`);
+      (err as { code?: string }).code = 'ETIMEOUT';
+      reject(err);
+    }, timeoutMs);
+
+    tlsSocket.on('connect', () => {
+      // Send the length-prefixed DNS query
+      const lengthPrefixed = Buffer.alloc(2 + dnsQuery.length);
+      lengthPrefixed.writeUInt16BE(dnsQuery.length, 0);
+      dnsQuery.copy(lengthPrefixed, 2);
+      tlsSocket.write(lengthPrefixed);
+    });
+
+    tlsSocket.on('data', (data: Buffer) => {
+      clearTimeout(timer);
+      cleanup();
+      // Response has 2-byte length prefix, then DNS response
+      // We check the DNS response header flags: bit 15 (QR) should be 1 (response),
+      // and the RCODE in the last 4 bits of byte 3
+      if (data.length < 4) {
+        reject(new Error('DoT: response too short'));
+        return;
+      }
+      const flags = data.readUInt16BE(2);
+      const rcode = flags & 0x0f;
+
+      if (rcode === 3) {
+        // NXDOMAIN
+        const err = Object.assign(new Error('DoT NXDOMAIN'), { code: 'ENOTFOUND' });
+        reject(err);
+        return;
+      }
+
+      if (rcode !== 0) {
+        // Other error
+        const err = Object.assign(new Error(`DoT RCODE ${rcode}`), { code: 'ESERVFAIL' });
+        reject(err);
+        return;
+      }
+
+      // Count answer records: DNS header bytes 6-7 (ANCOUNT)
+      const ancount = data.readUInt16BE(6);
+      if (ancount === 0) {
+        const err = Object.assign(new Error('DoT NODATA'), { code: 'ENODATA' });
+        reject(err);
+        return;
+      }
+
+      resolve(true);
+    });
+
+    tlsSocket.on('error', (err: Error) => {
+      clearTimeout(timer);
+      cleanup();
+      reject(err);
+    });
+
+    tlsSocket.on('close', () => {
+      clearTimeout(timer);
+      cleanup();
+    });
+  });
+}
+
+/**
+ * Build a minimal DNS query message (RFC 1035 section 4.1.1).
+ * Uses a fixed 16-bit query ID and single-question format.
+ */
+function buildDnsQuery(domain: string, qtype: number): Buffer {
+  const header = Buffer.alloc(12);
+  // ID: 0x0000 (we only care about the response)
+  header.writeUInt16BE(0x0000, 0);
+  // Flags: standard query with recursion desired (0x0100)
+  header.writeUInt16BE(0x0100, 2);
+  // QDCOUNT: 1 question
+  header.writeUInt16BE(1, 4);
+  // ANCOUNT, NSCOUNT, ARCOUNT: 0
+  header.writeUInt16BE(0, 6);
+  header.writeUInt16BE(0, 8);
+  header.writeUInt16BE(0, 10);
+
+  const qname = encodeDnsName(domain);
+  const question = Buffer.alloc(qname.length + 4);
+  qname.copy(question, 0);
+  question.writeUInt16BE(qtype, qname.length);
+  // QCLASS: IN (1)
+  question.writeUInt16BE(1, qname.length + 2);
+
+  return Buffer.concat([header, question]);
+}
+
+function encodeDnsName(name: string): Buffer {
+  const parts = name.split('.');
+  const buffers: Buffer[] = [];
+  for (const part of parts) {
+    const buf = Buffer.from(part, 'ascii');
+    const len = Buffer.alloc(1);
+    len[0] = buf.length;
+    buffers.push(len, buf);
+  }
+  buffers.push(Buffer.from([0x00]));
+  return Buffer.concat(buffers);
+}
+
+function recordTypeToQtype(type: string): number {
+  switch (type) {
+    case 'A':
+      return 1;
+    case 'AAAA':
+      return 28;
+    case 'CNAME':
+      return 5;
+    case 'MX':
+      return 15;
+    case 'NS':
+      return 2;
+    case 'SOA':
+      return 6;
+    default:
+      return 1;
+  }
 }
 
 const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'SOA'];
@@ -198,6 +376,53 @@ async function resolvesAnyDoh(
   return false;
 }
 
+async function resolvesAnyDot(
+  domain: string,
+  endpoint: string,
+  timeout: number,
+  servername?: string,
+  port?: number,
+  signal?: AbortSignal,
+): Promise<boolean | undefined> {
+  const childAbort = new AbortController();
+  const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
+
+  const DOT_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
+
+  const tasks = DOT_TYPES.map((type) => {
+    const timeoutSignal = AbortSignal.timeout(timeout);
+    const merged = AbortSignal.any([combinedSignal, timeoutSignal]);
+    return resolveDot(domain, type, endpoint, timeout, servername, port, merged)
+      .then(() => {
+        childAbort.abort();
+        return { resolved: true as const, aborted: false as const };
+      })
+      .catch((err: unknown) => {
+        const e = err as { code?: string; name?: string };
+        return {
+          resolved: false as const,
+          aborted: e.name === ('AbortError' as const),
+          code: e.code,
+        };
+      });
+  });
+
+  const outcomes = await Promise.all(tasks);
+
+  for (const o of outcomes) {
+    if (o.resolved) return true;
+  }
+
+  const anyUnknown = outcomes.some(
+    (o) =>
+      !o.resolved &&
+      !o.aborted &&
+      (o.code === undefined || (o.code !== 'ENOTFOUND' && o.code !== 'ENODATA')),
+  );
+  if (anyUnknown) return undefined;
+  return false;
+}
+
 export class NodeDnsProvider implements DnsProvider {
   readonly name = 'NodeDnsProvider';
   readonly #lookupTimeoutMs: number;
@@ -210,6 +435,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #parkingRegistry: ParkingIpRegistry;
   readonly #rateLimiter: RateLimiterLike | undefined;
   readonly #retryPolicy: Partial<RetryPolicy> | undefined;
+  readonly #persistentCache: ProviderCacheRepository | undefined;
   readonly #cache: LRUCache<string, DnsCheckResult>;
   /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
@@ -226,6 +452,7 @@ export class NodeDnsProvider implements DnsProvider {
     parkingRegistry?: ParkingIpRegistry;
     rateLimiter?: RateLimiterLike | undefined;
     retryPolicy?: Partial<RetryPolicy> | undefined;
+    persistentCache?: ProviderCacheRepository | undefined;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -236,6 +463,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#parkingRegistry = options?.parkingRegistry ?? new ParkingIpRegistry([]);
     this.#rateLimiter = options?.rateLimiter;
     this.#retryPolicy = options?.retryPolicy;
+    this.#persistentCache = options?.persistentCache;
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -264,9 +492,27 @@ export class NodeDnsProvider implements DnsProvider {
   async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const cached = this.#cache.get(domain);
-    if (cached !== undefined) return cached;
+    // 1. Memory cache (fastest)
+    const memCached = this.#cache.get(domain);
+    if (memCached !== undefined) return memCached;
 
+    // 2. Persistent cache (DB-backed, survives restarts)
+    if (this.#persistentCache !== undefined) {
+      const raw = await this.#persistentCache.get(domain, this.name).catch(() => null);
+      if (raw !== null) {
+        try {
+          const parsed: DnsCheckResult = JSON.parse(raw) as DnsCheckResult;
+          if (parsed.status !== undefined && parsed.checkedAt !== undefined) {
+            this.#cache.set(domain, parsed);
+            return parsed;
+          }
+        } catch {
+          // Corrupted cache row — fall through to live lookup
+        }
+      }
+    }
+
+    // 3. Request coalescing (prevent duplicate in-flight lookups)
     const existing = this.#pending.get(domain);
     if (existing !== undefined) return existing;
 
@@ -313,23 +559,33 @@ export class NodeDnsProvider implements DnsProvider {
         }
 
         const result: DnsCheckResult = { domain, status, checkedAt, isParked, parkingRegistrar };
-        this.#cache.set(domain, result);
+        this.#setCaches(domain, result);
         return result;
       }
 
       const unknown: DnsCheckResult = { domain, status: DomainStatus.Unknown, checkedAt };
-      this.#cache.set(domain, unknown);
+      this.#setCaches(domain, unknown);
       return unknown;
     } catch (err: unknown) {
       const code = (err as { code?: string }).code;
       if (code === 'ENOTFOUND' || code === 'ENODATA') {
         const result: DnsCheckResult = { domain, status: DomainStatus.Available, checkedAt };
-        this.#cache.set(domain, result);
+        this.#setCaches(domain, result);
         return result;
       }
       const unknown: DnsCheckResult = { domain, status: DomainStatus.Unknown, checkedAt };
-      this.#cache.set(domain, unknown);
+      this.#setCaches(domain, unknown);
       return unknown;
+    }
+  }
+
+  /** Write to both in-memory and persistent caches (persistent is non-fatal). */
+  #setCaches(domain: string, result: DnsCheckResult): void {
+    this.#cache.set(domain, result);
+    if (this.#persistentCache !== undefined) {
+      this.#persistentCache.set(domain, this.name, JSON.stringify(result), 7).catch(() => {
+        /* Non-fatal: in-memory cache still works */
+      });
     }
   }
 
@@ -364,6 +620,16 @@ export class NodeDnsProvider implements DnsProvider {
     const tasks = group.lookups.map((spec) => {
       if (spec.type === 'native') {
         return resolvesAnyNative(domain, timeout, combinedSignal);
+      }
+      if (spec.type === 'dot') {
+        return resolvesAnyDot(
+          domain,
+          spec.endpoint ?? this.#dohEndpoint,
+          timeout,
+          spec.servername,
+          spec.port,
+          combinedSignal,
+        );
       }
       return resolvesAnyDoh(domain, spec.endpoint ?? this.#dohEndpoint, timeout, combinedSignal);
     });
@@ -409,22 +675,56 @@ export class NodeDnsProvider implements DnsProvider {
 
   async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const concurrency = this.#bulkConcurrency;
-    const results: DnsCheckResult[] = [];
-    for (let i = 0; i < domains.length; i += concurrency) {
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-      const chunk = domains.slice(i, i + concurrency);
-      const chunkResults = await Promise.all(
-        chunk.map((d) =>
-          this.checkAvailability(d, signal).catch(() => ({
-            domain: d,
-            status: DomainStatus.Unknown,
-            checkedAt: new Date().toISOString(),
-          })),
-        ),
-      );
-      results.push(...chunkResults);
-    }
-    return results;
+
+    const results: DnsCheckResult[] = new Array(domains.length);
+    let nextIndex = 0;
+    let activeWorkers = 0;
+    let done = false;
+
+    return new Promise<DnsCheckResult[]>((resolve, reject) => {
+      const onAbort = (): void => {
+        done = true;
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      if (signal !== undefined) {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      const worker = async (): Promise<void> => {
+        while (!done) {
+          const idx = nextIndex++;
+          if (idx >= domains.length) {
+            activeWorkers--;
+            if (activeWorkers === 0) {
+              cleanup();
+              resolve(results);
+            }
+            return;
+          }
+          try {
+            results[idx] = await this.checkAvailability(domains[idx]!, signal);
+          } catch {
+            results[idx] = {
+              domain: domains[idx] ?? 'unknown',
+              status: DomainStatus.Unknown,
+              checkedAt: new Date().toISOString(),
+            };
+          }
+        }
+      };
+
+      const cleanup = (): void => {
+        if (signal !== undefined) {
+          signal.removeEventListener('abort', onAbort);
+        }
+      };
+
+      // Spawn worker pool
+      const concurrency = Math.min(this.#bulkConcurrency, domains.length);
+      activeWorkers = concurrency > 0 ? concurrency : 1;
+      for (let i = 0; i < concurrency; i++) {
+        void worker();
+      }
+    });
   }
 }
