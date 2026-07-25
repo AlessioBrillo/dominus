@@ -1,10 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SchedulerService } from '../scheduler-service.js';
-import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
-import type { PortfolioRdapService } from '../../portfolio/portfolio-rdap-service.js';
+import { describe, it, expect } from 'vitest';
+import { buildDnsConsensusConfig } from '../provider-factory.js';
 import type { Config } from '../../config.js';
-import { resetConfig } from '../../config.js';
-import { resetLogger } from '../../logger.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -155,94 +151,21 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function makeMockAlertEngine(): RenewalAlertEngine {
-  return {
-    checkAll: vi.fn().mockResolvedValue({ generated: 0, alerts: [] }),
-  } as unknown as RenewalAlertEngine;
-}
-
-describe('SchedulerService', () => {
-  let alertEngine: RenewalAlertEngine;
-  let config: Config;
-
-  beforeEach(() => {
-    resetConfig();
-    resetLogger();
-    alertEngine = makeMockAlertEngine();
-    config = makeConfig();
+// Regression: the 2-of-3 consensus feature (dns-prefilter-stage.ts) was fully
+// implemented and unit-tested but composition-root never passed a
+// consensusConfig, so it never ran in production. This locks in the
+// wiring decision at the factory boundary.
+describe('buildDnsConsensusConfig', () => {
+  it('returns undefined when DNS_CONSENSUS_ENABLED is false (default)', () => {
+    const config = makeConfig({ DNS_CONSENSUS_ENABLED: false });
+    expect(buildDnsConsensusConfig(config)).toBeUndefined();
   });
 
-  it('starts and stops without error', () => {
-    const scheduler = new SchedulerService({ config, alertEngine });
-    expect(() => scheduler.start()).not.toThrow();
-    expect(() => scheduler.stop()).not.toThrow();
-  });
-
-  it('start is idempotent', () => {
-    const scheduler = new SchedulerService({ config, alertEngine });
-    scheduler.start();
-    expect(() => scheduler.start()).not.toThrow();
-    scheduler.stop();
-  });
-
-  it('reports initial status with no runs after start', async () => {
-    const scheduler = new SchedulerService({ config, alertEngine });
-    scheduler.start();
-    const status = await scheduler.getStatus();
-    expect(status).toHaveLength(1); // renewal-check registered in start
-    expect(status[0]?.name).toBe('renewal-check');
-    expect(status[0]?.lastRunAt).toBeNull();
-    scheduler.stop();
-  });
-
-  it('reports status after start includes all registered jobs', async () => {
-    const scheduler = new SchedulerService({ config, alertEngine });
-    scheduler.start();
-    const status = await scheduler.getStatus();
-    expect(status.length).toBeGreaterThanOrEqual(1);
-    expect(status.some((j) => j.name === 'renewal-check')).toBe(true);
-    scheduler.stop();
-  });
-
-  it('runOnce triggers the alert engine and returns result', async () => {
-    const mockEngine = {
-      checkAll: vi.fn().mockResolvedValue({ generated: 3, alerts: [] }),
-    } as unknown as RenewalAlertEngine;
-    const scheduler = new SchedulerService({ config, alertEngine: mockEngine });
-    scheduler.start();
-
-    const result = await scheduler.runOnce('renewal-check');
-    expect(result).toContain('3');
-    expect(mockEngine.checkAll).toHaveBeenCalledTimes(1);
-    scheduler.stop();
-  });
-
-  it('runOnce throws for unknown job', async () => {
-    const scheduler = new SchedulerService({ config, alertEngine });
-    scheduler.start();
-    await expect(scheduler.runOnce('nonexistent')).rejects.toThrow('Unknown job');
-    scheduler.stop();
-  });
-
-  // Regression: PortfolioRdapService existed but was never wired to the scheduler,
-  // so the weekly renewal-date healthcheck silently never ran (composition-root
-  // never passed portfolioHealthcheckService). See src/app/composition-root.ts.
-  it('registers portfolio-healthcheck job when portfolioHealthcheckService is provided', async () => {
-    const portfolioHealthcheckService = {
-      checkExpiring: vi.fn().mockResolvedValue({ checked: 2, updated: 1, errors: 0 }),
-    } as unknown as PortfolioRdapService;
-    const scheduler = new SchedulerService({ config, alertEngine, portfolioHealthcheckService });
-    scheduler.start();
-    const status = await scheduler.getStatus();
-    expect(status.some((j) => j.name === 'portfolio-healthcheck')).toBe(true);
-    scheduler.stop();
-  });
-
-  it('omits portfolio-healthcheck job when no service is provided', async () => {
-    const scheduler = new SchedulerService({ config, alertEngine });
-    scheduler.start();
-    const status = await scheduler.getStatus();
-    expect(status.some((j) => j.name === 'portfolio-healthcheck')).toBe(false);
-    scheduler.stop();
+  it('returns a secondaryProvider when DNS_CONSENSUS_ENABLED is true', () => {
+    const config = makeConfig({ DNS_CONSENSUS_ENABLED: true, DNS_CONSENSUS_STRATEGY: 'dot-only' });
+    const result = buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.secondaryProvider).toBeDefined();
+    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 });

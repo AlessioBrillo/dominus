@@ -344,6 +344,34 @@ const configSchema = z.object({
       },
     ),
   /**
+   * Enable 2-of-3 DNS consensus cross-validation. When true, every domain the
+   * primary resolver reports as Available is re-queried against a second
+   * NodeDnsProvider built with DNS_CONSENSUS_STRATEGY; disagreement downgrades
+   * the result to Unknown instead of trusting a single resolver group.
+   * Default: false — doubles DNS query volume, so it is opt-in to keep the
+   * community edition at its default zero-extra-cost/latency footprint.
+   */
+  DNS_CONSENSUS_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+  /**
+   * Lookup strategy for the secondary DNS consensus provider (see
+   * DNS_CONSENSUS_ENABLED). Should differ from DNS_LOOKUP_STRATEGY so the two
+   * opinions use disjoint resolvers/transports. Default: 'dot-only' (DNS-over-TLS),
+   * disjoint from the primary default 'doh-primary' (DNS-over-HTTPS).
+   */
+  DNS_CONSENSUS_STRATEGY: z
+    .enum([
+      'native',
+      'native-with-doh-fallback',
+      'doh-only',
+      'doh-primary',
+      'dot-only',
+      'dot-with-doh-fallback',
+      'multi-doh-plus-native',
+    ])
+    .default('dot-only'),
+  /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */

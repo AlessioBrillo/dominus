@@ -84,6 +84,7 @@ import {
   buildCompsProvider,
   buildRdapProviders,
   buildDnsProvider,
+  buildDnsConsensusConfig,
   buildWhoisProviders,
   buildRateLimiters,
   buildWaybackProvider,
@@ -525,9 +526,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       )
     : undefined;
 
+  // 2-of-3 DNS consensus: opt-in cross-validation against a secondary
+  // resolver strategy. Default off — doubles DNS query volume, so the
+  // community edition stays at its default zero-extra-cost footprint.
+  const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsRateLimiter);
+
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
-    new DnsPreFilterStage(dnsProvider, config.DNS_BULK_CONCURRENCY, [CandidateSource.CloseoutCsv]),
+    new DnsPreFilterStage(
+      dnsProvider,
+      config.DNS_BULK_CONCURRENCY,
+      [CandidateSource.CloseoutCsv],
+      dnsConsensusConfig,
+    ),
     new RdapConfirmationStage(
       cachedRdapProvider,
       whoisProvider,

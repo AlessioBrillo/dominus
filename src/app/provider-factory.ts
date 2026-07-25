@@ -30,6 +30,7 @@ import { RetryingRdapProvider } from './retrying-rdap-provider.js';
 import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
+import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
 import { getLogger } from '../logger.js';
 
 export function buildKeywordProvider(
@@ -179,6 +180,40 @@ export function buildDnsProvider(
         : undefined,
     persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
   });
+}
+
+/**
+ * Secondary DNS provider for 2-of-3 consensus cross-validation (see
+ * DNS_CONSENSUS_ENABLED). Uses a resolver strategy disjoint from the primary
+ * provider and skips the persistent cache — this is a verification query,
+ * not a candidate for reuse across runs.
+ */
+export function buildSecondaryDnsProvider(
+  config: Config,
+  rateLimiter?: RateLimiterLike,
+): DnsProvider {
+  return new NodeDnsProvider({
+    cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+    maxSize: config.DNS_CACHE_MAX_SIZE,
+    lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+    lookupStrategy: config.DNS_CONSENSUS_STRATEGY,
+    dohEndpoint: config.DNS_DOH_ENDPOINT,
+    bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+    rateLimiter,
+    retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+  });
+}
+
+/**
+ * Builds the DNS 2-of-3 consensus config for the pipeline's DNS prefilter
+ * stage, or undefined when DNS_CONSENSUS_ENABLED is off (the default).
+ */
+export function buildDnsConsensusConfig(
+  config: Config,
+  rateLimiter?: RateLimiterLike,
+): ConsensusDnsConfig | undefined {
+  if (!config.DNS_CONSENSUS_ENABLED) return undefined;
+  return { secondaryProvider: buildSecondaryDnsProvider(config, rateLimiter) };
 }
 
 export interface BuiltWhoisProvider {

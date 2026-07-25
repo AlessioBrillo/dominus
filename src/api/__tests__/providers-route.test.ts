@@ -148,6 +148,8 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     ACQUISITION_FUNNEL_MAX_ENTRIES: 0,
     DNS_PERSISTENT_CACHE_ENABLED: true,
     DNS_PERSISTENT_CACHE_TTL_HOURS: 24,
+    DNS_CONSENSUS_ENABLED: false,
+    DNS_CONSENSUS_STRATEGY: 'dot-only',
     ...overrides,
   };
 }
