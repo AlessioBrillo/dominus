@@ -436,6 +436,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #rateLimiter: RateLimiterLike | undefined;
   readonly #retryPolicy: Partial<RetryPolicy> | undefined;
   readonly #persistentCache: ProviderCacheRepository | undefined;
+  readonly #persistentCacheTtlHours: number;
   readonly #cache: LRUCache<string, DnsCheckResult>;
   /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
@@ -453,6 +454,7 @@ export class NodeDnsProvider implements DnsProvider {
     rateLimiter?: RateLimiterLike | undefined;
     retryPolicy?: Partial<RetryPolicy> | undefined;
     persistentCache?: ProviderCacheRepository | undefined;
+    persistentCacheTtlHours?: number;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -464,6 +466,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#rateLimiter = options?.rateLimiter;
     this.#retryPolicy = options?.retryPolicy;
     this.#persistentCache = options?.persistentCache;
+    this.#persistentCacheTtlHours = options?.persistentCacheTtlHours ?? 168;
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -583,7 +586,8 @@ export class NodeDnsProvider implements DnsProvider {
   #setCaches(domain: string, result: DnsCheckResult): void {
     this.#cache.set(domain, result);
     if (this.#persistentCache !== undefined) {
-      this.#persistentCache.set(domain, this.name, JSON.stringify(result), 7).catch(() => {
+      const ttlDays = this.#persistentCacheTtlHours / 24;
+      this.#persistentCache.set(domain, this.name, JSON.stringify(result), ttlDays).catch(() => {
         /* Non-fatal: in-memory cache still works */
       });
     }

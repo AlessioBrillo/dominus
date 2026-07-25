@@ -147,9 +147,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PARKING_IPS_PATH: undefined,
     PUBLIC_SCORES_RETENTION_DAYS: 90,
     EVENTS_RETENTION_DAYS: 180,
-    DNS_SEMAPHORE_CONCURRENCY: 100,
-    DNS_RESOLVER_URLS: undefined,
-    DNS_HEALTH_CHECK_DOMAIN: 'google.com',
     REDIS_TLS_ENABLED: false,
     REDIS_KEY_PREFIX: 'dominus:',
     REDIS_MAX_RETRIES: 10,
@@ -160,6 +157,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     ACQUISITION_FUNNEL_MAX_ENTRIES: 0,
     DNS_PERSISTENT_CACHE_ENABLED: true,
     DNS_PERSISTENT_CACHE_TTL_HOURS: 24,
+    DNS_CONSENSUS_ENABLED: false,
+    DNS_CONSENSUS_STRATEGY: 'dot-only',
     ...overrides,
   };
 }

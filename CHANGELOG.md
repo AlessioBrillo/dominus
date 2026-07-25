@@ -5,6 +5,31 @@ All notable changes to DOMINUS are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> **Note:** entries between 0.5.0-dev and 0.10.0-dev were not logged here as
+> they shipped (see ROADMAP.md and git history for that period). Backfilling
+> is a separate effort; new entries resume below at the current version.
+
+## [Unreleased]
+
+### Fixed
+- `PortfolioRdapService` was built end-to-end but never instantiated in
+  `composition-root`, so the weekly portfolio renewal-date healthcheck
+  against live RDAP/WHOIS silently never ran. Wired into the worker and
+  scheduler.
+- `DNS_PERSISTENT_CACHE_TTL_HOURS` was validated but ignored — the
+  persistent DNS cache write hardcoded a 7-day TTL regardless of config.
+  Now honored; default raised from 24 to 168 hours to preserve current
+  runtime behavior.
+- Removed dead config knobs `DNS_SEMAPHORE_CONCURRENCY`, `DNS_RESOLVER_URLS`
+  (superseded by `DNS_RESOLVER_GROUPS`), and `DNS_HEALTH_CHECK_DOMAIN` (no
+  production consumer).
+
+### Added
+- `DNS_CONSENSUS_ENABLED` / `DNS_CONSENSUS_STRATEGY`: opt-in 2-of-3 DNS
+  resolver consensus cross-validation (default off). The feature existed
+  and was unit-tested since the DNS multi-resolver work but was never
+  wired into `composition-root`.
+
 ## [0.5.0-dev] — 2026-06-26
 
 ### Added
