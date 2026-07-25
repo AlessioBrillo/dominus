@@ -483,6 +483,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       JOB_QUEUE_POLL_INTERVAL_MS: 1000,
       JOB_QUEUE_MAX_DEPTH: 1000,
       JOB_MAX_RUNNING_AGE_MS: 300000,
+      JOB_HEARTBEAT_INTERVAL_MS: 15000,
       LISTING_PROVIDER: 'manual' as const,
       LISTING_DEFAULT_MARKETPLACE: 'manual' as const,
       LISTING_DEFAULT_PRICE_MULTIPLIER: 1.0,

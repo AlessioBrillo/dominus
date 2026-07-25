@@ -351,6 +351,7 @@ function buildWorkerIfEnabled(
     concurrency: config.WORKER_CONCURRENCY,
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
+    heartbeatIntervalMs: config.JOB_HEARTBEAT_INTERVAL_MS,
   });
   worker.start();
   return worker;
