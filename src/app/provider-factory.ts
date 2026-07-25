@@ -177,6 +177,7 @@ export function buildDnsProvider(
       config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
         ? providerCacheRepo
         : undefined,
+    persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
   });
 }
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeDnsProvider } from '../node-dns-provider.js';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 import { DomainStatus } from '../../../types/domain-status.js';
+import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
 
 vi.mock('node:dns', () => {
   const resolveFn = vi.fn();
@@ -68,6 +69,53 @@ describe('NodeDnsProvider', () => {
     vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
     const result = await provider.checkAvailability('example.com');
     expect(result.status).toBe(DomainStatus.Unknown);
+  });
+
+  // Regression: the persistent cache write used to hardcode a 7-day TTL
+  // regardless of DNS_PERSISTENT_CACHE_TTL_HOURS. See node-dns-provider.ts #setCaches.
+  describe('persistent cache TTL', () => {
+    function makeFakePersistentCache(): ProviderCacheRepository {
+      return {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ProviderCacheRepository;
+    }
+
+    it('derives ttlDays from persistentCacheTtlHours (24h -> 1 day)', async () => {
+      const persistentCache = makeFakePersistentCache();
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'native',
+        persistentCache,
+        persistentCacheTtlHours: 24,
+      });
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      await p.checkAvailability('free-domain-xyz-123.com');
+
+      expect(persistentCache.set).toHaveBeenCalledWith(
+        'free-domain-xyz-123.com',
+        expect.any(String),
+        expect.any(String),
+        1,
+      );
+    });
+
+    it('defaults to a 7-day ttlDays when persistentCacheTtlHours is unset', async () => {
+      const persistentCache = makeFakePersistentCache();
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      await p.checkAvailability('free-domain-xyz-123.com');
+
+      expect(persistentCache.set).toHaveBeenCalledWith(
+        'free-domain-xyz-123.com',
+        expect.any(String),
+        expect.any(String),
+        7,
+      );
+    });
   });
 
   it('checkBulk returns results for all domains', async () => {
