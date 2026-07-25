@@ -106,7 +106,7 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v0.4.0-dev — transitioning to open-source SaaS architecture.
+DOMINUS v0.10.0-dev — operations, reliability, and production hardening.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
