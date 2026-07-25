@@ -57,6 +57,9 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Worker entrypoint: received shutdown signal');
     healthcheck.close();
     await worker.stop();
+    if (deps.redisClient) {
+      await deps.redisClient.shutdown();
+    }
     shutdownComplete();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -170,6 +170,8 @@ export interface DominusDependencies {
   bulkWriteProvider: DatabaseProvider | undefined;
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
+  /** Undefined when REDIS_URL is unset (community edition, in-memory fallbacks). */
+  redisClient: RedisClient | undefined;
 }
 
 interface BuiltRepositories {
@@ -803,5 +805,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     worker,
     authProvider,
     anonScoringService,
+    redisClient,
   };
 }
