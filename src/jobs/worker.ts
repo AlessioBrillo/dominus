@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type { JobType, JobHandler, JobQueueRow, JobPayload } from '../types/job-queue.js';
@@ -13,6 +15,8 @@ export interface WorkerConfig {
   pollIntervalMs: number;
   maxRunningAgeMs: number;
   gracefulShutdownTimeoutMs: number;
+  /** How often this worker refreshes heartbeat_at for its active jobs. */
+  heartbeatIntervalMs: number;
   /** Optional notifier chain for dead-letter and critical job failures. */
   notifiers?: Notifier[];
 }
@@ -24,9 +28,12 @@ export class JobWorker {
   readonly #repo: JobQueueRepository;
   readonly #handlers: Map<JobType, AnyHandler>;
   readonly #config: WorkerConfig;
+  /** Unique per-process identity used to scope job ownership (locked_by) and heartbeats. */
+  readonly #workerId: string;
   #running: boolean = false;
   #activeJobs: Map<number, AbortController> = new Map();
   #pollTimer: ReturnType<typeof setTimeout> | null = null;
+  #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #shutdownPromise: Promise<void> | null = null;
   #shutdownResolve: (() => void) | null = null;
   /** Consecutive SQLITE_BUSY errors for adaptive poll backoff. */
@@ -39,19 +46,28 @@ export class JobWorker {
   ) {
     this.#repo = new JobQueueRepository(provider);
     this.#handlers = handlers;
+    this.#workerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
     this.#config = {
       concurrency: config.concurrency ?? 2,
       pollIntervalMs: config.pollIntervalMs ?? 5000,
       maxRunningAgeMs: config.maxRunningAgeMs ?? 300000,
       gracefulShutdownTimeoutMs: config.gracefulShutdownTimeoutMs ?? 30000,
+      heartbeatIntervalMs: config.heartbeatIntervalMs ?? 15000,
     };
   }
 
   start(): void {
     if (this.#running) return;
     this.#running = true;
-    logger.info({ concurrency: this.#config.concurrency }, 'JobWorker starting');
+    logger.info(
+      { concurrency: this.#config.concurrency, workerId: this.#workerId },
+      'JobWorker starting',
+    );
     this.#schedulePoll();
+    this.#heartbeatTimer = setInterval(
+      () => void this.#sendHeartbeat(),
+      this.#config.heartbeatIntervalMs,
+    ).unref();
   }
 
   async stop(): Promise<void> {
@@ -61,6 +77,10 @@ export class JobWorker {
     if (this.#pollTimer) {
       clearTimeout(this.#pollTimer);
       this.#pollTimer = null;
+    }
+    if (this.#heartbeatTimer) {
+      clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = null;
     }
 
     logger.info(
@@ -113,7 +133,7 @@ export class JobWorker {
     let dequeued = 0;
     for (let i = 0; i < availableSlots; i++) {
       try {
-        const job = await this.#repo.dequeue();
+        const job = await this.#repo.dequeue(this.#workerId);
         if (!job) break;
         dequeued++;
         void this.#processJob(job);
@@ -144,6 +164,16 @@ export class JobWorker {
     }
 
     this.#schedulePoll();
+  }
+
+  /** Refresh heartbeat_at for all jobs this worker currently owns. */
+  async #sendHeartbeat(): Promise<void> {
+    if (this.#activeJobs.size === 0) return;
+    try {
+      await this.#repo.heartbeat([...this.#activeJobs.keys()], this.#workerId);
+    } catch (err) {
+      logger.warn({ err }, 'Job heartbeat update failed');
+    }
   }
 
   /** Compute poll delay with adaptive backoff on SQLITE_BUSY. */

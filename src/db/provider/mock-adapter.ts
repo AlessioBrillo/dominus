@@ -8,12 +8,14 @@ interface CallRecord {
 }
 
 export class MockDatabaseProvider implements DatabaseProvider {
+  readonly dialect: 'sqlite' | 'postgres';
   #calls: CallRecord[] = [];
   #open = true;
   #nextId = 1;
   #tables: Set<string> = new Set();
 
-  constructor() {
+  constructor(dialect: 'sqlite' | 'postgres' = 'sqlite') {
+    this.dialect = dialect;
     this.#tables.add('schema_migrations');
   }
 

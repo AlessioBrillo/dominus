@@ -1046,6 +1046,14 @@ const configSchema = z.object({
   JOB_MAX_RUNNING_AGE_MS: z.coerce.number().int().min(10000).max(86400000).default(3600000),
 
   /**
+   * How often the worker refreshes heartbeat_at for its currently running
+   * jobs. Must be well below JOB_MAX_RUNNING_AGE_MS so a live job never
+   * goes stale between heartbeats and gets falsely reaped.
+   * Default: 15000ms (15 seconds).
+   */
+  JOB_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(1000).max(300000).default(15000),
+
+  /**
    * Maximum depth (queued jobs) allowed in the job queue before new
    * enqueue attempts are rejected. Prevents unbounded queue growth
    * when the worker cannot keep up with producers (ADR-0023 §4.7).

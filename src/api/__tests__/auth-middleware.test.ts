@@ -10,6 +10,7 @@ import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.
 
 function makeMockDb(): DatabaseProvider {
   return {
+    dialect: 'sqlite',
     exec: vi.fn().mockResolvedValue({ changes: 1, lastInsertRowid: undefined } as ExecResult),
     query: vi.fn().mockResolvedValue([]),
     queryOne: vi.fn().mockResolvedValue(null),

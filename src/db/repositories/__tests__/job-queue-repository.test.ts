@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
 import { SqliteProvider } from '../../provider/sqlite-adapter.js';
+import { MockDatabaseProvider } from '../../provider/mock-adapter.js';
 import { JobQueueRepository } from '../job-queue-repository.js';
 
 function openTestDb(): SqliteProvider {
@@ -100,6 +101,60 @@ describe('JobQueueRepository', () => {
       expect(job!.startedAt).toBeDefined();
       expect(job!.startedAt!.length).toBeGreaterThan(0);
     });
+
+    it('records the claiming worker in locked_by and stamps heartbeat_at', async () => {
+      await repo.enqueue('PRUNE', {});
+      const job = await repo.dequeue('worker-a');
+      expect(job!.lockedBy).toBe('worker-a');
+      expect(job!.heartbeatAt).toBeDefined();
+    });
+  });
+
+  describe('dequeue — Postgres row-locking', () => {
+    it('emits FOR UPDATE SKIP LOCKED in the candidate-selection subquery on the postgres dialect', async () => {
+      const mockDb = new MockDatabaseProvider('postgres');
+      const pgRepo = new JobQueueRepository(mockDb);
+      await pgRepo.dequeue('worker-a');
+      const dequeueCall = mockDb.calls.find((c) => c.method === 'queryOne');
+      expect(dequeueCall!.sql).toMatch(/FOR UPDATE SKIP LOCKED/);
+    });
+
+    it('does not emit FOR UPDATE SKIP LOCKED on the sqlite dialect', async () => {
+      const mockDb = new MockDatabaseProvider('sqlite');
+      const sqliteRepo = new JobQueueRepository(mockDb);
+      await sqliteRepo.dequeue('worker-a');
+      const dequeueCall = mockDb.calls.find((c) => c.method === 'queryOne');
+      expect(dequeueCall!.sql).not.toMatch(/FOR UPDATE SKIP LOCKED/);
+    });
+  });
+
+  describe('heartbeat', () => {
+    it('refreshes heartbeat_at for jobs owned by the given worker', async () => {
+      const id = await repo.enqueue('PRUNE', {});
+      await repo.dequeue('worker-a');
+      provider.rawDb
+        .prepare("UPDATE job_queue SET heartbeat_at = datetime('now', '-1 hour') WHERE id = ?")
+        .run(id);
+      const stale = (await repo.getById(id))!.heartbeatAt;
+      await repo.heartbeat([id], 'worker-a');
+      const after = (await repo.getById(id))!.heartbeatAt;
+      expect(after).not.toBe(stale);
+    });
+
+    it('does not update heartbeat_at for a job owned by a different worker', async () => {
+      const id = await repo.enqueue('PRUNE', {});
+      await repo.dequeue('worker-a');
+      provider.rawDb
+        .prepare("UPDATE job_queue SET heartbeat_at = datetime('now', '-1 hour') WHERE id = ?")
+        .run(id);
+      const stale = (await repo.getById(id))!.heartbeatAt;
+      await repo.heartbeat([id], 'worker-b');
+      expect((await repo.getById(id))!.heartbeatAt).toBe(stale);
+    });
+
+    it('is a no-op for an empty job id list', async () => {
+      await expect(repo.heartbeat([], 'worker-a')).resolves.toBeUndefined();
+    });
   });
 
   describe('complete', () => {
@@ -152,17 +207,50 @@ describe('JobQueueRepository', () => {
   });
 
   describe('requeueStuck', () => {
-    it('requeues running jobs older than maxRunningAgeMs', async () => {
+    it('requeues running jobs whose heartbeat has gone stale', async () => {
       const id = await repo.enqueue('WATCHLIST_POLL', {});
-      await repo.dequeue();
+      await repo.dequeue('worker-a');
       provider.rawDb
-        .prepare("UPDATE job_queue SET started_at = datetime('now', '-10 minutes') WHERE id = ?")
+        .prepare(
+          "UPDATE job_queue SET started_at = datetime('now', '-10 minutes'), heartbeat_at = datetime('now', '-10 minutes') WHERE id = ?",
+        )
         .run(id);
       const requeued = await repo.requeueStuck(5000);
       expect(requeued).toBe(1);
       const job = await repo.getById(id);
       expect(job!.status).toBe('queued');
       expect(job!.startedAt).toBeUndefined();
+      expect(job!.lockedBy).toBeUndefined();
+      expect(job!.heartbeatAt).toBeUndefined();
+    });
+
+    it('does not requeue a job with a fresh heartbeat, even if started long ago', async () => {
+      const id = await repo.enqueue('WATCHLIST_POLL', {});
+      await repo.dequeue('worker-a');
+      // started_at is old but heartbeat_at (set by dequeue) is fresh — the
+      // worker is still alive and actively working this job.
+      provider.rawDb
+        .prepare("UPDATE job_queue SET started_at = datetime('now', '-10 minutes') WHERE id = ?")
+        .run(id);
+      const requeued = await repo.requeueStuck(5000);
+      expect(requeued).toBe(0);
+      const job = await repo.getById(id);
+      expect(job!.status).toBe('running');
+    });
+
+    it('requeues legacy running jobs with no heartbeat_at, based on started_at', async () => {
+      const id = await repo.enqueue('WATCHLIST_POLL', {});
+      await repo.dequeue('worker-a');
+      // Simulates a row claimed before the heartbeat migration/worker upgrade.
+      provider.rawDb
+        .prepare(
+          "UPDATE job_queue SET started_at = datetime('now', '-10 minutes'), heartbeat_at = NULL WHERE id = ?",
+        )
+        .run(id);
+      const requeued = await repo.requeueStuck(5000);
+      expect(requeued).toBe(1);
+      const job = await repo.getById(id);
+      expect(job!.status).toBe('queued');
     });
 
     it('does not affect recent running jobs', async () => {

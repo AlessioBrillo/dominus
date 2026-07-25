@@ -335,7 +335,12 @@ async function main(): Promise<void> {
       });
       logger.info('HTTP server closed');
 
-      // Step 5: Close the database last, after all workers and connections are drained
+      // Step 5: Close the Redis connection, if one was opened
+      if (deps.redisClient) {
+        await deps.redisClient.shutdown();
+      }
+
+      // Step 6: Close the database last, after all workers and connections are drained
       closeDatabase();
       logger.info('Database closed');
     } catch (err) {
