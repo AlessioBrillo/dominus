@@ -144,6 +144,7 @@ function wrapError(err: unknown): DatabaseError {
 // ─────────────────────────────────────────────────────────────
 
 export class PostgresAdapter implements DatabaseProvider {
+  readonly dialect = 'postgres' as const;
   readonly #pool: Pool;
   readonly #connectionString: string;
   readonly #schema: string | undefined;
@@ -357,6 +358,7 @@ export class PostgresAdapter implements DatabaseProvider {
 // ─────────────────────────────────────────────────────────────
 
 class PostgresTransactionAdapter implements DatabaseProvider {
+  readonly dialect = 'postgres' as const;
   readonly #executor: PgExecutor;
   readonly #client: PoolClient;
 

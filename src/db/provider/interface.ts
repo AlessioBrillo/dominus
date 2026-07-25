@@ -21,6 +21,8 @@ export interface BackupResult {
 }
 
 export interface DatabaseProvider {
+  /** Backing database dialect. Used to branch SQL that is not portable (e.g. row locking). */
+  readonly dialect: 'sqlite' | 'postgres';
   exec(sql: string, params?: unknown[]): Promise<ExecResult>;
   query<T>(sql: string, params?: unknown[]): Promise<T[]>;
   queryOne<T>(sql: string, params?: unknown[]): Promise<T | null>;

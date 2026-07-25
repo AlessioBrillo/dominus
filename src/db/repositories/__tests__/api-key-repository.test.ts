@@ -4,6 +4,7 @@ import type { DatabaseProvider, ExecResult } from '../../provider/interface.js';
 
 function mockDb(): DatabaseProvider {
   return {
+    dialect: 'sqlite',
     exec: vi.fn().mockResolvedValue({ changes: 1, lastInsertRowid: 1 } as ExecResult),
     query: vi.fn().mockResolvedValue([]),
     queryOne: vi.fn().mockResolvedValue(null),

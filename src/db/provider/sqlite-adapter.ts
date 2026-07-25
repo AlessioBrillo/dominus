@@ -8,6 +8,7 @@ import { runMigrations as runSqliteMigrations } from '../migrator.js';
 const logger = getLogger();
 
 export class SqliteProvider implements DatabaseProvider {
+  readonly dialect = 'sqlite' as const;
   /** Underlying better-sqlite3 database handle. */
   readonly #db: Database.Database;
   #open = false;
