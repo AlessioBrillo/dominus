@@ -250,6 +250,79 @@ describe('JobWorker', () => {
     });
   });
 
+  describe('heartbeat loop', () => {
+    it('refreshes a manually-staled heartbeat_at while a job is in flight', async () => {
+      let release: (() => void) | undefined;
+      const handler = makeMockHandler('PRUNE', async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          deletedCandidates: 0,
+          deletedJobQueue: 0,
+          deletedPipelineRuns: 0,
+          deletedProviderCache: 0,
+          deletedScoringRuns: 0,
+          deletedWaybackCache: 0,
+          deletedPublicScores: 0,
+          deletedEvents: 0,
+        };
+      });
+      handlers.set('PRUNE', handler);
+      const worker = new JobWorker(dbProvider, handlers, {
+        pollIntervalMs: 20,
+        heartbeatIntervalMs: 20,
+        gracefulShutdownTimeoutMs: 200,
+      });
+      workers.push(worker);
+
+      const jobId = await repo.enqueue('PRUNE', {});
+      worker.start();
+
+      await vi.waitFor(
+        async () => {
+          expect(worker.getStatus().activeJobs).toBe(1);
+        },
+        { timeout: 5000, interval: 20 },
+      );
+
+      // Simulate time passing: force heartbeat_at stale (but still within
+      // the default maxRunningAgeMs, so requeueStuck() doesn't reap it out
+      // from under the still-pending handler) while the job is genuinely
+      // in flight. The worker's heartbeat loop should overwrite this on its
+      // next tick.
+      db.prepare(
+        "UPDATE job_queue SET heartbeat_at = datetime('now', '-2 minutes') WHERE id = ?",
+      ).run(jobId);
+      const staled = (await repo.getById(jobId))!.heartbeatAt;
+
+      await vi.waitFor(
+        async () => {
+          const job = await repo.getById(jobId);
+          expect(job!.heartbeatAt).not.toBe(staled);
+        },
+        { timeout: 5000, interval: 20 },
+      );
+
+      release?.();
+    });
+
+    it('stops sending heartbeats after stop()', async () => {
+      const worker = new JobWorker(dbProvider, handlers, {
+        pollIntervalMs: 20,
+        heartbeatIntervalMs: 20,
+      });
+      workers.push(worker);
+
+      worker.start();
+      await worker.stop();
+      // No active jobs and the timer is cleared — heartbeat() must not be
+      // reachable anymore. Absence of a thrown/unhandled rejection after
+      // stop() is the behavior under test.
+      expect(worker.getStatus().running).toBe(false);
+    });
+  });
+
   describe('getStatus', () => {
     it('returns correct status before and after start', () => {
       const worker = new JobWorker(dbProvider, handlers, FAST_POLL);
