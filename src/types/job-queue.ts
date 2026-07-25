@@ -27,6 +27,8 @@ export interface JobQueueRow {
   resultJson?: string;
   createdAt: string;
   updatedAt: string;
+  lockedBy?: string;
+  heartbeatAt?: string;
 }
 
 export interface DeadLetterJobRow {

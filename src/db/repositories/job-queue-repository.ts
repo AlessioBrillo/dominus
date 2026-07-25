@@ -32,6 +32,8 @@ export class JobQueueRepository {
       resultJson: row.result_json ?? undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      lockedBy: row.locked_by ?? undefined,
+      heartbeatAt: row.heartbeat_at ?? undefined,
     };
   }
 
@@ -103,23 +105,64 @@ export class JobQueueRepository {
     return row.id;
   }
 
-  async dequeue(): Promise<JobQueueRow | null> {
+  /**
+   * Claim the next eligible job for this worker.
+   *
+   * On Postgres, multiple workers race against the same table across
+   * separate connections, so the candidate-selection subquery uses
+   * FOR UPDATE SKIP LOCKED: it row-locks the candidate and lets any other
+   * worker's concurrent SELECT skip past it instead of blocking or
+   * double-claiming it. SQLite has a single writer (better-sqlite3 is
+   * synchronous), so the plain SELECT is already atomic there and
+   * FOR UPDATE SKIP LOCKED is not valid SQLite syntax.
+   */
+  async dequeue(workerId = 'unknown'): Promise<JobQueueRow | null> {
+    const selectClause =
+      this.#db.dialect === 'postgres'
+        ? `SELECT id FROM job_queue
+           WHERE status = 'queued'
+             AND scheduled_at <= CURRENT_TIMESTAMP
+           ORDER BY priority DESC, scheduled_at ASC
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED`
+        : `SELECT id FROM job_queue
+           WHERE status = 'queued'
+             AND scheduled_at <= CURRENT_TIMESTAMP
+           ORDER BY priority DESC, scheduled_at ASC
+           LIMIT 1`;
+
     const row = await this.#db.queryOne<any>(
       `UPDATE job_queue
        SET status = 'running',
            attempts = attempts + 1,
            started_at = CURRENT_TIMESTAMP,
+           heartbeat_at = CURRENT_TIMESTAMP,
+           locked_by = ?,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = (
-         SELECT id FROM job_queue
-         WHERE status = 'queued'
-           AND scheduled_at <= CURRENT_TIMESTAMP
-         ORDER BY priority DESC, scheduled_at ASC
-         LIMIT 1
-       )
+       WHERE id = (${selectClause})
        RETURNING *`,
+      [workerId],
     );
     return row ? this.#rowToJob(row) : null;
+  }
+
+  /**
+   * Heartbeat for jobs this worker still owns. Scoped by locked_by so a
+   * job reaped and re-claimed by another worker never gets its heartbeat
+   * clobbered by the original (now-stale) owner.
+   */
+  async heartbeat(jobIds: number[], workerId: string): Promise<void> {
+    if (jobIds.length === 0) return;
+    const placeholders = jobIds.map(() => '?').join(', ');
+    await this.#db.exec(
+      `UPDATE job_queue
+       SET heartbeat_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id IN (${placeholders})
+         AND locked_by = ?
+         AND status = 'running'`,
+      [...jobIds, workerId],
+    );
   }
 
   async complete(jobId: number, result: object): Promise<void> {
@@ -172,17 +215,30 @@ export class JobQueueRepository {
     });
   }
 
+  /**
+   * Reap jobs whose owning worker has gone silent, instead of any job that
+   * has merely run long. A job with a fresh heartbeat is left alone no
+   * matter its age; a job whose heartbeat has gone stale (or predates the
+   * heartbeat column, for rows claimed before this migration) is requeued.
+   * Without this distinction, any job slower than maxRunningAgeMs — not
+   * just ones from a dead worker — gets requeued and can run twice
+   * alongside its still-live original execution.
+   */
   async requeueStuck(maxRunningAgeMs: number = 300000): Promise<number> {
     const cutoff = this.#ts(new Date(Date.now() - maxRunningAgeMs));
     const result = await this.#db.exec(
       `UPDATE job_queue
        SET status = 'queued',
            started_at = NULL,
+           locked_by = NULL,
+           heartbeat_at = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE status = 'running'
-         AND started_at IS NOT NULL
-         AND started_at <= ?`,
-      [cutoff],
+         AND (
+           (heartbeat_at IS NOT NULL AND heartbeat_at <= ?)
+           OR (heartbeat_at IS NULL AND started_at IS NOT NULL AND started_at <= ?)
+         )`,
+      [cutoff, cutoff],
     );
     return result.changes;
   }
