@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SchedulerService } from '../scheduler-service.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
+import type { PortfolioRdapService } from '../../portfolio/portfolio-rdap-service.js';
 import type { Config } from '../../config.js';
 import { resetConfig } from '../../config.js';
 import { resetLogger } from '../../logger.js';
@@ -221,6 +222,28 @@ describe('SchedulerService', () => {
     const scheduler = new SchedulerService({ config, alertEngine });
     scheduler.start();
     await expect(scheduler.runOnce('nonexistent')).rejects.toThrow('Unknown job');
+    scheduler.stop();
+  });
+
+  // Regression: PortfolioRdapService existed but was never wired to the scheduler,
+  // so the weekly renewal-date healthcheck silently never ran (composition-root
+  // never passed portfolioHealthcheckService). See src/app/composition-root.ts.
+  it('registers portfolio-healthcheck job when portfolioHealthcheckService is provided', async () => {
+    const portfolioHealthcheckService = {
+      checkExpiring: vi.fn().mockResolvedValue({ checked: 2, updated: 1, errors: 0 }),
+    } as unknown as PortfolioRdapService;
+    const scheduler = new SchedulerService({ config, alertEngine, portfolioHealthcheckService });
+    scheduler.start();
+    const status = await scheduler.getStatus();
+    expect(status.some((j) => j.name === 'portfolio-healthcheck')).toBe(true);
+    scheduler.stop();
+  });
+
+  it('omits portfolio-healthcheck job when no service is provided', async () => {
+    const scheduler = new SchedulerService({ config, alertEngine });
+    scheduler.start();
+    const status = await scheduler.getStatus();
+    expect(status.some((j) => j.name === 'portfolio-healthcheck')).toBe(false);
     scheduler.stop();
   });
 });

@@ -111,8 +111,10 @@ import {
   WatchlistPollHandler,
   RenewalCheckHandler,
   WeightTuneHandler,
+  PortfolioHealthcheckHandler,
   HANDLERS,
 } from '../jobs/index.js';
+import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
 
 const logger = getLogger();
 
@@ -299,6 +301,7 @@ function buildWorkerIfEnabled(
   watchlistService: WatchlistService,
   alertEngine: RenewalAlertEngine,
   autoTuner: AutoWeightTuner | undefined,
+  portfolioHealthcheckService: PortfolioRdapService,
 ): JobWorker | undefined {
   if (!config.WORKER_ENABLED) return undefined;
 
@@ -335,6 +338,9 @@ function buildWorkerIfEnabled(
   const watchlistHandler = new WatchlistPollHandler({ watchlistService });
   const renewalHandler = new RenewalCheckHandler({ alertEngine });
   const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
+  const portfolioHealthcheckHandler = new PortfolioHealthcheckHandler({
+    healthcheckService: portfolioHealthcheckService,
+  });
 
   const handlers = [
     pipelineRunHandler,
@@ -344,6 +350,7 @@ function buildWorkerIfEnabled(
     pruneHandler,
     watchlistHandler,
     renewalHandler,
+    portfolioHealthcheckHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
   for (const handler of handlers) {
@@ -371,6 +378,7 @@ function buildSchedulerIfEnabled(
   backupService: BackupService,
   jobQueueService: ReturnType<typeof createJobQueueService>,
   autoTuner: AutoWeightTuner | undefined,
+  portfolioHealthcheckService: PortfolioRdapService,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
   return new SchedulerService({
@@ -384,6 +392,7 @@ function buildSchedulerIfEnabled(
     backupService,
     jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
+    portfolioHealthcheckService,
     ...(autoTuner ? { autoTuner } : {}),
   });
 }
@@ -654,6 +663,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
   );
 
+  // --- Portfolio RDAP Healthcheck --- (verifies renewal dates against live RDAP/WHOIS)
+  const portfolioHealthcheckService = new PortfolioRdapService(
+    cachedRdapProvider,
+    whoisProvider,
+    repos.portfolioRepo,
+  );
+
   // --- Auto-Tuner ---
   let autoTuner: AutoWeightTuner | undefined;
   if (config.AUTO_TUNE_ENABLED) {
@@ -754,6 +770,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     watchlistService,
     alertEngine,
     autoTuner,
+    portfolioHealthcheckService,
   );
 
   // --- Scheduler ---
@@ -769,6 +786,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     backupService,
     jobQueueService,
     autoTuner,
+    portfolioHealthcheckService,
   );
 
   return {
