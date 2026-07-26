@@ -9,6 +9,7 @@ import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
+import { isMultiTenantAuth } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import {
@@ -57,7 +58,9 @@ async function main(): Promise<void> {
       logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
     }
   }
-  const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider);
+  const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
+    requireTenant: isMultiTenantAuth(config),
+  });
 
   const app = express();
 
@@ -139,7 +142,7 @@ async function main(): Promise<void> {
       }),
     );
   }
-  app.use('/api/v1/auth', createAuthRouter(deps.authProvider, undefined));
+  app.use('/api/v1/auth', createAuthRouter(deps.authProvider, deps.apiKeyRepo));
 
   // Global per-IP rate limit for all remaining API routes (protects against
   // request floods and resource exhaustion). Applied after auth to separate
