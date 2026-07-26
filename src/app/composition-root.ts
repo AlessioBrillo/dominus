@@ -31,7 +31,6 @@ import type { WhoisProvider } from '../providers/whois/whois-provider.js';
 import { AutoWeightTuner, type ScoringEngine, type ScoringWeights } from '../scoring/index.js';
 import { BacktestEngine, WeightSuggester } from '../scoring/backtest/index.js';
 import { TrademarkGate } from '../trademark/index.js';
-import { CandidateSource } from '../types/candidate.js';
 import {
   PipelineOrchestrator,
   CandidateGenerationStage,
@@ -541,7 +540,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     new DnsPreFilterStage(
       dnsProvider,
       config.DNS_BULK_CONCURRENCY,
-      [CandidateSource.CloseoutCsv],
+      [], // No sources skipped — closeout CSV candidates now go through DNS with forceRecheck
       dnsConsensusConfig,
     ),
     new RdapConfirmationStage(

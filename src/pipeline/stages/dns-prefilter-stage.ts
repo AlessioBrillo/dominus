@@ -1,7 +1,7 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
-import type { CandidateSource, DomainCandidate } from '../../types/candidate.js';
-import type { DnsProvider } from '../../providers/dns/dns-provider.js';
+import { CandidateSource, type DomainCandidate } from '../../types/candidate.js';
+import type { DnsProvider, DnsCheckOptions } from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { Stage, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
@@ -52,7 +52,39 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
-    const perDomainResults = await this.#resolveBulkWithFallback(toFilter, signal);
+    // Separate closeout sources — they need forceRecheck to bypass the
+    // persistent DNS cache and always get a live result, since they are
+    // in a transitional state (aftermarket/expiring) where a stale
+    // "Registered" cache entry from 7 days ago would incorrectly filter
+    // them out.
+    const closeoutIndices: number[] = [];
+    const otherIndices: number[] = [];
+    for (let i = 0; i < toFilter.length; i++) {
+      if (toFilter[i]!.source === CandidateSource.CloseoutCsv) {
+        closeoutIndices.push(i);
+      } else {
+        otherIndices.push(i);
+      }
+    }
+
+    const perDomainResults: (DnsCheckResult | undefined)[] = new Array(toFilter.length);
+
+    if (closeoutIndices.length > 0) {
+      const closeoutDomains = closeoutIndices.map((i) => toFilter[i]!);
+      const closeoutOpts: DnsCheckOptions = { forceRecheck: true };
+      const results = await this.#resolveBulkWithFallback(closeoutDomains, signal, closeoutOpts);
+      for (let j = 0; j < closeoutIndices.length; j++) {
+        perDomainResults[closeoutIndices[j]!] = results[j];
+      }
+    }
+
+    if (otherIndices.length > 0) {
+      const otherDomains = otherIndices.map((i) => toFilter[i]!);
+      const results = await this.#resolveBulkWithFallback(otherDomains, signal);
+      for (let j = 0; j < otherIndices.length; j++) {
+        perDomainResults[otherIndices[j]!] = results[j];
+      }
+    }
 
     const passed: DomainCandidate[] = [...toSkip];
 
@@ -98,14 +130,20 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
   async #resolveBulkWithFallback(
     domains: DomainCandidate[],
     signal?: AbortSignal,
+    options?: DnsCheckOptions,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (domains.length === 0) return [];
     if (signal?.aborted) return new Array(domains.length);
 
     // Stage 1: fast bulk check from the DNS provider (multi-resolver race internally).
-    const [bulkOk, results] = await this.#tryBulkCheck(domains, signal);
+    const [bulkOk, results] = await this.#tryBulkCheck(domains, signal, options);
     if (!bulkOk || results === null) {
-      return this.#perDomainFallback(results ?? new Array(domains.length), domains, signal);
+      return this.#perDomainFallback(
+        results ?? new Array(domains.length),
+        domains,
+        signal,
+        options,
+      );
     }
 
     // Stage 2: cross-validation when bulk has >10% undefined (timeout/error).
@@ -123,7 +161,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           },
           'DNS bulk check high undefined ratio — cross-validating with individual retries',
         );
-        const retried = await this.#retryUndefinedBatch(results, domains, signal);
+        const retried = await this.#retryUndefinedBatch(results, domains, signal, options);
         if (retried !== null) {
           const stillUndefined = retried.filter((r) => r === undefined).length;
           if (stillUndefined === 0) {
@@ -133,10 +171,10 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
             }
             return retried;
           }
-          return this.#perDomainFallback(retried, domains, signal);
+          return this.#perDomainFallback(retried, domains, signal, options);
         }
       }
-      return this.#perDomainFallback(results, domains, signal);
+      return this.#perDomainFallback(results, domains, signal, options);
     }
 
     // Stage 3: 2-of-3 consensus on Available results
@@ -230,11 +268,13 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
   async #tryBulkCheck(
     domains: DomainCandidate[],
     signal?: AbortSignal,
+    options?: DnsCheckOptions,
   ): Promise<[boolean, (DnsCheckResult | undefined)[] | null]> {
     try {
       const results = await this.dnsProvider.checkBulk(
         domains.map((c) => c.domain),
         signal,
+        options,
       );
       if (results.length === domains.length) return [true, results];
       logger.warn(
@@ -253,6 +293,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     results: (DnsCheckResult | undefined)[],
     domains: DomainCandidate[],
     signal?: AbortSignal,
+    options?: DnsCheckOptions,
   ): Promise<(DnsCheckResult | undefined)[]> {
     for (let i = 0; i < domains.length; i += this.fallbackConcurrency) {
       if (signal?.aborted) return results;
@@ -260,7 +301,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       const batchResults = await Promise.all(
         batch.map(async (c) => {
           try {
-            return await this.dnsProvider.checkAvailability(c.domain, signal);
+            return await this.dnsProvider.checkAvailability(c.domain, signal, options);
           } catch {
             logger.error({ domain: c.domain }, 'DNS per-domain check failed');
             return undefined;
@@ -281,6 +322,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     results: (DnsCheckResult | undefined)[],
     domains: DomainCandidate[],
     signal?: AbortSignal,
+    options?: DnsCheckOptions,
   ): Promise<(DnsCheckResult | undefined)[] | null> {
     const undefinedIndices: number[] = [];
     for (let i = 0; i < results.length; i++) {
@@ -297,7 +339,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       const batchResults = await Promise.all(
         batch.map(async (idx) => {
           try {
-            return await this.dnsProvider.checkAvailability(domains[idx]!.domain, signal);
+            return await this.dnsProvider.checkAvailability(domains[idx]!.domain, signal, options);
           } catch {
             return undefined;
           }

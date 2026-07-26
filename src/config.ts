@@ -274,7 +274,7 @@ const configSchema = z.object({
    */
   DNS_PARKING_CHECK_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-    .default(false),
+    .default(true),
   /**
    * Path to a JSON file containing known parking IP ranges for registrar
    * parking page detection. When absent, a built-in default list is used.
