@@ -137,6 +137,30 @@ describe('DnsPreFilterStage', () => {
     expect(result.passed[0]!.dnsStatus).toBe('skipped');
   });
 
+  it('passes forceRecheck:true for closeout CSV candidates via checkBulk', async () => {
+    const checkBulk = vi
+      .fn()
+      .mockResolvedValue([
+        { domain: 'closeout.com', status: DomainStatus.Available, checkedAt: '' },
+      ]);
+    const provider: DnsProvider = {
+      name: 'mock',
+      checkAvailability: vi.fn(),
+      checkBulk,
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(provider);
+    const candidate = createMockCandidate({
+      domain: 'closeout.com',
+      source: CandidateSource.CloseoutCsv,
+    });
+    const result = await stage.process([candidate]);
+    expect(result.passed).toHaveLength(1);
+    expect(result.passed[0]!.domain).toBe('closeout.com');
+    expect(checkBulk).toHaveBeenCalledWith(['closeout.com'], undefined, { forceRecheck: true });
+  });
+
   it('aborts when signal is already aborted', async () => {
     const provider = mockDnsProvider('aborted.com', {
       domain: 'aborted.com',

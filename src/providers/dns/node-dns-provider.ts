@@ -3,7 +3,7 @@ import { promises as dnsPromises, Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { DnsProvider, DnsResolverGroup } from './dns-provider.js';
+import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from './dns-provider.js';
 import { strategyToResolverGroups } from './dns-provider.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { withRetry } from '../retryable-provider.js';
@@ -557,15 +557,21 @@ export class NodeDnsProvider implements DnsProvider {
     this.#cache.clear();
   }
 
-  async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
+  async checkAvailability(
+    domain: string,
+    signal?: AbortSignal,
+    options?: DnsCheckOptions,
+  ): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    // 1. Memory cache (fastest)
+    // 1. Memory cache (fastest) — used for within-run dedup even with forceRecheck
     const memCached = this.#cache.get(domain);
     if (memCached !== undefined) return memCached;
 
     // 2. Persistent cache (DB-backed, survives restarts)
-    if (this.#persistentCache !== undefined) {
+    //    Skip when forceRecheck is true: closeout domains may have changed
+    //    status since the last lookup (e.g. newly expired).
+    if (!options?.forceRecheck && this.#persistentCache !== undefined) {
       const raw = await this.#persistentCache.get(domain, this.name).catch(() => null);
       if (raw !== null) {
         try {
@@ -748,7 +754,11 @@ export class NodeDnsProvider implements DnsProvider {
     return false;
   }
 
-  async checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]> {
+  async checkBulk(
+    domains: string[],
+    signal?: AbortSignal,
+    options?: DnsCheckOptions,
+  ): Promise<DnsCheckResult[]> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
     const results: DnsCheckResult[] = new Array(domains.length);
@@ -777,7 +787,7 @@ export class NodeDnsProvider implements DnsProvider {
             return;
           }
           try {
-            results[idx] = await this.checkAvailability(domains[idx]!, signal);
+            results[idx] = await this.checkAvailability(domains[idx]!, signal, options);
           } catch {
             results[idx] = {
               domain: domains[idx] ?? 'unknown',

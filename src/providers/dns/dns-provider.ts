@@ -121,10 +121,26 @@ export function getDefaultDotProviders(): Array<{ name: string; host: string }> 
   return DEFAULT_DOT_PROVIDERS;
 }
 
+export interface DnsCheckOptions {
+  /** When true, skip the persistent DNS cache and force a live lookup.
+   *  The in-memory cache is still consulted for within-run deduplication.
+   *  Use for domains that may have recently changed status, such as
+   *  closeout/expiring domains in the aftermarket. */
+  forceRecheck?: boolean;
+}
+
 export interface DnsProvider {
   readonly name: string;
-  checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult>;
-  checkBulk(domains: string[], signal?: AbortSignal): Promise<DnsCheckResult[]>;
+  checkAvailability(
+    domain: string,
+    signal?: AbortSignal,
+    options?: DnsCheckOptions,
+  ): Promise<DnsCheckResult>;
+  checkBulk(
+    domains: string[],
+    signal?: AbortSignal,
+    options?: DnsCheckOptions,
+  ): Promise<DnsCheckResult[]>;
   clearCache(): void;
   pruneCache(): number;
 }

@@ -118,6 +118,83 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('forceRecheck option', () => {
+    function makeFakePersistentCache(): ProviderCacheRepository {
+      return {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ProviderCacheRepository;
+    }
+
+    it('reads from persistent cache when forceRecheck is not set', async () => {
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      const persistentCache = makeFakePersistentCache();
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'native',
+        persistentCache,
+      });
+
+      // First call: DNS lookup, results cached persistently
+      await p.checkAvailability('cached-demo.com');
+      expect(persistentCache.set).toHaveBeenCalledTimes(1);
+
+      // Clear in-memory cache so next call must consult persistent cache
+      p.clearCache();
+
+      // Reset persistent cache spy — track only the second call
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'cached-demo.com',
+          status: DomainStatus.Available,
+          checkedAt: new Date().toISOString(),
+        }),
+      );
+
+      // Second call without forceRecheck: should hit persistent cache
+      const result = await p.checkAvailability('cached-demo.com');
+      expect(result.status).toBe(DomainStatus.Available);
+      expect(persistentCache.get).toHaveBeenCalledWith('cached-demo.com', expect.any(String));
+    });
+
+    it('skips persistent cache when forceRecheck is true, forcing live DNS', async () => {
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      const persistentCache = makeFakePersistentCache();
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'native',
+        persistentCache,
+      });
+
+      // First call: DNS lookup, cached persistently
+      await p.checkAvailability('stale-cached.com');
+      expect(persistentCache.set).toHaveBeenCalledTimes(1);
+
+      // Reset persistent cache spy for second call
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'stale-cached.com',
+          status: DomainStatus.Registered,
+          checkedAt: new Date(Date.now() - 86_400_000).toISOString(),
+        }),
+      );
+
+      // Clear in-memory cache so provider must choose persistent cache vs live DNS
+      p.clearCache();
+      vi.mocked(dnsPromises.resolve).mockClear();
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      // Second call with forceRecheck: MUST bypass persistent cache
+      const result = await p.checkAvailability('stale-cached.com', undefined, {
+        forceRecheck: true,
+      });
+      expect(result.status).toBe(DomainStatus.Available);
+      expect(persistentCache.get).not.toHaveBeenCalled();
+    });
+  });
+
   it('checkBulk returns results for all domains', async () => {
     vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
     const results = await provider.checkBulk(['a.com', 'b.com', 'c.com']);
