@@ -36,6 +36,7 @@
     "test:unit": "vitest run",
     "test:integration": "vitest run --reporter=verbose src/db/provider/postgres-adapter.test.ts",
     "bench": "vitest bench --reporter=default",
+    "bench:ci": "vitest bench --reporter=json --outputFile=bench-results.json",
     "lint": "eslint src/ --ext .ts",
     "lint:fix": "eslint src/ --ext .ts --fix",
     "format": "prettier --write \"src/**/*.ts\" \"frontend/src/**/*.{ts,tsx}\"",

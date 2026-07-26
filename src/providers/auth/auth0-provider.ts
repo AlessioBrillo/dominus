@@ -32,6 +32,10 @@ export class Auth0Provider implements AuthProvider {
     return this.#active;
   }
 
+  asKeyManager(): undefined {
+    return undefined;
+  }
+
   async validate(token: string): Promise<AuthResult> {
     if (!token || !this.#active) {
       return { authenticated: false };

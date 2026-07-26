@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import type { AuthProvider, AuthResult } from './auth-provider.js';
+import type { AuthResult, KeyManager } from './auth-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
 import { getLogger } from '../../logger.js';
 
@@ -20,7 +20,7 @@ export interface GeneratedApiKey {
  * Keys are hashed with scrypt (salt + cost parameters) before storage.
  * The full key is shown exactly once at creation time.
  */
-export class DbApiKeyProvider implements AuthProvider {
+export class DbApiKeyProvider implements KeyManager {
   readonly name = 'DbApiKeyProvider';
   readonly supportsKeyManagement = true;
 
@@ -28,6 +28,10 @@ export class DbApiKeyProvider implements AuthProvider {
 
   get isActive(): boolean {
     return true;
+  }
+
+  asKeyManager(): KeyManager {
+    return this;
   }
 
   /**

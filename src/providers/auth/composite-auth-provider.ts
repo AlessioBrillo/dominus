@@ -1,5 +1,4 @@
-import type { AuthProvider, AuthResult } from './auth-provider.js';
-import { DbApiKeyProvider } from './db-api-key-provider.js';
+import type { AuthProvider, AuthResult, KeyManager } from './auth-provider.js';
 
 /**
  * Tries each member provider in order, returning the first authenticated
@@ -24,9 +23,13 @@ export class CompositeAuthProvider implements AuthProvider {
     return this.members.some((m) => m.supportsKeyManagement);
   }
 
-  /** The member capable of API key CRUD (generate/list/revoke), if any. */
-  get keyManager(): DbApiKeyProvider | undefined {
-    return this.members.find((m): m is DbApiKeyProvider => m instanceof DbApiKeyProvider);
+  /** The first member capable of API key CRUD (generate/list/revoke), if any. */
+  asKeyManager(): KeyManager | undefined {
+    for (const m of this.members) {
+      const km = m.asKeyManager();
+      if (km) return km as KeyManager;
+    }
+    return undefined;
   }
 
   async validate(token: string): Promise<AuthResult> {

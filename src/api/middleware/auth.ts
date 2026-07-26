@@ -10,31 +10,36 @@ const MAX_AUTH_FAILURES = 10;
 const AUTH_WINDOW_MS = 60_000;
 
 async function checkAuthRateLimit(db: DatabaseProvider, ip: string): Promise<boolean> {
-  const now = Date.now();
-  const resetAt = new Date(now + AUTH_WINDOW_MS).toISOString();
+  try {
+    const now = Date.now();
+    const resetAt = new Date(now + AUTH_WINDOW_MS).toISOString();
 
-  const row = await db.queryOne<{ failures: number; reset_at: string }>(
-    'SELECT failures, reset_at FROM auth_rate_limits WHERE ip = ?',
-    [ip],
-  );
-
-  if (!row || now >= new Date(row.reset_at).getTime()) {
-    await db.exec(
-      `INSERT INTO auth_rate_limits (ip, failures, reset_at)
-       VALUES (?, 1, ?)
-       ON CONFLICT(ip) DO UPDATE SET failures = 1, reset_at = ?, updated_at = CURRENT_TIMESTAMP`,
-      [ip, resetAt, resetAt],
+    const row = await db.queryOne<{ failures: number; reset_at: string }>(
+      'SELECT failures, reset_at FROM auth_rate_limits WHERE ip = ?',
+      [ip],
     );
-    return true;
+
+    if (!row || now >= new Date(row.reset_at).getTime()) {
+      await db.exec(
+        `INSERT INTO auth_rate_limits (ip, failures, reset_at)
+         VALUES (?, 1, ?)
+         ON CONFLICT(ip) DO UPDATE SET failures = 1, reset_at = ?, updated_at = CURRENT_TIMESTAMP`,
+        [ip, resetAt, resetAt],
+      );
+      return true;
+    }
+
+    const newFailures = row.failures + 1;
+    await db.exec(
+      `UPDATE auth_rate_limits SET failures = ?, updated_at = CURRENT_TIMESTAMP WHERE ip = ?`,
+      [newFailures, ip],
+    );
+
+    return newFailures <= MAX_AUTH_FAILURES;
+  } catch (error) {
+    logger.error({ ip, error }, 'Auth rate limit check failed — denying request');
+    return false;
   }
-
-  const newFailures = row.failures + 1;
-  await db.exec(
-    `UPDATE auth_rate_limits SET failures = ?, updated_at = CURRENT_TIMESTAMP WHERE ip = ?`,
-    [newFailures, ip],
-  );
-
-  return newFailures <= MAX_AUTH_FAILURES;
 }
 
 async function resetAuthRateLimit(db: DatabaseProvider, ip: string): Promise<void> {
@@ -57,8 +62,7 @@ export function createAuthMiddleware(
     const clientIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
 
     if (!provider.isActive) {
-      // Apply IP-based rate limiting even when auth is disabled
-      const allowed = await checkAuthRateLimit(db, clientIp).catch(() => true);
+      const allowed = await checkAuthRateLimit(db, clientIp);
       if (!allowed) {
         res.status(429).json({
           error: {

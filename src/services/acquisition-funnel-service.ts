@@ -224,8 +224,11 @@ export class AcquisitionFunnelService {
     if (remaining > 0 && entries.length > 0) {
       logger.info(
         { budgetRemaining: remaining, entriesAllocated: entries.length },
-        'Kelly allocator finished with surplus budget — greedy pass would allocate remaining',
+        'Kelly allocator finished with surplus — greedy pass allocating remaining',
       );
+      const allocatedDomains = new Set(entries.map((e) => e.domain));
+      const unscored = scored.filter((s) => !allocatedDomains.has(s.candidate.domain));
+      this.#allocateGreedy(unscored, remaining, runId, entries);
     }
   }
 

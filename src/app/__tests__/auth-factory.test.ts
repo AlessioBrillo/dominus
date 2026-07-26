@@ -41,7 +41,7 @@ describe('buildAuthProvider', () => {
       stubRepo,
     );
     expect(provider).toBeInstanceOf(CompositeAuthProvider);
-    expect((provider as CompositeAuthProvider).keyManager).toBeInstanceOf(DbApiKeyProvider);
+    expect((provider as CompositeAuthProvider).asKeyManager()).toBeInstanceOf(DbApiKeyProvider);
   });
 
   it('fails fast for AUTH_PROVIDER=auth0 without AUTH0_DOMAIN/AUTH0_AUDIENCE', () => {

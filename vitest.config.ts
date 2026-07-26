@@ -2,6 +2,10 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    benchmark: {
+      reporters: ['default', 'json'],
+      outputFile: './bench-results.json',
+    },
     environment: 'node',
     globals: false,
     include: ['src/**/*.test.ts'],
