@@ -5,6 +5,7 @@ import type { AutoListSource } from '../types/listing.js';
 export type { AutoListSource } from '../types/listing.js';
 import type { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { getLogger } from '../logger.js';
+import { isTransient, computeDelay, defaultSleep } from '../providers/retry-policy.js';
 
 export interface AutoListEnqueuer {
   enqueue(domain: string, source: AutoListSource, scoreJson?: string | null): Promise<string>;
@@ -56,30 +57,62 @@ export class AutoListingService {
       };
     }
 
-    try {
-      const listing = await this.#listingManager.listDomain(domain, mkt, score?.suggestedListPrice);
+    const maxRetries = 3;
+    let lastError: unknown;
 
-      const scoreSnapshotJson = score ? JSON.stringify(score) : null;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const listing = await this.#listingManager.listDomain(
+          domain,
+          mkt,
+          score?.suggestedListPrice,
+        );
 
-      await this.#autoListingRepo.insert({
-        domain,
-        listingId: listing.id,
-        triggerSource: source,
-        pipelineRunId: pipelineRunId ?? null,
-        scoreSnapshotJson: scoreSnapshotJson ?? null,
-      });
+        const scoreSnapshotJson = score ? JSON.stringify(score) : null;
 
-      logger.info(
-        { domain, listingId: listing.id, source },
-        'AutoListingService: auto-listing recorded',
-      );
+        await this.#autoListingRepo.insert({
+          domain,
+          listingId: listing.id,
+          triggerSource: source,
+          pipelineRunId: pipelineRunId ?? null,
+          scoreSnapshotJson: scoreSnapshotJson ?? null,
+        });
 
-      return { listing, source, skipped: false };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error({ domain, err }, 'AutoListingService: failed to auto-list domain');
-      return { skipped: true, reason: 'error', message };
+        logger.info(
+          { domain, listingId: listing.id, source },
+          'AutoListingService: auto-listing recorded',
+        );
+
+        return { listing, source, skipped: false };
+      } catch (err: unknown) {
+        lastError = err;
+        if (attempt < maxRetries && isTransient(err)) {
+          const delay = computeDelay(
+            attempt,
+            {
+              maxAttempts: maxRetries,
+              baseDelayMs: 250,
+              backoffMultiplier: 2,
+              maxDelayMs: 4000,
+              jitterRatio: 1,
+            },
+            Math.random,
+          );
+          logger.warn(
+            { domain, attempt, maxRetries, delayMs: delay, err },
+            'AutoListingService: transient failure — retrying',
+          );
+          await defaultSleep(delay);
+        }
+      }
     }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    logger.error(
+      { domain, err: lastError },
+      'AutoListingService: failed to auto-list domain after retries',
+    );
+    return { skipped: true, reason: 'error', message };
   }
 
   async autoListBatch(
