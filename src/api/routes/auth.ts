@@ -1,19 +1,12 @@
 import { Router } from 'express';
-import type { AuthProvider } from '../../providers/auth/auth-provider.js';
-import { DbApiKeyProvider } from '../../providers/auth/db-api-key-provider.js';
-import { CompositeAuthProvider } from '../../providers/auth/composite-auth-provider.js';
+import type { AuthProvider, KeyManager } from '../../providers/auth/auth-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
 import { requireRole } from '../middleware/require-role.js';
 import { getLogger } from '../../logger.js';
 
-/** Resolves the DbApiKeyProvider capable of key CRUD, whether authProvider
- *  is a bare DbApiKeyProvider (community/db mode) or a CompositeAuthProvider
- *  wrapping one alongside Auth0Provider (auth0 mode). */
-function resolveKeyManager(authProvider: AuthProvider): DbApiKeyProvider | undefined {
-  if (authProvider instanceof DbApiKeyProvider) return authProvider;
-  if (authProvider instanceof CompositeAuthProvider) return authProvider.keyManager;
-  return undefined;
+function resolveKeyManager(authProvider: AuthProvider): KeyManager | undefined {
+  return authProvider.asKeyManager() as KeyManager | undefined;
 }
 
 const logger = getLogger();

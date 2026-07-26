@@ -31,6 +31,7 @@ function stubProvider(overrides: Partial<AuthProvider> = {}): AuthProvider {
     isActive: true,
     supportsKeyManagement: false,
     validate: vi.fn().mockResolvedValue({ authenticated: false }),
+    asKeyManager: vi.fn().mockReturnValue(undefined),
     ...overrides,
   };
 }
@@ -93,11 +94,11 @@ describe('CompositeAuthProvider', () => {
   it('exposes the DbApiKeyProvider member as keyManager', () => {
     const dbProvider = new DbApiKeyProvider(mockRepo());
     const composite = new CompositeAuthProvider([stubProvider(), dbProvider]);
-    expect(composite.keyManager).toBe(dbProvider);
+    expect(composite.asKeyManager()).toBe(dbProvider);
   });
 
   it('keyManager is undefined when no member is a DbApiKeyProvider', () => {
     const composite = new CompositeAuthProvider([stubProvider(), stubProvider()]);
-    expect(composite.keyManager).toBeUndefined();
+    expect(composite.asKeyManager()).toBeUndefined();
   });
 });

@@ -48,7 +48,13 @@ function makeAuthProvider(
   validate: AuthProvider['validate'] = vi.fn().mockResolvedValue({ authenticated: true }),
   isActive = true,
 ): AuthProvider {
-  return { name: 'TestAuthProvider', isActive, supportsKeyManagement: false, validate };
+  return {
+    name: 'TestAuthProvider',
+    isActive,
+    supportsKeyManagement: false,
+    validate,
+    asKeyManager: () => undefined,
+  };
 }
 
 describe('auth middleware', () => {

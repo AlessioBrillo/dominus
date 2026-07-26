@@ -73,6 +73,10 @@ export class EnvApiKeyProvider implements AuthProvider {
     return this.active;
   }
 
+  asKeyManager(): undefined {
+    return undefined;
+  }
+
   async validate(apiKey: string): Promise<AuthResult> {
     if (!this.active) {
       return { authenticated: false };

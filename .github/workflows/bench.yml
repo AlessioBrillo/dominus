@@ -1,0 +1,73 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**/*.ts'
+      - 'src/**/*.bench.ts'
+      - 'vitest.config.ts'
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  benchmark:
+    name: Bench (Node ${{ matrix.node }}, workload ${{ matrix.workload }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        node: [20, 22]
+        workload: [100, 1000]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Cache node_modules
+        id: cache-deps
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: deps-bench-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            deps-bench-${{ matrix.node }}-
+
+      - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: npm ci --legacy-peer-deps
+
+      - name: Build
+        run: npm run build
+
+      - name: Run benchmarks
+        run: npm run bench:ci
+        env:
+          BENCH_WORKLOAD_SIZE: ${{ matrix.workload }}
+
+      - name: Store benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ matrix.node }}-${{ matrix.workload }}
+          path: bench-results.json
+          retention-days: 90
+
+      - name: Compare with baseline (primary only)
+        if: matrix.node == '22' && matrix.workload == '1000'
+        run: |
+          echo "Benchmark run complete for Node ${{ matrix.node }} / workload ${{ matrix.workload }}"
+          echo "Download previous results from artifacts and compare using:"
+          echo "  jq -c '.[] | {name, mean, p95}' bench-results.json"
