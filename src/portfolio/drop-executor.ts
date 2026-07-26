@@ -27,16 +27,31 @@ export interface DropExecutorConfig {
    * Default: false.
    */
   dryRun: boolean;
+  /**
+   * When true, permanently remove the portfolio entry after recording
+   * the drop outcome. The outcome row is cascade-deleted with the
+   * portfolio entry. When false (default), the portfolio row stays
+   * with verdict set to 'drop' for historical tracking.
+   * Default: false.
+   */
+  hardDelete: boolean;
 }
 
 export const DEFAULT_DROP_EXECUTOR_CONFIG: DropExecutorConfig = {
   cooldownDays: 30,
   dryRun: false,
+  hardDelete: false,
 };
 
 /**
  * Executes drop verdicts: removes domains from the portfolio and records
  * the outcome for historical tracking.
+ *
+ * Supports two deletion modes:
+ * - soft delete (default): records a 'dropped' outcome and updates the
+ *   portfolio verdict, keeping the entry for audit trail.
+ * - hard delete: records the outcome, then permanently removes the
+ *   portfolio entry. The outcome row cascade-deletes with it.
  *
  * The executor is idempotent: it will not execute a drop for a domain
  * that already has a 'dropped' outcome within the cooldown window.
@@ -126,18 +141,21 @@ export class DropExecutor {
       notes: `Drop verdict executed. Last score: ${entry.currentScore ?? 'N/A'}`,
     });
 
-    // Update verdict to executed status.
-    await this.#portfolioRepo.updateVerdict(
-      entry.domain,
-      Verdict.Drop,
-      'Executed — domain removed from portfolio',
-    );
+    if (this.#config.hardDelete) {
+      await this.#portfolioRepo.delete(entry.domain);
+    } else {
+      await this.#portfolioRepo.updateVerdict(
+        entry.domain,
+        Verdict.Drop,
+        'Executed — domain removed from portfolio',
+      );
+    }
 
     // Notify.
     const notification: Notification = {
       alertType: AlertType.ScoreDropped,
       severity: AlertSeverity.Info,
-      message: `Drop executed: ${entry.domain} was removed from portfolio per drop verdict`,
+      message: `Drop executed: ${entry.domain} was ${this.#config.hardDelete ? 'hard-deleted' : 'soft-dropped'} from portfolio per drop verdict`,
       domain: entry.domain,
       createdAt: new Date().toISOString(),
     };
