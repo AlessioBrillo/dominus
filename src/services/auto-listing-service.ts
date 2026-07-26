@@ -6,6 +6,10 @@ export type { AutoListSource } from '../types/listing.js';
 import type { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { getLogger } from '../logger.js';
 
+export interface AutoListEnqueuer {
+  enqueue(domain: string, source: AutoListSource, scoreJson?: string | null): Promise<string>;
+}
+
 const logger = getLogger();
 
 const DEFAULT_MARKETPLACE: MarketplaceName = 'manual';

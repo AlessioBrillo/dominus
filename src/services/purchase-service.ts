@@ -11,7 +11,11 @@ import { GateVerdict } from '../trademark/trademark-gate.js';
 import { parseDomain } from '../utils/domain.js';
 import { PurchaseNotApprovedError, type PurchaseRecord } from '../types/registrar.js';
 import { addYearsToDate } from '../types/acquisition.js';
-import type { AutoListingService, AutoListSource } from './auto-listing-service.js';
+import type {
+  AutoListingService,
+  AutoListSource,
+  AutoListEnqueuer,
+} from './auto-listing-service.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -50,6 +54,7 @@ export class PurchaseService {
   readonly #autoApproval: AutoApprovalPolicy;
   readonly #buyMaxAbsoluteCap: number;
   readonly #autoListing: AutoListingService | undefined;
+  readonly #autoListEnqueuer: AutoListEnqueuer | undefined;
 
   constructor(options: {
     registrar: RegistrarProvider;
@@ -60,6 +65,7 @@ export class PurchaseService {
     autoApproval?: AutoApprovalPolicy;
     buyMaxAbsoluteCap?: number;
     autoListing?: AutoListingService | undefined;
+    autoListEnqueuer?: AutoListEnqueuer | undefined;
   }) {
     this.#registrar = options.registrar;
     this.#portfolioManager = options.portfolioManager;
@@ -69,6 +75,7 @@ export class PurchaseService {
     this.#autoApproval = options.autoApproval ?? AutoApprovalPolicy.Never;
     this.#buyMaxAbsoluteCap = options.buyMaxAbsoluteCap ?? 500;
     this.#autoListing = options.autoListing;
+    this.#autoListEnqueuer = options.autoListEnqueuer;
   }
 
   get registrarName(): string {
@@ -183,7 +190,7 @@ export class PurchaseService {
 
         logger.info({ domain }, 'Manual purchase recorded in portfolio');
 
-        this.#tryAutoList(domain, check, 'purchase');
+        this.#enqueueAutoList(domain, 'purchase');
 
         return {
           success: true,
@@ -244,7 +251,7 @@ export class PurchaseService {
         'Domain purchased successfully',
       );
 
-      this.#tryAutoList(domain, check, 'purchase');
+      this.#enqueueAutoList(domain, 'purchase');
 
       return {
         success: true,
@@ -266,24 +273,34 @@ export class PurchaseService {
     }
   }
 
-  #tryAutoList(domain: string, _check: PurchaseCheckResult, source: AutoListSource): void {
-    if (!this.#autoListing) return;
-    this.#autoListing
-      .autoList(domain, null, source)
-      .then((outcome) => {
-        if (!outcome.skipped) {
-          logger.info(
-            { domain, listingId: outcome.listing.id, source },
-            'PurchaseService: auto-listed after purchase',
+  #enqueueAutoList(domain: string, source: AutoListSource): void {
+    if (this.#autoListEnqueuer) {
+      this.#autoListEnqueuer
+        .enqueue(domain, source, null)
+        .then((jobId) => {
+          logger.info({ domain, source, jobId }, 'PurchaseService: auto-list job enqueued');
+        })
+        .catch((err: unknown) => {
+          logger.warn({ domain, err }, 'PurchaseService: failed to enqueue auto-list job');
+        });
+    } else if (this.#autoListing) {
+      this.#autoListing
+        .autoList(domain, null, source)
+        .then((outcome) => {
+          if (!outcome.skipped) {
+            logger.info(
+              { domain, listingId: outcome.listing.id, source },
+              'PurchaseService: auto-listed after purchase',
+            );
+          }
+        })
+        .catch((err: unknown) => {
+          logger.warn(
+            { domain, err },
+            'PurchaseService: auto-listing failed after purchase (non-fatal)',
           );
-        }
-      })
-      .catch((err: unknown) => {
-        logger.warn(
-          { domain, err },
-          'PurchaseService: auto-listing failed after purchase (non-fatal)',
-        );
-      });
+        });
+    }
   }
 
   async checkPrice(domains: string[]): Promise<RegistrarPriceCheck[]> {

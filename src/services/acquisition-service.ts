@@ -8,7 +8,7 @@ import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import { GateVerdict } from '../trademark/trademark-gate.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
-import type { AutoListingService } from './auto-listing-service.js';
+import type { AutoListingService, AutoListEnqueuer } from './auto-listing-service.js';
 import { getLogger } from '../logger.js';
 import { parseDomain } from '../utils/domain.js';
 
@@ -22,6 +22,7 @@ export class AcquisitionService {
   readonly #engine: ScoringEngine | undefined;
   readonly #gate: TrademarkGate | undefined;
   readonly #autoListing: AutoListingService | undefined;
+  readonly #autoListEnqueuer: AutoListEnqueuer | undefined;
   readonly #defaultRenewalCostEur: number;
 
   constructor(
@@ -32,6 +33,7 @@ export class AcquisitionService {
     engine?: ScoringEngine,
     gate?: TrademarkGate,
     autoListing?: AutoListingService,
+    autoListEnqueuer?: AutoListEnqueuer,
     defaultRenewalCostEur: number = 10,
   ) {
     this.#repo = repo;
@@ -41,6 +43,7 @@ export class AcquisitionService {
     this.#engine = engine;
     this.#gate = gate;
     this.#autoListing = autoListing;
+    this.#autoListEnqueuer = autoListEnqueuer;
     this.#defaultRenewalCostEur = defaultRenewalCostEur;
   }
 
@@ -156,7 +159,22 @@ export class AcquisitionService {
             notes: `Won auction on ${existing.venue}, bid €${existing.bidAmountEur}`,
           });
 
-          if (this.#autoListing) {
+          if (this.#autoListEnqueuer) {
+            this.#autoListEnqueuer
+              .enqueue(input.domain, 'acquisition', null)
+              .then((jobId) => {
+                logger.info(
+                  { domain: input.domain, jobId },
+                  'AcquisitionService: auto-list job enqueued after won bid',
+                );
+              })
+              .catch((err: unknown) => {
+                logger.warn(
+                  { domain: input.domain, err },
+                  'AcquisitionService: failed to enqueue auto-list job after won bid',
+                );
+              });
+          } else if (this.#autoListing) {
             this.#autoListing
               .autoList(input.domain, null, 'acquisition')
               .then((outcome) => {

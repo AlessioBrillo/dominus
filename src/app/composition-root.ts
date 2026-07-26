@@ -101,7 +101,7 @@ import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
-import { AutoListingService } from '../services/auto-listing-service.js';
+import { AutoListingService, type AutoListEnqueuer } from '../services/auto-listing-service.js';
 import { createJobQueueService } from './job-queue-service.js';
 import {
   JobWorker,
@@ -596,6 +596,14 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
   const jobQueueService = createJobQueueService(provider);
+
+  const autoListEnqueuer: AutoListEnqueuer = {
+    async enqueue(domain: string, source: string, scoreJson?: string | null): Promise<string> {
+      const domains = [{ domain, scoreJson: scoreJson ?? null }];
+      return jobQueueService.enqueueAutoList(domains, 'purchase', source);
+    },
+  };
+
   const runService = new PipelineRunService(
     repos.provider,
     orchestrator,
@@ -729,6 +737,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     trademarkGate,
     config,
     autoListingService,
+    autoListEnqueuer,
   );
 
   // --- Acquisition ---
@@ -740,6 +749,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
     autoListingService,
+    autoListEnqueuer,
   );
 
   // --- Acquisition Funnel ---
