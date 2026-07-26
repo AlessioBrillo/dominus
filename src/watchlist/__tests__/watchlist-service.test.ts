@@ -158,6 +158,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PERSISTENT_CACHE_TTL_HOURS: 24,
     DNS_CONSENSUS_ENABLED: false,
     DNS_CONSENSUS_STRATEGY: 'dot-only',
+    DNS_USE_DEDICATED_RESOLVER: true,
     ...overrides,
   };
 }

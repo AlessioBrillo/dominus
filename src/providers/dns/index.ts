@@ -8,3 +8,4 @@ export { NodeDnsProvider } from './node-dns-provider.js';
 export type { DnsLookupStrategy } from './node-dns-provider.js';
 export { ParkingIpRegistry } from './parking-ip-registry.js';
 export type { ParkingRange } from './parking-ip-registry.js';
+export { validateResolverGroups } from './resolver-validator.js';

@@ -1,4 +1,3 @@
-import { setServers } from 'node:dns';
 import type { Config } from '../config.js';
 import type { ProviderCacheRepository } from '../db/index.js';
 import {
@@ -15,6 +14,7 @@ import {
   type DnsProvider,
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
+import { validateResolverGroups } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { RedisRateLimiter, type RedisClient } from '../providers/redis/index.js';
 import { FailoverRdapProvider } from '../providers/rdap/index.js';
@@ -139,30 +139,13 @@ export function buildDnsProvider(
   providerCacheRepo?: ProviderCacheRepository,
   rateLimiter?: RateLimiterLike,
 ): DnsProvider {
-  if (config.DNS_NAMESERVERS && config.DNS_NAMESERVERS.trim().length > 0) {
-    const servers = config.DNS_NAMESERVERS.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    try {
-      setServers(servers);
-      getLogger().info({ servers }, 'DNS: custom nameservers configured via dns.setServers()');
-    } catch (err) {
-      getLogger().error({ err, servers }, 'DNS: failed to set custom nameservers');
-    }
-  }
+  const nameservers: string[] | undefined = resolveNameservers(config.DNS_NAMESERVERS);
 
   const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
 
-  const resolverGroups: DnsResolverGroup[] | undefined = ((): DnsResolverGroup[] | undefined => {
-    if (!config.DNS_RESOLVER_GROUPS) return undefined;
-    try {
-      return JSON.parse(config.DNS_RESOLVER_GROUPS) as DnsResolverGroup[];
-    } catch {
-      return undefined;
-    }
-  })();
+  const resolverGroups = config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined;
 
-  return new NodeDnsProvider({
+  const provider = new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
     maxSize: config.DNS_CACHE_MAX_SIZE,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
@@ -179,7 +162,31 @@ export function buildDnsProvider(
         ? providerCacheRepo
         : undefined,
     persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
+    ...(nameservers !== undefined ? { nameservers } : {}),
+    useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,
   });
+
+  // Startup validation: probe known domains through each resolver group.
+  // Non-fatal on failure (the groups fall back to per-domain checks at runtime),
+  // but logged prominently so the operator knows which groups are degraded.
+  validateResolverGroups(provider).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    getLogger().error(
+      { err: message },
+      'DNS: resolver group validation failed — groups may be degraded at runtime',
+    );
+  });
+
+  return provider;
+}
+
+function resolveNameservers(raw: string | undefined): string[] | undefined {
+  if (!raw || raw.trim().length === 0) return undefined;
+  const servers = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return servers.length > 0 ? servers : undefined;
 }
 
 /**
