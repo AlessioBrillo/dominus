@@ -41,7 +41,18 @@ async function resetAuthRateLimit(db: DatabaseProvider, ip: string): Promise<voi
   await db.exec('DELETE FROM auth_rate_limits WHERE ip = ?', [ip]);
 }
 
-export function createAuthMiddleware(provider: AuthProvider, db: DatabaseProvider) {
+export interface AuthMiddlewareOptions {
+  /** When true, an authenticated request with no resolvable tenantId is
+   *  rejected (403) instead of silently defaulting to 'default'. Enable for
+   *  any multi-tenant AUTH_PROVIDER (db/auth0) — see ADR-0032/ADR-0034. */
+  requireTenant?: boolean;
+}
+
+export function createAuthMiddleware(
+  provider: AuthProvider,
+  db: DatabaseProvider,
+  options: AuthMiddlewareOptions = {},
+) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const clientIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
 
@@ -125,10 +136,24 @@ export function createAuthMiddleware(provider: AuthProvider, db: DatabaseProvide
       return;
     }
 
+    if (options.requireTenant && !result.tenantId) {
+      logger.warn({ ip: clientIp }, 'Authenticated request missing tenantId — rejecting');
+      res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Token is not scoped to a tenant' },
+      });
+      return;
+    }
+
     // Reset failure count on successful auth
     await resetAuthRateLimit(db, clientIp);
 
     req.tenantId = result.tenantId ?? 'default';
+    req.auth = {
+      userId: result.userId,
+      tenantId: result.tenantId,
+      role: result.role,
+      keyName: result.keyName,
+    };
     runWithTenant(req.tenantId, () => next());
   };
 }

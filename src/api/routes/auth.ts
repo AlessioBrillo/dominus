@@ -1,9 +1,20 @@
 import { Router } from 'express';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
 import { DbApiKeyProvider } from '../../providers/auth/db-api-key-provider.js';
+import { CompositeAuthProvider } from '../../providers/auth/composite-auth-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
+import { requireRole } from '../middleware/require-role.js';
 import { getLogger } from '../../logger.js';
+
+/** Resolves the DbApiKeyProvider capable of key CRUD, whether authProvider
+ *  is a bare DbApiKeyProvider (community/db mode) or a CompositeAuthProvider
+ *  wrapping one alongside Auth0Provider (auth0 mode). */
+function resolveKeyManager(authProvider: AuthProvider): DbApiKeyProvider | undefined {
+  if (authProvider instanceof DbApiKeyProvider) return authProvider;
+  if (authProvider instanceof CompositeAuthProvider) return authProvider.keyManager;
+  return undefined;
+}
 
 const logger = getLogger();
 
@@ -53,19 +64,18 @@ export function createAuthRouter(
   });
 
   // API key management endpoints — only available when the auth provider
-  // supports key CRUD operations (DbApiKeyProvider in DOMINUS Cloud).
-  // The cast is necessary because AuthProvider interface exposes validate()
-  // but not generate/list/revoke — those are DbApiKeyProvider-specific.
+  // supports key CRUD operations (DbApiKeyProvider, directly or wrapped in a
+  // CompositeAuthProvider for AUTH_PROVIDER=auth0). Gated to admin role —
+  // any authenticated caller could otherwise mint admin keys (ADR-0032).
   if (authProvider.supportsKeyManagement) {
-    if (!(authProvider instanceof DbApiKeyProvider)) {
+    const provider = resolveKeyManager(authProvider);
+    if (!provider) {
       logger.warn(
         { provider: authProvider.name },
-        'Auth provider reports supportsKeyManagement but is not DbApiKeyProvider — key management routes disabled',
+        'Auth provider reports supportsKeyManagement but no DbApiKeyProvider could be resolved — key management routes disabled',
       );
     } else {
-      const provider = authProvider as DbApiKeyProvider;
-
-      router.post('/api-keys', async (req, res, next) => {
+      router.post('/api-keys', requireRole('admin'), async (req, res, next) => {
         try {
           const { name, role } = req.body as { name?: string; role?: string };
           if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -90,7 +100,7 @@ export function createAuthRouter(
       });
 
       if (apiKeyRepo) {
-        router.get('/api-keys', async (_req, res, next) => {
+        router.get('/api-keys', requireRole('admin'), async (_req, res, next) => {
           try {
             const keys = await apiKeyRepo.findByTenant(resolveTenantId());
             res.json(
@@ -109,7 +119,7 @@ export function createAuthRouter(
           }
         });
 
-        router.delete('/api-keys/:id', async (req, res, next) => {
+        router.delete('/api-keys/:id', requireRole('admin'), async (req, res, next) => {
           try {
             const id = parseInt(req.params.id as string, 10);
             if (isNaN(id)) {
