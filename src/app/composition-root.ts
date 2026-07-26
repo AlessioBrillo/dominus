@@ -70,8 +70,8 @@ import {
   type RedisClient,
 } from '../providers/redis/index.js';
 import type { LockProvider } from '../types/lock.js';
-import { EnvApiKeyProvider } from '../providers/auth/env-api-key-provider.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
+import { buildAuthProvider } from './auth-factory.js';
 import {
   CircuitBreaker,
   USPTO_CIRCUIT_BREAKER,
@@ -97,6 +97,7 @@ import { AcquisitionFunnelService } from '../services/acquisition-funnel-service
 import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
+import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
@@ -134,6 +135,7 @@ export interface DominusDependencies {
   providerCacheRepo: ProviderCacheRepository;
   jobQueueRepo: JobQueueRepository;
   listingRepo: ListingRepository;
+  apiKeyRepo: ApiKeyRepository;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -192,11 +194,13 @@ interface BuiltRepositories {
   watchlistRepo: WatchlistRepository;
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
+  apiKeyRepo: ApiKeyRepository;
 }
 
 function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
   return {
     provider,
+    apiKeyRepo: new ApiKeyRepository(provider),
     candidateRepo: new CandidateRepository(provider),
     scoringRepo: new ScoringRepository(provider),
     trademarkRepo: new TrademarkRepository(provider),
@@ -417,11 +421,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   warnEuipoIfMissing(config);
 
-  // --- Auth Provider ---
-  const authProvider = new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
-
   // --- Database & Repositories ---
   const repos = buildRepositories(provider);
+
+  // --- Auth Provider ---
+  // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
+  const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
 
   // Dedicated bulk-write connection for pipeline persistence (SQLite only).
   // With WAL mode, this lets the main connection serve reads concurrently
