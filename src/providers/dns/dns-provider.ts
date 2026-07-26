@@ -7,6 +7,8 @@ export interface DnsLookupSpec {
   port?: number;
   /** Optional hostname for DoT TLS SNI verification (default: from endpoint). */
   servername?: string;
+  /** Per-lookup nameservers (only for type: 'native'). When set, creates a dedicated Resolver. */
+  nameservers?: string[];
 }
 
 export interface DnsResolverGroup {

@@ -1,5 +1,5 @@
 import { connect as tlsConnect, type ConnectionOptions } from 'node:tls';
-import { promises as dnsPromises } from 'node:dns';
+import { promises as dnsPromises, Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
@@ -16,6 +16,12 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
 
+function createResolver(nameservers: string[]): Resolver {
+  const r = new Resolver();
+  r.setServers(nameservers);
+  return r;
+}
+
 export type DnsLookupStrategy =
   | 'native'
   | 'native-with-doh-fallback'
@@ -30,6 +36,7 @@ function resolveWithTimeout(
   recordType: DnsRecordType,
   timeoutMs: number,
   signal?: AbortSignal,
+  resolver?: Resolver,
 ): Promise<boolean> {
   return new Promise<boolean>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -50,14 +57,30 @@ function resolveWithTimeout(
     };
     signal?.addEventListener('abort', abortHandler, { once: true });
 
-    dnsPromises
-      .resolve(domain, recordType)
+    const doLookup = (): Promise<string[]> => {
+      if (resolver !== undefined) {
+        return new Promise<string[]>((resolveLookup, rejectLookup) => {
+          resolver.resolve(domain, recordType, (err, addresses) => {
+            if (err !== null) {
+              rejectLookup(err);
+            } else if (Array.isArray(addresses)) {
+              resolveLookup(addresses as string[]);
+            } else {
+              resolveLookup([]);
+            }
+          });
+        });
+      }
+      return dnsPromises.resolve(domain, recordType) as Promise<string[]>;
+    };
+
+    doLookup()
       .then(() => {
         clearTimeout(timer);
         signal?.removeEventListener('abort', abortHandler);
         resolve(true);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         clearTimeout(timer);
         signal?.removeEventListener('abort', abortHandler);
         reject(err);
@@ -65,11 +88,37 @@ function resolveWithTimeout(
   });
 }
 
+function resolveWithResolver(
+  domain: string,
+  rrtype: string,
+  resolver: Resolver,
+): Promise<string[]> {
+  return new Promise<string[]>((resolve, reject) => {
+    resolver.resolve(domain, rrtype, (err, addresses) => {
+      if (err !== null) {
+        reject(err);
+      } else if (Array.isArray(addresses)) {
+        resolve(addresses as string[]);
+      } else {
+        resolve([]);
+      }
+    });
+  });
+}
+
 /** Resolve A and AAAA records for IP-based parking detection. */
-async function resolveAddressRecords(domain: string): Promise<string[]> {
+async function resolveAddressRecords(domain: string, resolver?: Resolver): Promise<string[]> {
+  const resolveA =
+    resolver !== undefined
+      ? resolveWithResolver(domain, 'A', resolver)
+      : dnsPromises.resolve(domain, 'A');
+  const resolveAAAA =
+    resolver !== undefined
+      ? resolveWithResolver(domain, 'AAAA', resolver)
+      : dnsPromises.resolve(domain, 'AAAA');
   const [v4, v6] = await Promise.all([
-    dnsPromises.resolve(domain, 'A').catch(() => [] as string[]),
-    dnsPromises.resolve(domain, 'AAAA').catch(() => [] as string[]),
+    resolveA.catch(() => [] as string[]),
+    resolveAAAA.catch(() => [] as string[]),
   ]);
   return [...v4, ...v6];
 }
@@ -284,12 +333,13 @@ async function resolvesAnyNative(
   domain: string,
   timeout: number,
   signal?: AbortSignal,
+  resolver?: Resolver,
 ): Promise<boolean | undefined> {
   const childAbort = new AbortController();
   const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
 
   const tasks = ALL_RECORDS.map((type) =>
-    resolveWithTimeout(domain, type, timeout, combinedSignal)
+    resolveWithTimeout(domain, type, timeout, combinedSignal, resolver)
       .then(() => {
         childAbort.abort();
         return { type, resolved: true as const, aborted: false as const };
@@ -437,6 +487,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #retryPolicy: Partial<RetryPolicy> | undefined;
   readonly #persistentCache: ProviderCacheRepository | undefined;
   readonly #persistentCacheTtlHours: number;
+  readonly #nameservers: string[] | undefined;
+  readonly #useDedicatedResolver: boolean;
   readonly #cache: LRUCache<string, DnsCheckResult>;
   /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
@@ -455,6 +507,8 @@ export class NodeDnsProvider implements DnsProvider {
     retryPolicy?: Partial<RetryPolicy> | undefined;
     persistentCache?: ProviderCacheRepository | undefined;
     persistentCacheTtlHours?: number;
+    nameservers?: string[];
+    useDedicatedResolver?: boolean;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -467,6 +521,8 @@ export class NodeDnsProvider implements DnsProvider {
     this.#retryPolicy = options?.retryPolicy;
     this.#persistentCache = options?.persistentCache;
     this.#persistentCacheTtlHours = options?.persistentCacheTtlHours ?? 168;
+    this.#nameservers = options?.nameservers;
+    this.#useDedicatedResolver = options?.useDedicatedResolver ?? true;
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -479,6 +535,15 @@ export class NodeDnsProvider implements DnsProvider {
       allowStale: false,
       perf: { now: (): number => Date.now() },
     });
+  }
+
+  #getResolver(): Resolver | undefined {
+    if (!this.#useDedicatedResolver) return undefined;
+    const hasCustomServers = this.#nameservers !== undefined && this.#nameservers.length > 0;
+    if (!hasCustomServers) return undefined;
+    const resolver = new Resolver();
+    resolver.setServers(this.#nameservers!);
+    return resolver;
   }
 
   pruneCache(): number {
@@ -555,7 +620,7 @@ export class NodeDnsProvider implements DnsProvider {
         let parkingRegistrar: string | undefined;
 
         if (resolved && this.#parkingEnabled) {
-          const addresses = await resolveAddressRecords(domain);
+          const addresses = await resolveAddressRecords(domain, this.#getResolver());
           const parkingCheck = this.#parkingRegistry.checkIps(addresses);
           isParked = parkingCheck.parked || undefined;
           parkingRegistrar = parkingCheck.registrar;
@@ -621,9 +686,15 @@ export class NodeDnsProvider implements DnsProvider {
 
     const timeout = this.#lookupTimeoutMs;
 
+    const nativeResolver = this.#getResolver();
+
     const tasks = group.lookups.map((spec) => {
       if (spec.type === 'native') {
-        return resolvesAnyNative(domain, timeout, combinedSignal);
+        const groupResolver =
+          nativeResolver !== undefined && spec.nameservers !== undefined
+            ? createResolver(spec.nameservers)
+            : nativeResolver;
+        return resolvesAnyNative(domain, timeout, combinedSignal, groupResolver);
       }
       if (spec.type === 'dot') {
         return resolvesAnyDot(

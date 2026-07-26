@@ -238,14 +238,30 @@ const configSchema = z.object({
 
   /**
    * Comma-separated list of custom DNS resolver IP addresses for the native
-   * Node.js resolver. When set, `dns.setServers()` is called at startup to
-   * override the system resolver (e.g. `/etc/resolv.conf` in Docker).
+   * Node.js resolver. When set, each native resolver group creates a dedicated
+   * `dns.Resolver` instance with these servers — NEVER calling the global
+   * `dns.setServers()`, which would mutate the resolver for all modules
+   * in the process (including HTTP clients like `node-fetch`, `undici`).
    * In containerized environments where the embedded DNS (127.0.0.11) is a
    * throughput bottleneck, setting this to public resolvers like
    * `1.1.1.1,8.8.8.8` can dramatically improve bulk lookup performance.
-   * Leave unset to keep the system resolver (default).
+   * Leave unset to keep the system resolver (default behaviour per group).
    */
   DNS_NAMESERVERS: z.string().optional(),
+
+  /**
+   * Use a dedicated `dns.Resolver` instance per resolver group instead of
+   * the process-global `dnsPromises.resolve()`. When true (default), native
+   * lookups create a fresh `dns.Resolver` per group with `setServers()`
+   * scoped to that instance, eliminating any global state mutation risk.
+   * Set to false only for backward compatibility if a third-party module
+   * intercepts `dns.Resolver` instances.
+   * Default: true — the safe default after the `setServers()` global
+   * mutation was identified as a security and correctness risk.
+   */
+  DNS_USE_DEDICATED_RESOLVER: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
 
   /**
    * Enable parking page detection for registered domains.
@@ -320,28 +336,63 @@ const configSchema = z.object({
   DNS_RESOLVER_GROUPS: z
     .string()
     .optional()
-    .refine(
-      (val) => {
-        if (val === undefined) return true;
-        try {
-          const parsed = JSON.parse(val) as unknown;
-          if (!Array.isArray(parsed)) return false;
-          return parsed.every(
-            (g: unknown) =>
-              typeof g === 'object' &&
-              g !== null &&
-              'name' in g &&
-              'lookups' in g &&
-              Array.isArray((g as Record<string, unknown>).lookups),
-          );
-        } catch {
-          return false;
-        }
-      },
-      {
-        message:
-          'Must be a JSON array of resolver groups, e.g. [{"name":"primary","lookups":[{"type":"native"}]}]',
-      },
+    .transform((val) => {
+      if (val === undefined) return undefined;
+      try {
+        return JSON.parse(val) as unknown;
+      } catch {
+        return val;
+      }
+    })
+    .pipe(
+      z
+        .array(
+          z.object({
+            name: z
+              .string()
+              .min(1)
+              .describe('Human-readable group label (e.g. "primary", "fallback")'),
+            lookups: z
+              .array(
+                z.discriminatedUnion('type', [
+                  z.object({
+                    type: z.literal('native'),
+                    nameservers: z
+                      .array(
+                        z
+                          .string()
+                          .regex(
+                            /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$|^\[?[a-fA-F0-9:]+\]?$/,
+                          ),
+                      )
+                      .optional()
+                      .describe('Per-group DNS servers override'),
+                  }),
+                  z.object({
+                    type: z.literal('doh'),
+                    endpoint: z.string().url().describe('DoH endpoint URL'),
+                  }),
+                  z.object({
+                    type: z.literal('dot'),
+                    endpoint: z.string().describe('DoT server hostname or IP'),
+                    port: z.number().int().min(1).max(65535).optional().default(853),
+                    servername: z
+                      .string()
+                      .optional()
+                      .describe('TLS SNI for certificate verification'),
+                  }),
+                ]),
+              )
+              .min(1)
+              .describe('At least one lookup spec per group'),
+          }),
+        )
+        .optional(),
+    )
+    .describe(
+      'JSON array of resolver groups. ' +
+        'Each group has a name and an array of lookups (native, doh, or dot). ' +
+        'Example: [{"name":"primary","lookups":[{"type":"native"},{"type":"doh","endpoint":"https://dns.google/dns-query"}]}]',
     ),
   /**
    * Enable 2-of-3 DNS consensus cross-validation. When true, every domain the
