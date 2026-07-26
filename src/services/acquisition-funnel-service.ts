@@ -5,7 +5,27 @@ import type { ScoringRepository } from '../db/repositories/scoring-repository.js
 import type { PipelineRunsRepository } from '../db/repositories/pipeline-runs-repository.js';
 import { getLogger } from '../logger.js';
 
+const DEFAULT_KELLY_FRACTION = 0.5;
+const DEFAULT_MAX_CONCENTRATION_PCT = 0.3;
+
 const logger = getLogger();
+
+interface ScoredCandidate {
+  candidate: {
+    id?: number | undefined;
+    domain: string;
+    tld: string;
+    source: string;
+    status: string;
+  };
+  score: {
+    expectedValue: number;
+    confidence: number;
+    suggestedBuyMax: number;
+    suggestedListPrice: number;
+  };
+  trademarkClear: boolean;
+}
 
 export class AcquisitionFunnelService {
   readonly #funnelRepo: FunnelRepository;
@@ -59,16 +79,7 @@ export class AcquisitionFunnelService {
       };
     }
 
-    const scored: Array<{
-      candidate: (typeof recommended)[number];
-      score: {
-        expectedValue: number;
-        confidence: number;
-        suggestedBuyMax: number;
-        suggestedListPrice: number;
-      };
-      trademarkClear: boolean;
-    }> = [];
+    const scored: ScoredCandidate[] = [];
 
     for (const candidate of recommended) {
       const dbId = candidate.id;
@@ -103,36 +114,26 @@ export class AcquisitionFunnelService {
 
     const capped = config.maxEntries > 0 ? passing.slice(0, config.maxEntries) : passing;
 
-    let remainingBudget = config.budgetEur;
+    const kellyFraction = config.kellyFraction ?? DEFAULT_KELLY_FRACTION;
+    const maxConcentration = config.maxConcentrationPct ?? DEFAULT_MAX_CONCENTRATION_PCT;
     const entries: FunnelEntry[] = [];
 
-    for (const s of capped) {
-      if (remainingBudget <= 0) break;
-
-      const allocation = Math.min(s.score.suggestedBuyMax, remainingBudget);
-      const expectedReturn = s.score.expectedValue - allocation;
-
-      entries.push({
+    if (kellyFraction > 0) {
+      this.#allocateWithKelly(
+        capped,
+        config.budgetEur,
+        kellyFraction,
+        maxConcentration,
         runId,
-        domain: s.candidate.domain,
-        tld: s.candidate.tld,
-        source: s.candidate.source,
-        priorityScore: s.score.expectedValue * s.score.confidence,
-        budgetAllocationEur: allocation,
-        expectedReturnEur: expectedReturn,
-        expectedValue: s.score.expectedValue,
-        confidence: s.score.confidence,
-        suggestedBuyMax: s.score.suggestedBuyMax,
-        suggestedListPrice: s.score.suggestedListPrice,
-        trademarkClear: s.trademarkClear,
-        status: 'pending',
-      });
-
-      remainingBudget -= allocation;
+        entries,
+      );
+    } else {
+      this.#allocateGreedy(capped, config.budgetEur, runId, entries);
     }
 
     const totalExpectedReturn = entries.reduce((sum, e) => sum + e.expectedReturnEur, 0);
-    const budgetUsed = config.budgetEur - remainingBudget;
+    const budgetUsed = entries.reduce((sum, e) => sum + e.budgetAllocationEur, 0);
+    const budgetRemaining = config.budgetEur - budgetUsed;
     const avgConfidence =
       entries.length > 0 ? entries.reduce((sum, e) => sum + e.confidence, 0) / entries.length : 0;
 
@@ -144,7 +145,7 @@ export class AcquisitionFunnelService {
         runId,
         entriesGenerated: entries.length,
         budgetUsed,
-        budgetRemaining: remainingBudget,
+        budgetRemaining: budgetRemaining,
         totalExpectedReturn,
         totalCandidates: candidates.length,
       },
@@ -160,11 +161,94 @@ export class AcquisitionFunnelService {
         totalCandidates: candidates.length,
         passedFilters: entries.length,
         budgetUsedEur: budgetUsed,
-        budgetRemainingEur: remainingBudget,
+        budgetRemainingEur: budgetRemaining,
         totalExpectedReturnEur: totalExpectedReturn,
         expectedRoi: budgetUsed > 0 ? (totalExpectedReturn - budgetUsed) / budgetUsed : 0,
         averageConfidence: avgConfidence,
       },
+    };
+  }
+
+  #allocateGreedy(
+    scored: Array<ScoredCandidate>,
+    budget: number,
+    runId: string,
+    entries: FunnelEntry[],
+  ): void {
+    let remaining = budget;
+
+    for (const s of scored) {
+      if (remaining <= 0) break;
+
+      const allocation = Math.min(s.score.suggestedBuyMax, remaining);
+      const expectedReturn = s.score.expectedValue - allocation;
+
+      entries.push(this.#buildEntry(s, runId, allocation, expectedReturn));
+      remaining -= allocation;
+    }
+  }
+
+  #allocateWithKelly(
+    scored: Array<ScoredCandidate>,
+    budget: number,
+    kellyFraction: number,
+    maxConcentration: number,
+    runId: string,
+    entries: FunnelEntry[],
+  ): void {
+    const maxPerDomain = budget * maxConcentration;
+    let remaining = budget;
+
+    for (const s of scored) {
+      if (remaining <= 0) break;
+
+      const { expectedValue, confidence, suggestedBuyMax } = s.score;
+      if (expectedValue <= suggestedBuyMax) continue;
+      if (confidence <= 0) continue;
+
+      const netOdds = (expectedValue - suggestedBuyMax) / suggestedBuyMax;
+      const kellyPct = (confidence * netOdds - (1 - confidence)) / netOdds;
+      const clampedKelly = Math.max(0, Math.min(kellyPct, 1));
+
+      const rawAllocation = suggestedBuyMax * clampedKelly * kellyFraction;
+      const allocation = Math.min(rawAllocation, suggestedBuyMax, maxPerDomain, remaining);
+
+      if (allocation <= 0) continue;
+
+      const expectedReturn = expectedValue - allocation;
+
+      entries.push(this.#buildEntry(s, runId, allocation, expectedReturn));
+      remaining -= allocation;
+    }
+
+    if (remaining > 0 && entries.length > 0) {
+      logger.info(
+        { budgetRemaining: remaining, entriesAllocated: entries.length },
+        'Kelly allocator finished with surplus budget — greedy pass would allocate remaining',
+      );
+    }
+  }
+
+  #buildEntry(
+    s: ScoredCandidate,
+    runId: string,
+    allocation: number,
+    expectedReturn: number,
+  ): FunnelEntry {
+    return {
+      runId,
+      domain: s.candidate.domain,
+      tld: s.candidate.tld,
+      source: s.candidate.source,
+      priorityScore: s.score.expectedValue * s.score.confidence,
+      budgetAllocationEur: allocation,
+      expectedReturnEur: expectedReturn,
+      expectedValue: s.score.expectedValue,
+      confidence: s.score.confidence,
+      suggestedBuyMax: s.score.suggestedBuyMax,
+      suggestedListPrice: s.score.suggestedListPrice,
+      trademarkClear: s.trademarkClear,
+      status: 'pending',
     };
   }
 

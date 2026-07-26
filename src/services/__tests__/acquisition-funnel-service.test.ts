@@ -238,7 +238,7 @@ describe('AcquisitionFunnelService', () => {
           }),
         );
 
-      const result = await svc.generateFunnel('run-abc-123');
+      const result = await svc.generateFunnel('run-abc-123', { kellyFraction: 0 });
 
       expect(result.entries).toHaveLength(2);
       expect(result.entries[0]!.domain).toBe('best.io');
@@ -273,7 +273,7 @@ describe('AcquisitionFunnelService', () => {
           }),
         );
 
-      const result = await svc.generateFunnel('run-abc-123');
+      const result = await svc.generateFunnel('run-abc-123', { kellyFraction: 0 });
 
       expect(result.entries).toHaveLength(1);
       expect(result.entries[0]!.domain).toBe('expensive.com');
@@ -315,7 +315,7 @@ describe('AcquisitionFunnelService', () => {
           }),
         );
 
-      const result = await svc.generateFunnel('run-abc-123', { maxEntries: 2 });
+      const result = await svc.generateFunnel('run-abc-123', { maxEntries: 2, kellyFraction: 0 });
 
       expect(result.entries).toHaveLength(2);
     });
@@ -333,7 +333,7 @@ describe('AcquisitionFunnelService', () => {
         }),
       );
 
-      const result = await svc.generateFunnel('run-abc-123');
+      const result = await svc.generateFunnel('run-abc-123', { kellyFraction: 0 });
 
       expect(result.breakdown.totalExpectedReturnEur).toBe(300);
       expect(result.breakdown.averageConfidence).toBeCloseTo(0.8, 2);
@@ -426,7 +426,7 @@ describe('AcquisitionFunnelService', () => {
           }),
         );
 
-      const result = await svc.generateFunnel('run-abc-123');
+      const result = await svc.generateFunnel('run-abc-123', { kellyFraction: 0 });
 
       expect(result.entries).toHaveLength(2);
     });
