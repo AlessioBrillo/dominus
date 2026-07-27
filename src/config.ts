@@ -141,6 +141,14 @@ const configSchema = z.object({
    */
   TM_CACHE_TTL_DAYS: z.coerce.number().int().min(1).default(7),
   /**
+   * TSDR (Trademark Status & Document Retrieval) fallback URL for the
+   * USPTO trademark search. Used when the primary Elasticsearch backend
+   * (`USPTO_SEARCH_URL`) is unreachable or WAF-blocked.
+   * The TSDR data endpoint returns JSON but has a different response shape
+   * from the ES backend. Defaults to the public TSDR search data endpoint.
+   */
+  USPTO_TSDR_SEARCH_URL: z.string().url().default('https://tsdr.uspto.gov/tsdr/tmsearch/data'),
+  /**
    * Rate limiting: max tokens (burst capacity) for USPTO trademark requests.
    * Token bucket refills at USPTO_RATE_LIMIT_TOKENS per USPTO_RATE_LIMIT_INTERVAL_MS.
    * Default: 5 req/sec with burst up to 5.
@@ -740,12 +748,12 @@ const configSchema = z.object({
   PIPELINE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
 
   /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
-   *  speed up batch processing but may trigger rate limits. Default: 5. */
-  RDAP_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+   *  speed up batch processing but may trigger rate limits. Default: 10. */
+  RDAP_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(10),
 
   /** Maximum concurrent trademark gate checks (USPTO/EUIPO) per pipeline stage run.
-   *  These are rate-limited APIs so keep this low. Default: 3. */
-  TRADEMARK_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(3),
+   *  These are rate-limited APIs so keep this moderate. Default: 5. */
+  TRADEMARK_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(5),
 
   /** Maximum concurrent WHOIS lookups per pipeline stage run. WHOIS opens a
    *  port-43 connection per domain, so keep this low. Default: 3. */
@@ -766,8 +774,9 @@ const configSchema = z.object({
   /** Maximum concurrent domains to score in a single ScoringStage batch.
    *  Each candidate triggers keyword + comps provider calls (if available),
    *  so higher concurrency may increase API concurrency pressure.
-   *  Default: 5 — matches RDAP and other batch stages. */
-  SCORING_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+   *  Default: 10 — Fase 4 (parallel signal computation) halved per-candidate
+   *  wall-clock, so we can safely double the batch size. */
+  SCORING_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(10),
 
   /** HTTP request timeout in milliseconds for Express routes.
    *  Set to 0 to disable. Default: 30000 (30s). */

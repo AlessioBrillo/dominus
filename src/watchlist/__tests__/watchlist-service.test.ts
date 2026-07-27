@@ -47,6 +47,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     WHOIS_LOOKUP_TIMEOUT: 10_000,
     RDAP_RATE_LIMIT_TOKENS: 10,
     RDAP_RATE_LIMIT_INTERVAL_MS: 1000,
+    USPTO_TSDR_SEARCH_URL: 'https://tsdr.uspto.gov/tsdr/tmsearch/data',
     USPTO_RATE_LIMIT_TOKENS: 5,
     USPTO_RATE_LIMIT_INTERVAL_MS: 1000,
     EUIPO_RATE_LIMIT_TOKENS: 5,

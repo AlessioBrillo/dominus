@@ -148,7 +148,9 @@ describe('UsptoCasesProvider', () => {
   });
 
   it('returns empty array on non-OK HTTP status (graceful degrade)', async () => {
-    mockFetch.mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('') });
+    // 403 with non-HTML content (WAF check fails, falls through to graceful degrade).
+    // We must NOT trigger the WAF retry path; use a 500 status for a pure graceful degrade.
+    mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('') });
     const results = await provider.search('nike');
     expect(results).toEqual([]);
   });
@@ -229,7 +231,7 @@ describe('UsptoCasesProvider', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it('returns empty array after exhausting WAF retries', async () => {
+  it('throws ProviderError after exhausting WAF retries', async () => {
     // All 4 attempts (1 initial + 3 retries) return HTML WAF responses
     mockFetch
       .mockResolvedValueOnce(mockHtmlResponse(403))
@@ -237,8 +239,7 @@ describe('UsptoCasesProvider', () => {
       .mockResolvedValueOnce(mockHtmlResponse(503))
       .mockResolvedValueOnce(mockTextResponse('<html>Blocked</html>'));
 
-    const results = await provider.search('nike');
-    expect(results).toEqual([]);
+    await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
     expect(mockFetch).toHaveBeenCalledTimes(4);
     expect(provider.wafBlockCount).toBe(4);
   });

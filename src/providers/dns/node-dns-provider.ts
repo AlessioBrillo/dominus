@@ -14,7 +14,7 @@ import type { RateLimiterLike } from '../rate-limiter.js';
 
 const logger = getLogger();
 
-type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'NS' | 'SOA';
+type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
 
 function createResolver(nameservers: string[]): Resolver {
   const r = new Resolver();
@@ -327,43 +327,69 @@ function recordTypeToQtype(type: string): number {
   }
 }
 
-const ALL_RECORDS: DnsRecordType[] = ['A', 'AAAA', 'CNAME', 'MX', 'NS', 'SOA'];
-
+/**
+ * Two-phase DNS resolution for optimal performance:
+ * Phase 1 — A record only (covers ~95% of registered domains with 1 query)
+ * Phase 2 — NS + SOA in parallel as fallback (catches domains without A records)
+ *
+ * Previously queried 6 record types in parallel on every domain, which was
+ * wasteful for both available domains (all 6 had to fail before declaring
+ * availability) and registered domains (5 redundant queries after first win).
+ * The sequential priority approach reduces queries by ~60-80%.
+ */
 async function resolvesAnyNative(
   domain: string,
   timeout: number,
   signal?: AbortSignal,
   resolver?: Resolver,
 ): Promise<boolean | undefined> {
-  const childAbort = new AbortController();
-  const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
+  // Phase 1: A record only — fastest path
+  const aOutcome = await resolveWithTimeout(domain, 'A', timeout, signal, resolver)
+    .then(() => true as const)
+    .catch((err: unknown) => {
+      const e = err as { code?: string; name?: string };
+      if (e.name === 'AbortError') return 'aborted' as const;
+      if (e.code === 'ENOTFOUND' || e.code === 'ENODATA') return 'nxdomain' as const;
+      if (e.code === 'ETIMEOUT' || e.code === 'ESOCKETTIMEOUT') return 'timeout' as const;
+      return 'error' as const;
+    });
 
-  const tasks = ALL_RECORDS.map((type) =>
-    resolveWithTimeout(domain, type, timeout, combinedSignal, resolver)
-      .then(() => {
-        childAbort.abort();
-        return { type, resolved: true as const, aborted: false as const };
-      })
-      .catch((err: unknown) => {
-        const e = err as { code?: string; name?: string };
-        return {
-          type,
-          resolved: false as const,
-          aborted: e.name === ('AbortError' as const),
-          code: e.code,
-        };
-      }),
+  if (aOutcome === true) return true;
+  if (aOutcome === 'aborted') return undefined;
+
+  // Phase 2: NS + SOA in parallel — catch domains registered without A records
+  const fallbackAc = new AbortController();
+  const fallbackSignal = signal ? AbortSignal.any([signal, fallbackAc.signal]) : fallbackAc.signal;
+
+  const fallbackTypes: DnsRecordType[] = ['NS', 'SOA'];
+  const fallbackOutcomes = await Promise.all(
+    fallbackTypes.map((type) =>
+      resolveWithTimeout(domain, type, timeout, fallbackSignal, resolver)
+        .then(() => {
+          fallbackAc.abort();
+          return {
+            resolved: true as const,
+            code: undefined as string | undefined,
+            aborted: false as const,
+          };
+        })
+        .catch((err: unknown) => {
+          const e = err as { code?: string; name?: string };
+          return {
+            resolved: false as const,
+            code: e.code,
+            aborted: e.name === ('AbortError' as const),
+          };
+        }),
+    ),
   );
 
-  const outcomes = await Promise.all(tasks);
-
-  for (const o of outcomes) {
+  for (const o of fallbackOutcomes) {
     if (o.resolved) return true;
   }
 
   let anyTimeout = false;
-  for (const o of outcomes) {
-    if (o.resolved) continue;
+  for (const o of fallbackOutcomes) {
     if (o.aborted) continue;
     const c = o.code;
     if (c === 'ETIMEOUT' || c === 'ESOCKETTIMEOUT') {
@@ -374,49 +400,72 @@ async function resolvesAnyNative(
   }
 
   if (anyTimeout) {
-    logger.warn({ domain }, 'DNS: all record types timed out or NXDOMAIN');
+    logger.warn({ domain }, 'DNS: A and NS/SOA both timed out');
     return undefined;
   }
 
   return false;
 }
 
-const DOH_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
-
+/**
+ * Two-phase DNS-over-HTTPS resolution — same A→NS+SOA strategy as native.
+ * Uses shared HTTPS agent with keepalive for connection reuse across queries.
+ */
 async function resolvesAnyDoh(
   domain: string,
   endpoint: string,
   timeout: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
-  const childAbort = new AbortController();
-  const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
+  // Phase 1: A record only
+  const aTimeoutSignal = AbortSignal.timeout(timeout);
+  const aCombined = signal ? AbortSignal.any([signal, aTimeoutSignal]) : aTimeoutSignal;
+  const aOutcome = await resolveDoh(domain, 'A', endpoint, aCombined)
+    .then(() => true as const)
+    .catch((err: unknown) => {
+      const e = err as { code?: string; name?: string };
+      if (e.name === 'AbortError') return 'aborted' as const;
+      if (e.code === 'ENOTFOUND' || e.code === 'ENODATA') return 'nxdomain' as const;
+      return 'error' as const;
+    });
 
-  const tasks = DOH_TYPES.map((type) => {
-    const timeoutSignal = AbortSignal.timeout(timeout);
-    const merged = AbortSignal.any([combinedSignal, timeoutSignal]);
-    return resolveDoh(domain, type, endpoint, merged)
-      .then(() => {
-        childAbort.abort();
-        return { resolved: true as const, aborted: false as const };
-      })
-      .catch((err: unknown) => {
-        const e = err as { code?: string; name?: string };
-        return {
-          resolved: false as const,
-          aborted: e.name === ('AbortError' as const),
-          code: e.code,
-        };
-      });
-  });
+  if (aOutcome === true) return true;
+  if (aOutcome === 'aborted') return undefined;
 
-  const outcomes = await Promise.all(tasks);
+  // Phase 2: NS + SOA in parallel
+  const fallbackAc = new AbortController();
+  const fallbackSignal = signal ? AbortSignal.any([signal, fallbackAc.signal]) : fallbackAc.signal;
 
-  for (const o of outcomes) {
+  const fallbackTypes = ['NS', 'SOA'];
+  const fallbackOutcomes = await Promise.all(
+    fallbackTypes.map((type) => {
+      const typeTimeout = AbortSignal.timeout(timeout);
+      const merged = AbortSignal.any([fallbackSignal, typeTimeout]);
+      return resolveDoh(domain, type, endpoint, merged)
+        .then(() => {
+          fallbackAc.abort();
+          return {
+            resolved: true as const,
+            code: undefined as string | undefined,
+            aborted: false as const,
+          };
+        })
+        .catch((err: unknown) => {
+          const e = err as { code?: string; name?: string };
+          return {
+            resolved: false as const,
+            code: e.code,
+            aborted: e.name === ('AbortError' as const),
+          };
+        });
+    }),
+  );
+
+  for (const o of fallbackOutcomes) {
     if (o.resolved) return true;
   }
 
-  const anyUnknown = outcomes.some(
+  const anyUnknown = fallbackOutcomes.some(
     (o) =>
       !o.resolved &&
       !o.aborted &&
@@ -426,6 +475,9 @@ async function resolvesAnyDoh(
   return false;
 }
 
+/**
+ * Two-phase DNS-over-TLS resolution — same A→NS+SOA strategy.
+ */
 async function resolvesAnyDot(
   domain: string,
   endpoint: string,
@@ -434,36 +486,53 @@ async function resolvesAnyDot(
   port?: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
-  const childAbort = new AbortController();
-  const combinedSignal = signal ? AbortSignal.any([signal, childAbort.signal]) : childAbort.signal;
+  // Phase 1: A record only
+  const aOutcome = await resolveDot(domain, 'A', endpoint, timeout, servername, port, signal)
+    .then(() => true as const)
+    .catch((err: unknown) => {
+      const e = err as { code?: string; name?: string };
+      if (e.name === 'AbortError') return 'aborted' as const;
+      if (e.code === 'ENOTFOUND' || e.code === 'ENODATA') return 'nxdomain' as const;
+      return 'error' as const;
+    });
 
-  const DOT_TYPES = ['A', 'AAAA', 'NS', 'SOA'];
+  if (aOutcome === true) return true;
+  if (aOutcome === 'aborted') return undefined;
 
-  const tasks = DOT_TYPES.map((type) => {
-    const timeoutSignal = AbortSignal.timeout(timeout);
-    const merged = AbortSignal.any([combinedSignal, timeoutSignal]);
-    return resolveDot(domain, type, endpoint, timeout, servername, port, merged)
-      .then(() => {
-        childAbort.abort();
-        return { resolved: true as const, aborted: false as const };
-      })
-      .catch((err: unknown) => {
-        const e = err as { code?: string; name?: string };
-        return {
-          resolved: false as const,
-          aborted: e.name === ('AbortError' as const),
-          code: e.code,
-        };
-      });
-  });
+  // Phase 2: NS + SOA in parallel
+  const fallbackAc = new AbortController();
+  const fallbackSignal = signal ? AbortSignal.any([signal, fallbackAc.signal]) : fallbackAc.signal;
 
-  const outcomes = await Promise.all(tasks);
+  const fallbackTypes = ['NS', 'SOA'];
+  const fallbackOutcomes = await Promise.all(
+    fallbackTypes.map((type) => {
+      const typeTimeout = AbortSignal.timeout(timeout);
+      const merged = AbortSignal.any([fallbackSignal, typeTimeout]);
+      return resolveDot(domain, type, endpoint, timeout, servername, port, merged)
+        .then(() => {
+          fallbackAc.abort();
+          return {
+            resolved: true as const,
+            code: undefined as string | undefined,
+            aborted: false as const,
+          };
+        })
+        .catch((err: unknown) => {
+          const e = err as { code?: string; name?: string };
+          return {
+            resolved: false as const,
+            code: e.code,
+            aborted: e.name === ('AbortError' as const),
+          };
+        });
+    }),
+  );
 
-  for (const o of outcomes) {
+  for (const o of fallbackOutcomes) {
     if (o.resolved) return true;
   }
 
-  const anyUnknown = outcomes.some(
+  const anyUnknown = fallbackOutcomes.some(
     (o) =>
       !o.resolved &&
       !o.aborted &&

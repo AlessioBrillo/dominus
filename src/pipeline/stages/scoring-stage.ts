@@ -22,7 +22,7 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
 
   constructor(
     private readonly engine: ScoringEngine,
-    private readonly concurrency: number = 5,
+    private readonly concurrency: number = 10,
     private readonly waybackProvider?: WaybackProvider,
   ) {}
 

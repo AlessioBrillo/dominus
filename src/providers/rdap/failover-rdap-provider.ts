@@ -3,6 +3,12 @@ import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
 import { PublicRdapProvider } from './public-rdap-provider.js';
 import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
+import {
+  CircuitBreaker,
+  RDAP_PER_SERVER_CIRCUIT_BREAKER,
+  type CircuitBreakerPolicy,
+  type ICircuitBreaker,
+} from '../circuit-breaker.js';
 
 export interface RdapBootstrapConfig {
   baseUrl: string;
@@ -16,12 +22,18 @@ const DEFAULT_BOOTSTRAP_SERVERS: RdapBootstrapConfig[] = [
 ];
 
 /**
- * FailoverRdapProvider — parallel RDAP resolution with race-based failover.
+ * FailoverRdapProvider — parallel RDAP resolution with race-based failover
+ * and per-server circuit breakers.
  *
  * Queries all bootstrap servers concurrently and returns the first successful
  * response. When one server responds, remaining in-flight requests are
  * cancelled via AbortController. If all servers fail, a ProviderError is
  * thrown with aggregated error messages.
+ *
+ * Each bootstrap server has its own circuit breaker. When a server degrades,
+ * its breaker opens and it is skipped in subsequent confirm() calls without
+ * waiting for a timeout. This isolates failure — one overloaded server does
+ * not penalise the others.
  *
  * Parallel (not sequential) is deliberate:
  * - rdap.org is the most comprehensive but also the most commonly overloaded.
@@ -36,6 +48,7 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly name: string;
   readonly #providers: RdapProvider[];
   readonly #sharedRateLimiter: RateLimiterLike;
+  readonly #perServerBreakers: Map<string, ICircuitBreaker>;
 
   // Intra-run cache: avoids re-querying RDAP for the same domain within a
   // short window (TTL). This is critical because the pipeline may visit the
@@ -46,7 +59,11 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly #intraRunCache = new Map<string, { result: RdapResult; expiresAt: number }>();
   static readonly #INTRARUN_CACHE_TTL_MS = 60_000;
 
-  constructor(providers?: RdapProvider[], sharedRateLimiter?: RateLimiterLike) {
+  constructor(
+    providers?: RdapProvider[],
+    sharedRateLimiter?: RateLimiterLike,
+    perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
+  ) {
     if (providers) {
       this.#providers = providers;
       this.name = `FailoverRdapProvider(${providers.map((s) => s.name).join(',')})`;
@@ -57,6 +74,18 @@ export class FailoverRdapProvider implements RdapProvider {
       this.name = `FailoverRdapProvider(${DEFAULT_BOOTSTRAP_SERVERS.map((s) => s.name).join(',')})`;
     }
     this.#sharedRateLimiter = sharedRateLimiter ?? RateLimiter.unlimited();
+
+    // Build per-server circuit breakers. Each server gets its own breaker
+    // so that a degraded server is isolated from healthy ones.
+    this.#perServerBreakers = new Map(
+      this.#providers.map((p) => [
+        p.name,
+        new CircuitBreaker({
+          ...RDAP_PER_SERVER_CIRCUIT_BREAKER,
+          ...perServerCircuitBreakerPolicy,
+        }),
+      ]),
+    );
   }
 
   /** Clear the intra-run cache. Called at pipeline run start. */
@@ -69,22 +98,29 @@ export class FailoverRdapProvider implements RdapProvider {
    * A single rate limiter is preferred over per-server limiters because the
    * RDAP ecosystem as a whole should be rate-limited, not individual endpoints.
    */
-  static fromConfig(urls: string[], rateLimiter?: RateLimiterLike): FailoverRdapProvider {
+  static fromConfig(
+    urls: string[],
+    rateLimiter?: RateLimiterLike,
+    perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
+  ): FailoverRdapProvider {
     const providers = urls.map((url, i) => {
       const name = `rdap-server-${i + 1}`;
       return new PublicRdapProvider(url, name, RateLimiter.unlimited());
     });
-    return new FailoverRdapProvider(providers, rateLimiter);
+    return new FailoverRdapProvider(providers, rateLimiter, perServerCircuitBreakerPolicy);
   }
 
   /**
    * Create with default bootstrap servers and a shared rate limiter.
    */
-  static withDefaults(rateLimiter?: RateLimiterLike): FailoverRdapProvider {
+  static withDefaults(
+    rateLimiter?: RateLimiterLike,
+    perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
+  ): FailoverRdapProvider {
     const providers = DEFAULT_BOOTSTRAP_SERVERS.map(
       (cfg) => new PublicRdapProvider(cfg.baseUrl, cfg.name, RateLimiter.unlimited()),
     );
-    return new FailoverRdapProvider(providers, rateLimiter);
+    return new FailoverRdapProvider(providers, rateLimiter, perServerCircuitBreakerPolicy);
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
@@ -108,21 +144,53 @@ export class FailoverRdapProvider implements RdapProvider {
     // Wrap in the shared rate limiter so we only issue one RDAP request
     // per domain across all servers simultaneously (not one per server).
     return this.#sharedRateLimiter.throttle(async () => {
-      const promises = this.#providers.map(async (provider) => {
-        if (combinedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
-        const result = await provider.confirm(domain, combinedSignal);
-        // First success wins — cancel all other in-flight requests
-        if (!winnerAc.signal.aborted) {
-          winnerAc.abort();
-        }
-        return { provider: provider.name, result };
-      });
-
-      const settled = await Promise.allSettled(promises);
       const errors: string[] = [];
+      const activeProviders: {
+        provider: RdapProvider;
+        promise: Promise<{ provider: string; result: RdapResult }>;
+      }[] = [];
 
-      for (let i = 0; i < settled.length; i++) {
+      for (const provider of this.#providers) {
+        const breaker = this.#perServerBreakers.get(provider.name);
+
+        // Skip servers whose circuit breaker is open — they are degraded
+        // and would waste time on a timeout.
+        if (breaker && !breaker.allow()) {
+          errors.push(`${provider.name}: circuit open`);
+          continue;
+        }
+
+        const promise = (async (): Promise<{ provider: string; result: RdapResult }> => {
+          if (combinedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
+          try {
+            const result = await provider.confirm(domain, combinedSignal);
+            // First success wins — cancel all other in-flight requests
+            if (!winnerAc.signal.aborted) {
+              winnerAc.abort();
+            }
+            void breaker?.onSuccess();
+            return { provider: provider.name, result };
+          } catch (err) {
+            // Only record circuit breaker failures for real errors, not
+            // for cancellations caused by another server winning the race.
+            const isAbort = err instanceof DOMException && err.name === 'AbortError';
+            if (!isAbort) {
+              void breaker?.onFailure();
+            }
+            throw err;
+          }
+        })();
+
+        activeProviders.push({ provider, promise });
+      }
+
+      const promises = activeProviders.map((ap) => ap.promise);
+      const settled = await Promise.allSettled(promises);
+
+      for (let i = 0; i < activeProviders.length; i++) {
+        const { provider } = activeProviders[i]!;
         const s = settled[i]!;
+
         if (s.status === 'fulfilled') {
           // Populate intra-run cache before returning
           const { result } = s.value;
@@ -132,9 +200,9 @@ export class FailoverRdapProvider implements RdapProvider {
           });
           return s.value.result;
         }
-        const providerName = this.#providers[i]?.name ?? `server-${i}`;
+
         errors.push(
-          `${providerName}: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`,
+          `${provider.name}: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`,
         );
       }
 

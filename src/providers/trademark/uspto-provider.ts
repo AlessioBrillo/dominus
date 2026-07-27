@@ -190,9 +190,13 @@ export class UsptoCasesProvider implements TrademarkProvider {
       }
       logger.error(
         { httpStatus: response.status, term, wafBlockCount: this.#wafBlockCount },
-        'USPTO WAF block persists after all retries — degrading to empty result set.',
+        'USPTO WAF block persists after all retries — throwing for failover.',
       );
-      return [];
+      throw new ProviderError(
+        `USPTO WAF block exhausted for term "${term}" after ${MAX_WAF_RETRIES + 1} attempts`,
+        'UsptoCasesProvider',
+        'USPTO_WAF_EXHAUSTED',
+      );
     }
 
     if (!response.ok) {
@@ -220,9 +224,13 @@ export class UsptoCasesProvider implements TrademarkProvider {
       }
       logger.error(
         { term, wafBlockCount: this.#wafBlockCount },
-        'USPTO WAF block persists after all retries — degrading to empty result set.',
+        'USPTO WAF block persists after all retries — throwing for failover.',
       );
-      return [];
+      throw new ProviderError(
+        `USPTO JSON WAF block exhausted for term "${term}" after ${MAX_WAF_RETRIES + 1} attempts`,
+        'UsptoCasesProvider',
+        'USPTO_WAF_EXHAUSTED',
+      );
     }
 
     let data: unknown;

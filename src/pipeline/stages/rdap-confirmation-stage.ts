@@ -67,7 +67,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
   constructor(
     private readonly rdapProvider: RdapProvider,
     private readonly whoisProvider?: WhoisProvider,
-    private readonly concurrency: number = 5,
+    private readonly concurrency: number = 10,
     private readonly enrichTimeoutMs: number = DEFAULT_ENRICH_TIMEOUT_MS,
   ) {}
 

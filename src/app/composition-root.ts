@@ -52,7 +52,12 @@ import type { Notifier } from '../notifiers/notifier.js';
 import { SchedulerService, BackupService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
 import { PredictionAccuracyAnalyzer } from '../analytics/index.js';
-import { UsptoCasesProvider, EuipoProvider } from '../providers/trademark/index.js';
+import {
+  EuipoProvider,
+  FailoverTrademarkProvider,
+  TsdrTrademarkProvider,
+  UsptoCasesProvider,
+} from '../providers/trademark/index.js';
 import {
   PipelineRunService,
   CachedTrademarkProvider,
@@ -240,12 +245,22 @@ function buildTrademarkProviderStack(
     rateLimiter: usptoRateLimiter,
   });
 
+  const usptoFallbackProvider = new TsdrTrademarkProvider(
+    config.USPTO_TSDR_SEARCH_URL,
+    usptoRateLimiter,
+  );
+
+  const usptoFailoverProvider = new FailoverTrademarkProvider([
+    rawUsptoProvider,
+    usptoFallbackProvider,
+  ]);
+
   const usptoCircuitBreaker: ICircuitBreaker = redisClient?.isConnected
     ? new DistributedCircuitBreaker('uspto', USPTO_CIRCUIT_BREAKER, redisClient)
     : new CircuitBreaker(USPTO_CIRCUIT_BREAKER);
 
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(rawUsptoProvider, {}, usptoCircuitBreaker),
+    new RetryingTrademarkProvider(usptoFailoverProvider, {}, usptoCircuitBreaker),
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,

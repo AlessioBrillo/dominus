@@ -17,7 +17,7 @@ export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
 
   constructor(
     private readonly gate: TrademarkGate,
-    private readonly concurrency: number = 3,
+    private readonly concurrency: number = 5,
   ) {}
 
   async process(candidates: T[], signal?: AbortSignal): Promise<StageResult<T>> {

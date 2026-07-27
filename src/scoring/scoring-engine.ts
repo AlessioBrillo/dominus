@@ -62,25 +62,27 @@ export class ScoringEngine {
       this.scoringConfig.intrinsic,
       this.#tldBonuses,
     );
-    const commercial = await computeCommercialScore(
-      inputWithSld,
-      this.keywordProvider,
-      this.#weights.commercial,
-      this.scoringConfig.commercial,
-      signal,
-    );
-    const market = await computeMarketScore(
-      inputWithSld,
-      this.compsProvider,
-      this.#weights.market,
-      this.scoringConfig.market,
-      signal,
-    );
     const expiry = computeExpiryScore(
       inputWithSld,
       this.#weights.expiry,
       this.scoringConfig.expiry,
     );
+    const [commercial, market] = await Promise.all([
+      computeCommercialScore(
+        inputWithSld,
+        this.keywordProvider,
+        this.#weights.commercial,
+        this.scoringConfig.commercial,
+        signal,
+      ),
+      computeMarketScore(
+        inputWithSld,
+        this.compsProvider,
+        this.#weights.market,
+        this.scoringConfig.market,
+        signal,
+      ),
+    ]);
 
     const hasCommercialData = commercial.dataAvailable === true;
     const hasMarketData = market.details.comparables !== 0;

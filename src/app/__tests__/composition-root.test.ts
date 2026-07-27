@@ -405,6 +405,7 @@ describe('Dependency Injection â€” composition-root wiring', () => {
       WHOIS_LOOKUP_TIMEOUT: 10000,
       RDAP_RATE_LIMIT_TOKENS: 10,
       RDAP_RATE_LIMIT_INTERVAL_MS: 1000,
+      USPTO_TSDR_SEARCH_URL: 'https://tsdr.uspto.gov/tsdr/tmsearch/data',
       USPTO_RATE_LIMIT_TOKENS: 5,
       USPTO_RATE_LIMIT_INTERVAL_MS: 1000,
       EUIPO_RATE_LIMIT_TOKENS: 5,

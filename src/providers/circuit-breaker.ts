@@ -38,6 +38,25 @@ export const RDAP_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
   cooldownMs: 30_000,
 };
 
+/**
+ * Per-server circuit breaker for RDAP failover. More aggressive than the
+ * global breaker because we have 3 redundant servers — a single server
+ * should be taken out of rotation quickly when it degrades, letting the
+ * remaining servers absorb the load.
+ *
+ * - 3 failures in 30s → open for 60s
+ * - At 3 servers, even 1 degraded server is safely isolated; the other 2
+ *   handle the load without penalty to the caller.
+ * - After 60s cooldown, the half-open probe allows one request through
+ *   to test recovery. If it succeeds, the breaker closes and the server
+ *   is back in rotation.
+ */
+export const RDAP_PER_SERVER_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
+  failureThreshold: 3,
+  windowMs: 30_000,
+  cooldownMs: 60_000,
+};
+
 export type CircuitState = 'closed' | 'open' | 'half-open';
 
 export interface ICircuitBreaker {
