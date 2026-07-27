@@ -590,8 +590,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
     config.PIPELINE_TIMEOUT_MS,
     metrics,
-    // db (8th param): omitted — delegating to lockProvider when Redis is available
-    undefined,
+    // db (8th param): used as fallback lock when lockProvider is undefined (no Redis).
+    // provider implements tryLock/renewLock/unlock via pipeline_locks table.
+    provider,
     // lockProvider (9th param): Redis-backed distributed lock when configured
     lockProvider,
   );

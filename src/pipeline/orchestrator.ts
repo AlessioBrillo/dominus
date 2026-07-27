@@ -108,6 +108,7 @@ export class PipelineOrchestrator {
   #activeTenants: Set<string> = new Set();
   #runControllers: Map<string, AbortController> = new Map();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  #heartbeatFailures = 0;
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -227,15 +228,29 @@ export class PipelineOrchestrator {
 
   #startHeartbeat(): void {
     if (this.#heartbeatTimer) return;
+    this.#heartbeatFailures = 0;
     this.#heartbeatTimer = setInterval(async () => {
       if (!this.#lock) return;
       const renewed = await this.#lock
         .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
         .catch(() => false);
-      if (!renewed) {
-        logger.error('Pipeline lock heartbeat failed — lock may have been lost. Aborting run.');
-        for (const [, ac] of this.#runControllers) {
-          ac.abort();
+      if (renewed) {
+        this.#heartbeatFailures = 0;
+      } else {
+        this.#heartbeatFailures++;
+        if (this.#heartbeatFailures >= 3) {
+          logger.error(
+            { failures: this.#heartbeatFailures },
+            'Pipeline lock heartbeat failed 3 consecutive times — lock may have been lost. Aborting run.',
+          );
+          for (const [, ac] of this.#runControllers) {
+            ac.abort();
+          }
+        } else {
+          logger.warn(
+            { failures: this.#heartbeatFailures },
+            'Pipeline lock heartbeat transient failure — retrying',
+          );
         }
       }
     }, PIPELINE_LOCK_HEARTBEAT_MS).unref();

@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { getLogger } from '../../logger.js';
 import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
@@ -168,7 +169,7 @@ export class SqliteProvider implements DatabaseProvider {
   }
 
   #workerId(lockName: string): string {
-    return `${lockName}:worker:${process.pid}`;
+    return `${lockName}:worker:${hostname()}:${process.pid}`;
   }
 
   async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
