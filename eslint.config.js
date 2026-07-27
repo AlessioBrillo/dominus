@@ -61,4 +61,14 @@ export default [
       'no-restricted-imports': 'off',
     },
   },
+  {
+    // CLI commands legitimately use console.log for stdout output
+    files: ['src/cli/**/*.ts'],
+    rules: { 'no-console': 'off' },
+  },
+  {
+    // Database migration validation is a standalone script
+    files: ['src/db/validate-migration-sync.ts'],
+    rules: { 'no-console': 'off' },
+  },
 ];

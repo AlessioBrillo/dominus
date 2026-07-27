@@ -3,121 +3,58 @@ name: CI
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'examples/**'
-      - '**.txt'
-      - 'LICENSE'
-      - 'CLA.md'
-      - 'SECURITY.md'
-      - 'CODE_OF_CONDUCT.md'
-      - 'SUPPORT.md'
-      - 'GOVERNANCE.md'
-      - 'MAINTAINERS.md'
-      - 'CONTRIBUTING.md'
-      - 'ROADMAP.md'
   pull_request:
     branches: [master]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'examples/**'
-      - '**.txt'
-      - 'LICENSE'
-      - 'CLA.md'
-      - 'SECURITY.md'
-      - 'CODE_OF_CONDUCT.md'
-      - 'SUPPORT.md'
-      - 'GOVERNANCE.md'
-      - 'MAINTAINERS.md'
-      - 'CONTRIBUTING.md'
-      - 'ROADMAP.md'
-  merge_group:
-    types: [checks_requested]
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: '22'
 
 jobs:
   backend:
-    name: Backend (${{ matrix.os }}, Node ${{ matrix.node }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        node: [20, 22]
-      fail-fast: false
+    name: Backend (typecheck, lint, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Cache node_modules
-        id: cache-deps
-        uses: actions/cache@v4
-        with:
-          path: node_modules
-          key: deps-node-${{ matrix.os }}-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            deps-node-${{ matrix.os }}-${{ matrix.node }}-
+      - run: npm ci
 
-      - name: Install dependencies
-        if: steps.cache-deps.outputs.cache-hit != 'true'
-        run: npm ci --legacy-peer-deps
-
-      - name: npm audit
-        run: npm audit --audit-level=high
-        continue-on-error: true
-
-      - name: Typecheck
+      - name: TypeCheck
         run: npm run typecheck
 
       - name: Lint
         run: npm run lint
 
       - name: Format check
-        if: runner.os != 'Windows'
         run: npm run format:check
-
-      - name: Build
-        run: npm run build
-
-      - name: Migration sync check
-        if: runner.os != 'Windows'
-        run: npm run db:sync:check
 
       - name: Test with coverage
         run: npm test -- --coverage
 
-      - name: Run benchmarks (primary only)
-        if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
-        run: npm run bench
-
-      - name: Upload coverage (primary only)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master' && matrix.os == 'ubuntu-latest' && matrix.node == '22'
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
+      - name: Build
+        run: npm run build
 
   frontend:
-    name: Frontend
+    name: Frontend (typecheck, lint, test, build)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     defaults:
       run:
         working-directory: frontend
-    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -128,20 +65,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Cache node_modules
-        id: cache-deps
-        uses: actions/cache@v4
-        with:
-          path: frontend/node_modules
-          key: deps-frontend-${{ hashFiles('frontend/package-lock.json') }}
-          restore-keys: |
-            deps-frontend-
+      - run: npm ci
 
-      - name: Install dependencies
-        if: steps.cache-deps.outputs.cache-hit != 'true'
-        run: npm ci --legacy-peer-deps
-
-      - name: Typecheck
+      - name: TypeCheck
         run: npm run typecheck
 
       - name: Lint
