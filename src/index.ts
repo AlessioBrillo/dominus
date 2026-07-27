@@ -13,6 +13,7 @@ import { isMultiTenantAuth } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import {
+  createBillingRouter,
   createCandidatesRouter,
   createPortfolioRouter,
   createRunsRouter,
@@ -100,6 +101,29 @@ async function main(): Promise<void> {
 
   if (config.REQUEST_TIMEOUT_MS > 0) {
     app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
+  }
+
+  // Stripe webhook requires raw body for signature verification.
+  // Mounted before express.json() to preserve the raw payload.
+  if (deps.billingService.isConfigured) {
+    app.post(
+      '/api/v1/billing/webhook',
+      express.raw({ type: 'application/json' }),
+      async (req, res) => {
+        try {
+          const sig = req.headers['stripe-signature'] as string;
+          if (!sig) {
+            res.status(400).json({ error: 'Missing stripe-signature header' });
+            return;
+          }
+          await deps.billingService.handleWebhookEvent(req.body as Buffer, sig);
+          res.json({ received: true });
+        } catch (err) {
+          logger.error({ err }, 'Stripe webhook error');
+          res.status(400).json({ error: 'Webhook signature verification failed' });
+        }
+      },
+    );
   }
 
   app.use(express.json({ limit: '100kb' }));
@@ -231,6 +255,7 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
+  protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));
   protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));

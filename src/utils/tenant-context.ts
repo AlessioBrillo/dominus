@@ -11,6 +11,28 @@ export function runWithTenant<T>(tenantId: string, fn: () => T): T {
 }
 
 /**
+ * Create a scoped tenant context within an existing one. Useful for
+ * background operations (workers, cron jobs) that need to perform
+ * actions as a specific tenant while preserving the outer context.
+ *
+ * Unlike runWithTenant, this returns the tenant ID and the wrapped
+ * function separately, allowing the caller to decide when to invoke.
+ *
+ * Usage:
+ *   const { scoped, tenantId } = scopedTenant('tenant-abc');
+ *   await scoped(() => db.query('SELECT ...'));
+ */
+export function scopedTenant<T>(tenantId: string): {
+  scoped: (fn: () => T) => T;
+  tenantId: string;
+} {
+  return {
+    scoped: (fn: () => T) => tenantStorage.run(tenantId, fn),
+    tenantId,
+  };
+}
+
+/**
  * Return the tenant ID for the current async context, or `undefined`
  * when called outside a `runWithTenant()` scope (e.g. CLI commands,
  * worker startup, tests).

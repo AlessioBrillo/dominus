@@ -138,7 +138,7 @@ services:
     profiles:
       - full
 
-  # DOMINUS Cloud (PostgreSQL)
+  # DOMINUS Cloud (PostgreSQL + Redis)
   postgres:
     image: postgres:16-alpine
     container_name: dominus-pg

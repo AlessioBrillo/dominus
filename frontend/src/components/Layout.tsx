@@ -19,6 +19,7 @@ import {
   TrendingUp,
   Clock,
   Server,
+  CreditCard,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -40,6 +41,7 @@ const navItems = [
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/scheduler', label: 'Scheduler', icon: Clock },
   { to: '/providers', label: 'Providers', icon: Server },
+  { to: '/billing', label: 'Billing', icon: CreditCard },
   { to: '/settings', label: 'Settings', icon: Settings },
 ] as const;
 

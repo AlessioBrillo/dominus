@@ -46,4 +46,8 @@ export const queryKeys = {
     all: ['scheduler'] as const,
     list: () => [...queryKeys.scheduler.all, 'list'] as const,
   },
+  billing: {
+    all: ['billing'] as const,
+    subscription: () => [...queryKeys.billing.all, 'subscription'] as const,
+  },
 };

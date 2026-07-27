@@ -10,7 +10,6 @@ interface RunProgressProps {
 const stageOrder = [
   'CandidateGenerationStage',
   'DnsPreFilterStage',
-  'WhoisStage',
   'RdapConfirmationStage',
   'ScoringStage',
   'TrademarkGateStage',
