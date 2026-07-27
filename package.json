@@ -93,14 +93,14 @@
     "agpl"
   ],
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.1",
     "commander": "^15.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.6.0",
+    "express-rate-limit": "^8.6.1",
     "ioredis": "^5.11.1",
-    "jose": "^6.2.3",
+    "jose": "^6.2.4",
     "lru-cache": "^11.5.2",
     "node-cron": "^4.6.0",
     "node-notifier": "^10.0.1",
