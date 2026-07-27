@@ -1109,6 +1109,21 @@ const configSchema = z.object({
   REDIS_URL: z.string().optional(),
 
   /**
+   * When true, REDIS_URL is required at startup and the application refuses
+   * to start without it. Automatically enabled when DATABASE_URL is set
+   * (cloud mode) — distributed rate limiting and locking are mandatory
+   * in multi-process deployments. Can be explicitly overridden to false
+   * for single-process cloud deployments (testing, staging).
+   * Default: true when DATABASE_URL is set, false otherwise.
+   */
+  REDIS_REQUIRED: z
+    .preprocess((v) => {
+      if (v !== undefined) return v === 'true' || v === true;
+      return undefined;
+    }, z.boolean())
+    .optional(),
+
+  /**
    * Enable TLS for Redis connections (required for managed Redis services
    * like Upstash, Redis Cloud, or AWS ElastiCache with in-transit encryption).
    */
@@ -1134,6 +1149,49 @@ const configSchema = z.object({
    * Default: 200ms.
    */
   REDIS_RETRY_BASE_MS: z.coerce.number().int().min(50).max(10000).default(200),
+
+  // ── Billing / Subscription (DOMINUS Cloud) ────────────────────────
+
+  /**
+   * Stripe secret key for server-side API calls.
+   * When set, billing features are enabled (DOMINUS Cloud).
+   * When unset (community edition), the billing API returns
+   * a free/community status without Stripe interaction.
+   */
+  STRIPE_SECRET_KEY: z.string().optional(),
+
+  /**
+   * Stripe publishable key for the frontend (Stripe Elements, Checkout).
+   * Required when STRIPE_SECRET_KEY is set for client-side payment flows.
+   */
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+
+  /**
+   * Stripe webhook signing secret to verify incoming webhook events.
+   * Configure this in your Stripe dashboard webhook settings.
+   * Required to process subscription lifecycle events asynchronously.
+   */
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  /**
+   * Stripe Price ID for the monthly subscription plan (e.g. 'pro').
+   * Create the price in Stripe Dashboard > Products.
+   */
+  STRIPE_PRICE_ID_MONTHLY: z.string().optional(),
+
+  /**
+   * Stripe Price ID for the annual subscription plan.
+   * Create the price in Stripe Dashboard > Products.
+   */
+  STRIPE_PRICE_ID_YEARLY: z.string().optional(),
+
+  /**
+   * Default subscription plan for new tenants.
+   * 'free' — community edition, no Stripe integration required.
+   * 'pro' — DOMINUS Cloud with Stripe billing.
+   * 'enterprise' — custom plan with dedicated support.
+   */
+  SUBSCRIPTION_DEFAULT_PLAN: z.enum(['free', 'pro', 'enterprise']).optional(),
 
   // ── Data retention ─────────────────────────────────────────────────
 

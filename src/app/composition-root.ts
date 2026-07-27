@@ -21,6 +21,7 @@ import {
   BacktestSignalsRepository,
   WeightSnapshotRepository,
   SchedulerJobRepository,
+  SubscriptionRepository,
   MetricsRepository,
   JobQueueRepository,
 } from '../db/index.js';
@@ -92,6 +93,7 @@ import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
+import { BillingService } from '../services/billing-service.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
@@ -135,6 +137,9 @@ export interface DominusDependencies {
   jobQueueRepo: JobQueueRepository;
   listingRepo: ListingRepository;
   apiKeyRepo: ApiKeyRepository;
+  subscriptionRepo: SubscriptionRepository;
+
+  billingService: BillingService;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -194,6 +199,7 @@ interface BuiltRepositories {
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
   apiKeyRepo: ApiKeyRepository;
+  subscriptionRepo: SubscriptionRepository;
 }
 
 function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
@@ -213,6 +219,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     watchlistRepo: new WatchlistRepository(provider),
     acquisitionRepo: new AcquisitionRepository(provider),
     listingRepo: new ListingRepository(provider),
+    subscriptionRepo: new SubscriptionRepository(provider),
   };
 }
 
@@ -427,6 +434,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
   const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
 
+  const billingService = new BillingService(config, repos.subscriptionRepo);
+
   // Dedicated bulk-write connection for pipeline persistence (SQLite only).
   // With WAL mode, this lets the main connection serve reads concurrently
   // while a pipeline persists thousands of candidates in a single transaction.
@@ -440,6 +449,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // across all processes (api, worker, scheduler). Without Redis, all
   // services fall back to in-memory implementations (community edition).
   // See ADR-0033 for the architecture decision.
+  //
+  // In cloud mode (DATABASE_URL set or AUTH_PROVIDER !== 'env'), Redis is
+  // required: in-memory fallbacks are per-process and cannot coordinate
+  // across api/worker/scheduler containers, leading to split-brain rate
+  // limiting and circuit breaker state. Enforced via REDIS_REQUIRED.
+  const isCloudMode = !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env';
+  const redisRequired = config.REDIS_REQUIRED !== undefined ? config.REDIS_REQUIRED : isCloudMode;
   let redisClient: RedisClient | undefined;
   if (config.REDIS_URL) {
     redisClient = getRedisClient({
@@ -449,6 +465,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       maxRetries: config.REDIS_MAX_RETRIES,
       retryBaseMs: config.REDIS_RETRY_BASE_MS,
     });
+  } else if (redisRequired) {
+    logger.fatal(
+      'REDIS_URL is required in cloud mode (DATABASE_URL set or AUTH_PROVIDER !== env). ' +
+        'Set REDIS_URL in your environment or configure REDIS_REQUIRED=false for single-process deployments.',
+    );
+    throw new Error('Redis is required in cloud mode');
   }
 
   // --- Rate Limiters ---
@@ -849,5 +871,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     authProvider,
     anonScoringService,
     redisClient,
+    billingService,
   };
 }

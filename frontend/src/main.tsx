@@ -23,6 +23,7 @@ import { WatchlistPage } from '@/pages/WatchlistPage';
 import { BacktestPage } from '@/pages/BacktestPage';
 import { SchedulerPage } from '@/pages/SchedulerPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
+import { BillingPage } from '@/pages/BillingPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import '@/styles/globals.css';
@@ -67,6 +68,7 @@ createRoot(document.getElementById('root')!).render(
                     <Route path="backtest" element={<BacktestPage />} />
                     <Route path="scheduler" element={<SchedulerPage />} />
                     <Route path="providers" element={<ProvidersPage />} />
+                    <Route path="billing" element={<BillingPage />} />
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                   </Route>
