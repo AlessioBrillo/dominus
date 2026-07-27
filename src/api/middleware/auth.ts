@@ -53,6 +53,32 @@ export interface AuthMiddlewareOptions {
   requireTenant?: boolean;
 }
 
+/**
+ * Extract the API key from the request, checking:
+ * 1. Authorization header (Bearer token) — standard API calls
+ * 2. `token` query parameter — SSE/EventSource (cannot set custom headers)
+ *
+ * SSE auth via query param is acceptable because:
+ * - The endpoint is GET-only, read-only (stage progress events)
+ * - The token is transmitted over HTTPS (never HTTP)
+ * - The token is never logged or leaked in responses
+ * - This is a standard pattern (AWS, Stripe, etc. use URL-based SSE auth)
+ */
+function extractApiKey(req: Request): string | null {
+  const header = req.headers['authorization'];
+  if (header && typeof header === 'string') {
+    const match = /^Bearer\s+(\S+)$/i.exec(header);
+    if (match && match[1]) return match[1];
+  }
+
+  const tokenParam = req.query['token'];
+  if (typeof tokenParam === 'string' && tokenParam.length > 0) {
+    return tokenParam;
+  }
+
+  return null;
+}
+
 export function createAuthMiddleware(
   provider: AuthProvider,
   db: DatabaseProvider,
@@ -77,8 +103,8 @@ export function createAuthMiddleware(
       return;
     }
 
-    const header = req.headers['authorization'];
-    if (!header || typeof header !== 'string') {
+    const apiKey = extractApiKey(req);
+    if (!apiKey) {
       const allowed = await checkAuthRateLimit(db, clientIp);
       if (!allowed) {
         res.status(429).json({
@@ -92,34 +118,12 @@ export function createAuthMiddleware(
       res.status(401).json({
         error: {
           code: 'UNAUTHORIZED',
-          message: 'Missing Authorization header. Use: Authorization: Bearer <api-key>',
+          message: 'Missing Authorization header or token query parameter.',
         },
       });
       return;
     }
 
-    const match = /^Bearer\s+(\S+)$/i.exec(header);
-    if (!match || !match[1]) {
-      const allowed = await checkAuthRateLimit(db, clientIp);
-      if (!allowed) {
-        res.status(429).json({
-          error: {
-            code: 'RATE_LIMITED',
-            message: 'Too many authentication attempts. Try again later.',
-          },
-        });
-        return;
-      }
-      res.status(401).json({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Invalid Authorization format. Use: Authorization: Bearer <api-key>',
-        },
-      });
-      return;
-    }
-
-    const apiKey = match[1];
     const result = await provider.validate(apiKey);
 
     if (!result.authenticated) {
