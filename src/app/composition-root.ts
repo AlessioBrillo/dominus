@@ -24,6 +24,7 @@ import {
   SubscriptionRepository,
   MetricsRepository,
   JobQueueRepository,
+  PublicScoreRepository,
 } from '../db/index.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
@@ -184,6 +185,7 @@ export interface DominusDependencies {
   bulkWriteProvider: DatabaseProvider | undefined;
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
+  publicScoreRepo: PublicScoreRepository;
   /** Undefined when REDIS_URL is unset (community edition, in-memory fallbacks). */
   redisClient: RedisClient | undefined;
 }
@@ -205,6 +207,7 @@ interface BuiltRepositories {
   listingRepo: ListingRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
+  publicScoreRepo: PublicScoreRepository;
 }
 
 function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
@@ -225,6 +228,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     acquisitionRepo: new AcquisitionRepository(provider),
     listingRepo: new ListingRepository(provider),
     subscriptionRepo: new SubscriptionRepository(provider),
+    publicScoreRepo: new PublicScoreRepository(provider),
   };
 }
 
@@ -532,6 +536,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
     config.PUBLIC_CACHE_TTL_MS,
+    500,
+    repos.publicScoreRepo,
   );
 
   // --- Health ---

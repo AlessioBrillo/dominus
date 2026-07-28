@@ -1,17 +1,13 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
-import { randomUUID } from 'node:crypto';
-import type { DatabaseProvider } from '../db/provider/interface.js';
-import type { ScoringEngine } from '../scoring/scoring-engine.js';
-import type { TrademarkGate } from '../trademark/trademark-gate.js';
-import {
-  type AnonScoringService,
-  DomainValidationError,
+import type {
+  AnonScoringService,
+  CompareResult,
+  PublicScoreData,
 } from '../services/anon-scoring-service.js';
-import { isValidDomain, parseDomain } from '../utils/domain.js';
+import { isValidDomain } from '../utils/domain.js';
 import { runWithTenant } from '../utils/tenant-context.js';
-import { MemoryCache } from '../providers/cached-provider.js';
 import { getLogger } from '../logger.js';
 import { generateOgPng } from './open-graph.js';
 import {
@@ -31,15 +27,6 @@ const PER_DOMAIN_RATE_LIMIT_MAX = 5;
 const POST_RATE_LIMIT_WINDOW_MS = 60_000;
 const POST_RATE_LIMIT_MAX = 10;
 const POST_BODY_MAX_BYTES = 1000;
-const CACHE_MAX_SIZE = 500;
-const CACHE_TTL_SECONDS = 300;
-const VIEW_COUNT_FLUSH_INTERVAL_MS = 60_000;
-const VIEW_COUNT_BUFFER_MAX = 5_000;
-
-interface ViewCountEntry {
-  slug: string;
-  count: number;
-}
 
 function createPerDomainRateLimiter(): {
   check: (ip: string, domain: string) => boolean;
@@ -62,11 +49,6 @@ function createPerDomainRateLimiter(): {
     check(ip: string, domain: string): boolean {
       const k = key(ip, domain);
       const now = Date.now();
-
-      // Prune expired entries before every check to prevent the map from
-      // accumulating stale entries under sustained traffic (ponytail: no
-      // background interval — proactive per-check pruning is simpler and
-      // keeps memory pressure bounded between checks).
       prune(now);
 
       let entry = windows.get(k);
@@ -82,7 +64,6 @@ function createPerDomainRateLimiter(): {
             );
             pruneWarningLogged = true;
           }
-          // Evict the oldest entry (Map preserves insertion order)
           const oldest = windows.keys().next();
           if (!oldest.done && oldest.value !== undefined) {
             windows.delete(oldest.value);
@@ -97,72 +78,20 @@ function createPerDomainRateLimiter(): {
   };
 }
 
-export function createPublicRouter(
-  db: DatabaseProvider,
-  engine: ScoringEngine,
-  trademarkGate?: TrademarkGate,
-  anonScoring?: AnonScoringService,
-): Router {
+function scoreResponseData(data: PublicScoreData): object {
+  return {
+    slug: data.slug,
+    domain: data.domain,
+    score: data.score,
+    trademark: data.trademark,
+    viewCount: data.viewCount,
+    createdAt: data.createdAt,
+  };
+}
+
+export function createPublicRouter(anonScoring: AnonScoringService): Router {
   const router = Router();
-  const cache = new MemoryCache<unknown>(CACHE_MAX_SIZE, CACHE_TTL_SECONDS);
   const domainRateLimiter = createPerDomainRateLimiter();
-
-  let viewCountBuffer: ViewCountEntry[] = [];
-  let viewCountFlushTimer: ReturnType<typeof setInterval> | null = null;
-  let viewCountFlushRunning = false;
-
-  async function flushViewCounts(): Promise<void> {
-    if (viewCountFlushRunning) return;
-    viewCountFlushRunning = true;
-    const batch = viewCountBuffer;
-    viewCountBuffer = [];
-    if (batch.length === 0) {
-      viewCountFlushRunning = false;
-      return;
-    }
-    for (const entry of batch) {
-      await db
-        .exec('UPDATE public_scores SET view_count = view_count + ? WHERE slug = ?', [
-          entry.count,
-          entry.slug,
-        ])
-        .catch((err: unknown) => {
-          logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
-          // Re-queue on failure so counts are not silently lost
-          const existing = viewCountBuffer.find((e) => e.slug === entry.slug);
-          if (existing) {
-            existing.count += entry.count;
-          } else {
-            viewCountBuffer.push(entry);
-          }
-        });
-    }
-    viewCountFlushRunning = false;
-  }
-
-  function scheduleViewCountFlush(): void {
-    if (viewCountFlushTimer) return;
-    viewCountFlushTimer = setInterval(flushViewCounts, VIEW_COUNT_FLUSH_INTERVAL_MS).unref();
-  }
-
-  // Flush remaining view counts before process exit (e.g. SIGTERM, SIGINT)
-  process.once('beforeExit', () => {
-    void flushViewCounts();
-  });
-
-  function bumpViewCount(slug: string): void {
-    scheduleViewCountFlush();
-    const existing = viewCountBuffer.find((e) => e.slug === slug);
-    if (existing) {
-      existing.count++;
-    } else {
-      if (viewCountBuffer.length >= VIEW_COUNT_BUFFER_MAX) {
-        logger.warn({ slug }, 'View count buffer at max capacity, dropping entry');
-        return;
-      }
-      viewCountBuffer.push({ slug, count: 1 });
-    }
-  }
 
   const publicRateLimiter = rateLimit({
     windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
@@ -213,44 +142,9 @@ export function createPublicRouter(
           return;
         }
 
-        const parsed = parseDomain(domain);
-        const scoreResult = await engine.score({
-          domain,
-          tld: parsed.tld,
-          sld: parsed.sld,
-          isCloseout: false,
-        });
-
-        let trademarkJson: string | null = null;
-        if (trademarkGate) {
-          try {
-            const gateResult = await trademarkGate.check(domain);
-            trademarkJson = JSON.stringify({
-              verdict: gateResult.verdict,
-              verifiedSources: gateResult.verifiedSources,
-              matchedMark: gateResult.matchedMark ?? null,
-              matchedOwner: gateResult.matchedOwner ?? null,
-            });
-          } catch {
-            trademarkJson = JSON.stringify({ verdict: 'unverified', verifiedSources: [] });
-          }
-        }
-
-        const slug = randomUUID().replace(/-/g, '').slice(0, 12);
-        const scoreJson = JSON.stringify(scoreResult);
-
-        await db.exec(
-          'INSERT INTO public_scores (slug, domain, score_json, trademark_json) VALUES (?, ?, ?, ?)',
-          [slug, domain, scoreJson, trademarkJson],
-        );
-
-        logger.info({ slug, domain }, 'Public score created');
-
-        res.status(201).json({
-          slug,
-          url: `/public/s/${slug}`,
-          domain,
-        });
+        const result = await anonScoring.createScore(domain);
+        logger.info({ slug: result.slug, domain }, 'Public score created');
+        res.status(201).json(result);
       } catch (err: unknown) {
         next(err);
       }
@@ -288,60 +182,14 @@ export function createPublicRouter(
           return;
         }
 
-        if (anonScoring) {
-          const result = await anonScoring.score(domain);
-          if (req.accepts('html')) {
-            res.set('Cache-Control', 'public, max-age=86400');
-            res.send(renderDomainPage(result.domain, result.score, result.trademark));
-          } else {
-            res.json(result);
-          }
-          return;
-        }
-
-        const parsed = parseDomain(domain);
-
-        let trademarkResult: {
-          verdict: string;
-          verifiedSources: string[];
-          matchedMark?: string | null;
-        } | null = null;
-        if (trademarkGate) {
-          try {
-            const gateResult = await trademarkGate.check(domain);
-            trademarkResult = {
-              verdict: gateResult.verdict,
-              verifiedSources: gateResult.verifiedSources,
-              matchedMark: gateResult.matchedMark ?? null,
-            };
-          } catch {
-            trademarkResult = { verdict: 'unverified', verifiedSources: [] };
-          }
-        }
-
-        const scoreResult = await engine.score({
-          domain,
-          tld: parsed.tld,
-          sld: parsed.sld,
-          isCloseout: false,
-        });
-
-        const data = { domain, score: scoreResult, trademark: trademarkResult };
-        cache.set(`domain:${domain.toLowerCase()}`, data);
-
+        const result = await anonScoring.score(domain);
         if (req.accepts('html')) {
           res.set('Cache-Control', 'public, max-age=86400');
-          res.send(renderDomainPage(domain, scoreResult, trademarkResult));
+          res.send(renderDomainPage(result.domain, result.score, result.trademark));
         } else {
-          res.json(data);
+          res.json(result);
         }
       } catch (err: unknown) {
-        if (err instanceof DomainValidationError) {
-          res.status(400).json({
-            error: { code: 'INVALID_DOMAIN', message: err.message },
-          });
-          return;
-        }
         next(err);
       }
     },
@@ -364,33 +212,9 @@ export function createPublicRouter(
           return;
         }
 
-        const cached = cache.get(`compare:${slug1}:${slug2}`);
-        if (cached && !req.accepts('html')) {
-          bumpViewCount(slug1);
-          bumpViewCount(slug2);
-          res.json(cached);
-          return;
-        }
+        const result: CompareResult | null = await anonScoring.getCompareScores(slug1, slug2);
 
-        const row1 = await db.queryOne<{
-          slug: string;
-          domain: string;
-          score_json: string;
-          trademark_json: string | null;
-          view_count: number;
-          created_at: string;
-        }>(
-          'SELECT slug, domain, score_json, trademark_json, view_count, created_at FROM public_scores WHERE slug = ?',
-          [slug1],
-        );
-        const row2 = row1
-          ? await db.queryOne<typeof row1>(
-              'SELECT slug, domain, score_json, trademark_json, view_count, created_at FROM public_scores WHERE slug = ?',
-              [slug2],
-            )
-          : undefined;
-
-        if (!row1 || !row2) {
+        if (!result) {
           if (req.accepts('html')) {
             res.status(404).send(renderErrorPage('One or both scores not found'));
           } else {
@@ -401,28 +225,21 @@ export function createPublicRouter(
           return;
         }
 
-        const score1 = {
-          domain: row1.domain,
-          score: JSON.parse(row1.score_json),
-          trademark: row1.trademark_json ? JSON.parse(row1.trademark_json) : null,
-        };
-        const score2 = {
-          domain: row2.domain,
-          score: JSON.parse(row2.score_json),
-          trademark: row2.trademark_json ? JSON.parse(row2.trademark_json) : null,
-        };
-
-        bumpViewCount(slug1);
-        bumpViewCount(slug2);
-
-        const data = { score1, score2 };
-        cache.set(`compare:${slug1}:${slug2}`, data);
+        anonScoring.bumpViewCount(slug1);
+        anonScoring.bumpViewCount(slug2);
 
         if (req.accepts('html')) {
           res.set('Cache-Control', 'public, max-age=600');
-          res.send(renderComparePage(score1.domain, score1, score2.domain, score2));
+          res.send(
+            renderComparePage(
+              result.score1.domain,
+              result.score1,
+              result.score2.domain,
+              result.score2,
+            ),
+          );
         } else {
-          res.json(data);
+          res.json(result);
         }
       } catch (err: unknown) {
         next(err);
@@ -434,13 +251,7 @@ export function createPublicRouter(
     '/sitemap.xml',
     async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
       try {
-        const rows = await db.query<{
-          slug: string;
-          domain: string;
-          created_at: string;
-        }>(
-          "SELECT slug, domain, created_at FROM public_scores WHERE created_at > datetime('now', '-90 days') ORDER BY created_at DESC LIMIT 50000",
-        );
+        const rows = await anonScoring.listRecentScores(90, 50000);
 
         const baseUrl = `${req.protocol}://${req.get('host')}`;
         const urls = rows
@@ -488,14 +299,7 @@ export function createPublicRouter(
           return;
         }
 
-        const row = await db.queryOne<{
-          slug: string;
-          domain: string;
-          score_json: string;
-          trademark_json: string | null;
-        }>('SELECT slug, domain, score_json, trademark_json FROM public_scores WHERE slug = ?', [
-          slugOg,
-        ]);
+        const row = await anonScoring.findForOgImage(slugOg);
 
         if (!row) {
           res.status(404).json({
@@ -538,26 +342,9 @@ export function createPublicRouter(
         return;
       }
 
-      const cached = cache.get(`score:${slug}`);
-      if (cached && !req.accepts('html')) {
-        bumpViewCount(slug);
-        res.json(cached);
-        return;
-      }
+      const data = await anonScoring.getScoreBySlug(slug);
 
-      const row = await db.queryOne<{
-        slug: string;
-        domain: string;
-        score_json: string;
-        trademark_json: string | null;
-        view_count: number;
-        created_at: string;
-      }>(
-        'SELECT slug, domain, score_json, trademark_json, view_count, created_at FROM public_scores WHERE slug = ?',
-        [slug],
-      );
-
-      if (!row) {
+      if (!data) {
         if (req.accepts('html')) {
           res.status(404).send(renderErrorPage('Score not found'));
         } else {
@@ -568,31 +355,29 @@ export function createPublicRouter(
         return;
       }
 
-      const score = JSON.parse(row.score_json);
-      const trademark = row.trademark_json ? JSON.parse(row.trademark_json) : null;
+      anonScoring.bumpViewCount(slug);
 
-      bumpViewCount(slug);
-
-      const data = {
-        slug: row.slug,
-        domain: row.domain,
-        score,
-        trademark,
-        viewCount: row.view_count + 1,
-        createdAt: row.created_at,
-      };
-
-      cache.set(`score:${slug}`, data);
+      const responseData = scoreResponseData({
+        ...data,
+        viewCount: data.viewCount + 1,
+      });
 
       if (req.accepts('html')) {
-        // Preload the OG image so the browser starts fetching it before
-        // parsing the stylesheet — cuts perceived LCP by ~1 round-trip.
         const ogImageUrl = `/public/s/${slug}/og.png`;
         res.set('Cache-Control', 'public, max-age=3600');
         res.set('Link', `<${ogImageUrl}>; rel=preload; as=image`);
-        res.send(renderScorePage(data));
+        res.send(
+          renderScorePage({
+            slug: data.slug,
+            domain: data.domain,
+            score: data.score,
+            trademark: data.trademark,
+            viewCount: data.viewCount + 1,
+            createdAt: data.createdAt,
+          }),
+        );
       } else {
-        res.json(data);
+        res.json(responseData);
       }
     } catch (err: unknown) {
       next(err);
