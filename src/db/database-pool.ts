@@ -228,6 +228,7 @@ export class PooledSqliteProvider implements DatabaseProvider {
 
   async close(): Promise<void> {
     this.#open = false;
+    this.#pool.close();
   }
 
   isOpen(): boolean {

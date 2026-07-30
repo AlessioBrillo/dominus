@@ -367,7 +367,21 @@ async function main(): Promise<void> {
         await deps.redisClient.shutdown();
       }
 
-      // Step 6: Close the database last, after all workers and connections are drained
+      // Step 6: Close the database provider (SqliteProvider or PostgresAdapter).
+      // This tears down the connection pool managed by the provider.
+      if (deps.provider) {
+        await deps.provider.close();
+      }
+
+      // Step 7: Close the bulk-write provider (separate WAL connection for SQLite,
+      // or secondary pg.Pool for PostgreSQL). Must happen after the main provider
+      // to avoid orphaned write transactions.
+      if (deps.bulkWriteProvider) {
+        await deps.bulkWriteProvider.close();
+      }
+
+      // Step 8: Close the legacy singleton database connection (used by CLI
+      // maintenance commands that bypass the provider abstraction).
       closeDatabase();
       logger.info('Database closed');
     } catch (err) {

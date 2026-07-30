@@ -158,11 +158,9 @@ export class ScoringEngine {
     const extraCovered = Math.max(0, coveredWeight - minCovered);
 
     const signalConfidence =
-      variableRange > 0
-        ? (extraCovered / variableRange) *
-          (confidenceCap - confidenceBase) *
-          (1 - intrinsicQualityInfluence)
-        : 0;
+      (extraCovered / variableRange) *
+      (confidenceCap - confidenceBase) *
+      (1 - intrinsicQualityInfluence);
     const qualityBoost =
       extraCovered > 0
         ? intrinsic.score * intrinsicQualityInfluence * (confidenceCap - confidenceBase)

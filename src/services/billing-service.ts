@@ -5,6 +5,8 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
+const WEBHOOK_IDEMPOTENCY_WINDOW_MS = 60_000;
+
 type StripeSdk = {
   Stripe: new (
     secretKey: string,
@@ -48,6 +50,8 @@ export class BillingService {
   readonly #config: Config;
   readonly #subRepo: SubscriptionRepository;
   #stripe: StripeSdk['Stripe']['prototype'] | null = null;
+  #lastProcessedEventType = '';
+  #lastProcessedAt = 0;
 
   constructor(config: Config, subRepo: SubscriptionRepository) {
     this.#config = config;
@@ -87,6 +91,16 @@ export class BillingService {
   ): Promise<{ url: string } | null> {
     const stripe = await this.#getStripe();
     if (!stripe) return null;
+
+    const allowedPriceIds = [
+      this.#config.STRIPE_PRICE_ID_MONTHLY,
+      this.#config.STRIPE_PRICE_ID_YEARLY,
+    ].filter(Boolean) as string[];
+
+    if (allowedPriceIds.length > 0 && !allowedPriceIds.includes(priceId)) {
+      logger.warn({ priceId, allowedPriceIds }, 'Attempted checkout with unconfigured priceId');
+      return null;
+    }
 
     const sub = await this.#subRepo.findByTenantId(tenantId);
 
@@ -134,6 +148,23 @@ export class BillingService {
       signature,
       this.#config.STRIPE_WEBHOOK_SECRET,
     );
+
+    // Idempotency gate: Stripe delivers webhooks at-least-once, so the same
+    // event type may arrive multiple times within seconds. Skip consecutive
+    // duplicates of the same event type within the idempotency window.
+    const now = Date.now();
+    if (
+      event.type === this.#lastProcessedEventType &&
+      now - this.#lastProcessedAt < WEBHOOK_IDEMPOTENCY_WINDOW_MS
+    ) {
+      logger.debug(
+        { type: event.type },
+        'Duplicate webhook event within idempotency window — skipping',
+      );
+      return;
+    }
+    this.#lastProcessedEventType = event.type;
+    this.#lastProcessedAt = now;
 
     logger.info({ type: event.type }, 'Stripe webhook event');
 

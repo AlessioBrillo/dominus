@@ -138,8 +138,8 @@ export function createAuthMiddleware(
         return;
       }
       logger.warn({ ip: clientIp }, 'Authentication failed');
-      res.status(403).json({
-        error: { code: 'FORBIDDEN', message: 'Invalid API key' },
+      res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'Invalid API key' },
       });
       return;
     }
