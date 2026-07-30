@@ -82,4 +82,44 @@ describe('MarketSignal', () => {
     );
     expect(result.score).toBeLessThanOrEqual(0.5);
   });
+
+  it('recencyFactor uses date-sorted sales, not price-sorted', async () => {
+    const recentDate = new Date();
+    recentDate.setFullYear(recentDate.getFullYear() - 1);
+    const oldDate = new Date(0).toISOString();
+
+    const recentResult = await computeMarketScore(
+      { domain: 'recent.com', tld: '.com', sld: 'recent', isCloseout: false },
+      {
+        getSales: vi.fn().mockResolvedValue([
+          {
+            domain: 'a.com',
+            salePrice: 2000,
+            saleDate: recentDate.toISOString().split('T')[0]!,
+            venue: 'namebio',
+          },
+          {
+            domain: 'b.com',
+            salePrice: 2000,
+            saleDate: recentDate.toISOString().split('T')[0]!,
+            venue: 'namebio',
+          },
+        ]),
+      },
+      1,
+    );
+
+    const oldResult = await computeMarketScore(
+      { domain: 'old.com', tld: '.com', sld: 'old', isCloseout: false },
+      {
+        getSales: vi.fn().mockResolvedValue([
+          { domain: 'a.com', salePrice: 2000, saleDate: oldDate, venue: 'namebio' },
+          { domain: 'b.com', salePrice: 2000, saleDate: oldDate, venue: 'namebio' },
+        ]),
+      },
+      1,
+    );
+
+    expect(recentResult.dataDensity).toBeGreaterThan(oldResult.dataDensity);
+  });
 });
