@@ -122,6 +122,13 @@ export class PipelineOrchestrator {
   #lock: LockProvider | null = null;
   #checkpointStore: CheckpointStore | null = null;
 
+  /** Promise-chain mutex that serialises tenant-slot acquisition.
+   *  Used only when no distributed lock is configured. */
+  #tenantMutex: { promise: Promise<void>; resolve: () => void } = {
+    promise: Promise.resolve(),
+    resolve: () => undefined,
+  };
+
   constructor(
     private readonly generationStage: CandidateGenerationStage,
     private readonly dnsStage: DnsPreFilterStage,
@@ -173,42 +180,53 @@ export class PipelineOrchestrator {
     externalSignal?: AbortSignal,
   ): Promise<PipelineResult> {
     const tenantId = resolveTenantId();
-
-    if (this.#activeTenants.has(tenantId)) {
-      throw new Error(
-        `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
-      );
-    }
-
     const controller = new AbortController();
+
     // Merge external signal (e.g. from worker shutdown) with internal controller:
     // when either fires, both fire.
     if (externalSignal) {
-      externalSignal.addEventListener(
-        'abort',
-        () => {
-          if (!controller.signal.aborted) controller.abort(externalSignal.reason);
-        },
-        { once: true },
-      );
+      if (externalSignal.aborted) {
+        // Signal was already aborted before we could listen — abort immediately.
+        controller.abort(externalSignal.reason);
+      } else {
+        externalSignal.addEventListener(
+          'abort',
+          () => {
+            if (!controller.signal.aborted) controller.abort(externalSignal.reason);
+          },
+          { once: true },
+        );
+      }
     }
-    this.#activeTenants.add(tenantId);
-    this.#runControllers.set(tenantId, controller);
 
+    // ---- Tenant admission: serialised via advisory lock or in-process mutex ----
     if (this.#lock) {
+      // Distributed lock — serialises across all instances.
       const acquired = await this.#lock.tryLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS);
       if (!acquired) {
-        this.#activeTenants.delete(tenantId);
-        this.#runControllers.delete(tenantId);
         throw new Error(
           'Pipeline run already in progress on another instance — ' +
             `advisory lock '${pipelineLockName()}' could not be acquired. ` +
             'Retry when the current run completes or expires.',
         );
       }
+      // Lock held exclusively — double-check that no local run is active
+      // (defensive: should never trigger inside the lock).
+      if (this.#activeTenants.has(tenantId)) {
+        await this.#lock.unlock(pipelineLockName()).catch(() => {});
+        throw new Error(
+          `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
+        );
+      }
+      this.#activeTenants.add(tenantId);
+      this.#runControllers.set(tenantId, controller);
       logger.info({ workerId: process.pid }, 'Pipeline advisory lock acquired');
       this.#startHeartbeat();
+    } else {
+      // No distributed lock — serialise via in-process tenant slot.
+      await this.#acquireTenantSlot(tenantId, controller);
     }
+    // ---- End tenant admission ----
 
     try {
       return await this.#runInternal(input, controller, tenantId, externalRunId);
@@ -223,6 +241,30 @@ export class PipelineOrchestrator {
       }
       this.#runControllers.delete(tenantId);
       this.#activeTenants.delete(tenantId);
+    }
+  }
+
+  /** Serialised tenant-slot acquisition for the no-lock (in-process) path.
+   *  Uses a promise-chain mutex so the {@link #activeTenants} check-then-add
+   *  is atomic w.r.t. concurrent {@link run()} calls on the same instance. */
+  async #acquireTenantSlot(tenantId: string, controller: AbortController): Promise<void> {
+    const prev = this.#tenantMutex.promise;
+    let nextResolve!: () => void;
+    this.#tenantMutex.promise = new Promise<void>((resolve) => {
+      nextResolve = resolve;
+    });
+    await prev;
+
+    try {
+      if (this.#activeTenants.has(tenantId)) {
+        throw new Error(
+          `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
+        );
+      }
+      this.#activeTenants.add(tenantId);
+      this.#runControllers.set(tenantId, controller);
+    } finally {
+      nextResolve();
     }
   }
 
