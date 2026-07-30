@@ -63,7 +63,7 @@ export async function computeMarketScore(
   };
 
   const weighted = sales
-    .map((s) => ({ price: s.salePrice, weight: recencyWeight(s.saleDate) }))
+    .map((s) => ({ price: s.salePrice, weight: recencyWeight(s.saleDate), saleDate: s.saleDate }))
     .sort((a, b) => a.price - b.price);
 
   const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
@@ -88,8 +88,11 @@ export async function computeMarketScore(
 
   // Data density: how much evidence do we have for this median?
   // Combines sale count (vs target) and recency into a 0-1 measure.
+  const byDate = [...weighted].sort(
+    (a, b) => new Date(b.saleDate).getTime() - new Date(a.saleDate).getTime(),
+  );
   const recencyFactor =
-    totalWeight > 0 ? Math.min(1, weighted.slice(0, 10).reduce((s, w) => s + w.weight, 0) / 5) : 0;
+    totalWeight > 0 ? Math.min(1, byDate.slice(0, 10).reduce((s, w) => s + w.weight, 0) / 5) : 0;
   const countFactor = Math.min(1, sales.length / salesTarget);
   const dataDensity = Math.round((countFactor * 0.7 + recencyFactor * 0.3) * 1000) / 1000;
 
