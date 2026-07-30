@@ -178,6 +178,7 @@ function resolveDot(
     const destPort = port ?? 853;
 
     const dnsQuery = buildDnsQuery(domain, recordTypeToQtype(recordType));
+    const queryId = dnsQuery.readUInt16BE(0);
 
     const tlsOpts: ConnectionOptions = {
       host: endpoint,
@@ -221,6 +222,11 @@ function resolveDot(
     tlsSocket.on('data', (data: Buffer) => {
       clearTimeout(timer);
       cleanup();
+      if (!validateDnsResponse(data, queryId)) {
+        const err = new Error('DoT: query ID mismatch — possible spoofing');
+        reject(err);
+        return;
+      }
       // Response has 2-byte length prefix, then DNS response
       // We check the DNS response header flags: bit 15 (QR) should be 1 (response),
       // and the RCODE in the last 4 bits of byte 3
@@ -307,6 +313,18 @@ function encodeDnsName(name: string): Buffer {
   }
   buffers.push(Buffer.from([0x00]));
   return Buffer.concat(buffers);
+}
+
+/**
+ * Validate that a DNS response header matches the expected query ID.
+ * RFC 1035 section 4.1.1: bytes 0-1 contain the query ID which must
+ * match the request ID to prevent response-spoofing and cross-query
+ * confusion in concurrent TLS connections.
+ */
+export function validateDnsResponse(response: Buffer, expectedId: number): boolean {
+  if (response.length < 12) return false;
+  const responseId = response.readUInt16BE(0);
+  return responseId === expectedId;
 }
 
 function recordTypeToQtype(type: string): number {

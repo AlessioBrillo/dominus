@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NodeDnsProvider, buildDnsQuery } from '../node-dns-provider.js';
+import { NodeDnsProvider, buildDnsQuery, validateDnsResponse } from '../node-dns-provider.js';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
@@ -353,6 +353,29 @@ describe('NodeDnsProvider', () => {
       const id2 = q2.readUInt16BE(0);
       // Probability of collision: 1/65536 per pair — acceptable false-fail rate
       expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe('validateDnsResponse', () => {
+    it('accepts response with matching query ID', () => {
+      const query = buildDnsQuery('example.com', 1);
+      const expectedId = query.readUInt16BE(0);
+      // Simulate a valid response header with matching ID
+      const resp = Buffer.alloc(12);
+      resp.writeUInt16BE(expectedId, 0);
+      resp.writeUInt16BE(0x8180, 2); // QR=1, RCODE=0
+      expect(validateDnsResponse(resp, expectedId)).toBe(true);
+    });
+
+    it('rejects response with mismatched query ID', () => {
+      const resp = Buffer.alloc(12);
+      resp.writeUInt16BE(0x1234, 0);
+      expect(validateDnsResponse(resp, 0xabcd)).toBe(false);
+    });
+
+    it('rejects response shorter than DNS header', () => {
+      const resp = Buffer.alloc(10);
+      expect(validateDnsResponse(resp, 0x1234)).toBe(false);
     });
   });
 });
