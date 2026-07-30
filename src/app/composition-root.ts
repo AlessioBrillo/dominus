@@ -100,6 +100,8 @@ import type { PurchaseService as PurchaseServiceType } from '../services/purchas
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
 import { BillingService } from '../services/billing-service.js';
+import { UsageRepository } from '../db/repositories/usage-repository.js';
+import { UsageMeterService } from '../services/usage-meter-service.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
@@ -146,6 +148,7 @@ export interface DominusDependencies {
   subscriptionRepo: SubscriptionRepository;
 
   billingService: BillingService;
+  usageService: UsageMeterService;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -207,6 +210,7 @@ interface BuiltRepositories {
   listingRepo: ListingRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
+  usageRepo: UsageRepository;
   publicScoreRepo: PublicScoreRepository;
 }
 
@@ -228,6 +232,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     acquisitionRepo: new AcquisitionRepository(provider),
     listingRepo: new ListingRepository(provider),
     subscriptionRepo: new SubscriptionRepository(provider),
+    usageRepo: new UsageRepository(provider),
     publicScoreRepo: new PublicScoreRepository(provider),
   };
 }
@@ -454,6 +459,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
 
   const billingService = new BillingService(config, repos.subscriptionRepo);
+  const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo);
 
   // Dedicated bulk-write connection for pipeline persistence (SQLite only).
   // With WAL mode, this lets the main connection serve reads concurrently
@@ -894,5 +900,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     anonScoringService,
     redisClient,
     billingService,
+    usageService,
   };
 }

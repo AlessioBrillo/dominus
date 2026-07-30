@@ -13,6 +13,7 @@ import { isMultiTenantAuth } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import {
+  createUsageRouter,
   createBillingRouter,
   createCandidatesRouter,
   createPortfolioRouter,
@@ -252,6 +253,7 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
+  protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));
