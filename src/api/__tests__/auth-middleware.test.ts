@@ -79,13 +79,13 @@ describe('auth middleware', () => {
       expect(res.body).toEqual({ data: 'secret' });
     });
 
-    it('returns 403 with invalid API key', async () => {
+    it('returns 401 with invalid API key', async () => {
       const app = buildApp(provider);
       const res = await request(app)
         .get('/api/v1/protected')
         .set('Authorization', 'Bearer invalid-key');
-      expect(res.status).toBe(403);
-      expect(res.body.error.code).toBe('FORBIDDEN');
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('UNAUTHORIZED');
     });
 
     it('returns 401 without Authorization header', async () => {

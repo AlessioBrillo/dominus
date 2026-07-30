@@ -7,6 +7,7 @@ import {
   WEIGHT_RECOMMEND_THRESHOLD,
   MIN_EFFECTIVE_RECOMMEND_THRESHOLD,
   MIN_EFFECTIVE_CONFIDENCE_THRESHOLD,
+  MAX_EFFECTIVE_CONFIDENCE_THRESHOLD,
   type ScoringWeights,
 } from './weights.js';
 import type { SignalAvailability, SignalName } from '../types/score.js';
@@ -87,7 +88,7 @@ export function computeEffectiveThresholds(
   const recommendRange = WEIGHT_RECOMMEND_THRESHOLD - MIN_EFFECTIVE_RECOMMEND_THRESHOLD;
   const effectiveRecommendThreshold = MIN_EFFECTIVE_RECOMMEND_THRESHOLD + recommendRange * ratio;
 
-  const confidenceRange = 0.3 - MIN_EFFECTIVE_CONFIDENCE_THRESHOLD;
+  const confidenceRange = MAX_EFFECTIVE_CONFIDENCE_THRESHOLD - MIN_EFFECTIVE_CONFIDENCE_THRESHOLD;
   const effectiveConfidenceThreshold = MIN_EFFECTIVE_CONFIDENCE_THRESHOLD + confidenceRange * ratio;
 
   return {

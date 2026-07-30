@@ -55,6 +55,14 @@ export const MIN_EFFECTIVE_RECOMMEND_THRESHOLD = 0.2;
  */
 export const MIN_EFFECTIVE_CONFIDENCE_THRESHOLD = 0.18;
 
+/**
+ * Ceiling for effectiveConfidenceThreshold. When all signals have data,
+ * the threshold rises to this value. Together with MIN_* the effective
+ * threshold ranges in [0.18, 0.30], matching the engine's confidence
+ * base/cap of [0.2, 0.8] with a buffer.
+ */
+export const MAX_EFFECTIVE_CONFIDENCE_THRESHOLD = 0.3;
+
 export const DEFAULT_TLD_BONUS: Record<string, number> = {
   '.com': 1.0,
   '.io': 0.85,
