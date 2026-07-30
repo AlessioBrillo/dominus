@@ -139,7 +139,7 @@ export class PipelineOrchestrator {
     private readonly metrics?: PipelineMetricsDelegate,
     /** Optional DatabaseProvider for advisory lock. When set, the lock
      *  is shared across instances (PostgreSQL) or within a single instance
-     *  (SQLite). When unset, falls back to the in-memory #running flag. */
+     *  (SQLite). When unset, falls back to the in-process #running flag. */
     db?: DatabaseProvider,
     /** Optional LockProvider (e.g. RedisLock) that takes precedence over db
      *  for distributed locking. When set, lock operations use this instead
@@ -150,6 +150,10 @@ export class PipelineOrchestrator {
      *  When set, the orchestrator saves a checkpoint after each stage
      *  and can resume from the last completed stage on recovery. */
     checkpointStore?: CheckpointStore,
+    /** Per-stage timeout in milliseconds. When a stage exceeds this limit,
+     *  it degrades with empty results rather than blocking the entire pipeline
+     *  until the pipeline-level timeout fires. Default: 5 minutes. */
+    private readonly stageTimeoutMs: number = 300_000,
   ) {
     this.#lock = lockProvider ?? db ?? null;
     this.#checkpointStore = checkpointStore ?? null;
@@ -746,16 +750,41 @@ export class PipelineOrchestrator {
     controller: AbortController,
   ): Promise<T> {
     const signal = controller.signal;
-    if (this.timeoutMs <= 0) return fn(signal);
+    if (this.timeoutMs <= 0 && this.stageTimeoutMs <= 0) return fn(signal);
 
     const elapsed = Date.now() - startMs;
-    const remaining = this.timeoutMs - elapsed;
-    if (remaining <= 0) {
-      controller.abort();
-      throw new PipelineTimeoutError(this.timeoutMs, elapsed);
+
+    // Pipeline-level deadline check: hard abort
+    if (this.timeoutMs > 0) {
+      const remaining = this.timeoutMs - elapsed;
+      if (remaining <= 0) {
+        controller.abort();
+        throw new PipelineTimeoutError(this.timeoutMs, elapsed);
+      }
     }
 
-    return raceWithTimeout(fn(signal), remaining, label, signal, controller);
+    // Effective timeout is the more imminent of pipeline-remaining and stage-limit
+    let effectiveTimeout = Number.POSITIVE_INFINITY;
+    if (this.timeoutMs > 0) effectiveTimeout = Math.min(effectiveTimeout, this.timeoutMs - elapsed);
+    if (this.stageTimeoutMs > 0) effectiveTimeout = Math.min(effectiveTimeout, this.stageTimeoutMs);
+
+    if (!Number.isFinite(effectiveTimeout) || effectiveTimeout <= 0) return fn(signal);
+
+    // Stage-level timeout uses a child controller so only this stage is aborted,
+    // not the entire pipeline. The stage degrades with empty results.
+    const stageController = new AbortController();
+    const stageSignal = signal
+      ? AbortSignal.any([signal, stageController.signal])
+      : stageController.signal;
+
+    return raceWithTimeout(
+      fn(stageSignal),
+      effectiveTimeout,
+      label,
+      stageController.signal,
+      stageController,
+      true,
+    );
   }
 }
 
@@ -765,6 +794,7 @@ function raceWithTimeout<T>(
   label: string,
   signal: AbortSignal,
   abortController: AbortController | null,
+  stageLevel: boolean = false,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = Date.now() + timeoutMs;
@@ -786,9 +816,11 @@ function raceWithTimeout<T>(
     timer = setTimeout(() => {
       signal.removeEventListener('abort', abortHandler!);
       abortHandler = null;
-      abortController?.abort();
+      // Stage-level timeout aborts the stage controller (not the pipeline),
+      // allowing subsequent stages to run in degraded mode.
+      if (!stageLevel) abortController?.abort();
       const elapsed = Date.now() - (deadline - timeoutMs);
-      logger.warn({ label, timeoutMs, elapsed }, 'Pipeline stage timed out');
+      logger.warn({ label, timeoutMs, elapsed, stageLevel }, 'Pipeline stage timed out');
       reject(new PipelineTimeoutError(timeoutMs, elapsed));
     }, timeoutMs).unref();
   });
