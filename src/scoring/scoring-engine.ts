@@ -164,7 +164,9 @@ export class ScoringEngine {
           (1 - intrinsicQualityInfluence)
         : 0;
     const qualityBoost =
-      intrinsic.score * intrinsicQualityInfluence * (confidenceCap - confidenceBase);
+      extraCovered > 0
+        ? intrinsic.score * intrinsicQualityInfluence * (confidenceCap - confidenceBase)
+        : 0;
     const confidence = Math.min(confidenceCap, confidenceBase + signalConfidence + qualityBoost);
 
     const expectedValue = weightedScore * baseMarketValueEur;

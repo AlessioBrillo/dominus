@@ -36,6 +36,10 @@ export class RedisRateLimiter {
   #queue: QueuedAcquire[] = [];
   #processing = false;
 
+  get maxTokens(): number {
+    return this.#tokens;
+  }
+
   constructor(config: RedisRateLimiterConfig, redisClient?: RedisClient) {
     this.#tokens = config.tokens;
     this.#intervalMs = config.intervalMs;

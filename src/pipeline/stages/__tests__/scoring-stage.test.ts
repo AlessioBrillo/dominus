@@ -115,7 +115,12 @@ describe('ScoringStage parallelism', () => {
 
   it('preserves scoring result for passed candidates', async () => {
     const stage = new ScoringStage(makeEngine());
-    const result = await stage.process([candidate('example.com')]);
+    const result = await stage.process([
+      candidate('example.com', {
+        source: CandidateSource.CloseoutCsv,
+        closeoutMeta: { domainAge: 15, backlinks: 500, waybackSnapshots: 200 },
+      }),
+    ]);
     expect(result.passed).toHaveLength(1);
     const scored = result.passed[0]!;
     expect(scored.scoreResult).not.toBeNull();

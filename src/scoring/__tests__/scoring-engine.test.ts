@@ -85,7 +85,7 @@ describe('ScoringEngine', () => {
     expect(result.confidence).toBeLessThanOrEqual(1);
   });
 
-  it('intrinsic-only domain gets above-base confidence from quality boost', async () => {
+  it('intrinsic-only domain gets no quality boost (conservatism)', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
@@ -94,8 +94,9 @@ describe('ScoringEngine', () => {
       sld: 'example',
       isCloseout: false,
     });
-    expect(result.confidence).toBeGreaterThan(0.2);
-    expect(result.confidence).toBeLessThan(0.3);
+    // With no external signal data, qualityBoost must be 0
+    // Confidence must be exactly confidenceBase (0.2)
+    expect(result.confidence).toBe(0.2);
   });
 
   it('expiry signal data increases confidence for closeout domains', async () => {
@@ -367,7 +368,7 @@ describe('ScoringEngine', () => {
     expect(result.effectiveConfidenceThreshold).toBeGreaterThan(0.15);
   });
 
-  it('good intrinsic domain without market data is recommended via weight redistribution', async () => {
+  it('good intrinsic domain without external data is NOT recommended (conservatism)', async () => {
     const { keyword, comps } = makeProviders(0, 0, []);
     const engine = new ScoringEngine(keyword, comps);
     const result = await engine.score({
@@ -377,11 +378,15 @@ describe('ScoringEngine', () => {
       isCloseout: false,
     });
     // 'bright' has no hyphens/digits, length 6, good pronounceability
-    // intrinsicScore should be high enough to pass both effective thresholds
+    // weightedScore passes effectiveRecommendThreshold via redistribution
+    // BUT confidence stays at base (0.2) because no external signal has data,
+    // and confidence (0.2) < effectiveConfidenceThreshold (~0.23)
+    // Per ADR-0002 conservatism principle: no recommendation without evidence
     expect(result.weightedScore).toBeGreaterThan(0.3);
-    expect(result.recommended).toBe(true);
+    expect(result.recommended).toBe(false);
     expect(result.breakdown.commercial.score).toBe(0);
     expect(result.breakdown.market.score).toBe(0);
+    expect(result.confidence).toBe(0.2);
   });
 
   it('uses provided expiry data (domainAge, waybackSnapshots) in scoring input', async () => {
