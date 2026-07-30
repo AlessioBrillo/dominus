@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { connect as tlsConnect, type ConnectionOptions } from 'node:tls';
 import { promises as dnsPromises, Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
@@ -270,12 +271,12 @@ function resolveDot(
 
 /**
  * Build a minimal DNS query message (RFC 1035 section 4.1.1).
- * Uses a fixed 16-bit query ID and single-question format.
+ * Uses a random 16-bit query ID per request to prevent DNS spoofing.
  */
-function buildDnsQuery(domain: string, qtype: number): Buffer {
+export function buildDnsQuery(domain: string, qtype: number): Buffer {
   const header = Buffer.alloc(12);
-  // ID: 0x0000 (we only care about the response)
-  header.writeUInt16BE(0x0000, 0);
+  // ID: random 16-bit — prevents response-spoofing by on-path attackers
+  header.writeUInt16BE(randomBytes(2).readUInt16BE(0), 0);
   // Flags: standard query with recursion desired (0x0100)
   header.writeUInt16BE(0x0100, 2);
   // QDCOUNT: 1 question

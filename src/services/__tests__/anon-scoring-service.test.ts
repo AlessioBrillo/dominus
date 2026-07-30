@@ -117,13 +117,13 @@ describe('AnonScoringService', () => {
 
   it('re-scores after cache TTL expires', async () => {
     const spy = vi.mocked(engine.score);
-    service = new AnonScoringService(engine, trademarkGate, 10);
+    service = new AnonScoringService(engine, trademarkGate, 1);
 
     await service.score('example.com');
     await service.score('example.com');
     expect(spy).toHaveBeenCalledTimes(1);
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     await service.score('example.com');
     expect(spy).toHaveBeenCalledTimes(2);
