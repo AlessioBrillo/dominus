@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NodeDnsProvider } from '../node-dns-provider.js';
+import { NodeDnsProvider, buildDnsQuery } from '../node-dns-provider.js';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
@@ -342,6 +342,17 @@ describe('NodeDnsProvider', () => {
       vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
       const result = await dohProvider.checkAvailability('fail-doh.com');
       expect(result.status).toBe(DomainStatus.Unknown);
+    });
+  });
+
+  describe('buildDnsQuery', () => {
+    it('produces different query IDs on successive calls', () => {
+      const q1 = buildDnsQuery('example.com', 1);
+      const q2 = buildDnsQuery('example.com', 1);
+      const id1 = q1.readUInt16BE(0);
+      const id2 = q2.readUInt16BE(0);
+      // Probability of collision: 1/65536 per pair — acceptable false-fail rate
+      expect(id1).not.toBe(id2);
     });
   });
 });
