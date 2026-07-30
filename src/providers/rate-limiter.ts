@@ -6,6 +6,10 @@
 export interface RateLimiterLike {
   acquire(): Promise<void>;
   throttle<T>(fn: () => Promise<T>): Promise<T>;
+  /** Maximum burst capacity (maxTokens). Used by bulk operations to cap
+   *  concurrent workers to the rate limiter's allowance, preventing
+   *  over-spawning workers that immediately queue on the rate limiter. */
+  readonly maxTokens: number;
 }
 
 export interface RateLimiterConfig {
@@ -77,6 +81,10 @@ export class RateLimiter {
     this.#maxQueueSize = config.maxQueueSize ?? 1000;
     this.#tokens = config.maxTokens;
     this.#lastRefill = Date.now();
+  }
+
+  get maxTokens(): number {
+    return this.#maxTokens;
   }
 
   static unlimited(): RateLimiter {

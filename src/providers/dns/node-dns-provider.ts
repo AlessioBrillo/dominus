@@ -892,8 +892,12 @@ export class NodeDnsProvider implements DnsProvider {
         }
       };
 
-      // Spawn worker pool
-      const concurrency = Math.min(this.#bulkConcurrency, domains.length);
+      // Spawn worker pool — cap by rate limiter burst capacity when configured
+      const burstLimit =
+        this.#rateLimiter !== undefined && Number.isFinite(this.#rateLimiter.maxTokens)
+          ? this.#rateLimiter.maxTokens
+          : this.#bulkConcurrency;
+      const concurrency = Math.min(this.#bulkConcurrency, burstLimit, domains.length);
       activeWorkers = concurrency > 0 ? concurrency : 1;
       for (let i = 0; i < concurrency; i++) {
         void worker();
