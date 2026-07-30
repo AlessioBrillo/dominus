@@ -1,6 +1,6 @@
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
-import type { UsageFeature, UsageForPeriod, SubscriptionPlan } from '../types/usage.js';
+import type { UsageFeature, UsageForPeriod, PlanLimit, SubscriptionPlan } from '../types/usage.js';
 
 export class UsageMeterService {
   readonly #usageRepo: UsageRepository;
@@ -81,5 +81,11 @@ export class UsageMeterService {
       periodStart,
       periodEnd,
     };
+  }
+
+  async getAllPlanLimitsForTenant(tenantId: string): Promise<PlanLimit[]> {
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    const plan: SubscriptionPlan = sub?.plan ?? 'free';
+    return this.#usageRepo.getAllPlanLimits(plan);
   }
 }
