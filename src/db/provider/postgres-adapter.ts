@@ -184,6 +184,18 @@ export class PostgresAdapter implements DatabaseProvider {
     return adapter;
   }
 
+  /**
+   * Create a dedicated bulk-write adapter with a smaller connection pool.
+   * Prevents large pipeline transactions from starving read queries on the
+   * main pool. Mirrors the SQLite bulk-write pattern (dedicated connection).
+   */
+  static async createBulkWrite(
+    connectionString: string,
+    options: { max?: number; schema?: string } = {},
+  ): Promise<PostgresAdapter> {
+    return PostgresAdapter.create(connectionString, { ...options, max: options.max ?? 3 });
+  }
+
   get pool(): Pool {
     return this.#pool;
   }

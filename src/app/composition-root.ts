@@ -8,6 +8,7 @@ import {
   createSqliteProvider,
   createBulkWriteDatabaseProvider,
 } from '../db/index.js';
+import { PostgresAdapter } from '../db/provider/postgres-adapter.js';
 import {
   CandidateRepository,
   ScoringRepository,
@@ -461,11 +462,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const billingService = new BillingService(config, repos.subscriptionRepo);
   const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo);
 
-  // Dedicated bulk-write connection for pipeline persistence (SQLite only).
-  // With WAL mode, this lets the main connection serve reads concurrently
-  // while a pipeline persists thousands of candidates in a single transaction.
+  // Dedicated bulk-write pool for pipeline persistence.
+  // SQLite: separate WAL connection with shorter busy_timeout (5s) for write transactions.
+  // PostgreSQL: secondary pg.Pool with fewer connections (3) so large pipeline
+  // transactions don't starve read queries on the main pool.
   const bulkWriteProvider = config.DATABASE_URL
-    ? undefined
+    ? await PostgresAdapter.createBulkWrite(config.DATABASE_URL)
     : createBulkWriteDatabaseProvider(config.DATABASE_PATH, 5000);
 
   // --- Redis (distributed rate limiting, caching, locking) ---
