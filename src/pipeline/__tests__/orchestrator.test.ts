@@ -224,6 +224,24 @@ describe('PipelineOrchestrator', () => {
     expect(result.recommended[0]?.domain).toBe('nova.com');
   });
 
+  it('rejects immediately when externalSignal is already aborted', async () => {
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(makeMockDns()),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+    );
+
+    const signal = AbortSignal.abort('Shutdown requested');
+    const start = Date.now();
+    await expect(
+      orchestrator.run({ brandableNames: ['nova.com'] }, undefined, signal),
+    ).rejects.toThrow();
+    // Must reject in under 50ms — no real work was done
+    expect(Date.now() - start).toBeLessThan(500);
+  });
+
   it('rejects concurrent runs for the same tenant', async () => {
     // Slow stage (1s delay) + short timeout (50ms) ensures the first run
     // sets #activeTenants synchronously, then quickly times out. The
