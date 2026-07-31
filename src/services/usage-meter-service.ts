@@ -1,6 +1,7 @@
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { UsageFeature, UsageForPeriod, PlanLimit, SubscriptionPlan } from '../types/usage.js';
+import { UsageLimitExceededError } from '../types/errors.js';
 
 export class UsageMeterService {
   readonly #usageRepo: UsageRepository;
@@ -30,14 +31,20 @@ export class UsageMeterService {
     const limit = await this.#usageRepo.getPlanLimit(sub.plan, feature);
     const limitValue = limit?.limitValue ?? null;
 
-    if (limitValue !== null) {
+    // Atomic check-and-increment: the repository applies the increment in a
+    // single guarded statement, so concurrent requests cannot overshoot the
+    // limit (no TOCTOU race between read and write).
+    const applied = await this.#usageRepo.incrementUsageIfWithinLimit(
+      tenantId,
+      feature,
+      amount,
+      periodStart,
+      limitValue,
+    );
+    if (!applied) {
       const current = await this.#usageRepo.getUsageForPeriod(tenantId, feature, periodStart);
-      if (current + amount > limitValue) {
-        throw new Error(`Usage limit exceeded for ${feature}: ${current + amount} > ${limitValue}`);
-      }
+      throw new UsageLimitExceededError(feature, current, amount, limitValue);
     }
-
-    await this.#usageRepo.incrementUsage(tenantId, feature, amount, periodStart);
 
     return this.getUsageForPeriod(tenantId, feature, periodStart);
   }

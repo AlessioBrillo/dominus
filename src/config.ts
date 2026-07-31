@@ -1105,6 +1105,22 @@ const configSchema = z.object({
    */
   JOB_QUEUE_MAX_DEPTH: z.coerce.number().int().min(0).max(100000).default(1000),
 
+  // ── Usage Metering / Enforcement ─────────────────────────────────
+
+  /**
+   * Enforce plan usage limits on API requests. When enabled, every request
+   * to the protected API atomically records one `api_calls` unit against the
+   * tenant's monthly plan limit and rejects the request with HTTP 429
+   * (USAGE_LIMIT_EXCEEDED) once the limit is exhausted. Free-tier tenants
+   * use the limits seeded by migration 0045. When disabled (default), the
+   * middleware is a no-op; clients may still meter usage explicitly via
+   * POST /api/v1/usage/record.
+   * Default: false (opt-in).
+   */
+  USAGE_ENFORCEMENT_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+
   // ── Redis (DOMINUS Cloud) ──────────────────────────────────────────
 
   /**
@@ -1193,6 +1209,22 @@ const configSchema = z.object({
    * Create the price in Stripe Dashboard > Products.
    */
   STRIPE_PRICE_ID_YEARLY: z.string().optional(),
+
+  /**
+   * Stripe Price IDs for the pro plan, explicit per-interval.
+   * When set, takes precedence over the legacy STRIPE_PRICE_ID_MONTHLY /
+   * STRIPE_PRICE_ID_YEARLY aliases. When unset, the legacy aliases are used.
+   */
+  STRIPE_PRICE_ID_PRO_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_ID_PRO_YEARLY: z.string().optional(),
+
+  /**
+   * Stripe Price IDs for the enterprise plan (custom pricing, dedicated
+   * support). Required to offer enterprise checkout; when unset, enterprise
+   * subscriptions are handled outside self-service checkout.
+   */
+  STRIPE_PRICE_ID_ENTERPRISE_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_ID_ENTERPRISE_YEARLY: z.string().optional(),
 
   /**
    * Default subscription plan for new tenants.

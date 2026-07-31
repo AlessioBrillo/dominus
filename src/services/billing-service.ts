@@ -1,11 +1,29 @@
 import type { Config } from '../config.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
-import type { Subscription, BillingPortalResponse } from '../types/subscription.js';
+import type { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
+import type {
+  Subscription,
+  BillingPortalResponse,
+  SubscriptionPlan,
+} from '../types/subscription.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
-const WEBHOOK_IDEMPOTENCY_WINDOW_MS = 60_000;
+/**
+ * Billing interval for recurring subscriptions.
+ * 'month' and 'year' map to the configured monthly/yearly Stripe price IDs.
+ */
+export type BillingInterval = 'month' | 'year';
+
+/** Plans that can be purchased via Stripe Checkout. */
+export const PAID_PLANS: SubscriptionPlan[] = ['pro', 'enterprise'];
+
+/** Maximum event ids kept in the in-memory dedup fast path. */
+const EVENT_ID_CACHE_MAX = 10_000;
+
+/** How long a Stripe idempotency key stays valid on the API side (24h). */
+const STRIPE_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type StripeSdk = {
   Stripe: new (
@@ -33,6 +51,7 @@ type StripeSdk = {
           cancel_url: string;
           metadata?: Record<string, string>;
           subscription_data?: { trial_period_days?: number };
+          idempotency_key?: string;
         }) => Promise<{ id: string; url: string | null }>;
       };
     };
@@ -41,7 +60,7 @@ type StripeSdk = {
         payload: Buffer | string,
         sig: string,
         secret: string,
-      ) => { type: string; data: { object: Record<string, unknown> } };
+      ) => { id: string; type: string; data: { object: Record<string, unknown> } };
     };
   };
 };
@@ -49,13 +68,19 @@ type StripeSdk = {
 export class BillingService {
   readonly #config: Config;
   readonly #subRepo: SubscriptionRepository;
+  readonly #webhookRepo: WebhookEventsRepository | null;
   #stripe: StripeSdk['Stripe']['prototype'] | null = null;
-  #lastProcessedEventType = '';
-  #lastProcessedAt = 0;
+  /** In-memory fast path for webhook dedup (bounded LRU-style set). */
+  readonly #processedEventIds = new Map<string, number>();
 
-  constructor(config: Config, subRepo: SubscriptionRepository) {
+  constructor(
+    config: Config,
+    subRepo: SubscriptionRepository,
+    webhookRepo?: WebhookEventsRepository,
+  ) {
     this.#config = config;
     this.#subRepo = subRepo;
+    this.#webhookRepo = webhookRepo ?? null;
   }
 
   get isConfigured(): boolean {
@@ -78,31 +103,82 @@ export class BillingService {
     }
   }
 
+  /**
+   * Resolve the configured Stripe Price ID for a plan + interval.
+   * Legacy STRIPE_PRICE_ID_MONTHLY / STRIPE_PRICE_ID_YEARLY remain valid
+   * aliases for the pro plan (backward compatibility).
+   */
+  resolvePriceId(plan: SubscriptionPlan, interval: BillingInterval): string | undefined {
+    if (plan === 'free') return undefined;
+    if (plan === 'pro') {
+      return interval === 'month'
+        ? (this.#config.STRIPE_PRICE_ID_PRO_MONTHLY ?? this.#config.STRIPE_PRICE_ID_MONTHLY)
+        : (this.#config.STRIPE_PRICE_ID_PRO_YEARLY ?? this.#config.STRIPE_PRICE_ID_YEARLY);
+    }
+    return interval === 'month'
+      ? this.#config.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY
+      : this.#config.STRIPE_PRICE_ID_ENTERPRISE_YEARLY;
+  }
+
+  /**
+   * Reverse lookup: map a Stripe Price ID back to the plan it belongs to.
+   * Used by webhook handlers to derive the subscription plan from the
+   * price attached to the subscription line item.
+   */
+  resolvePlanForPriceId(priceId: string | null | undefined): SubscriptionPlan | undefined {
+    if (!priceId) return undefined;
+    const configured: Array<[string | undefined, SubscriptionPlan]> = [
+      [this.#config.STRIPE_PRICE_ID_MONTHLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_YEARLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_PRO_MONTHLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_PRO_YEARLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY, 'enterprise'],
+      [this.#config.STRIPE_PRICE_ID_ENTERPRISE_YEARLY, 'enterprise'],
+    ];
+    for (const [configuredId, plan] of configured) {
+      if (configuredId && configuredId === priceId) return plan;
+    }
+    return undefined;
+  }
+
   async getSubscription(tenantId: string): Promise<Subscription> {
     return this.#subRepo.ensureDefault(tenantId);
   }
 
+  /**
+   * Create a Stripe Checkout session for the given plan and interval.
+   * The idempotency key is derived from (tenantId, plan, interval, day) so
+   * retries of the same upgrade request reuse the same session instead of
+   * creating duplicates; a new day (or a different plan) starts a new key.
+   */
   async createCheckoutSession(
     tenantId: string,
-    priceId: string,
+    plan: SubscriptionPlan,
+    interval: BillingInterval,
     successUrl: string,
     cancelUrl: string,
     customerEmail?: string,
-  ): Promise<{ url: string } | null> {
+  ): Promise<{ url: string; plan: SubscriptionPlan } | null> {
     const stripe = await this.#getStripe();
     if (!stripe) return null;
 
-    const allowedPriceIds = [
-      this.#config.STRIPE_PRICE_ID_MONTHLY,
-      this.#config.STRIPE_PRICE_ID_YEARLY,
-    ].filter(Boolean) as string[];
-
-    if (allowedPriceIds.length > 0 && !allowedPriceIds.includes(priceId)) {
-      logger.warn({ priceId, allowedPriceIds }, 'Attempted checkout with unconfigured priceId');
+    const priceId = this.resolvePriceId(plan, interval);
+    if (!priceId) {
+      logger.warn(
+        { plan, interval },
+        'Attempted checkout with no configured priceId for plan/interval',
+      );
       return null;
     }
 
     const sub = await this.#subRepo.findByTenantId(tenantId);
+
+    // Idempotency window bucket: same tenant+plan+interval within 24h reuses
+    // the same key, so Stripe returns the original session on retry instead
+    // of creating a second one. See:
+    // https://docs.stripe.com/api/idempotent_requests
+    const bucket = Math.floor(Date.now() / STRIPE_IDEMPOTENCY_WINDOW_MS);
+    const idempotencyKey = `checkout:${tenantId}:${plan}:${interval}:${bucket}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -111,11 +187,12 @@ export class BillingService {
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: successUrl,
       cancel_url: cancelUrl,
-      metadata: { tenantId },
+      metadata: { tenantId, plan },
       subscription_data: { trial_period_days: 14 },
+      idempotency_key: idempotencyKey,
     });
 
-    return session.url ? { url: session.url } : null;
+    return session.url ? { url: session.url, plan } : null;
   }
 
   async createPortalSession(
@@ -136,6 +213,47 @@ export class BillingService {
     return { url: session.url };
   }
 
+  /**
+   * Dedup gate for webhook events. Stripe delivers at-least-once and may
+   * re-deliver across replicas and restarts. The database record is the
+   * authoritative source; the in-memory set is a bounded fast path.
+   */
+  async #claimEvent(eventId: string, eventType: string): Promise<boolean> {
+    const inMemory = this.#processedEventIds.get(eventId);
+    if (inMemory !== undefined) {
+      if (Date.now() - inMemory > STRIPE_IDEMPOTENCY_WINDOW_MS) {
+        this.#processedEventIds.delete(eventId);
+      } else {
+        logger.debug({ eventId, eventType }, 'Duplicate webhook event (in-memory) — skipping');
+        return false;
+      }
+    }
+
+    if (this.#webhookRepo) {
+      const newlyRecorded = await this.#webhookRepo
+        .markProcessed('stripe', eventId, eventType)
+        .catch((err: unknown) => {
+          // Dedup must never break processing: if the dedup store is down,
+          // fall back to the in-memory fast path only.
+          logger.error({ err, eventId }, 'Webhook dedup store unavailable — processing without it');
+          return true;
+        });
+      if (!newlyRecorded) {
+        logger.debug({ eventId, eventType }, 'Duplicate webhook event (store) — skipping');
+        return false;
+      }
+    }
+
+    this.#processedEventIds.set(eventId, Date.now());
+    if (this.#processedEventIds.size > EVENT_ID_CACHE_MAX) {
+      const oldest = this.#processedEventIds.keys().next();
+      if (!oldest.done && oldest.value !== undefined) {
+        this.#processedEventIds.delete(oldest.value);
+      }
+    }
+    return true;
+  }
+
   async handleWebhookEvent(rawBody: Buffer, signature: string): Promise<void> {
     const stripe = await this.#getStripe();
     if (!stripe || !this.#config.STRIPE_WEBHOOK_SECRET) {
@@ -149,24 +267,10 @@ export class BillingService {
       this.#config.STRIPE_WEBHOOK_SECRET,
     );
 
-    // Idempotency gate: Stripe delivers webhooks at-least-once, so the same
-    // event type may arrive multiple times within seconds. Skip consecutive
-    // duplicates of the same event type within the idempotency window.
-    const now = Date.now();
-    if (
-      event.type === this.#lastProcessedEventType &&
-      now - this.#lastProcessedAt < WEBHOOK_IDEMPOTENCY_WINDOW_MS
-    ) {
-      logger.debug(
-        { type: event.type },
-        'Duplicate webhook event within idempotency window — skipping',
-      );
-      return;
-    }
-    this.#lastProcessedEventType = event.type;
-    this.#lastProcessedAt = now;
+    const claimed = await this.#claimEvent(event.id, event.type);
+    if (!claimed) return;
 
-    logger.info({ type: event.type }, 'Stripe webhook event');
+    logger.info({ type: event.type, eventId: event.id }, 'Stripe webhook event');
 
     switch (event.type) {
       case 'checkout.session.completed': {
@@ -180,13 +284,14 @@ export class BillingService {
 
         const tenantId = session.metadata?.tenantId;
         if (!tenantId) {
-          logger.warn('Checkout session missing tenantId metadata');
+          logger.warn({ eventId: event.id }, 'Checkout session missing tenantId metadata');
           return;
         }
 
+        const plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
         await this.#subRepo.upsert({
           tenantId,
-          plan: 'pro',
+          plan,
           status: 'active',
           stripeCustomerId: session.customer ?? null,
           stripeSubscriptionId: session.subscription ?? null,
@@ -204,28 +309,14 @@ export class BillingService {
           current_period_start?: number;
           current_period_end?: number;
           metadata?: Record<string, string>;
-          items?: { data?: { price?: { product?: string } }[] };
+          items?: { data?: { price?: { id?: string } }[] };
         };
 
+        const planFromPrice = this.resolvePlanForPriceId(sub.items?.data?.[0]?.price?.id ?? null);
+        const plan = planFromPrice ?? (sub.metadata?.plan as SubscriptionPlan | undefined);
+
         const tenantId = sub.metadata?.tenantId;
-        if (!tenantId) {
-          const custSub = await this.#subRepo.findByStripeCustomerId(sub.customer ?? '');
-          if (!custSub) {
-            logger.warn({ customerId: sub.customer }, 'Subscription event for unknown customer');
-            return;
-          }
-          await this.#subRepo.updateStripeSubscription(
-            custSub.tenantId,
-            sub.id ?? '',
-            (sub.status as 'active' | 'past_due' | 'canceled' | 'incomplete') ?? 'active',
-            sub.current_period_start
-              ? new Date(sub.current_period_start * 1000).toISOString()
-              : new Date().toISOString(),
-            sub.current_period_end
-              ? new Date(sub.current_period_end * 1000).toISOString()
-              : new Date().toISOString(),
-          );
-        } else {
+        if (tenantId) {
           await this.#subRepo.updateStripeSubscription(
             tenantId,
             sub.id ?? '',
@@ -236,8 +327,31 @@ export class BillingService {
             sub.current_period_end
               ? new Date(sub.current_period_end * 1000).toISOString()
               : new Date().toISOString(),
+            plan,
           );
+          return;
         }
+
+        const custSub = await this.#subRepo.findByStripeCustomerId(sub.customer ?? '');
+        if (!custSub) {
+          logger.warn(
+            { eventId: event.id, customerId: sub.customer },
+            'Subscription event for unknown customer',
+          );
+          return;
+        }
+        await this.#subRepo.updateStripeSubscription(
+          custSub.tenantId,
+          sub.id ?? '',
+          (sub.status as 'active' | 'past_due' | 'canceled' | 'incomplete') ?? 'active',
+          sub.current_period_start
+            ? new Date(sub.current_period_start * 1000).toISOString()
+            : new Date().toISOString(),
+          sub.current_period_end
+            ? new Date(sub.current_period_end * 1000).toISOString()
+            : new Date().toISOString(),
+          plan,
+        );
         break;
       }
 

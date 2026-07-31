@@ -3,11 +3,13 @@ import {
   useCreateCheckoutSession,
   useCreatePortalSession,
 } from '@/hooks/useBilling';
+import type { BillingInterval, BillingPlan } from '@/api/billing';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CreditCard } from 'lucide-react';
+import { useState } from 'react';
 
 const PLAN_LABELS: Record<string, string> = {
   free: 'Community',
@@ -27,14 +29,17 @@ export function BillingPage() {
   const { data, isLoading } = useSubscription();
   const checkoutMutation = useCreateCheckoutSession();
   const portalMutation = useCreatePortalSession();
+  const [interval, setInterval] = useState<BillingInterval>('month');
 
   const subscription = data?.subscription;
   const isStripeConfigured = data?.isStripeConfigured ?? false;
+  const plans = data?.plans ?? [];
 
-  const handleUpgrade = () => {
+  const handleUpgrade = (plan: BillingPlan) => {
     const baseUrl = `${window.location.protocol}//${window.location.host}`;
     checkoutMutation.mutate({
-      priceId: '', // Set via env var — user must configure STRIPE_PRICE_ID_MONTHLY
+      plan,
+      interval,
       successUrl: `${baseUrl}/billing`,
       cancelUrl: `${baseUrl}/billing`,
     });
@@ -45,7 +50,7 @@ export function BillingPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-3xl">
       <h2 className="text-2xl font-bold text-text-primary">Billing</h2>
 
       <Card>
@@ -84,12 +89,6 @@ export function BillingPage() {
               )}
 
               <div className="flex gap-3 pt-2">
-                {subscription.plan === 'free' && isStripeConfigured && (
-                  <Button onClick={handleUpgrade} disabled={checkoutMutation.isPending}>
-                    {checkoutMutation.isPending ? 'Redirecting...' : 'Upgrade to Pro'}
-                  </Button>
-                )}
-
                 {isStripeConfigured && subscription.stripeCustomerId && (
                   <Button
                     variant="outline"
@@ -118,8 +117,27 @@ export function BillingPage() {
       {isStripeConfigured && (
         <Card>
           <CardHeader>
-            <CardTitle>Plans</CardTitle>
-            <CardDescription>Choose a plan that fits your needs</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Plans</CardTitle>
+                <CardDescription>Choose a plan that fits your needs</CardDescription>
+              </div>
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                {(['month', 'year'] as BillingInterval[]).map((iv) => (
+                  <button
+                    key={iv}
+                    onClick={() => setInterval(iv)}
+                    className={`px-3 py-1.5 text-sm font-medium capitalize ${
+                      interval === iv
+                        ? 'bg-brand-500 text-white'
+                        : 'bg-bg-elevated text-text-muted hover:text-text-primary'
+                    }`}
+                  >
+                    {iv === 'year' ? 'Yearly' : 'Monthly'}
+                  </button>
+                ))}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -134,18 +152,46 @@ export function BillingPage() {
                 ]}
                 current={subscription?.plan === 'free'}
               />
-              <PlanCard
-                name="Pro"
-                price="€19/mo"
-                features={[
-                  'Multi-tenant',
-                  'PostgreSQL database',
-                  'Priority support',
-                  'Stripe billing',
-                ]}
-                current={subscription?.plan === 'pro'}
-                highlighted
-              />
+              {plans
+                .filter((p) => p.available)
+                .map((plan) => (
+                  <PlanCard
+                    key={plan.id}
+                    name={PLAN_LABELS[plan.id] ?? plan.id}
+                    price={
+                      interval === 'year'
+                        ? plan.id === 'pro'
+                          ? '€190/yr'
+                          : '€990/yr'
+                        : plan.id === 'pro'
+                          ? '€19/mo'
+                          : '€99/mo'
+                    }
+                    features={
+                      plan.id === 'pro'
+                        ? [
+                            'Multi-tenant',
+                            'PostgreSQL database',
+                            'Priority support',
+                            'Stripe billing',
+                          ]
+                        : [
+                            'Everything in Pro',
+                            'Dedicated support',
+                            'Custom SLA',
+                            'Custom onboarding',
+                          ]
+                    }
+                    current={subscription?.plan === plan.id}
+                    highlighted={plan.id === 'pro'}
+                    onUpgrade={
+                      subscription?.plan === plan.id
+                        ? undefined
+                        : () => handleUpgrade(plan.id as BillingPlan)
+                    }
+                    upgrading={checkoutMutation.isPending}
+                  />
+                ))}
             </div>
           </CardContent>
         </Card>
@@ -160,12 +206,16 @@ function PlanCard({
   features,
   current,
   highlighted,
+  onUpgrade,
+  upgrading,
 }: {
   name: string;
   price: string;
   features: string[];
   current?: boolean;
   highlighted?: boolean;
+  onUpgrade?: () => void;
+  upgrading?: boolean;
 }) {
   return (
     <div
@@ -187,6 +237,16 @@ function PlanCard({
         <Badge variant="success" className="mt-3">
           Current Plan
         </Badge>
+      )}
+      {onUpgrade && (
+        <Button
+          onClick={onUpgrade}
+          disabled={upgrading}
+          variant={highlighted ? 'default' : 'outline'}
+          className="mt-4 w-full"
+        >
+          {upgrading ? 'Redirecting...' : 'Upgrade'}
+        </Button>
       )}
     </div>
   );

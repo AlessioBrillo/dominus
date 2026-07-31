@@ -80,12 +80,14 @@ export class SubscriptionRepository {
     status: SubscriptionStatus,
     periodStart: string,
     periodEnd: string,
+    plan?: SubscriptionPlan,
   ): Promise<void> {
     await this.#db.exec(
       `UPDATE tenant_subscriptions
-       SET stripe_subscription_id = ?, status = ?, current_period_start = ?, current_period_end = ?, updated_at = datetime('now')
+       SET stripe_subscription_id = ?, status = ?, current_period_start = ?, current_period_end = ?,
+           plan = COALESCE(?, plan), updated_at = datetime('now')
        WHERE tenant_id = ?`,
-      [stripeSubscriptionId, status, periodStart, periodEnd, tenantId],
+      [stripeSubscriptionId, status, periodStart, periodEnd, plan ?? null, tenantId],
     );
   }
 

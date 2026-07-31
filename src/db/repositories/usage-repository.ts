@@ -44,6 +44,45 @@ export class UsageRepository {
     );
   }
 
+  /**
+   * Atomic usage increment guarded by the plan limit.
+   *
+   * Unlike `incrementUsage` — which is a blind read-then-write pair — this
+   * single upsert only applies the increment when the running total stays
+   * within `limitValue`. The INSERT guard (`? <= ?` on the SELECT) and the
+   * ON CONFLICT guard (`usage_records.amount + excluded.amount <= ?`) are
+   * evaluated atomically by the database, so concurrent requests can never
+   * overshoot the limit: the sum of every applied increment is always
+   * <= limitValue.
+   *
+   * Returns `true` when the increment was applied, `false` when the limit is
+   * already exhausted (or the amount exceeds the allowance outright).
+   */
+  async incrementUsageIfWithinLimit(
+    tenantId: string,
+    feature: UsageFeature,
+    amount: number,
+    periodStart: string,
+    limitValue: number | null,
+  ): Promise<boolean> {
+    if (limitValue === null) {
+      await this.incrementUsage(tenantId, feature, amount, periodStart);
+      return true;
+    }
+
+    const result = await this.#db.exec(
+      `INSERT INTO usage_records (tenant_id, feature, amount, period_start)
+       SELECT ?, ?, ?, ?
+       WHERE ? <= ?
+       ON CONFLICT(tenant_id, feature, period_start) DO UPDATE SET
+         amount = usage_records.amount + excluded.amount,
+         recorded_at = datetime('now')
+       WHERE usage_records.amount + excluded.amount <= ?`,
+      [tenantId, feature, amount, periodStart, amount, limitValue, limitValue],
+    );
+    return result.changes > 0;
+  }
+
   async getUsageForPeriod(
     tenantId: string,
     feature: UsageFeature,

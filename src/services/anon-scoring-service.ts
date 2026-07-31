@@ -69,6 +69,7 @@ interface ViewCountEntry {
 
 const VIEW_COUNT_FLUSH_INTERVAL_MS = 60_000;
 const VIEW_COUNT_BUFFER_MAX = 5_000;
+const VIEW_COUNT_RETRY_MAX = 1_000;
 
 export class AnonScoringService {
   readonly #engine: ScoringEngine;
@@ -79,6 +80,7 @@ export class AnonScoringService {
   readonly #compareCache: MemoryCache<CompareResult>;
 
   #viewCountBuffer: ViewCountEntry[] = [];
+  #viewCountRetryBuffer: ViewCountEntry[] = [];
   #viewCountFlushTimer: ReturnType<typeof setInterval> | null = null;
   #viewCountFlushRunning = false;
 
@@ -242,24 +244,42 @@ export class AnonScoringService {
     if (!this.#repo) return;
     if (this.#viewCountFlushRunning) return;
     this.#viewCountFlushRunning = true;
-    const batch = this.#viewCountBuffer;
-    this.#viewCountBuffer = [];
-    if (batch.length === 0) {
-      this.#viewCountFlushRunning = false;
-      return;
-    }
-    for (const entry of batch) {
-      await this.#repo.updateViewCount(entry.slug, entry.count).catch((err: unknown) => {
-        logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
-        const existing = this.#viewCountBuffer.find((e) => e.slug === entry.slug);
-        if (existing) {
-          existing.count += entry.count;
-        } else {
-          this.#viewCountBuffer.push(entry);
+    try {
+      // Flush the live buffer plus any previously failed entries. Failed
+      // entries are NOT merged back into the live buffer — they go into a
+      // dedicated retry buffer, so a slow/failing flush can never cause the
+      // same view to be counted twice.
+      const batch = [...this.#viewCountRetryBuffer, ...this.#viewCountBuffer];
+      this.#viewCountBuffer = [];
+      this.#viewCountRetryBuffer = [];
+      if (batch.length === 0) return;
+      for (const entry of batch) {
+        try {
+          await this.#repo.updateViewCount(entry.slug, entry.count);
+        } catch (err) {
+          logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
+          this.#enqueueViewCountRetry(entry);
         }
-      });
+      }
+    } finally {
+      this.#viewCountFlushRunning = false;
     }
-    this.#viewCountFlushRunning = false;
+  }
+
+  #enqueueViewCountRetry(entry: ViewCountEntry): void {
+    const existing = this.#viewCountRetryBuffer.find((e) => e.slug === entry.slug);
+    if (existing) {
+      existing.count += entry.count;
+    } else {
+      if (this.#viewCountRetryBuffer.length >= VIEW_COUNT_RETRY_MAX) {
+        logger.warn(
+          { slug: entry.slug },
+          'AnonScoringService: view count retry buffer at max capacity, dropping entry',
+        );
+        return;
+      }
+      this.#viewCountRetryBuffer.push({ slug: entry.slug, count: entry.count });
+    }
   }
 
   #scheduleViewCountFlush(): void {

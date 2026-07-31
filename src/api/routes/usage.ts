@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { UsageMeterService } from '../../services/usage-meter-service.js';
 import type { UsageFeature } from '../../types/usage.js';
+import { UsageLimitExceededError } from '../../types/errors.js';
 
 const FEATURES: UsageFeature[] = ['candidates_scored', 'api_calls', 'domains_tracked'];
 
@@ -83,11 +84,12 @@ export function createUsageRouter(usageService: UsageMeterService): Router {
       );
       res.json(usage);
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('Usage limit exceeded')) {
+      if (err instanceof UsageLimitExceededError) {
         res.status(429).json({
           error: {
-            code: 'USAGE_LIMIT_EXCEEDED',
+            code: err.code,
             message: err.message,
+            context: err.context,
           },
         });
         return;

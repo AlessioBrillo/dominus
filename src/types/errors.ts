@@ -95,3 +95,22 @@ export class DatabaseError extends DominusError {
     this.name = 'DatabaseError';
   }
 }
+
+export class UsageLimitExceededError extends DominusError {
+  readonly feature: string;
+  readonly current: number;
+  readonly requested: number;
+  readonly limitValue: number | null;
+  constructor(feature: string, current: number, requested: number, limitValue: number | null) {
+    super(
+      `Usage limit exceeded for ${feature}: ${current} + ${requested} > ${limitValue}`,
+      'USAGE_LIMIT_EXCEEDED',
+      { feature, current, requested, limitValue },
+    );
+    this.name = 'UsageLimitExceededError';
+    this.feature = feature;
+    this.current = current;
+    this.requested = requested;
+    this.limitValue = limitValue;
+  }
+}

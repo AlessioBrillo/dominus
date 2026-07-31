@@ -1,6 +1,12 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { fetchSubscription, createCheckoutSession, createPortalSession } from '@/api/billing';
+import {
+  fetchSubscription,
+  createCheckoutSession,
+  createPortalSession,
+  type BillingInterval,
+  type BillingPlan,
+} from '@/api/billing';
 import { queryKeys } from './query-keys';
 
 export function useSubscription() {
@@ -13,8 +19,12 @@ export function useSubscription() {
 
 export function useCreateCheckoutSession() {
   return useMutation({
-    mutationFn: (params: { priceId: string; successUrl: string; cancelUrl: string }) =>
-      createCheckoutSession(params.priceId, params.successUrl, params.cancelUrl),
+    mutationFn: (params: {
+      plan: BillingPlan;
+      interval: BillingInterval;
+      successUrl: string;
+      cancelUrl: string;
+    }) => createCheckoutSession(params.plan, params.interval, params.successUrl, params.cancelUrl),
     onError: () => toast.error('Failed to create checkout session'),
   });
 }
