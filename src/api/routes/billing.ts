@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import type { BillingService } from '../../services/billing-service.js';
+import type { BillingInterval, BillingService } from '../../services/billing-service.js';
 import type { Config } from '../../config.js';
+import type { SubscriptionPlan } from '../../types/subscription.js';
 
 const checkoutSchema = z.object({
-  priceId: z.string().min(1),
+  plan: z.enum(['pro', 'enterprise']),
+  interval: z.enum(['month', 'year']),
   successUrl: z.string().url(),
   cancelUrl: z.string().url(),
 });
@@ -16,8 +18,31 @@ export function createBillingRouter(config: Config, billingService: BillingServi
   router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const subscription = await billingService.getSubscription(req.tenantId ?? 'default');
+      const plans: Array<{
+        id: SubscriptionPlan;
+        name: string;
+        monthlyPriceId: string | null;
+        yearlyPriceId: string | null;
+        available: boolean;
+      }> = [
+        {
+          id: 'pro',
+          name: 'Pro',
+          monthlyPriceId: billingService.resolvePriceId('pro', 'month') ?? null,
+          yearlyPriceId: billingService.resolvePriceId('pro', 'year') ?? null,
+          available: billingService.isConfigured,
+        },
+        {
+          id: 'enterprise',
+          name: 'Enterprise',
+          monthlyPriceId: billingService.resolvePriceId('enterprise', 'month') ?? null,
+          yearlyPriceId: billingService.resolvePriceId('enterprise', 'year') ?? null,
+          available: billingService.isConfigured,
+        },
+      ];
       res.json({
         subscription,
+        plans,
         isStripeConfigured: billingService.isConfigured,
         publishableKey: config.STRIPE_PUBLISHABLE_KEY ?? null,
       });
@@ -43,7 +68,8 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       const tenantId = req.tenantId ?? 'default';
       const session = await billingService.createCheckoutSession(
         tenantId,
-        parsed.data.priceId,
+        parsed.data.plan as SubscriptionPlan,
+        parsed.data.interval as BillingInterval,
         parsed.data.successUrl,
         parsed.data.cancelUrl,
         req.auth?.userId,

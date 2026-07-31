@@ -101,6 +101,7 @@ import type { PurchaseService as PurchaseServiceType } from '../services/purchas
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
 import { BillingService } from '../services/billing-service.js';
+import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
@@ -213,6 +214,7 @@ interface BuiltRepositories {
   subscriptionRepo: SubscriptionRepository;
   usageRepo: UsageRepository;
   publicScoreRepo: PublicScoreRepository;
+  webhookEventsRepo: WebhookEventsRepository;
 }
 
 function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
@@ -235,6 +237,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     subscriptionRepo: new SubscriptionRepository(provider),
     usageRepo: new UsageRepository(provider),
     publicScoreRepo: new PublicScoreRepository(provider),
+    webhookEventsRepo: new WebhookEventsRepository(provider),
   };
 }
 
@@ -459,7 +462,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
   const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
 
-  const billingService = new BillingService(config, repos.subscriptionRepo);
+  const billingService = new BillingService(
+    config,
+    repos.subscriptionRepo,
+    repos.webhookEventsRepo,
+  );
   const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo);
 
   // Dedicated bulk-write pool for pipeline persistence.

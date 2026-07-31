@@ -17,8 +17,20 @@ export interface SubscriptionData {
 
 export interface BillingResponse {
   subscription: SubscriptionData;
+  plans: PlanCatalogEntry[];
   isStripeConfigured: boolean;
   publishableKey: string | null;
+}
+
+export type BillingPlan = 'pro' | 'enterprise';
+export type BillingInterval = 'month' | 'year';
+
+export interface PlanCatalogEntry {
+  id: BillingPlan;
+  name: string;
+  monthlyPriceId: string | null;
+  yearlyPriceId: string | null;
+  available: boolean;
 }
 
 export interface PortalResponse {
@@ -27,6 +39,7 @@ export interface PortalResponse {
 
 export interface CheckoutResponse {
   url: string;
+  plan: BillingPlan;
 }
 
 export function fetchSubscription(): Promise<BillingResponse> {
@@ -34,11 +47,12 @@ export function fetchSubscription(): Promise<BillingResponse> {
 }
 
 export function createCheckoutSession(
-  priceId: string,
+  plan: BillingPlan,
+  interval: BillingInterval,
   successUrl: string,
   cancelUrl: string,
 ): Promise<CheckoutResponse> {
-  return api.post<CheckoutResponse>('/billing/checkout', { priceId, successUrl, cancelUrl });
+  return api.post<CheckoutResponse>('/billing/checkout', { plan, interval, successUrl, cancelUrl });
 }
 
 export function createPortalSession(returnUrl: string): Promise<PortalResponse> {
