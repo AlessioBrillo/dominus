@@ -120,6 +120,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DROP_NPV_HORIZON_YEARS: 5,
     FILE_REGISTRAR_CONFIG: undefined,
     WORKER_ENABLED: false,
+    USAGE_ENFORCEMENT_ENABLED: false,
     WORKER_CONCURRENCY: 2,
     JOB_QUEUE_POLL_INTERVAL_MS: 1000,
     JOB_MAX_RUNNING_AGE_MS: 300000,

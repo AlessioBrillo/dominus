@@ -6,6 +6,7 @@ import { createUsageRouter } from '../usage.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import type { UsageMeterService } from '../../../services/usage-meter-service.js';
 import type { UsageForPeriod, PlanLimit } from '../../../types/usage.js';
+import { UsageLimitExceededError } from '../../../types/errors.js';
 
 function makeStubService(): UsageMeterService {
   return {
@@ -98,12 +99,13 @@ describe('API: /api/v1/usage', () => {
     it('returns 429 when over limit', async () => {
       const service = makeStubService();
       (service.record as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('Usage limit exceeded for candidates_scored'),
+        new UsageLimitExceededError('candidates_scored', 50, 1, 50),
       );
       const res = await request(buildApp(service))
         .post('/api/v1/usage/record')
         .send({ feature: 'candidates_scored', amount: 1 });
       expect(res.status).toBe(429);
+      expect(res.body.error.code).toBe('USAGE_LIMIT_EXCEEDED');
     });
   });
 

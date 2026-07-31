@@ -9,6 +9,7 @@ import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
+import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
@@ -185,6 +186,13 @@ async function main(): Promise<void> {
 
   const protectedRouter = express.Router();
   protectedRouter.use(authMiddleware);
+  // Plan usage enforcement: records one api_call per request and rejects
+  // with 429 once the tenant's monthly plan limit is exhausted. No-op unless
+  // USAGE_ENFORCEMENT_ENABLED=true (see middleware docs). Mounted after auth
+  // because it keys on req.tenantId.
+  protectedRouter.use(
+    createUsageEnforcementMiddleware(deps.usageService, config.USAGE_ENFORCEMENT_ENABLED),
+  );
   protectedRouter.use(responseCache(60));
 
   // Per-token rate limit for authenticated API calls. This prevents a single
