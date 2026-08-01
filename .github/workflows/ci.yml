@@ -18,16 +18,20 @@ env:
 
 jobs:
   backend:
-    name: Backend (typecheck, lint, test, build)
+    name: Backend (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      matrix:
+        node: [20, 22]
+      fail-fast: false
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - run: npm ci
@@ -40,6 +44,9 @@ jobs:
 
       - name: Format check
         run: npm run format:check
+
+      - name: Migration sync check
+        run: npm run db:sync:check
 
       - name: Test with coverage
         run: npm test -- --coverage
