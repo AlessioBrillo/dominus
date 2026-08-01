@@ -48,6 +48,7 @@ COPY --from=deps --chown=dominus:dominus /app/node_modules node_modules/
 COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
 COPY --from=frontend-build --chown=dominus:dominus /app/dist frontend/dist/
 COPY --chown=dominus:dominus package.json ./
+COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
 
 USER dominus
 
@@ -74,6 +75,7 @@ RUN addgroup -S dominus && adduser -S dominus -G dominus
 COPY --from=deps --chown=dominus:dominus /app/node_modules node_modules/
 COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
 COPY --chown=dominus:dominus package.json ./
+COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
 
 USER dominus
 
@@ -100,6 +102,7 @@ RUN addgroup -S dominus && adduser -S dominus -G dominus
 COPY --from=deps --chown=dominus:dominus /app/node_modules node_modules/
 COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
 COPY --chown=dominus:dominus package.json ./
+COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
 
 USER dominus
 
