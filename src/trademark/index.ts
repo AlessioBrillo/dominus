@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { TrademarkGate, GateVerdict } from './trademark-gate.js';
 export type { GateResult } from './trademark-gate.js';
 export { detectMatch, extractSld, DEFAULT_MATCH_DETECTOR_CONFIG } from './match-detector.js';

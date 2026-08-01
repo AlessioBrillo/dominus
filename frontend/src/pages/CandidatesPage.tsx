@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play } from 'lucide-react';

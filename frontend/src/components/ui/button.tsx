@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { forwardRef } from 'react';
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Slot } from '@radix-ui/react-slot';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import cron, { type ScheduledTask } from 'node-cron';
 import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
 import { Share2, Check, Loader2 } from 'lucide-react';
 import { shareScore } from '@/api/public';

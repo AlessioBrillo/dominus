@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export type SubscriptionPlan = 'free' | 'pro' | 'enterprise';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'incomplete' | 'trialing';
 

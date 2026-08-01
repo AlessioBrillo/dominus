@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { AutoListing, AutoListSource, NewAutoListing } from '../../types/listing.js';
 import { autoListingFromRow, type AutoListingRow } from '../../types/listing.js';

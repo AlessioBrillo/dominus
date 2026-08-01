@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { WhoisProvider, WhoisResult } from '../providers/whois/whois-provider.js';
 import { type RetryPolicy } from '../providers/retry-policy.js';
 import {

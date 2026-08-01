@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { api } from './client';
 import type { Outcome } from '@/types/domain';
 

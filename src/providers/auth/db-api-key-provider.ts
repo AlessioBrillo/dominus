@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { AuthResult, KeyManager } from './auth-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';

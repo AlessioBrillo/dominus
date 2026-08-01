@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { PiggyBank, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 

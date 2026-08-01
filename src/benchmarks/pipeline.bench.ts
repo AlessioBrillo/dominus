@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { bench, describe, vi } from 'vitest';
 import { PipelineOrchestrator } from '../pipeline/orchestrator.js';
 import { CandidateGenerationStage } from '../pipeline/stages/candidate-generation-stage.js';

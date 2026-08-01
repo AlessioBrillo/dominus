@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Listing, ListingOffer, NewListing, ListingUpdate } from '../../types/listing.js';
 
 export interface SyncResult {

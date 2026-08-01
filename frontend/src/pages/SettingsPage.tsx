@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useHealth, useProviders } from '@/hooks/useSettings';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';

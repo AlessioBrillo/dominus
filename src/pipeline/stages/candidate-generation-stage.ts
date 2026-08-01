@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { randomUUID } from 'node:crypto';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { CloseoutEntry, DomainCandidate } from '../../types/candidate.js';

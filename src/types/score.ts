@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export type SignalName = 'intrinsic' | 'commercial' | 'market' | 'expiry';
 
 export const SIGNAL_NAMES: readonly SignalName[] = [

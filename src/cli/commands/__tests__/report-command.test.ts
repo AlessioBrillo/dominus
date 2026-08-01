@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Command } from 'commander';
 import type { PortfolioReportService } from '../../../portfolio/portfolio-report-service.js';

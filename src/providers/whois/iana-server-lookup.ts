@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { connect as netConnect } from 'node:net';
 import type { Socket } from 'node:net';
 

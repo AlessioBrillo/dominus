@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import 'express-serve-static-core';
 
 declare module 'express-serve-static-core' {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { TrademarkGate, GateVerdict, STRICT_USPTO_TLDS } from '../trademark-gate.js';
 import type { TrademarkProvider } from '../../providers/trademark/trademark-provider.js';

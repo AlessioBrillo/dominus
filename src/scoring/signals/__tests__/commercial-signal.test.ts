@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, assert } from 'vitest';
 import { computeCommercialScore } from '../commercial-signal.js';
 import type { KeywordProvider } from '../../../providers/keyword/keyword-provider.js';

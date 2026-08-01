@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
 import { RefreshCw, Plus, ExternalLink } from 'lucide-react';
 import {

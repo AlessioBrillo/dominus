@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { TrademarkProvider } from './trademark/trademark-provider.js';
 import type { RdapProvider } from './rdap/rdap-provider.js';
 import type { WhoisProvider } from './whois/whois-provider.js';

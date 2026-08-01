@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchPnlReport, fetchAccuracyReport, refreshAccuracy } from '@/api/analytics';
 import { queryKeys } from './query-keys';

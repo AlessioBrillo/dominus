@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export const OPENAPI_SPEC: Record<string, unknown> = {
   openapi: '3.1.0',
   info: {

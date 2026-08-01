@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { RefreshCw, Play } from 'lucide-react';
 import { useSchedulerStatus, useRunSchedulerJob } from '@/hooks/useScheduler';
 import { StatusBadge } from '@/components/StatusBadge';

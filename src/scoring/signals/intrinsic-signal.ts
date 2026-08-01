@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
 import { DEFAULT_TLD_BONUS } from '../weights.js';
 import type { IntrinsicSignalConfig } from '../scoring-config.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { RdapProvider } from '../../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider } from '../../../providers/whois/whois-provider.js';

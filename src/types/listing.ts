@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export type ListingStatus =
   'draft' | 'listed' | 'offer_received' | 'sold' | 'expired' | 'unlisted' | 'pending' | 'paused';
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { vi } from 'vitest';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';

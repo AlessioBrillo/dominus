@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { CompsProvider, ComparableSale } from '../../providers/comps/comps-provider.js';
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
 import type { MarketSignalConfig } from '../scoring-config.js';

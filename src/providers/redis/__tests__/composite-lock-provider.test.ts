@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CompositeLockProvider } from '../composite-lock-provider.js';
 import type { LockProvider } from '../../../types/lock.js';

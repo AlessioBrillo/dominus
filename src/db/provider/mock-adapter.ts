@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 
 interface CallRecord {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type Database from 'better-sqlite3';
 import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';

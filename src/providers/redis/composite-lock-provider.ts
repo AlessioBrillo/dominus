@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { RedisClient } from './redis-client.js';
 import type { LockProvider } from '../../types/lock.js';
 import { getLogger } from '../../logger.js';

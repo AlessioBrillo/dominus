@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 export function requestTimeout(ms: number): RequestHandler {

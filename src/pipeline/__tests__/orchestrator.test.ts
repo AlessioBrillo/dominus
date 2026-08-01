@@ -1,4 +1,5 @@
-﻿import { describe, it, expect, vi } from 'vitest';
+// SPDX-License-Identifier: AGPL-3.0-only
+import { describe, it, expect, vi } from 'vitest';
 import { PipelineOrchestrator, PipelineTimeoutError } from '../orchestrator.js';
 import { CandidateGenerationStage } from '../stages/candidate-generation-stage.js';
 import { DnsPreFilterStage } from '../stages/dns-prefilter-stage.js';

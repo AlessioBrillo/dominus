@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { AcquisitionFunnelService } from '../../services/acquisition-funnel-service.js';
 

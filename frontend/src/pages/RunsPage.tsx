@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
 import { RefreshCw, Trash2, XCircle } from 'lucide-react';
 import { useRunsList, useDeleteRun, usePruneRuns } from '@/hooks/useRuns';

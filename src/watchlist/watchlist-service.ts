@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { WatchlistRepository } from '../db/repositories/watchlist-repository.js';
 import type { DnsProvider } from '../providers/dns/dns-provider.js';
 import type { RdapProvider } from '../providers/rdap/rdap-provider.js';

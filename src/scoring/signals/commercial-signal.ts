@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { KeywordProvider } from '../../providers/keyword/keyword-provider.js';
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
 import type { CommercialSignalConfig } from '../scoring-config.js';

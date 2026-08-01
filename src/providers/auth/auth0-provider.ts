@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { AuthProvider, AuthResult } from './auth-provider.js';
 

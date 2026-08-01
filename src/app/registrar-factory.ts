@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Config } from '../config.js';
 import { registrarRegistry } from '../providers/registrar/registrar-registry.js';
 import { loadFileConfig } from '../providers/file-config-loader.js';

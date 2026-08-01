@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { DatabaseProvider } from '../../db/provider/interface.js';

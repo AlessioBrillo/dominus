@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { api } from './client.js';
 import type { AccuracyReport } from '../types/domain.js';
 

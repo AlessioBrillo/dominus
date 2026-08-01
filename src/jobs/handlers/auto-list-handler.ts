@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { AutoListPayload, AutoListResultData, JobHandler } from '../../types/job-queue.js';
 import type { AutoListingService, AutoListSource } from '../../services/auto-listing-service.js';
 import type { ScoreResult } from '../../types/score.js';

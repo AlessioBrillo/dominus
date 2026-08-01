@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { RdapResult } from '../../types/domain-status.js';
 
 export interface RdapProvider {

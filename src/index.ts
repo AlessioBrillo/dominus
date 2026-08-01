@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import express from 'express';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';

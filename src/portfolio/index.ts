@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { PortfolioManager } from './portfolio-manager.js';
 export type { PortfolioSummary } from './portfolio-manager.js';
 export { computeRenewalClock, isRenewalImminent } from './renewal-clock.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { ProviderError } from '../../types/errors.js';
 import type { ComparableSale, CompsProvider } from './comps-provider.js';
 import { ManualCompsProvider } from './manual-comps-provider.js';

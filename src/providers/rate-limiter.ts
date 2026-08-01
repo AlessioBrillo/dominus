@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /**
  * Minimal interface that both in-memory RateLimiter and RedisRateLimiter
  * implement. Used where the rate limiter implementation is injected but

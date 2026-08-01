@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi } from 'vitest';
 import { PruneHandler } from '../prune-handler.js';

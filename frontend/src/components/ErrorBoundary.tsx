@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { Component } from 'react';
 import type { ErrorInfo, ReactNode } from 'react';
 import { Button } from '@/components/ui/button';

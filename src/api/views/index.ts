@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { escapeHtml } from './escape.js';
 export { renderScorePage } from './score-page.js';
 export { renderDomainPage } from './domain-page.js';

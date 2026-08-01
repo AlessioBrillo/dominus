@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, afterEach } from 'vitest';
 import { PostgresAdapter } from './postgres-adapter.js';
 import { DatabaseError } from './interface.js';

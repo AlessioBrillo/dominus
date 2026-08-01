@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { KeywordMetrics, KeywordProvider } from './keyword-provider.js';
 
 const SUGGEST_URL = 'https://suggestqueries.google.com/complete/search';

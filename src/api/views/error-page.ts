@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
 import { pageHtml, ERROR_CSS_HREF, SITE_NAME } from './page-template.js';
 

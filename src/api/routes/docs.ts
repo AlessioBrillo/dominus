@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { OPENAPI_SPEC } from '../openapi-spec.js';

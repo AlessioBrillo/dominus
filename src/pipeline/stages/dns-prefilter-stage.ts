@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
 import { CandidateSource, type DomainCandidate } from '../../types/candidate.js';

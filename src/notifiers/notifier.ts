@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Notification } from '../types/alert.js';
 
 export const NOTIFIER_CHANNELS = ['console', 'desktop', 'webhook', 'telegram'] as const;

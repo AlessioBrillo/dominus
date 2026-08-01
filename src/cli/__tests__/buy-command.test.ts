@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { registerBuyCommand } from '../commands/buy-command.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { Router } from 'express';
 import type { AuthProvider, KeyManager } from '../../providers/auth/auth-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';

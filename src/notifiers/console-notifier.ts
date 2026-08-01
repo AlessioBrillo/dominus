@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Notifier, NotifierChannel } from './notifier.js';
 import type { Notification } from '../types/alert.js';
 

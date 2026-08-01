@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { isOutcomeType, OUTCOME_TYPES } from '../../types/outcome.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /**
  * RegistrarProvider abstracts the registrar layer so the portfolio manager
  * and operator workflow are decoupled from any specific domain registrar.

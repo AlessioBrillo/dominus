@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { BacktestEngine } from '../../scoring/backtest/backtest-engine.js';
 import type { WeightSuggester } from '../../scoring/backtest/weight-suggester.js';
 import type { ScoringWeights } from '../../scoring/weights.js';

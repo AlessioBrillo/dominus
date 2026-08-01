@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {

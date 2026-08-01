@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import type { ListingManager } from '../../listing/listing-manager.js';
 

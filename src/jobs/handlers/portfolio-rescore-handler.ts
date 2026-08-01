@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import type { PortfolioRescoreService } from '../../portfolio/portfolio-rescore-service.js';
 import type {

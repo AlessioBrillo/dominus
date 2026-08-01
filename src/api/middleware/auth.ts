@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Request, Response, NextFunction } from 'express';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
 import type { DatabaseProvider } from '../../db/provider/interface.js';

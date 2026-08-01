@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';

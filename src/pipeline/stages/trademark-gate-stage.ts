@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { CandidateStatus } from '../../types/candidate.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';

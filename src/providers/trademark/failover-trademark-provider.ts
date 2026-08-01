@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { TrademarkMatch, TrademarkProvider } from './trademark-provider.js';
 import { ProviderError } from '../../types/errors.js';
 

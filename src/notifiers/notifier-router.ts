@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Notifier } from './notifier.js';
 import { ConsoleNotifier } from './console-notifier.js';
 import { DesktopNotifier } from './desktop-notifier.js';

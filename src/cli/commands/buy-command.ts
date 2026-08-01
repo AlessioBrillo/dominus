@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { PurchaseService } from '../../services/purchase-service.js';
 import { PurchaseNotApprovedError } from '../../types/registrar.js';

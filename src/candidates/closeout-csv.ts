@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { CloseoutEntry } from '../types/candidate.js';
 import { isValidDomain } from '../utils/domain.js';
 

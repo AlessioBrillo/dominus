@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
 import type { ExpirySignalConfig } from '../scoring-config.js';
 import { DEFAULT_EXPIRY_CONFIG } from '../scoring-config.js';

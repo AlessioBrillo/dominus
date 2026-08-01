@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { Redis, type RedisOptions } from 'ioredis';
 import { getLogger } from '../../logger.js';
 

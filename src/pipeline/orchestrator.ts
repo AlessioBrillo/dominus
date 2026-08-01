@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DomainCandidate } from '../types/candidate.js';
 import type { CandidateGenerationInput } from './stages/candidate-generation-stage.js';
 import type { CandidateGenerationStage } from './stages/candidate-generation-stage.js';

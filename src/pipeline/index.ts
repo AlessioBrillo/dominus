@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { PipelineOrchestrator, PipelineTimeoutError } from './orchestrator.js';
 export type { PipelineResult } from './orchestrator.js';
 export type { Stage, StageResult } from './stage.js';

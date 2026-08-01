@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
 import type { RenewalCheckPayload, RenewalCheckResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';

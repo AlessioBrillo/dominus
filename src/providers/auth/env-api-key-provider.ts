@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import type { AuthProvider, AuthResult } from './auth-provider.js';
 import { getLogger } from '../../logger.js';

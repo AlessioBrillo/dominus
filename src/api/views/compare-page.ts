@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
 import { pageHtml, COMPARE_CSS_HREF, SITE_NAME } from './page-template.js';
 import { compareItemListJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';

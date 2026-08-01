@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { DomainCandidate } from '../types/candidate.js';
 import type { CheckpointData, CheckpointStore, StageCheckpoint } from './checkpoint-store.js';

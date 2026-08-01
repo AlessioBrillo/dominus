@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import { computeDropVerdict } from '../drop-verdict-engine.js';
 import { Verdict } from '../../types/portfolio.js';

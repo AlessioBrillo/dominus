@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { PortfolioEntry } from '../types/portfolio.js';
 import { Verdict } from '../types/portfolio.js';
 import { computeRenewalClock } from './renewal-clock.js';

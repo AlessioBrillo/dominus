@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { DatabaseProvider } from '../db/provider/interface.js';

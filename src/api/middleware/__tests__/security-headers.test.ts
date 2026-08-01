@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import type { Request, Response } from 'express';
 import { securityHeaders } from '../security-headers.js';

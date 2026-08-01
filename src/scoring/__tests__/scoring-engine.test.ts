@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { ScoringEngine } from '../scoring-engine.js';
 import type { KeywordProvider } from '../../providers/keyword/keyword-provider.js';
