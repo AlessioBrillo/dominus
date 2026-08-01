@@ -55,12 +55,16 @@ jobs:
         # Pinned to the v3.96.0 commit: trufflehog publishes no rolling `v3` tag.
         uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11
         with:
-          extra_args: --results=verified,unknown --no-update
+          # --no-update is already injected by the action itself.
+          extra_args: --results=verified,unknown
 
   docker-scan:
     name: Docker image scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write  # required to upload the Trivy SARIF report
 
     steps:
       - uses: actions/checkout@v4
