@@ -52,6 +52,10 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog OSS
+        # Only push events carry a before/after commit pair; on schedule and
+        # workflow_dispatch BASE == HEAD and the action exits 183.
+        # GitHub's native secret scanning covers the rest of the history.
+        if: github.event_name == 'push'
         # Pinned to the v3.96.0 commit: trufflehog publishes no rolling `v3` tag.
         uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11
         with:
