@@ -69,5 +69,6 @@ jobs:
         if: matrix.node == '22' && matrix.workload == '1000'
         run: |
           echo "Benchmark run complete for Node ${{ matrix.node }} / workload ${{ matrix.workload }}"
-          echo "Download previous results from artifacts and compare using:"
-          echo "  jq -c '.[] | {name, mean, p95}' bench-results.json"
+          echo "JSON report written by Vitest 4 benchmark.outputJson."
+          echo "Inspect group means with:"
+          echo "  jq -c '.files[] | .groups[] | {title, min: ([.benchmarks[].min] | min)}' bench-results.json"
