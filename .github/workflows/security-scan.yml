@@ -33,11 +33,13 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
-      - name: npm audit
-        run: npm audit --audit-level=high
-        continue-on-error: true
+      - name: npm audit (production dependencies)
+        # High+ advisories in the production dependency tree fail the job.
+        # Dev/build tooling is not shipped in the Docker image, so it is
+        # omitted here and tracked via dependabot instead.
+        run: npm audit --audit-level=high --omit=dev
 
   secrets:
     name: Secret scanning
@@ -50,7 +52,8 @@ jobs:
           fetch-depth: 0
 
       - name: TruffleHog OSS
-        uses: trufflesecurity/trufflehog@v3
+        # Pinned to the v3.96.0 commit: trufflehog publishes no rolling `v3` tag.
+        uses: trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11
         with:
           extra_args: --results=verified,unknown --no-update
 
@@ -66,7 +69,9 @@ jobs:
         run: docker build --target=api -t dominus-api:scan .
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        # Pinned to a fixed commit (supply-chain hardening): never track a
+        # branch (`@master`) for third-party actions.
+        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8
         with:
           image-ref: dominus-api:scan
           format: sarif
