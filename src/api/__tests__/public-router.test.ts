@@ -1,11 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createPublicRouter } from '../public-router.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { renderScorePage, renderDomainPage, renderComparePage } from '../views/index.js';
+import { generateOgPng } from '../open-graph.js';
 import type { AnonScoringService } from '../../services/anon-scoring-service.js';
 import type { ScoreResult } from '../../types/score.js';
+
+beforeAll(async () => {
+  // Pre-warm the native sharp module: the first dynamic import inside
+  // generateOgPng can exceed the 5s default test timeout on a saturated
+  // CI runner, so it must not run inside a timed test.
+  await generateOgPng('warmup.example.com', {
+    domain: 'warmup.example.com',
+    expectedValue: 1,
+    confidence: 0.5,
+    weightedScore: 0.5,
+    recommended: false,
+    trademark: 'unverified',
+  });
+});
 
 function makeScoreResult(overrides: Partial<ScoreResult> = {}): ScoreResult {
   return {
