@@ -25,6 +25,10 @@ jobs:
 
       - run: npm ci
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Backend dependencies
         run: npm run license:check
 
