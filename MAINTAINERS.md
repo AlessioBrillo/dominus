@@ -4,6 +4,13 @@
 |------|------|------|
 | AlessioBrillo | Project lead, BDFL | Architecture, scoring engine, trademark gate, pipeline |
 
+## Contact
+
+- GitHub: [https://github.com/AlessioBrillo](https://github.com/AlessioBrillo)
+- Sponsors (commercial license inquiries): [https://github.com/sponsors/AlessioBrillo](https://github.com/sponsors/AlessioBrillo)
+- Private security / legal contact: GitHub Issues private report at
+  [https://github.com/AlessioBrillo/dominus/security](https://github.com/AlessioBrillo/dominus/security)
+
 ## Maintainer Expectations
 
 - Review PRs within 7 business days
