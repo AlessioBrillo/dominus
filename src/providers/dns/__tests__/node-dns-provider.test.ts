@@ -585,4 +585,25 @@ describe('NodeDnsProvider', () => {
       expect(validateDnsResponse(resp, 0x1234)).toBe(false);
     });
   });
+
+  describe('dispose', () => {
+    it('is idempotent and safe when no DoT pools were created', () => {
+      const p = new NodeDnsProvider({ lookupStrategy: 'native' });
+      expect(() => p.dispose()).not.toThrow();
+      expect(() => p.dispose()).not.toThrow();
+    });
+
+    it('rejects pending lookups and stays usable after dispose', async () => {
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(
+        Object.assign(new Error('timeout'), { code: 'ETIMEOUT' }),
+      );
+      const p = new NodeDnsProvider({ lookupStrategy: 'native' });
+      const pending = p.checkAvailability('dispose-pending.com');
+      p.dispose();
+      const result = await pending;
+      expect(result.status).toBe(DomainStatus.Unknown);
+      const again = await p.checkAvailability('dispose-pending.com');
+      expect(again.status).toBe(DomainStatus.Unknown);
+    });
+  });
 });

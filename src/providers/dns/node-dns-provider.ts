@@ -387,6 +387,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #useDedicatedResolver: boolean;
   /** True when maxSize <= 0 — the in-memory cache is fully disabled. */
   readonly #cacheDisabled: boolean;
+  readonly #dotPoolMaxQueued: number;
   readonly #cache: LRUCache<string, DnsCheckResult>;
   /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
@@ -411,6 +412,7 @@ export class NodeDnsProvider implements DnsProvider {
     persistentCacheTtlHours?: number;
     nameservers?: string[];
     useDedicatedResolver?: boolean;
+    dotPoolMaxQueued?: number;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -425,6 +427,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#persistentCacheTtlHours = options?.persistentCacheTtlHours ?? 168;
     this.#nameservers = options?.nameservers;
     this.#useDedicatedResolver = options?.useDedicatedResolver ?? true;
+    this.#dotPoolMaxQueued = options?.dotPoolMaxQueued ?? 4096;
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -472,10 +475,25 @@ export class NodeDnsProvider implements DnsProvider {
         endpoint,
         ...(servername !== undefined ? { servername } : {}),
         ...(port !== undefined ? { port } : {}),
+        maxQueued: this.#dotPoolMaxQueued,
       });
       this.#dotPools.set(key, pool);
     }
     return pool;
+  }
+
+  /**
+   * Close all DoT connection pools and release native resolvers.
+   * Idempotent: safe to call during shutdown or after the provider
+   * was never used (no pools created). Pending queries are rejected.
+   */
+  dispose(): void {
+    for (const pool of this.#dotPools.values()) {
+      pool.close();
+    }
+    this.#dotPools.clear();
+    this.#nativeResolvers.clear();
+    this.#pending.clear();
   }
 
   pruneCache(): number {

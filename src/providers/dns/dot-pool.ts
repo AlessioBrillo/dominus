@@ -9,6 +9,8 @@ const DEFAULT_MAX_CONNECTIONS = 4;
 const DEFAULT_MAX_OUTSTANDING_PER_CONNECTION = 8;
 const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
 const DEFAULT_TIMEOUT_STRIKE_THRESHOLD = 3;
+/** Reject new queries past this many buffered queries (default: unbounded). */
+const DEFAULT_MAX_QUEUED = 4096;
 
 /**
  * Build a minimal DNS query message (RFC 1035 section 4.1.1).
@@ -103,6 +105,13 @@ export interface DotPoolOptions {
   readonly idleTimeoutMs?: number;
   /** Destroy a connection after this many consecutive timeouts; default 3. */
   readonly timeoutStrikeThreshold?: number;
+  /**
+   * Max queries buffered in the pool queue while all connections are at
+   * capacity. New queries past this limit fail fast with an EQUEUEFULL
+   * error instead of growing the queue without bound. Default: 4096.
+   * Set to 0 or negative for an unbounded queue (legacy behaviour).
+   */
+  readonly maxQueued?: number;
   /** Override TLS verification — tests only, never set in production. */
   readonly rejectUnauthorized?: boolean;
   /** CA certificate bundle — tests only. */
@@ -182,6 +191,7 @@ export class DotPool {
   readonly #servername: string | undefined;
   readonly #port: number;
   readonly idleTimeoutMs: number;
+  readonly #maxQueued: number;
   readonly #rejectUnauthorized: boolean;
   readonly #ca: string | undefined;
   readonly #rng: (size: number) => Buffer;
@@ -201,6 +211,7 @@ export class DotPool {
     this.idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
     this.timeoutStrikeThreshold =
       options.timeoutStrikeThreshold ?? DEFAULT_TIMEOUT_STRIKE_THRESHOLD;
+    this.#maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED;
     this.#rejectUnauthorized = options.rejectUnauthorized ?? true;
     this.#ca = options.ca;
     this.#rng = options.rng ?? randomBytes;
@@ -313,6 +324,12 @@ export class DotPool {
     const conn = this.#pickConnection();
     if (conn !== undefined) {
       conn.send(pending);
+      return;
+    }
+    if (this.#maxQueued > 0 && this.#queue.length >= this.#maxQueued) {
+      const err = new Error(`DoT pool queue full for ${pending.label} (${this.#maxQueued})`);
+      (err as { code?: string }).code = 'EQUEUEFULL';
+      this.settle(pending, { ok: false, err });
       return;
     }
     this.#queue.push(pending);

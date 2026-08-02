@@ -97,6 +97,7 @@ import {
   buildRateLimiters,
   buildWaybackProvider,
 } from './provider-factory.js';
+import type { DnsProvider } from '../providers/dns/dns-provider.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
@@ -156,6 +157,7 @@ export interface DominusDependencies {
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
   whoisProvider: WhoisProvider;
+  dnsProvider: DnsProvider;
 
   currentWeights: ScoringWeights;
   engine: ScoringEngine;
@@ -878,6 +880,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     db,
     config,
     ...repos,
+    dnsProvider,
     keywordProvider: cachedKeywordProvider,
     compsProvider: cachedCompsProvider,
     whoisProvider,

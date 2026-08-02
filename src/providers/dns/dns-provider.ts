@@ -161,4 +161,10 @@ export interface DnsProvider {
   ): Promise<DnsCheckResult[]>;
   clearCache(): void;
   pruneCache(): number;
+  /**
+   * Release connection pools (DoT sockets) and other long-lived resources.
+   * Optional: implementations without pooled resources may omit it; callers
+   * must feature-detect before invoking.
+   */
+  dispose?(): void;
 }

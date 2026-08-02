@@ -61,6 +61,10 @@ async function main(): Promise<void> {
     if (deps.redisClient) {
       await deps.redisClient.shutdown();
     }
+    if (deps.dnsProvider && typeof deps.dnsProvider.dispose === 'function') {
+      deps.dnsProvider.dispose();
+      logger.info('Worker entrypoint: DNS provider disposed');
+    }
     shutdownComplete();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

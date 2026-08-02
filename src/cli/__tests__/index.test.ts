@@ -156,6 +156,7 @@ function mockConfig(): Config {
     DNS_CONSENSUS_ENABLED: false,
     DNS_CONSENSUS_STRATEGY: 'dot-only',
     DNS_USE_DEDICATED_RESOLVER: true,
+    DNS_DOT_POOL_MAX_QUEUED: 4096,
   };
 }
 
