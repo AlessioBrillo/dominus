@@ -97,6 +97,15 @@ export class CachedProvider<T> {
     private readonly serializer: CacheSerializer<T>,
     memoryCacheSize: number = 0,
     memoryCacheTtlSeconds: number = 300,
+    /**
+     * Optional result filter. When provided, results rejected by the
+     * predicate are NEVER written to the memory or DB caches, and cached
+     * rows (e.g. written by an older version) that fail the predicate are
+     * treated as cache misses so the live lookup runs again. Use it to keep
+     * transient/non-definitive results (Unknown, Error) out of the
+     * persistent cache.
+     */
+    private readonly shouldCache?: (result: T) => boolean,
   ) {
     this.#memoryCache =
       memoryCacheSize > 0 ? new MemoryCache<T>(memoryCacheSize, memoryCacheTtlSeconds) : null;
@@ -113,6 +122,7 @@ export class CachedProvider<T> {
     ttlDays: number,
     memoryCacheSize: number = 0,
     memoryCacheTtlSeconds: number = 300,
+    shouldCache?: (result: T) => boolean,
   ): CachedProvider<T> {
     return new CachedProvider<T>(
       fetchFn,
@@ -122,6 +132,7 @@ export class CachedProvider<T> {
       createJsonSerializer<T>(),
       memoryCacheSize,
       memoryCacheTtlSeconds,
+      shouldCache,
     );
   }
 
@@ -151,10 +162,15 @@ export class CachedProvider<T> {
     if (dbCached !== null) {
       try {
         const value = this.serializer.deserialize(dbCached);
-        if (this.#memoryCache !== null) {
-          this.#memoryCache.set(term, value);
+        // A persisted result that the predicate rejects (e.g. a transient
+        // Unknown written before the predicate existed) must not be served:
+        // fall through to a live lookup instead.
+        if (this.shouldCache === undefined || this.shouldCache(value)) {
+          if (this.#memoryCache !== null) {
+            this.#memoryCache.set(term, value);
+          }
+          return value;
         }
-        return value;
       } catch {
         // Corrupted cache row — fall through to live lookup
       }
@@ -166,6 +182,9 @@ export class CachedProvider<T> {
 
     const promise = this.fetchFn(term, signal)
       .then(async (result) => {
+        if (this.shouldCache !== undefined && !this.shouldCache(result)) {
+          return result;
+        }
         // Write to both caches in parallel (non-fatal)
         if (this.#memoryCache !== null) {
           try {
