@@ -212,6 +212,40 @@ describe.runIf(hasOpenSSL)('DotPool (RFC 7766 over real TLS)', () => {
     }
   });
 
+  it('treats a truncated response without answers as unknown, not NODATA', async () => {
+    // TC flag (0x0200) with ANCOUNT=0: the answer may have been cut off —
+    // this must never be interpreted as a definitive NODATA (which would
+    // imply availability upstream).
+    const ctx = await startServer((socket, query) => {
+      const response = buildResponse(query, { rcode: 0, ancount: 0 });
+      response.writeUInt16BE(0x8180 | 0x0200, 2);
+      socket.write(response);
+    });
+    const pool = makePool(ctx.port);
+    try {
+      await expect(pool.query('tc.com', 'A', 2000)).rejects.toMatchObject({ code: 'ETRUNCATED' });
+    } finally {
+      pool.close();
+      await ctx.close();
+    }
+  });
+
+  it('accepts a truncated response that still carries answers', async () => {
+    // TC with ANCOUNT>0 still proves the domain resolves.
+    const ctx = await startServer((socket, query) => {
+      const response = buildResponse(query, { rcode: 0, ancount: 1 });
+      response.writeUInt16BE(0x8180 | 0x0200, 2);
+      socket.write(response);
+    });
+    const pool = makePool(ctx.port);
+    try {
+      await expect(pool.query('tc-answers.com', 'A', 2000)).resolves.toBe(true);
+    } finally {
+      pool.close();
+      await ctx.close();
+    }
+  });
+
   it('keeps the connection usable after a caller abort', async () => {
     let delayed = true;
     const ctx = await startServer((socket, query) => {
