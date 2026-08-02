@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import type { AuthProvider, AuthResult } from './auth-provider.js';
 import { getLogger } from '../../logger.js';
@@ -82,12 +83,28 @@ export class EnvApiKeyProvider implements AuthProvider {
     if (!this.active) {
       return { authenticated: false };
     }
-    const keyName = this.keys.get(apiKey);
-    if (keyName !== undefined) {
-      return { authenticated: true, keyName, tenantId: 'default' };
+    // Timing-safe comparison: every stored key is hashed (SHA-256) and
+    // compared with timingSafeEqual, iterating over ALL keys regardless
+    // of whether a match is found. A plain Map lookup would leak the
+    // comparison result through timing and is vulnerable to prefix-based
+    // key probing; hashing first normalizes variable-length keys, which
+    // timingSafeEqual cannot compare directly.
+    const provided = sha256(apiKey);
+    let matchedName: string | undefined;
+    for (const [storedKey, name] of this.keys) {
+      if (matchedName === undefined && timingSafeEqual(provided, sha256(storedKey))) {
+        matchedName = name;
+      }
+    }
+    if (matchedName !== undefined) {
+      return { authenticated: true, keyName: matchedName, tenantId: 'default' };
     }
     return { authenticated: false };
   }
+}
+
+function sha256(value: string): Buffer {
+  return createHash('sha256').update(value).digest();
 }
 
 function checkFilePermissions(filePath: string): void {

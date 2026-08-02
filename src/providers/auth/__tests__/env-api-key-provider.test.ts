@@ -182,5 +182,35 @@ describe('EnvApiKeyProvider', () => {
       const twoResult = await provider.validate('sk-two');
       expect(twoResult.authenticated).toBe(true);
     });
+
+    it('accepts very long keys (variable-length inputs)', async () => {
+      const longKey = `sk-${'a'.repeat(512)}`;
+      const provider = new EnvApiKeyProvider(longKey);
+      const result = await provider.validate(longKey);
+      expect(result.authenticated).toBe(true);
+    });
+
+    it('rejects a key that is a prefix of a stored key', async () => {
+      const provider = new EnvApiKeyProvider('sk-secret-key-123');
+      const result = await provider.validate('sk-secret');
+      expect(result.authenticated).toBe(false);
+    });
+
+    it('rejects a key that differs only in a later segment', async () => {
+      const provider = new EnvApiKeyProvider('sk-shared-prefix-abc');
+      const result = await provider.validate('sk-shared-prefix-xyz');
+      expect(result.authenticated).toBe(false);
+    });
+
+    it('matches exactly one key when several share a prefix', async () => {
+      const provider = new EnvApiKeyProvider('admin=sk-shared-111,other=sk-shared-222');
+      const first = await provider.validate('sk-shared-111');
+      expect(first.authenticated).toBe(true);
+      expect(first.keyName).toBe('admin');
+
+      const second = await provider.validate('sk-shared-222');
+      expect(second.authenticated).toBe(true);
+      expect(second.keyName).toBe('other');
+    });
   });
 });
