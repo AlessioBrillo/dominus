@@ -1,9 +1,62 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { FailoverRdapProvider } from '../failover-rdap-provider.js';
+import { IanaRdapBootstrap } from '../rdap-bootstrap.js';
 import type { RdapProvider } from '../rdap-provider.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import { ProviderError } from '../../../types/errors.js';
+
+// Counts confirm() calls on the bootstrap-derived authoritative servers.
+// Shared via vi.hoisted so the vi.mock factories below can access it.
+const { authCallCounter } = vi.hoisted(() => ({ authCallCounter: { count: 0 } }));
+
+// Mock the IANA bootstrap: every TLD resolves to one authoritative server
+// plus the rdap.org universal fallback (no network in unit tests).
+vi.mock('../rdap-bootstrap.js', () => {
+  const RDAP_ORG_UNIVERSAL = { name: 'rdap.org', baseUrl: 'https://rdap.org/', tlds: [] };
+  return {
+    IANA_RDAP_BOOTSTRAP_URL: 'https://data.iana.org/rdap/dns.json',
+    RDAP_ORG_UNIVERSAL,
+    IanaRdapBootstrap: class {
+      async getServers(tld: string): Promise<unknown[]> {
+        // One shared authoritative server (like rdap.verisign.com serving
+        // .com and .net) plus the rdap.org universal fallback.
+        return [
+          { name: 'registry.example', baseUrl: 'https://registry.example/domain/', tlds: [tld] },
+          RDAP_ORG_UNIVERSAL,
+        ];
+      }
+    },
+  };
+});
+
+// Mock the public RDAP client: rdap.org answers Registered, every other
+// server fails — letting tests exercise the per-server circuit breaker on
+// bootstrap-derived providers.
+vi.mock('../public-rdap-provider.js', async () => {
+  const { DomainStatus } = await import('../../../types/domain-status.js');
+  return {
+    PublicRdapProvider: class {
+      readonly name: string;
+      constructor(_url: string, name: string) {
+        this.name = name;
+      }
+      async confirm(domain: string): Promise<unknown> {
+        authCallCounter.count++;
+        if (this.name === 'rdap.org') {
+          return {
+            domain,
+            status: DomainStatus.Registered,
+            isPremium: false,
+            checkedAt: new Date().toISOString(),
+          };
+        }
+        throw new Error(`${this.name} failure`);
+      }
+      clearCache(): void {}
+    },
+  };
+});
 
 function makeProvider(name: string, result: unknown, delayMs = 10): RdapProvider {
   return {
@@ -317,6 +370,58 @@ describe('FailoverRdapProvider', () => {
       const result = await provider.confirm('example.com');
       expect(result.status).toBe(DomainStatus.Registered);
       expect(failer.confirm).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('per-TLD bootstrap servers', () => {
+    it('registers a circuit breaker for bootstrap-derived servers', async () => {
+      const universal = makeHealthyProvider('rdap.org', 10);
+      const provider = new FailoverRdapProvider(
+        [universal],
+        undefined,
+        { failureThreshold: 1, windowMs: 60_000, cooldownMs: 120_000 },
+        new IanaRdapBootstrap(),
+      );
+
+      // Phase 1: authoritative-xyz fails once (breaker opens), the
+      // universal fallback answers Registered.
+      const result1 = await provider.confirm('example.xyz');
+      expect(result1.status).toBe(DomainStatus.Registered);
+      expect(authCallCounter.count).toBe(1);
+
+      provider.clearCache();
+      vi.clearAllMocks();
+      authCallCounter.count = 0;
+
+      // Phase 2: the authoritative server's circuit is open — it must be
+      // skipped entirely, only the universal fallback is queried.
+      const result2 = await provider.confirm('example.xyz');
+      expect(result2.status).toBe(DomainStatus.Registered);
+      expect(authCallCounter.count).toBe(0);
+      expect(universal.confirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('shares one breaker across TLDs served by the same server', async () => {
+      const universal = makeHealthyProvider('rdap.org', 10);
+      const provider = new FailoverRdapProvider(
+        [universal],
+        undefined,
+        { failureThreshold: 1, windowMs: 60_000, cooldownMs: 120_000 },
+        new IanaRdapBootstrap(),
+      );
+
+      // One failure for .xyz opens the shared breaker (keyed by server
+      // name) — .net must now skip the authoritative server too.
+      await provider.confirm('example.xyz');
+      expect(authCallCounter.count).toBe(1);
+
+      provider.clearCache();
+      vi.clearAllMocks();
+      authCallCounter.count = 0;
+
+      const result = await provider.confirm('example.net');
+      expect(result.status).toBe(DomainStatus.Registered);
+      expect(authCallCounter.count).toBe(0);
     });
   });
 });

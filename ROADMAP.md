@@ -67,7 +67,7 @@ estimates and subject to change.
 - [x] Tests: dan-listing-provider (0% → 85%+), auto-listing-service (0% → 90%+)
 - [x] Tests: listings route (0% → 18 tests covering all CRUD + offers)
 - [x] Pagination: Dan sync + Cloudflare listDomains
-- [ ] Load testing and performance benchmarking (see `npm run bench`)
+- [x] Load testing and performance benchmarking (see `npm run bench`; live-network benches against real resolvers/registries: `DNS_LIVE=1 npm run bench`)
 - [ ] Security audit (dependency scan, CSP review, auth hardening)
 - [ ] CI matrix testing (Node 20 + 22, ubuntu + windows)
 - [ ] Frontend coverage thresholds raised to ≥50%

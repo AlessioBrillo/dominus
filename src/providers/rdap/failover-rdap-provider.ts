@@ -43,6 +43,7 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly #providers: RdapProvider[];
   readonly #sharedRateLimiter: RateLimiterLike;
   readonly #perServerBreakers: Map<string, ICircuitBreaker>;
+  readonly #perServerCircuitBreakerPolicy: Partial<CircuitBreakerPolicy> | undefined;
   readonly #bootstrap: IanaRdapBootstrap | undefined;
   readonly #perTldProviders = new Map<string, RdapProvider[]>();
 
@@ -52,6 +53,10 @@ export class FailoverRdapProvider implements RdapProvider {
   // across runs (cache is also cleared at run start via orchestrator hook).
   readonly #intraRunCache = new Map<string, { result: RdapResult; expiresAt: number }>();
   static readonly #INTRARUN_CACHE_TTL_MS = 60_000;
+  // Defensive bounds on top of TTL/clearCache: FIFO eviction (Map preserves
+  // insertion order) keeps both maps bounded even if a run scans many TLDs.
+  static readonly #MAX_PER_TLD_PROVIDERS = 512;
+  static readonly #MAX_INTRARUN_CACHE_ENTRIES = 100_000;
 
   constructor(
     providers?: RdapProvider[],
@@ -62,6 +67,7 @@ export class FailoverRdapProvider implements RdapProvider {
     this.#providers = providers ?? [];
     this.#sharedRateLimiter = sharedRateLimiter ?? RateLimiter.unlimited();
     this.#bootstrap = bootstrap;
+    this.#perServerCircuitBreakerPolicy = perServerCircuitBreakerPolicy;
     this.name =
       this.#providers.length > 0
         ? `FailoverRdapProvider(${this.#providers.map((s) => s.name).join(',')})`
@@ -200,10 +206,7 @@ export class FailoverRdapProvider implements RdapProvider {
         // order wins. Unknown (out-of-zone, rate-limit, server error)
         // never wins the race — it is remembered as the fallback.
         if (result.status !== DomainStatus.Unknown) {
-          this.#intraRunCache.set(domain, {
-            result,
-            expiresAt: now + FailoverRdapProvider.#INTRARUN_CACHE_TTL_MS,
-          });
+          this.#setIntraRunCache(domain, result, now + FailoverRdapProvider.#INTRARUN_CACHE_TTL_MS);
           return result;
         }
         unknownResult ??= result;
@@ -217,10 +220,11 @@ export class FailoverRdapProvider implements RdapProvider {
     // No definitive answer: prefer a degraded Unknown over an error —
     // conservative (never fabricate availability) and informative.
     if (unknownResult !== undefined) {
-      this.#intraRunCache.set(domain, {
-        result: unknownResult,
-        expiresAt: now + FailoverRdapProvider.#INTRARUN_CACHE_TTL_MS,
-      });
+      this.#setIntraRunCache(
+        domain,
+        unknownResult,
+        now + FailoverRdapProvider.#INTRARUN_CACHE_TTL_MS,
+      );
       return unknownResult;
     }
 
@@ -247,6 +251,21 @@ export class FailoverRdapProvider implements RdapProvider {
     for (const server of servers) {
       if (seen.has(server.name)) continue;
       seen.add(server.name);
+      // Register a per-server circuit breaker for bootstrap-derived
+      // servers: they are created lazily per TLD and otherwise bypass
+      // the breaker map, so a degraded registry would be hit on every
+      // query without isolation or failure accounting. Keyed by server
+      // name so servers shared across TLDs (e.g. rdap.verisign.com for
+      // .com/.net) share one breaker.
+      if (!this.#perServerBreakers.has(server.name)) {
+        this.#perServerBreakers.set(
+          server.name,
+          new CircuitBreaker({
+            ...RDAP_PER_SERVER_CIRCUIT_BREAKER,
+            ...this.#perServerCircuitBreakerPolicy,
+          }),
+        );
+      }
       providers.push(
         new PublicRdapProvider(
           server.baseUrl,
@@ -257,7 +276,22 @@ export class FailoverRdapProvider implements RdapProvider {
         ),
       );
     }
+    // FIFO eviction: drop the oldest TLD entry when the cache grows past
+    // its cap, keeping long-running processes bounded.
+    if (this.#perTldProviders.size >= FailoverRdapProvider.#MAX_PER_TLD_PROVIDERS) {
+      const oldest = this.#perTldProviders.keys().next().value;
+      if (oldest !== undefined) this.#perTldProviders.delete(oldest);
+    }
     this.#perTldProviders.set(tld, providers);
     return providers;
+  }
+
+  /** Set an intra-run cache entry with FIFO eviction past the cap. */
+  #setIntraRunCache(domain: string, result: RdapResult, expiresAt: number): void {
+    if (this.#intraRunCache.size >= FailoverRdapProvider.#MAX_INTRARUN_CACHE_ENTRIES) {
+      const oldest = this.#intraRunCache.keys().next().value;
+      if (oldest !== undefined) this.#intraRunCache.delete(oldest);
+    }
+    this.#intraRunCache.set(domain, { result, expiresAt });
   }
 }

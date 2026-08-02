@@ -46,3 +46,7 @@ coverage-check/
 dominus-business-plan.md
 dominus-conversion-features-spec.md
 *.paper.md
+
+# Vitest benchmark output
+bench-results.json
+

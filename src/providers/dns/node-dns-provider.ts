@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { randomBytes } from 'node:crypto';
-import { connect as tlsConnect, type ConnectionOptions } from 'node:tls';
 import { promises as dnsPromises, Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from './dns-provider.js';
 import { strategyToResolverGroups } from './dns-provider.js';
+import { DotPool } from './dot-pool.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { withRetry } from '../retryable-provider.js';
 import type { RetryPolicy } from '../retry-policy.js';
@@ -14,15 +13,11 @@ import type { ProviderCacheRepository } from '../../db/repositories/provider-cac
 import { getLogger } from '../../logger.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
 
+export { buildDnsQuery, validateDnsResponse } from './dot-pool.js';
+
 const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
-
-function createResolver(nameservers: string[]): Resolver {
-  const r = new Resolver();
-  r.setServers(nameservers);
-  return r;
-}
 
 export type DnsLookupStrategy =
   | 'native'
@@ -162,201 +157,6 @@ async function resolveDoh(
   return true;
 }
 
-/**
- * DNS-over-TLS resolver using raw TCP+TLS sockets.
- * Implements RFC 7858 — sends wire-format DNS queries over a TLS connection.
- */
-function resolveDot(
-  domain: string,
-  recordType: string,
-  endpoint: string,
-  timeoutMs: number,
-  servername?: string,
-  port?: number,
-  signal?: AbortSignal,
-): Promise<boolean> {
-  return new Promise<boolean>((resolve, reject) => {
-    const destPort = port ?? 853;
-
-    const dnsQuery = buildDnsQuery(domain, recordTypeToQtype(recordType));
-    const queryId = dnsQuery.readUInt16BE(0);
-
-    const tlsOpts: ConnectionOptions = {
-      host: endpoint,
-      port: destPort,
-      servername: servername ?? endpoint,
-      rejectUnauthorized: true,
-    };
-
-    const tlsSocket = tlsConnect(tlsOpts);
-
-    const cleanup = (): void => {
-      tlsSocket.destroy();
-      if (abortHandler !== undefined && signal !== undefined) {
-        signal.removeEventListener('abort', abortHandler);
-      }
-    };
-
-    const abortHandler = (): void => {
-      tlsSocket.destroy();
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
-    if (signal !== undefined) {
-      signal.addEventListener('abort', abortHandler, { once: true });
-    }
-
-    const timer = setTimeout(() => {
-      tlsSocket.destroy();
-      const err = new Error(`DoT lookup timed out for ${domain}`);
-      (err as { code?: string }).code = 'ETIMEOUT';
-      reject(err);
-    }, timeoutMs);
-
-    tlsSocket.on('connect', () => {
-      // Send the length-prefixed DNS query
-      const lengthPrefixed = Buffer.alloc(2 + dnsQuery.length);
-      lengthPrefixed.writeUInt16BE(dnsQuery.length, 0);
-      dnsQuery.copy(lengthPrefixed, 2);
-      tlsSocket.write(lengthPrefixed);
-    });
-
-    tlsSocket.on('data', (data: Buffer) => {
-      clearTimeout(timer);
-      cleanup();
-      if (!validateDnsResponse(data, queryId)) {
-        const err = new Error('DoT: query ID mismatch — possible spoofing');
-        reject(err);
-        return;
-      }
-      // Response has 2-byte length prefix, then DNS response
-      // We check the DNS response header flags: bit 15 (QR) should be 1 (response),
-      // and the RCODE in the last 4 bits of byte 3
-      if (data.length < 4) {
-        reject(new Error('DoT: response too short'));
-        return;
-      }
-      const flags = data.readUInt16BE(2);
-      const rcode = flags & 0x0f;
-
-      if (rcode === 3) {
-        // NXDOMAIN
-        const err = Object.assign(new Error('DoT NXDOMAIN'), { code: 'ENOTFOUND' });
-        reject(err);
-        return;
-      }
-
-      if (rcode !== 0) {
-        // Other error
-        const err = Object.assign(new Error(`DoT RCODE ${rcode}`), { code: 'ESERVFAIL' });
-        reject(err);
-        return;
-      }
-
-      // Count answer records: DNS header bytes 6-7 (ANCOUNT)
-      const ancount = data.readUInt16BE(6);
-      if (ancount === 0) {
-        const err = Object.assign(new Error('DoT NODATA'), { code: 'ENODATA' });
-        reject(err);
-        return;
-      }
-
-      resolve(true);
-    });
-
-    tlsSocket.on('error', (err: Error) => {
-      clearTimeout(timer);
-      cleanup();
-      reject(err);
-    });
-
-    tlsSocket.on('close', () => {
-      clearTimeout(timer);
-      cleanup();
-    });
-  });
-}
-
-/**
- * Build a minimal DNS query message (RFC 1035 section 4.1.1).
- * Uses a random 16-bit query ID per request to prevent DNS spoofing.
- */
-export function buildDnsQuery(domain: string, qtype: number): Buffer {
-  const header = Buffer.alloc(12);
-  // ID: random 16-bit — prevents response-spoofing by on-path attackers
-  header.writeUInt16BE(randomBytes(2).readUInt16BE(0), 0);
-  // Flags: standard query with recursion desired (0x0100)
-  header.writeUInt16BE(0x0100, 2);
-  // QDCOUNT: 1 question
-  header.writeUInt16BE(1, 4);
-  // ANCOUNT, NSCOUNT, ARCOUNT: 0
-  header.writeUInt16BE(0, 6);
-  header.writeUInt16BE(0, 8);
-  header.writeUInt16BE(0, 10);
-
-  const qname = encodeDnsName(domain);
-  const question = Buffer.alloc(qname.length + 4);
-  qname.copy(question, 0);
-  question.writeUInt16BE(qtype, qname.length);
-  // QCLASS: IN (1)
-  question.writeUInt16BE(1, qname.length + 2);
-
-  return Buffer.concat([header, question]);
-}
-
-function encodeDnsName(name: string): Buffer {
-  const parts = name.split('.');
-  const buffers: Buffer[] = [];
-  for (const part of parts) {
-    const buf = Buffer.from(part, 'ascii');
-    const len = Buffer.alloc(1);
-    len[0] = buf.length;
-    buffers.push(len, buf);
-  }
-  buffers.push(Buffer.from([0x00]));
-  return Buffer.concat(buffers);
-}
-
-/**
- * Validate that a DNS response header matches the expected query ID.
- * RFC 1035 section 4.1.1: bytes 0-1 contain the query ID which must
- * match the request ID to prevent response-spoofing and cross-query
- * confusion in concurrent TLS connections.
- */
-export function validateDnsResponse(response: Buffer, expectedId: number): boolean {
-  if (response.length < 12) return false;
-  const responseId = response.readUInt16BE(0);
-  return responseId === expectedId;
-}
-
-function recordTypeToQtype(type: string): number {
-  switch (type) {
-    case 'A':
-      return 1;
-    case 'AAAA':
-      return 28;
-    case 'CNAME':
-      return 5;
-    case 'MX':
-      return 15;
-    case 'NS':
-      return 2;
-    case 'SOA':
-      return 6;
-    default:
-      return 1;
-  }
-}
-
-/**
- * Two-phase DNS resolution for optimal performance:
- * Phase 1 — A record only (covers ~95% of registered domains with 1 query)
- * Phase 2 — NS + SOA in parallel as fallback (catches domains without A records)
- *
- * Previously queried 6 record types in parallel on every domain, which was
- * wasteful for both available domains (all 6 had to fail before declaring
- * availability) and registered domains (5 redundant queries after first win).
- * The sequential priority approach reduces queries by ~60-80%.
- */
 async function resolvesAnyNative(
   domain: string,
   timeout: number,
@@ -500,14 +300,13 @@ async function resolvesAnyDoh(
  */
 async function resolvesAnyDot(
   domain: string,
-  endpoint: string,
+  pool: DotPool,
   timeout: number,
-  servername?: string,
-  port?: number,
   signal?: AbortSignal,
 ): Promise<boolean | undefined> {
   // Phase 1: A record only
-  const aOutcome = await resolveDot(domain, 'A', endpoint, timeout, servername, port, signal)
+  const aOutcome = await pool
+    .query(domain, 'A', timeout, signal)
     .then(() => true as const)
     .catch((err: unknown) => {
       const e = err as { code?: string; name?: string };
@@ -528,7 +327,8 @@ async function resolvesAnyDot(
     fallbackTypes.map((type) => {
       const typeTimeout = AbortSignal.timeout(timeout);
       const merged = AbortSignal.any([fallbackSignal, typeTimeout]);
-      return resolveDot(domain, type, endpoint, timeout, servername, port, merged)
+      return pool
+        .query(domain, type, timeout, merged)
         .then(() => {
           fallbackAc.abort();
           return {
@@ -581,6 +381,10 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #cache: LRUCache<string, DnsCheckResult>;
   /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
+  /** RFC 7766 DoT connection pools, keyed by endpoint|servername|port. */
+  readonly #dotPools: Map<string, DotPool> = new Map();
+  /** Native resolvers cached per nameserver set — reused across lookups. */
+  readonly #nativeResolvers: Map<string, Resolver> = new Map();
 
   constructor(options?: {
     lookupTimeoutMs?: number;
@@ -630,9 +434,34 @@ export class NodeDnsProvider implements DnsProvider {
     if (!this.#useDedicatedResolver) return undefined;
     const hasCustomServers = this.#nameservers !== undefined && this.#nameservers.length > 0;
     if (!hasCustomServers) return undefined;
-    const resolver = new Resolver();
-    resolver.setServers(this.#nameservers!);
+    return this.#cachedResolver(this.#nameservers!);
+  }
+
+  /** Get (or create) a Resolver for a nameserver set, cached per set. */
+  #cachedResolver(nameservers: string[]): Resolver {
+    const key = nameservers.join(',');
+    let resolver = this.#nativeResolvers.get(key);
+    if (resolver === undefined) {
+      resolver = new Resolver();
+      resolver.setServers(nameservers);
+      this.#nativeResolvers.set(key, resolver);
+    }
     return resolver;
+  }
+
+  /** Get (or create) the shared DoT connection pool for an endpoint. */
+  #getDotPool(endpoint: string, servername?: string, port?: number): DotPool {
+    const key = `${endpoint}|${servername ?? ''}|${port ?? 853}`;
+    let pool = this.#dotPools.get(key);
+    if (pool === undefined) {
+      pool = new DotPool({
+        endpoint,
+        ...(servername !== undefined ? { servername } : {}),
+        ...(port !== undefined ? { port } : {}),
+      });
+      this.#dotPools.set(key, pool);
+    }
+    return pool;
   }
 
   pruneCache(): number {
@@ -781,23 +610,19 @@ export class NodeDnsProvider implements DnsProvider {
 
     const timeout = this.#lookupTimeoutMs;
 
-    const nativeResolver = this.#getResolver();
-
     const tasks = group.lookups.map((spec) => {
       if (spec.type === 'native') {
         const groupResolver =
-          nativeResolver !== undefined && spec.nameservers !== undefined
-            ? createResolver(spec.nameservers)
-            : nativeResolver;
+          spec.nameservers !== undefined
+            ? this.#cachedResolver(spec.nameservers)
+            : this.#getResolver();
         return resolvesAnyNative(domain, timeout, combinedSignal, groupResolver);
       }
       if (spec.type === 'dot') {
         return resolvesAnyDot(
           domain,
-          spec.endpoint ?? this.#dohEndpoint,
+          this.#getDotPool(spec.endpoint ?? this.#dohEndpoint, spec.servername, spec.port),
           timeout,
-          spec.servername,
-          spec.port,
           combinedSignal,
         );
       }
