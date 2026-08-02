@@ -15,6 +15,12 @@ import { extractTld } from '../../utils/domain.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
+/** A custom RDAP bootstrap server: a plain URL (universal scope) or a URL
+ * with an explicit per-TLD scope (RFC 7484 §4.2). A server with `tlds` is
+ * only authoritative for those TLDs — a 404 on any other TLD is Unknown,
+ * never "available". */
+export type RdapBootstrapUrlEntry = { url: string; tlds?: readonly string[] };
+
 /**
  * FailoverRdapProvider — parallel RDAP resolution with race-based failover
  * and per-server circuit breakers.
@@ -93,21 +99,26 @@ export class FailoverRdapProvider implements RdapProvider {
 
   /**
    * Create from custom URLs, sharing a single rate limiter across all
-   * servers. Custom URLs are treated as universal (authoritative for all
-   * TLDs) — the operator takes responsibility for their scope.
+   * servers. Entries are either plain URL strings (treated as universal —
+   * authoritative for all TLDs, operator takes responsibility for their
+   * scope) or `{url, tlds}` objects scoping the server to specific TLDs.
+   * Scoped servers never report "Available" for out-of-scope TLDs.
    */
   static fromConfig(
-    urls: string[],
+    urls: Array<string | RdapBootstrapUrlEntry>,
     rateLimiter?: RateLimiterLike,
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
   ): FailoverRdapProvider {
-    const providers = urls.map((url, i) => {
+    const providers = urls.map((entry, i) => {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      const tlds = typeof entry === 'string' ? undefined : entry.tlds;
       const name = `rdap-server-${i + 1}`;
       return new PublicRdapProvider(
         url,
         name,
         rateLimiter ?? RateLimiter.unlimited(),
         DEFAULT_RDAP_TIMEOUT_MS,
+        tlds,
       );
     });
     return new FailoverRdapProvider(providers, rateLimiter, perServerCircuitBreakerPolicy);

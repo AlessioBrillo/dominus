@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
-import { buildDnsConsensusConfig } from '../provider-factory.js';
+import { buildDnsConsensusConfig, parseRdapBootstrapUrls } from '../provider-factory.js';
+import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
@@ -171,5 +172,65 @@ describe('buildDnsConsensusConfig', () => {
     expect(result).toBeDefined();
     expect(result?.secondaryProvider).toBeDefined();
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+  });
+});
+
+describe('parseRdapBootstrapUrls', () => {
+  it('parses a JSON array of plain URL strings', () => {
+    expect(
+      parseRdapBootstrapUrls(
+        '["https://rdap.org/domain/","https://rdap.verisign.com/com/domain/"]',
+      ),
+    ).toEqual([
+      { url: 'https://rdap.org/domain/' },
+      { url: 'https://rdap.verisign.com/com/domain/' },
+    ]);
+  });
+
+  it('parses scoped {url, tlds} entries', () => {
+    expect(
+      parseRdapBootstrapUrls(
+        '[{"url":"https://rdap.verisign.com/com/domain/","tlds":["com","net"]}]',
+      ),
+    ).toEqual([{ url: 'https://rdap.verisign.com/com/domain/', tlds: ['com', 'net'] }]);
+  });
+
+  it('supports a mix of strings and scoped entries', () => {
+    expect(
+      parseRdapBootstrapUrls(
+        '["https://rdap.org/domain/",{"url":"https://rdap.nic.io/domain/","tlds":["io"]}]',
+      ),
+    ).toEqual([
+      { url: 'https://rdap.org/domain/' },
+      { url: 'https://rdap.nic.io/domain/', tlds: ['io'] },
+    ]);
+  });
+
+  it('drops empty tlds arrays back to a universal entry', () => {
+    expect(parseRdapBootstrapUrls('[{"url":"https://rdap.org/domain/","tlds":[]}]')).toEqual([
+      { url: 'https://rdap.org/domain/' },
+    ]);
+  });
+
+  it('returns an empty list for undefined or invalid JSON', () => {
+    expect(parseRdapBootstrapUrls(undefined)).toEqual([]);
+    expect(parseRdapBootstrapUrls('not json')).toEqual([]);
+    expect(parseRdapBootstrapUrls('{"url":"https://rdap.org/domain/"}')).toEqual([]);
+  });
+});
+
+describe('validateConsensusStrategyDisjointness', () => {
+  it('accepts disjoint strategies', () => {
+    expect(validateConsensusStrategyDisjointness(true, 'doh-primary', 'dot-only')).toBe(true);
+  });
+
+  it('rejects identical strategies when consensus is enabled', () => {
+    // A secondary resolver using the same resolvers provides no independent
+    // opinion — the 2-of-3 consensus would be a rubber stamp.
+    expect(validateConsensusStrategyDisjointness(true, 'dot-only', 'dot-only')).toBe(false);
+  });
+
+  it('ignores the check when consensus is disabled', () => {
+    expect(validateConsensusStrategyDisjointness(false, 'dot-only', 'dot-only')).toBe(true);
   });
 });

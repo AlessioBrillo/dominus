@@ -346,6 +346,59 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('conservative resolver-group decisions', () => {
+    function makeMixedGroupProvider(): NodeDnsProvider {
+      return new NodeDnsProvider({
+        cacheTtlMs: 60_000,
+        resolverGroups: [
+          {
+            name: 'mixed',
+            lookups: [
+              { type: 'native' },
+              { type: 'doh', endpoint: 'https://dns.google/dns-query' },
+            ],
+          },
+        ],
+      });
+    }
+
+    it('treats a group with one NXDOMAIN and one failed lookup as Unknown (not Available)', async () => {
+      // Regression: the group returned false (single NXDOMAIN) whenever any
+      // lookup was definitive, letting a resolver that timed out be
+      // outvoted — a false "Available" on a domain another resolver could
+      // not confirm. Unknown must win over NXDOMAIN (ADR-0002 conservatism).
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+
+      const p = makeMixedGroupProvider();
+      const result = await p.checkAvailability('mixed-opinion.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+
+    it('keeps Available when every lookup in the group agrees on NXDOMAIN', async () => {
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ Status: 3 }),
+      } as Response);
+
+      const p = makeMixedGroupProvider();
+      const result = await p.checkAvailability('all-agree-free.com');
+      expect(result.status).toBe(DomainStatus.Available);
+    });
+
+    it('keeps Registered when one lookup resolves and another fails', async () => {
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
+
+      const p = makeMixedGroupProvider();
+      const result = await p.checkAvailability('some-resolve.com');
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+  });
+
   describe('buildDnsQuery', () => {
     it('produces different query IDs on successive calls', () => {
       const q1 = buildDnsQuery('example.com', 1);
@@ -354,6 +407,16 @@ describe('NodeDnsProvider', () => {
       const id2 = q2.readUInt16BE(0);
       // Probability of collision: 1/65536 per pair — acceptable false-fail rate
       expect(id1).not.toBe(id2);
+    });
+
+    it('uses the injected RNG for the query ID', () => {
+      const rng = (size: number): Buffer => {
+        const b = Buffer.alloc(size);
+        b.writeUInt16BE(0xabcd, 0);
+        return b;
+      };
+      const q = buildDnsQuery('example.com', 1, rng);
+      expect(q.readUInt16BE(0)).toBe(0xabcd);
     });
   });
 

@@ -15,10 +15,13 @@ import {
   type DnsProvider,
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
-import { validateResolverGroups } from '../providers/dns/resolver-validator.js';
+import {
+  validateConsensusStrategyDisjointness,
+  validateResolverGroups,
+} from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { RedisRateLimiter, type RedisClient } from '../providers/redis/index.js';
-import { FailoverRdapProvider } from '../providers/rdap/index.js';
+import { FailoverRdapProvider, type RdapBootstrapUrlEntry } from '../providers/rdap/index.js';
 import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { RdapResult } from '../types/domain-status.js';
@@ -99,19 +102,48 @@ export interface BuiltRdapProviders {
   cached: RdapProvider;
 }
 
+/**
+ * Parse the RDAP_BOOTSTRAP_URLS env value into a list of entries. Each entry
+ * is either a plain URL string (universal scope) or a {url, tlds} object
+ * scoping the server to specific TLDs. Invalid JSON silently degrades to an
+ * empty list (defaults take over).
+ */
+export function parseRdapBootstrapUrls(raw: string | undefined): RdapBootstrapUrlEntry[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const entries: RdapBootstrapUrlEntry[] = [];
+    for (const item of parsed) {
+      if (typeof item === 'string') {
+        entries.push({ url: item });
+      } else if (typeof item === 'object' && item !== null) {
+        const candidate = item as { url?: unknown; tlds?: unknown };
+        if (typeof candidate.url !== 'string') return [];
+        const tlds = Array.isArray(candidate.tlds)
+          ? candidate.tlds.filter((t): t is string => typeof t === 'string')
+          : undefined;
+        if (tlds === undefined || tlds.length === 0) {
+          entries.push({ url: candidate.url });
+        } else {
+          entries.push({ url: candidate.url, tlds });
+        }
+      } else {
+        return [];
+      }
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
 export function buildRdapProviders(
   config: Config,
   rdapRateLimiter: RateLimiterLike,
   providerCacheRepo: ProviderCacheRepository,
 ): BuiltRdapProviders {
-  const rdapBootstrapUrls: string[] = ((): string[] => {
-    if (!config.RDAP_BOOTSTRAP_URLS) return [];
-    try {
-      return JSON.parse(config.RDAP_BOOTSTRAP_URLS) as string[];
-    } catch {
-      return [];
-    }
-  })();
+  const rdapBootstrapUrls = parseRdapBootstrapUrls(config.RDAP_BOOTSTRAP_URLS);
 
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
@@ -226,6 +258,15 @@ export function buildDnsConsensusConfig(
   rateLimiter?: RateLimiterLike,
 ): ConsensusDnsConfig | undefined {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
+  if (
+    !validateConsensusStrategyDisjointness(
+      config.DNS_CONSENSUS_ENABLED,
+      config.DNS_LOOKUP_STRATEGY,
+      config.DNS_CONSENSUS_STRATEGY,
+    )
+  ) {
+    return undefined;
+  }
   return { secondaryProvider: buildSecondaryDnsProvider(config, rateLimiter) };
 }
 

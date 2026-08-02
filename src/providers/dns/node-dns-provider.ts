@@ -640,31 +640,19 @@ export class NodeDnsProvider implements DnsProvider {
 
     childAbort.abort();
 
-    let anyDefinitive = false;
+    // A lookup that produced no opinion (timeout, network error, or a
+    // rejected task) must not be outvoted by a definitive NXDOMAIN from
+    // another resolver in the group. One resolver's failure to confirm
+    // availability means the domain must not be reported Available —
+    // unknown wins over available (ADR-0002 conservatism).
     for (const o of outcomes) {
-      if (o.status === 'fulfilled' && o.value !== undefined) {
-        anyDefinitive = true;
-      }
-    }
-
-    if (anyDefinitive) return false;
-
-    let anyRejected = false;
-    for (const o of outcomes) {
-      if (o.status === 'rejected') {
-        anyRejected = true;
-        break;
-      }
-    }
-
-    if (anyRejected) return undefined;
-
-    for (const o of outcomes) {
-      if (o.status === 'fulfilled' && o.value === undefined) {
+      if (o.status === 'rejected' || (o.status === 'fulfilled' && o.value === undefined)) {
         return undefined;
       }
     }
 
+    // Every remaining outcome is a definitive false (NXDOMAIN) — the
+    // whole group agrees the domain is available.
     return false;
   }
 

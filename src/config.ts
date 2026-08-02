@@ -445,10 +445,14 @@ const configSchema = z.object({
   /** Rate limiting: refill interval in ms for RDAP requests (default: 1000). */
   RDAP_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
   /**
-   * JSON array of RDAP bootstrap server base URLs for multi-provider failover.
-   * When set, these URLs are used as universal servers (authoritative for
-   * all TLDs) and the IANA bootstrap resolution is skipped.
-   * Example: ["https://rdap.org/domain/"]
+   * JSON array of RDAP bootstrap server entries for multi-provider failover.
+   * When set, the IANA bootstrap resolution is skipped. Each entry is either
+   * a plain URL string (treated as universal — authoritative for all TLDs)
+   * or an object with an explicit per-TLD scope:
+   *   ["https://rdap.org/domain/",
+   *    {"url": "https://rdap.verisign.com/com/domain/", "tlds": ["com", "net"]}]
+   * Scoped servers never report "available" for out-of-scope TLDs — a 404
+   * from a server that is not authoritative for the domain's TLD is Unknown.
    */
   RDAP_BOOTSTRAP_URLS: z
     .string()
@@ -459,14 +463,28 @@ const configSchema = z.object({
         try {
           const parsed = JSON.parse(val) as unknown;
           if (!Array.isArray(parsed)) return false;
-          return parsed.every((u: unknown) => typeof u === 'string' && u.startsWith('http'));
+          return parsed.every((u: unknown) => {
+            if (typeof u === 'string') return u.startsWith('http');
+            if (typeof u === 'object' && u !== null) {
+              const o = u as { url?: unknown; tlds?: unknown };
+              return (
+                typeof o.url === 'string' &&
+                o.url.startsWith('http') &&
+                (o.tlds === undefined ||
+                  (Array.isArray(o.tlds) && o.tlds.every((t) => typeof t === 'string')))
+              );
+            }
+            return false;
+          });
         } catch {
           return false;
         }
       },
       {
         message:
-          'Must be a JSON array of RDAP bootstrap URL strings, e.g. ["https://rdap.org/domain/"]',
+          'Must be a JSON array of RDAP bootstrap URL strings or {url, tlds} objects, ' +
+          'e.g. ["https://rdap.org/domain/", ' +
+          '{"url": "https://rdap.verisign.com/com/domain/", "tlds": ["com"]}]',
       },
     ),
   /**
