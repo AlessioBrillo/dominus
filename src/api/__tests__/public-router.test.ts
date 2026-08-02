@@ -60,6 +60,12 @@ function makeStubAnonScoring(): AnonScoringService {
       trademark: { verdict: 'clear', verifiedSources: ['USPTO'] },
       scoredAt: new Date().toISOString(),
     }),
+    valuate: vi.fn().mockResolvedValue({
+      domain: 'example.com',
+      score: makeScoreResult(),
+      trademark: { verdict: 'clear', verifiedSources: ['USPTO'] },
+      scoredAt: new Date().toISOString(),
+    }),
     createScore: vi.fn().mockResolvedValue({
       slug: 'abc123def456',
       url: '/public/s/abc123def456',
@@ -217,6 +223,40 @@ describe('Public Router — /public', () => {
       expect(res.body).toHaveProperty('trademark');
       expect(res.body.trademark.verdict).toBe('clear');
     });
+
+    it('omits suggestedBuyMax from the score when trademark is not verified', async () => {
+      anonScoring = makeStubAnonScoring();
+      const score = makeScoreResult();
+      const { suggestedBuyMax: _unused, ...scoreWithoutBuyMax } = score;
+      vi.mocked(anonScoring.valuate).mockResolvedValue({
+        domain: 'example.com',
+        score: scoreWithoutBuyMax,
+        trademark: { verdict: 'unverified', verifiedSources: [] },
+        scoredAt: new Date().toISOString(),
+      });
+
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/domain/example.com'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.trademark.verdict).toBe('unverified');
+      expect(res.body.score.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('includes suggestedBuyMax in the score when trademark is verified', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/domain/example.com'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.trademark.verdict).toBe('clear');
+      expect(res.body.score.suggestedBuyMax).toBe(50);
+    });
   });
 
   describe('GET /public/domain/:domain (HTML)', () => {
@@ -229,6 +269,38 @@ describe('Public Router — /public', () => {
 
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('text/html');
+    });
+
+    it('hides the buy-max stat in HTML when trademark is not verified', async () => {
+      anonScoring = makeStubAnonScoring();
+      const score = makeScoreResult();
+      const { suggestedBuyMax: _unused, ...scoreWithoutBuyMax } = score;
+      vi.mocked(anonScoring.valuate).mockResolvedValue({
+        domain: 'example.com',
+        score: scoreWithoutBuyMax,
+        trademark: { verdict: 'unverified', verifiedSources: [] },
+        scoredAt: new Date().toISOString(),
+      });
+
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/domain/example.com').set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('Suggested Buy Max');
+    });
+
+    it('shows the buy-max stat in HTML when trademark is verified', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/domain/example.com').set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Suggested Buy Max');
     });
   });
 

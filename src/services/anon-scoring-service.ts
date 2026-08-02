@@ -24,6 +24,17 @@ export interface AnonScoreResult {
   scoredAt: string;
 }
 
+export type ValuateScore = Omit<ScoreResult, 'suggestedBuyMax'> & {
+  suggestedBuyMax?: number | undefined;
+};
+
+export interface AnonValuateResult {
+  domain: string;
+  score: ValuateScore;
+  trademark: AnonTrademarkInfo | null;
+  scoredAt: string;
+}
+
 export interface PublicScoreData {
   slug: string;
   domain: string;
@@ -77,6 +88,7 @@ export class AnonScoringService {
   readonly #trademarkGate: TrademarkGate | undefined;
   readonly #repo: PublicScoreRepository | undefined;
   readonly #cache: MemoryCache<AnonScoreResult>;
+  readonly #valuateCache: MemoryCache<AnonValuateResult>;
   readonly #scoreCache: MemoryCache<PublicScoreData>;
   readonly #compareCache: MemoryCache<CompareResult>;
 
@@ -97,6 +109,7 @@ export class AnonScoringService {
     this.#repo = repo;
     const cacheTtlSeconds = Math.ceil(cacheTtlMs / 1000);
     this.#cache = new MemoryCache<AnonScoreResult>(maxCacheSize, cacheTtlSeconds);
+    this.#valuateCache = new MemoryCache<AnonValuateResult>(maxCacheSize, cacheTtlSeconds);
     this.#scoreCache = new MemoryCache<PublicScoreData>(maxCacheSize, cacheTtlSeconds);
     this.#compareCache = new MemoryCache<CompareResult>(maxCacheSize, cacheTtlSeconds);
   }
@@ -147,8 +160,63 @@ export class AnonScoringService {
     return result;
   }
 
+  async valuate(domain: string): Promise<AnonValuateResult> {
+    if (!isValidDomain(domain)) {
+      throw new DomainValidationError(domain);
+    }
+
+    const cacheKey = domain.toLowerCase();
+    const cached = this.#valuateCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+
+    const parsed = parseDomain(domain);
+
+    let trademark: AnonTrademarkInfo | null = null;
+    if (this.#trademarkGate) {
+      try {
+        const gateResult = await this.#trademarkGate.check(domain);
+        trademark = {
+          verdict: gateResult.verdict,
+          verifiedSources: gateResult.verifiedSources,
+          matchedMark: gateResult.matchedMark ?? null,
+          matchedOwner: gateResult.matchedOwner ?? null,
+        };
+      } catch (err) {
+        logger.warn({ err, domain }, 'Trademark gate failed during anonymous valuation');
+        trademark = { verdict: 'unverified', verifiedSources: [] };
+      }
+    }
+
+    const scoreResult = await this.#engine.score({
+      domain,
+      tld: parsed.tld,
+      sld: parsed.sld,
+      isCloseout: false,
+    });
+
+    // A buy recommendation (suggestedBuyMax) is only exposed when the
+    // trademark gate positively clears the domain. Any other outcome —
+    // blocked, unverified, or no gate at all — strips the buy signal.
+    const verified = trademark?.verdict === 'clear';
+    const score: ValuateScore = verified
+      ? scoreResult
+      : { ...scoreResult, suggestedBuyMax: undefined };
+
+    const result: AnonValuateResult = {
+      domain,
+      score,
+      trademark,
+      scoredAt: new Date().toISOString(),
+    };
+
+    this.#valuateCache.set(cacheKey, result);
+
+    return result;
+  }
+
   clearCache(): void {
     this.#cache.clear();
+    this.#valuateCache.clear();
     this.#scoreCache.clear();
     this.#compareCache.clear();
   }
