@@ -10,7 +10,16 @@ import { getLogger } from '../logger.js';
  * across releases so the JSON output is safe for dashboards.
  */
 export interface ProviderStatus {
-  name: 'USPTO' | 'EUIPO' | 'KeywordPlanner' | 'NameBio' | 'GoogleAds' | 'WHOIS' | 'Registrar';
+  name:
+    | 'USPTO'
+    | 'EUIPO'
+    | 'KeywordPlanner'
+    | 'NameBio'
+    | 'GoogleAds'
+    | 'WHOIS'
+    | 'DNS'
+    | 'RDAP'
+    | 'Registrar';
   configured: boolean;
   note: string;
 }
@@ -27,6 +36,16 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
       name: 'WHOIS',
       configured: true,
       note: `Node.js port-43 client, ${config.WHOIS_LOOKUP_TIMEOUT}ms timeout. TLD map + IANA fallback for unknown TLDs.`,
+    },
+    {
+      name: 'DNS',
+      configured: true,
+      note: `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.`,
+    },
+    {
+      name: 'RDAP',
+      configured: true,
+      note: `Public RDAP confirmation via rdap.org universal + IANA per-TLD bootstrap${config.RDAP_BOOTSTRAP_URLS ? ' (custom RDAP_BOOTSTRAP_URLS configured)' : ''}.`,
     },
     {
       name: 'USPTO',
