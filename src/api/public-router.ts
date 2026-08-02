@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
+import type { Store } from 'express-rate-limit';
 import type {
   AnonScoringService,
   CompareResult,
@@ -10,7 +11,10 @@ import type {
 import { isValidDomain } from '../utils/domain.js';
 import { runWithTenant } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
+import type { RedisClient } from '../providers/redis/redis-client.js';
 import { generateOgPng } from './open-graph.js';
+import { createDomainRateLimiter } from './rate-limits/domain-rate-limiter.js';
+import { RedisRateLimitStore } from './middleware/redis-rate-limit-store.js';
 import {
   escapeHtml,
   renderScorePage,
@@ -28,57 +32,6 @@ const PER_DOMAIN_RATE_LIMIT_MAX = 5;
 const POST_RATE_LIMIT_WINDOW_MS = 60_000;
 const POST_RATE_LIMIT_MAX = 10;
 const POST_BODY_MAX_BYTES = 1000;
-
-function createPerDomainRateLimiter(): {
-  check: (ip: string, domain: string) => boolean;
-} {
-  const windows = new Map<string, { count: number; resetAt: number }>();
-  const MAX_WINDOWS = 10_000;
-  let pruneWarningLogged = false;
-
-  function key(ip: string, domain: string): string {
-    return `${ip}:${domain.toLowerCase()}`;
-  }
-
-  function prune(now: number): void {
-    for (const [k, v] of windows) {
-      if (now > v.resetAt) windows.delete(k);
-    }
-  }
-
-  return {
-    check(ip: string, domain: string): boolean {
-      const k = key(ip, domain);
-      const now = Date.now();
-      prune(now);
-
-      let entry = windows.get(k);
-      if (!entry || now > entry.resetAt) {
-        if (windows.size >= MAX_WINDOWS) {
-          if (!pruneWarningLogged) {
-            logger.warn(
-              {
-                maxWindows: MAX_WINDOWS,
-                currentSize: windows.size,
-              },
-              'Per-domain rate limiter at capacity — evicting oldest entry',
-            );
-            pruneWarningLogged = true;
-          }
-          const oldest = windows.keys().next();
-          if (!oldest.done && oldest.value !== undefined) {
-            windows.delete(oldest.value);
-          }
-        }
-        windows.set(k, { count: 1, resetAt: now + PER_DOMAIN_RATE_LIMIT_WINDOW_MS });
-        return true;
-      }
-      entry.count++;
-      return entry.count <= PER_DOMAIN_RATE_LIMIT_MAX;
-    },
-  };
-}
-
 function scoreResponseData(data: PublicScoreData): object {
   return {
     slug: data.slug,
@@ -90,15 +43,30 @@ function scoreResponseData(data: PublicScoreData): object {
   };
 }
 
-export function createPublicRouter(anonScoring: AnonScoringService): Router {
+export function createPublicRouter(
+  anonScoring: AnonScoringService,
+  redisClient?: RedisClient,
+): Router {
   const router = Router();
-  const domainRateLimiter = createPerDomainRateLimiter();
+  const domainRateLimiter = createDomainRateLimiter(
+    {
+      windowMs: PER_DOMAIN_RATE_LIMIT_WINDOW_MS,
+      max: PER_DOMAIN_RATE_LIMIT_MAX,
+    },
+    redisClient,
+  );
+
+  const sharedStore: Store | undefined =
+    redisClient?.isConnected === true
+      ? new RedisRateLimitStore(redisClient, PUBLIC_RATE_LIMIT_WINDOW_MS)
+      : undefined;
 
   const publicRateLimiter = rateLimit({
     windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
     max: PUBLIC_RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+    ...(sharedStore === undefined ? {} : { store: sharedStore }),
     message: {
       error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
     },
@@ -109,6 +77,7 @@ export function createPublicRouter(anonScoring: AnonScoringService): Router {
     max: POST_RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+    ...(sharedStore === undefined ? {} : { store: sharedStore }),
     message: {
       error: {
         code: 'RATE_LIMITED',
@@ -169,7 +138,7 @@ export function createPublicRouter(anonScoring: AnonScoringService): Router {
         }
 
         const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-        if (!domainRateLimiter.check(ip, domain)) {
+        if (!(await domainRateLimiter.check(ip, domain))) {
           if (req.accepts('html')) {
             res.status(429).send(renderErrorPage('Too many requests for this domain'));
           } else {
