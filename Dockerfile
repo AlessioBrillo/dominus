@@ -18,7 +18,17 @@ FROM node:${NODE_VERSION}-alpine AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --only=production --ignore-scripts
+# --ignore-scripts keeps arbitrary install scripts from running during the
+# build (supply-chain hygiene). better-sqlite3 is the deliberate exception:
+# its native binding is produced by its install script (prebuild-install),
+# which --ignore-scripts skips — without an explicit rebuild the runtime
+# images would crash on require('better-sqlite3'). The toolchain is a safety
+# net for the node-gyp fallback when no prebuilt binary matches the target;
+# it lives only in this stage and never reaches the runtime images (only
+# node_modules is copied out of it).
+RUN npm ci --only=production --ignore-scripts \
+  && apk add --no-cache python3 make g++ \
+  && npm rebuild better-sqlite3
 
 # ---- Stage 2: Backend Build ----
 FROM node:${NODE_VERSION}-alpine AS backend-build

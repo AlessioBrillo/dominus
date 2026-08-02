@@ -282,7 +282,10 @@ async function main(): Promise<void> {
   // /public/* requests, and the SPA never catches /api/ or /public/
   // paths that have no matching route.
   const frontendDir = resolve(process.cwd(), config.FRONTEND_DIST_PATH);
-  const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*` : '*';
+  // path-to-regexp v8 (Express 5) rejects the bare '*' wildcard; the SPA
+  // catch-all must use the named wildcard '/*splat'. A bare '*' crashed the
+  // production image at boot whenever the frontend dist was present.
+  const spaPattern = config.FRONTEND_BASE_PATH ? `${config.FRONTEND_BASE_PATH}/*splat` : '/*splat';
 
   const rejectApiAndPublic: express.RequestHandler = (req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/public/')) {
