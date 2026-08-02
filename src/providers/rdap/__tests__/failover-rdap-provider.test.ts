@@ -274,11 +274,13 @@ describe('FailoverRdapProvider', () => {
     });
 
     it('uses default per-server breaker policy when none provided', async () => {
-      const provider = new FailoverRdapProvider();
+      const healthy = makeHealthyProvider('healthy');
+      const provider = new FailoverRdapProvider([healthy]);
       // Should not throw — the default RDAP_PER_SERVER_CIRCUIT_BREAKER
       // is used, and no circuit should open from one healthy call
       const result = await provider.confirm('example.com');
       expect(result).toBeDefined();
+      expect(healthy.confirm).toHaveBeenCalledTimes(1);
     });
 
     it('recovers after circuit cooldown — half-open allows retry', async () => {

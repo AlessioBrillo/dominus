@@ -446,11 +446,9 @@ const configSchema = z.object({
   RDAP_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
   /**
    * JSON array of RDAP bootstrap server base URLs for multi-provider failover.
-   * The FailoverRdapProvider tries each server in sequence; first success wins.
-   * When the first server fails (timeout, network error), it falls back to the
-   * next after a brief delay. When all servers fail, a ProviderError is thrown.
-   * Default: rdap.org, Verisign COM RDAP, Google Registry RDAP.
-   * Example: ["https://rdap.org/domain/","https://rdap.verisign.com/com/domain/"]
+   * When set, these URLs are used as universal servers (authoritative for
+   * all TLDs) and the IANA bootstrap resolution is skipped.
+   * Example: ["https://rdap.org/domain/"]
    */
   RDAP_BOOTSTRAP_URLS: z
     .string()
@@ -471,6 +469,13 @@ const configSchema = z.object({
           'Must be a JSON array of RDAP bootstrap URL strings, e.g. ["https://rdap.org/domain/"]',
       },
     ),
+  /**
+   * URL of the IANA RDAP bootstrap registry (RFC 7484) used to resolve the
+   * authoritative RDAP server for each TLD. When unset or empty, resolution
+   * falls back to rdap.org routing for all TLDs.
+   * Example: https://data.iana.org/rdap/dns.json
+   */
+  RDAP_BOOTSTRAP_URL: z.string().url().or(z.literal('')).optional(),
   /**
    * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
    * WHOIS servers are generally more restrictive than RDAP.

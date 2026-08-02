@@ -41,6 +41,7 @@ re-running the original arguments.
 | [0032](0032-cloud-authentication.md)                         | Cloud authentication — external identity provider (Auth0)                     | 2026-06-26 | Proposed                 |
 | [0033](0033-cloud-redis-infrastructure.md)                   | Cloud Redis infrastructure — distributed rate limiting, job queue, cache      | 2026-06-26 | Proposed                 |
 | [0034](0034-multi-tenant-data-model.md)                      | Multi-tenant data model — tenant ID column + PostgreSQL RLS                   | 2026-06-26 | Proposed                 |
+| [0035](0035-rdap-authoritative-bootstrap.md)                  | RDAP authoritative bootstrap — IANA per-TLD resolution, strict 404 semantics | 2026-08-02 | Accepted                 |
 | [0036](0036-license-and-ip-protection.md)                     | License and IP protection hardening — AGPL-3.0-only, CLA/CI gates             | 2026-08-01 | Accepted                 |
 
 ## Conventions
