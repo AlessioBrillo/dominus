@@ -76,7 +76,7 @@ estimates and subject to change.
 
 ## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO
 
-> **Status**: Planned
+> **Status**: Planned (SEO surface shipped; managed hosting not started)
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
 - [ ] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
@@ -89,12 +89,13 @@ estimates and subject to change.
 - [ ] Automated daily backups with point-in-time recovery
 - [ ] Monitoring and alerting (uptime, error rate, latency)
 - [ ] Migration guide: from community edition to DOMINUS Cloud
-- [ ] `AnonScoringService` — scoring engine in no-persist mode for public endpoints
-- [ ] `GET /public/domain/:name` — public domain valuation page (crawlable, cached)
-- [ ] `GET /sitemap.xml` — dynamic sitemap with public pages
-- [ ] `GET /public/compare/:slug` — editorial comparison pages
-- [ ] JSON-LD structured data for rich snippets
-- [ ] SSR layer for public pages (React renderToString)
+- [x] `AnonScoringService` — scoring engine in no-persist mode for public endpoints
+- [x] `GET /public/domain/:name` — public domain valuation page (crawlable, cached)
+- [x] `GET /sitemap.xml` — dynamic sitemap with public pages
+- [x] `GET /public/compare/:slug` — editorial comparison pages
+- [x] JSON-LD structured data for rich snippets
+- [x] SSR layer for public pages (server-rendered HTML views — see
+      [ADR-0030](docs/adr/0030-public-namespace-architecture.md))
 
 ## v1.1.0 — GA Release
 
