@@ -6,9 +6,21 @@ metadata:
   labels:
     app.kubernetes.io/component: server
 spec:
+  # Single replica is a hard constraint of the SQLite community edition:
+  # the data volume is ReadWriteOnce, so a second pod would block in
+  # ContainerCreating and the deployment would never become ready.
+  # For multi-replica HA, run DOMINUS Cloud (set DATABASE_URL to
+  # PostgreSQL) and increase replicas.
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    # maxSurge 0 + maxUnavailable 1: never run two pods on the RWO volume
+    # simultaneously (unlike Recreate, the new pod must pass readiness
+    # before rollout proceeds, so a broken image cannot take the service
+    # permanently down).
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: dominus
@@ -22,10 +34,21 @@ spec:
         runAsNonRoot: true
         runAsUser: 1001
         fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      # DOMINUS graceful shutdown: 5s drain + 25s grace = 30s. 45s gives
+      # headroom so SIGKILL (default 30s grace) never preempts it.
+      terminationGracePeriodSeconds: 45
       containers:
         - name: dominus
           image: ghcr.io/alessiobrillo/dominus:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 3000
               name: http
@@ -44,6 +67,16 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+            timeoutSeconds: 3
           livenessProbe:
             httpGet:
               path: /api/health
@@ -67,3 +100,5 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: dominus-data
+        - name: tmp
+          emptyDir: {}

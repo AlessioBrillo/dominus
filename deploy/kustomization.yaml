@@ -3,9 +3,6 @@
 # Apply with:
 #   kubectl apply -k deploy/
 #
-# Or with an overlay for production customisation:
-#   kubectl apply -k deploy/overlays/production/
-#
 # Prerequisites:
 #   - A PersistentVolumeClaim for the SQLite database
 #   - A ConfigMap or Secret for environment variables
@@ -20,6 +17,7 @@ resources:
   - configmap.yaml
   - pvc.yaml
 
+# Keep this aligned with the `version` field in package.json on every release.
 commonLabels:
   app.kubernetes.io/name: dominus
-  app.kubernetes.io/version: 0.5.0-dev
+  app.kubernetes.io/version: 0.10.0-dev
