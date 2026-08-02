@@ -130,9 +130,9 @@ services:
       - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
       - WORKER_ENABLED=false
       - SCHEDULER_ENABLED=true
-      - BACKUP_CRON=${SCHEDULER_BACKUP_CRON:-0 4 * * *}
-      - PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 5 * * 0}
-      - MAINTENANCE_BACKUP_DIR=/app/data/backups
+      - SCHEDULER_BACKUP_CRON=${SCHEDULER_BACKUP_CRON:-0 4 * * *}
+      - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 5 * * 0}
+      - BACKUP_DIR=/app/data/backups
       - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
     profiles:
@@ -143,15 +143,15 @@ services:
     image: postgres:16-alpine
     container_name: dominus-pg
     environment:
-      POSTGRES_USER: dominus
-      POSTGRES_PASSWORD: dominus
-      POSTGRES_DB: dominus
+      POSTGRES_USER: ${POSTGRES_USER:-dominus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dominus}
+      POSTGRES_DB: ${POSTGRES_DB:-dominus}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dominus"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominus}"]
       interval: 5s
       timeout: 5s
       retries: 5
