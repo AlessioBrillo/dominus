@@ -60,9 +60,10 @@ function verdictVariant(v: string) {
 }
 
 function daysUntilRenewal(renewalDate: string): number {
-  const now = Date.now();
-  const renewal = new Date(renewalDate).getTime();
-  return Math.ceil((renewal - now) / 86400000);
+  const now = new Date();
+  const renewal = new Date(renewalDate);
+  const startOfDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return Math.round((startOfDay(renewal) - startOfDay(now)) / 86400000);
 }
 
 export function PortfolioPage() {
