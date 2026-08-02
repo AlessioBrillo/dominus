@@ -6,7 +6,7 @@ export interface JsonLdScoreData {
   domain: string;
   expectedValue: number;
   confidence: number;
-  suggestedBuyMax: number;
+  suggestedBuyMax?: number | undefined;
   weightedScore: number;
   recommended: boolean;
   scoredAt: string;
@@ -22,12 +22,16 @@ export function productJsonLd(score: JsonLdScoreData): string {
     '@type': 'Product',
     name: score.domain,
     description: `Domain investment score and appraisal for ${score.domain}`,
-    offers: {
-      '@type': 'Offer',
-      price: score.suggestedBuyMax,
-      priceCurrency: 'EUR',
-      availability: 'https://schema.org/InStock',
-    },
+    ...(score.suggestedBuyMax !== undefined
+      ? {
+          offers: {
+            '@type': 'Offer',
+            price: score.suggestedBuyMax,
+            priceCurrency: 'EUR',
+            availability: 'https://schema.org/InStock',
+          },
+        }
+      : {}),
     aggregateRating: {
       '@type': 'AggregateRating',
       ratingValue: Math.round(score.confidence * 100),
@@ -45,11 +49,15 @@ export function reviewJsonLd(score: JsonLdScoreData): string {
     '@type': 'Product',
     name: score.domain,
     description: 'Domain investment score and analysis',
-    offers: {
-      '@type': 'Offer',
-      price: score.suggestedBuyMax,
-      priceCurrency: 'EUR',
-    },
+    ...(score.suggestedBuyMax !== undefined
+      ? {
+          offers: {
+            '@type': 'Offer',
+            price: score.suggestedBuyMax,
+            priceCurrency: 'EUR',
+          },
+        }
+      : {}),
     review: {
       '@type': 'Review',
       reviewRating: {

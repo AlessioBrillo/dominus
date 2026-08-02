@@ -183,7 +183,7 @@ export function createPublicRouter(anonScoring: AnonScoringService): Router {
           return;
         }
 
-        const result = await anonScoring.score(domain);
+        const result = await anonScoring.valuate(domain);
         if (req.accepts('html')) {
           res.set('Cache-Control', 'public, max-age=86400');
           res.send(renderDomainPage(result.domain, result.score, result.trademark));
