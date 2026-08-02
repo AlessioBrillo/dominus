@@ -525,6 +525,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
     rdapRateLimiter,
     repos.providerCacheRepo,
+    redisClient,
   );
   const dnsProvider = buildDnsProvider(config, repos.providerCacheRepo, dnsRateLimiter);
   const { withRetry: whoisProvider } = buildWhoisProviders(config);

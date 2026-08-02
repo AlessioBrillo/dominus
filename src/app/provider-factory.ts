@@ -20,7 +20,11 @@ import {
   validateResolverGroups,
 } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
-import { RedisRateLimiter, type RedisClient } from '../providers/redis/index.js';
+import {
+  RedisRateLimiter,
+  DistributedCircuitBreaker,
+  type RedisClient,
+} from '../providers/redis/index.js';
 import { FailoverRdapProvider, type RdapBootstrapUrlEntry } from '../providers/rdap/index.js';
 import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
@@ -32,7 +36,13 @@ import {
 import { RetryingWhoisProvider, WHOIS_CIRCUIT_BREAKER } from './retrying-whois-provider.js';
 import type { WhoisProvider as WhoisProviderInterface } from '../providers/whois/whois-provider.js';
 import { RetryingRdapProvider } from './retrying-rdap-provider.js';
-import { RDAP_CIRCUIT_BREAKER } from '../providers/circuit-breaker.js';
+import {
+  CircuitBreaker,
+  RDAP_CIRCUIT_BREAKER,
+  RDAP_PER_SERVER_CIRCUIT_BREAKER,
+  type ICircuitBreaker,
+  type CircuitBreakerPolicy,
+} from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
 import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
@@ -138,23 +148,61 @@ export function parseRdapBootstrapUrls(raw: string | undefined): RdapBootstrapUr
   }
 }
 
+/** Choose the RDAP circuit breaker implementation at the factory boundary:
+ * distributed (Redis-backed, shared across containers) when a Redis client
+ * is connected, in-memory otherwise. This keeps the RDAP layer free of
+ * Redis knowledge while letting cloud deployments share breaker state. */
+export function buildRdapCircuitBreakers(redisClient?: RedisClient): {
+  global: ICircuitBreaker;
+  perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker;
+} {
+  if (redisClient?.isConnected) {
+    const name = 'rdap-global';
+    return {
+      global: new DistributedCircuitBreaker(name, RDAP_CIRCUIT_BREAKER, redisClient),
+      perServer: (serverName, policy) =>
+        new DistributedCircuitBreaker(
+          `rdap-server:${serverName}`,
+          { ...RDAP_PER_SERVER_CIRCUIT_BREAKER, ...policy },
+          redisClient,
+        ),
+    };
+  }
+  return {
+    global: new CircuitBreaker(RDAP_CIRCUIT_BREAKER),
+    perServer: (_serverName, policy) =>
+      new CircuitBreaker({
+        ...RDAP_PER_SERVER_CIRCUIT_BREAKER,
+        ...policy,
+      }),
+  };
+}
+
 export function buildRdapProviders(
   config: Config,
   rdapRateLimiter: RateLimiterLike,
   providerCacheRepo: ProviderCacheRepository,
+  redisClient?: RedisClient,
 ): BuiltRdapProviders {
   const rdapBootstrapUrls = parseRdapBootstrapUrls(config.RDAP_BOOTSTRAP_URLS);
+  const breakers = buildRdapCircuitBreakers(redisClient);
 
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
-      ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, rdapRateLimiter)
+      ? FailoverRdapProvider.fromConfig(
+          rdapBootstrapUrls,
+          rdapRateLimiter,
+          undefined,
+          breakers.perServer,
+        )
       : FailoverRdapProvider.withDefaults(
           rdapRateLimiter,
           undefined,
           config.RDAP_BOOTSTRAP_URL ? new IanaRdapBootstrap(config.RDAP_BOOTSTRAP_URL) : undefined,
+          breakers.perServer,
         );
 
-  const withRetryProvider = new RetryingRdapProvider(raw, {}, RDAP_CIRCUIT_BREAKER);
+  const withRetryProvider = new RetryingRdapProvider(raw, {}, breakers.global);
 
   const rdapCache = CachedProvider.createJson<RdapResult>(
     (domain, signal) => withRetryProvider.confirm(domain, signal),

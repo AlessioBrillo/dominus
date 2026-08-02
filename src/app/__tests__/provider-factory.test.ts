@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect } from 'vitest';
-import { buildDnsConsensusConfig, parseRdapBootstrapUrls } from '../provider-factory.js';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  buildDnsConsensusConfig,
+  buildRdapCircuitBreakers,
+  parseRdapBootstrapUrls,
+} from '../provider-factory.js';
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
+import { CircuitBreaker } from '../../providers/circuit-breaker.js';
+import { DistributedCircuitBreaker, type RedisClient } from '../../providers/redis/index.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -233,5 +239,46 @@ describe('validateConsensusStrategyDisjointness', () => {
 
   it('ignores the check when consensus is disabled', () => {
     expect(validateConsensusStrategyDisjointness(false, 'dot-only', 'dot-only')).toBe(true);
+  });
+});
+
+// Regression: the RDAP circuit breaker state must be shared across
+// containers in cloud mode (api/worker/scheduler). In single-process
+// deployments the in-memory breaker is used; with Redis connected, the
+// distributed (Redis/Lua) breaker takes over for both the global and the
+// per-server circuits. This locks the decision at the factory boundary.
+describe('buildRdapCircuitBreakers', () => {
+  function makeMockRedisClient(): RedisClient {
+    return {
+      isConnected: true,
+      keyPrefix: 'dominus:',
+      prefixed: (key: string) => `dominus:${key}`,
+      withRedis: vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => fn()),
+      client: {} as never,
+      ping: vi.fn(),
+      shutdown: vi.fn(),
+    } as unknown as RedisClient;
+  }
+
+  it('returns in-memory breakers when no Redis client is connected', () => {
+    const { global, perServer } = buildRdapCircuitBreakers(undefined);
+
+    expect(global).toBeInstanceOf(CircuitBreaker);
+    expect(perServer('registry.example', {})).toBeInstanceOf(CircuitBreaker);
+  });
+
+  it('returns distributed breakers when a Redis client is connected', () => {
+    const { global, perServer } = buildRdapCircuitBreakers(makeMockRedisClient());
+
+    expect(global).toBeInstanceOf(DistributedCircuitBreaker);
+    expect(perServer('registry.example', {})).toBeInstanceOf(DistributedCircuitBreaker);
+  });
+
+  it('keeps the per-server policy when the factory builds distributed breakers', () => {
+    const client = makeMockRedisClient();
+    const { perServer } = buildRdapCircuitBreakers(client);
+
+    const breaker = perServer('rdap.org', {}) as DistributedCircuitBreaker;
+    expect(breaker.cooldownMs).toBe(60_000);
   });
 });

@@ -5,6 +5,11 @@ import { IanaRdapBootstrap } from '../rdap-bootstrap.js';
 import type { RdapProvider } from '../rdap-provider.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import { ProviderError } from '../../../types/errors.js';
+import {
+  CircuitBreaker,
+  RDAP_PER_SERVER_CIRCUIT_BREAKER,
+  type ICircuitBreaker,
+} from '../../circuit-breaker.js';
 
 // Counts confirm() calls on the bootstrap-derived authoritative servers.
 // Shared via vi.hoisted so the vi.mock factories below can access it.
@@ -447,6 +452,58 @@ describe('FailoverRdapProvider', () => {
       const result = await provider.confirm('example.net');
       expect(result.status).toBe(DomainStatus.Registered);
       expect(authCallCounter.count).toBe(0);
+    });
+  });
+
+  describe('injected breaker factory (distributed mode)', () => {
+    it('uses the factory and awaits an async allow() before skipping a server', async () => {
+      // An async allow() (Promise) is the contract of the distributed
+      // breaker; the failover loop must await it, or an open circuit would
+      // be treated as allowed and every server would be hit.
+      const allow = vi.fn().mockResolvedValue(false);
+      const fakeBreaker: ICircuitBreaker = {
+        allow,
+        onSuccess: vi.fn(),
+        onFailure: vi.fn(),
+        state: 'open',
+        cooldownMs: 1000,
+      };
+      const factory = vi.fn().mockReturnValue(fakeBreaker);
+
+      const failing = makeFailingProvider('rdap-server-1', 5);
+      const healthy = makeHealthyProvider('rdap.org', 5);
+      const provider = new FailoverRdapProvider(
+        [healthy, failing],
+        undefined,
+        undefined,
+        undefined,
+        factory,
+      );
+
+      await expect(provider.confirm('example.com')).rejects.toThrow(/circuit open/);
+      expect(factory).toHaveBeenCalled();
+      expect(healthy.confirm).not.toHaveBeenCalled();
+      expect(failing.confirm).not.toHaveBeenCalled();
+    });
+
+    it('uses the injected factory for bootstrap-derived servers', async () => {
+      const factory = vi.fn(
+        (_name: string): ICircuitBreaker => new CircuitBreaker(RDAP_PER_SERVER_CIRCUIT_BREAKER),
+      );
+      const universal = makeHealthyProvider('rdap.org', 10);
+      const provider = new FailoverRdapProvider(
+        [universal],
+        undefined,
+        undefined,
+        new IanaRdapBootstrap('https://bootstrap.example/dns.json'),
+        factory,
+      );
+
+      await provider.confirm('example.com');
+
+      const names = factory.mock.calls.map((c) => String(c[0]));
+      expect(names).toContain('registry.example');
+      expect(names).toContain('rdap.org');
     });
   });
 });
