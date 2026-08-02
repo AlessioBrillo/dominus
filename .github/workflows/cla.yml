@@ -24,7 +24,8 @@ jobs:
             // exempt: the maintainer owns the project, automation is not a
             // copyright holder. Everyone else must sign the CLA first.
             const exempt = ['OWNER', 'MEMBER', 'COLLABORATOR'];
-            if (exempt.includes(association)) {
+            // dependabot[bot] opens PRs as CONTRIBUTOR, so exempt it explicitly.
+            if (author === 'dependabot[bot]' || exempt.includes(association)) {
               core.notice(`${author} (${association}) is exempt from the CLA check`);
               return;
             }
