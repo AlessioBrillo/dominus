@@ -218,7 +218,7 @@ describe.runIf(hasOpenSSL)('DotPool (RFC 7766 over real TLS)', () => {
     // imply availability upstream).
     const ctx = await startServer((socket, query) => {
       const response = buildResponse(query, { rcode: 0, ancount: 0 });
-      response.writeUInt16BE(0x8180 | 0x0200, 2);
+      response.writeUInt16BE(0x8180 | 0x0200, 4);
       socket.write(response);
     });
     const pool = makePool(ctx.port);
@@ -234,7 +234,7 @@ describe.runIf(hasOpenSSL)('DotPool (RFC 7766 over real TLS)', () => {
     // TC with ANCOUNT>0 still proves the domain resolves.
     const ctx = await startServer((socket, query) => {
       const response = buildResponse(query, { rcode: 0, ancount: 1 });
-      response.writeUInt16BE(0x8180 | 0x0200, 2);
+      response.writeUInt16BE(0x8180 | 0x0200, 4);
       socket.write(response);
     });
     const pool = makePool(ctx.port);
