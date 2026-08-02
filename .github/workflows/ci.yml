@@ -87,15 +87,25 @@ jobs:
 
           # 2. The API must boot and answer /api/health (unauthenticated).
           #    DATABASE_PATH points at /tmp so no volume is needed and the
-          #    non-root user can write.
-          docker run --rm -d --name "$SMOKE_CONTAINER" -p 3000:3000 \
-            -e DATABASE_PATH=/tmp/dominus.db dominus-api:test
+          #    non-root user can write. HOST must be 0.0.0.0 for the
+          #    published port to forward, which requires API_KEYS or the
+          #    app aborts with a security fatal at startup.
+          docker run -d --name "$SMOKE_CONTAINER" -p 3000:3000 \
+            -e DATABASE_PATH=/tmp/dominus.db \
+            -e HOST=0.0.0.0 \
+            -e API_KEYS=smoke-test-key dominus-api:test
 
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
               echo "healthcheck OK (attempt $i)"
               docker rm -f "$SMOKE_CONTAINER" >/dev/null
               exit 0
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx "$SMOKE_CONTAINER"; then
+              echo "container exited — dumping logs" >&2
+              docker logs "$SMOKE_CONTAINER" >&2 || true
+              docker rm -f "$SMOKE_CONTAINER" >/dev/null
+              exit 1
             fi
             sleep 2
           done
