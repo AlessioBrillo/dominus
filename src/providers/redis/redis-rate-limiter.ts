@@ -11,6 +11,32 @@ export interface RedisRateLimiterConfig {
   intervalMs: number;
   maxQueueSize?: number;
   namespace?: string;
+  /** Hard cap on how long acquire() polls a saturated bucket before
+   *  failing fast (default: max(2 × intervalMs, 5s)). Prevents callers
+   *  from waiting indefinitely on a perpetually full bucket. */
+  maxWaitMs?: number;
+}
+
+/** Raised when acquire() polls a saturated bucket for maxWaitMs without
+ *  ever being granted a token. Callers should back off and retry later —
+ *  a bounded failure beats an unbounded hang. */
+export class RateLimiterWaitTimeoutError extends Error {
+  readonly waitBudgetMs: number;
+  readonly retryDelayMs: number;
+
+  constructor(waitBudgetMs: number, retryDelayMs: number) {
+    super(
+      `Redis rate limiter still saturated after ${waitBudgetMs}ms ` +
+        `(polling every ${retryDelayMs}ms)`,
+    );
+    this.name = 'RateLimiterWaitTimeoutError';
+    this.waitBudgetMs = waitBudgetMs;
+    this.retryDelayMs = retryDelayMs;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 export interface RedisRateLimiterMetrics {
@@ -33,6 +59,7 @@ export class RedisRateLimiter {
   readonly #intervalMs: number;
   readonly #maxQueueSize: number;
   readonly #namespace: string;
+  readonly #maxWaitMs: number;
   readonly #redisClient: RedisClient;
   #queue: QueuedAcquire[] = [];
   #processing = false;
@@ -46,6 +73,7 @@ export class RedisRateLimiter {
     this.#intervalMs = config.intervalMs;
     this.#maxQueueSize = config.maxQueueSize ?? 1000;
     this.#namespace = config.namespace ?? 'default';
+    this.#maxWaitMs = config.maxWaitMs ?? Math.max(config.intervalMs * 2, 5_000);
     this.#redisClient = redisClient ?? getRedisClient();
   }
 
@@ -77,10 +105,29 @@ export class RedisRateLimiter {
       );
     }
 
+    // Poll the bucket until a token frees up, but never longer than
+    // maxWaitMs: the bucket can stay saturated indefinitely (sustained
+    // load), and an unbounded retry loop would stack one async frame per
+    // poll per caller. A bounded wait with fail-fast keeps the pipeline
+    // responsive and the heap flat.
+    const retryDelayMs = Math.ceil(this.#intervalMs / Math.max(this.#tokens, 1));
+    const deadline = Date.now() + this.#maxWaitMs;
+
+    for (;;) {
+      if (await this.#tryConsumeToken()) return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new RateLimiterWaitTimeoutError(this.#maxWaitMs, retryDelayMs);
+      }
+      await sleep(Math.min(retryDelayMs, remaining));
+    }
+  }
+
+  async #tryConsumeToken(): Promise<boolean> {
     const now = Date.now();
     const key = this.#redisClient.prefixed(`ratelimit:${this.#namespace}`);
 
-    const allowed = await this.#redisClient.withRedis(
+    return this.#redisClient.withRedis(
       async (redis: Redis) => {
         const pipeline = redis.pipeline();
         pipeline.zremrangebyscore(key, '-inf', now - this.#intervalMs);
@@ -109,12 +156,6 @@ export class RedisRateLimiter {
         });
       },
     );
-
-    if (!allowed) {
-      const waitMs = Math.ceil(this.#intervalMs / this.#tokens);
-      await new Promise((r) => setTimeout(r, Math.min(waitMs, this.#intervalMs)));
-      return this.acquire();
-    }
   }
 
   async #processQueue(): Promise<void> {
