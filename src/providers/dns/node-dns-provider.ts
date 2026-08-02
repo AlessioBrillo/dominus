@@ -19,12 +19,6 @@ const logger = getLogger();
 
 type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
 
-function createResolver(nameservers: string[]): Resolver {
-  const r = new Resolver();
-  r.setServers(nameservers);
-  return r;
-}
-
 export type DnsLookupStrategy =
   | 'native'
   | 'native-with-doh-fallback'
@@ -389,6 +383,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
   /** RFC 7766 DoT connection pools, keyed by endpoint|servername|port. */
   readonly #dotPools: Map<string, DotPool> = new Map();
+  /** Native resolvers cached per nameserver set — reused across lookups. */
+  readonly #nativeResolvers: Map<string, Resolver> = new Map();
 
   constructor(options?: {
     lookupTimeoutMs?: number;
@@ -438,8 +434,18 @@ export class NodeDnsProvider implements DnsProvider {
     if (!this.#useDedicatedResolver) return undefined;
     const hasCustomServers = this.#nameservers !== undefined && this.#nameservers.length > 0;
     if (!hasCustomServers) return undefined;
-    const resolver = new Resolver();
-    resolver.setServers(this.#nameservers!);
+    return this.#cachedResolver(this.#nameservers!);
+  }
+
+  /** Get (or create) a Resolver for a nameserver set, cached per set. */
+  #cachedResolver(nameservers: string[]): Resolver {
+    const key = nameservers.join(',');
+    let resolver = this.#nativeResolvers.get(key);
+    if (resolver === undefined) {
+      resolver = new Resolver();
+      resolver.setServers(nameservers);
+      this.#nativeResolvers.set(key, resolver);
+    }
     return resolver;
   }
 
@@ -604,14 +610,12 @@ export class NodeDnsProvider implements DnsProvider {
 
     const timeout = this.#lookupTimeoutMs;
 
-    const nativeResolver = this.#getResolver();
-
     const tasks = group.lookups.map((spec) => {
       if (spec.type === 'native') {
         const groupResolver =
-          nativeResolver !== undefined && spec.nameservers !== undefined
-            ? createResolver(spec.nameservers)
-            : nativeResolver;
+          spec.nameservers !== undefined
+            ? this.#cachedResolver(spec.nameservers)
+            : this.#getResolver();
         return resolvesAnyNative(domain, timeout, combinedSignal, groupResolver);
       }
       if (spec.type === 'dot') {
