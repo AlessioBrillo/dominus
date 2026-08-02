@@ -21,6 +21,14 @@ const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
  * never "available". */
 export type RdapBootstrapUrlEntry = { url: string; tlds?: readonly string[] };
 
+/** Builds the per-server circuit breaker for a given server name. Allows
+ * cloud deployments to supply distributed (Redis-backed) breakers so the
+ * circuit state is shared across containers instead of per-process. */
+export type RdapBreakerFactory = (
+  name: string,
+  policy: Partial<CircuitBreakerPolicy>,
+) => ICircuitBreaker;
+
 /**
  * FailoverRdapProvider — parallel RDAP resolution with race-based failover
  * and per-server circuit breakers.
@@ -50,6 +58,7 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly #sharedRateLimiter: RateLimiterLike;
   readonly #perServerBreakers: Map<string, ICircuitBreaker>;
   readonly #perServerCircuitBreakerPolicy: Partial<CircuitBreakerPolicy> | undefined;
+  readonly #breakerFactory: RdapBreakerFactory | undefined;
   readonly #bootstrap: IanaRdapBootstrap | undefined;
   readonly #perTldProviders = new Map<string, RdapProvider[]>();
 
@@ -69,11 +78,13 @@ export class FailoverRdapProvider implements RdapProvider {
     sharedRateLimiter?: RateLimiterLike,
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
     bootstrap?: IanaRdapBootstrap,
+    breakerFactory?: RdapBreakerFactory,
   ) {
     this.#providers = providers ?? [];
     this.#sharedRateLimiter = sharedRateLimiter ?? RateLimiter.unlimited();
     this.#bootstrap = bootstrap;
     this.#perServerCircuitBreakerPolicy = perServerCircuitBreakerPolicy;
+    this.#breakerFactory = breakerFactory;
     this.name =
       this.#providers.length > 0
         ? `FailoverRdapProvider(${this.#providers.map((s) => s.name).join(',')})`
@@ -84,12 +95,21 @@ export class FailoverRdapProvider implements RdapProvider {
     this.#perServerBreakers = new Map(
       this.#providers.map((p) => [
         p.name,
-        new CircuitBreaker({
-          ...RDAP_PER_SERVER_CIRCUIT_BREAKER,
-          ...perServerCircuitBreakerPolicy,
-        }),
+        this.#buildBreaker(p.name, perServerCircuitBreakerPolicy),
       ]),
     );
+  }
+
+  /** Create the circuit breaker for a server, honoring an injected factory
+   * (distributed mode) and defaulting to the in-memory implementation. */
+  #buildBreaker(name: string, policy?: Partial<CircuitBreakerPolicy>): ICircuitBreaker {
+    if (this.#breakerFactory !== undefined) {
+      return this.#breakerFactory(name, policy ?? {});
+    }
+    return new CircuitBreaker({
+      ...RDAP_PER_SERVER_CIRCUIT_BREAKER,
+      ...policy,
+    });
   }
 
   /** Clear the intra-run cache. Called at pipeline run start. */
@@ -108,6 +128,7 @@ export class FailoverRdapProvider implements RdapProvider {
     urls: Array<string | RdapBootstrapUrlEntry>,
     rateLimiter?: RateLimiterLike,
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
+    breakerFactory?: RdapBreakerFactory,
   ): FailoverRdapProvider {
     const providers = urls.map((entry, i) => {
       const url = typeof entry === 'string' ? entry : entry.url;
@@ -121,7 +142,13 @@ export class FailoverRdapProvider implements RdapProvider {
         tlds,
       );
     });
-    return new FailoverRdapProvider(providers, rateLimiter, perServerCircuitBreakerPolicy);
+    return new FailoverRdapProvider(
+      providers,
+      rateLimiter,
+      perServerCircuitBreakerPolicy,
+      undefined,
+      breakerFactory,
+    );
   }
 
   /**
@@ -134,6 +161,7 @@ export class FailoverRdapProvider implements RdapProvider {
     rateLimiter?: RateLimiterLike,
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
     bootstrap?: IanaRdapBootstrap,
+    breakerFactory?: RdapBreakerFactory,
   ): FailoverRdapProvider {
     const limiter = rateLimiter ?? RateLimiter.unlimited();
     const universal = new PublicRdapProvider(
@@ -142,7 +170,13 @@ export class FailoverRdapProvider implements RdapProvider {
       limiter,
       DEFAULT_RDAP_TIMEOUT_MS,
     );
-    return new FailoverRdapProvider([universal], limiter, perServerCircuitBreakerPolicy, bootstrap);
+    return new FailoverRdapProvider(
+      [universal],
+      limiter,
+      perServerCircuitBreakerPolicy,
+      bootstrap,
+      breakerFactory,
+    );
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
@@ -175,8 +209,9 @@ export class FailoverRdapProvider implements RdapProvider {
       const breaker = this.#perServerBreakers.get(provider.name);
 
       // Skip servers whose circuit breaker is open — they are degraded
-      // and would waste time on a timeout.
-      if (breaker && !breaker.allow()) {
+      // and would waste time on a timeout. The distributed breaker
+      // contract is async, so await the verdict.
+      if (breaker && !(await breaker.allow())) {
         errors.push(`${provider.name}: circuit open`);
         continue;
       }
@@ -271,10 +306,7 @@ export class FailoverRdapProvider implements RdapProvider {
       if (!this.#perServerBreakers.has(server.name)) {
         this.#perServerBreakers.set(
           server.name,
-          new CircuitBreaker({
-            ...RDAP_PER_SERVER_CIRCUIT_BREAKER,
-            ...this.#perServerCircuitBreakerPolicy,
-          }),
+          this.#buildBreaker(server.name, this.#perServerCircuitBreakerPolicy),
         );
       }
       providers.push(
