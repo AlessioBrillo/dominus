@@ -379,6 +379,12 @@ async function main(): Promise<void> {
         await deps.redisClient.shutdown();
       }
 
+      // Step 5b: Close DNS DoT connection pools (rejects queued queries)
+      if (deps.dnsProvider && typeof deps.dnsProvider.dispose === 'function') {
+        deps.dnsProvider.dispose();
+        logger.info('DNS provider disposed');
+      }
+
       // Step 6: Close the database provider (SqliteProvider or PostgresAdapter).
       // This tears down the connection pool managed by the provider.
       if (deps.provider) {

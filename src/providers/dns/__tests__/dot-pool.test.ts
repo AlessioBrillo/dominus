@@ -310,6 +310,28 @@ describe.runIf(hasOpenSSL)('DotPool (RFC 7766 over real TLS)', () => {
     }
   });
 
+  it('rejects queries past maxQueued with EQUEUEFULL', async () => {
+    // A mute server keeps every outstanding query in flight, so the queue
+    // fills and the third query must fail fast with EQUEUEFULL.
+    const ctx = await startServer(() => {});
+    const pool = makePool(ctx.port, {
+      maxConnections: 1,
+      maxOutstandingPerConnection: 1,
+      maxQueued: 1,
+    });
+    try {
+      const first = pool.query('q1.com', 'A', 2000);
+      const second = pool.query('q2.com', 'A', 2000);
+      await new Promise((r) => setTimeout(r, 50));
+      await expect(pool.query('q3.com', 'A', 2000)).rejects.toMatchObject({ code: 'EQUEUEFULL' });
+      pool.close();
+      await expect(first).rejects.toThrow();
+      await expect(second).rejects.toThrow();
+    } finally {
+      await ctx.close();
+    }
+  });
+
   it('drops responses with an unexpected query ID and stays aligned', async () => {
     let wrong = true;
     const ctx = await startServer((socket, query) => {

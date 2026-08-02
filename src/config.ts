@@ -319,6 +319,14 @@ const configSchema = z.object({
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
     .default(true),
   /**
+   * Max queries buffered in the DoT pool queue while all connections are at
+   * capacity. New queries past this limit fail fast with an EQUEUEFULL error
+   * instead of growing the queue without bound (memory protection during
+   * oversized bulk runs). Default: 4096. Set to 0 for an unbounded queue
+   * (legacy behaviour).
+   */
+  DNS_DOT_POOL_MAX_QUEUED: z.coerce.number().int().min(0).max(1000000).default(4096),
+  /**
    * TTL for persistent DNS cache entries in hours.
    * Default: 168 (7 days). DNS availability is relatively stable but not
    * immutable — domains can be registered or expire at any time. Lower this
