@@ -113,6 +113,18 @@ export interface BuiltRdapProviders {
 }
 
 /**
+ * Decide whether an RDAP result may be persisted in the provider cache.
+ * Only definitive verdicts (available / registered / premium) are stable
+ * enough to cache: transient outcomes (unknown, error) reflect a failure of
+ * the lookups themselves, not of the domain, and caching them for days would
+ * freeze the domain's status. Mirrors the DNS layer's "never persist
+ * unknown" policy.
+ */
+export function isRdapResultCacheable(result: RdapResult): boolean {
+  return result.status !== 'unknown' && result.status !== 'error';
+}
+
+/**
  * Parse the RDAP_BOOTSTRAP_URLS env value into a list of entries. Each entry
  * is either a plain URL string (universal scope) or a {url, tlds} object
  * scoping the server to specific TLDs. Invalid JSON silently degrades to an
@@ -211,6 +223,7 @@ export function buildRdapProviders(
     config.PROVIDER_CACHE_TTL_DAYS ?? 7,
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
+    isRdapResultCacheable,
   );
   const cached: RdapProvider = {
     name: `${withRetryProvider.name}(cache)`,

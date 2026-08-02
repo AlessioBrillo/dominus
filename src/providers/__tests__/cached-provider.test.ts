@@ -187,6 +187,83 @@ describe('CachedProvider', () => {
     expect(fetchFn).toHaveBeenCalledOnce();
   });
 
+  describe('shouldCache predicate', () => {
+    it('does NOT write to memory or DB cache when shouldCache returns false', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({ id: 1, name: 'unknown' } satisfies TestData);
+      const shouldCache = vi.fn().mockReturnValue(false);
+      const provider = CachedProvider.createJson<TestData>(
+        fetchFn,
+        repo,
+        'pred-provider',
+        7,
+        100,
+        300,
+        shouldCache,
+      );
+
+      await provider.get('pred-key');
+
+      expect(shouldCache).toHaveBeenCalledWith({ id: 1, name: 'unknown' });
+      const cached = await repo.get('pred-key', 'pred-provider');
+      expect(cached).toBeNull();
+
+      // Memory cache must also be skipped — a second call re-fetches.
+      await provider.get('pred-key');
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('writes to cache when shouldCache returns true', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({ id: 2, name: 'definitive' } satisfies TestData);
+      const shouldCache = vi.fn().mockReturnValue(true);
+      const provider = CachedProvider.createJson<TestData>(
+        fetchFn,
+        repo,
+        'pred-ok-provider',
+        7,
+        100,
+        300,
+        shouldCache,
+      );
+
+      await provider.get('pred-ok-key');
+
+      expect(shouldCache).toHaveBeenCalledWith({ id: 2, name: 'definitive' });
+      const cached = await repo.get('pred-ok-key', 'pred-ok-provider');
+      expect(cached).not.toBeNull();
+
+      // Memory cache populated — second call is served from memory.
+      await provider.get('pred-ok-key');
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('bypasses legacy DB rows rejected by shouldCache and re-fetches live', async () => {
+      // Seed a row exactly like the pre-fix code would have written
+      // (an Unknown RDAP result persisted with the 7-day TTL).
+      await repo.set(
+        'legacy-unknown-key',
+        'legacy-provider',
+        JSON.stringify({ id: 7, name: 'unknown' } satisfies TestData),
+        7,
+      );
+
+      const fetchFn = vi.fn().mockResolvedValue({ id: 8, name: 'fresh' } satisfies TestData);
+      const provider = CachedProvider.createJson<TestData>(
+        fetchFn,
+        repo,
+        'legacy-provider',
+        7,
+        100,
+        300,
+        (r) => r.name !== 'unknown',
+      );
+
+      const result = await provider.get('legacy-unknown-key');
+
+      expect(result).toEqual({ id: 8, name: 'fresh' });
+      expect(fetchFn).toHaveBeenCalledOnce();
+    });
+  });
+
   it('returns stale cached data when cache is manually overwritten', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ id: 100, name: 'original' } satisfies TestData);
     const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'overwrite', 1);
