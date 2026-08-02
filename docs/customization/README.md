@@ -227,7 +227,7 @@ of the few remaining hardcoded values, chosen deliberately for safety.
 | Env Variable | Default | Purpose |
 |-------------|---------|---------|
 | `DEFAULT_KEYWORD_TLD` | `.com` | TLD appended to bare keywords |
-| `DNS_BULK_CONCURRENCY` | `10` | Concurrent DNS resolution requests |
+| `DNS_BULK_CONCURRENCY` | `200` | Concurrent DNS resolution requests |
 | `WHOIS_LOOKUP_TIMEOUT` | `10000` | WHOIS socket timeout (ms) |
 | `DROP_SCORE_THRESHOLD` | `25` | Score below which drop is considered (0-100) |
 | `DROP_RENEWAL_HORIZON_DAYS` | `60` | Days before renewal for drop evaluation |
