@@ -35,7 +35,6 @@ export function strategyToResolverGroups(
 ): DnsResolverGroup[] {
   switch (strategy) {
     case 'doh-only':
-    case 'doh-primary':
       return [
         {
           name: 'multi-doh',
@@ -43,6 +42,24 @@ export function strategyToResolverGroups(
             type: 'doh' as const,
             endpoint: p.url,
           })),
+        },
+      ];
+    case 'doh-primary':
+      // DoH first, native fallback on timeout/error — the documented
+      // semantics of the default strategy (config DNS_LOOKUP_STRATEGY).
+      // Previously this case fell through to 'doh-only', silently dropping
+      // the native fallback for every default install.
+      return [
+        {
+          name: 'multi-doh',
+          lookups: DEFAULT_DOH_PROVIDERS.map((p) => ({
+            type: 'doh' as const,
+            endpoint: p.url,
+          })),
+        },
+        {
+          name: 'multi-doh-native-fallback',
+          lookups: [{ type: 'native' as const }],
         },
       ];
     case 'multi-doh-plus-native':
