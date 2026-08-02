@@ -4,6 +4,7 @@ import type { RdapResult } from '../../types/domain-status.js';
 import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
 import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
+import { extractTld } from '../../utils/domain.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
@@ -57,17 +58,29 @@ export class PublicRdapProvider implements RdapProvider {
   readonly #baseUrl: string;
   readonly #rateLimiter: RateLimiterLike;
   readonly #timeoutMs: number;
+  /** TLDs this server serves authoritatively. Undefined = all TLDs
+   *  (universal routing servers such as rdap.org). */
+  readonly #servesTlds: Set<string> | undefined;
 
   constructor(
     baseUrl = 'https://rdap.org/domain/',
     name?: string,
     rateLimiter?: RateLimiterLike,
     timeoutMs = DEFAULT_RDAP_TIMEOUT_MS,
+    tlds?: readonly string[],
   ) {
     this.#baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     this.name = name ?? 'PublicRdapProvider';
     this.#rateLimiter = rateLimiter ?? RateLimiter.unlimited();
     this.#timeoutMs = timeoutMs;
+    this.#servesTlds =
+      tlds !== undefined ? new Set(tlds.map((t) => t.toLowerCase().replace(/^\./, ''))) : undefined;
+  }
+
+  /** True when this server can answer authoritatively for the domain's TLD. */
+  servesTld(domain: string): boolean {
+    if (this.#servesTlds === undefined) return true;
+    return this.#servesTlds.has(extractTld(domain).replace(/^\./, ''));
   }
 
   async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
@@ -115,6 +128,19 @@ export class PublicRdapProvider implements RdapProvider {
     }
 
     if (response.status === 404) {
+      // A 404 means "not registered" ONLY when the responding server is
+      // authoritative for the domain's TLD (RFC 7484). A 404 from a
+      // non-authoritative server (e.g. the COM registry asked about a .io
+      // name) carries no information — report Unknown so the failover
+      // keeps racing instead of returning a false "Available".
+      if (!this.servesTld(domain)) {
+        return {
+          domain,
+          status: DomainStatus.Unknown,
+          isPremium: false,
+          checkedAt: new Date().toISOString(),
+        };
+      }
       return {
         domain,
         status: DomainStatus.Available,

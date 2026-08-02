@@ -22,6 +22,33 @@ describe('PublicRdapProvider', () => {
     expect(result.isPremium).toBe(false);
   });
 
+  it('returns Unknown on 404 when the server is not authoritative for the TLD', async () => {
+    // A COM registry asked about a .io domain — the 404 is meaningless.
+    const comOnly = new PublicRdapProvider(
+      'https://rdap.verisign.com/com/v1/domain/',
+      'verisign-com',
+      undefined,
+      undefined,
+      ['com'],
+    );
+    mockFetch.mockResolvedValue({ status: 404, ok: false });
+    const result = await comOnly.confirm('free-domain.io');
+    expect(result.status).toBe(DomainStatus.Unknown);
+  });
+
+  it('returns Available on 404 when the server IS authoritative for the TLD', async () => {
+    const comOnly = new PublicRdapProvider(
+      'https://rdap.verisign.com/com/v1/domain/',
+      'verisign-com',
+      undefined,
+      undefined,
+      ['com'],
+    );
+    mockFetch.mockResolvedValue({ status: 404, ok: false });
+    const result = await comOnly.confirm('free-domain.com');
+    expect(result.status).toBe(DomainStatus.Available);
+  });
+
   it('returns Registered on 200 without premium notice', async () => {
     mockFetch.mockResolvedValue({
       status: 200,

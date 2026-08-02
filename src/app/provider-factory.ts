@@ -19,6 +19,7 @@ import { validateResolverGroups } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { RedisRateLimiter, type RedisClient } from '../providers/redis/index.js';
 import { FailoverRdapProvider } from '../providers/rdap/index.js';
+import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { RdapResult } from '../types/domain-status.js';
 import {
@@ -115,7 +116,11 @@ export function buildRdapProviders(
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
       ? FailoverRdapProvider.fromConfig(rdapBootstrapUrls, rdapRateLimiter)
-      : new FailoverRdapProvider();
+      : FailoverRdapProvider.withDefaults(
+          rdapRateLimiter,
+          undefined,
+          config.RDAP_BOOTSTRAP_URL ? new IanaRdapBootstrap(config.RDAP_BOOTSTRAP_URL) : undefined,
+        );
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, RDAP_CIRCUIT_BREAKER);
 
