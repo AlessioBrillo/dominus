@@ -4,6 +4,7 @@ coverage/
 .git/
 .gitignore
 *.md
+!THIRD-PARTY-NOTICES.md
 .eslintrc*
 .prettierrc*
 vitest.config.ts
