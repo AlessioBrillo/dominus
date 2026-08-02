@@ -160,20 +160,22 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
 }
 
 describe('GET /api/v1/providers/status', () => {
-  it('returns provider statuses for all 6 providers', async () => {
+  it('returns provider statuses for all 9 providers', async () => {
     const app = express();
     app.use('/api/v1/providers', createProvidersRouter(buildConfig()));
     app.use(errorHandler);
 
     const res = await request(app).get('/api/v1/providers/status');
     expect(res.status).toBe(200);
-    expect(res.body.providers).toHaveLength(7);
+    expect(res.body.providers).toHaveLength(9);
     const names = res.body.providers.map((p: { name: string }) => p.name) as string[];
     expect(names).toContain('USPTO');
     expect(names).toContain('EUIPO');
     expect(names).toContain('KeywordPlanner');
     expect(names).toContain('NameBio');
     expect(names).toContain('WHOIS');
+    expect(names).toContain('DNS');
+    expect(names).toContain('RDAP');
     expect(names).toContain('Registrar');
     expect(names).toContain('GoogleAds');
   });
