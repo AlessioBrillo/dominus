@@ -310,6 +310,31 @@ describe.runIf(hasOpenSSL)('DotPool (RFC 7766 over real TLS)', () => {
     }
   });
 
+  it('rejects late queries after close without opening new connections', async () => {
+    const ctx = await startServer(() => {});
+    const pool = makePool(ctx.port, {
+      maxConnections: 1,
+      maxOutstandingPerConnection: 1,
+    });
+    try {
+      // Keep one query in flight so the pool holds its single connection.
+      const inFlight = pool.query('busy.com', 'A', 2000);
+      await new Promise((r) => setTimeout(r, 50));
+      pool.close();
+      await expect(inFlight).rejects.toThrow();
+
+      // A query issued AFTER close() must fail fast and must NOT open a
+      // brand-new TLS connection (the pre-fix pool silently reconnected,
+      // keeping sockets alive past teardown).
+      const late = pool.query('late.com', 'A', 2000);
+      await expect(late).rejects.toMatchObject({ code: 'ECLOSED' });
+      await new Promise((r) => setTimeout(r, 100));
+      expect(ctx.connections.count).toBe(1);
+    } finally {
+      await ctx.close();
+    }
+  });
+
   it('rejects queries past maxQueued with EQUEUEFULL', async () => {
     // A mute server keeps every outstanding query in flight, so the queue
     // fills and the third query must fail fast with EQUEUEFULL.

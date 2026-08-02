@@ -310,17 +310,29 @@ export class DotPool {
   close(): void {
     this.#closed = true;
     for (const conn of [...this.#connections]) {
-      conn.destroy(new Error('DoT pool closed'));
+      conn.destroy(this.#closedError());
     }
     this.#connections.length = 0;
     const queued = this.#queue.splice(0);
     for (const pending of queued) {
-      this.settle(pending, { ok: false, err: new Error('DoT pool closed') });
+      this.settle(pending, { ok: false, err: this.#closedError() });
     }
+  }
+
+  #closedError(): Error {
+    const err = new Error('DoT pool closed');
+    (err as { code?: string }).code = 'ECLOSED';
+    return err;
   }
 
   #enqueue(pending: PendingQuery): void {
     if (pending.settled) return;
+    // A closed pool must reject new work immediately — never silently
+    // reopen a TLS connection during teardown.
+    if (this.#closed) {
+      this.settle(pending, { ok: false, err: this.#closedError() });
+      return;
+    }
     const conn = this.#pickConnection();
     if (conn !== undefined) {
       conn.send(pending);
@@ -336,6 +348,7 @@ export class DotPool {
   }
 
   #pickConnection(): DotPoolConnection | undefined {
+    if (this.#closed) return undefined;
     const usable = this.#connections.find((c) => c.alive && c.capacity > 0);
     if (usable !== undefined) return usable;
     if (this.#connections.length < this.maxConnections) {
