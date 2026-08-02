@@ -54,6 +54,57 @@ jobs:
       - name: Build
         run: npm run build
 
+  docker-smoke:
+    name: Docker runtime smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: api
+          load: true
+          tags: dominus-api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test — native binding + health endpoint
+        env:
+          SMOKE_CONTAINER: dominus-smoke
+        run: |
+          set -euo pipefail
+
+          # 1. The better-sqlite3 native binding must load inside the image.
+          docker run --rm --entrypoint node dominus-api:test \
+            -e "const db = require('better-sqlite3')(':memory:'); db.exec('CREATE TABLE t (a)'); console.log('better-sqlite3 OK')"
+
+          # 2. The API must boot and answer /api/health (unauthenticated).
+          #    DATABASE_PATH points at /tmp so no volume is needed and the
+          #    non-root user can write.
+          docker run --rm -d --name "$SMOKE_CONTAINER" -p 3000:3000 \
+            -e DATABASE_PATH=/tmp/dominus.db dominus-api:test
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
+              echo "healthcheck OK (attempt $i)"
+              docker rm -f "$SMOKE_CONTAINER" >/dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "healthcheck never succeeded" >&2
+          docker logs "$SMOKE_CONTAINER" >&2 || true
+          docker rm -f "$SMOKE_CONTAINER" >/dev/null
+          exit 1
+
   frontend:
     name: Frontend (typecheck, lint, test, build)
     runs-on: ubuntu-latest
