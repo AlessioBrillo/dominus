@@ -174,4 +174,90 @@ describe('AnonScoringService', () => {
 
     expect(spy).toHaveBeenCalledTimes(1);
   });
+
+  describe('valuate()', () => {
+    it('includes suggestedBuyMax when trademark verdict is clear', async () => {
+      const result = await service.valuate('example.com');
+
+      expect(result.score.suggestedBuyMax).toBe(75);
+      expect(result.trademark!.verdict).toBe('clear');
+    });
+
+    it('omits suggestedBuyMax when trademark verdict is unverified', async () => {
+      trademarkGate = createMockTrademarkGate('unverified');
+      service = new AnonScoringService(engine, trademarkGate, 5000);
+
+      const result = await service.valuate('example.com');
+
+      expect(result.trademark!.verdict).toBe('unverified');
+      expect(result.score.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('omits suggestedBuyMax when trademark verdict is blocked', async () => {
+      trademarkGate = createMockTrademarkGate('blocked');
+      service = new AnonScoringService(engine, trademarkGate, 5000);
+
+      const result = await service.valuate('example.com');
+
+      expect(result.trademark!.verdict).toBe('blocked');
+      expect(result.score.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('omits suggestedBuyMax when the trademark gate errors', async () => {
+      trademarkGate = {
+        check: vi.fn().mockRejectedValue(new Error('Network error')),
+      } as unknown as TrademarkGate;
+      service = new AnonScoringService(engine, trademarkGate);
+
+      const result = await service.valuate('example.com');
+
+      expect(result.trademark!.verdict).toBe('unverified');
+      expect(result.score.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('omits suggestedBuyMax when no trademark gate is configured', async () => {
+      service = new AnonScoringService(engine);
+
+      const result = await service.valuate('example.com');
+
+      expect(result.trademark).toBeNull();
+      expect(result.score.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('keeps the remaining score fields intact when buy max is omitted', async () => {
+      trademarkGate = createMockTrademarkGate('unverified');
+      service = new AnonScoringService(engine, trademarkGate, 5000);
+
+      const result = await service.valuate('example.com');
+
+      expect(result.score.expectedValue).toBe(150);
+      expect(result.score.confidence).toBe(0.65);
+      expect(result.score.suggestedListPrice).toBe(300);
+      expect(result.score.weightedScore).toBe(0.55);
+    });
+
+    it('throws DomainValidationError for an invalid domain', async () => {
+      await expect(service.valuate('not-a-domain')).rejects.toThrow(DomainValidationError);
+      await expect(service.valuate('')).rejects.toThrow(DomainValidationError);
+    });
+
+    it('caches results and does not re-score within TTL', async () => {
+      const spy = vi.mocked(engine.score);
+
+      await service.valuate('example.com');
+      await service.valuate('example.com');
+      await service.valuate('example.com');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses a cache separate from score()', async () => {
+      const spy = vi.mocked(engine.score);
+
+      await service.score('example.com');
+      await service.valuate('example.com');
+
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
 });
