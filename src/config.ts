@@ -201,8 +201,8 @@ const configSchema = z.object({
   SCORING_WEIGHTS_OVERRIDE: z.string().optional(),
   /**
    * Maximum number of concurrent DNS resolution requests during bulk checks.
-   * Defaults to 10 to avoid overwhelming the system resolver or triggering
-   * rate-limiting by upstream DNS servers.
+   * Defaults to 200. Lower it (e.g. 10) to avoid overwhelming the system
+   * resolver or triggering rate-limiting by upstream DNS servers.
    */
   DNS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(200),
 
@@ -283,7 +283,7 @@ const configSchema = z.object({
    */
   DNS_PARKING_CHECK_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-    .default(true),
+    .default(false),
   /**
    * Path to a JSON file containing known parking IP ranges for registrar
    * parking page detection. When absent, a built-in default list is used.

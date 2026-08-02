@@ -68,7 +68,7 @@ from the environment (`.env` file or process env).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEFAULT_KEYWORD_TLD` | `.com` | TLD for bare keywords |
-| `DNS_BULK_CONCURRENCY` | `10` | Concurrent DNS checks |
+| `DNS_BULK_CONCURRENCY` | `200` | Concurrent DNS checks |
 | `WHOIS_LOOKUP_TIMEOUT` | `10000` | WHOIS socket timeout (ms) |
 
 ## Portfolio
