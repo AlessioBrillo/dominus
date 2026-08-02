@@ -197,6 +197,96 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('cache disable semantics', () => {
+    it('maxSize 0 disables the in-memory cache — every call does a live lookup', async () => {
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', cacheTtlMs: 60_000, maxSize: 0 });
+
+      await p.checkAvailability('no-cache.com');
+      await p.checkAvailability('no-cache.com');
+      await p.checkAvailability('no-cache.com');
+
+      expect(dnsPromises.resolve).toHaveBeenCalledTimes(3);
+    });
+
+    it('cacheTtlMs 0 keeps the cache enabled without TTL expiry', async () => {
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', cacheTtlMs: 0, maxSize: 100 });
+
+      await p.checkAvailability('no-ttl.com');
+      const result = await p.checkAvailability('no-ttl.com');
+
+      expect(dnsPromises.resolve).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+  });
+
+  describe('Unknown persistence guard', () => {
+    function makeFakePersistentCache(): ProviderCacheRepository {
+      return {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ProviderCacheRepository;
+    }
+
+    it('never persists an Unknown result to the persistent cache', async () => {
+      const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+      const persistentCache = makeFakePersistentCache();
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      const result = await p.checkAvailability('unknown-not-persisted.com');
+
+      expect(result.status).toBe(DomainStatus.Unknown);
+      expect(persistentCache.set).not.toHaveBeenCalled();
+    });
+
+    it('still persists definitive results', async () => {
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      const persistentCache = makeFakePersistentCache();
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      await p.checkAvailability('definitive-persisted.com');
+
+      expect(persistentCache.set).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-checks live a stale Unknown row from the persistent cache', async () => {
+      const persistentCache = makeFakePersistentCache();
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'stale-unknown.com',
+          status: DomainStatus.Unknown,
+          checkedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+        }),
+      );
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      const result = await p.checkAvailability('stale-unknown.com');
+
+      expect(dnsPromises.resolve).toHaveBeenCalled();
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+
+    it('serves a fresh Unknown row from the persistent cache without a live lookup', async () => {
+      const persistentCache = makeFakePersistentCache();
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'fresh-unknown.com',
+          status: DomainStatus.Unknown,
+          checkedAt: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      );
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      const result = await p.checkAvailability('fresh-unknown.com');
+
+      expect(dnsPromises.resolve).not.toHaveBeenCalled();
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+  });
+
   it('checkBulk returns results for all domains', async () => {
     vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
     const results = await provider.checkBulk(['a.com', 'b.com', 'c.com']);

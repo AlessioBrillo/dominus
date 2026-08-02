@@ -297,6 +297,7 @@ const configSchema = z.object({
    * DNS records for domain availability are relatively stable (hours to days).
    * Default: 300 seconds (5 minutes). Increase to reduce redundant lookups
    * across pipeline batches; decrease to detect recent registrations faster.
+   * Set to 0 to disable TTL expiry — entries then live until LRU eviction.
    */
   DNS_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).max(86400).default(300),
   /**
@@ -323,6 +324,9 @@ const configSchema = z.object({
    * immutable — domains can be registered or expire at any time. Lower this
    * to detect recent registrations faster at the cost of more redundant
    * lookups across pipeline restarts.
+   * Unknown results are never persisted (transient resolver failures are
+   * re-checked live; persistent rows older than 15 minutes are treated as
+   * misses).
    */
   DNS_PERSISTENT_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
   /**

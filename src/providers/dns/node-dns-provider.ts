@@ -17,6 +17,13 @@ export { buildDnsQuery, validateDnsResponse } from './dot-pool.js';
 
 const logger = getLogger();
 
+/**
+ * Persistent-cache Unknown rows older than this are treated as misses and
+ * re-checked live. Keeps transient failures from being frozen for the full
+ * persistent TTL (7 days by default).
+ */
+const STALE_UNKNOWN_WINDOW_MS = 15 * 60_000;
+
 type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
 
 export type DnsLookupStrategy =
@@ -378,6 +385,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #persistentCacheTtlHours: number;
   readonly #nameservers: string[] | undefined;
   readonly #useDedicatedResolver: boolean;
+  /** True when maxSize <= 0 — the in-memory cache is fully disabled. */
+  readonly #cacheDisabled: boolean;
   readonly #cache: LRUCache<string, DnsCheckResult>;
   /** Pending in-flight lookups keyed by domain to prevent cache stampede. */
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
@@ -420,14 +429,19 @@ export class NodeDnsProvider implements DnsProvider {
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
 
-    const ttlMs = this.#cacheTtlMs > 0 ? this.#cacheTtlMs : 300_000;
-    this.#cache = new LRUCache<string, DnsCheckResult>({
-      max: this.#maxSize > 0 ? this.#maxSize : 10_000,
-      ttl: ttlMs,
+    // maxSize <= 0 disables the in-memory cache entirely (DNS_CACHE_MAX_SIZE=0);
+    // cacheTtlMs <= 0 disables TTL expiry, keeping LRU eviction only
+    // (DNS_CACHE_TTL_SECONDS=0). Previously both were silently mapped back
+    // to their defaults, so the documented disable semantics never worked.
+    this.#cacheDisabled = this.#maxSize <= 0;
+    const cacheOptions: LRUCache.Options<string, DnsCheckResult, unknown> = {
+      max: this.#cacheDisabled ? 1 : this.#maxSize,
       noUpdateTTL: false,
       allowStale: false,
       perf: { now: (): number => Date.now() },
-    });
+    };
+    if (this.#cacheTtlMs > 0) cacheOptions.ttl = this.#cacheTtlMs;
+    this.#cache = new LRUCache<string, DnsCheckResult>(cacheOptions);
   }
 
   #getResolver(): Resolver | undefined {
@@ -465,6 +479,7 @@ export class NodeDnsProvider implements DnsProvider {
   }
 
   pruneCache(): number {
+    if (this.#cacheDisabled) return 0;
     const before = this.#cache.size;
     this.#cache.purgeStale();
     const after = this.#cache.size;
@@ -472,7 +487,7 @@ export class NodeDnsProvider implements DnsProvider {
   }
 
   clearCache(): void {
-    this.#cache.clear();
+    if (!this.#cacheDisabled) this.#cache.clear();
   }
 
   async checkAvailability(
@@ -483,8 +498,10 @@ export class NodeDnsProvider implements DnsProvider {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
     // 1. Memory cache (fastest) — used for within-run dedup even with forceRecheck
-    const memCached = this.#cache.get(domain);
-    if (memCached !== undefined) return memCached;
+    if (!this.#cacheDisabled) {
+      const memCached = this.#cache.get(domain);
+      if (memCached !== undefined) return memCached;
+    }
 
     // 2. Persistent cache (DB-backed, survives restarts)
     //    Skip when forceRecheck is true: closeout domains may have changed
@@ -495,8 +512,16 @@ export class NodeDnsProvider implements DnsProvider {
         try {
           const parsed: DnsCheckResult = JSON.parse(raw) as DnsCheckResult;
           if (parsed.status !== undefined && parsed.checkedAt !== undefined) {
-            this.#cache.set(domain, parsed);
-            return parsed;
+            // A transient failure must not be frozen for the full persistent
+            // TTL: Unknown rows older than a short window are re-checked
+            // live instead of served (legacy rows from before this guard).
+            const staleUnknown =
+              parsed.status === DomainStatus.Unknown &&
+              Date.now() - Date.parse(parsed.checkedAt) > STALE_UNKNOWN_WINDOW_MS;
+            if (!staleUnknown) {
+              if (!this.#cacheDisabled) this.#cache.set(domain, parsed);
+              return parsed;
+            }
           }
         } catch {
           // Corrupted cache row — fall through to live lookup
@@ -571,10 +596,16 @@ export class NodeDnsProvider implements DnsProvider {
     }
   }
 
-  /** Write to both in-memory and persistent caches (persistent is non-fatal). */
+  /**
+   * Write to both in-memory and persistent caches (persistent is non-fatal).
+   * Unknown results are never persisted: they usually mean a transient
+   * resolver failure, and freezing them for the full persistent TTL would
+   * block the domain for days. They stay in the in-memory cache only, for
+   * within-run deduplication.
+   */
   #setCaches(domain: string, result: DnsCheckResult): void {
-    this.#cache.set(domain, result);
-    if (this.#persistentCache !== undefined) {
+    if (!this.#cacheDisabled) this.#cache.set(domain, result);
+    if (this.#persistentCache !== undefined && result.status !== DomainStatus.Unknown) {
       const ttlDays = this.#persistentCacheTtlHours / 24;
       this.#persistentCache.set(domain, this.name, JSON.stringify(result), ttlDays).catch(() => {
         /* Non-fatal: in-memory cache still works */
