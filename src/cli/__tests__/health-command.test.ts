@@ -227,7 +227,7 @@ describe('health command', () => {
     expect(parsed).toHaveProperty('uptime');
     expect(parsed).toHaveProperty('database', 'connected');
     expect(parsed).toHaveProperty('providers');
-    expect(parsed.providers).toHaveLength(7);
+    expect(parsed.providers).toHaveLength(9);
   });
 
   it('includes provider configured status in JSON output', async () => {

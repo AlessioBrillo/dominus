@@ -250,9 +250,27 @@ describe('reportProviderStatuses', () => {
     expect(reg?.note).toContain('non-manual');
   });
 
-  it('reports 7 provider status rows', () => {
+  it('always reports DNS as configured (Node built-in resolver)', () => {
+    // Act
     const rows = reportProviderStatuses(buildConfig());
-    expect(rows).toHaveLength(7);
+
+    // Assert
+    const dns = rows.find((r) => r.name === 'DNS');
+    expect(dns?.configured).toBe(true);
+  });
+
+  it('always reports RDAP as configured (public bootstrap)', () => {
+    // Act
+    const rows = reportProviderStatuses(buildConfig());
+
+    // Assert
+    const rdap = rows.find((r) => r.name === 'RDAP');
+    expect(rdap?.configured).toBe(true);
+  });
+
+  it('reports 9 provider status rows', () => {
+    const rows = reportProviderStatuses(buildConfig());
+    expect(rows).toHaveLength(9);
   });
 });
 
@@ -311,6 +329,8 @@ describe('CLI: dominus providers', () => {
     expect(out).toContain('KeywordPlanner');
     expect(out).toContain('NameBio');
     expect(out).toContain('WHOIS');
+    expect(out).toContain('DNS');
+    expect(out).toContain('RDAP');
     expect(out).toContain('Registrar');
   });
 
@@ -327,7 +347,7 @@ describe('CLI: dominus providers', () => {
 
     // Assert
     const parsed = JSON.parse(out) as ProviderRow[];
-    expect(parsed).toHaveLength(7);
+    expect(parsed).toHaveLength(9);
     const euipo = parsed.find((r) => r.name === 'EUIPO');
     expect(euipo?.configured).toBe(true);
     const reg = parsed.find((r) => r.name === 'Registrar');
