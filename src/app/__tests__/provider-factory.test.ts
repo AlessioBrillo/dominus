@@ -3,12 +3,14 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   buildDnsConsensusConfig,
   buildRdapCircuitBreakers,
+  isRdapResultCacheable,
   parseRdapBootstrapUrls,
 } from '../provider-factory.js';
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
 import { CircuitBreaker } from '../../providers/circuit-breaker.js';
 import { DistributedCircuitBreaker, type RedisClient } from '../../providers/redis/index.js';
+import { DomainStatus } from '../../types/domain-status.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -281,4 +283,36 @@ describe('buildRdapCircuitBreakers', () => {
     const breaker = perServer('rdap.org', {}) as DistributedCircuitBreaker;
     expect(breaker.cooldownMs).toBe(60_000);
   });
+});
+
+// Regression: the DNS layer refuses to persist Unknown results
+// (node-dns-provider "never persist unknown"), but the RDAP cached layer
+// persisted everything unconditionally — a transient registry failure would
+// freeze a domain's status for the full PROVIDER_CACHE_TTL_DAYS. This locks
+// the predicate decision at the factory boundary: Unknown/Error results must
+// never reach the provider_cache table; only definitive verdicts may be
+// cached.
+describe('isRdapResultCacheable', () => {
+  const definitive: DomainStatus[] = [
+    DomainStatus.Available,
+    DomainStatus.Registered,
+    DomainStatus.Premium,
+  ];
+  const transient: DomainStatus[] = [DomainStatus.Unknown, DomainStatus.Error];
+
+  for (const status of definitive) {
+    it(`returns true for ${status} results`, () => {
+      expect(
+        isRdapResultCacheable({ domain: 'example.com', status, isPremium: false, checkedAt: '' }),
+      ).toBe(true);
+    });
+  }
+
+  for (const status of transient) {
+    it(`returns false for ${status} results`, () => {
+      expect(
+        isRdapResultCacheable({ domain: 'example.com', status, isPremium: false, checkedAt: '' }),
+      ).toBe(false);
+    });
+  }
 });
