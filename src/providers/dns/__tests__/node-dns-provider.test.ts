@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeDnsProvider, buildDnsQuery, validateDnsResponse } from '../node-dns-provider.js';
+import { strategyToResolverGroups } from '../dns-provider.js';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
@@ -307,6 +308,58 @@ describe('NodeDnsProvider', () => {
     const result = await p.checkAvailability('active-site.com');
     expect(result.status).toBe(DomainStatus.Registered);
     expect(result.isParked).toBeUndefined();
+  });
+
+  describe('doh-primary strategy', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('produces a multi-DoH group with a native fallback group', () => {
+      const groups = strategyToResolverGroups(
+        'doh-primary',
+        'https://cloudflare-dns.com/dns-query',
+      );
+      expect(groups).toHaveLength(2);
+      expect(groups[0]?.name).toBe('multi-doh');
+      expect(groups[0]?.lookups.every((l) => l.type === 'doh')).toBe(true);
+      expect(groups[1]?.name).toBe('multi-doh-native-fallback');
+      expect(groups[1]?.lookups.map((l) => l.type)).toEqual(['native']);
+    });
+
+    it('falls back to the native resolver when every DoH lookup fails', async () => {
+      // Regression: 'doh-primary' was silently identical to 'doh-only',
+      // so a DoH outage produced Unknown even when the system resolver
+      // could answer — the default install never had a native fallback.
+      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('DoH network error'));
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('fallback-works.com');
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+
+    it('does not consult native when DoH is definitive (NXDOMAIN)', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ Status: 3 }),
+      } as Response);
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('definitive-nxdomain.com');
+      expect(result.status).toBe(DomainStatus.Available);
+      expect(dnsPromises.resolve).not.toHaveBeenCalled();
+    });
+
+    it('returns Unknown when DoH fails and native cannot confirm', async () => {
+      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('DoH network error'));
+      const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('both-fail.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
   });
 
   describe('doh-only strategy', () => {
