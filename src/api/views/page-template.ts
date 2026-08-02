@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export const BASE_CSS_HREF = '/public/static/assets/public-score.css';
 export const COMPARE_CSS_HREF = '/public/static/assets/public-compare.css';
 export const ERROR_CSS_HREF = '/public/static/assets/public-error.css';

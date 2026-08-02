@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { Command } from 'commander';
@@ -20,9 +21,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_AUTH_URL: 'https://euipo.europa.eu/oauth2/token',
     EUIPO_API_URL: 'https://api.euipo.europa.eu/api',
     TM_CACHE_TTL_DAYS: 7,
-    KEYWORD_DATA_PATH: './data/keywords.json',
+    KEYWORD_DATA_PATH: './examples/keywords-sample.json',
     KEYWORD_PROVIDER: 'manual',
-    COMPS_DATA_PATH: './data/comps.csv',
+    COMPS_DATA_PATH: './examples/comps-sample.csv',
     COMPS_PROVIDER: 'manual',
     DNS_BULK_CONCURRENCY: 10,
     DNS_LOOKUP_TIMEOUT_MS: 3000,

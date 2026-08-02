@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Config } from '../../config.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';

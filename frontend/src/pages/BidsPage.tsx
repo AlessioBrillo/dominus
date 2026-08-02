@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useBidsList, usePlaceBid, useResolveBid } from '@/hooks/useBids';

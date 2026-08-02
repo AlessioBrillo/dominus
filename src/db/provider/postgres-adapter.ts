@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { exec as execCb } from 'node:child_process';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { promisify } from 'node:util';

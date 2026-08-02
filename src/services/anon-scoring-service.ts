@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { randomUUID } from 'node:crypto';
 import type { ScoringEngine } from '../scoring/index.js';
 import type { ScoreResult } from '../types/score.js';

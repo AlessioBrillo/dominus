@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import type { DatabaseProvider } from '../db/provider/interface.js';

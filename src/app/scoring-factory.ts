@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Config } from '../config.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';

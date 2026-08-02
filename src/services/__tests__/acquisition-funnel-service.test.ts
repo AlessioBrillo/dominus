@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AcquisitionFunnelService } from '../acquisition-funnel-service.js';
 import type { FunnelConfig } from '../../types/acquisition-funnel.js';

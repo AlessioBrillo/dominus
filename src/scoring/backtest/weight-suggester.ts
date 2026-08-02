@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { ScoringWeights } from '../weights.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AcquisitionService } from '../acquisition-service.js';
 import { BidStatus, type Bid, type PlaceBidInput } from '../../types/acquisition.js';

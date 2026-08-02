@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { randomBytes } from 'node:crypto';
 import { connect as tlsConnect, type ConnectionOptions } from 'node:tls';
 import { promises as dnsPromises, Resolver } from 'node:dns';

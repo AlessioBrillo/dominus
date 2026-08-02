@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Config } from '../config.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';

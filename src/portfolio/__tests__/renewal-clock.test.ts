@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import { computeRenewalClock, isRenewalImminent } from '../renewal-clock.js';
 import { Verdict } from '../../types/portfolio.js';

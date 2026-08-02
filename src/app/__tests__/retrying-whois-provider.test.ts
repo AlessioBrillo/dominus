@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { RetryingWhoisProvider } from '../retrying-whois-provider.js';
 import { CircuitOpenError } from '../../providers/retry-policy.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { existsSync, readFileSync } from 'node:fs';
 
 export function loadJsonOverride<T>(

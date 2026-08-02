@@ -235,6 +235,24 @@ DOMINUS v0.4.0-dev — transitioning to open-source SaaS architecture. All five 
 
 ## License
 
-[AGPL v3](LICENSE) — © 2026 AlessioBrillo. Use freely, fork openly, build anything.
+**AGPL v3 only** — © 2026 AlessioBrillo. DOMINUS Community is free and
+open-source software: you may use, study, share, and modify it, and you may
+offer modified versions as a network service **provided you publish your
+modifications** under the same license (AGPL §13). See [LICENSE](LICENSE).
 
-Commercial licenses are available for organizations that require proprietary embedding.
+Commercial licenses are available for organizations that require proprietary
+embedding or proprietary SaaS without AGPL obligations. See
+[COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
+
+Third-party dependencies and bundled data licenses are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Dependency licenses are
+enforced in CI (`license:check`).
+
+### Trademark
+
+"DOMINUS" is a trademark of AlessioBrillo. The AGPL license grants you the
+right to copy, modify, and distribute the code — it does **not** grant you
+the right to use the DOMINUS name or logo to promote your fork or a
+competing service. Forks and derived services must use a different name and
+must not imply affiliation with or endorsement by the DOMINUS project.
+Proceed with your own fork and your own brand.

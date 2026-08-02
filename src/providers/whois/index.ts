@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export type { WhoisProvider, WhoisResult } from './whois-provider.js';
 export {
   NodeWhoisProvider,

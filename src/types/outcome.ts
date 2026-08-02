@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /**
  * Real-world events that close the loop between the scoring engine's
  * predictions and the operator's actual portfolio outcomes.

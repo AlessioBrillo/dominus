@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type http from 'node:http';
 import type { IncomingMessage, ClientRequest } from 'node:http';
 

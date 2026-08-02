@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Request, Response, NextFunction } from 'express';
 import { UsageMeterService } from '../../services/usage-meter-service.js';
 import type { UsageFeature } from '../../types/usage.js';

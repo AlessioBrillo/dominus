@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
@@ -25,9 +26,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     SCORING_RECOMMEND_THRESHOLD: 0.4,
     DROP_SCORE_THRESHOLD: 25,
     DROP_RENEWAL_HORIZON_DAYS: 60,
-    KEYWORD_DATA_PATH: './data/keywords.json',
+    KEYWORD_DATA_PATH: './examples/keywords-sample.json',
     KEYWORD_PROVIDER: 'manual',
-    COMPS_DATA_PATH: './data/comps.csv',
+    COMPS_DATA_PATH: './examples/comps-sample.csv',
     COMPS_PROVIDER: 'manual',
     USPTO_SEARCH_URL: 'https://tmsearch.uspto.gov/tmsearch',
     EUIPO_CLIENT_ID: undefined,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { registerScoreCommand } from '../commands/score-command.js';

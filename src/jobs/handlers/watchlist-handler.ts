@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { WatchlistService } from '../../watchlist/watchlist-service.js';
 import type {
   WatchlistPollPayload,

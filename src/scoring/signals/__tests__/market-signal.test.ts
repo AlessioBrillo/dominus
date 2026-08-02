@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, assert } from 'vitest';
 import { computeMarketScore } from '../market-signal.js';
 import type { CompsProvider } from '../../../providers/comps/comps-provider.js';

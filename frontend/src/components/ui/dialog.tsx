@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { forwardRef } from 'react';
 import type { ComponentPropsWithoutRef, ElementRef, HTMLAttributes } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';

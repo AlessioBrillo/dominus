@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 const STORAGE_KEY = 'dominus_api_key';
 const BASE_URL = '/api/v1';
 

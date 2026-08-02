@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { bench, describe, vi } from 'vitest';
 import { NodeDnsProvider } from '../providers/dns/node-dns-provider.js';
 

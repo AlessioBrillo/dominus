@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CdxWaybackProvider } from '../cdx-provider.js';
 import { ProviderError } from '../../../types/errors.js';

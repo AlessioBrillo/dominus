@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export enum AlertType {
   RenewalImminent = 'renewal_imminent',
   RenewalCritical = 'renewal_critical',

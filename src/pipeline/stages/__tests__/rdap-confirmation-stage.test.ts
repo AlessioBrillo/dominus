@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RdapConfirmationStage } from '../rdap-confirmation-stage.js';
 import { DomainStatus } from '../../../types/domain-status.js';

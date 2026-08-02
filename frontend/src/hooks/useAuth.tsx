@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { getStoredApiKey, clearApiKey, setOnUnauthorized } from '@/api/client';
 import { verifyAndStoreKey } from '@/api/auth';

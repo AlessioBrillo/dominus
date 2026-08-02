@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { CompositeAuthProvider } from '../composite-auth-provider.js';
 import { DbApiKeyProvider } from '../db-api-key-provider.js';

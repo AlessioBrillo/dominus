@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /**
  * @deprecated Import from `./domain.js` instead.
  *

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { JobWorker, type WorkerConfig } from './worker.js';
 export { HANDLERS, registerHandler, getHandler, getAllHandlers } from './handlers/index.js';
 export {

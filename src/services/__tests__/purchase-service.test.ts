@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { PurchaseService, AutoApprovalPolicy } from '../purchase-service.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ScoreResult } from '../types/score.js';
 import type { Listing } from '../types/listing.js';
 

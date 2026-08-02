@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ConsoleNotifier } from '../console-notifier.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';

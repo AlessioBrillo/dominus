@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnonScoringService, DomainValidationError } from '../anon-scoring-service.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';

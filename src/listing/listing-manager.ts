@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ListingProvider } from '../providers/listing/listing-provider.js';
 import type { ListingRepository } from '../db/repositories/listing-repository.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';

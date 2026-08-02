@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { JobQueueRow, JobQueueStats, DeadLetterJobRow } from '../../types/job-queue.js';

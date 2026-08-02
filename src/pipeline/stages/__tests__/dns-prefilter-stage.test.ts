@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { DnsPreFilterStage } from '../dns-prefilter-stage.js';
 import type { DnsProvider } from '../../../providers/dns/dns-provider.js';

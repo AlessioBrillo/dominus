@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
 import { BidStatus, type Bid, type PlaceBidInput } from '../../types/acquisition.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';

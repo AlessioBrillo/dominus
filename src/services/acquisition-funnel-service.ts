@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { FunnelConfig, FunnelEntry, FunnelResult } from '../types/acquisition-funnel.js';
 import type { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';

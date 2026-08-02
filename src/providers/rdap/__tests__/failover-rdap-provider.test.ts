@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { FailoverRdapProvider } from '../failover-rdap-provider.js';
 import type { RdapProvider } from '../rdap-provider.js';

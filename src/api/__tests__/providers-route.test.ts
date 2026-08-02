@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -65,9 +66,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     CORS_ORIGIN: '*',
     RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
     RATE_LIMIT_MAX: 100,
-    KEYWORD_DATA_PATH: './data/keywords.json',
+    KEYWORD_DATA_PATH: './examples/keywords-sample.json',
     KEYWORD_PROVIDER: 'manual',
-    COMPS_DATA_PATH: './data/comps.csv',
+    COMPS_DATA_PATH: './examples/comps-sample.csv',
     COMPS_PROVIDER: 'manual',
     EUIPO_CLIENT_ID: undefined,
     EUIPO_CLIENT_SECRET: undefined,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { JobQueueRepository } from '../db/repositories/job-queue-repository.js';
 import type {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeDnsProvider, buildDnsQuery, validateDnsResponse } from '../node-dns-provider.js';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';

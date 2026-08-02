@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { WeightTunePayload, WeightTuneResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /**
  * Configurable retry policy for provider-level retry decorators.
  *

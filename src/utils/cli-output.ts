@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import process from 'node:process';
 
 export function die(message: string): never {

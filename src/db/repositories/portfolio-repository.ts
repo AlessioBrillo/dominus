@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { PortfolioEntry, AddPortfolioEntryInput, Verdict } from '../../types/portfolio.js';
 import { DuplicateDomainError, DomainNotFoundError } from '../../types/errors.js';

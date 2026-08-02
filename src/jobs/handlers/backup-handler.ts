@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { BackupService } from '../../scheduler/backup-service.js';
 import type { BackupPayload, BackupResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';

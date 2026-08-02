@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { AuthProvider, AuthResult, KeyManager } from './auth-provider.js';
 
 /**

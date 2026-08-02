@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createOutcome, type CreateOutcomeInput } from '@/api/outcomes';
 import { queryKeys } from './query-keys';

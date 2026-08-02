@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { existsSync, readFileSync } from 'node:fs';
 import { isIPv4, isIPv6 } from 'node:net';
 

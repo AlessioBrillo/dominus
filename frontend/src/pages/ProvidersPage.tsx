@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { useProviderStatuses } from '@/hooks/useProviders';
 import { PageHeader } from '@/components/PageHeader';

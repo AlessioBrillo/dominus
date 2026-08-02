@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export function toBatches<T>(items: T[], size: number): T[][] {
   const batches: T[][] = [];
   for (let i = 0; i < items.length; i += size) {

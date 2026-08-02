@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import { computeIntrinsicScore } from '../intrinsic-signal.js';
 import type { ScoringInput } from '../../../types/score.js';

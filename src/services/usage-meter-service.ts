@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { UsageFeature, UsageForPeriod, PlanLimit, SubscriptionPlan } from '../types/usage.js';

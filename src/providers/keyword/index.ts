@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { ProviderError } from '../../types/errors.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { KeywordMetrics, KeywordProvider } from './keyword-provider.js';

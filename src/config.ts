@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import 'dotenv/config';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
@@ -33,12 +34,12 @@ const configSchema = z.object({
   DEFAULT_RENEWAL_COST_EUR: z.coerce.number().min(0).max(10_000).default(10),
   /**
    * Path to a JSON file with keyword metrics (search volume, CPC, competition).
-   * Defaults to bundled seed data at data/keywords.json.
+   * Defaults to the bundled synthetic sample at examples/keywords-sample.json.
    * Format: array of { term, monthlySearchVolume, cpc, competition }.
    * When absent or pointing to a non-existent file, ManualKeywordProvider
    * returns zero-volume for all terms.
    */
-  KEYWORD_DATA_PATH: z.string().default('./data/keywords.json'),
+  KEYWORD_DATA_PATH: z.string().default('./examples/keywords-sample.json'),
   /**
    * Keyword provider implementation to use.
    * Supported values: 'manual' (reads from KEYWORD_DATA_PATH JSON file).
@@ -78,11 +79,11 @@ const configSchema = z.object({
   /**
    * Path to a CSV file of comparable domain sales.
    * Columns: domain,price,date,venue
-   * Defaults to bundled seed data at data/comps.csv.
+   * Defaults to the bundled synthetic sample at examples/comps-sample.csv.
    * When absent or pointing to a non-existent file, ManualCompsProvider
    * returns no comparables.
    */
-  COMPS_DATA_PATH: z.string().default('./data/comps.csv'),
+  COMPS_DATA_PATH: z.string().default('./examples/comps-sample.csv'),
   /**
    * API key for the NameBio API (namebio.com/api).
    * When absent, NameBioProvider returns zero comparable sales (graceful degrade).

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { extractSld } from '../utils/domain.js';
 
 export interface MatchCandidate {

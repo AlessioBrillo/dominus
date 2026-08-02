@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Redis } from 'ioredis';
 import type { RedisClient } from './redis-client.js';
 import { getRedisClient } from './redis-client.js';

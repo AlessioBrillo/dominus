@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { ProviderError } from '../../types/errors.js';
 import { RateLimiter, type RateLimiterLike } from '../rate-limiter.js';
 import type { WaybackProvider, WaybackResult } from './wayback-provider.js';

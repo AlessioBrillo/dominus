@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DnsProvider } from './dns-provider.js';
 import { getLogger } from '../../logger.js';
 

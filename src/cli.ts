@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-only
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
 import { createCli } from './cli/index.js';

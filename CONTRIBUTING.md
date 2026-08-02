@@ -14,8 +14,11 @@ relicense contributions under both AGPL v3 and commercial terms. This is
 standard practice for open-source projects with dual-licensing models
 (see [ADR-0025](docs/adr/0025-license-change-agpl-commercial.md)).
 
-The CLA is available in [`CLA.md`](CLA.md) (or will be provided as part of
-the PR process).
+The CLA is available in [`CLA.md`](CLA.md). Signing is enforced by the
+`cla.yml` CI workflow: add your GitHub username to the `## CLA Signers`
+section of [`CONTRIBUTORS.md`](CONTRIBUTORS.md) (via a pull request) or
+follow the submission methods in CLA.md §7. Pull requests from external
+contributors without a signed CLA are blocked.
 
 ## Development Setup
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import { buildNotifiers } from '../notifier-router.js';
 import { ConsoleNotifier } from '../console-notifier.js';
@@ -17,9 +18,9 @@ const baseConfig: Config = {
   SCORING_RECOMMEND_THRESHOLD: 0.4,
   DROP_SCORE_THRESHOLD: 25,
   DROP_RENEWAL_HORIZON_DAYS: 60,
-  KEYWORD_DATA_PATH: './data/keywords.json',
+  KEYWORD_DATA_PATH: './examples/keywords-sample.json',
   KEYWORD_PROVIDER: 'manual',
-  COMPS_DATA_PATH: './data/comps.csv',
+  COMPS_DATA_PATH: './examples/comps-sample.csv',
   COMPS_PROVIDER: 'manual',
   USPTO_SEARCH_URL: 'https://tmsearch.uspto.gov/tmsearch',
   EUIPO_CLIENT_ID: undefined,

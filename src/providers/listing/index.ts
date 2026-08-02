@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ListingProvider } from './listing-provider.js';
 import { ManualListingProvider } from './manual-listing-provider.js';
 import { DanListingProvider } from './dan-listing-provider.js';

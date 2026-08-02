@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { ConsoleNotifier } from './console-notifier.js';
 export { DesktopNotifier } from './desktop-notifier.js';
 export { WebhookNotifier } from './webhook-notifier.js';

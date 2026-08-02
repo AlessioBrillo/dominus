@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, existsSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';

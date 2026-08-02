@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';

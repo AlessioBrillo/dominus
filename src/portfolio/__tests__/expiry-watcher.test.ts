@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ExpiryWatcher, ExpiryWindow } from '../expiry-watcher.js';
 import type { DomainExpiryInfo } from '../expiry-watcher.js';

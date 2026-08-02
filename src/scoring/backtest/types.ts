@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ConfidenceBucket } from '../../db/repositories/backtest-signals-repository.js';
 
 export { type ConfidenceBucket } from '../../db/repositories/backtest-signals-repository.js';

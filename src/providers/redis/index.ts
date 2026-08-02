@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { RedisClient, getRedisClient, resetRedisClient } from './redis-client.js';
 export type { RedisClientConfig, RedisHealth as _RedisHealth } from './redis-client.js';
 export { RedisRateLimiter } from './redis-rate-limiter.js';

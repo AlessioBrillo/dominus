@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { Outcome, RecordOutcomeInput, OutcomeType } from '../../types/outcome.js';
 import { isOutcomeType } from '../../types/outcome.js';

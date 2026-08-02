@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import { detectMatch, extractSld } from '../match-detector.js';
 import type { MatchCandidate } from '../match-detector.js';

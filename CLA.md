@@ -49,7 +49,7 @@ or by combination of Your Contribution(s) with the Work.
 
 You acknowledge that the Work is distributed under a dual-licensing model:
 
-1. **Open Source License**: AGPL v3 (or any later version)
+1. **Open Source License**: AGPL v3 only (no later versions)
 2. **Commercial License**: Separate proprietary terms for organizations that
    require non-AGPL licensing
 
@@ -88,11 +88,21 @@ GitHub Username: ___________________
 Date: ______________________________
 ```
 
+### Enforcement
+
+A pull request from a first-time contributor is **blocked** until a signed
+CLA is on file. The `cla.yml` workflow checks the public signer registry in
+`CONTRIBUTORS.md`; contributions without a matching entry fail CI.
+
 Please submit the signed CLA by one of these methods:
 
-1. Open a pull request adding your name to the project's CONTRIBUTORS file
+1. Open a pull request adding your name to the project's `CONTRIBUTORS.md`
+   (the `cla.yml` workflow registers the signature)
 2. Email a scanned copy to the project maintainer (see MAINTAINERS.md)
 3. Include the signed text in a comment on your first pull request
+
+The signed CLA records are kept by the maintainer; the `CONTRIBUTORS.md`
+registry is the public record of who has agreed to these terms.
 
 ---
 

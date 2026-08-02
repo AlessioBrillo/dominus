@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { DominusError } from './errors.js';
 
 export class PurchaseError extends DominusError {

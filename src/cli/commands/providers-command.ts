@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { Config } from '../../config.js';
 import { reportProviderStatuses, type ProviderStatus } from '../../app/provider-status.js';

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
@@ -465,8 +466,8 @@ describe('Dependency Injection Ã¢â‚¬â€ composition-root wiring', () =
       NAMEBIO_API_KEY: undefined,
       SCORING_INTRINSIC_QUALITY_INFLUENCE: 0.12,
       FILE_REGISTRAR_CONFIG: undefined,
-      KEYWORD_DATA_PATH: './data/keywords.json',
-      COMPS_DATA_PATH: './data/comps.csv',
+      KEYWORD_DATA_PATH: './examples/keywords-sample.json',
+      COMPS_DATA_PATH: './examples/comps-sample.csv',
       GOOGLE_ADS_CLIENT_ID: undefined,
       GOOGLE_ADS_CLIENT_SECRET: undefined,
       GOOGLE_ADS_REFRESH_TOKEN: undefined,

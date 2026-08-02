@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Config } from '../config.js';
 import type { ProviderCacheRepository } from '../db/index.js';
 import {

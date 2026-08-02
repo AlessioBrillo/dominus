@@ -1,0 +1,58 @@
+name: CLA
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  cla-check:
+    name: Contributor License Agreement
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.pull_request.user.login;
+            const association = context.payload.pull_request.author_association;
+
+            // Maintainers, collaborators and automation (dependabot) are
+            // exempt: the maintainer owns the project, automation is not a
+            // copyright holder. Everyone else must sign the CLA first.
+            const exempt = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            if (exempt.includes(association)) {
+              core.notice(`${author} (${association}) is exempt from the CLA check`);
+              return;
+            }
+
+            let content = '';
+            try {
+              const res = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: 'CONTRIBUTORS.md',
+              });
+              content = Buffer.from(res.data.content, 'base64').toString('utf8');
+            } catch {
+              core.setFailed(
+                'CONTRIBUTORS.md is missing from the default branch — cannot verify CLA signature',
+              );
+              return;
+            }
+
+            const signers = content.split('## CLA Signers')[1] ?? '';
+            if (signers.includes(`- \`${author}\``)) {
+              core.notice(`CLA signature on file for ${author}`);
+            } else {
+              core.setFailed(
+                `No signed CLA on file for @${author}. ` +
+                  'Please read CLA.md and submit your signature (add your GitHub ' +
+                  'username to CONTRIBUTORS.md via a pull request or contact the ' +
+                  'maintainer). Pull requests from external contributors are ' +
+                  'blocked until the CLA is signed.',
+              );
+            }

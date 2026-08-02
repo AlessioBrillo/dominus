@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';

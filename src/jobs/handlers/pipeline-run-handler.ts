@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 import type { JobHandler } from '../../types/job-queue.js';
 import type { PipelineRunPayload, PipelineRunResult } from '../../types/job-queue.js';

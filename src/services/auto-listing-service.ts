@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ListingManager } from '../listing/listing-manager.js';
 import type { ScoreResult } from '../types/score.js';
 import type { MarketplaceName, Listing } from '../types/listing.js';

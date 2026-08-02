@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { ScoringEngine } from './scoring-engine.js';
 export {
   DEFAULT_WEIGHTS,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 export { PipelineRunService } from './pipeline-run-service.js';
 export type { PipelineRunResult, PersistenceSummary } from './pipeline-run-service.js';
 export { CachedTrademarkProvider } from './cached-trademark-provider.js';

@@ -28,8 +28,9 @@ a **commercial license** is available. This license permits:
 
 Contact **AlessioBrillo** via:
 
+- GitHub Sponsors: [https://github.com/sponsors/AlessioBrillo](https://github.com/sponsors/AlessioBrillo)
 - GitHub Issues (private): [https://github.com/AlessioBrillo/dominus/security](https://github.com/AlessioBrillo/dominus/security)
-- Email: _(available on request)_
+- Maintainer contact details: see [MAINTAINERS.md](MAINTAINERS.md)
 
 Include your organisation name, expected use case (embedding, proprietary SaaS,
 internal tooling), and approximate number of users or instances.

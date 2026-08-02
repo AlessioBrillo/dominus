@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import { RetryingTrademarkProvider } from '../retrying-trademark-provider.js';
 import { isTransient, DEFAULT_RETRY_POLICY } from '../../providers/retry-policy.js';
