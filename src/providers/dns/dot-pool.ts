@@ -14,11 +14,17 @@ const DEFAULT_TIMEOUT_STRIKE_THRESHOLD = 3;
  * Build a minimal DNS query message (RFC 1035 section 4.1.1).
  * Uses a random 16-bit query ID per request to prevent cross-query
  * confusion when multiple queries are multiplexed on one connection.
+ * The RNG is injectable for tests and for collision-avoidance
+ * regeneration (see DotPool).
  */
-export function buildDnsQuery(domain: string, qtype: number): Buffer {
+export function buildDnsQuery(
+  domain: string,
+  qtype: number,
+  rng: (size: number) => Buffer = randomBytes,
+): Buffer {
   const header = Buffer.alloc(12);
   // ID: random 16-bit — prevents response-spoofing by on-path attackers
-  header.writeUInt16BE(randomBytes(2).readUInt16BE(0), 0);
+  header.writeUInt16BE(rng(2).readUInt16BE(0), 0);
   // Flags: standard query with recursion desired (0x0100)
   header.writeUInt16BE(0x0100, 2);
   // QDCOUNT: 1 question
@@ -101,6 +107,8 @@ export interface DotPoolOptions {
   readonly rejectUnauthorized?: boolean;
   /** CA certificate bundle — tests only. */
   readonly ca?: string;
+  /** Injectable 16-bit query-ID RNG — tests only. */
+  readonly rng?: (size: number) => Buffer;
 }
 
 interface PendingQuery {
@@ -176,8 +184,11 @@ export class DotPool {
   readonly idleTimeoutMs: number;
   readonly #rejectUnauthorized: boolean;
   readonly #ca: string | undefined;
+  readonly #rng: (size: number) => Buffer;
   readonly #connections: DotPoolConnection[] = [];
   readonly #queue: PendingQuery[] = [];
+  /** Monotonic fallback for a pathological RNG (avoids livelock). */
+  #idCounter = 0;
   #closed = false;
 
   constructor(options: DotPoolOptions) {
@@ -192,6 +203,49 @@ export class DotPool {
       options.timeoutStrikeThreshold ?? DEFAULT_TIMEOUT_STRIKE_THRESHOLD;
     this.#rejectUnauthorized = options.rejectUnauthorized ?? true;
     this.#ca = options.ca;
+    this.#rng = options.rng ?? randomBytes;
+  }
+
+  /**
+   * Draw a query ID that is not in use by any in-flight or queued query.
+   * Tries the RNG up to 5 times, then falls back to a monotonic counter
+   * so a pathological RNG can never stall the pool. Without this, a
+   * colliding ID would overwrite the pending entry in the connection's
+   * outstanding map, orphaning the first query (it would never settle).
+   */
+  #drawId(): number {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const id = this.#rng(2).readUInt16BE(0);
+      if (!this.#isIdInUse(id)) return id;
+    }
+    while (this.#isIdInUse(++this.#idCounter)) {
+      // Skip IDs that are still in flight.
+    }
+    return this.#idCounter;
+  }
+
+  /** True when the ID belongs to an in-flight or queued query. */
+  #isIdInUse(id: number): boolean {
+    for (const conn of this.#connections) {
+      if (conn.hasQuery(id)) return true;
+    }
+    return this.#queue.some((p) => p.id === id);
+  }
+
+  /**
+   * Build the framed payload for a query, reserving a collision-free ID.
+   */
+  #makePayload(domain: string, qtype: string): { id: number; payload: Buffer } {
+    const id = this.#drawId();
+    const wire = buildDnsQuery(domain, recordTypeToQtype(qtype), () => {
+      const buf = Buffer.alloc(2);
+      buf.writeUInt16BE(id, 0);
+      return buf;
+    });
+    const payload = Buffer.alloc(2 + wire.length);
+    payload.writeUInt16BE(wire.length, 0);
+    wire.copy(payload, 2);
+    return { id, payload };
   }
 
   /**
@@ -205,14 +259,11 @@ export class DotPool {
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<boolean> {
-    const wire = buildDnsQuery(domain, recordTypeToQtype(recordType));
-    const payload = Buffer.alloc(2 + wire.length);
-    payload.writeUInt16BE(wire.length, 0);
-    wire.copy(payload, 2);
+    const { id, payload } = this.#makePayload(domain, recordType);
 
     return new Promise<boolean>((resolve, reject) => {
       const pending: PendingQuery = {
-        id: wire.readUInt16BE(0),
+        id,
         payload,
         label: `${domain} ${recordType}`,
         resolve,

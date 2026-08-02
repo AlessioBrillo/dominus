@@ -8,7 +8,10 @@ import { ProviderError } from '../../../types/errors.js';
 
 // Counts confirm() calls on the bootstrap-derived authoritative servers.
 // Shared via vi.hoisted so the vi.mock factories below can access it.
-const { authCallCounter } = vi.hoisted(() => ({ authCallCounter: { count: 0 } }));
+const { authCallCounter, constructedServers } = vi.hoisted(() => ({
+  authCallCounter: { count: 0 },
+  constructedServers: [] as Array<{ url: string; tlds?: readonly string[] }>,
+}));
 
 // Mock the IANA bootstrap: every TLD resolves to one authoritative server
 // plus the rdap.org universal fallback (no network in unit tests).
@@ -38,8 +41,15 @@ vi.mock('../public-rdap-provider.js', async () => {
   return {
     PublicRdapProvider: class {
       readonly name: string;
-      constructor(_url: string, name: string) {
+      constructor(
+        url: string,
+        name: string,
+        _limiter?: unknown,
+        _timeout?: unknown,
+        tlds?: readonly string[],
+      ) {
         this.name = name;
+        constructedServers.push(tlds === undefined ? { url } : { url, tlds });
       }
       async confirm(domain: string): Promise<unknown> {
         authCallCounter.count++;
@@ -229,6 +239,21 @@ describe('FailoverRdapProvider', () => {
 
     expect(provider.name).toContain('rdap-server-1');
     expect(provider.name).toContain('rdap-server-2');
+  });
+
+  it('passes per-TLD scope from fromConfig entries to the underlying servers', () => {
+    // Regression: custom servers were built as universal authorities, so a
+    // 404 from rdap.verisign.com on a .io domain was read as "Available".
+    constructedServers.length = 0;
+    FailoverRdapProvider.fromConfig([
+      'https://rdap.org/domain/',
+      { url: 'https://rdap.verisign.com/com/domain/', tlds: ['com', 'net'] },
+    ]);
+
+    expect(constructedServers).toEqual([
+      { url: 'https://rdap.org/domain/' },
+      { url: 'https://rdap.verisign.com/com/domain/', tlds: ['com', 'net'] },
+    ]);
   });
 
   describe('per-server circuit breaker', () => {

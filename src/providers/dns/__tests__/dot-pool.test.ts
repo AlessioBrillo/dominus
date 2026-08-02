@@ -4,31 +4,59 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer as createTlsServer, type TLSSocket } from 'node:tls';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { DotPool } from '../dot-pool.js';
 
 // Self-signed cert generated at runtime with openssl (never committed, so
-// secret scanners stay quiet). Skipped when openssl is unavailable.
-let hasOpenSSL = true;
+// secret scanners stay quiet). The suite is skipped when openssl is
+// unavailable. The cert MUST be generated at module load: describe.runIf()
+// evaluates the flag when the describe block is registered, so a cert
+// generated in a later beforeAll that failed could never be skipped
+// retroactively — the suite would run with empty key/cert and every TLS
+// handshake would fail.
+let hasOpenSSL: boolean;
 let certDir = '';
 let keyPem = '';
 let certPem = '';
 
-beforeAll(() => {
+try {
+  certDir = mkdtempSync(join(tmpdir(), 'dominus-dot-'));
+  execSync(
+    `"${resolveOpenSslBinary()}" req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem ` +
+      '-days 1 -nodes -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"',
+    { cwd: certDir, stdio: 'ignore' },
+  );
+  keyPem = readFileSync(join(certDir, 'key.pem'), 'utf8');
+  certPem = readFileSync(join(certDir, 'cert.pem'), 'utf8');
+  hasOpenSSL = true;
+} catch {
+  hasOpenSSL = false;
+}
+
+/** Resolve an openssl binary: from PATH (Linux CI, git-bash) or common
+ * Windows install locations (Git for Windows, official Win64 builds). */
+function resolveOpenSslBinary(): string {
   try {
     execSync('openssl version', { stdio: 'ignore' });
-    certDir = mkdtempSync(join(tmpdir(), 'dominus-dot-'));
-    execSync(
-      'openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 1 -nodes ' +
-        '-subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"',
-      { cwd: certDir, stdio: 'ignore' },
-    );
-    keyPem = readFileSync(join(certDir, 'key.pem'), 'utf8');
-    certPem = readFileSync(join(certDir, 'cert.pem'), 'utf8');
+    return 'openssl';
   } catch {
-    hasOpenSSL = false;
+    // Fall through to well-known Windows paths.
   }
-});
+  const candidates = [
+    'C:\\Program Files\\Git\\usr\\bin\\openssl.exe',
+    'C:\\Program Files\\Git\\mingw64\\bin\\openssl.exe',
+    'C:\\Program Files\\OpenSSL-Win64\\bin\\openssl.exe',
+  ];
+  for (const candidate of candidates) {
+    try {
+      execSync(`"${candidate}" version`, { stdio: 'ignore' });
+      return candidate;
+    } catch {
+      // Keep looking.
+    }
+  }
+  throw new Error('openssl not found');
+}
 
 afterAll(() => {
   if (certDir !== '') rmSync(certDir, { recursive: true, force: true });
@@ -104,6 +132,18 @@ function buildResponse(
   framed.writeUInt16BE(dns.length, 0);
   dns.copy(framed, 2);
   return framed;
+}
+
+function parseQName(query: Buffer): string {
+  const labels: string[] = [];
+  let offset = 12;
+  while (offset < query.length) {
+    const len = query[offset];
+    if (len === undefined || len === 0) break;
+    labels.push(query.subarray(offset + 1, offset + 1 + len).toString('ascii'));
+    offset += 1 + len;
+  }
+  return labels.join('.');
 }
 
 function makePool(port: number, extra: Record<string, number> = {}): DotPool {
@@ -284,6 +324,77 @@ describe.runIf(hasOpenSSL)('DotPool (RFC 7766 over real TLS)', () => {
     try {
       await expect(pool.query('spoof.com', 'A', 60)).rejects.toMatchObject({ code: 'ETIMEOUT' });
       await expect(pool.query('ok.com', 'A', 2000)).resolves.toBe(true);
+      expect(ctx.connections.count).toBe(1);
+    } finally {
+      pool.close();
+      await ctx.close();
+    }
+  });
+
+  it('regenerates the query ID when the RNG collides with an in-flight query', async () => {
+    let rngCalls = 0;
+    const ctx = await startServer((socket, query) => {
+      const name = parseQName(query);
+      if (name === 'collide-nx.com') {
+        socket.write(buildResponse(query, { rcode: 3, ancount: 0 }));
+      } else {
+        socket.write(buildResponse(query));
+      }
+    });
+    const pool = new DotPool({
+      endpoint: '127.0.0.1',
+      port: ctx.port,
+      servername: 'localhost',
+      ca: certPem,
+      rejectUnauthorized: true,
+      maxConnections: 1,
+      maxOutstandingPerConnection: 8,
+      rng: (size: number): Buffer => {
+        rngCalls++;
+        const buf = Buffer.alloc(size);
+        // First two draws collide on the same 16-bit ID, later draws diverge.
+        buf.writeUInt16BE(rngCalls <= 2 ? 0x1234 : 0x5000 + rngCalls, 0);
+        return buf;
+      },
+    });
+    try {
+      // The second query must NOT overwrite the first pending entry — both
+      // queries must settle with their own response.
+      const [nx, ok] = await Promise.allSettled([
+        pool.query('collide-nx.com', 'A', 2000),
+        pool.query('collide-ok.com', 'A', 2000),
+      ]);
+      expect(nx.status).toBe('rejected');
+      expect((nx as PromiseRejectedResult).reason).toMatchObject({ code: 'ENOTFOUND' });
+      expect(ok.status).toBe('fulfilled');
+      expect((ok as PromiseFulfilledResult<boolean>).value).toBe(true);
+    } finally {
+      pool.close();
+      await ctx.close();
+    }
+  });
+
+  it('guarantees progress when the RNG is pathologically constant', async () => {
+    const ctx = await startServer((socket, query) => socket.write(buildResponse(query)));
+    const pool = new DotPool({
+      endpoint: '127.0.0.1',
+      port: ctx.port,
+      servername: 'localhost',
+      ca: certPem,
+      rejectUnauthorized: true,
+      maxConnections: 1,
+      maxOutstandingPerConnection: 8,
+      rng: (): Buffer => {
+        const buf = Buffer.alloc(2);
+        buf.writeUInt16BE(0x0001, 0);
+        return buf;
+      },
+    });
+    try {
+      const results = await Promise.all(
+        Array.from({ length: 4 }, (_, i) => pool.query(`c${i}.com`, 'A', 2000)),
+      );
+      expect(results.every((r) => r === true)).toBe(true);
       expect(ctx.connections.count).toBe(1);
     } finally {
       pool.close();

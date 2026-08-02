@@ -6,6 +6,33 @@ const PROBE_DOMAINS = ['google.com', 'cloudflare.com', 'github.com'];
 
 const VALIDATION_TIMEOUT_MS = 5000;
 
+/**
+ * Reject a 2-of-3 consensus setup whose secondary resolver uses the same
+ * strategy (and therefore the same resolvers) as the primary — the second
+ * opinion would be a rubber stamp, not an independent check. Logs and
+ * returns false so the caller can disable consensus.
+ */
+export function validateConsensusStrategyDisjointness(
+  enabled: boolean,
+  primaryStrategy: string,
+  consensusStrategy: string,
+): boolean {
+  if (!enabled) return true;
+  if (primaryStrategy === consensusStrategy) {
+    getLogger().error(
+      {
+        primary: primaryStrategy,
+        consensus: consensusStrategy,
+      },
+      'DNS: DNS_CONSENSUS_STRATEGY equals DNS_LOOKUP_STRATEGY — the secondary ' +
+        'resolver queries the same resolvers and provides no independent opinion; ' +
+        '2-of-3 consensus is disabled',
+    );
+    return false;
+  }
+  return true;
+}
+
 export async function validateResolverGroups(provider: DnsProvider): Promise<void> {
   const logger = getLogger();
   const probe = PROBE_DOMAINS[Math.floor(Math.random() * PROBE_DOMAINS.length)]!;
