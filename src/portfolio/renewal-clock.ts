@@ -5,10 +5,15 @@ import type { RenewalClockData } from '../types/portfolio.js';
 export function computeRenewalClock(entry: PortfolioEntry): RenewalClockData {
   const now = new Date();
   const renewal = new Date(entry.renewalDate);
-  const diffMs = renewal.getTime() - now.getTime();
+  // Compare calendar days (UTC midnight), not exact 24h deltas: a renewal
+  // expiring later today must read as 0 days, not -1 just because a few
+  // milliseconds elapsed between reading "now" and parsing the renewal date.
   const msPerDay = 1000 * 60 * 60 * 24;
-  const daysUntilRenewal =
-    diffMs < 0 ? Math.floor(diffMs / msPerDay) : Math.ceil(diffMs / msPerDay);
+  const daysUntilRenewal = Math.round(
+    (Date.UTC(renewal.getUTCFullYear(), renewal.getUTCMonth(), renewal.getUTCDate()) -
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) /
+      msPerDay,
+  );
 
   return {
     domain: entry.domain,

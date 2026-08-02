@@ -36,6 +36,13 @@ describe('RenewalClock', () => {
     expect(clock.daysUntilRenewal).toBeLessThanOrEqual(1);
   });
 
+  it('rounds sub-day offsets to calendar days, not exact 24h deltas', () => {
+    const entry = makeEntry(0);
+    entry.renewalDate = new Date(Date.now() - 60 * 1000).toISOString();
+    const clock = computeRenewalClock(entry);
+    expect(clock.daysUntilRenewal).toBe(0);
+  });
+
   it('isRenewalImminent returns true when within horizon', () => {
     expect(isRenewalImminent(makeEntry(30), 60)).toBe(true);
   });
