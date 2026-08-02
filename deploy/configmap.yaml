@@ -29,6 +29,21 @@ data:
   DNS_BULK_CONCURRENCY: '10'
   WHOIS_LOOKUP_TIMEOUT: '10000'
   TM_CACHE_TTL_DAYS: '7'
+  # DNS resolution (defaults match src/config.ts)
+  DNS_LOOKUP_STRATEGY: 'doh-primary'
+  DNS_LOOKUP_TIMEOUT_MS: '1500'
+  DNS_CACHE_TTL_SECONDS: '300'
+  DNS_CACHE_MAX_SIZE: '10000'
+  DNS_DOT_POOL_MAX_QUEUED: '4096'
+  DNS_PERSISTENT_CACHE_ENABLED: 'true'
+  DNS_PERSISTENT_CACHE_TTL_HOURS: '168'
+  DNS_PARKING_CHECK_ENABLED: 'false'
+  # Scheduler (community edition runs the scheduler in-process)
+  SCHEDULER_BACKUP_CRON: '0 4 * * *'
+  SCHEDULER_PRUNE_CRON: '0 10 1 * *'
+  # Writable paths must live on the mounted /data volume (rootfs is read-only)
+  BACKUP_DIR: '/data/backup'
+  AUTO_TUNE_WEIGHTS_PATH: '/data/weights-override.json'
   # CORS_ORIGIN: set to your frontend domain in production (e.g. "https://dominus.example.com").
   # Wildcard (*) with credentials:true causes browser CORS failures. When the frontend is served
   # by the same origin as the API, leave this unset or set to the explicit origin.
