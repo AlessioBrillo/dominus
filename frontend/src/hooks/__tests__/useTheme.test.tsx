@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, render, screen } from '@testing-library/react';
+import { renderHook, act, render } from '@testing-library/react';
 import { ThemeProvider, useTheme } from '../useTheme';
 
 const STORAGE_KEY = 'dominus_theme';
