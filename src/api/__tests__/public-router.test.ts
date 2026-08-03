@@ -259,6 +259,17 @@ describe('Public Router — /public', () => {
       expect(res.body.trademark.verdict).toBe('clear');
       expect(res.body.score.suggestedBuyMax).toBe(50);
     });
+
+    it('sets a Cache-Control header on JSON responses (CDN-cacheable)', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/domain/example.com'));
+
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toContain('max-age');
+    });
   });
 
   describe('GET /public/domain/:domain (HTML)', () => {
@@ -354,6 +365,62 @@ describe('Public Router — /public', () => {
 
       expect(anonScoring.bumpViewCount).toHaveBeenCalledWith('abc123def456');
     });
+
+    it('hides the buy-max stat in HTML when trademark is not clear (defense-in-depth)', async () => {
+      anonScoring = makeStubAnonScoring();
+      vi.mocked(anonScoring.getScoreBySlug).mockResolvedValue({
+        slug: 'abc123def456',
+        domain: 'example.com',
+        score: makeScoreResult(),
+        trademark: { verdict: 'unverified', verifiedSources: [] },
+        viewCount: 5,
+        createdAt: '2025-01-15T00:00:00.000Z',
+      });
+
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/s/abc123def456').set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain('Suggested Buy Max');
+      expect(res.text).not.toContain('"@type":"Offer"');
+    });
+
+    it('omits suggestedBuyMax from JSON when trademark is not clear (defense-in-depth)', async () => {
+      anonScoring = makeStubAnonScoring();
+      vi.mocked(anonScoring.getScoreBySlug).mockResolvedValue({
+        slug: 'abc123def456',
+        domain: 'example.com',
+        score: makeScoreResult(),
+        trademark: { verdict: 'blocked', verifiedSources: ['USPTO'] },
+        viewCount: 5,
+        createdAt: '2025-01-15T00:00:00.000Z',
+      });
+
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/s/abc123def456'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.trademark.verdict).toBe('blocked');
+      expect(res.body.score.suggestedBuyMax).toBeUndefined();
+      expect(res.body.score.expectedValue).toBe(100);
+    });
+
+    it('shows the buy-max stat in HTML when trademark is clear', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/s/abc123def456').set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Suggested Buy Max');
+    });
   });
 
   describe('GET /public/compare/:slug1/:slug2', () => {
@@ -391,6 +458,32 @@ describe('Public Router — /public', () => {
       expect(res.body).toHaveProperty('score2');
       expect(res.body.score1.domain).toBe('example.com');
       expect(res.body.score2.domain).toBe('test.org');
+    });
+
+    it('omits suggestedBuyMax from JSON per-score when trademark is not clear', async () => {
+      anonScoring = makeStubAnonScoring();
+      vi.mocked(anonScoring.getCompareScores).mockResolvedValue({
+        score1: {
+          domain: 'example.com',
+          score: makeScoreResult(),
+          trademark: { verdict: 'clear', verifiedSources: ['USPTO'] },
+        },
+        score2: {
+          domain: 'test.org',
+          score: makeScoreResult({ domain: 'test.org', expectedValue: 50 }),
+          trademark: { verdict: 'unverified', verifiedSources: [] },
+        },
+      });
+
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/compare/abc123def456/xyz789def456'));
+
+      expect(res.status).toBe(200);
+      expect(res.body.score1.score.suggestedBuyMax).toBe(50);
+      expect(res.body.score2.score.suggestedBuyMax).toBeUndefined();
     });
   });
 
@@ -437,6 +530,34 @@ describe('Public Router — /public', () => {
 
       expect(res.status).toBe(200);
       expect(res.headers['content-type']).toContain('xml');
+    });
+
+    it('caches the sitemap in-memory within TTL (single DB query)', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      await request(app).get('/public/sitemap.xml').set('Host', 'example.com');
+      await request(app).get('/public/sitemap.xml').set('Host', 'example.com');
+
+      expect(anonScoring.listRecentScores).toHaveBeenCalledTimes(1);
+    });
+
+    it('serves 304 when If-None-Match matches the ETag', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const first = await request(app).get('/public/sitemap.xml').set('Host', 'example.com');
+      expect(first.status).toBe(200);
+      expect(first.headers['etag']).toBeDefined();
+
+      const second = await request(app)
+        .get('/public/sitemap.xml')
+        .set('Host', 'example.com')
+        .set('If-None-Match', String(first.headers['etag']));
+
+      expect(second.status).toBe(304);
     });
   });
 
