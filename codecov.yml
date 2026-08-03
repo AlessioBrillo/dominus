@@ -1,0 +1,20 @@
+# Codecov configuration for DOMINUS
+#
+# Coverage is uploaded from the backend job (ubuntu, Node 22) via the
+# codecov-action in .github/workflows/ci.yml. Thresholds mirror the local
+# vitest gate (see vitest.config.ts): coverage must never drop below the
+# current baseline, which is enforced by a global patch/change gate.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    patch:
+      default:
+        target: 80%
+
+comment:
+  layout: "reach, diff, flags, files"
+  require_changes: true

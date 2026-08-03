@@ -18,11 +18,12 @@ env:
 
 jobs:
   backend:
-    name: Backend (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Backend (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node: [20, 22]
       fail-fast: false
 
@@ -48,11 +49,25 @@ jobs:
       - name: Migration sync check
         run: npm run db:sync:check
 
+      - name: Native bindings load check
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const db = require('better-sqlite3')(':memory:'); db.exec('CREATE TABLE t (a)'); console.log('better-sqlite3 OK')"
+          node -e "const sharp = require('sharp'); console.log('sharp OK', sharp.versions.sharp)"
+
       - name: Test with coverage
         run: npm test -- --coverage
 
       - name: Build
         run: npm run build
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
 
   docker-smoke:
     name: Docker runtime smoke test
