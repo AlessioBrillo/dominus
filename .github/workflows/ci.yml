@@ -35,6 +35,14 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
+      # better-sqlite3 has no win32 prebuild for every Node ABI; when a
+      # prebuild is missing node-gyp falls back to compiling from source,
+      # which needs a working MSVC environment (the runner's VS detection
+      # is unreliable on windows-latest).
+      - name: Set up MSVC build tools (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - run: npm ci
 
       - name: TypeCheck
