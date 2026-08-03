@@ -6,10 +6,24 @@
 #
 # Override with your own .env file:
 #   docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Image pinning:
+#   The Deploy workflow publishes `master`, `sha-<commit>` and `vX.Y.Z`
+#   tags (plus -worker/-scheduler variants). The default resolves to
+#   `master` for convenience; pin DOMINUS_IMAGE_TAG to a sha tag for
+#   immutable production rollouts:
+#     DOMINUS_IMAGE_TAG=sha-6f4b3c2a1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a
+#
+# Backups:
+#   A dedicated `backups` volume keeps backups off the disk that holds
+#   dominus.db (same host, but isolated from DB write amplification and
+#   from accidental wipe of ./data). For true off-disk durability, mount
+#   the Hetzner Volume (or any external drive) instead — see
+#   docs/deployment/README.md.
 
 services:
   api:
-    image: ghcr.io/alessiobrillo/dominus:latest
+    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}
     restart: always
     deploy:
       resources:
@@ -32,7 +46,7 @@ services:
         max-file: "3"
 
   worker:
-    image: ghcr.io/alessiobrillo/dominus:latest-worker
+    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}-worker
     restart: always
     deploy:
       resources:
@@ -42,6 +56,10 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+    volumes:
+      - backups:/backups
+    environment:
+      - BACKUP_DIR=/backups
     logging:
       driver: "json-file"
       options:
@@ -49,7 +67,7 @@ services:
         max-file: "3"
 
   scheduler:
-    image: ghcr.io/alessiobrillo/dominus:latest-scheduler
+    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}-scheduler
     restart: always
     deploy:
       resources:
@@ -59,8 +77,15 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+    volumes:
+      - backups:/backups
+    environment:
+      - BACKUP_DIR=/backups
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  backups:

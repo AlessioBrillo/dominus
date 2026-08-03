@@ -105,6 +105,26 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Build-only validation of the remaining runtime targets so a broken
+      # Dockerfile stage (worker/scheduler) fails the PR, not the deploy.
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: worker
+          load: false
+          tags: dominus-worker:test
+          cache-from: type=gha
+
+      - name: Build scheduler image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: scheduler
+          load: false
+          tags: dominus-scheduler:test
+          cache-from: type=gha
+
       - name: Smoke test — native binding + health endpoint
         env:
           SMOKE_CONTAINER: dominus-smoke

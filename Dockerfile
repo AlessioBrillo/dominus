@@ -87,6 +87,12 @@ COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
 COPY --chown=dominus:dominus package.json ./
 COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
 
+# Backup mount point: pre-created with the runtime user's ownership so a
+# fresh named volume (`docker compose ... up -d`) inherits dominus:dominus
+# on first mount and BACKUP_DIR stays writable for the non-root user.
+RUN mkdir -p /backups && chown dominus:dominus /backups
+VOLUME ["/backups"]
+
 USER dominus
 
 ENV NODE_ENV=production \
@@ -113,6 +119,12 @@ COPY --from=deps --chown=dominus:dominus /app/node_modules node_modules/
 COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
 COPY --chown=dominus:dominus package.json ./
 COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
+
+# Backup mount point: pre-created with the runtime user's ownership so a
+# fresh named volume (`docker compose ... up -d`) inherits dominus:dominus
+# on first mount and BACKUP_DIR stays writable for the non-root user.
+RUN mkdir -p /backups && chown dominus:dominus /backups
+VOLUME ["/backups"]
 
 USER dominus
 
