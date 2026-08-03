@@ -14,6 +14,123 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 The server listens on `http://localhost:3000` by default. Set `HOST=0.0.0.0` in `.env` to expose on all interfaces (required behind a reverse proxy).
 
+## Immutable Deployments
+
+The Deploy workflow publishes `master`, `sha-<commit>` and `vX.Y.Z` tags
+to `ghcr.io/alessiobrillo/dominus` (with `-worker` / `-scheduler`
+variants). The production compose profile references images through
+`DOMINUS_IMAGE_TAG`:
+
+```bash
+# Rolling default (mutable — fine for personal use)
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# Immutable production rollout — pin the exact commit you verified
+DOMINUS_IMAGE_TAG=sha-6f4b3c2a1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a \
+  docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Resolve the tag for a released version with:
+
+```bash
+# Tags published for the latest commit on master
+git fetch origin
+git ls-remote --tags origin  # semantic version tags
+DOMINUS_IMAGE_TAG=v0.10.0
+```
+
+Pinning to a `sha-` tag means the deployed artifact is immutable and
+reproducible — you always know exactly which commit is running, and
+rollback is a one-line `.env` change to a previously verified tag.
+
+## Backups
+
+The SQLite database lives at `DATABASE_PATH` (default: `./data/dominus.db`). **This file is your entire portfolio and configuration — back it up.**
+
+```bash
+# Built-in backup (VACUUM INTO) via the scheduler
+#   SCHEDULER_ENABLED=true + SCHEDULER_BACKUP_CRON="0 4 * * *" (default)
+# Manual backup
+dominus maintenance backup ./backups/dominus-$(date +%Y%m%d).db
+
+# Or with SQLite directly
+sqlite3 data/dominus.db ".backup ./backups/dominus-$(date +%Y%m%d).db"
+```
+
+### Keeping backups off the DB disk
+
+In the production compose profile, the worker and scheduler mount a
+dedicated `backups` volume at `/backups` (`BACKUP_DIR=/backups`). The
+image pre-creates that mount point owned by the non-root `dominus` user,
+so the volume works without extra chown steps.
+
+The `backups` volume isolates backups from the `./data` volume that
+holds the database. It still lives on the same host disk, so it protects
+against accidental wipes and write amplification, not against disk
+failure.
+
+### Off-disk durability with a Hetzner Volume
+
+For real off-disk durability on a self-managed VPS (e.g. Hetzner):
+
+1. Create a Volume in the Hetzner Cloud console (same location as your
+   VPS) and attach it to the server.
+2. Mount it on the host and add it to `/etc/fstab`:
+   ```bash
+   mkfs.ext4 /dev/disk/by-id/scsi-0HC_Volume_<id>
+   mkdir -p /mnt/dominus-backups
+   mount /dev/disk/by-id/scsi-0HC_Volume_<id> /mnt/dominus-backups
+   echo '/dev/disk/by-id/scsi-0HC_Volume_<id> /mnt/dominus-backups ext4 defaults,nofail 0 2' >> /etc/fstab
+   ```
+3. Point the backup volume at the mount:
+   ```yaml
+   # docker-compose.override.yml
+   services:
+     worker:
+       volumes:
+         - /mnt/dominus-backups:/backups
+     scheduler:
+       volumes:
+         - /mnt/dominus-backups:/backups
+   volumes:
+     backups:
+       external: false
+   ```
+   (or replace the `backups` named volume with the bind mount in your own
+   compose override).
+4. Add a periodic snapshot of the Volume from the Hetzner Cloud API
+   (snapshot = off-site copy recoverable even if the VPS itself dies).
+5. Test a restore at least once:
+   ```bash
+   # SQLite restore
+   sqlite3 data/dominus.db ".restore /mnt/dominus-backups/dominus-<date>.db"
+   # PostgreSQL restore (cloud mode)
+   pg_restore --dbname=dominus /mnt/dominus-backups/dominus-<date>.db
+   ```
+
+Backup retention defaults to 30 days (`BACKUP_RETENTION_DAYS`) and the
+scheduler prunes expired backups automatically.
+
+## Redis Degradation (DOMINUS Cloud)
+
+In cloud mode (`DATABASE_URL` set), Redis powers distributed rate
+limiting, caching, circuit breakers and locks. The application treats
+Redis as an availability optimization, not a hard dependency:
+
+- `REDIS_REQUIRED` (defaults to `true` in cloud mode) only enforces that
+  `REDIS_URL` is configured; it never probes connectivity.
+- If Redis is down, every Redis-backed component (`RedisRateLimitStore`,
+  `RedisRateLimiter`, `RedisCacheProvider`, `RedisLock`,
+  `DistributedCircuitBreaker`) falls back to its in-memory equivalent
+  and logs a warning — rate limiting stays enforced per-instance, the
+  API keeps serving.
+- The API refuses to boot only when `REDIS_URL` is missing while
+  `REDIS_REQUIRED` is true (multi-instance split-brain protection).
+
+Expected behaviour: with Redis down, per-IP limits still hold per
+container but are no longer shared across replicas. Restore Redis and
+the next operation resumes the shared counters automatically.
+
 ## Options
 
 | Method | When to use | Commands |
@@ -73,18 +190,6 @@ pm2 save
 pm2 startup   # follow the instructions to enable boot-start
 ```
 
-## Data Persistence
-
-The SQLite database lives at `DATABASE_PATH` (default: `./data/dominus.db`). **This file is your entire portfolio and configuration — back it up.**
-
-```bash
-# Built-in backup (VACUUM INTO)
-dominus maintenance backup ./backups/dominus-$(date +%Y%m%d).db
-
-# Or with SQLite directly
-sqlite3 data/dominus.db ".backup ./backups/dominus-$(date +%Y%m%d).db"
-```
-
 ## Environment Variables
 
 All configuration is via environment variables. See `.env.example` for the full reference.
@@ -99,6 +204,8 @@ Key variables for deployment:
 | `API_KEYS` | (empty) | **Set this in production** to enable authentication |
 | `SCHEDULER_ENABLED` | `false` | Enable for automated renewal checks, rescoring, pruning |
 | `LOG_LEVEL` | `info` | Set to `warn` in production to reduce noise |
+| `DOMINUS_IMAGE_TAG` | `master` | Compose-only: pin to a `sha-…` tag for immutable rollouts |
+| `BACKUP_DIR` | `./data/backup` | In the prod profile: `/backups` (dedicated volume) |
 
 ## Security Checklist
 
@@ -107,6 +214,8 @@ Key variables for deployment:
 - [ ] Restrict `HOST` to `127.0.0.1` unless proxied
 - [ ] Set `RATE_LIMIT_MAX` to protect against abuse
 - [ ] Use a non-root user (Docker: `USER dominus`, systemd: `User=dominus`)
-- [ ] Back up the SQLite database daily
+- [ ] Pin `DOMINUS_IMAGE_TAG` to a `sha-…` tag in production (immutable rollouts)
+- [ ] Keep backups off the DB disk (dedicated `backups` volume, ideally a Hetzner Volume or S3 target)
+- [ ] Test a backup restore at least once per release
 - [ ] Keep the `data/` directory in `.gitignore`
 - [ ] Review logs periodically (`journalctl -u dominus`)
