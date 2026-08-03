@@ -20,7 +20,7 @@ estimates and subject to change.
 - [x] CSP hardening, AuthProvider DI, rate limiting, retry consolidation
 - [x] Circuit breaker, DnsProvider interface, benchmark suite
 - [x] API error handler consistency, architecture diagrams, changelog generation
-- [ ] Codecov integration + coverage badge in README
+- [x] Codecov integration + coverage badge in README
 - [ ] SEO-ready README with screenshots/GIF demo
 
 ## v0.6.0 — Database Abstraction
@@ -68,10 +68,13 @@ estimates and subject to change.
 - [x] Tests: listings route (0% → 18 tests covering all CRUD + offers)
 - [x] Pagination: Dan sync + Cloudflare listDomains
 - [x] Load testing and performance benchmarking (see `npm run bench`; live-network benches against real resolvers/registries: `DNS_LIVE=1 npm run bench`)
+- [x] Security: timing-safe API key comparison (`EnvApiKeyProvider`)
+- [x] Rate limiting: distributed Redis-backed store for the public router
+- [x] Backend test coverage thresholds raised to 70/65/60 (lines/functions/branches)
+- [x] CI matrix testing (Node 20 + 22 ubuntu, Node 22 + 24 windows, native-bindings smoke check)
+- [x] Codecov integration + coverage badge in README
 - [ ] Security audit (dependency scan, CSP review, auth hardening)
-- [ ] CI matrix testing (Node 20 + 22, ubuntu + windows)
 - [ ] Frontend coverage thresholds raised to ≥50%
-- [ ] Codecov integration + coverage badge in README
 - [ ] SEO-ready README with screenshots/GIF demo
 
 ## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO

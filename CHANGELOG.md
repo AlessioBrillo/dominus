@@ -23,12 +23,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed dead config knobs `DNS_SEMAPHORE_CONCURRENCY`, `DNS_RESOLVER_URLS`
   (superseded by `DNS_RESOLVER_GROUPS`), and `DNS_HEALTH_CHECK_DOMAIN` (no
   production consumer).
+- `EnvApiKeyProvider` now compares API keys in constant time (byte-wise
+  comparison over all stored keys, no early exit), closing a timing side
+  channel that could leak key prefixes.
+- Backup retention pruning no longer relies on wall-clock mtime precision;
+  tests pin the backup mtime explicitly so pruning is deterministic on
+  filesystems with coarse mtime granularity (e.g. Windows).
 
 ### Added
 - `DNS_CONSENSUS_ENABLED` / `DNS_CONSENSUS_STRATEGY`: opt-in 2-of-3 DNS
   resolver consensus cross-validation (default off). The feature existed
   and was unit-tested since the DNS multi-resolver work but was never
   wired into `composition-root`.
+- Distributed rate limiting: Redis-backed `RedisRateLimitStore` wired into
+  the public router (falls back to in-memory when Redis is absent), with
+  per-domain limiters on public scoring endpoints.
+- Onboarding and pipeline-runs API routes are now covered by integration
+  tests; backend coverage thresholds raised to 70/65/60
+  (lines/functions/branches).
+- CI: backend matrix now runs Node 20/22 on Ubuntu and Node 22/24 on
+  Windows, with a native-bindings (better-sqlite3 + sharp) load check and
+  coverage uploaded to Codecov.
 
 ## [0.5.0-dev] — 2026-06-26
 
