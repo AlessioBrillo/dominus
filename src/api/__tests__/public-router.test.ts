@@ -12,7 +12,9 @@ import type { ScoreResult } from '../../types/score.js';
 beforeAll(async () => {
   // Pre-warm the native sharp module: the first dynamic import inside
   // generateOgPng can exceed the 5s default test timeout on a saturated
-  // CI runner, so it must not run inside a timed test.
+  // CI runner (and much more on Windows first load), so it must not run
+  // inside a timed test. Hook timeout is 120s to survive cold native
+  // loads in CI.
   await generateOgPng('warmup.example.com', {
     domain: 'warmup.example.com',
     expectedValue: 1,
@@ -21,7 +23,7 @@ beforeAll(async () => {
     recommended: false,
     trademark: 'unverified',
   });
-});
+}, 120_000);
 
 function makeScoreResult(overrides: Partial<ScoreResult> = {}): ScoreResult {
   return {
