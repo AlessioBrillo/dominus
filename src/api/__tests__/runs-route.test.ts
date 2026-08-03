@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import Database from 'better-sqlite3';
@@ -11,6 +11,9 @@ import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import { createRunsRouter } from '../routes/runs.js';
 import { errorHandler } from '../middleware/error-handler.js';
+import type { PipelineRunService } from '../../app/pipeline-run-service.js';
+import type { JobQueueService } from '../../app/job-queue-service.js';
+import type { PipelineProgressService } from '../../app/pipeline-progress-service.js';
 
 interface RunRow {
   runId: string;
@@ -56,6 +59,56 @@ function buildApp(provider: SqliteProvider): {
   app.use('/api/v1/runs', createRunsRouter(runsRepo, candidateRepo, scoringRepo, provider.rawDb));
   app.use(errorHandler);
   return { app, runsRepo, candidateRepo };
+}
+
+function makeRunService(): PipelineRunService {
+  return {
+    runSync: vi.fn().mockResolvedValue({
+      runId: 'r-sync',
+      totalDurationMs: 42,
+      recommended: [],
+      scored: [],
+      stageSummary: {},
+      stageErrors: [],
+      persistence: { inserted: 0 },
+    }),
+  } as unknown as PipelineRunService;
+}
+
+function makeJobQueueService(): JobQueueService {
+  return {
+    enqueuePipelineRun: vi.fn().mockResolvedValue({ jobId: 'j-1', runId: 'r-q' }),
+  } as unknown as JobQueueService;
+}
+
+function buildFullApp(
+  provider: SqliteProvider,
+  overrides: {
+    runService?: PipelineRunService | null;
+    jobQueueService?: JobQueueService | null;
+  } = {},
+): { app: express.Express; runsRepo: PipelineRunsRepository } {
+  const runsRepo = new PipelineRunsRepository(provider);
+  const candidateRepo = new CandidateRepository(provider);
+  const scoringRepo = new ScoringRepository(provider);
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/v1/runs',
+    createRunsRouter(
+      runsRepo,
+      candidateRepo,
+      scoringRepo,
+      provider.rawDb,
+      undefined,
+      overrides.runService === undefined ? makeRunService() : (overrides.runService ?? undefined),
+      overrides.jobQueueService === undefined
+        ? undefined
+        : (overrides.jobQueueService ?? undefined),
+    ),
+  );
+  app.use(errorHandler);
+  return { app, runsRepo };
 }
 
 describe('Runs API', () => {
@@ -260,6 +313,187 @@ describe('Runs API', () => {
       expect(body.remaining).toBe(1);
       expect(await runsRepo.findById('r-expired')).toBeNull();
       expect(await runsRepo.findById('r-kept')).not.toBeNull();
+    });
+  });
+
+  describe('GET /api/v1/runs/:runId/stream', () => {
+    it('returns 501 when progress service is unavailable', async () => {
+      const { app } = buildApp(provider);
+      const res = await request(app).get('/api/v1/runs/r-1/stream');
+      expect(res.status).toBe(501);
+      expect(res.body.error.code).toBe('SSE_UNAVAILABLE');
+    });
+
+    it('registers the response with the progress service', async () => {
+      const { runsRepo } = buildApp(provider);
+      runsRepo.insert({
+        runId: 'r-1',
+        startedAt: '2026-06-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2026-11-28T00:00:00.000Z',
+      });
+      const progressService = {
+        // Close the SSE response so the supertest request can complete.
+        addClient: vi.fn((_runId: string, res: express.Response) => {
+          res.end();
+        }),
+      } as unknown as PipelineProgressService;
+      const app2 = express();
+      app2.use(express.json());
+      app2.use(
+        '/api/v1/runs',
+        createRunsRouter(
+          runsRepo,
+          new CandidateRepository(provider),
+          new ScoringRepository(provider),
+          provider.rawDb,
+          progressService,
+        ),
+      );
+      app2.use(errorHandler);
+
+      const res = await request(app2).get('/api/v1/runs/r-1/stream');
+      expect(res.status).toBe(200);
+      expect(progressService.addClient).toHaveBeenCalledWith('r-1', expect.anything());
+    });
+  });
+
+  describe('POST /api/v1/runs (job queue + sync paths)', () => {
+    it('returns 400 when no input arrays are provided', async () => {
+      const { app } = buildFullApp(provider, { runService: null });
+      const res = await request(app).post('/api/v1/runs').send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('BAD_REQUEST');
+    });
+
+    it('enqueues the run and returns 202 with poll links', async () => {
+      const jobQueueService = makeJobQueueService();
+      const { app } = buildFullApp(provider, { jobQueueService });
+      const res = await request(app)
+        .post('/api/v1/runs')
+        .send({ keywords: ['coffee', ''] });
+      expect(res.status).toBe(202);
+      expect(res.body.runId).toBe('r-q');
+      expect(res.body.jobId).toBe('j-1');
+      expect(res.body.status).toBe('queued');
+      expect(res.headers['location']).toContain('/api/v1/runs/r-q');
+      expect(jobQueueService.enqueuePipelineRun).toHaveBeenCalledWith({
+        keywords: ['coffee'],
+        brandableNames: undefined,
+        closeoutDomains: undefined,
+      });
+    });
+
+    it('returns 501 when no run service is available', async () => {
+      const { app } = buildFullApp(provider, { runService: null, jobQueueService: null });
+      const res = await request(app)
+        .post('/api/v1/runs')
+        .send({ brandableNames: ['frobnicate'] });
+      expect(res.status).toBe(501);
+      expect(res.body.error.code).toBe('NOT_IMPLEMENTED');
+    });
+
+    it('runs synchronously and returns the summary', async () => {
+      const runService = makeRunService();
+      const { app } = buildFullApp(provider, { runService });
+      const res = await request(app)
+        .post('/api/v1/runs')
+        .send({ closeoutDomains: ['expired.io'] });
+      expect(res.status).toBe(200);
+      expect(res.body.runId).toBe('r-sync');
+      expect(res.body.status).toBe('completed');
+      expect(res.body.durationMs).toBe(42);
+      expect(runService.runSync).toHaveBeenCalledWith({
+        keywords: undefined,
+        brandableNames: undefined,
+        closeoutDomains: ['expired.io'],
+      });
+    });
+
+    it('returns 500 when the sync run fails', async () => {
+      const runService = makeRunService();
+      (runService.runSync as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('rdap exploded'),
+      );
+      const { app } = buildFullApp(provider, { runService });
+      const res = await request(app)
+        .post('/api/v1/runs')
+        .send({ keywords: ['coffee'] });
+      expect(res.status).toBe(500);
+      expect(res.body.error.code).toBe('PIPELINE_RUN_FAILED');
+      expect(res.body.error.message).toBe('rdap exploded');
+    });
+  });
+
+  describe('GET /api/v1/runs/:runId/job', () => {
+    it('returns 404 for an unknown run', async () => {
+      const { app } = buildApp(provider);
+      const res = await request(app).get('/api/v1/runs/nope/job');
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('RUN_NOT_FOUND');
+    });
+
+    it('reports not_available without a job queue service', async () => {
+      const { app, runsRepo } = buildApp(provider);
+      runsRepo.insert({
+        runId: 'r-done',
+        startedAt: '2026-06-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2026-11-28T00:00:00.000Z',
+      });
+      runsRepo.complete('r-done', {
+        finishedAt: '2026-06-01T00:00:01.000Z',
+        totalDurationMs: 10,
+        stageSummary: {},
+        resultsSummary: {
+          candidatesEvaluated: 0,
+          recommended: 0,
+          trademarkBlocked: 0,
+          unscored: 0,
+          errors: 0,
+        },
+      });
+      const res = await request(app).get('/api/v1/runs/r-done/job');
+      expect(res.status).toBe(200);
+      expect(res.body.jobStatus).toBe('not_available');
+    });
+
+    it('reports completed for a finished run with a job queue service', async () => {
+      const { app, runsRepo } = buildFullApp(provider, { jobQueueService: makeJobQueueService() });
+      runsRepo.insert({
+        runId: 'r-done',
+        startedAt: '2026-06-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2026-11-28T00:00:00.000Z',
+      });
+      runsRepo.complete('r-done', {
+        finishedAt: '2026-06-01T00:00:01.000Z',
+        totalDurationMs: 10,
+        stageSummary: {},
+        resultsSummary: {
+          candidatesEvaluated: 0,
+          recommended: 0,
+          trademarkBlocked: 0,
+          unscored: 0,
+          errors: 0,
+        },
+      });
+      const res = await request(app).get('/api/v1/runs/r-done/job');
+      expect(res.status).toBe(200);
+      expect(res.body.jobStatus).toBe('completed');
+    });
+
+    it('reports in_progress for an unfinished run', async () => {
+      const { app, runsRepo } = buildFullApp(provider, { jobQueueService: makeJobQueueService() });
+      runsRepo.insert({
+        runId: 'r-run',
+        startedAt: '2026-06-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2026-11-28T00:00:00.000Z',
+      });
+      const res = await request(app).get('/api/v1/runs/r-run/job');
+      expect(res.status).toBe(200);
+      expect(res.body.jobStatus).toBe('in_progress');
     });
   });
 });

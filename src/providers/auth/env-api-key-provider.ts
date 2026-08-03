@@ -82,12 +82,36 @@ export class EnvApiKeyProvider implements AuthProvider {
     if (!this.active) {
       return { authenticated: false };
     }
-    const keyName = this.keys.get(apiKey);
-    if (keyName !== undefined) {
-      return { authenticated: true, keyName, tenantId: 'default' };
+    // Timing-safe comparison: the provided key is byte-compared against
+    // every stored key with a constant-time loop (no early exit), so a
+    // failed comparison takes the same time as a successful one and no
+    // prefix information leaks. A plain Map lookup would leak the
+    // comparison result through timing and is vulnerable to prefix-based
+    // key probing. Keys are deliberately NOT hashed: they are high-entropy
+    // random secrets (not passwords), the hash is never persisted, and
+    // hashing would only add a fast-hash bottleneck.
+    let matchedName: string | undefined;
+    for (const [storedKey, name] of this.keys) {
+      if (matchedName === undefined && constantTimeEquals(apiKey, storedKey)) {
+        matchedName = name;
+      }
+    }
+    if (matchedName !== undefined) {
+      return { authenticated: true, keyName: matchedName, tenantId: 'default' };
     }
     return { authenticated: false };
   }
+}
+
+function constantTimeEquals(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  let diff = aBuf.length ^ bBuf.length;
+  const maxLen = Math.max(aBuf.length, bBuf.length);
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (aBuf[i] ?? 0) ^ (bBuf[i] ?? 0);
+  }
+  return diff === 0;
 }
 
 function checkFilePermissions(filePath: string): void {

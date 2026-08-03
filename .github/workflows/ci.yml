@@ -18,12 +18,20 @@ env:
 
 jobs:
   backend:
-    name: Backend (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Backend (Node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       matrix:
-        node: [20, 22]
+        # Node 20 is only exercised on Linux: better-sqlite3 v12.x ships no
+        # win32 prebuild for Node 20 (ABI 115) and the node-gyp fallback
+        # cannot compile against the VS 18 toolchain on windows-latest.
+        # Node 22 and 24 both have win32-x64 prebuilds.
+        include:
+          - { os: ubuntu-latest, node: 20 }
+          - { os: ubuntu-latest, node: 22 }
+          - { os: windows-latest, node: 22 }
+          - { os: windows-latest, node: 24 }
       fail-fast: false
 
     steps:
@@ -33,6 +41,14 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+
+      # better-sqlite3 has no win32 prebuild for every Node ABI; when a
+      # prebuild is missing node-gyp falls back to compiling from source,
+      # which needs a working MSVC environment (the runner's VS detection
+      # is unreliable on windows-latest).
+      - name: Set up MSVC build tools (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - run: npm ci
 
@@ -48,11 +64,25 @@ jobs:
       - name: Migration sync check
         run: npm run db:sync:check
 
+      - name: Native bindings load check
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const db = require('better-sqlite3')(':memory:'); db.exec('CREATE TABLE t (a)'); console.log('better-sqlite3 OK')"
+          node -e "const sharp = require('sharp'); console.log('sharp OK', sharp.versions.sharp)"
+
       - name: Test with coverage
         run: npm test -- --coverage
 
       - name: Build
         run: npm run build
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
 
   docker-smoke:
     name: Docker runtime smoke test

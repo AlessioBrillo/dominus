@@ -31,16 +31,15 @@ export default defineConfig({
         'src/db/index.ts',
         'src/benchmarks/**',
       ],
-      // Current: 63% lines / 63% functions / 54% branches.
-      // Large untested route files (public-router.ts, onboarding.ts, listings.ts, runs.ts)
-      // and postgres-adapter.ts (requires real PG) pull the average down.
-      // Redis inline functions (provider-health.ts ping, node-dns-provider.ts cache callbacks)
-      // require a running Redis instance to test — threshold adjusted for TS 6.x transpilation.
-      // Incremental improvement target: 70/65/60 per CONTRIBUTING.md.
+      // Threshold: 70% lines / 65% functions / 60% branches per CONTRIBUTING.md.
+      // Postgres-adapter.ts (requires real PG) and Redis-dependent providers
+      // (redis-client.ts inline fallbacks, provider-health.ts ping) keep the
+      // average below the aspirational 80%; they are covered by integration
+      // and manual smoke tests instead.
       thresholds: {
-        lines: 62,
-        functions: 62.7,
-        branches: 54,
+        lines: 70,
+        functions: 65,
+        branches: 60,
       },
     },
   },

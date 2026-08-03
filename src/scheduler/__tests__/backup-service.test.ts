@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdirSync, existsSync, rmSync, utimesSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
@@ -89,7 +89,16 @@ describe('BackupService', () => {
     });
 
     await service.create();
+    const [backup] = service.list();
+    expect(backup).toBeDefined();
     expect(service.list().length).toBe(1);
+
+    // Windows filesystems round mtimes (up to ~2s granularity), which can
+    // leave a freshly created file's mtime in the future relative to
+    // Date.now(); pin the mtime to a clearly past date so the retention
+    // check is deterministic on every platform.
+    const past = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    utimesSync(backup!.path, past, past);
 
     const pruned = service.prune();
     expect(pruned).toBe(1);

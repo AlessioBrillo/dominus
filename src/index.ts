@@ -139,7 +139,7 @@ async function main(): Promise<void> {
     app.use('/public/static', express.static(publicStaticDir, { maxAge: '1d' }));
   }
 
-  app.use('/public', createPublicRouter(deps.anonScoringService));
+  app.use('/public', createPublicRouter(deps.anonScoringService, deps.redisClient));
 
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
