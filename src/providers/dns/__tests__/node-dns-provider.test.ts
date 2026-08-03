@@ -287,6 +287,91 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('Available staleness guard', () => {
+    function makeFakePersistentCache(): ProviderCacheRepository {
+      return {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ProviderCacheRepository;
+    }
+
+    it('serves a fresh Available row from the persistent cache without a live lookup', async () => {
+      const persistentCache = makeFakePersistentCache();
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'fresh-available.com',
+          status: DomainStatus.Available,
+          checkedAt: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      );
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      const result = await p.checkAvailability('fresh-available.com');
+
+      expect(dnsPromises.resolve).not.toHaveBeenCalled();
+      expect(result.status).toBe(DomainStatus.Available);
+    });
+
+    it('re-checks live an Available row older than the default 24h stale window', async () => {
+      const persistentCache = makeFakePersistentCache();
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'stale-available.com',
+          status: DomainStatus.Available,
+          checkedAt: new Date(Date.now() - 25 * 60 * 60_000).toISOString(),
+        }),
+      );
+      // Live DNS now says the domain is taken — the stale "Available" must not win.
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      const result = await p.checkAvailability('stale-available.com');
+
+      expect(dnsPromises.resolve).toHaveBeenCalled();
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+
+    it('serves a stale Registered row without a live lookup', async () => {
+      const persistentCache = makeFakePersistentCache();
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'stale-registered.com',
+          status: DomainStatus.Registered,
+          checkedAt: new Date(Date.now() - 6 * 24 * 60 * 60_000).toISOString(),
+        }),
+      );
+      const p = new NodeDnsProvider({ lookupStrategy: 'native', persistentCache });
+
+      const result = await p.checkAvailability('stale-registered.com');
+
+      expect(dnsPromises.resolve).not.toHaveBeenCalled();
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+
+    it('re-checks Available rows older than a custom stale window', async () => {
+      const persistentCache = makeFakePersistentCache();
+      persistentCache.get = vi.fn().mockResolvedValue(
+        JSON.stringify({
+          domain: 'custom-window.com',
+          status: DomainStatus.Available,
+          checkedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+        }),
+      );
+      const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'native',
+        persistentCache,
+        persistentAvailableStaleMs: 60 * 60_000,
+      });
+
+      const result = await p.checkAvailability('custom-window.com');
+
+      expect(dnsPromises.resolve).toHaveBeenCalled();
+      expect(result.status).toBe(DomainStatus.Available);
+    });
+  });
+
   it('checkBulk returns results for all domains', async () => {
     vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
     const results = await provider.checkBulk(['a.com', 'b.com', 'c.com']);
