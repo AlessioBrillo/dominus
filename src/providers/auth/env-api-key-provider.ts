@@ -104,10 +104,11 @@ export class EnvApiKeyProvider implements AuthProvider {
 }
 
 function sha256(value: string): Buffer {
-  // codeql-disable js/insufficient-password-hash — SHA-256 is used only to
-  // normalize variable-length API keys for timingSafeEqual. The keys are
-  // high-entropy random secrets (not passwords) and the hash is computed
-  // in-memory on each request, never stored for offline attack.
+  // SHA-256 is used only to normalize variable-length API keys for
+  // timingSafeEqual. The keys are high-entropy random secrets (not
+  // passwords) and the hash is computed in-memory per request, never
+  // stored for offline attack.
+  // codeql[js/insufficient-password-hash]
   return createHash('sha256').update(value).digest();
 }
 
