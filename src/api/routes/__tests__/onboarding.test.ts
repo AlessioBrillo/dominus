@@ -11,7 +11,7 @@ import type { ScoringEngine } from '../../../scoring/scoring-engine.js';
 import type { PortfolioManager } from '../../../portfolio/portfolio-manager.js';
 import type { TrademarkGate } from '../../../trademark/trademark-gate.js';
 
-function makeScoreResult(overrides: Partial<Record<string, unknown>> = {}) {
+function makeScoreResult(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     domain: 'vintagecoffee.com',
     expectedValue: 1200,

@@ -21,7 +21,7 @@ interface FakeRedis {
 function makeFakeRedis(initial: Record<string, number> = {}): FakeRedis {
   const counts = new Map<string, number>(Object.entries(initial));
   return {
-    pipeline() {
+    pipeline(): FakePipeline {
       const incrKeys: string[] = [];
       const pttlKeys: string[] = [];
       const self: FakePipeline = {
