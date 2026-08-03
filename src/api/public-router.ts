@@ -3,10 +3,13 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import type { Store } from 'express-rate-limit';
+import { createHash } from 'node:crypto';
 import type {
   AnonScoringService,
+  AnonTrademarkInfo,
   CompareResult,
   PublicScoreData,
+  ValuateScore,
 } from '../services/anon-scoring-service.js';
 import { isValidDomain } from '../utils/domain.js';
 import { runWithTenant } from '../utils/tenant-context.js';
@@ -32,11 +35,40 @@ const PER_DOMAIN_RATE_LIMIT_MAX = 5;
 const POST_RATE_LIMIT_WINDOW_MS = 60_000;
 const POST_RATE_LIMIT_MAX = 10;
 const POST_BODY_MAX_BYTES = 1000;
+
+const SITEMAP_CACHE_TTL_MS = 60 * 60 * 1000;
+const SITEMAP_CACHE_MAX_ORIGINS = 32;
+const VALUATE_CACHE_MAX_AGE_SECONDS = 300;
+
+interface SitemapCacheEntry {
+  xml: string;
+  etag: string;
+  expiresAt: number;
+}
+
+/** Extract the public-facing origin so per-origin caches key correctly. */
+function requestOrigin(req: Request): string {
+  return `${req.protocol}://${(req.get('host') ?? '').toLowerCase()}`;
+}
+
+/**
+ * Defense-in-depth: strip the buy signal (suggestedBuyMax) from any public
+ * response whose trademark verdict is not 'clear'. The service layer already
+ * sanitizes at write and read time; this boundary guard keeps the router
+ * conservative even if a caller injects an unsanitized score.
+ */
+function sanitizePublicScore(
+  score: ValuateScore,
+  trademark: AnonTrademarkInfo | null | undefined,
+): ValuateScore {
+  return trademark?.verdict === 'clear' ? score : { ...score, suggestedBuyMax: undefined };
+}
+
 function scoreResponseData(data: PublicScoreData): object {
   return {
     slug: data.slug,
     domain: data.domain,
-    score: data.score,
+    score: sanitizePublicScore(data.score, data.trademark),
     trademark: data.trademark,
     viewCount: data.viewCount,
     createdAt: data.createdAt,
@@ -48,6 +80,7 @@ export function createPublicRouter(
   redisClient?: RedisClient,
 ): Router {
   const router = Router();
+  const sitemapByOrigin = new Map<string, SitemapCacheEntry>();
   const domainRateLimiter = createDomainRateLimiter(
     {
       windowMs: PER_DOMAIN_RATE_LIMIT_WINDOW_MS,
@@ -157,6 +190,7 @@ export function createPublicRouter(
           res.set('Cache-Control', 'public, max-age=86400');
           res.send(renderDomainPage(result.domain, result.score, result.trademark));
         } else {
+          res.set('Cache-Control', `public, max-age=${VALUATE_CACHE_MAX_AGE_SECONDS}`);
           res.json(result);
         }
       } catch (err: unknown) {
@@ -203,13 +237,28 @@ export function createPublicRouter(
           res.send(
             renderComparePage(
               result.score1.domain,
-              result.score1,
+              {
+                ...result.score1,
+                score: sanitizePublicScore(result.score1.score, result.score1.trademark),
+              },
               result.score2.domain,
-              result.score2,
+              {
+                ...result.score2,
+                score: sanitizePublicScore(result.score2.score, result.score2.trademark),
+              },
             ),
           );
         } else {
-          res.json(result);
+          res.json({
+            score1: {
+              ...result.score1,
+              score: sanitizePublicScore(result.score1.score, result.score1.trademark),
+            },
+            score2: {
+              ...result.score2,
+              score: sanitizePublicScore(result.score2.score, result.score2.trademark),
+            },
+          });
         }
       } catch (err: unknown) {
         next(err);
@@ -221,9 +270,24 @@ export function createPublicRouter(
     '/sitemap.xml',
     async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
       try {
+        const origin = requestOrigin(req);
+        const cached = sitemapByOrigin.get(origin);
+        const now = Date.now();
+
+        if (cached !== undefined && cached.expiresAt > now) {
+          if (req.headers['if-none-match'] === cached.etag) {
+            res.status(304).end();
+            return;
+          }
+          res.set('ETag', cached.etag);
+          res.set('Cache-Control', 'public, max-age=3600');
+          res.type('application/xml');
+          res.send(cached.xml);
+          return;
+        }
+
         const rows = await anonScoring.listRecentScores(90, 50000);
 
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
         const urls = rows
           .map((r) => {
             const lastmod = r.created_at
@@ -232,24 +296,34 @@ export function createPublicRouter(
             const encodedSlug = escapeHtml(r.slug);
             return `
   <url>
-    <loc>${escapeHtml(baseUrl)}/public/s/${encodedSlug}</loc>
+    <loc>${escapeHtml(origin)}/public/s/${encodedSlug}</loc>
     <lastmod>${lastmod}</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
     <image:image>
-      <image:loc>${escapeHtml(baseUrl)}/public/s/${encodedSlug}/og.png</image:loc>
+      <image:loc>${escapeHtml(origin)}/public/s/${encodedSlug}/og.png</image:loc>
       <image:title>${escapeHtml(r.domain)} — DOMINUS Score</image:title>
     </image:image>
   </url>`;
           })
           .join('');
 
-        res.set('Cache-Control', 'public, max-age=3600');
-        res.type('application/xml');
-        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urls}
-</urlset>`);
+</urlset>`;
+
+        const etag = `"${createHash('sha1').update(xml).digest('hex')}"`;
+        if (sitemapByOrigin.size >= SITEMAP_CACHE_MAX_ORIGINS) {
+          const oldest = sitemapByOrigin.keys().next().value as string | undefined;
+          if (oldest !== undefined) sitemapByOrigin.delete(oldest);
+        }
+        sitemapByOrigin.set(origin, { xml, etag, expiresAt: now + SITEMAP_CACHE_TTL_MS });
+
+        res.set('ETag', etag);
+        res.set('Cache-Control', 'public, max-age=3600');
+        res.type('application/xml');
+        res.send(xml);
       } catch (err: unknown) {
         logger.error({ err }, 'Failed to generate sitemap');
         res.status(500).send('Internal server error');
@@ -327,10 +401,11 @@ export function createPublicRouter(
 
       anonScoring.bumpViewCount(slug);
 
-      const responseData = scoreResponseData({
+      const safeData = {
         ...data,
+        score: sanitizePublicScore(data.score, data.trademark),
         viewCount: data.viewCount + 1,
-      });
+      };
 
       if (req.accepts('html')) {
         const ogImageUrl = `/public/s/${slug}/og.png`;
@@ -338,16 +413,16 @@ export function createPublicRouter(
         res.set('Link', `<${ogImageUrl}>; rel=preload; as=image`);
         res.send(
           renderScorePage({
-            slug: data.slug,
-            domain: data.domain,
-            score: data.score,
-            trademark: data.trademark,
-            viewCount: data.viewCount + 1,
-            createdAt: data.createdAt,
+            slug: safeData.slug,
+            domain: safeData.domain,
+            score: safeData.score,
+            trademark: safeData.trademark,
+            viewCount: safeData.viewCount,
+            createdAt: safeData.createdAt,
           }),
         );
       } else {
-        res.json(responseData);
+        res.json(scoreResponseData(safeData));
       }
     } catch (err: unknown) {
       next(err);
