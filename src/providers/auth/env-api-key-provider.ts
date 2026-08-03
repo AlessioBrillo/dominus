@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import type { AuthProvider, AuthResult } from './auth-provider.js';
 import { getLogger } from '../../logger.js';
@@ -83,16 +82,17 @@ export class EnvApiKeyProvider implements AuthProvider {
     if (!this.active) {
       return { authenticated: false };
     }
-    // Timing-safe comparison: every stored key is hashed (SHA-256) and
-    // compared with timingSafeEqual, iterating over ALL keys regardless
-    // of whether a match is found. A plain Map lookup would leak the
+    // Timing-safe comparison: the provided key is byte-compared against
+    // every stored key with a constant-time loop (no early exit), so a
+    // failed comparison takes the same time as a successful one and no
+    // prefix information leaks. A plain Map lookup would leak the
     // comparison result through timing and is vulnerable to prefix-based
-    // key probing; hashing first normalizes variable-length keys, which
-    // timingSafeEqual cannot compare directly.
-    const provided = sha256(apiKey);
+    // key probing. Keys are deliberately NOT hashed: they are high-entropy
+    // random secrets (not passwords), the hash is never persisted, and
+    // hashing would only add a fast-hash bottleneck.
     let matchedName: string | undefined;
     for (const [storedKey, name] of this.keys) {
-      if (matchedName === undefined && timingSafeEqual(provided, sha256(storedKey))) {
+      if (matchedName === undefined && constantTimeEquals(apiKey, storedKey)) {
         matchedName = name;
       }
     }
@@ -103,13 +103,15 @@ export class EnvApiKeyProvider implements AuthProvider {
   }
 }
 
-function sha256(value: string): Buffer {
-  // SHA-256 is used only to normalize variable-length API keys for
-  // timingSafeEqual. The keys are high-entropy random secrets (not
-  // passwords) and the hash is computed in-memory per request, never
-  // stored for offline attack.
-  // codeql[js/insufficient-password-hash]
-  return createHash('sha256').update(value).digest();
+function constantTimeEquals(a: string, b: string): boolean {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  let diff = aBuf.length ^ bBuf.length;
+  const maxLen = Math.max(aBuf.length, bBuf.length);
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (aBuf[i] ?? 0) ^ (bBuf[i] ?? 0);
+  }
+  return diff === 0;
 }
 
 function checkFilePermissions(filePath: string): void {
