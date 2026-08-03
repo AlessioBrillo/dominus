@@ -261,6 +261,7 @@ export function buildDnsProvider(
         ? providerCacheRepo
         : undefined,
     persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
+    persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
     dotPoolMaxQueued: config.DNS_DOT_POOL_MAX_QUEUED,
     ...(nameservers !== undefined ? { nameservers } : {}),
     useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,

@@ -338,6 +338,16 @@ const configSchema = z.object({
    */
   DNS_PERSISTENT_CACHE_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(168),
   /**
+   * Persistent-cache Available rows older than this many hours are re-checked
+   * live instead of served. Availability is the risky verdict — a false
+   * positive produces a wasted buy recommendation — so it must not be frozen
+   * for the full DNS_PERSISTENT_CACHE_TTL_HOURS like Registered rows are.
+   * Default: 24 (1 day). Lower to detect recent registrations faster at the
+   * cost of more re-checks of available domains; the Unknown-row window
+   * (15 minutes) is unchanged.
+   */
+  DNS_PERSISTENT_AVAILABLE_STALE_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+  /**
    * Rate limiting: max tokens (burst capacity) for DNS resolution requests.
    * Token bucket refills at DNS_RATE_LIMIT_TOKENS per DNS_RATE_LIMIT_INTERVAL_MS.
    * DNS resolvers are typically permissive but bulk pipelines can still trigger

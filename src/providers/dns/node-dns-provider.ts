@@ -24,6 +24,15 @@ const logger = getLogger();
  */
 const STALE_UNKNOWN_WINDOW_MS = 15 * 60_000;
 
+/**
+ * Persistent-cache Available rows older than this are re-checked live.
+ * Availability is the risky verdict (a false positive produces a wasted buy
+ * recommendation), so it must not be frozen for the full persistent TTL —
+ * unlike Registered, which is conservative. Default 24h
+ * (ADR-0002 conservatism, mirrors the RDAP 404 semantics of ADR-0035).
+ */
+const STALE_AVAILABLE_DEFAULT_MS = 24 * 60 * 60_000;
+
 type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
 
 export type DnsLookupStrategy =
@@ -383,6 +392,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #retryPolicy: Partial<RetryPolicy> | undefined;
   readonly #persistentCache: ProviderCacheRepository | undefined;
   readonly #persistentCacheTtlHours: number;
+  readonly #persistentAvailableStaleMs: number;
   readonly #nameservers: string[] | undefined;
   readonly #useDedicatedResolver: boolean;
   /** True when maxSize <= 0 — the in-memory cache is fully disabled. */
@@ -410,6 +420,12 @@ export class NodeDnsProvider implements DnsProvider {
     retryPolicy?: Partial<RetryPolicy> | undefined;
     persistentCache?: ProviderCacheRepository | undefined;
     persistentCacheTtlHours?: number;
+    /**
+     * Persistent-cache Available rows older than this are re-checked live.
+     * Defaults to 24h. A shorter window loses freshness; a longer one risks
+     * a false "Available" surviving a recent registration.
+     */
+    persistentAvailableStaleMs?: number;
     nameservers?: string[];
     useDedicatedResolver?: boolean;
     dotPoolMaxQueued?: number;
@@ -425,6 +441,8 @@ export class NodeDnsProvider implements DnsProvider {
     this.#retryPolicy = options?.retryPolicy;
     this.#persistentCache = options?.persistentCache;
     this.#persistentCacheTtlHours = options?.persistentCacheTtlHours ?? 168;
+    this.#persistentAvailableStaleMs =
+      options?.persistentAvailableStaleMs ?? STALE_AVAILABLE_DEFAULT_MS;
     this.#nameservers = options?.nameservers;
     this.#useDedicatedResolver = options?.useDedicatedResolver ?? true;
     this.#dotPoolMaxQueued = options?.dotPoolMaxQueued ?? 4096;
@@ -536,7 +554,16 @@ export class NodeDnsProvider implements DnsProvider {
             const staleUnknown =
               parsed.status === DomainStatus.Unknown &&
               Date.now() - Date.parse(parsed.checkedAt) > STALE_UNKNOWN_WINDOW_MS;
-            if (!staleUnknown) {
+            // Availability is the risky verdict — a false positive is a
+            // wasted buy recommendation. Like Unknown, an Available row
+            // older than its stale window is re-checked live instead of
+            // served. Registered stays served for the full TTL: it is the
+            // conservative outcome (ADR-0002) and expirations are the
+            // exception, not the rule.
+            const staleAvailable =
+              parsed.status === DomainStatus.Available &&
+              Date.now() - Date.parse(parsed.checkedAt) > this.#persistentAvailableStaleMs;
+            if (!staleUnknown && !staleAvailable) {
               if (!this.#cacheDisabled) this.#cache.set(domain, parsed);
               return parsed;
             }
