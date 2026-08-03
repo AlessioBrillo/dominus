@@ -9,7 +9,7 @@ interface CompareScore {
   score: {
     expectedValue: number;
     confidence: number;
-    suggestedBuyMax: number;
+    suggestedBuyMax?: number | undefined;
     weightedScore: number;
     recommended: boolean;
     scoredAt?: string;

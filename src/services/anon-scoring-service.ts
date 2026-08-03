@@ -10,6 +10,21 @@ import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
+/**
+ * A buy recommendation (suggestedBuyMax) is only exposed when the trademark
+ * gate positively clears the domain. Any other outcome — blocked, unverified,
+ * or no gate at all — strips the buy signal. Applied at both write time
+ * (createScore) and read time (getScoreBySlug, getCompareScores) so legacy
+ * rows stored before this rule also render conservatively (ADR-0006).
+ */
+function sanitizeScoreForPublic(
+  score: ScoreResult,
+  trademark: AnonTrademarkInfo | null,
+): ValuateScore {
+  const verified = trademark?.verdict === 'clear';
+  return verified ? score : { ...score, suggestedBuyMax: undefined };
+}
+
 export interface AnonTrademarkInfo {
   verdict: string;
   verifiedSources: string[];
@@ -38,7 +53,7 @@ export interface AnonValuateResult {
 export interface PublicScoreData {
   slug: string;
   domain: string;
-  score: ScoreResult;
+  score: ValuateScore;
   trademark: AnonTrademarkInfo | null;
   viewCount: number;
   createdAt: string;
@@ -46,7 +61,7 @@ export interface PublicScoreData {
 
 export interface CompareScoreData {
   domain: string;
-  score: ScoreResult;
+  score: ValuateScore;
   trademark: AnonTrademarkInfo | null;
 }
 
@@ -221,6 +236,18 @@ export class AnonScoringService {
     this.#compareCache.clear();
   }
 
+  /**
+   * Stop the view-count flush timer. Idempotent. Used by callers that own
+   * the service lifecycle (graceful shutdown, tests) to prevent a leaked
+   * interval from keeping a process alive or flushing after disposal.
+   */
+  dispose(): void {
+    if (this.#viewCountFlushTimer !== null) {
+      clearInterval(this.#viewCountFlushTimer);
+      this.#viewCountFlushTimer = null;
+    }
+  }
+
   async createScore(domain: string): Promise<CreatedScoreResult> {
     if (!this.#repo) {
       throw new Error('PublicScoreRepository is required to create scores');
@@ -228,7 +255,14 @@ export class AnonScoringService {
 
     const scoreResult = await this.score(domain);
     const slug = randomUUID().replace(/-/g, '').slice(0, 12);
-    const scoreJson = JSON.stringify(scoreResult.score);
+    // A buy recommendation is only persisted when the trademark gate clears
+    // the domain. Any other outcome — blocked, unverified, or no gate at all —
+    // stores the score without the buy signal (conservatism, ADR-0006).
+    const storedScore: ValuateScore = sanitizeScoreForPublic(
+      scoreResult.score,
+      scoreResult.trademark,
+    );
+    const scoreJson = JSON.stringify(storedScore);
     const trademarkJson = scoreResult.trademark ? JSON.stringify(scoreResult.trademark) : null;
 
     await this.#repo.insert(slug, domain, scoreJson, trademarkJson);
@@ -246,11 +280,15 @@ export class AnonScoringService {
     const row = await this.#repo.findBySlug(slug);
     if (!row) return null;
 
+    const trademark: AnonTrademarkInfo | null = row.trademark_json
+      ? (JSON.parse(row.trademark_json) as AnonTrademarkInfo)
+      : null;
+
     const data: PublicScoreData = {
       slug: row.slug,
       domain: row.domain,
-      score: JSON.parse(row.score_json) as ScoreResult,
-      trademark: row.trademark_json ? (JSON.parse(row.trademark_json) as AnonTrademarkInfo) : null,
+      score: sanitizeScoreForPublic(JSON.parse(row.score_json) as ScoreResult, trademark),
+      trademark,
       viewCount: row.view_count,
       createdAt: row.created_at,
     };
@@ -270,20 +308,23 @@ export class AnonScoringService {
     const { row1, row2 } = await this.#repo.findBySlugsForCompare(slug1, slug2);
     if (!row1 || !row2) return null;
 
+    const trademark1: AnonTrademarkInfo | null = row1.trademark_json
+      ? (JSON.parse(row1.trademark_json) as AnonTrademarkInfo)
+      : null;
+    const trademark2: AnonTrademarkInfo | null = row2.trademark_json
+      ? (JSON.parse(row2.trademark_json) as AnonTrademarkInfo)
+      : null;
+
     const result: CompareResult = {
       score1: {
         domain: row1.domain,
-        score: JSON.parse(row1.score_json) as ScoreResult,
-        trademark: row1.trademark_json
-          ? (JSON.parse(row1.trademark_json) as AnonTrademarkInfo)
-          : null,
+        score: sanitizeScoreForPublic(JSON.parse(row1.score_json) as ScoreResult, trademark1),
+        trademark: trademark1,
       },
       score2: {
         domain: row2.domain,
-        score: JSON.parse(row2.score_json) as ScoreResult,
-        trademark: row2.trademark_json
-          ? (JSON.parse(row2.trademark_json) as AnonTrademarkInfo)
-          : null,
+        score: sanitizeScoreForPublic(JSON.parse(row2.score_json) as ScoreResult, trademark2),
+        trademark: trademark2,
       },
     };
 
@@ -322,12 +363,20 @@ export class AnonScoringService {
       this.#viewCountBuffer = [];
       this.#viewCountRetryBuffer = [];
       if (batch.length === 0) return;
+      // A slug may appear in both buffers (a failed flush followed by new
+      // views). Deduplicate by summing per slug so a single slug is never
+      // updated twice within one cycle — otherwise the same view would be
+      // counted twice.
+      const merged = new Map<string, number>();
       for (const entry of batch) {
+        merged.set(entry.slug, (merged.get(entry.slug) ?? 0) + entry.count);
+      }
+      for (const [slug, count] of merged) {
         try {
-          await this.#repo.updateViewCount(entry.slug, entry.count);
+          await this.#repo.updateViewCount(slug, count);
         } catch (err) {
-          logger.warn({ err, slug: entry.slug }, 'Failed to flush view_count');
-          this.#enqueueViewCountRetry(entry);
+          logger.warn({ err, slug }, 'Failed to flush view_count');
+          this.#enqueueViewCountRetry({ slug, count });
         }
       }
     } finally {

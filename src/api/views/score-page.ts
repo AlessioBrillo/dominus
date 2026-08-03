@@ -10,7 +10,7 @@ interface ScoreData {
   score: {
     expectedValue: number;
     confidence: number;
-    suggestedBuyMax: number;
+    suggestedBuyMax?: number | undefined;
     suggestedListPrice: number;
     weightedScore: number;
     recommended: boolean;
@@ -66,6 +66,11 @@ export function renderScorePage(data: ScoreData): string {
     org,
   ].join('\n');
 
+  const buyMaxStat =
+    score.suggestedBuyMax !== undefined
+      ? `<div class="stat"><div class="stat-label">Suggested Buy Max</div><div class="stat-value">€${score.suggestedBuyMax.toFixed(0)}</div></div>`
+      : '';
+
   const bodyContent = [
     '<div class="card">',
     `<h1>${escapeHtml(domain)}</h1>`,
@@ -80,7 +85,7 @@ export function renderScorePage(data: ScoreData): string {
       ? `<div style="margin-bottom:1rem"><span class="badge ${trademark.verdict}">Trademark: ${tmStatus}</span></div>`
       : '',
     '<div class="grid">',
-    `<div class="stat"><div class="stat-label">Suggested Buy Max</div><div class="stat-value">€${score.suggestedBuyMax.toFixed(0)}</div></div>`,
+    buyMaxStat,
     `<div class="stat"><div class="stat-label">Suggested List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
     '</div>',
     '<p class="footer">Scored with <a href="https://dominus.app">DOMINUS</a></p>',

@@ -3,6 +3,41 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AnonScoringService, DomainValidationError } from '../anon-scoring-service.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
+import type { PublicScoreRepository } from '../../db/repositories/public-score-repository.js';
+
+function createMockTrademarkGate(verdict: string = 'clear'): TrademarkGate {
+  return {
+    check: vi.fn().mockResolvedValue({
+      verdict,
+      verifiedSources: ['USPTO'],
+      matchedMark: null,
+      matchedOwner: null,
+      details: [],
+    }),
+  } as unknown as TrademarkGate;
+}
+
+type FakeRepo = PublicScoreRepository & {
+  insert: ReturnType<typeof vi.fn>;
+  findBySlug: ReturnType<typeof vi.fn>;
+  findBySlugsForCompare: ReturnType<typeof vi.fn>;
+  updateViewCount: ReturnType<typeof vi.fn>;
+  listRecentScores: ReturnType<typeof vi.fn>;
+  pruneOlderThan: ReturnType<typeof vi.fn>;
+  findForOgImage: ReturnType<typeof vi.fn>;
+};
+
+function makeFakeRepo(): FakeRepo {
+  return {
+    insert: vi.fn().mockResolvedValue(undefined),
+    findBySlug: vi.fn().mockResolvedValue(null),
+    findBySlugsForCompare: vi.fn().mockResolvedValue({ row1: null, row2: null }),
+    updateViewCount: vi.fn().mockResolvedValue(undefined),
+    listRecentScores: vi.fn().mockResolvedValue([]),
+    pruneOlderThan: vi.fn().mockResolvedValue(0),
+    findForOgImage: vi.fn().mockResolvedValue(null),
+  } as unknown as FakeRepo;
+}
 
 function createMockEngine(): ScoringEngine {
   return {
@@ -60,18 +95,6 @@ function createMockEngine(): ScoringEngine {
       effectiveConfidenceThreshold: 0.3,
     }),
   } as unknown as ScoringEngine;
-}
-
-function createMockTrademarkGate(verdict: string = 'clear'): TrademarkGate {
-  return {
-    check: vi.fn().mockResolvedValue({
-      verdict,
-      verifiedSources: ['USPTO'],
-      matchedMark: null,
-      matchedOwner: null,
-      details: [],
-    }),
-  } as unknown as TrademarkGate;
 }
 
 describe('AnonScoringService', () => {
@@ -258,6 +281,177 @@ describe('AnonScoringService', () => {
       await service.valuate('example.com');
 
       expect(spy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('createScore()', () => {
+    it('stores the full score (including suggestedBuyMax) when trademark is clear', async () => {
+      const repo = makeFakeRepo();
+      service = new AnonScoringService(engine, trademarkGate, 5000, 100, repo);
+
+      await service.createScore('example.com');
+
+      const [slug, , scoreJson] = repo.insert.mock.calls[0]!;
+      expect(slug).toBeTypeOf('string');
+      const stored = JSON.parse(scoreJson);
+      expect(stored.suggestedBuyMax).toBe(75);
+    });
+
+    it('strips suggestedBuyMax from the stored score when trademark is unverified', async () => {
+      trademarkGate = createMockTrademarkGate('unverified');
+      const repo = makeFakeRepo();
+      service = new AnonScoringService(engine, trademarkGate, 5000, 100, repo);
+
+      await service.createScore('example.com');
+
+      const stored = JSON.parse(repo.insert.mock.calls[0]![2]);
+      expect(stored.suggestedBuyMax).toBeUndefined();
+      expect(stored.expectedValue).toBe(150);
+    });
+
+    it('strips suggestedBuyMax from the stored score when trademark is blocked', async () => {
+      trademarkGate = createMockTrademarkGate('blocked');
+      const repo = makeFakeRepo();
+      service = new AnonScoringService(engine, trademarkGate, 5000, 100, repo);
+
+      await service.createScore('example.com');
+
+      const stored = JSON.parse(repo.insert.mock.calls[0]![2]);
+      expect(stored.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('strips suggestedBuyMax when the trademark gate errors', async () => {
+      trademarkGate = {
+        check: vi.fn().mockRejectedValue(new Error('Network error')),
+      } as unknown as TrademarkGate;
+      const repo = makeFakeRepo();
+      service = new AnonScoringService(engine, trademarkGate, 5000, 100, repo);
+
+      await service.createScore('example.com');
+
+      const stored = JSON.parse(repo.insert.mock.calls[0]![2]);
+      expect(stored.suggestedBuyMax).toBeUndefined();
+    });
+
+    it('strips suggestedBuyMax when no trademark gate is configured', async () => {
+      const repo = makeFakeRepo();
+      service = new AnonScoringService(engine, undefined, 5000, 100, repo);
+
+      await service.createScore('example.com');
+
+      const stored = JSON.parse(repo.insert.mock.calls[0]![2]);
+      expect(stored.suggestedBuyMax).toBeUndefined();
+    });
+  });
+
+  describe('read-time sanitization (defense-in-depth for legacy rows)', () => {
+    const legacyRow = {
+      slug: 'abc123def456',
+      domain: 'example.com',
+      score_json: JSON.stringify({
+        domain: 'example.com',
+        expectedValue: 150,
+        confidence: 0.65,
+        suggestedBuyMax: 75,
+        suggestedListPrice: 300,
+        weightedScore: 0.55,
+      }),
+      view_count: 1,
+      created_at: '2025-01-15T00:00:00.000Z',
+    };
+
+    it('getScoreBySlug strips suggestedBuyMax for non-clear trademark', async () => {
+      const repo = makeFakeRepo();
+      repo.findBySlug.mockResolvedValue({
+        ...legacyRow,
+        trademark_json: JSON.stringify({ verdict: 'unverified', verifiedSources: [] }),
+      });
+      service = new AnonScoringService(engine, undefined, 5000, 100, repo);
+
+      const data = await service.getScoreBySlug('abc123def456');
+
+      expect(data).not.toBeNull();
+      expect(data!.score.suggestedBuyMax).toBeUndefined();
+      expect(data!.score.expectedValue).toBe(150);
+    });
+
+    it('getScoreBySlug keeps suggestedBuyMax when trademark is clear', async () => {
+      const repo = makeFakeRepo();
+      repo.findBySlug.mockResolvedValue({
+        ...legacyRow,
+        trademark_json: JSON.stringify({ verdict: 'clear', verifiedSources: ['USPTO'] }),
+      });
+      service = new AnonScoringService(engine, undefined, 5000, 100, repo);
+
+      const data = await service.getScoreBySlug('abc123def456');
+
+      expect(data!.score.suggestedBuyMax).toBe(75);
+    });
+
+    it('getCompareScores strips suggestedBuyMax per-score based on trademark', async () => {
+      const repo = makeFakeRepo();
+      repo.findBySlugsForCompare.mockResolvedValue({
+        row1: {
+          ...legacyRow,
+          slug: 'abc123def456',
+          trademark_json: JSON.stringify({ verdict: 'clear', verifiedSources: ['USPTO'] }),
+        },
+        row2: {
+          ...legacyRow,
+          slug: 'xyz789def456',
+          domain: 'test.org',
+          trademark_json: JSON.stringify({ verdict: 'blocked', verifiedSources: ['USPTO'] }),
+        },
+      });
+      service = new AnonScoringService(engine, undefined, 5000, 100, repo);
+
+      const result = await service.getCompareScores('abc123def456', 'xyz789def456');
+
+      expect(result).not.toBeNull();
+      expect(result!.score1.score.suggestedBuyMax).toBe(75);
+      expect(result!.score2.score.suggestedBuyMax).toBeUndefined();
+    });
+  });
+
+  describe('view count flush', () => {
+    it('deduplicates retry and live buffers per slug before flushing', async () => {
+      vi.useFakeTimers();
+      try {
+        const repo = makeFakeRepo();
+        repo.updateViewCount
+          .mockRejectedValueOnce(new Error('db down'))
+          .mockResolvedValue(undefined);
+        service = new AnonScoringService(engine, trademarkGate, 5000, 100, repo);
+
+        service.bumpViewCount('slug1');
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        service.bumpViewCount('slug1');
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(repo.updateViewCount).toHaveBeenCalledTimes(2);
+        expect(repo.updateViewCount).toHaveBeenLastCalledWith('slug1', 2);
+      } finally {
+        service.dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it('batches distinct slugs in a single flush cycle', async () => {
+      vi.useFakeTimers();
+      try {
+        const repo = makeFakeRepo();
+        service = new AnonScoringService(engine, trademarkGate, 5000, 100, repo);
+
+        service.bumpViewCount('slug1');
+        service.bumpViewCount('slug2');
+        await vi.advanceTimersByTimeAsync(60_000);
+
+        expect(repo.updateViewCount).toHaveBeenCalledTimes(2);
+      } finally {
+        service.dispose();
+        vi.useRealTimers();
+      }
     });
   });
 });
