@@ -20,6 +20,10 @@ export const RDAP_ORG_UNIVERSAL: RdapBootstrapServer = {
 };
 
 const BOOTSTRAP_FETCH_TIMEOUT_MS = 10_000;
+/** How long a hot-path query waits for an in-flight bootstrap refresh
+ * (cold start, warm-up) before degrading to rdap.org routing. The full
+ * fetch must never stall a domain query for its 10s timeout. */
+const BOOTSTRAP_INFLIGHT_BUDGET_MS = 1_000;
 
 interface IanaService {
   ldhName?: string[];
@@ -87,8 +91,28 @@ export class IanaRdapBootstrap {
     }
   }
 
+  /**
+   * Start a background refresh of the bootstrap data (fire-and-forget).
+   * Call once at process startup so the first RDAP query of the process
+   * does not stall on a cold fetch. Failures are logged by refresh() and
+   * never thrown.
+   */
+  warm(): void {
+    void this.refresh();
+  }
+
   async #refreshIfStale(): Promise<void> {
     if (Date.now() - this.#fetchedAt < this.#ttlMs) return;
+    if (this.#inFlight) {
+      // A refresh is already running (e.g. the startup warm-up). Wait only
+      // a short budget before serving the rdap.org fallback — a domain
+      // query must never wait the full fetch timeout.
+      await Promise.race([
+        this.#inFlight,
+        new Promise<void>((resolve) => setTimeout(resolve, BOOTSTRAP_INFLIGHT_BUDGET_MS)),
+      ]);
+      return;
+    }
     await this.refresh();
   }
 

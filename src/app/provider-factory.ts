@@ -199,6 +199,13 @@ export function buildRdapProviders(
   const rdapBootstrapUrls = parseRdapBootstrapUrls(config.RDAP_BOOTSTRAP_URLS);
   const breakers = buildRdapCircuitBreakers(redisClient);
 
+  const ianaBootstrap = config.RDAP_BOOTSTRAP_URL
+    ? new IanaRdapBootstrap(config.RDAP_BOOTSTRAP_URL)
+    : undefined;
+  // Warm the IANA bootstrap (RFC 7484) at startup, fire-and-forget, so the
+  // first RDAP query of the process does not stall on the cold fetch.
+  ianaBootstrap?.warm();
+
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
       ? FailoverRdapProvider.fromConfig(
@@ -210,7 +217,7 @@ export function buildRdapProviders(
       : FailoverRdapProvider.withDefaults(
           rdapRateLimiter,
           undefined,
-          config.RDAP_BOOTSTRAP_URL ? new IanaRdapBootstrap(config.RDAP_BOOTSTRAP_URL) : undefined,
+          ianaBootstrap,
           breakers.perServer,
         );
 

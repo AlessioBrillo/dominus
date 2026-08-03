@@ -96,6 +96,68 @@ describe('IanaRdapBootstrap', () => {
     const servers = await bootstrap.getServers('com');
     expect(servers).toEqual([RDAP_ORG_UNIVERSAL]);
   });
+
+  it('warm() starts the bootstrap fetch without blocking the caller', async () => {
+    mockFetchResponse(IANA_SAMPLE);
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json');
+
+    bootstrap.warm();
+
+    // The fetch starts immediately, even though warm() returns synchronously.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    // Once the warm fetch lands, the authoritative servers are served.
+    await vi.waitFor(async () => {
+      const servers = await bootstrap.getServers('com');
+      expect(servers.some((s) => s.name === 'rdap.verisign.com')).toBe(true);
+    });
+  });
+
+  it('warm() never throws when the bootstrap fetch fails', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json');
+
+    expect(() => bootstrap.warm()).not.toThrow();
+    // The failure degrades to rdap.org routing, exactly like a cold fetch.
+    await vi.waitFor(async () => {
+      expect(await bootstrap.getServers('com')).toEqual([RDAP_ORG_UNIVERSAL]);
+    });
+  });
+
+  it('does not stall the first query on an in-flight warm-up fetch', async () => {
+    // The bootstrap fetch takes 3s; a query arriving during warm-up must
+    // not wait for it — rdap.org routing covers the gap.
+    globalThis.fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            resolve({
+              ok: true,
+              status: 200,
+              json: async () => IANA_SAMPLE,
+            } as Response);
+          }, 3000);
+        }),
+    ) as unknown as typeof fetch;
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json');
+
+    bootstrap.warm();
+    const start = Date.now();
+    const servers = await bootstrap.getServers('com');
+    const elapsed = Date.now() - start;
+
+    expect(servers).toEqual([RDAP_ORG_UNIVERSAL]);
+    expect(elapsed).toBeLessThan(2500);
+    // The warm fetch completes in the background and fills the cache.
+    await vi.waitFor(
+      async () => {
+        const after = await bootstrap.getServers('com');
+        expect(after.some((s) => s.name === 'rdap.verisign.com')).toBe(true);
+      },
+      { timeout: 5000 },
+    );
+  });
 });
 
 function makeBootstrap(serversByTld: Record<string, RdapBootstrapServer[]>): IanaRdapBootstrap {
