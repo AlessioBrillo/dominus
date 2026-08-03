@@ -39,7 +39,7 @@ jobs:
 
       - name: Cache node_modules
         id: cache-deps
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: node_modules
           key: deps-bench-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}
