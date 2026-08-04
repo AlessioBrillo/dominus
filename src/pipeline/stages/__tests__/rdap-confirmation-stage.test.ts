@@ -302,3 +302,71 @@ describe('RdapConfirmationStage (WHOIS enrichment)', () => {
     expect(result.passed[0]!.whoisMeta!.domainAge).toBeGreaterThan(0);
   });
 });
+
+describe('RdapConfirmationStage (WHOIS budget)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('treats RDAP as authoritative when WHOIS exceeds its budget (slow disagreement ignored)', async () => {
+    // Arrange — RDAP says Available, WHOIS would say Registered but only after
+    // 300ms: with a 100ms budget the WHOIS answer must be discarded and RDAP
+    // decides (ADR-0035: RDAP is authoritative)
+    const rdap: RdapProvider = {
+      name: 'mock-rdap',
+      confirm: vi.fn().mockResolvedValue({
+        domain: 'example.com',
+        status: DomainStatus.Available,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      }),
+    };
+    const slowWhois: WhoisProvider = {
+      checkAvailability: vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ domain: 'x', available: false, checkedAt: '' }), 300),
+          ),
+      ),
+    };
+    const stage = new RdapConfirmationStage(rdap, slowWhois, 5, 10_000, 100);
+
+    // Act
+    const result = await stage.process([makeCandidate('example.com')]);
+
+    // Assert — RDAP wins; the candidate passes
+    expect(result.passed).toHaveLength(1);
+    expect(result.filtered).toHaveLength(0);
+    expect(rdap.confirm).toHaveBeenCalled();
+  });
+
+  it('still blocks on cross-validation disagreement when WHOIS answers within budget', async () => {
+    // Arrange — WHOIS answers instantly, within the 100ms budget: the
+    // disagreement must still be treated conservatively (filter as registered)
+    const rdap: RdapProvider = {
+      name: 'mock-rdap',
+      confirm: vi.fn().mockResolvedValue({
+        domain: 'example.com',
+        status: DomainStatus.Available,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      }),
+    };
+    const fastWhois: WhoisProvider = {
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x',
+        available: false,
+        checkedAt: new Date().toISOString(),
+      }),
+    };
+    const stage = new RdapConfirmationStage(rdap, fastWhois, 5, 10_000, 100);
+
+    // Act
+    const result = await stage.process([makeCandidate('example.com')]);
+
+    // Assert — conservative filter wins
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Registered);
+  });
+});
