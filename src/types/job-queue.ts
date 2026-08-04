@@ -53,6 +53,7 @@ export interface JobQueueStats {
 }
 
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
+import type { StageDegradation } from '../pipeline/orchestrator.js';
 
 export interface PipelineRunPayload {
   candidateGenerationInput: CandidateGenerationInput;
@@ -67,6 +68,9 @@ export interface PipelineRunResult {
   totalDurationMs: number;
   stageErrors: string[];
   degraded?: boolean;
+  /** Machine-readable reasons for a degraded run, forwarded from the
+   *  orchestrator so callers can judge partial output (see ADR-0037). */
+  degradedReasons?: StageDegradation[];
 }
 
 export interface PortfolioRescorePayload {

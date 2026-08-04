@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
-import { RefreshCw, Trash2, XCircle } from 'lucide-react';
+import { RefreshCw, Trash2, XCircle, AlertTriangle } from 'lucide-react';
 import { useRunsList, useDeleteRun, usePruneRuns } from '@/hooks/useRuns';
 import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState } from '@/components/EmptyState';
@@ -118,6 +118,24 @@ export function RunsPage() {
                 onClick={() => setSelectedRunId(isSelected ? null : run.runId)}
               >
                 <CardContent className="p-4">
+                  {run.resultsSummary?.degraded === true && (
+                    <div
+                      className="mb-3 flex items-start gap-2 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning"
+                      title={
+                        run.resultsSummary?.degradedReasons
+                          ?.map(
+                            (d) =>
+                              `${d.stageName}: ${d.reason} — processed ${d.processedCount}/${d.expectedCount}`,
+                          )
+                          .join('\n') ?? 'Stage budget exceeded or stage failure'
+                      }
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        Run completed with degraded output — recommendations may be incomplete.
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-sm text-text-primary">

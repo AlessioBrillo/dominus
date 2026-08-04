@@ -33,6 +33,7 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
         durationMs: result.totalDurationMs,
         degraded: result.degraded,
         stageErrors: result.stageErrors.length,
+        degradedReasons: result.degradedReasons,
       },
       'PipelineRunHandler: pipeline run completed',
     );
@@ -43,6 +44,7 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
       scored: result.scored.length,
       totalDurationMs: result.totalDurationMs,
       degraded: result.degraded,
+      degradedReasons: result.degradedReasons,
       stageErrors: result.stageErrors.map((e: unknown) =>
         typeof e === 'object' && e !== null
           ? JSON.stringify({

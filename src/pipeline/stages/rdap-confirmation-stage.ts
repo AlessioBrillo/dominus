@@ -10,6 +10,11 @@ import { getLogger } from '../../logger.js';
 
 const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
 
+/** Default WHOIS budget: WHOIS is a bounded enrichment over the authoritative
+ *  RDAP answer (ADR-0035). A WHOIS response slower than this is discarded and
+ *  RDAP decides. */
+const DEFAULT_WHOIS_BUDGET_MS = 1_000;
+
 interface AvailabilityResult {
   domain: string;
   status: DomainStatus;
@@ -70,6 +75,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     private readonly whoisProvider?: WhoisProvider,
     private readonly concurrency: number = 10,
     private readonly enrichTimeoutMs: number = DEFAULT_ENRICH_TIMEOUT_MS,
+    /** Maximum time a WHOIS answer may take before it is discarded. RDAP is
+     *  authoritative (ADR-0035): within the budget a WHOIS disagreement still
+     *  blocks conservatively, beyond the budget RDAP decides. */
+    private readonly whoisBudgetMs: number = DEFAULT_WHOIS_BUDGET_MS,
   ) {}
 
   async process(
@@ -154,24 +163,46 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return rdapToResult(rdap);
     }
 
-    const [rdapSettled, whoisSettled] = await Promise.allSettled([
-      this.rdapProvider.confirm(domain, combined),
-      this.whoisProvider.checkAvailability(domain, combined),
-    ]);
-
-    if (rdapSettled.status === 'fulfilled' && whoisSettled.status === 'fulfilled') {
-      return this.#crossValidate(domain, rdapSettled.value, whoisSettled.value);
+    // WHOIS is bounded: a response that does not arrive within whoisBudgetMs
+    // is discarded and RDAP is authoritative (ADR-0035). The race guarantees
+    // the budget even if the WHOIS provider is not abort-aware.
+    let whois: WhoisResult | undefined;
+    try {
+      const whoisBudgetSignal = AbortSignal.any([
+        combined,
+        AbortSignal.timeout(this.whoisBudgetMs),
+      ]);
+      whois = await Promise.race([
+        this.whoisProvider.checkAvailability(domain, whoisBudgetSignal).catch(() => undefined),
+        new Promise<undefined>((resolve) =>
+          setTimeout(() => resolve(undefined), this.whoisBudgetMs).unref(),
+        ),
+      ]);
+    } catch {
+      whois = undefined;
     }
 
-    if (rdapSettled.status === 'fulfilled') {
-      return rdapToResult(rdapSettled.value);
+    let rdap: RdapResult | undefined;
+    let rdapReason: unknown;
+    try {
+      rdap = await this.rdapProvider.confirm(domain, combined);
+    } catch (error) {
+      rdapReason = error;
     }
 
-    if (whoisSettled.status === 'fulfilled') {
-      return whoisToResult(whoisSettled.value);
+    if (rdap !== undefined && whois !== undefined) {
+      return this.#crossValidate(domain, rdap, whois);
     }
 
-    throw rdapSettled.reason;
+    if (rdap !== undefined) {
+      return rdapToResult(rdap);
+    }
+
+    if (whois !== undefined) {
+      return whoisToResult(whois);
+    }
+
+    throw rdapReason;
   }
 
   #crossValidate(domain: string, rdap: RdapResult, whois: WhoisResult): AvailabilityResult {

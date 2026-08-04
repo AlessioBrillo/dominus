@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
+import type { StageDegradation } from '../../pipeline/orchestrator.js';
 
 /**
  * One row of the `pipeline_runs` table (ADR-0011).
@@ -36,6 +37,10 @@ export interface PipelineRunResults {
   trademarkBlocked: number;
   unscored: number;
   errors: number;
+  /** True when the run completed but one or more stages degraded (ADR-0037). */
+  degraded?: boolean;
+  /** Machine-readable degradation reasons, forwarded from the orchestrator. */
+  degradedReasons?: StageDegradation[];
 }
 
 export interface InsertPipelineRunInput {

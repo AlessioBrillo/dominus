@@ -522,6 +522,8 @@ function buildResultsSummary(
     trademarkBlocked,
     unscored,
     errors: result.stageErrors.length,
+    degraded: result.degraded,
+    degradedReasons: result.degradedReasons,
   };
 }
 

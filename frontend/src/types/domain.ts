@@ -60,13 +60,31 @@ export interface Outcome {
   notes?: string;
 }
 
+export interface PipelineRunDegradation {
+  stageName: string;
+  reason: 'timeout' | 'error';
+  processedCount: number;
+  expectedCount: number;
+  message?: string;
+}
+
+export interface PipelineRunResultsSummary {
+  candidatesEvaluated: number;
+  recommended: number;
+  trademarkBlocked: number;
+  unscored: number;
+  errors: number;
+  degraded?: boolean;
+  degradedReasons?: PipelineRunDegradation[];
+}
+
 export interface PipelineRun {
   runId: string;
   startedAt: string;
   finishedAt?: string;
   totalDurationMs?: number;
   stageSummary: Record<string, { passed: number; filtered: number; durationMs: number }>;
-  resultsSummary: Record<string, unknown>;
+  resultsSummary: PipelineRunResultsSummary;
 }
 
 export interface Alert {

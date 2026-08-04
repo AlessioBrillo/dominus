@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
-import { PipelineOrchestrator, PipelineTimeoutError } from '../orchestrator.js';
+import {
+  PipelineOrchestrator,
+  PipelineTimeoutError,
+  computeStageBudgetMs,
+} from '../orchestrator.js';
 import { CandidateGenerationStage } from '../stages/candidate-generation-stage.js';
 import { DnsPreFilterStage } from '../stages/dns-prefilter-stage.js';
 import { RdapConfirmationStage } from '../stages/rdap-confirmation-stage.js';
@@ -387,5 +391,144 @@ describe('PipelineOrchestrator', () => {
     expect(lockCalls.length).toBeGreaterThanOrEqual(2);
     expect(lockCalls[0]!.method).toBe('tryLock');
     expect(lockCalls[lockCalls.length - 1]!.method).toBe('unlock');
+  });
+});
+
+describe('computeStageBudgetMs', () => {
+  it('returns the configured base for an empty stage input', () => {
+    expect(computeStageBudgetMs(0, { baseMs: 5_000 })).toBe(5_000);
+  });
+
+  it('scales linearly with the number of candidates', () => {
+    expect(computeStageBudgetMs(10_000, { baseMs: 5_000, perCandidateMs: 200 })).toBe(2_005_000);
+  });
+
+  it('caps the budget at the configured maximum', () => {
+    expect(computeStageBudgetMs(100_000, { perCandidateMs: 200, capMs: 60_000 })).toBe(60_000);
+  });
+});
+
+describe('PipelineOrchestrator (stage budget integrity)', () => {
+  it('records a timeout degradation when a stage exceeds its budget with no partial results', async () => {
+    // Arrange — a DNS provider whose bulk check never settles: under the old
+    // fixed 5-minute budget the whole run would silently finish empty
+    const hangingDns: DnsProvider = {
+      name: 'HangingDns',
+      checkAvailability: vi.fn().mockImplementation(() => new Promise(() => {})),
+      checkBulk: vi.fn().mockImplementation(() => new Promise(() => {})),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(hangingDns),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { baseMs: 40, perCandidateMs: 0, capMs: 200, graceMs: 20 },
+    );
+
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['nova.com'] });
+
+    // Assert — the run completes, is marked degraded, and names the guilty stage
+    expect(result.degraded).toBe(true);
+    expect(result.degradedReasons).toHaveLength(1);
+    expect(result.degradedReasons[0]!.stageName).toBe('DnsPreFilter');
+    expect(result.degradedReasons[0]!.reason).toBe('timeout');
+    expect(result.degradedReasons[0]!.processedCount).toBe(0);
+    expect(result.degradedReasons[0]!.expectedCount).toBe(1);
+    expect(result.recommended).toHaveLength(0);
+  });
+
+  it('harvests partial results when a stage aborts after processing part of the input', async () => {
+    // Arrange — DNS resolves on abort (abort-aware stage): the timeout must
+    // not throw away the already-computed results
+    const abortResolvingDns: DnsProvider = {
+      name: 'AbortResolvingDns',
+      checkAvailability: vi.fn().mockImplementation(() => new Promise(() => {})),
+      checkBulk: vi.fn().mockImplementation(
+        (domains: string[], signal?: AbortSignal) =>
+          new Promise((resolve) => {
+            const results = domains.map((d) => ({
+              domain: d,
+              status: DomainStatus.Available,
+              checkedAt: '',
+            }));
+            const onAbort = (): void => resolve(results);
+            signal?.addEventListener('abort', onAbort, { once: true });
+          }),
+      ),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(abortResolvingDns),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { baseMs: 30, perCandidateMs: 0, capMs: 500, graceMs: 500 },
+    );
+
+    // Act
+    const result = await orchestrator.run({ brandableNames: ['nova.com', 'zenify.io'] });
+
+    // Assert — the partial results survive and the run is still flagged
+    expect(result.degraded).toBe(true);
+    expect(result.degradedReasons).toHaveLength(1);
+    expect(result.degradedReasons[0]!.stageName).toBe('DnsPreFilter');
+    expect(result.degradedReasons[0]!.reason).toBe('timeout');
+    expect(result.degradedReasons[0]!.processedCount).toBe(2);
+    expect(result.degradedReasons[0]!.expectedCount).toBe(2);
+    expect(result.recommended).toHaveLength(2);
+  });
+
+  it('scales the stage budget with candidate count so slow finite stages complete', async () => {
+    // Arrange — a DNS provider that takes 40ms per bulk check: with a fixed
+    // small budget the run would time out; the scaled budget must let it finish
+    const slowDns: DnsProvider = {
+      name: 'SlowDns',
+      checkAvailability: vi.fn().mockImplementation(() => new Promise(() => {})),
+      checkBulk: vi.fn().mockImplementation(async (domains: string[]) => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        return domains.map((d) => ({ domain: d, status: DomainStatus.Available, checkedAt: '' }));
+      }),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(slowDns),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { baseMs: 30, perCandidateMs: 50, capMs: 1_000, graceMs: 50 },
+    );
+
+    // Act
+    const result = await orchestrator.run({
+      brandableNames: ['a.com', 'b.com', 'c.com', 'd.com', 'e.com'],
+    });
+
+    // Assert — 5 candidates × 40ms = 200ms < 280ms budget → no degradation
+    expect(result.degraded).toBe(false);
+    expect(result.degradedReasons).toHaveLength(0);
+    expect(result.recommended).toHaveLength(5);
   });
 });

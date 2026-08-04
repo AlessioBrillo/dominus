@@ -41,7 +41,18 @@ beforeEach(() => {
 describe('useRunsList', () => {
   it('fetches the runs', async () => {
     mockedFetchRuns.mockResolvedValueOnce([
-      { runId: 'r1', startedAt: '2026-07-01T00:00:00Z', stageSummary: {}, resultsSummary: {} },
+      {
+        runId: 'r1',
+        startedAt: '2026-07-01T00:00:00Z',
+        stageSummary: {},
+        resultsSummary: {
+          candidatesEvaluated: 0,
+          recommended: 0,
+          trademarkBlocked: 0,
+          unscored: 0,
+          errors: 0,
+        },
+      },
     ]);
     const { result } = renderHook(() => useRunsList(), { wrapper: createWrapper() });
 
@@ -63,7 +74,13 @@ describe('useRun', () => {
       runId: 'r1',
       startedAt: '2026-07-01T00:00:00Z',
       stageSummary: {},
-      resultsSummary: {},
+      resultsSummary: {
+        candidatesEvaluated: 0,
+        recommended: 0,
+        trademarkBlocked: 0,
+        unscored: 0,
+        errors: 0,
+      },
     });
     const { result } = renderHook(() => useRun('r1'), { wrapper: createWrapper() });
 

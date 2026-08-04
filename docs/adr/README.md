@@ -43,6 +43,7 @@ re-running the original arguments.
 | [0034](0034-multi-tenant-data-model.md)                      | Multi-tenant data model — tenant ID column + PostgreSQL RLS                   | 2026-06-26 | Proposed                 |
 | [0035](0035-rdap-authoritative-bootstrap.md)                  | RDAP authoritative bootstrap — IANA per-TLD resolution, strict 404 semantics | 2026-08-02 | Accepted                 |
 | [0036](0036-license-and-ip-protection.md)                     | License and IP protection hardening — AGPL-3.0-only, CLA/CI gates             | 2026-08-01 | Accepted                 |
+| [0037](0037-pipeline-run-integrity-at-scale.md)                | Pipeline run integrity at scale — candidate-scaled stage budgets, degraded output surfacing, WHOIS time-box | 2026-08-04 | Accepted |
 
 ## Conventions
 
