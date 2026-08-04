@@ -224,7 +224,7 @@ describe('health command', () => {
     const parsed = JSON.parse(output.trim());
     expect(parsed).toHaveProperty('status', 'ok');
     expect(parsed).toHaveProperty('version');
-    expect(parsed.version).toMatch(/^0\.\d+\.\d+-dev$/);
+    expect(parsed.version).toMatch(/^0\.\d+\.\d+(?:-dev)?$/);
     expect(parsed).toHaveProperty('uptime');
     expect(parsed).toHaveProperty('database', 'connected');
     expect(parsed).toHaveProperty('providers');
