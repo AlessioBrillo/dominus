@@ -72,10 +72,11 @@ describe('UsageMeterService', () => {
       expect(usage.isOverLimit).toBe(false);
     });
 
-    it('throws for tenant without subscription', async () => {
-      await expect(service.record(TENANT, 'candidates_scored', 1, PERIOD)).rejects.toThrow(
-        /no active subscription/i,
-      );
+    it('records against the free plan for a tenant without a subscription', async () => {
+      const usage = await service.record(TENANT, 'candidates_scored', 5, PERIOD);
+      expect(usage.plan).toBe('free');
+      expect(usage.limitValue).toBe(50);
+      expect(usage.currentUsage).toBe(5);
     });
 
     describe('with auto-provisioning enabled', () => {
