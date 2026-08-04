@@ -42,6 +42,11 @@ export interface PipelineResult {
    *  The pipeline continued but output is degraded (missing candidates that
    *  would have flowed through the failed stage). */
   degraded: boolean;
+  /** Machine-readable reasons for a degraded run. Empty when the run is clean.
+   *  Each entry names the stage that failed and how much of its input was
+   *  processed before the degradation, so callers can decide whether the
+   *  partial output is actionable (e.g. CLI exit code, UI banner). */
+  degradedReasons: StageDegradation[];
 }
 
 export interface StageError {
@@ -50,6 +55,61 @@ export interface StageError {
   candidateCount: number;
   provider?: string;
   isTransient?: boolean;
+}
+
+export type StageDegradationReason = 'timeout' | 'error';
+
+export interface StageDegradation {
+  stageName: string;
+  reason: StageDegradationReason;
+  /** Number of input candidates the stage processed before degrading. */
+  processedCount: number;
+  /** Number of input candidates the stage was expected to process. */
+  expectedCount: number;
+  message?: string;
+}
+
+/** Options for the per-stage execution budget.
+ *  The budget scales with the number of candidates flowing into the stage, so
+ *  large runs are not killed by a fixed timeout, while stalled stages still
+ *  degrade instead of blocking the pipeline forever. */
+export interface StageBudgetOptions {
+  /** Fixed time granted to a stage regardless of input size. */
+  baseMs?: number;
+  /** Time granted per input candidate. */
+  perCandidateMs?: number;
+  /** Hard ceiling on the computed budget. */
+  capMs?: number;
+  /** Extra time granted after the budget fires, during which an abort-aware
+   *  stage may still resolve with partial results (harvest window). */
+  graceMs?: number;
+}
+
+const STAGE_BUDGET_DEFAULT_BASE_MS = 30_000;
+const STAGE_BUDGET_DEFAULT_PER_CANDIDATE_MS = 200;
+const STAGE_BUDGET_DEFAULT_CAP_MS = 3_600_000;
+export const STAGE_BUDGET_DEFAULT_GRACE_MS = 5_000;
+
+export function computeStageBudgetMs(candidateCount: number, options?: StageBudgetOptions): number {
+  const baseMs = options?.baseMs ?? STAGE_BUDGET_DEFAULT_BASE_MS;
+  const perCandidateMs = options?.perCandidateMs ?? STAGE_BUDGET_DEFAULT_PER_CANDIDATE_MS;
+  const capMs = options?.capMs ?? STAGE_BUDGET_DEFAULT_CAP_MS;
+  return Math.min(baseMs + candidateCount * perCandidateMs, capMs);
+}
+
+/** Thrown when a stage exceeds its budget and does not resolve with partial
+ *  results within the grace window. Never retried — the run continues in
+ *  degraded mode (see ADR-0036). */
+export class StageBudgetExceededError extends Error {
+  readonly inputCount: number;
+
+  constructor(inputCount: number, budgetMs: number, label: string) {
+    super(
+      `Stage '${label}' exceeded its budget of ${budgetMs}ms (input: ${inputCount} candidates)`,
+    );
+    this.name = 'StageBudgetExceededError';
+    this.inputCount = inputCount;
+  }
 }
 
 export class PipelineTimeoutError extends Error {
@@ -151,10 +211,14 @@ export class PipelineOrchestrator {
      *  When set, the orchestrator saves a checkpoint after each stage
      *  and can resume from the last completed stage on recovery. */
     checkpointStore?: CheckpointStore,
-    /** Per-stage timeout in milliseconds. When a stage exceeds this limit,
-     *  it degrades with empty results rather than blocking the entire pipeline
-     *  until the pipeline-level timeout fires. Default: 5 minutes. */
-    private readonly stageTimeoutMs: number = 300_000,
+    /** Per-stage execution budget. The budget scales with the number of
+     *  candidates flowing into each stage (see {@link computeStageBudgetMs}),
+     *  so large runs are not killed by a fixed timeout while stalled stages
+     *  still degrade instead of blocking the pipeline. When a stage exceeds
+     *  its budget, abort-aware stages are given a short grace window to return
+     *  partial results, otherwise the stage degrades with empty results and
+     *  the run is marked {@link StageDegradationReason timeout}. */
+    private readonly stageBudget: StageBudgetOptions = {},
   ) {
     this.#lock = lockProvider ?? db ?? null;
     this.#checkpointStore = checkpointStore ?? null;
@@ -338,6 +402,7 @@ export class PipelineOrchestrator {
     this.#onRunStart?.();
     const stageSummary: PipelineResult['stageSummary'] = {};
     const stageErrors: StageError[] = [];
+    const degradations: StageDegradation[] = [];
     const isAborted = (): boolean =>
       signal.aborted || (this.timeoutMs > 0 && Date.now() - start >= this.timeoutMs);
 
@@ -429,6 +494,7 @@ export class PipelineOrchestrator {
             },
           ],
           degraded: true,
+          degradedReasons: [],
         };
       }
       stageSummary[gen.stageName] = {
@@ -469,6 +535,8 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
+      degradations,
+      gen.passed.length,
       controller,
       key,
     );
@@ -490,6 +558,8 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
+      degradations,
+      dns.passed.length,
       controller,
       key,
     );
@@ -511,6 +581,8 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
+      degradations,
+      rdap.passed.length,
       controller,
       key,
     );
@@ -532,6 +604,8 @@ export class PipelineOrchestrator {
       start,
       stageSummary,
       stageErrors,
+      degradations,
+      scoring.passed.length,
       controller,
       key,
     );
@@ -567,7 +641,8 @@ export class PipelineOrchestrator {
       stageSummary,
       totalDurationMs: Date.now() - start,
       stageErrors,
-      degraded: stageErrors.length > 0,
+      degraded: stageErrors.length > 0 || degradations.length > 0,
+      degradedReasons: degradations,
     };
   }
 
@@ -579,6 +654,8 @@ export class PipelineOrchestrator {
     startMs: number,
     summary: PipelineResult['stageSummary'],
     errors: StageError[],
+    degradations: StageDegradation[],
+    inputCount: number,
     controller: AbortController,
     key: string,
   ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
@@ -586,7 +663,13 @@ export class PipelineOrchestrator {
     for (let attempt = 1; attempt <= STAGE_RETRY_MAX; attempt++) {
       try {
         await this.#ensureLockHeld(key);
-        const result = await this.#withTimeout(label, fn, startMs, controller);
+        const { result, timedOut } = await this.#runStageTimed(
+          label,
+          fn,
+          inputCount,
+          startMs,
+          controller,
+        );
         summary[result.stageName] = {
           passed: result.passed.length,
           filtered: result.filtered.length,
@@ -597,21 +680,53 @@ export class PipelineOrchestrator {
           result.passed.length,
           result.filtered.length,
           result.durationMs,
-          false,
+          timedOut,
         );
         this.#onStageProgress?.(
           result.stageName,
           result.passed.length,
           result.filtered.length,
           result.durationMs,
-          false,
+          timedOut,
         );
+
+        if (timedOut) {
+          const processed = result.passed.length + result.filtered.length;
+          degradations.push({
+            stageName: label,
+            reason: 'timeout',
+            processedCount: processed,
+            expectedCount: inputCount,
+          });
+          logger.warn(
+            { label, inputCount, processed },
+            `Pipeline: ${label} stage exceeded its budget — continuing with partial results`,
+          );
+        }
 
         if (attempt > 1) {
           logger.info({ label, attempt }, 'Pipeline: stage recovered on retry');
         }
         return result;
       } catch (err) {
+        if (err instanceof StageBudgetExceededError) {
+          degradations.push({
+            stageName: label,
+            reason: 'timeout',
+            processedCount: 0,
+            expectedCount: err.inputCount,
+          });
+          const durationMs = Date.now() - startMs;
+          summary[label] = { passed: 0, filtered: 0, durationMs };
+          this.metrics?.recordStage(label, 0, 0, durationMs, true, 0, ['STAGE_BUDGET_EXCEEDED']);
+          this.#onStageProgress?.(label, 0, 0, durationMs, true);
+          logger.error(
+            { err, label, inputCount: err.inputCount },
+            `Pipeline: ${label} stage exceeded its budget — recovering with empty result`,
+          );
+          return { passed: [], filtered: [], stageName: label, durationMs };
+        }
+
         const error = err instanceof Error ? err : new Error(String(err));
         const msg = error.message;
 
@@ -641,6 +756,13 @@ export class PipelineOrchestrator {
             stageError.provider = err.provider;
           }
           errors.push(stageError);
+          degradations.push({
+            stageName: label,
+            reason: 'error',
+            processedCount: 0,
+            expectedCount: inputCount,
+            message: msg,
+          });
           const durationMs = Date.now() - startMs;
           summary[label] = { passed: 0, filtered: 0, durationMs };
           this.metrics?.recordStage(label, 0, 0, durationMs, true, totalAttempts - 1, [
@@ -678,6 +800,8 @@ export class PipelineOrchestrator {
     startMs: number,
     summary: PipelineResult['stageSummary'],
     errors: StageError[],
+    degradations: StageDegradation[],
+    inputCount: number,
     controller: AbortController,
     key: string,
   ): Promise<StageResult<T> | null> {
@@ -706,7 +830,17 @@ export class PipelineOrchestrator {
       }
     }
 
-    const result = await this.#runStageSafe(label, fn, startMs, summary, errors, controller, key);
+    const result = await this.#runStageSafe(
+      label,
+      fn,
+      startMs,
+      summary,
+      errors,
+      degradations,
+      inputCount,
+      controller,
+      key,
+    );
     if (result === null) return null;
 
     if (this.#checkpointStore && runId) {
@@ -741,7 +875,93 @@ export class PipelineOrchestrator {
       totalDurationMs: Date.now() - start,
       stageErrors,
       degraded: true,
+      degradedReasons: [],
     };
+  }
+
+  /** Run a stage under a candidate-scaled budget with a partial-result harvest
+   *  window. When the budget fires the stage's own signal is aborted; an
+   *  abort-aware stage may still resolve with the results computed so far
+   *  within {@link StageBudgetOptions.graceMs}. If it does, the caller sees
+   *  {@code timedOut: true} alongside the partial result. If it does not, a
+   *  {@link StageBudgetExceededError} is thrown and the stage degrades empty. */
+  async #runStageTimed<T>(
+    label: string,
+    fn: (signal: AbortSignal) => Promise<StageResult<T>>,
+    inputCount: number,
+    startMs: number,
+    controller: AbortController,
+  ): Promise<{ result: StageResult<T>; timedOut: boolean }> {
+    const signal = controller.signal;
+    const elapsed = Date.now() - startMs;
+
+    // Hard pipeline-level deadline: aborts the whole run.
+    if (this.timeoutMs > 0 && elapsed >= this.timeoutMs) {
+      controller.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, elapsed);
+    }
+
+    const budgetMs = computeStageBudgetMs(inputCount, this.stageBudget);
+    const graceMs = this.stageBudget.graceMs ?? STAGE_BUDGET_DEFAULT_GRACE_MS;
+
+    let effectiveTimeout = Number.POSITIVE_INFINITY;
+    if (this.timeoutMs > 0) effectiveTimeout = Math.min(effectiveTimeout, this.timeoutMs - elapsed);
+    if (budgetMs > 0) effectiveTimeout = Math.min(effectiveTimeout, budgetMs);
+
+    if (!Number.isFinite(effectiveTimeout) || effectiveTimeout <= 0) {
+      return { result: await fn(signal), timedOut: false };
+    }
+
+    const stageController = new AbortController();
+    const stageSignal = signal
+      ? AbortSignal.any([signal, stageController.signal])
+      : stageController.signal;
+
+    return new Promise<{ result: StageResult<T>; timedOut: boolean }>((resolve, reject) => {
+      let settled = false;
+      let budgetHit = false;
+
+      const settle = (action: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(budgetTimer);
+        clearTimeout(graceTimer);
+        action();
+      };
+
+      const budgetTimer = setTimeout(() => {
+        if (settled) return;
+        budgetHit = true;
+        stageController.abort(new PipelineTimeoutError(effectiveTimeout, effectiveTimeout));
+        logger.warn(
+          { label, budgetMs: effectiveTimeout, inputCount },
+          'Pipeline: stage budget exceeded — aborting stage, harvesting partial results',
+        );
+      }, effectiveTimeout).unref();
+
+      const graceTimer = setTimeout(() => {
+        settle(() => reject(new StageBudgetExceededError(inputCount, effectiveTimeout, label)));
+      }, effectiveTimeout + graceMs).unref();
+
+      fn(stageSignal).then(
+        (result) => {
+          settle(() => resolve({ result, timedOut: budgetHit }));
+        },
+        (err: unknown) => {
+          settle(() => {
+            // The stage aborted itself out of the budget (AbortError) — treat
+            // it as a budget exhaustion rather than a provider failure.
+            const isAbort =
+              err instanceof DOMException || (err instanceof Error && err.name === 'AbortError');
+            if (budgetHit && isAbort) {
+              reject(new StageBudgetExceededError(inputCount, effectiveTimeout, label));
+            } else {
+              reject(err);
+            }
+          });
+        },
+      );
+    });
   }
 
   async #withTimeout<T>(
@@ -751,41 +971,16 @@ export class PipelineOrchestrator {
     controller: AbortController,
   ): Promise<T> {
     const signal = controller.signal;
-    if (this.timeoutMs <= 0 && this.stageTimeoutMs <= 0) return fn(signal);
+    if (this.timeoutMs <= 0) return fn(signal);
 
     const elapsed = Date.now() - startMs;
-
-    // Pipeline-level deadline check: hard abort
-    if (this.timeoutMs > 0) {
-      const remaining = this.timeoutMs - elapsed;
-      if (remaining <= 0) {
-        controller.abort();
-        throw new PipelineTimeoutError(this.timeoutMs, elapsed);
-      }
+    const remaining = this.timeoutMs - elapsed;
+    if (remaining <= 0) {
+      controller.abort();
+      throw new PipelineTimeoutError(this.timeoutMs, elapsed);
     }
 
-    // Effective timeout is the more imminent of pipeline-remaining and stage-limit
-    let effectiveTimeout = Number.POSITIVE_INFINITY;
-    if (this.timeoutMs > 0) effectiveTimeout = Math.min(effectiveTimeout, this.timeoutMs - elapsed);
-    if (this.stageTimeoutMs > 0) effectiveTimeout = Math.min(effectiveTimeout, this.stageTimeoutMs);
-
-    if (!Number.isFinite(effectiveTimeout) || effectiveTimeout <= 0) return fn(signal);
-
-    // Stage-level timeout uses a child controller so only this stage is aborted,
-    // not the entire pipeline. The stage degrades with empty results.
-    const stageController = new AbortController();
-    const stageSignal = signal
-      ? AbortSignal.any([signal, stageController.signal])
-      : stageController.signal;
-
-    return raceWithTimeout(
-      fn(stageSignal),
-      effectiveTimeout,
-      label,
-      stageController.signal,
-      stageController,
-      true,
-    );
+    return raceWithTimeout(fn(signal), remaining, label, signal, controller, false);
   }
 }
 

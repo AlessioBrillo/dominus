@@ -116,6 +116,7 @@ function buildIntegration(provider: SqliteProvider): IntegrationDeps {
       } as DomainCandidate,
     ],
     degraded: false,
+    degradedReasons: [],
     stageSummary: {
       CandidateGenerationStage: { passed: 3, filtered: 0, durationMs: 1 },
       DnsPreFilterStage: { passed: 2, filtered: 1, durationMs: 1 },
