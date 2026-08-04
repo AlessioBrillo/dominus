@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
-import { pageHtml, BASE_CSS_HREF, SITE_NAME, SITE_URL } from './page-template.js';
+import { pageHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
 import { reviewJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
@@ -33,7 +33,7 @@ function toJsonLd(s: ScoreData['score'], domain: string): JsonLdScoreData {
   };
 }
 
-export function renderScorePage(data: ScoreData): string {
+export function renderScorePage(data: ScoreData, siteUrl: string): string {
   const { score, trademark, domain } = data;
   const verdict = score.recommended ? 'Recommended' : 'Not Recommended';
   const tmStatus =
@@ -48,17 +48,28 @@ export function renderScorePage(data: ScoreData): string {
   const description = `${escapeHtml(domain)} scored: expected value €${score.expectedValue.toFixed(0)}, confidence ${(score.confidence * 100).toFixed(0)}%, weighted score ${score.weightedScore.toFixed(2)}`;
   const ogTitle = `${escapeHtml(domain)} — Domain Score`;
   const ogDescription = `Expected Value: €${score.expectedValue.toFixed(0)} | Confidence: ${(score.confidence * 100).toFixed(0)}% | Weighted Score: ${score.weightedScore.toFixed(2)}`;
-  const ogImage = `${SITE_URL}/public/s/${data.slug}/og.png`;
+  const ogImage = `${siteUrl}/public/s/${data.slug}/og.png`;
 
   const jsld = reviewJsonLd(toJsonLd(score, domain));
-  const bc = breadcrumbJsonLd([
-    { position: 1, name: 'Home', path: '/' },
-    { position: 2, name: `Score: ${domain}`, path: canonicalUrl },
-  ]);
-  const org = organizationJsonLd();
+  const bc = breadcrumbJsonLd(
+    [
+      { position: 1, name: 'Home', path: '/' },
+      { position: 2, name: `Score: ${domain}`, path: canonicalUrl },
+    ],
+    siteUrl,
+  );
+  const org = organizationJsonLd(siteUrl);
 
   const headExtras = [
-    metaTags({ title, description, canonical: canonicalUrl, ogTitle, ogDescription, ogImage }),
+    metaTags({
+      title,
+      description,
+      canonical: canonicalUrl,
+      siteUrl,
+      ogTitle,
+      ogDescription,
+      ogImage,
+    }),
     `<meta name="twitter:site" content="@dominusapp">`,
     `<link rel="alternate" type="application/json" href="/public/s/${data.slug}">`,
     jsld,
@@ -88,7 +99,7 @@ export function renderScorePage(data: ScoreData): string {
     buyMaxStat,
     `<div class="stat"><div class="stat-label">Suggested List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
     '</div>',
-    '<p class="footer">Scored with <a href="https://dominus.app">DOMINUS</a></p>',
+    '<p class="footer">Scored with <a href="' + escapeHtml(siteUrl) + '">DOMINUS</a></p>',
     '</div>',
   ].join('\n');
 

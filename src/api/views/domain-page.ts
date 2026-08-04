@@ -30,7 +30,9 @@ export function renderDomainPage(
   domain: string,
   score: DomainScore,
   trademark?: { verdict: string; verifiedSources: string[]; matchedMark?: string | null } | null,
+  siteUrl?: string,
 ): string {
+  const site = siteUrl ?? 'https://dominus.app';
   const verdict = score.recommended ? 'Recommended' : 'Not Recommended';
   const tmStatus =
     trademark?.verdict === 'clear'
@@ -48,14 +50,17 @@ export function renderDomainPage(
   const ogDescription = `Expected Value: €${score.expectedValue.toFixed(0)} | Confidence: ${(score.confidence * 100).toFixed(0)}% | Weighted Score: ${score.weightedScore.toFixed(2)}`;
 
   const jsld = productJsonLd(toJsonLd(score, domain));
-  const bc = breadcrumbJsonLd([
-    { position: 1, name: 'Home', path: '/' },
-    { position: 2, name: `Domain: ${domain}`, path: canon },
-  ]);
-  const org = organizationJsonLd();
+  const bc = breadcrumbJsonLd(
+    [
+      { position: 1, name: 'Home', path: '/' },
+      { position: 2, name: `Domain: ${domain}`, path: canon },
+    ],
+    site,
+  );
+  const org = organizationJsonLd(site);
 
   const headExtras = [
-    metaTags({ title, description, canonical: canon, ogTitle, ogDescription }),
+    metaTags({ title, description, canonical: canon, siteUrl: site, ogTitle, ogDescription }),
     `<meta name="twitter:site" content="@dominusapp">`,
     `<link rel="alternate" type="application/json" href="/public/domain/${escapeHtml(domain)}">`,
     jsld,
@@ -87,7 +92,7 @@ export function renderDomainPage(
     buyMaxStat,
     `<div class="stat"><div class="stat-label">Suggested List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
     '</div>',
-    '<p class="footer">Free domain appraisal by <a href="https://dominus.app">DOMINUS</a></p>',
+    '<p class="footer">Free domain appraisal by <a href="' + escapeHtml(site) + '">DOMINUS</a></p>',
     '</div>',
   ].join('\n');
 

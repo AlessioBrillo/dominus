@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
+import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth } from './app/auth-factory.js';
@@ -40,10 +41,16 @@ import {
   createDocsRouter,
   createWorkerRouter,
   createPublicRouter,
+  createRobotsTxtHandler,
   errorHandler,
   createRequestLogger,
   responseCache,
 } from './api/index.js';
+
+/** Build the public router options, omitting the URL when it is unset. */
+function publicAppUrlOption(config: { PUBLIC_APP_URL?: string | undefined }): PublicRouterOptions {
+  return config.PUBLIC_APP_URL ? { publicAppUrl: config.PUBLIC_APP_URL } : {};
+}
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -139,7 +146,16 @@ async function main(): Promise<void> {
     app.use('/public/static', express.static(publicStaticDir, { maxAge: '1d' }));
   }
 
-  app.use('/public', createPublicRouter(deps.anonScoringService, deps.redisClient));
+  app.use(
+    '/public',
+    createPublicRouter(deps.anonScoringService, deps.redisClient, publicAppUrlOption(config)),
+  );
+
+  // Site-root robots.txt (crawlers fetch '/robots.txt'). The handler is
+  // per-origin and, like the public namespace, must be reachable without
+  // auth and before the SPA catch-all. The Sitemap directive points at the
+  // /public/sitemap.xml route.
+  app.get('/robots.txt', createRobotsTxtHandler(publicAppUrlOption(config)));
 
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));

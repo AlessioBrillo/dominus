@@ -3,7 +3,6 @@ export const BASE_CSS_HREF = '/public/static/assets/public-score.css';
 export const COMPARE_CSS_HREF = '/public/static/assets/public-compare.css';
 export const ERROR_CSS_HREF = '/public/static/assets/public-error.css';
 export const SITE_NAME = 'DOMINUS';
-export const SITE_URL = 'https://dominus.app';
 export const TWITTER_SITE = '@dominusapp';
 
 export function pageHtml(
