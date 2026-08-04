@@ -594,7 +594,7 @@ describe('Public Router — /public', () => {
         createdAt: '2025-01-15T00:00:00.000Z',
       };
 
-      const html = renderScorePage(data);
+      const html = renderScorePage(data, 'https://dominus.app');
       expect(html).toContain('application/ld+json');
       expect(html).toContain('"@type":"Product"');
       expect(html).toContain('"@type":"Review"');
@@ -617,6 +617,7 @@ describe('Public Router — /public', () => {
           scoredAt: '2025-01-15T00:00:00.000Z',
         },
         { verdict: 'clear', verifiedSources: ['USPTO', 'EUIPO'] },
+        'https://dominus.app',
       );
 
       expect(html).toContain('application/ld+json');
@@ -627,15 +628,20 @@ describe('Public Router — /public', () => {
     });
 
     it('renderDomainPage aggregateRating uses confidence-based value (not weightedScore/10 bug)', () => {
-      const html = renderDomainPage('example.com', {
-        expectedValue: 100,
-        confidence: 0.65,
-        suggestedBuyMax: 50,
-        suggestedListPrice: 300,
-        weightedScore: 0.567,
-        recommended: true,
-        scoredAt: '2025-01-15T00:00:00.000Z',
-      });
+      const html = renderDomainPage(
+        'example.com',
+        {
+          expectedValue: 100,
+          confidence: 0.65,
+          suggestedBuyMax: 50,
+          suggestedListPrice: 300,
+          weightedScore: 0.567,
+          recommended: true,
+          scoredAt: '2025-01-15T00:00:00.000Z',
+        },
+        undefined,
+        'https://dominus.app',
+      );
       expect(html).toContain('"ratingValue":65');
       expect(html).not.toContain('"ratingValue":0');
     });
@@ -674,6 +680,7 @@ describe('Public Router — /public', () => {
         makeScore('example.com', 100, 0.65),
         'testdomain.io',
         makeScore('testdomain.io', 200, 0.45),
+        'https://dominus.app',
       );
 
       expect(html).toContain('application/ld+json');
@@ -773,6 +780,97 @@ describe('Public Router — /public', () => {
 
       expect(res.text).toContain('alternate');
       expect(res.text).toContain('application/json');
+    });
+  });
+
+  describe('Site URL resolution (canonical/OG/robots)', () => {
+    it('uses the configured PUBLIC_APP_URL for og:image, og:url, JSON-LD and footer', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, { publicAppUrl: 'https://app.example.com' }),
+      );
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/s/abc123def456').set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('https://app.example.com/public/s/abc123def456/og.png');
+      expect(res.text).toContain(
+        'property="og:url" content="https://app.example.com/public/s/abc123def456"',
+      );
+      expect(res.text).toContain('"url":"https://app.example.com"');
+      expect(res.text).toContain('href="https://app.example.com"');
+      expect(res.text).not.toContain('dominus.app');
+    });
+
+    it('falls back to the request origin when PUBLIC_APP_URL is unset (self-hosted)', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app)
+        .get('/public/s/abc123def456')
+        .set('Accept', 'text/html')
+        .set('Host', 'selfhost.example.com');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('selfhost.example.com/public/s/abc123def456/og.png');
+      expect(res.text).toContain(
+        'property="og:url" content="http://selfhost.example.com/public/s/abc123def456"',
+      );
+    });
+
+    it('uses the configured URL for the sitemap origin', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, { publicAppUrl: 'https://app.example.com' }),
+      );
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/sitemap.xml');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('<loc>https://app.example.com/public/s/');
+    });
+
+    it('serves robots.txt with the configured sitemap URL', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, { publicAppUrl: 'https://app.example.com' }),
+      );
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/robots.txt');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('User-agent: *');
+      expect(res.text).toContain('Sitemap: https://app.example.com/public/sitemap.xml');
+      expect(res.headers['cache-control']).toContain('public');
+    });
+
+    it('robots.txt Sitemap falls back to the request origin', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/robots.txt').set('Host', 'selfhost.example.com');
+
+      expect(res.text).toContain('Sitemap: http://selfhost.example.com/public/sitemap.xml');
+    });
+
+    it('renderDomainPage footer and Organization JSON-LD use the configured site URL', () => {
+      const html = renderDomainPage(
+        'example.com',
+        makeScoreResult(),
+        { verdict: 'clear', verifiedSources: ['USPTO'] },
+        'https://custom.app',
+      );
+      expect(html).toContain('href="https://custom.app"');
+      expect(html).toContain('"url":"https://custom.app"');
+      expect(html).not.toContain('dominus.app');
     });
   });
 

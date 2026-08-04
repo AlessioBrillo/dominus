@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { SITE_NAME, SITE_URL } from './page-template.js';
+import { SITE_NAME } from './page-template.js';
 import { escapeHtml } from './escape.js';
 
 export interface JsonLdScoreData {
@@ -78,6 +78,7 @@ export function reviewJsonLd(score: JsonLdScoreData): string {
 
 export function breadcrumbJsonLd(
   items: Array<{ position: number; name: string; path: string }>,
+  siteUrl: string,
 ): string {
   const breadcrumb: Record<string, unknown> = {
     '@context': 'https://schema.org',
@@ -86,7 +87,7 @@ export function breadcrumbJsonLd(
       '@type': 'ListItem',
       position: i.position,
       name: i.name,
-      item: `${SITE_URL}${i.path}`,
+      item: `${siteUrl}${i.path}`,
     })),
   };
   return tag(breadcrumb);
@@ -142,12 +143,12 @@ export function compareItemListJsonLd(
   return tag(itemList);
 }
 
-export function organizationJsonLd(): string {
+export function organizationJsonLd(siteUrl: string): string {
   const org: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: SITE_NAME,
-    url: SITE_URL,
+    url: siteUrl,
     sameAs: ['https://github.com/AlessioBrillo/dominus'],
   };
   return tag(org);
@@ -157,6 +158,7 @@ export function metaTags(opts: {
   title: string;
   description: string;
   canonical: string;
+  siteUrl: string;
   ogTitle?: string;
   ogDescription?: string;
   ogImage?: string;
@@ -170,7 +172,7 @@ export function metaTags(opts: {
     `<meta property="og:description" content="${escapeHtml(od)}">`,
     '<meta property="og:type" content="website">',
     `<meta property="og:site_name" content="${SITE_NAME}">`,
-    `<meta property="og:url" content="${SITE_URL}${escapeHtml(opts.canonical)}">`,
+    `<meta property="og:url" content="${escapeHtml(opts.siteUrl)}${escapeHtml(opts.canonical)}">`,
     '<meta property="og:locale" content="en_US">',
     ...(opts.ogImage
       ? [

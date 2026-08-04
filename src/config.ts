@@ -191,6 +191,15 @@ const configSchema = z.object({
    */
   PUBLIC_CACHE_TTL_MS: z.coerce.number().int().min(1000).max(86400000).default(300000),
   /**
+   * Absolute base URL of the public site (e.g. 'https://dominus.app').
+   * Used as the origin for canonical URLs, Open Graph metadata, JSON-LD,
+   * the robots.txt Sitemap directive, and the sitemap URLs on the
+   * server-rendered public pages. When unset, the request origin
+   * (protocol + Host header, honoring TRUST_PROXY_DEPTH) is used, which
+   * is correct for self-hosted deployments behind a reverse proxy.
+   */
+  PUBLIC_APP_URL: z.string().url().optional(),
+  /**
    * Optional path to a JSON file with operator-approved weight overrides.
    * When set, the scoring engine reads this file at startup and uses the
    * weights inside it instead of DEFAULT_WEIGHTS. The CLI's

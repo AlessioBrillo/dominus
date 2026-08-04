@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Router } from 'express';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
 import type { Store } from 'express-rate-limit';
 import { createHash } from 'node:crypto';
@@ -46,9 +46,40 @@ interface SitemapCacheEntry {
   expiresAt: number;
 }
 
+export interface PublicRouterOptions {
+  /**
+   * Absolute base URL of the public site (e.g. 'https://dominus.app').
+   * Used as the origin for canonical URLs, Open Graph metadata, JSON-LD,
+   * and the robots.txt Sitemap directive. When unset, the request origin
+   * (protocol + Host header, honoring TRUST_PROXY_DEPTH) is used, which
+   * is correct for self-hosted deployments behind a reverse proxy.
+   */
+  publicAppUrl?: string;
+}
+
 /** Extract the public-facing origin so per-origin caches key correctly. */
 function requestOrigin(req: Request): string {
   return `${req.protocol}://${(req.get('host') ?? '').toLowerCase()}`;
+}
+
+/** Resolve the canonical site origin: configured URL wins, else request origin. */
+function siteUrlFor(req: Request, options: PublicRouterOptions): string {
+  const base = options.publicAppUrl ?? requestOrigin(req);
+  return base.endsWith('/') ? base.slice(0, -1) : base;
+}
+
+/**
+ * Serve a dynamic robots.txt whose Sitemap directive points at the
+ * configured (or request-derived) origin so self-hosted installs
+ * reference their own domain, never the managed Cloud one.
+ */
+export function createRobotsTxtHandler(options: PublicRouterOptions = {}): RequestHandler {
+  return (req: Request, res: Response): void => {
+    const siteUrl = siteUrlFor(req, options);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.type('text/plain');
+    res.send(`User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/public/sitemap.xml\n`);
+  };
 }
 
 /**
@@ -78,9 +109,11 @@ function scoreResponseData(data: PublicScoreData): object {
 export function createPublicRouter(
   anonScoring: AnonScoringService,
   redisClient?: RedisClient,
+  options: PublicRouterOptions = {},
 ): Router {
   const router = Router();
   const sitemapByOrigin = new Map<string, SitemapCacheEntry>();
+  const siteUrlForReq = (req: Request): string => siteUrlFor(req, options);
   const domainRateLimiter = createDomainRateLimiter(
     {
       windowMs: PER_DOMAIN_RATE_LIMIT_WINDOW_MS,
@@ -122,6 +155,8 @@ export function createPublicRouter(
   router.use(publicRateLimiter);
 
   router.use((_req, _res, next) => runWithTenant('public', () => next()));
+
+  router.get('/robots.txt', createRobotsTxtHandler(options));
 
   router.post(
     '/scores',
@@ -188,7 +223,9 @@ export function createPublicRouter(
         const result = await anonScoring.valuate(domain);
         if (req.accepts('html')) {
           res.set('Cache-Control', 'public, max-age=86400');
-          res.send(renderDomainPage(result.domain, result.score, result.trademark));
+          res.send(
+            renderDomainPage(result.domain, result.score, result.trademark, siteUrlForReq(req)),
+          );
         } else {
           res.set('Cache-Control', `public, max-age=${VALUATE_CACHE_MAX_AGE_SECONDS}`);
           res.json(result);
@@ -246,6 +283,7 @@ export function createPublicRouter(
                 ...result.score2,
                 score: sanitizePublicScore(result.score2.score, result.score2.trademark),
               },
+              siteUrlForReq(req),
             ),
           );
         } else {
@@ -270,7 +308,7 @@ export function createPublicRouter(
     '/sitemap.xml',
     async (req: Request, res: Response, _next: NextFunction): Promise<void> => {
       try {
-        const origin = requestOrigin(req);
+        const origin = siteUrlForReq(req);
         const cached = sitemapByOrigin.get(origin);
         const now = Date.now();
 
@@ -287,7 +325,6 @@ export function createPublicRouter(
         }
 
         const rows = await anonScoring.listRecentScores(90, 50000);
-
         const urls = rows
           .map((r) => {
             const lastmod = r.created_at
@@ -412,14 +449,17 @@ export function createPublicRouter(
         res.set('Cache-Control', 'public, max-age=3600');
         res.set('Link', `<${ogImageUrl}>; rel=preload; as=image`);
         res.send(
-          renderScorePage({
-            slug: safeData.slug,
-            domain: safeData.domain,
-            score: safeData.score,
-            trademark: safeData.trademark,
-            viewCount: safeData.viewCount,
-            createdAt: safeData.createdAt,
-          }),
+          renderScorePage(
+            {
+              slug: safeData.slug,
+              domain: safeData.domain,
+              score: safeData.score,
+              trademark: safeData.trademark,
+              viewCount: safeData.viewCount,
+              createdAt: safeData.createdAt,
+            },
+            siteUrlForReq(req),
+          ),
         );
       } else {
         res.json(scoreResponseData(safeData));

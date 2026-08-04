@@ -34,7 +34,9 @@ export function renderComparePage(
   score1: CompareScore,
   domain2: string,
   score2: CompareScore,
+  siteUrl?: string,
 ): string {
+  const site = siteUrl ?? 'https://dominus.app';
   const title = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)} — Domain Scores | ${SITE_NAME}`;
   const description = `Side-by-side comparison of ${escapeHtml(domain1)} (EV: €${score1.score.expectedValue.toFixed(0)}) and ${escapeHtml(domain2)} (EV: €${score2.score.expectedValue.toFixed(0)}). Free domain investment comparison tool.`;
   const canon = `/public/compare/${escapeHtml(domain1)}/${escapeHtml(domain2)}`;
@@ -47,14 +49,17 @@ export function renderComparePage(
     domain2,
     toJsonLd(score2.score, domain2),
   );
-  const bc = breadcrumbJsonLd([
-    { position: 1, name: 'Home', path: '/' },
-    { position: 2, name: `Compare: ${domain1} vs ${domain2}`, path: canon },
-  ]);
-  const org = organizationJsonLd();
+  const bc = breadcrumbJsonLd(
+    [
+      { position: 1, name: 'Home', path: '/' },
+      { position: 2, name: `Compare: ${domain1} vs ${domain2}`, path: canon },
+    ],
+    site,
+  );
+  const org = organizationJsonLd(site);
 
   const headExtras = [
-    metaTags({ title, description, canonical: canon, ogTitle, ogDescription }),
+    metaTags({ title, description, canonical: canon, siteUrl: site, ogTitle, ogDescription }),
     `<meta name="twitter:site" content="@dominusapp">`,
     il,
     bc,
@@ -78,7 +83,9 @@ export function renderComparePage(
     col(domain1, score1),
     col(domain2, score2),
     '</div>',
-    '<p class="footer">Free domain comparison by <a href="https://dominus.app">DOMINUS</a></p>',
+    '<p class="footer">Free domain comparison by <a href="' +
+      escapeHtml(site) +
+      '">DOMINUS</a></p>',
   ].join('\n');
 
   return pageHtml(title, headExtras, COMPARE_CSS_HREF, bodyContent);
