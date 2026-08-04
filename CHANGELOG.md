@@ -11,6 +11,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `PUBLIC_APP_URL`: canonical site URL for the SSR public pages (canonical,
+  OG, JSON-LD, sitemap, robots.txt). When unset, the request origin
+  (protocol + Host, honoring `TRUST_PROXY_DEPTH`) is used — correct for
+  self-hosted installs behind a reverse proxy.
+- Dynamic `robots.txt` served at `/public/robots.txt` and `/robots.txt`
+  with a `Sitemap` directive pointing at the resolved site origin.
+- `AnonScoringService.dispose()` is now called during graceful shutdown so
+  the public view-count flush timer can never fire after the database closes.
+
+### Changed
+- SSR public pages (score/domain/compare, JSON-LD breadcrumb/Organization,
+  meta tags) no longer hardcode `https://dominus.app`; the site URL is
+  resolved from `PUBLIC_APP_URL` or the request origin and is
+  HTML-escaped in attribute contexts.
+- `.env.example` aligned with the config schema: WHOIS rate-limit defaults
+  (2 tokens / 2000ms) and the per-TLD overrides structure,
+  `PIPELINE_TIMEOUT_MS` (1h), `PROVIDER_CACHE_TTL_DAYS` (7),
+  `WATCHLIST_POLL_INTERVAL_HOURS` (6), `SCHEDULER_WATCHLIST_CRON`
+  (`0 */6 * * *`), `DROP_NPV_DISCOUNT_RATE` (0.05),
+  `REDIS_RETRY_BASE_MS` (200). `SCORING_CONFIDENCE_THRESHOLD` /
+  `SCORING_RECOMMEND_THRESHOLD` marked deprecated (parsed but ignored).
+- `docs/deployment/nginx.conf`: replaced the dead `location /static/`
+  (phantom `root /var/www/dominus`) with `location /public/static/`
+  proxying to the app, matching the Express-served public assets.
+- README badges and project status updated to v0.10.0-dev.
+
 ### Fixed
 - `PortfolioRdapService` was built end-to-end but never instantiated in
   `composition-root`, so the weekly portfolio renewal-date healthcheck
