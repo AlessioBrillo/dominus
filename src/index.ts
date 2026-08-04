@@ -401,6 +401,12 @@ async function main(): Promise<void> {
         logger.info('DNS provider disposed');
       }
 
+      // Step 5c: Stop the public score view-count flush timer so a pending
+      // in-memory flush can never fire after the database is closed (or keep
+      // the process alive after the HTTP server has drained).
+      deps.anonScoringService.dispose();
+      logger.info('Anon scoring service disposed');
+
       // Step 6: Close the database provider (SqliteProvider or PostgresAdapter).
       // This tears down the connection pool managed by the provider.
       if (deps.provider) {
