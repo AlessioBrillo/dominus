@@ -70,6 +70,21 @@ function printResult(result: Awaited<ReturnType<PipelineRunService['runSync']>>)
     process.stderr.write('\n');
   }
 
+  if (result.degradedReasons.length > 0) {
+    for (const d of result.degradedReasons) {
+      process.stderr.write(
+        `\x1b[33m\u26a0 ${d.stageName}: ${d.reason} — ` +
+          `processed ${d.processedCount}/${d.expectedCount} candidates` +
+          (d.message ? ` (${d.message})` : '') +
+          `\x1b[0m\n`,
+      );
+    }
+    process.stderr.write(
+      '\x1b[33m\u26a0 Run completed with degraded output — recommendations may be incomplete.\x1b[0m\n',
+    );
+    process.stderr.write('\n');
+  }
+
   if (result.recommended.length === 0) {
     process.stdout.write('No recommended candidates found.\n');
   } else {
@@ -193,6 +208,13 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
             );
           }
 
+          // Degraded runs are partial: signal a non-zero exit so scripts do
+          // not treat incomplete recommendations as authoritative (ADR-0037).
+          if (result.degraded) {
+            process.exit(1);
+            return;
+          }
+
           // Generate acquisition funnel after run if requested
           if (funnelEnabled) {
             if (deps.funnelService) {
@@ -241,6 +263,11 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
               clearInterval(poll);
               if (run.error) {
                 process.stderr.write(`\nPipeline run ${runId} failed: ${run.error}\n`);
+                process.exit(1);
+              } else if (run.resultsSummary.degraded) {
+                process.stderr.write(
+                  `\nPipeline run ${runId} completed with degraded output — recommendations may be incomplete.\n`,
+                );
                 process.exit(1);
               } else {
                 process.stdout.write(`\nPipeline run ${runId} completed successfully.\n`);

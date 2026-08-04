@@ -519,6 +519,11 @@ describe('Dependency Injection Ã¢â‚¬â€ composition-root wiring', () =
       DNS_CONSENSUS_STRATEGY: 'dot-only',
       DNS_USE_DEDICATED_RESOLVER: true,
       DNS_DOT_POOL_MAX_QUEUED: 4096,
+      RDAP_WHOIS_BUDGET_MS: 1000,
+      STAGE_TIMEOUT_BASE_MS: 30_000,
+      STAGE_TIMEOUT_PER_CANDIDATE_MS: 200,
+      STAGE_TIMEOUT_CAP_MS: 3_600_000,
+      STAGE_TIMEOUT_GRACE_MS: 5_000,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

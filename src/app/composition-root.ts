@@ -610,6 +610,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       whoisProvider,
       config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
+      config.RDAP_WHOIS_BUDGET_MS,
     ),
     new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
@@ -620,6 +621,15 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     provider,
     // lockProvider (9th param): Redis-backed distributed lock when configured
     lockProvider,
+    // checkpointStore (10th param): optional durable run checkpoints
+    undefined,
+    // stageBudget (11th param): candidate-scaled per-stage execution budget (ADR-0037)
+    {
+      baseMs: config.STAGE_TIMEOUT_BASE_MS,
+      perCandidateMs: config.STAGE_TIMEOUT_PER_CANDIDATE_MS,
+      capMs: config.STAGE_TIMEOUT_CAP_MS,
+      graceMs: config.STAGE_TIMEOUT_GRACE_MS,
+    },
   );
   const progressService = new PipelineProgressService();
 

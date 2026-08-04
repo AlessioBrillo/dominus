@@ -822,6 +822,29 @@ const configSchema = z.object({
    */
   WHOIS_PER_QUERY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(10000),
 
+  /**
+   * Maximum time in milliseconds a WHOIS answer may take before it is
+   * discarded. RDAP is authoritative (ADR-0035): a WHOIS disagreement within
+   * this budget still blocks conservatively, beyond the budget RDAP decides.
+   * This keeps large batches moving even when WHOIS servers are slow.
+   * Default: 1000 (1 second).
+   */
+  RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(5000).default(1000),
+
+  /**
+   * Per-stage execution budget for the pipeline, scaled by the number of
+   * candidates flowing into each stage (ADR-0037).
+   * budget = STAGE_TIMEOUT_BASE_MS + candidates * STAGE_TIMEOUT_PER_CANDIDATE_MS,
+   * capped at STAGE_TIMEOUT_CAP_MS. When a stage exceeds its budget it is
+   * aborted and given STAGE_TIMEOUT_GRACE_MS to harvest partial results,
+   * otherwise it degrades empty and the run is marked degraded.
+   * Defaults: base 30s, 200ms/candidate, cap 1h, grace 5s.
+   */
+  STAGE_TIMEOUT_BASE_MS: z.coerce.number().int().min(0).max(86_400_000).default(30_000),
+  STAGE_TIMEOUT_PER_CANDIDATE_MS: z.coerce.number().int().min(0).max(600_000).default(200),
+  STAGE_TIMEOUT_CAP_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
+  STAGE_TIMEOUT_GRACE_MS: z.coerce.number().int().min(0).max(300_000).default(5_000),
+
   /** Maximum concurrent domains to rescore in a single portfolio rescore operation.
    *  Each domain hits scoring engine + trademark gate. Default: 5. */
   RESCORE_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(5),

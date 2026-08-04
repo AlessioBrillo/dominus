@@ -29,7 +29,18 @@ const mockCandidates = [
 ];
 
 const mockRuns = [
-  { runId: 'run-1', startedAt: '2026-06-01T00:00:00Z', stageSummary: {}, resultsSummary: {} },
+  {
+    runId: 'run-1',
+    startedAt: '2026-06-01T00:00:00Z',
+    stageSummary: {},
+    resultsSummary: {
+      candidatesEvaluated: 0,
+      recommended: 0,
+      trademarkBlocked: 0,
+      unscored: 0,
+      errors: 0,
+    },
+  },
 ];
 
 function createWrapper() {

@@ -209,6 +209,8 @@ export function createRunsRouter(
           scored: result.scored.length,
           stageSummary: result.stageSummary,
           stageErrors: result.stageErrors,
+          degraded: result.degraded,
+          degradedReasons: result.degradedReasons,
           persistence: result.persistence,
         });
       } catch (err: unknown) {

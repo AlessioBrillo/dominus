@@ -452,20 +452,18 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
     const abortResolvingDns: DnsProvider = {
       name: 'AbortResolvingDns',
       checkAvailability: vi.fn().mockImplementation(() => new Promise(() => {})),
-      checkBulk: vi
-        .fn()
-        .mockImplementation(
-          (domains: string[], signal?: AbortSignal) =>
-            new Promise((resolve) => {
-              const results = domains.map((d) => ({
-                domain: d,
-                status: DomainStatus.Available,
-                checkedAt: '',
-              }));
-              const onAbort = (): void => resolve(results);
-              signal?.addEventListener('abort', onAbort, { once: true });
-            }),
-        ),
+      checkBulk: vi.fn().mockImplementation(
+        (domains: string[], signal?: AbortSignal) =>
+          new Promise((resolve) => {
+            const results = domains.map((d) => ({
+              domain: d,
+              status: DomainStatus.Available,
+              checkedAt: '',
+            }));
+            const onAbort = (): void => resolve(results);
+            signal?.addEventListener('abort', onAbort, { once: true });
+          }),
+      ),
       clearCache: vi.fn(),
       pruneCache: vi.fn().mockReturnValue(0),
     };

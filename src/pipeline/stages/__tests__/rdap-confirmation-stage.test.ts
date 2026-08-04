@@ -322,12 +322,14 @@ describe('RdapConfirmationStage (WHOIS budget)', () => {
       }),
     };
     const slowWhois: WhoisProvider = {
-      checkAvailability: vi.fn().mockImplementation(
-        () =>
-          new Promise((resolve) =>
-            setTimeout(() => resolve({ domain: 'x', available: false, checkedAt: '' }), 300),
-          ),
-      ),
+      checkAvailability: vi
+        .fn()
+        .mockImplementation(
+          () =>
+            new Promise((resolve) =>
+              setTimeout(() => resolve({ domain: 'x', available: false, checkedAt: '' }), 300),
+            ),
+        ),
     };
     const stage = new RdapConfirmationStage(rdap, slowWhois, 5, 10_000, 100);
 

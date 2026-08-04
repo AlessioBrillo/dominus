@@ -99,7 +99,7 @@ export function computeStageBudgetMs(candidateCount: number, options?: StageBudg
 
 /** Thrown when a stage exceeds its budget and does not resolve with partial
  *  results within the grace window. Never retried — the run continues in
- *  degraded mode (see ADR-0036). */
+ *  degraded mode (see ADR-0037). */
 export class StageBudgetExceededError extends Error {
   readonly inputCount: number;
 
