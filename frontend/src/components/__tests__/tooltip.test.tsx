@@ -15,6 +15,9 @@ describe('Tooltip primitives', () => {
     );
 
     expect(screen.getByText('Hover me')).toBeInTheDocument();
-    expect(screen.getByText('Score details')).toBeInTheDocument();
+    // Radix renders the content twice: the visual popper plus a
+    // visually-hidden accessible copy (role=tooltip) — assert presence,
+    // not a single match.
+    expect(screen.getAllByText('Score details').length).toBeGreaterThan(0);
   });
 });

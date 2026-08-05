@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { isIP } from 'node:net';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 
 export interface DnsLookupSpec {
@@ -137,6 +138,55 @@ export function getDefaultDohProviders(): Array<{ name: string; url: string }> {
 
 export function getDefaultDotProviders(): Array<{ name: string; host: string }> {
   return DEFAULT_DOT_PROVIDERS;
+}
+
+/**
+ * Distinct resolver endpoints a set of resolver groups will issue queries
+ * against, used to verify that a DNS 2-of-3 consensus secondary does not
+ * reuse the same resolvers as the primary — otherwise its opinion is a
+ * rubber stamp. Returns a sorted, deduplicated list of endpoint keys:
+ *
+ * - `doh:<host>` for DoH lookups (the HTTPS endpoint hostname);
+ * - `dot:<host-or-ip>` for DoT lookups (the TLS endpoint);
+ * - `native:<ip>` for native lookups with pinned nameservers (per-lookup or
+ *   shared); `native:system-resolver` when no nameservers are pinned — the
+ *   process/OS resolver is part of the verdict path in that case;
+ * - `ip:<address>` additionally for every lookup addressed by a bare IP
+ *   (DoT IPs, pinned nameservers, IP-form DoH endpoints), exposing overlap across
+ *   transports: the same IP over TLS, UDP and HTTPS is the same resolver.
+ */
+export function collectResolverEndpoints(
+  groups: DnsResolverGroup[],
+  defaultNameservers?: string[],
+): string[] {
+  const endpoints = new Set<string>();
+
+  const add = (prefix: string, hostOrIp: string): void => {
+    endpoints.add(`${prefix}:${hostOrIp}`);
+    if (isIP(hostOrIp) !== 0) endpoints.add(`ip:${hostOrIp}`);
+  };
+
+  for (const group of groups) {
+    for (const lookup of group.lookups) {
+      if (lookup.type === 'doh') {
+        const host = new URL(lookup.endpoint ?? '').hostname;
+        if (host !== '') add('doh', host);
+      } else if (lookup.type === 'dot') {
+        if (lookup.endpoint !== undefined && lookup.endpoint !== '') {
+          add('dot', lookup.endpoint);
+        }
+      } else {
+        const nameservers = lookup.nameservers ?? defaultNameservers;
+        if (nameservers !== undefined && nameservers.length > 0) {
+          for (const ns of nameservers) add('native', ns);
+        } else {
+          endpoints.add('native:system-resolver');
+        }
+      }
+    }
+  }
+
+  return [...endpoints].sort();
 }
 
 export interface DnsCheckOptions {

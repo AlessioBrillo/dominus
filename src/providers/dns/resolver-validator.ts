@@ -33,6 +33,32 @@ export function validateConsensusStrategyDisjointness(
   return true;
 }
 
+/**
+ * Reject a 2-of-3 consensus setup whose secondary strategy reuses resolver
+ * endpoints already queried by the primary. Two different strategy names can
+ * still resolve through the same servers (e.g. 'doh-only' vs 'doh-primary'
+ * both race the same Cloudflare/Google/Quad9 DoH endpoints), making the
+ * second opinion a rubber stamp. Endpoint keys are produced by
+ * collectResolverEndpoints(): DoH hostname, DoT host/IP, pinned native
+ * nameservers, 'native:system-resolver', or the transport-agnostic
+ * 'ip:<address>' markers that expose same-IP overlap across transports.
+ */
+export function validateConsensusEndpointDisjointness(
+  primaryEndpoints: string[],
+  consensusEndpoints: string[],
+): boolean {
+  const primary = new Set(primaryEndpoints);
+  const overlap = consensusEndpoints.filter((endpoint) => primary.has(endpoint));
+  if (overlap.length === 0) return true;
+  getLogger().error(
+    { overlap, primary: primaryEndpoints, consensus: consensusEndpoints },
+    'DNS: DNS_CONSENSUS_STRATEGY reuses resolver endpoints already queried by the ' +
+      `primary (${overlap.join(', ')}) — the secondary is not an independent ` +
+      'opinion; 2-of-3 consensus is disabled',
+  );
+  return false;
+}
+
 export async function validateResolverGroups(provider: DnsProvider): Promise<void> {
   const logger = getLogger();
   const probe = PROBE_DOMAINS[Math.floor(Math.random() * PROBE_DOMAINS.length)]!;

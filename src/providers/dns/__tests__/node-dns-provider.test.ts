@@ -471,6 +471,29 @@ describe('NodeDnsProvider', () => {
     expect(result.isParked).toBeUndefined();
   });
 
+  it('keeps the Registered verdict when the parking probe is aborted', async () => {
+    // Main A lookup resolves; the parking A/AAAA probes never settle, so the
+    // caller's abort must cut them short instead of hanging the check.
+    vi.mocked(dnsPromises.resolve)
+      .mockResolvedValueOnce(makeResolved())
+      .mockReturnValue(new Promise(() => {}) as never);
+    const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);
+    const p = new NodeDnsProvider({
+      cacheTtlMs: 60_000,
+      lookupStrategy: 'native',
+      parkingEnabled: true,
+      parkingRegistry,
+      lookupTimeoutMs: 5000,
+    });
+    const ac = new AbortController();
+    const resultPromise = p.checkAvailability('parking-hang.com', ac.signal);
+    await vi.waitFor(() => expect(vi.mocked(dnsPromises.resolve)).toHaveBeenCalledTimes(3));
+    ac.abort();
+    const result = await resultPromise;
+    expect(result.status).toBe(DomainStatus.Registered);
+    expect(result.isParked).toBeUndefined();
+  });
+
   it('returns isParked=false when domain resolves but IP is not a parking range', async () => {
     vi.mocked(dnsPromises.resolve).mockResolvedValue(['9.9.9.9'] as never);
     const parkingRegistry = new ParkingIpRegistry(PARKING_RANGES);

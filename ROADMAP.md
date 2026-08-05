@@ -68,6 +68,9 @@ estimates and subject to change.
 - [x] Tests: listings route (0% → 18 tests covering all CRUD + offers)
 - [x] Pagination: Dan sync + Cloudflare listDomains
 - [x] Load testing and performance benchmarking (see `npm run bench`; live-network benches against real resolvers/registries: `DNS_LIVE=1 npm run bench`)
+- [x] DNS verdict hardening: 2-of-3 consensus on by default with endpoint-level
+      disjointness enforcement (no shared resolver between primary and
+      secondary), parking IP probe under rate limit/deadline/abort
 - [x] Security: timing-safe API key comparison (`EnvApiKeyProvider`)
 - [x] Rate limiting: distributed Redis-backed store for the public router
 - [x] Backend test coverage thresholds raised to 70/65/60 (lines/functions/branches)

@@ -592,9 +592,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       )
     : undefined;
 
-  // 2-of-3 DNS consensus: opt-in cross-validation against a secondary
-  // resolver strategy. Default off — doubles DNS query volume, so the
-  // community edition stays at its default zero-extra-cost footprint.
+  // 2-of-3 DNS consensus: cross-validate Available verdicts against a second,
+  // endpoint-disjoint resolver strategy (DNS_CONSENSUS_STRATEGY). Default on —
+  // only the Available subset is re-queried, so the extra query volume is
+  // bounded while single-resolver availability verdicts are eliminated.
   const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsRateLimiter);
 
   const orchestrator = new PipelineOrchestrator(
