@@ -101,37 +101,63 @@ function resolveWithTimeout(
   });
 }
 
-function resolveWithResolver(
+/** Resolve a single record type with abort support. The Node resolver API
+ *  cannot cancel in-flight lookups, so the result races the abort signal. */
+function resolveWithAbort(
   domain: string,
-  rrtype: string,
-  resolver: Resolver,
+  recordType: 'A' | 'AAAA',
+  signal: AbortSignal,
+  resolver?: Resolver,
 ): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
-    resolver.resolve(domain, rrtype, (err, addresses) => {
+    const onAbort = (): void => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    const finish = (err: Error | null, addresses?: string[]): void => {
+      signal.removeEventListener('abort', onAbort);
       if (err !== null) {
         reject(err);
-      } else if (Array.isArray(addresses)) {
-        resolve(addresses as string[]);
       } else {
-        resolve([]);
+        resolve(addresses ?? []);
       }
-    });
+    };
+
+    if (resolver !== undefined) {
+      resolver.resolve(domain, recordType, (err, addresses) => {
+        if (err !== null) {
+          finish(err);
+        } else {
+          finish(null, addresses as string[]);
+        }
+      });
+    } else {
+      dnsPromises.resolve(domain, recordType).then(
+        (addresses) => finish(null, addresses as string[]),
+        (err: unknown) => finish(err instanceof Error ? err : new Error(String(err))),
+      );
+    }
   });
 }
 
-/** Resolve A and AAAA records for IP-based parking detection. */
-async function resolveAddressRecords(domain: string, resolver?: Resolver): Promise<string[]> {
-  const resolveA =
-    resolver !== undefined
-      ? resolveWithResolver(domain, 'A', resolver)
-      : dnsPromises.resolve(domain, 'A');
-  const resolveAAAA =
-    resolver !== undefined
-      ? resolveWithResolver(domain, 'AAAA', resolver)
-      : dnsPromises.resolve(domain, 'AAAA');
+/** Resolve A and AAAA records for IP-based parking detection, racing the
+ *  caller's abort signal and a hard per-query deadline. Either lookup may
+ *  fail independently without affecting the other. */
+async function resolveAddressRecords(
+  domain: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+  resolver?: Resolver,
+): Promise<string[]> {
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const combined = signal !== undefined ? AbortSignal.any([signal, deadline]) : deadline;
+
   const [v4, v6] = await Promise.all([
-    resolveA.catch(() => [] as string[]),
-    resolveAAAA.catch(() => [] as string[]),
+    resolveWithAbort(domain, 'A', combined, resolver).catch(() => [] as string[]),
+    resolveWithAbort(domain, 'AAAA', combined, resolver).catch(() => [] as string[]),
   ]);
   return [...v4, ...v6];
 }
@@ -614,10 +640,28 @@ export class NodeDnsProvider implements DnsProvider {
         let parkingRegistrar: string | undefined;
 
         if (resolved && this.#parkingEnabled) {
-          const addresses = await resolveAddressRecords(domain, this.#getResolver());
-          const parkingCheck = this.#parkingRegistry.checkIps(addresses);
-          isParked = parkingCheck.parked || undefined;
-          parkingRegistrar = parkingCheck.registrar;
+          // Parking detection is enrichment metadata, not a verdict input,
+          // so it is best-effort: it runs under the provider-wide rate
+          // limiter and a hard per-query deadline and aborts with the caller
+          // — it can neither burst the DNS budget nor outlive an aborted run.
+          // A probe failure (rate-limit queue overflow, abort, timeout) keeps
+          // the Registered verdict and simply drops the parking enrichment.
+          // Previously the probe bypassed both the rate limiter and the
+          // abort signal and had no deadline of its own.
+          try {
+            if (this.#rateLimiter) await this.#rateLimiter.acquire();
+            const addresses = await resolveAddressRecords(
+              domain,
+              this.#lookupTimeoutMs,
+              signal,
+              this.#getResolver(),
+            );
+            const parkingCheck = this.#parkingRegistry.checkIps(addresses);
+            isParked = parkingCheck.parked || undefined;
+            parkingRegistrar = parkingCheck.registrar;
+          } catch {
+            // Keep the Registered verdict; the parking enrichment is optional.
+          }
         }
 
         const result: DnsCheckResult = { domain, status, checkedAt, isParked, parkingRegistrar };
