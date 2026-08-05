@@ -437,14 +437,17 @@ const configSchema = z.object({
   /**
    * Enable 2-of-3 DNS consensus cross-validation. When true, every domain the
    * primary resolver reports as Available is re-queried against a second
-   * NodeDnsProvider built with DNS_CONSENSUS_STRATEGY; disagreement downgrades
-   * the result to Unknown instead of trusting a single resolver group.
-   * Default: false — doubles DNS query volume, so it is opt-in to keep the
-   * community edition at its default zero-extra-cost/latency footprint.
+   * NodeDnsProvider built with DNS_CONSENSUS_STRATEGY; a disagreement
+   * downgrades the result to Unknown instead of trusting a single resolver
+   * group (ADR-0002 conservatism).
+   * Default: true — the availability verdict is the correctness core of the
+   * engine, and the cost is bounded: only the Available subset is re-queried
+   * (cached per run), not the whole candidate set. Set to false to halve DNS
+   * query volume at the expense of single-resolver verdicts.
    */
   DNS_CONSENSUS_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-    .default(false),
+    .default(true),
   /**
    * Lookup strategy for the secondary DNS consensus provider (see
    * DNS_CONSENSUS_ENABLED). Should differ from DNS_LOOKUP_STRATEGY so the two
