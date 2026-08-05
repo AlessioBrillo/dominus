@@ -264,6 +264,105 @@ describe('CachedProvider', () => {
     });
   });
 
+  describe('isStale staleness gate', () => {
+    it('re-fetches live when the persisted row is stale and refreshes it', async () => {
+      await repo.set(
+        'stale-gate-key',
+        'stale-provider',
+        JSON.stringify({ id: 1, name: 'old' } satisfies TestData),
+        7,
+      );
+
+      const fetchFn = vi.fn().mockResolvedValueOnce({ id: 9, name: 'fresh' } satisfies TestData);
+      const provider = CachedProvider.createJson<TestData>(
+        fetchFn,
+        repo,
+        'stale-provider',
+        7,
+        0,
+        300,
+        undefined,
+        (v) => v.name === 'old',
+      );
+
+      const result = await provider.get('stale-gate-key');
+
+      expect(result).toEqual({ id: 9, name: 'fresh' });
+      expect(fetchFn).toHaveBeenCalledOnce();
+
+      const cached = await repo.get('stale-gate-key', 'stale-provider');
+      expect(JSON.parse(cached!)).toEqual({ id: 9, name: 'fresh' });
+    });
+
+    it('serves the row and does NOT call fetchFn when the row is not stale', async () => {
+      await repo.set(
+        'stale-gate-fresh-key',
+        'stale-fresh-provider',
+        JSON.stringify({ id: 1, name: 'current' } satisfies TestData),
+        7,
+      );
+
+      const fetchFn = vi.fn().mockResolvedValue({ id: 2, name: 're-fetch' } satisfies TestData);
+      const provider = CachedProvider.createJson<TestData>(
+        fetchFn,
+        repo,
+        'stale-fresh-provider',
+        7,
+        0,
+        300,
+        undefined,
+        () => false,
+      );
+
+      const result = await provider.get('stale-gate-fresh-key');
+
+      expect(result).toEqual({ id: 1, name: 'current' });
+      expect(fetchFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('forceRecheck option', () => {
+    it('bypasses the DB row and performs a live lookup that refreshes it', async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValueOnce({ id: 1, name: 'first' } satisfies TestData)
+        .mockResolvedValueOnce({ id: 2, name: 'second' } satisfies TestData);
+      // No memory cache: every call hits the DB layer.
+      const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'force-provider', 7);
+
+      const first = await provider.get('force-key');
+      expect(first).toEqual({ id: 1, name: 'first' });
+      expect(fetchFn).toHaveBeenCalledOnce();
+
+      const forced = await provider.get('force-key', undefined, { forceRecheck: true });
+
+      expect(forced).toEqual({ id: 2, name: 'second' });
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+
+      const cached = await repo.get('force-key', 'force-provider');
+      expect(JSON.parse(cached!)).toEqual({ id: 2, name: 'second' });
+    });
+
+    it('still serves the memory cache for within-run dedup (DNS parity)', async () => {
+      const fetchFn = vi.fn().mockResolvedValue({ id: 1, name: 'cached' } satisfies TestData);
+      const provider = CachedProvider.createJson<TestData>(
+        fetchFn,
+        repo,
+        'force-mem-provider',
+        7,
+        100,
+        300,
+      );
+
+      await provider.get('force-mem-key');
+      expect(fetchFn).toHaveBeenCalledOnce();
+
+      const result = await provider.get('force-mem-key', undefined, { forceRecheck: true });
+
+      expect(result).toEqual({ id: 1, name: 'cached' });
+      expect(fetchFn).toHaveBeenCalledOnce();
+    });
+  });
   it('returns stale cached data when cache is manually overwritten', async () => {
     const fetchFn = vi.fn().mockResolvedValue({ id: 100, name: 'original' } satisfies TestData);
     const provider = CachedProvider.createJson<TestData>(fetchFn, repo, 'overwrite', 1);

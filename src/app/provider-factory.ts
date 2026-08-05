@@ -31,7 +31,7 @@ import {
 import { FailoverRdapProvider, type RdapBootstrapUrlEntry } from '../providers/rdap/index.js';
 import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
-import type { RdapResult } from '../types/domain-status.js';
+import { DomainStatus, type RdapResult } from '../types/domain-status.js';
 import {
   NodeWhoisProviderWithIanaFallback,
   buildPerTldWhoisRateLimiters,
@@ -113,6 +113,12 @@ export interface BuiltRdapProviders {
   raw: RdapProvider;
   withRetry: RdapProvider;
   cached: RdapProvider;
+  /**
+   * Cached provider that bypasses the persistent cache entirely (live lookup
+   * that still refreshes the entry). Used for populations in transitional
+   * states (closeouts) where a stale row would wrongly gate the verdict.
+   */
+  fresh: RdapProvider;
 }
 
 /**
@@ -125,6 +131,21 @@ export interface BuiltRdapProviders {
  */
 export function isRdapResultCacheable(result: RdapResult): boolean {
   return result.status !== 'unknown' && result.status !== 'error';
+}
+
+/**
+ * Staleness gate for persisted RDAP rows, mirroring the DNS layer's
+ * stale-Available window (node-dns-provider.ts). Only "Available" — the
+ * risky verdict — goes stale early; "Registered" is served for the full TTL
+ * (conservative outcome, ADR-0035), and transient statuses are never cached
+ * at all (see isRdapResultCacheable). An unparseable checkedAt is treated as
+ * fresh: the row is valid JSON so we prefer serving over re-querying.
+ */
+export function isRdapResultStale(result: RdapResult, staleHours: number): boolean {
+  if (result.status !== DomainStatus.Available) return false;
+  const checkedAtMs = Date.parse(result.checkedAt);
+  if (Number.isNaN(checkedAtMs)) return false;
+  return Date.now() - checkedAtMs > staleHours * 3_600_000;
 }
 
 /**
@@ -234,13 +255,19 @@ export function buildRdapProviders(
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
     isRdapResultCacheable,
+    (result) => isRdapResultStale(result, config.RDAP_PERSISTENT_AVAILABLE_STALE_HOURS),
   );
   const cached: RdapProvider = {
     name: `${withRetryProvider.name}(cache)`,
     confirm: (domain: string, signal?: AbortSignal) => rdapCache.get(domain, signal),
   };
+  const fresh: RdapProvider = {
+    name: `${withRetryProvider.name}(fresh)`,
+    confirm: (domain: string, signal?: AbortSignal) =>
+      rdapCache.get(domain, signal, { forceRecheck: true }),
+  };
 
-  return { raw, withRetry: withRetryProvider, cached };
+  return { raw, withRetry: withRetryProvider, cached, fresh };
 }
 
 export function buildDnsProvider(

@@ -303,6 +303,106 @@ describe('RdapConfirmationStage (WHOIS enrichment)', () => {
   });
 });
 
+describe('RdapConfirmationStage (fresh provider for closeouts)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('routes closeout candidates through the fresh (cache-bypassing) provider', async () => {
+    const cachedConfirm = vi.fn().mockResolvedValue({
+      domain: 'closeout.com',
+      status: DomainStatus.Registered,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const freshConfirm = vi.fn().mockResolvedValue({
+      domain: 'closeout.com',
+      status: DomainStatus.Available,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const stage = new RdapConfirmationStage(
+      { name: 'cached', confirm: cachedConfirm },
+      undefined,
+      5,
+      10_000,
+      1_000,
+      { name: 'fresh', confirm: freshConfirm },
+    );
+
+    const result = await stage.process([
+      makeCandidate('closeout.com', { source: CandidateSource.CloseoutCsv }),
+    ]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(freshConfirm).toHaveBeenCalledWith('closeout.com', expect.anything());
+    expect(cachedConfirm).not.toHaveBeenCalled();
+  });
+
+  it('uses the cached provider for non-closeout candidates', async () => {
+    const cachedConfirm = vi.fn().mockResolvedValue({
+      domain: 'normal.com',
+      status: DomainStatus.Available,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const freshConfirm = vi.fn().mockResolvedValue({
+      domain: 'normal.com',
+      status: DomainStatus.Available,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const stage = new RdapConfirmationStage(
+      { name: 'cached', confirm: cachedConfirm },
+      undefined,
+      5,
+      10_000,
+      1_000,
+      { name: 'fresh', confirm: freshConfirm },
+    );
+
+    const result = await stage.process([makeCandidate('normal.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(cachedConfirm).toHaveBeenCalled();
+    expect(freshConfirm).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the cached provider when no fresh provider is configured', async () => {
+    const rdap = makeMockRdap('fallback.com');
+    const stage = new RdapConfirmationStage(rdap);
+    const result = await stage.process([
+      makeCandidate('fallback.com', { source: CandidateSource.CloseoutCsv }),
+    ]);
+    expect(result.passed).toHaveLength(1);
+    expect(rdap.confirm).toHaveBeenCalled();
+  });
+
+  it('routes closeout candidates through the fresh provider under WHOIS cross-validation', async () => {
+    const freshConfirm = vi.fn().mockResolvedValue({
+      domain: 'cv.com',
+      status: DomainStatus.Available,
+      isPremium: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const stage = new RdapConfirmationStage(
+      { name: 'cached', confirm: vi.fn() },
+      makeMockWhois(true),
+      5,
+      10_000,
+      1_000,
+      { name: 'fresh', confirm: freshConfirm },
+    );
+
+    const result = await stage.process([
+      makeCandidate('cv.com', { source: CandidateSource.CloseoutCsv }),
+    ]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(freshConfirm).toHaveBeenCalled();
+  });
+});
+
 describe('RdapConfirmationStage (WHOIS budget)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

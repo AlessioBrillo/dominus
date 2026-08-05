@@ -4,6 +4,7 @@ import {
   buildDnsConsensusConfig,
   buildRdapCircuitBreakers,
   isRdapResultCacheable,
+  isRdapResultStale,
   parseRdapBootstrapUrls,
 } from '../provider-factory.js';
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
@@ -158,6 +159,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PERSISTENT_CACHE_ENABLED: true,
     DNS_PERSISTENT_CACHE_TTL_HOURS: 24,
     DNS_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
+    RDAP_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     DNS_CONSENSUS_ENABLED: false,
     DNS_CONSENSUS_STRATEGY: 'dot-only',
     DNS_USE_DEDICATED_RESOLVER: true,
@@ -342,4 +344,78 @@ describe('isRdapResultCacheable', () => {
       ).toBe(false);
     });
   }
+});
+
+// Freshness mirror of the DNS stale-Available window: an Available verdict
+// must not survive the full PROVIDER_CACHE_TTL_DAYS when the domain may have
+// flipped to registered in the meantime (a false positive is a wasted buy
+// recommendation). Registered is the conservative outcome and stays cached.
+describe('isRdapResultStale', () => {
+  const HOURS = 24;
+
+  it('is stale when an Available verdict is older than the window', () => {
+    const old = new Date(Date.now() - (HOURS + 1) * 3_600_000).toISOString();
+    expect(
+      isRdapResultStale(
+        { domain: 'example.com', status: DomainStatus.Available, isPremium: false, checkedAt: old },
+        HOURS,
+      ),
+    ).toBe(true);
+  });
+
+  it('is fresh when an Available verdict is within the window', () => {
+    const recent = new Date(Date.now() - 3_600_000).toISOString();
+    expect(
+      isRdapResultStale(
+        {
+          domain: 'example.com',
+          status: DomainStatus.Available,
+          isPremium: false,
+          checkedAt: recent,
+        },
+        HOURS,
+      ),
+    ).toBe(false);
+  });
+
+  it('is never stale for Registered verdicts (conservative outcome)', () => {
+    const old = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+    expect(
+      isRdapResultStale(
+        {
+          domain: 'example.com',
+          status: DomainStatus.Registered,
+          isPremium: false,
+          checkedAt: old,
+        },
+        HOURS,
+      ),
+    ).toBe(false);
+  });
+
+  it('is never stale for transient statuses (they are not cached anyway)', () => {
+    const old = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
+    for (const status of [DomainStatus.Unknown, DomainStatus.Error]) {
+      expect(
+        isRdapResultStale(
+          { domain: 'example.com', status, isPremium: false, checkedAt: old },
+          HOURS,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it('treats an unparseable checkedAt as fresh', () => {
+    expect(
+      isRdapResultStale(
+        {
+          domain: 'example.com',
+          status: DomainStatus.Available,
+          isPremium: false,
+          checkedAt: 'nope',
+        },
+        HOURS,
+      ),
+    ).toBe(false);
+  });
 });
