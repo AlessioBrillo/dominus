@@ -835,6 +835,18 @@ const configSchema = z.object({
   RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(5000).default(1000),
 
   /**
+   * Staleness window in hours after which a persisted RDAP "Available" row
+   * is re-checked live instead of served from the provider cache. Mirrors
+   * DNS_PERSISTENT_AVAILABLE_STALE_HOURS: availability is the risky verdict
+   * (a false positive is a wasted buy recommendation) so it must not be
+   * served blindly for the full PROVIDER_CACHE_TTL_DAYS. "Registered" rows
+   * are served for the full TTL — the conservative outcome, and expirations
+   * are the exception (ADR-0035).
+   * Default: 24.
+   */
+  RDAP_PERSISTENT_AVAILABLE_STALE_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+
+  /**
    * Per-stage execution budget for the pipeline, scaled by the number of
    * candidates flowing into each stage (ADR-0037).
    * budget = STAGE_TIMEOUT_BASE_MS + candidates * STAGE_TIMEOUT_PER_CANDIDATE_MS,

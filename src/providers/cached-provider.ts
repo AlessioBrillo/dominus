@@ -106,6 +106,16 @@ export class CachedProvider<T> {
      * persistent cache.
      */
     private readonly shouldCache?: (result: T) => boolean,
+    /**
+     * Optional staleness gate for persisted rows. When provided, a DB-cached
+     * value for which the gate returns `true` is treated as a cache miss so
+     * the live lookup runs again (and refreshes the entry). Use it to give
+     * time-sensitive verdicts (e.g. availability) a stale window shorter than
+     * the full TTL instead of serving them blindly, mirroring the DNS layer.
+     * Memory-cached entries are not gated: their TTL is in minutes, so they
+     * are young enough.
+     */
+    private readonly isStale?: (value: T) => boolean,
   ) {
     this.#memoryCache =
       memoryCacheSize > 0 ? new MemoryCache<T>(memoryCacheSize, memoryCacheTtlSeconds) : null;
@@ -123,6 +133,7 @@ export class CachedProvider<T> {
     memoryCacheSize: number = 0,
     memoryCacheTtlSeconds: number = 300,
     shouldCache?: (result: T) => boolean,
+    isStale?: (value: T) => boolean,
   ): CachedProvider<T> {
     return new CachedProvider<T>(
       fetchFn,
@@ -133,6 +144,7 @@ export class CachedProvider<T> {
       memoryCacheSize,
       memoryCacheTtlSeconds,
       shouldCache,
+      isStale,
     );
   }
 
@@ -150,29 +162,37 @@ export class CachedProvider<T> {
     }
   }
 
-  async get(term: string, signal?: AbortSignal): Promise<T> {
-    // 1. In-memory cache (fastest)
+  async get(term: string, signal?: AbortSignal, options?: { forceRecheck?: boolean }): Promise<T> {
+    // 1. In-memory cache (fastest) — used for within-run dedup even when
+    //    forceRecheck is set; its TTL is in minutes so it cannot be stale
+    //    enough to matter, mirroring the DNS layer.
     if (this.#memoryCache !== null) {
       const memCached = this.#memoryCache.get(term);
       if (memCached !== undefined) return memCached;
     }
 
-    // 2. DB-backed cache
-    const dbCached = await this.repo.get(term, this.providerName);
-    if (dbCached !== null) {
-      try {
-        const value = this.serializer.deserialize(dbCached);
-        // A persisted result that the predicate rejects (e.g. a transient
-        // Unknown written before the predicate existed) must not be served:
-        // fall through to a live lookup instead.
-        if (this.shouldCache === undefined || this.shouldCache(value)) {
-          if (this.#memoryCache !== null) {
-            this.#memoryCache.set(term, value);
+    // 2. DB-backed cache. Skipped entirely when forceRecheck is true —
+    //    closeout-like populations may have changed status since the last
+    //    lookup (e.g. newly expired), so a stale row must not gate them.
+    if (options?.forceRecheck !== true) {
+      const dbCached = await this.repo.get(term, this.providerName);
+      if (dbCached !== null) {
+        try {
+          const value = this.serializer.deserialize(dbCached);
+          // A persisted result that is too old (stale gate) or that the
+          // predicate rejects (e.g. a transient Unknown written before the
+          // predicate existed) must not be served: fall through to a live
+          // lookup instead.
+          const stale = this.isStale !== undefined && this.isStale(value);
+          if (!stale && (this.shouldCache === undefined || this.shouldCache(value))) {
+            if (this.#memoryCache !== null) {
+              this.#memoryCache.set(term, value);
+            }
+            return value;
           }
-          return value;
+        } catch {
+          // Corrupted cache row — fall through to live lookup
         }
-      } catch {
-        // Corrupted cache row — fall through to live lookup
       }
     }
 

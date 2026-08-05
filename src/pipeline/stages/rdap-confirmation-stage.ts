@@ -2,6 +2,7 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
 import type { DomainCandidate, WhoisMeta } from '../../types/candidate.js';
+import { CandidateSource } from '../../types/candidate.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
@@ -79,6 +80,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
      *  authoritative (ADR-0035): within the budget a WHOIS disagreement still
      *  blocks conservatively, beyond the budget RDAP decides. */
     private readonly whoisBudgetMs: number = DEFAULT_WHOIS_BUDGET_MS,
+    /**
+     * Provider that bypasses the persistent RDAP cache (live lookup that
+     * still refreshes the entry). Used for closeout candidates, which are in
+     * a transitional state (aftermarket/expiring): a stale cached
+     * "Available"/"Registered" verdict would otherwise gate their run,
+     * mirroring the DNS stage's forceRecheck for closeout sources.
+     */
+    private readonly freshRdapProvider?: RdapProvider,
   ) {}
 
   async process(
@@ -97,7 +106,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       const results = await Promise.allSettled(
         batch.map(async (candidate) => {
           try {
-            const result = await this.#checkAvailability(candidate.domain, signal);
+            const result = await this.#checkAvailability(candidate, signal);
             return { candidate, result, error: undefined } as const;
           } catch (error) {
             return { candidate, result: undefined, error } as const;
@@ -154,12 +163,26 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     return batches;
   }
 
-  async #checkAvailability(domain: string, signal?: AbortSignal): Promise<AvailabilityResult> {
+  /** Closeout candidates always hit the fresh provider (cache-bypassing live
+   *  lookup): they are in a transitional state where a stale cached verdict
+   *  would wrongly gate them. Mirror of the DNS stage's closeout forceRecheck. */
+  rdapProviderFor(candidate: DomainCandidate): RdapProvider {
+    if (candidate.source === CandidateSource.CloseoutCsv && this.freshRdapProvider !== undefined) {
+      return this.freshRdapProvider;
+    }
+    return this.rdapProvider;
+  }
+
+  async #checkAvailability(
+    candidate: DomainCandidate,
+    signal?: AbortSignal,
+  ): Promise<AvailabilityResult> {
+    const domain = candidate.domain;
     const timeoutSignal = AbortSignal.timeout(this.enrichTimeoutMs);
     const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
     if (this.whoisProvider === undefined) {
-      const rdap = await this.rdapProvider.confirm(domain, combined);
+      const rdap = await this.rdapProviderFor(candidate).confirm(domain, combined);
       return rdapToResult(rdap);
     }
 
@@ -185,7 +208,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     let rdap: RdapResult | undefined;
     let rdapReason: unknown;
     try {
-      rdap = await this.rdapProvider.confirm(domain, combined);
+      rdap = await this.rdapProviderFor(candidate).confirm(domain, combined);
     } catch (error) {
       rdapReason = error;
     }

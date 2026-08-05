@@ -515,6 +515,7 @@ describe('Dependency Injection Ã¢â‚¬â€ composition-root wiring', () =
       DNS_PERSISTENT_CACHE_ENABLED: true,
       DNS_PERSISTENT_CACHE_TTL_HOURS: 24,
       DNS_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
+      RDAP_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
       DNS_CONSENSUS_ENABLED: false,
       DNS_CONSENSUS_STRATEGY: 'dot-only',
       DNS_USE_DEDICATED_RESOLVER: true,

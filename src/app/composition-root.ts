@@ -521,12 +521,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Providers ---
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, repos.providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, repos.providerCacheRepo);
-  const { raw: rawRdapProvider, cached: cachedRdapProvider } = buildRdapProviders(
-    config,
-    rdapRateLimiter,
-    repos.providerCacheRepo,
-    redisClient,
-  );
+  const {
+    raw: rawRdapProvider,
+    cached: cachedRdapProvider,
+    fresh: freshRdapProvider,
+  } = buildRdapProviders(config, rdapRateLimiter, repos.providerCacheRepo, redisClient);
   const dnsProvider = buildDnsProvider(config, repos.providerCacheRepo, dnsRateLimiter);
   const { withRetry: whoisProvider } = buildWhoisProviders(config);
 
@@ -612,6 +611,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.RDAP_BATCH_CONCURRENCY,
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
       config.RDAP_WHOIS_BUDGET_MS,
+      freshRdapProvider,
     ),
     new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
@@ -638,6 +638,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // TTL-based expiry handles freshness; prune avoids the nuclear clearCache().
   orchestrator.setOnRunStart(() => {
     dnsProvider.pruneCache();
+    // Clear the RDAP intra-run cache (60s TTL) so a fresh run cannot reuse a
+    // verdict resolved by a previous run a moment before.
+    (rawRdapProvider as { clearCache?: () => void }).clearCache?.();
     (
       cachedKeywordProvider as unknown as {
         clearCache: () => void;
