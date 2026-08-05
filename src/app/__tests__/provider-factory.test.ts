@@ -188,6 +188,27 @@ describe('buildDnsConsensusConfig', () => {
     expect(result?.secondaryProvider).toBeDefined();
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
+
+  it('returns undefined when the secondary reuses the primary DoH endpoints', () => {
+    // 'doh-only' and 'doh-primary' pass the strategy-name check but both race
+    // the same Cloudflare/Google/Quad9 DoH resolvers — no independent opinion.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'doh-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-primary',
+    });
+    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+  });
+
+  it('returns undefined when a pinned native secondary reuses the DoT IPs', () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'native',
+      DNS_NAMESERVERS: '1.1.1.1',
+    });
+    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+  });
 });
 
 describe('parseRdapBootstrapUrls', () => {

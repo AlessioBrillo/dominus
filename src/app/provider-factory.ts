@@ -12,10 +12,13 @@ import { CachedProvider } from '../providers/cached-provider.js';
 import {
   NodeDnsProvider,
   ParkingIpRegistry,
+  collectResolverEndpoints,
+  strategyToResolverGroups,
   type DnsProvider,
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
 import {
+  validateConsensusEndpointDisjointness,
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
 } from '../providers/dns/resolver-validator.js';
@@ -333,6 +336,28 @@ export function buildDnsConsensusConfig(
       config.DNS_CONSENSUS_ENABLED,
       config.DNS_LOOKUP_STRATEGY,
       config.DNS_CONSENSUS_STRATEGY,
+    )
+  ) {
+    return undefined;
+  }
+
+  // Endpoint-level check: two strategies can pass the name check yet still
+  // resolve through the same servers (e.g. 'doh-only' vs 'doh-primary' both
+  // race the same default DoH endpoints, or a pinned 'native' reusing the
+  // DoT IPs). Overlap means the secondary adds no independent opinion, so
+  // consensus is disabled at startup with an explanatory log (ADR-0002).
+  const nameservers = resolveNameservers(config.DNS_NAMESERVERS);
+  const primaryGroups =
+    (config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined) ??
+    strategyToResolverGroups(config.DNS_LOOKUP_STRATEGY, config.DNS_DOH_ENDPOINT);
+  const consensusGroups = strategyToResolverGroups(
+    config.DNS_CONSENSUS_STRATEGY,
+    config.DNS_DOH_ENDPOINT,
+  );
+  if (
+    !validateConsensusEndpointDisjointness(
+      collectResolverEndpoints(primaryGroups, nameservers),
+      collectResolverEndpoints(consensusGroups, nameservers),
     )
   ) {
     return undefined;
