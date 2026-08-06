@@ -31,9 +31,12 @@
 #   filesystem — SQLite WAL mode is unsafe over NFS/SMB.
 #
 # Monitoring:
-#   Prometheus scrapes http://api:3000/api/v1/metrics/prometheus (no auth,
-#   reachable only on the Docker network — do not expose /metrics publicly
-#   through the reverse proxy). Alertmanager forwards alerts to the webhook
+#   Prometheus scrapes http://api:3000/api/v1/metrics/prometheus (no auth
+#   by default, reachable only on the Docker network — do not expose /metrics
+#   publicly through the reverse proxy). If the API sets METRICS_TOKEN, the
+#   Prometheus scrape must send the same token too (authorization block in
+#   deploy/prometheus/prometheus.yml) or it will be rejected with 401 while
+#   the API is protected. Alertmanager forwards alerts to the webhook
 #   URL set in deploy/prometheus/alertmanager.yml (set it before deploying;
 #   point it at the same endpoint as NOTIFIER_WEBHOOK_URL to keep a single
 #   alert inbox). Grafana binds 127.0.0.1:3001 by default — reach it via an

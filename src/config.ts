@@ -939,6 +939,16 @@ const configSchema = z.object({
    * Format: name=key (one per line), or just `key` to use 'default' as name.
    */
   FILE_API_KEYS: z.string().optional(),
+  /**
+   * Optional bearer token protecting the /api/v1/metrics/* router
+   * (Prometheus scrape + run-history endpoints). When set, every metrics
+   * request must carry `Authorization: Bearer <METRICS_TOKEN>`; requests
+   * without it receive 401. Default: unset — metrics stay public (legacy
+   * behaviour), relying on the reverse proxy to restrict access. Set this
+   * when the API port is reachable externally or Prometheus run history
+   * should not be readable from the public interface.
+   */
+  METRICS_TOKEN: z.string().optional(),
 
   // ── Auto-weight-tuning config ────────────────────────────────────
 
