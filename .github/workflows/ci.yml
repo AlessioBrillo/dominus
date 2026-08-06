@@ -211,16 +211,19 @@ jobs:
       - name: Validate Prometheus config and rules
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.53.1 promtool check config /etc/prometheus/prometheus.yml
-          docker run --rm -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.53.1 promtool check rules /etc/prometheus/rules.yml
+          # prom/prometheus ENTRYPOINT is the prometheus binary, so promtool
+          # must be set via --entrypoint, not appended as a command.
+          docker run --rm --entrypoint promtool -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.53.1 check config /etc/prometheus/prometheus.yml
+          docker run --rm --entrypoint promtool -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
+            prom/prometheus:v2.53.1 check rules /etc/prometheus/rules.yml
 
       - name: Validate Alertmanager config
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/deploy/prometheus:/etc/alertmanager:ro" \
-            prom/alertmanager:v0.27.0 amtool check-config /etc/alertmanager/alertmanager.yml
+          # Same entrypoint caveat as promtool: override to run amtool directly.
+          docker run --rm --entrypoint amtool -v "$PWD/deploy/prometheus:/etc/alertmanager:ro" \
+            prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml
 
   frontend:
     name: Frontend (typecheck, lint, test, build)
