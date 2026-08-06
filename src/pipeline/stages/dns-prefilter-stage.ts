@@ -189,8 +189,10 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
   /**
    * 2-of-3 resolver consensus check: for each domain that passed the primary
    * check as Available, query a secondary (independent) DNS provider.
-   * If the secondary disagrees (Registered), mark the domain as Unknown
-   * (conservative: when resolvers disagree, do not pass).
+   * The primary's Available verdict is only final when the secondary
+   * independently confirms it: a disagreement (Registered) OR a failure to
+   * answer (undefined) OR an Unknown answer downgrades the domain to
+   * Unknown — "unknown wins over available" (ADR-0002).
    */
   async #applyConsensusCheck(
     results: (DnsCheckResult | undefined)[],
@@ -223,6 +225,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     // Batch-verify with concurrency control
     let verified = 0;
     let disagreed = 0;
+    let unverifiable = 0;
     for (let i = 0; i < toVerify.length; i += this.fallbackConcurrency) {
       if (signal?.aborted) return results;
       const batch = toVerify.slice(i, i + this.fallbackConcurrency);
@@ -237,19 +240,26 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         }),
       );
 
-      for (const { index, secondary } of batchResults) {
-        if (secondary === undefined) continue;
-        if (secondary.status === DomainStatus.Registered) {
-          // Resolver disagreement: primary says Available, secondary says Registered
-          disagreed++;
+      for (const { index, domain, secondary } of batchResults) {
+        // Strict 2-of-3 consensus: only an explicit Available from the
+        // secondary confirms the primary's verdict. A non-answer (thrown
+        // error or undefined) and an Unknown answer are treated the same
+        // as a disagreement — the domain must not pass on a single
+        // resolver's opinion (ADR-0002 conservatism).
+        if (secondary === undefined || secondary.status !== DomainStatus.Available) {
+          if (secondary?.status === DomainStatus.Registered) disagreed++;
+          else unverifiable++;
           results[index] = {
-            domain: domains[index]!.domain,
+            domain,
             status: DomainStatus.Unknown,
             checkedAt: new Date().toISOString(),
           };
           logger.warn(
-            { domain: domains[index]!.domain },
-            'DNS: 2-of-3 consensus disagreement — primary Available, secondary Registered',
+            {
+              domain,
+              secondary: secondary?.status ?? 'no-answer',
+            },
+            'DNS: 2-of-3 consensus not confirmed — downgraded to Unknown',
           );
         } else {
           verified++;
@@ -257,8 +267,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
-    if (disagreed > 0) {
-      logger.info({ verified, disagreed }, 'DNS: 2-of-3 consensus check complete');
+    if (disagreed > 0 || unverifiable > 0) {
+      logger.info({ verified, disagreed, unverifiable }, 'DNS: 2-of-3 consensus check complete');
     }
 
     return results;

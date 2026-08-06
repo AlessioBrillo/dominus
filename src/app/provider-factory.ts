@@ -392,6 +392,32 @@ export function buildDnsConsensusConfig(
   return { secondaryProvider: buildSecondaryDnsProvider(config, rateLimiter) };
 }
 
+/**
+ * Startup probe for the DNS consensus secondary provider. With strict
+ * 2-of-3 consensus semantics (ADR-0002) any failure of the secondary
+ * downgrades every Available to Unknown, so a dead secondary (e.g. egress
+ * port 853 filtered, blocking the default 'dot-only' strategy) is a silent
+ * outage worth surfacing at boot. Non-fatal: consensus stays enabled, but
+ * the operator is told clearly what is happening.
+ */
+export function probeConsensusProvider(config: Config, secondaryProvider: DnsProvider): void {
+  if (!config.DNS_CONSENSUS_ENABLED) return;
+  const logger = getLogger();
+  logger.warn(
+    { strategy: config.DNS_CONSENSUS_STRATEGY },
+    'DNS: probing consensus secondary provider at startup',
+  );
+  validateResolverGroups(secondaryProvider).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(
+      { err: message, strategy: config.DNS_CONSENSUS_STRATEGY },
+      'DNS: consensus secondary provider unreachable at startup — strict consensus ' +
+        'will downgrade every Available verdict to Unknown. Verify DNS_CONSENSUS_STRATEGY ' +
+        'egress (dot-only uses TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
+    );
+  });
+}
+
 export interface BuiltWhoisProvider {
   raw: NodeWhoisProviderWithIanaFallback;
   withRetry: WhoisProviderInterface;

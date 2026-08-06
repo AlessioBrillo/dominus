@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
-import { DnsPreFilterStage } from '../dns-prefilter-stage.js';
+import { DnsPreFilterStage, type ConsensusDnsConfig } from '../dns-prefilter-stage.js';
 import type { DnsProvider } from '../../../providers/dns/dns-provider.js';
 import { DomainStatus, type DnsCheckResult } from '../../../types/domain-status.js';
 import { CandidateStatus, CandidateSource } from '../../../types/candidate.js';
@@ -197,5 +197,135 @@ describe('DnsPreFilterStage', () => {
     const stage = new DnsPreFilterStage(provider);
     const result = await stage.process([createMockCandidate({ domain: 'any.io' })]);
     expect(result.stageName).toBe('DnsPreFilterStage');
+  });
+});
+
+// --- 2-of-3 consensus (strict ADR-0002 semantics) ---
+
+/** Primary that reports every domain Available via checkBulk. */
+function consensusPrimary(): DnsProvider {
+  return {
+    name: 'primary',
+    checkAvailability: vi.fn(),
+    checkBulk: vi.fn().mockResolvedValue([
+      { domain: 'free.io', status: DomainStatus.Available, checkedAt: '' },
+      { domain: 'maybe.io', status: DomainStatus.Available, checkedAt: '' },
+      { domain: 'confirm.io', status: DomainStatus.Available, checkedAt: '' },
+      { domain: 'reject.io', status: DomainStatus.Available, checkedAt: '' },
+    ]),
+    clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
+  };
+}
+
+function consensusStage(secondary: DnsProvider): DnsPreFilterStage {
+  const config: ConsensusDnsConfig = { secondaryProvider: secondary };
+  return new DnsPreFilterStage(consensusPrimary(), 10, [], config);
+}
+
+const CONSENSUS_DOMAINS = ['free.io', 'maybe.io', 'confirm.io', 'reject.io'];
+
+describe('DnsPreFilterStage consensus (strict)', () => {
+  it('passes Available when the secondary confirms Available', async () => {
+    const secondary: DnsProvider = {
+      name: 'secondary',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const result = await consensusStage(secondary).process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed.map((c) => c.domain).sort()).toEqual([...CONSENSUS_DOMAINS].sort());
+    expect(result.filtered).toHaveLength(0);
+  });
+
+  it('downgrades to Unknown when the secondary returns Unknown', async () => {
+    const secondary = mockDnsProvider('', {
+      domain: '',
+      status: DomainStatus.Unknown,
+      checkedAt: '',
+    });
+    const result = await consensusStage(secondary).process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(CONSENSUS_DOMAINS.length);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+      expect(c.status).toBe(CandidateStatus.DnsFiltered);
+    }
+  });
+
+  it('downgrades to Unknown when the secondary throws (no-answer)', async () => {
+    const secondary: DnsProvider = {
+      name: 'secondary-down',
+      checkAvailability: vi.fn().mockRejectedValue(new Error('secondary unavailable')),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const result = await consensusStage(secondary).process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+    }
+  });
+
+  it('downgrades to Unknown when the secondary disagrees (Registered)', async () => {
+    const secondary = mockDnsProvider('', {
+      domain: '',
+      status: DomainStatus.Registered,
+      checkedAt: '',
+    });
+    const result = await consensusStage(secondary).process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+    }
+  });
+
+  it('does not re-check Registered domains from the primary', async () => {
+    const secondaryCheck = vi.fn().mockResolvedValue({
+      domain: 'taken.com',
+      status: DomainStatus.Available,
+      checkedAt: '',
+    });
+    const primary: DnsProvider = {
+      name: 'primary',
+      checkAvailability: vi.fn(),
+      checkBulk: vi.fn().mockResolvedValue([
+        { domain: 'free.io', status: DomainStatus.Available, checkedAt: '' },
+        { domain: 'taken.com', status: DomainStatus.Registered, checkedAt: '' },
+      ]),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const secondary: DnsProvider = {
+      name: 'secondary',
+      checkAvailability: secondaryCheck,
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(primary, 10, [], { secondaryProvider: secondary });
+    const result = await stage.process([
+      createMockCandidate({ domain: 'free.io' }),
+      createMockCandidate({ domain: 'taken.com' }),
+    ]);
+    expect(result.passed.map((c) => c.domain)).toEqual(['free.io']);
+    expect(result.filtered.map((c) => c.domain)).toEqual(['taken.com']);
+    // Secondary queried only for the Available domain, never the Registered one.
+    expect(secondaryCheck).toHaveBeenCalledTimes(1);
+    expect(secondaryCheck.mock.calls[0]![0]).toBe('free.io');
   });
 });

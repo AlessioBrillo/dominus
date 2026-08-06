@@ -93,6 +93,7 @@ import {
   buildRdapProviders,
   buildDnsProvider,
   buildDnsConsensusConfig,
+  probeConsensusProvider,
   buildWhoisProviders,
   buildRateLimiters,
   buildWaybackProvider,
@@ -596,6 +597,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // only the Available subset is re-queried, so the extra query volume is
   // bounded while single-resolver availability verdicts are eliminated.
   const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsRateLimiter);
+  if (dnsConsensusConfig !== undefined) {
+    // Startup probe of the consensus secondary: with strict 2-of-3 semantics
+    // a dead secondary downgrades every Available to Unknown, so surface
+    // egress/strategy problems at boot instead of discovering them in runs.
+    probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider);
+  }
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
