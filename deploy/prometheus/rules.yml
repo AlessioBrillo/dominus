@@ -1,0 +1,67 @@
+# DOMINUS — Prometheus alert rules (production profile).
+#
+# Tuned to the production profile: alert on things that break decisions
+# (error rates, stuck queues, dead letters), not on noise.
+# The webhook receiver is configured in alertmanager.yml.
+
+groups:
+  - name: dominus-api
+    rules:
+      - alert: ApiDown
+        expr: up{job="dominus_api"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DOMINUS API is unreachable"
+          description: "Prometheus cannot scrape the API endpoint for 5 minutes."
+
+      - alert: HighProviderErrorRate
+        expr: |
+          sum(rate(dominus_provider_errors_total[15m])) by (provider)
+            / clamp_min(sum(rate(dominus_provider_calls_total[15m])) by (provider), 1)
+            > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Provider {{ $labels.provider }} error rate above 25%"
+          description: "The {{ $labels.provider }} provider failed more than 25% of calls over 15 minutes."
+
+      - alert: StageErrorsIncreasing
+        expr: increase(dominus_stage_errors_total[30m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline stage {{ $labels.stage }} is failing"
+          description: "Stage '{{ $labels.stage }}' recorded new errors in the last 30 minutes."
+
+  - name: dominus-queue
+    rules:
+      - alert: QueueStuck
+        expr: dominus_queue_queued > 0 and dominus_queue_running == 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Job queue is stuck"
+          description: "{{ $value }} jobs are queued but no worker is running them."
+
+      - alert: QueueBacklog
+        expr: dominus_queue_queued > 50
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job queue backlog"
+          description: "{{ $value }} jobs are waiting; workers cannot keep up."
+
+      - alert: DeadLetterJobs
+        expr: increase(dominus_queue_dead_letter_total[1h]) > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Jobs entered the dead-letter queue"
+          description: "One or more jobs exhausted their retries in the last hour."

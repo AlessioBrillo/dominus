@@ -75,6 +75,16 @@ estimates and subject to change.
 - [x] Rate limiting: distributed Redis-backed store for the public router
 - [x] Backend test coverage thresholds raised to 70/65/60 (lines/functions/branches)
 - [x] CI matrix testing (Node 20 + 22 ubuntu, Node 22 + 24 windows, native-bindings smoke check)
+- [x] Compose topology fix: the documented prod command now starts the full
+      stack (worker/scheduler by default; PG/Redis/monitoring via the prod
+      overlay) — guarded by a CI job that asserts the service sets
+- [x] Observability: Prometheus text-format endpoint
+      (`GET /api/v1/metrics/prometheus`), self-hosted Prometheus +
+      Alertmanager + Grafana in the prod profile, alert rules for API down /
+      provider error rate / stage errors / stuck queue / dead letters
+- [x] Restore drill script (`scripts/restore-drill.mjs`) — backup, restore,
+      integrity_check and row-count comparison; failure path verified
+- [x] CI matrix testing (Node 20 + 22 ubuntu, Node 22 + 24 windows, native-bindings smoke check)
 - [x] Codecov integration + coverage badge in README
 - [x] Security audit (dependency scan, CSP review, auth hardening) — `npm audit` clean on the root workspace; frontend residual advisories are limited to the react-router RSC-mode CSRF advisory (GHSA-qwww-vcr4-c8h2), which does not apply to this SPA and has no stable patched release yet
 - [x] Frontend coverage thresholds raised to ≥50% (enforced in CI via `npm run test:coverage`; vitest thresholds 50/50/50 lines/functions/branches)

@@ -5,12 +5,19 @@ DOMINUS is designed to run anywhere — from a laptop to a Kubernetes cluster. C
 ## Quick Start (Docker)
 
 ```bash
-# Build and run
+# Build and run (api + worker + scheduler — the full application)
 docker compose up -d
 
-# Or use the production profile with resource limits
+# Production profile: GHCR images, resource limits, healthchecks, the
+# full Cloud stack (PostgreSQL + Redis) and the monitoring stack
+# (Prometheus + Alertmanager + Grafana)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
+
+> The base compose file keeps PostgreSQL and Redis behind the `cloud`
+> profile so community deployments stay single-container-file simple. The
+> production profile clears that gate — the command above starts the
+> complete stack. Worker and scheduler start by default in both variants.
 
 The server listens on `http://localhost:3000` by default. Set `HOST=0.0.0.0` in `.env` to expose on all interfaces (required behind a reverse proxy).
 
@@ -110,6 +117,48 @@ For real off-disk durability on a self-managed VPS (e.g. Hetzner):
 
 Backup retention defaults to 30 days (`BACKUP_RETENTION_DAYS`) and the
 scheduler prunes expired backups automatically.
+
+### Restore drill
+
+Backups are worthless until a restore has been proven. Run the drill at
+least once per release — it takes the live database through the online
+backup API, re-opens the copy, verifies `integrity_check` and compares
+every table row count:
+
+```bash
+node scripts/restore-drill.mjs ./data/dominus.db
+# restore-drill: OK - 52 tables, 123456 rows, integrity verified
+```
+
+Exit code 0 = green, 1 = red (do not ship). On a scheduled basis this can
+be wired into the scheduler, but a manual run before each release is the
+requirement.
+
+> **Never place `dominus.db` itself on a network filesystem** (NFS/SMB,
+> Hetzner Volume, etc.). SQLite WAL mode is unsafe over network storage —
+> the WAL/SHM coordination assumes a local POSIX filesystem and risks
+> corruption under concurrent writes. Network storage is for *backups*
+> only.
+
+## Monitoring (production profile)
+
+The prod compose profile ships a €0 self-hosted monitoring stack:
+
+| Service | Role |
+|---------|------|
+| `prometheus` | Scrapes `http://api:3000/api/v1/metrics/prometheus` every 30s, 30-day retention |
+| `alertmanager` | Routes alerts to the webhook in `deploy/prometheus/alertmanager.yml` |
+| `grafana` | Provisioned dashboard "DOMINUS Overview" (admin/admin by default — override `GRAFANA_ADMIN_PASSWORD`) |
+
+Alert rules live in `deploy/prometheus/rules.yml` and cover: API down,
+provider error rate > 25%, stage errors, stuck job queue (jobs queued with
+no runner), queue backlog and new dead-letter jobs. Alertmanager does not
+expand environment variables, so set the webhook URL inside
+`deploy/prometheus/alertmanager.yml` before deploying.
+
+The metrics endpoint is intentionally unauthenticated (same policy as
+`/api/health`) but is only reachable on the Docker network — **do not
+proxy `/api/v1/metrics/*` publicly** in your nginx/Caddy config.
 
 ## Redis Degradation (DOMINUS Cloud)
 
@@ -215,7 +264,11 @@ Key variables for deployment:
 - [ ] Set `RATE_LIMIT_MAX` to protect against abuse
 - [ ] Use a non-root user (Docker: `USER dominus`, systemd: `User=dominus`)
 - [ ] Pin `DOMINUS_IMAGE_TAG` to a `sha-…` tag in production (immutable rollouts)
-- [ ] Keep backups off the DB disk (dedicated `backups` volume, ideally a Hetzner Volume or S3 target)
-- [ ] Test a backup restore at least once per release
+- [x] Keep backups off the DB disk (dedicated `backups` volume, ideally a Hetzner Volume or S3 target)
+- [x] Test a backup restore at least once per release (`node scripts/restore-drill.mjs`)
+- [ ] Keep `dominus.db` on local disk only — never on a network filesystem
+- [ ] Do not proxy `/api/v1/metrics/*` publicly (internal monitoring only)
+- [ ] Set `GRAFANA_ADMIN_PASSWORD` (production profile)
+- [ ] Set the Alertmanager webhook URL in `deploy/prometheus/alertmanager.yml`
 - [ ] Keep the `data/` directory in `.gitignore`
 - [ ] Review logs periodically (`journalctl -u dominus`)
