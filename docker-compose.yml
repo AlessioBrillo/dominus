@@ -1,17 +1,21 @@
-# DOMINUS — Docker Compose for development and production.
+# DOMINUS — Docker Compose for development and community deployment.
 #
-# Community edition (SQLite, single-user):
+# Community edition (SQLite, single-user): all services start by default.
 #   docker compose up -d
 #
-# DOMINUS Cloud (PostgreSQL, multi-tenant):
+# DOMINUS Cloud (PostgreSQL, multi-tenant): use the production overlay,
+# which adds postgres, redis and the monitoring stack:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
 # Production (with .env file for secrets):
 #   docker compose --env-file .env up -d
 #
-# Service profiles:
-#   All services start by default (api + worker + scheduler).
-#   To run only the API: docker compose up api
+# Service note:
+#   api + worker + scheduler start by default — the job-queue worker and
+#   the background scheduler are required for async runs, backups and
+#   renewal checks (ADR-0023). This file intentionally has no
+#   PostgreSQL/Redis: the community edition runs on SQLite at €0 infra
+#   cost. The production overlay adds the data stores and monitoring.
 
 services:
   api:
@@ -62,10 +66,6 @@ services:
       target: worker
     image: dominus-worker:latest
     container_name: dominus-worker
-    depends_on:
-      redis:
-        condition: service_healthy
-        required: false
     volumes:
       - ./data:/app/data
     environment:
@@ -93,8 +93,6 @@ services:
       - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
       - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
-    profiles:
-      - full
 
   scheduler:
     build:
@@ -103,10 +101,6 @@ services:
       target: scheduler
     image: dominus-scheduler:latest
     container_name: dominus-scheduler
-    depends_on:
-      redis:
-        condition: service_healthy
-        required: false
     volumes:
       - ./data:/app/data
     environment:
@@ -135,47 +129,3 @@ services:
       - BACKUP_DIR=/app/data/backups
       - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
-    profiles:
-      - full
-
-  # DOMINUS Cloud (PostgreSQL + Redis)
-  postgres:
-    image: postgres:16-alpine
-    container_name: dominus-pg
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-dominus}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dominus}
-      POSTGRES_DB: ${POSTGRES_DB:-dominus}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominus}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    profiles:
-      - cloud
-
-  redis:
-    image: redis:7-alpine
-    container_name: dominus-redis
-    command: redis-server --appendonly yes
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    profiles:
-      - full
-
-volumes:
-  pgdata:
-  redis-data:

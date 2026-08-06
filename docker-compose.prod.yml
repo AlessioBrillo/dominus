@@ -7,6 +7,14 @@
 # Override with your own .env file:
 #   docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
+# What this profile does:
+#   - Uses GHCR images (published by the Deploy workflow) instead of builds
+#   - Applies resource limits and healthchecks to every service
+#   - Owns the Cloud data stores: postgres + redis are defined here (the
+#     base compose intentionally has no external stores — community runs
+#     on SQLite), so the documented command starts the full stack
+#   - Adds the monitoring stack: prometheus, alertmanager, grafana
+#
 # Image pinning:
 #   The Deploy workflow publishes `master`, `sha-<commit>` and `vX.Y.Z`
 #   tags (plus -worker/-scheduler variants). The default resolves to
@@ -19,7 +27,17 @@
 #   dominus.db (same host, but isolated from DB write amplification and
 #   from accidental wipe of ./data). For true off-disk durability, mount
 #   the Hetzner Volume (or any external drive) instead — see
-#   docs/deployment/README.md.
+#   docs/deployment/README.md. Never place dominus.db itself on a network
+#   filesystem — SQLite WAL mode is unsafe over NFS/SMB.
+#
+# Monitoring:
+#   Prometheus scrapes http://api:3000/api/v1/metrics/prometheus (no auth,
+#   reachable only on the Docker network — do not expose /metrics publicly
+#   through the reverse proxy). Alertmanager forwards alerts to the webhook
+#   URL set in deploy/prometheus/alertmanager.yml (set it before deploying;
+#   point it at the same endpoint as NOTIFIER_WEBHOOK_URL to keep a single
+#   alert inbox). Grafana binds 127.0.0.1:3001 by default — reach it via an
+#   SSH tunnel or set GRAFANA_BIND to a real address behind a proxy.
 
 services:
   api:
@@ -48,6 +66,9 @@ services:
   worker:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}-worker
     restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -60,6 +81,14 @@ services:
       - backups:/backups
     environment:
       - BACKUP_DIR=/backups
+    # The worker entrypoint exposes a loopback health server on 9090
+    # (/health -> 200 only while the worker is polling/processing).
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:9090/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
@@ -69,6 +98,9 @@ services:
   scheduler:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}-scheduler
     restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -81,6 +113,147 @@ services:
       - backups:/backups
     environment:
       - BACKUP_DIR=/backups
+    # The scheduler entrypoint exposes a loopback health server on 9091.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:9091/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Cloud data stores (defined here, not in the base file: the community
+  # edition runs on SQLite and must never pull these containers) ─────────
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dominus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-dominus}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 192M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Monitoring stack ──────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.53.1
+    restart: always
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: always
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+        reservations:
+          cpus: '0.01'
+          memory: 16M
+    volumes:
+      - ./deploy/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    restart: always
+    ports:
+      - "${GRAFANA_BIND:-127.0.0.1}:3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3001}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
     logging:
       driver: "json-file"
       options:
@@ -89,3 +262,8 @@ services:
 
 volumes:
   backups:
+  pgdata:
+  redis-data:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
