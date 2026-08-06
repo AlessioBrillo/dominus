@@ -316,6 +316,15 @@ export class JobQueueRepository {
     return stats;
   }
 
+  /** Total rows in the dead-letter table (job_queue status counts do not
+   *  include dead letters — they live in a separate table). */
+  async countDeadLetter(): Promise<number> {
+    const rows = await this.#db.query<{ count: number }>(
+      'SELECT COUNT(*) as count FROM dead_letter_jobs',
+    );
+    return rows[0]?.count ?? 0;
+  }
+
   async getDeadLetter(
     options: { limit?: number; offset?: number } = {},
   ): Promise<DeadLetterJobRow[]> {

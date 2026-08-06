@@ -1,0 +1,112 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(dominus_stage_passed_total[5m])) by (stage)",
+          "refId": "A",
+          "legendFormat": "passed {{stage}}"
+        },
+        {
+          "expr": "sum(rate(dominus_stage_filtered_total[5m])) by (stage)",
+          "refId": "B",
+          "legendFormat": "filtered {{stage}}"
+        }
+      ],
+      "title": "Candidates through stages (per second)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "expr": "sum(rate(dominus_provider_errors_total[5m])) by (provider)",
+          "refId": "A",
+          "legendFormat": "{{provider}}"
+        }
+      ],
+      "title": "Provider errors (per second)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 10 },
+            { "color": "red", "value": 50 }
+          ] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dominus_queue_queued", "refId": "A", "legendFormat": "queued" },
+        { "expr": "dominus_queue_running", "refId": "B", "legendFormat": "running" },
+        { "expr": "dominus_queue_dead_letter_total", "refId": "C", "legendFormat": "dead letter" }
+      ],
+      "title": "Job queue",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 300000 },
+            { "color": "red", "value": 900000 }
+          ] },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "dominus_last_run_duration_ms", "refId": "A", "legendFormat": "last run" }
+      ],
+      "title": "Last pipeline run duration",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["dominus"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "DOMINUS Overview",
+  "uid": "dominus-overview",
+  "version": 1
+}

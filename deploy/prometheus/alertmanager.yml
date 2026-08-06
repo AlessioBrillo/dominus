@@ -1,0 +1,22 @@
+# DOMINUS — Alertmanager configuration (production profile).
+#
+# Alertmanager does not expand environment variables in this file; set the
+# webhook URL below before deploying. This is the same webhook channel the
+# application uses for job dead-letter notifications (NOTIFIER_WEBHOOK_URL),
+# so route it to the same endpoint if you want a single alert inbox.
+#
+# Example webhook payload: { "text": "..." } for a generic Slack/Telegram
+# bridge, or the format expected by your webhook receiver.
+
+route:
+  receiver: dominus-webhook
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: dominus-webhook
+    webhook_configs:
+      - url: "https://example.com/your-webhook"
+        send_resolved: true

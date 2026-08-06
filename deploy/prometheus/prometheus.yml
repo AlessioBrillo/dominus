@@ -1,0 +1,33 @@
+# DOMINUS — Prometheus configuration (production profile).
+#
+# Scrape targets:
+#   api        — http://api:3000/api/v1/metrics/prometheus (Prometheus text
+#                format, unauthenticated, only reachable on the Docker
+#                network — never expose /metrics through the reverse proxy)
+#   worker     — the worker exposes a loopback health server on 9090, but
+#                no /metrics endpoint; its liveness is inferred from the job
+#                queue gauges (queued jobs with no runner = alert fires)
+#
+# Rules are loaded from rules.yml (mounted read-only).
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    service: dominus
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: dominus_api
+    metrics_path: /api/v1/metrics/prometheus
+    static_configs:
+      - targets: ["api:3000"]
+        labels:
+          container: api

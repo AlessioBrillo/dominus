@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { getLogger } from './logger.js';
 import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
+import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
@@ -160,7 +161,10 @@ async function main(): Promise<void> {
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
   app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
-  app.use('/api/v1/metrics', createMetricsRouter(deps.metricsRepo, deps.metrics));
+  app.use(
+    '/api/v1/metrics',
+    createMetricsRouter(deps.metricsRepo, deps.metrics, new JobQueueRepository(deps.provider)),
+  );
 
   // Auth routes: tight per-IP rate limit (separate from global API rate limit)
   // This limits brute-force attempts on the login endpoint.
