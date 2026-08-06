@@ -185,7 +185,7 @@ jobs:
           docker compose -f docker-compose.yml config --quiet
           services=$(docker compose -f docker-compose.yml config --services)
           for expected in api worker scheduler; do
-            grep -qx "$$expected" <<<"$services" || {
+            grep -qx "$expected" <<<"$services" || {
               echo "FATAL: base compose is missing service '$expected'"; exit 1
             }
           done
