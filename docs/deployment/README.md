@@ -140,6 +140,27 @@ requirement.
 > corruption under concurrent writes. Network storage is for *backups*
 > only.
 
+## SQLite Concurrency (community edition)
+
+The community edition runs on SQLite in WAL mode. The API, worker and
+scheduler all open the same `dominus.db` file (shared `./data` volume),
+which SQLite supports on a local filesystem — with these limits:
+
+- **One writer at a time.** WAL allows concurrent readers plus a single
+  writer. Writes are serialized at the file-lock level; contention
+  surfaces as `SQLITE_BUSY` and is absorbed by the 30s busy timeout
+  (`DATABASE_BUSY_TIMEOUT`). High write throughput (many concurrent
+  pipeline runs) degrades throughput rather than failing.
+- **Long-lived readers stall WAL checkpoints.** A slow read transaction
+  keeps the WAL growing. If you run long queries, keep them short and
+  commit promptly.
+- **Single-node only.** No network access to the DB and no horizontal
+  write scaling — that is what PostgreSQL in cloud mode (`DATABASE_URL`)
+  is for. Migrate with a single database dump when you outgrow SQLite.
+
+If you see frequent `SQLITE_BUSY` errors, scale back concurrency (fewer
+parallel runs, `WORKER_CONCURRENCY`) before considering PostgreSQL.
+
 ## Monitoring (production profile)
 
 The prod compose profile ships a €0 self-hosted monitoring stack:

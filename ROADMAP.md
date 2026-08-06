@@ -1,6 +1,6 @@
 # Roadmap
 
-DOMINUS v0.10.0-dev — operations, reliability, and production hardening.
+DOMINUS v0.10.1 — operations and reliability polish.
 
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
@@ -56,9 +56,9 @@ estimates and subject to change.
 - [ ] Accessibility pass (WCAG 2.1 AA)
 - [x] Frontend test coverage ≥50%
 
-## v0.10.0 — Operations & Reliability (current)
+## v0.10.0 — Operations & Reliability
 
-> **Status**: In development
+> **Status**: Completed
 > **Focus**: Load testing, security audit, CI/CD maturity, bridge repair
 
 - [x] Fix: POST /portfolio/verdicts route (frontend 404 bug)
@@ -88,6 +88,23 @@ estimates and subject to change.
 - [x] Codecov integration + coverage badge in README
 - [x] Security audit (dependency scan, CSP review, auth hardening) — `npm audit` clean on the root workspace; frontend residual advisories are limited to the react-router RSC-mode CSRF advisory (GHSA-qwww-vcr4-c8h2), which does not apply to this SPA and has no stable patched release yet
 - [x] Frontend coverage thresholds raised to ≥50% (enforced in CI via `npm run test:coverage`; vitest thresholds 50/50/50 lines/functions/branches)
+- [ ] SEO-ready README with screenshots/GIF demo
+
+## v0.10.1 — Hardening Polish (current)
+
+> **Status**: In development
+> **Focus**: DNS consensus strictness, metrics access control, release docs
+
+- [x] DNS verdict hardening: 2-of-3 consensus is now *strict* — a failed or
+      unknown secondary resolver downgrades the verdict to Unknown instead
+      of trusting the primary, plus a startup probe that fails fast when
+      the consensus provider is misconfigured
+- [x] Metrics access control: optional `METRICS_TOKEN` bearer auth on the
+      `/api/v1/metrics/*` router (401 when set and not presented;
+      unchanged when unset), with a commented Prometheus scrape
+      authorization block for operators who enable it
+- [x] Documentation: SQLite multi-process concurrency limits in the
+      deployment guide, `.gitignore` covers benchmark output
 - [ ] SEO-ready README with screenshots/GIF demo
 
 ## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO

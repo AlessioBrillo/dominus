@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-0.10.0--dev-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-0.10.1-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -231,7 +231,7 @@ Commands:
 
 ## Project Status
 
-DOMINUS v0.10.0-dev — operations, reliability, and production hardening. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker with renewal clock and keep/drop verdicts, outcomes, backtest engine, and the professional React dashboard are implemented and tested. The community edition is fully functional and production-ready.
+DOMINUS v0.10.1 — operations and reliability polish. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker with renewal clock and keep/drop verdicts, outcomes, backtest engine, and the professional React dashboard are implemented and tested. The community edition is fully functional and production-ready.
 
 ## License
 
