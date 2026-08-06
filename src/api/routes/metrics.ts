@@ -8,12 +8,46 @@ import type { MetricsSnapshot } from '../../types/metrics.js';
 import type { JobQueueStats } from '../../types/job-queue.js';
 import { getRouteParam } from '../route-utils.js';
 
+export interface MetricsRouterOptions {
+  /**
+   * Optional bearer token. When set, /api/v1/metrics/* requires
+   * `Authorization: Bearer <token>`; otherwise requests are rejected with
+   * 401. When unset, metrics stay public (backward compatible, matching the
+   * pre-token behaviour where a reverse proxy was responsible for access
+   * control).
+   */
+  token?: string;
+}
+
 export function createMetricsRouter(
   metricsRepo: MetricsRepository,
   collector: MetricsCollector,
   jobQueueRepo: JobQueueRepository,
+  options?: MetricsRouterOptions,
 ): Router {
   const router = Router();
+  const requireToken = options?.token !== undefined && options.token.length > 0;
+
+  // Metrics expose operational telemetry (job queue stats, dead letters,
+  // run history) that should not be readable from the public interface.
+  // When a token is configured, gate the whole router with a timing-safe
+  // Bearer comparison — mirroring the API-key timing-safe policy.
+  if (requireToken) {
+    const token = options!.token!;
+    router.use((req: Request, res: Response, next: NextFunction): void => {
+      const header = req.headers['authorization'];
+      if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
+        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Missing bearer token' } });
+        return;
+      }
+      const presented = header.slice('Bearer '.length);
+      if (!constantTimeTokenEquals(presented, token)) {
+        res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid bearer token' } });
+        return;
+      }
+      next();
+    });
+  }
 
   router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
     try {
@@ -217,4 +251,19 @@ export function renderPrometheusMetrics(
   );
 
   return `${lines.join('\n')}\n`;
+}
+
+/** Constant-time comparison of a presented token against the configured
+ *  one: no early exit on length or prefix mismatch, so a failed attempt
+ *  takes the same wall time as a success and leaks nothing about the
+ *  secret (same policy as EnvApiKeyProvider). */
+function constantTimeTokenEquals(presented: string, configured: string): boolean {
+  const a = Buffer.from(presented, 'utf8');
+  const b = Buffer.from(configured, 'utf8');
+  let diff = a.length ^ b.length;
+  const maxLen = Math.max(a.length, b.length);
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  }
+  return diff === 0;
 }

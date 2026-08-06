@@ -161,9 +161,16 @@ async function main(): Promise<void> {
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
   app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
+  const metricsRouterOptions =
+    config.METRICS_TOKEN !== undefined ? { token: config.METRICS_TOKEN } : {};
   app.use(
     '/api/v1/metrics',
-    createMetricsRouter(deps.metricsRepo, deps.metrics, new JobQueueRepository(deps.provider)),
+    createMetricsRouter(
+      deps.metricsRepo,
+      deps.metrics,
+      new JobQueueRepository(deps.provider),
+      metricsRouterOptions,
+    ),
   );
 
   // Auth routes: tight per-IP rate limit (separate from global API rate limit)

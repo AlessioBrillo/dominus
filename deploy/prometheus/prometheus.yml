@@ -2,8 +2,11 @@
 #
 # Scrape targets:
 #   api        — http://api:3000/api/v1/metrics/prometheus (Prometheus text
-#                format, unauthenticated, only reachable on the Docker
-#                network — never expose /metrics through the reverse proxy)
+#                format, unauthenticated by default, only reachable on the
+#                Docker network — never expose /metrics through the reverse
+#                proxy). When METRICS_TOKEN is configured on the API,
+#                uncomment the authorization block at the bottom of the
+#                dominus_api job so scraping keeps working.
 #   worker     — the worker exposes a loopback health server on 9090, but
 #                no /metrics endpoint; its liveness is inferred from the job
 #                queue gauges (queued jobs with no runner = alert fires)
@@ -31,3 +34,9 @@ scrape_configs:
       - targets: ["api:3000"]
         labels:
           container: api
+    # Uncomment when METRICS_TOKEN is set on the API:
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/metrics-token
+    # The token file must contain exactly the METRICS_TOKEN value with no
+    # trailing newline (e.g. printf '%s' "$METRICS_TOKEN" > metrics-token).
