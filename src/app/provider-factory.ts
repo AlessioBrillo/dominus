@@ -389,7 +389,11 @@ export function buildDnsConsensusConfig(
   ) {
     return undefined;
   }
-  return { secondaryProvider: buildSecondaryDnsProvider(config, rateLimiter) };
+  return {
+    secondaryProvider: buildSecondaryDnsProvider(config, rateLimiter),
+    degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
+    degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
+  };
 }
 
 /**
