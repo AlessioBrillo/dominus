@@ -78,6 +78,32 @@ describe('UsageMeterService', () => {
       );
     });
 
+    describe('with auto-provisioning enabled', () => {
+      let autoService: UsageMeterService;
+
+      beforeEach(() => {
+        autoService = new UsageMeterService(usageRepo, subRepo, {
+          autoProvisionTenants: true,
+        });
+      });
+
+      it('provisions a free subscription on first record', async () => {
+        const info = await autoService.record(TENANT, 'api_calls', 1, PERIOD);
+        expect(info.plan).toBe('free');
+        expect(info.currentUsage).toBe(1);
+        expect(info.remaining).toBe(999);
+      });
+
+      it('is idempotent across concurrent first calls', async () => {
+        await Promise.all([
+          autoService.record(TENANT, 'api_calls', 1, PERIOD),
+          autoService.record(TENANT, 'api_calls', 1, PERIOD),
+        ]);
+        const usage = await autoService.getUsageForPeriod(TENANT, 'api_calls', PERIOD);
+        expect(usage.currentUsage).toBe(2);
+      });
+    });
+
     it('records different features independently', async () => {
       await subRepo.ensureDefault(TENANT);
       await service.record(TENANT, 'candidates_scored', 50, PERIOD);

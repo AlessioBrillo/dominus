@@ -42,6 +42,7 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
+  DbCheckpointStore,
 } from '../pipeline/index.js';
 import {
   PortfolioManager,
@@ -471,7 +472,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.subscriptionRepo,
     repos.webhookEventsRepo,
   );
-  const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo);
+  const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo, {
+    // Auto-provision a free plan on first request for managed (Cloud) setups:
+    // DATABASE_URL implies a hosted multi-tenant deployment, AUTH_PROVIDER
+    // db/auth0 implies managed identity. Self-hosted community stays strict.
+    autoProvisionTenants:
+      config.AUTO_PROVISION_TENANTS || !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env',
+  });
 
   // Dedicated bulk-write pool for pipeline persistence.
   // SQLite: separate WAL connection with shorter busy_timeout (5s) for write transactions.
@@ -630,7 +637,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     // lockProvider (9th param): Redis-backed distributed lock when configured
     lockProvider,
     // checkpointStore (10th param): optional durable run checkpoints
-    undefined,
+    config.PIPELINE_CHECKPOINTS_ENABLED ? new DbCheckpointStore(provider) : undefined,
     // stageBudget (11th param): candidate-scaled per-stage execution budget (ADR-0037)
     {
       baseMs: config.STAGE_TIMEOUT_BASE_MS,

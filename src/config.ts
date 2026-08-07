@@ -815,6 +815,17 @@ const configSchema = z.object({
    */
   PIPELINE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
 
+  /**
+   * Persist per-stage pipeline checkpoints to the database so interrupted
+   * runs resume from the last completed stage instead of restarting.
+   * Uses the pipeline_checkpoints table (SQLite and PostgreSQL).
+   * Default: true.
+   */
+  PIPELINE_CHECKPOINTS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+
   /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
    *  speed up batch processing but may trigger rate limits. Default: 10. */
   RDAP_BATCH_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(10),
@@ -1231,6 +1242,19 @@ const configSchema = z.object({
    * Default: false (opt-in).
    */
   USAGE_ENFORCEMENT_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+  /**
+   * Automatically create a free-plan subscription row for a tenant on its
+   * first authenticated API request. Without this, usage enforcement
+   * (USAGE_ENFORCEMENT_ENABLED) errors on tenants that have no subscription
+   * row (e.g. signed up but never completed a Stripe checkout) instead of
+   * falling back to the free plan. The managed Cloud sets this true; the
+   * community edition defaults to false so the DB is never written on
+   * request paths it did not write before.
+   * Default: false.
+   */
+  AUTO_PROVISION_TENANTS: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
     .default(false),
 
