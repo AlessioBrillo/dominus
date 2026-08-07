@@ -3,6 +3,7 @@ import type { Redis } from 'ioredis';
 import { getLogger } from '../../logger.js';
 import { getRedisClient, type RedisClient } from './redis-client.js';
 import { RateLimiterQueueFullError } from '../rate-limiter.js';
+import { getTenantId } from '../../utils/tenant-context.js';
 
 const logger = getLogger();
 
@@ -15,6 +16,18 @@ export interface RedisRateLimiterConfig {
    *  failing fast (default: max(2 × intervalMs, 5s)). Prevents callers
    *  from waiting indefinitely on a perpetually full bucket. */
   maxWaitMs?: number;
+  /** Distributed per-tenant fair share (ADR-0041). When enabled, acquire()
+   *  also enforces an independent sliding window of `perTenantTokens` keyed
+   *  by the tenant resolved from AsyncLocalStorage, so one tenant can never
+   *  monopolise the shared platform bucket. Enforcement is skipped for the
+   *  community `'default'` tenant and when no tenant context is present. */
+  fairShare?: boolean;
+  /** Capacity of the per-tenant window used when `fairShare` is enabled.
+   *  Must be lower than or equal to `tokens` to provide actual isolation. */
+  perTenantTokens?: number;
+  /** Refill window for the per-tenant bucket (default: `intervalMs`). Allows
+   *  a faster-draining tenant window than the shared platform bucket. */
+  perTenantIntervalMs?: number;
 }
 
 /** Raised when acquire() polls a saturated bucket for maxWaitMs without
@@ -60,6 +73,9 @@ export class RedisRateLimiter {
   readonly #maxQueueSize: number;
   readonly #namespace: string;
   readonly #maxWaitMs: number;
+  readonly #fairShare: boolean;
+  readonly #perTenantTokens: number;
+  readonly #perTenantIntervalMs: number;
   readonly #redisClient: RedisClient;
   #queue: QueuedAcquire[] = [];
   #processing = false;
@@ -74,6 +90,9 @@ export class RedisRateLimiter {
     this.#maxQueueSize = config.maxQueueSize ?? 1000;
     this.#namespace = config.namespace ?? 'default';
     this.#maxWaitMs = config.maxWaitMs ?? Math.max(config.intervalMs * 2, 5_000);
+    this.#fairShare = config.fairShare ?? false;
+    this.#perTenantTokens = config.perTenantTokens ?? config.tokens;
+    this.#perTenantIntervalMs = config.perTenantIntervalMs ?? config.intervalMs;
     this.#redisClient = redisClient ?? getRedisClient();
   }
 
@@ -126,22 +145,36 @@ export class RedisRateLimiter {
   async #tryConsumeToken(): Promise<boolean> {
     const now = Date.now();
     const key = this.#redisClient.prefixed(`ratelimit:${this.#namespace}`);
+    const tenantKey = this.#tenantKey();
 
     return this.#redisClient.withRedis(
       async (redis: Redis) => {
         const pipeline = redis.pipeline();
         pipeline.zremrangebyscore(key, '-inf', now - this.#intervalMs);
         pipeline.zcard(key);
+        if (tenantKey) {
+          pipeline.zremrangebyscore(tenantKey, '-inf', now - this.#perTenantIntervalMs);
+          pipeline.zcard(tenantKey);
+        }
         const results = await pipeline.exec();
         if (!results) return false;
         const card = results[1]?.[1] as number | undefined;
         if (card === undefined) return false;
-        if (card < this.#tokens) {
-          await redis.zadd(key, now, `${now}:${Math.random()}`);
-          await redis.pexpire(key, this.#intervalMs);
-          return true;
+        if (card >= this.#tokens) return false;
+        if (tenantKey) {
+          const tenantCard = results[3]?.[1] as number | undefined;
+          if (tenantCard === undefined) return false;
+          if (tenantCard >= this.#perTenantTokens) return false;
         }
-        return false;
+        await redis.zadd(key, now, `${now}:${Math.random()}`);
+        if (tenantKey) {
+          await redis.zadd(tenantKey, now, `${now}:${Math.random()}`);
+        }
+        await redis.pexpire(key, this.#intervalMs);
+        if (tenantKey) {
+          await redis.pexpire(tenantKey, this.#perTenantIntervalMs);
+        }
+        return true;
       },
       async () => {
         // Fallback: in-memory queue-based rate limiting
@@ -177,5 +210,16 @@ export class RedisRateLimiter {
   async throttle<T>(fn: () => Promise<T>): Promise<T> {
     await this.acquire();
     return fn();
+  }
+
+  /** Key for the per-tenant fair-share window. Returns undefined when fair
+   *  share is disabled, when no tenant context is present, or for the
+   *  community `'default'` tenant — those callers just share the global
+   *  platform bucket. */
+  #tenantKey(): string | undefined {
+    if (!this.#fairShare) return undefined;
+    const tenant = getTenantId();
+    if (!tenant || tenant === 'default') return undefined;
+    return this.#redisClient.prefixed(`ratelimit:${this.#namespace}:tenant:${tenant}`);
   }
 }

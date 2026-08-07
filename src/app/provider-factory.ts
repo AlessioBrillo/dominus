@@ -491,6 +491,7 @@ export interface BuiltRateLimiters {
 
 export function buildRateLimiters(config: Config, redisClient?: RedisClient): BuiltRateLimiters {
   const useRedis = redisClient?.isConnected ?? false;
+  const fairShare = config.PROVIDER_FAIR_SHARE_ENABLED;
 
   if (useRedis) {
     const rdap = new RedisRateLimiter(
@@ -498,6 +499,12 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
         tokens: config.RDAP_RATE_LIMIT_TOKENS,
         intervalMs: config.RDAP_RATE_LIMIT_INTERVAL_MS,
         namespace: 'rdap',
+        fairShare,
+        perTenantTokens: config.RDAP_RATE_LIMIT_PER_TENANT_TOKENS,
+        ...(fairShare &&
+        config.RDAP_RATE_LIMIT_PER_TENANT_INTERVAL_MS !== config.RDAP_RATE_LIMIT_INTERVAL_MS
+          ? { perTenantIntervalMs: config.RDAP_RATE_LIMIT_PER_TENANT_INTERVAL_MS }
+          : {}),
       },
       redisClient,
     );
@@ -530,6 +537,12 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
         tokens: config.DNS_RATE_LIMIT_TOKENS,
         intervalMs: config.DNS_RATE_LIMIT_INTERVAL_MS,
         namespace: 'dns',
+        fairShare,
+        perTenantTokens: config.DNS_RATE_LIMIT_PER_TENANT_TOKENS,
+        ...(fairShare &&
+        config.DNS_RATE_LIMIT_PER_TENANT_INTERVAL_MS !== config.DNS_RATE_LIMIT_INTERVAL_MS
+          ? { perTenantIntervalMs: config.DNS_RATE_LIMIT_PER_TENANT_INTERVAL_MS }
+          : {}),
       },
       redisClient,
     );

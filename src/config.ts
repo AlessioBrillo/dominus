@@ -376,6 +376,17 @@ const configSchema = z.object({
   /** Rate limiting: refill interval in ms for DNS resolution requests (default: 1000). */
   DNS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
   /**
+   * Per-tenant fair share (Cloud only, ADR-0041): max DNS tokens per tenant
+   * per DNS_RATE_LIMIT_INTERVAL_MS, enforced on top of the shared platform
+   * bucket when Redis is the rate limiter and PROVIDER_FAIR_SHARE_ENABLED is
+   * on. Must be lower than or equal to DNS_RATE_LIMIT_TOKENS. Default: 5
+   * req/sec per tenant — with 20 global req/sec, one tenant can at most hold
+   * a quarter of the budget, never monopolise it.
+   */
+  DNS_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).default(5),
+  /** Per-tenant fair share: refill interval in ms for the DNS tenant window (default: 1000). */
+  DNS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
    * Custom DNS resolver groups for multi-resolver resolution.
    * When set, overrides DNS_LOOKUP_STRATEGY. Each group contains one or more
    * lookup specs that race in parallel; groups are tried sequentially.
@@ -502,6 +513,25 @@ const configSchema = z.object({
   RDAP_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(10),
   /** Rate limiting: refill interval in ms for RDAP requests (default: 1000). */
   RDAP_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Per-tenant fair share (Cloud only, ADR-0041): max RDAP tokens per tenant
+   * per RDAP_RATE_LIMIT_INTERVAL_MS, enforced on top of the shared platform
+   * bucket when Redis is the rate limiter and PROVIDER_FAIR_SHARE_ENABLED is
+   * on. Must be lower than or equal to RDAP_RATE_LIMIT_TOKENS. Default: 3
+   * req/sec per tenant against a 10 req/sec shared budget.
+   */
+  RDAP_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).default(3),
+  /** Per-tenant fair share: refill interval in ms for the RDAP tenant window (default: 1000). */
+  RDAP_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Global kill-switch for distributed per-tenant fair share (ADR-0041).
+   * When false, every caller shares the single global Redis bucket per
+   * provider and per-tenant windows are not created. Only meaningful when
+   * the Redis rate limiter is in use (Cloud topology); the community
+   * SQLite/local limiter is single-user by design and never enforces it.
+   * Default: true.
+   */
+  PROVIDER_FAIR_SHARE_ENABLED: z.coerce.boolean().default(true),
   /**
    * JSON array of RDAP bootstrap server entries for multi-provider failover.
    * When set, the IANA bootstrap resolution is skipped. Each entry is either
