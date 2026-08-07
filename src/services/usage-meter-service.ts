@@ -4,13 +4,29 @@ import type { SubscriptionRepository } from '../db/repositories/subscription-rep
 import type { UsageFeature, UsageForPeriod, PlanLimit, SubscriptionPlan } from '../types/usage.js';
 import { UsageLimitExceededError } from '../types/errors.js';
 
+export interface UsageMeterServiceOptions {
+  /**
+   * When true, record() auto-provisions a free-plan subscription for a
+   * tenant that has none (SubscriptionRepository.ensureDefault is already
+   * idempotent) instead of throwing. Enabled for the managed Cloud via
+   * AUTO_PROVISION_TENANTS; the community edition keeps `record()` strict.
+   */
+  autoProvisionTenants?: boolean;
+}
+
 export class UsageMeterService {
   readonly #usageRepo: UsageRepository;
   readonly #subRepo: SubscriptionRepository;
+  readonly #autoProvisionTenants: boolean;
 
-  constructor(usageRepo: UsageRepository, subRepo: SubscriptionRepository) {
+  constructor(
+    usageRepo: UsageRepository,
+    subRepo: SubscriptionRepository,
+    options: UsageMeterServiceOptions = {},
+  ) {
     this.#usageRepo = usageRepo;
     this.#subRepo = subRepo;
+    this.#autoProvisionTenants = options.autoProvisionTenants ?? false;
   }
 
   static periodStart(dateStr: string): string {
@@ -24,7 +40,10 @@ export class UsageMeterService {
     amount: number,
     periodStart: string,
   ): Promise<UsageForPeriod> {
-    const sub = await this.#subRepo.findByTenantId(tenantId);
+    let sub = await this.#subRepo.findByTenantId(tenantId);
+    if (!sub && this.#autoProvisionTenants) {
+      sub = await this.#subRepo.ensureDefault(tenantId);
+    }
     if (!sub) {
       throw new Error(`No active subscription for tenant ${tenantId}`);
     }

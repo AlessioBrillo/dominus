@@ -482,6 +482,7 @@ describe('Dependency Injection Ã¢â‚¬â€ composition-root wiring', () =
       PIPELINE_TIMEOUT_MS: 3600000,
       WORKER_ENABLED: false,
       USAGE_ENFORCEMENT_ENABLED: false,
+      AUTO_PROVISION_TENANTS: false,
       WORKER_CONCURRENCY: 2,
       JOB_QUEUE_POLL_INTERVAL_MS: 1000,
       JOB_QUEUE_MAX_DEPTH: 1000,

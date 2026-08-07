@@ -1233,6 +1233,19 @@ const configSchema = z.object({
   USAGE_ENFORCEMENT_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
     .default(false),
+  /**
+   * Automatically create a free-plan subscription row for a tenant on its
+   * first authenticated API request. Without this, usage enforcement
+   * (USAGE_ENFORCEMENT_ENABLED) errors on tenants that have no subscription
+   * row (e.g. signed up but never completed a Stripe checkout) instead of
+   * falling back to the free plan. The managed Cloud sets this true; the
+   * community edition defaults to false so the DB is never written on
+   * request paths it did not write before.
+   * Default: false.
+   */
+  AUTO_PROVISION_TENANTS: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
 
   // ── Redis (DOMINUS Cloud) ──────────────────────────────────────────
 

@@ -471,7 +471,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.subscriptionRepo,
     repos.webhookEventsRepo,
   );
-  const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo);
+  const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo, {
+    // Auto-provision a free plan on first request for managed (Cloud) setups:
+    // DATABASE_URL implies a hosted multi-tenant deployment, AUTH_PROVIDER
+    // db/auth0 implies managed identity. Self-hosted community stays strict.
+    autoProvisionTenants:
+      config.AUTO_PROVISION_TENANTS || !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env',
+  });
 
   // Dedicated bulk-write pool for pipeline persistence.
   // SQLite: separate WAL connection with shorter busy_timeout (5s) for write transactions.

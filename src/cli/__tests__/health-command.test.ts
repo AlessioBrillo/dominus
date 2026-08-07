@@ -117,6 +117,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     FILE_REGISTRAR_CONFIG: undefined,
     WORKER_ENABLED: false,
     USAGE_ENFORCEMENT_ENABLED: false,
+    AUTO_PROVISION_TENANTS: false,
     WORKER_CONCURRENCY: 2,
     JOB_QUEUE_POLL_INTERVAL_MS: 1000,
     JOB_MAX_RUNNING_AGE_MS: 300000,
