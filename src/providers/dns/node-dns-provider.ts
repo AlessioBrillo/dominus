@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { promises as dnsPromises, Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
+import type { Dispatcher } from 'undici';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from './dns-provider.js';
 import { strategyToResolverGroups } from './dns-provider.js';
+import { DohAgentPool } from './doh-agents.js';
 import { DotPool } from './dot-pool.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { withRetry } from '../retryable-provider.js';
@@ -167,17 +169,23 @@ async function resolveDoh(
   recordType: string,
   endpoint: string,
   signal?: AbortSignal,
+  dispatcher?: Dispatcher,
 ): Promise<boolean> {
   const url = new URL(endpoint);
   url.searchParams.set('name', domain);
   url.searchParams.set('type', recordType);
 
-  const init: Parameters<typeof fetch>[1] & { signal?: AbortSignal } = {
+  const init: {
+    headers: Record<string, string>;
+    signal?: AbortSignal;
+    dispatcher?: unknown;
+  } = {
     headers: { accept: 'application/dns-json' },
   };
-  if (signal !== undefined) init.signal = signal as AbortSignal;
+  if (signal !== undefined) init.signal = signal;
+  if (dispatcher !== undefined) init.dispatcher = dispatcher;
 
-  const response = await fetch(url.toString(), init);
+  const response = await fetch(url.toString(), init as Parameters<typeof fetch>[1]);
 
   if (!response.ok) {
     throw new Error(`DoH query failed: ${response.status}`);
@@ -281,18 +289,21 @@ async function resolvesAnyNative(
 
 /**
  * Two-phase DNS-over-HTTPS resolution — same A→NS+SOA strategy as native.
- * Uses shared HTTPS agent with keepalive for connection reuse across queries.
+ * Requests ride the provider's shared undici Agent (see DohAgentPool): one
+ * keep-alive pool per endpoint origin, so consecutive queries reuse sockets
+ * instead of paying a fresh TLS/HTTP handshake each (ADR-0044).
  */
 async function resolvesAnyDoh(
   domain: string,
   endpoint: string,
   timeout: number,
   signal?: AbortSignal,
+  dispatcher?: Dispatcher,
 ): Promise<boolean | undefined> {
   // Phase 1: A record only
   const aTimeoutSignal = AbortSignal.timeout(timeout);
   const aCombined = signal ? AbortSignal.any([signal, aTimeoutSignal]) : aTimeoutSignal;
-  const aOutcome = await resolveDoh(domain, 'A', endpoint, aCombined)
+  const aOutcome = await resolveDoh(domain, 'A', endpoint, aCombined, dispatcher)
     .then(() => true as const)
     .catch((err: unknown) => {
       const e = err as { code?: string; name?: string };
@@ -313,7 +324,7 @@ async function resolvesAnyDoh(
     fallbackTypes.map((type) => {
       const typeTimeout = AbortSignal.timeout(timeout);
       const merged = AbortSignal.any([fallbackSignal, typeTimeout]);
-      return resolveDoh(domain, type, endpoint, merged)
+      return resolveDoh(domain, type, endpoint, merged, dispatcher)
         .then(() => {
           fallbackAc.abort();
           return {
@@ -441,6 +452,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #dotPools: Map<string, DotPool> = new Map();
   /** Native resolvers cached per nameserver set — reused across lookups. */
   readonly #nativeResolvers: Map<string, Resolver> = new Map();
+  /** Shared keep-alive dispatchers (undici Agent) for DoH endpoints. */
+  readonly #dohAgents: DohAgentPool;
 
   constructor(options?: {
     lookupTimeoutMs?: number;
@@ -465,6 +478,8 @@ export class NodeDnsProvider implements DnsProvider {
     nameservers?: string[];
     useDedicatedResolver?: boolean;
     dotPoolMaxQueued?: number;
+    /** Max keep-alive sockets per DoH endpoint origin (DNS_DOH_MAX_CONNECTIONS). */
+    dohMaxConnections?: number;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -482,6 +497,9 @@ export class NodeDnsProvider implements DnsProvider {
     this.#nameservers = options?.nameservers;
     this.#useDedicatedResolver = options?.useDedicatedResolver ?? true;
     this.#dotPoolMaxQueued = options?.dotPoolMaxQueued ?? 4096;
+    this.#dohAgents = new DohAgentPool({
+      maxConnections: options?.dohMaxConnections ?? 64,
+    });
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -546,6 +564,7 @@ export class NodeDnsProvider implements DnsProvider {
       pool.close();
     }
     this.#dotPools.clear();
+    this.#dohAgents.dispose();
     this.#nativeResolvers.clear();
     this.#pending.clear();
   }
@@ -614,6 +633,17 @@ export class NodeDnsProvider implements DnsProvider {
     const existing = this.#pending.get(domain);
     if (existing !== undefined) return existing;
 
+    // The shared lookup deliberately does NOT observe the initiating caller's
+    // abort signal for its wire queries: that signal is the property of every
+    // coalesced caller. Binding the first caller's signal used to poison all
+    // of them — its abort degraded the wire query into 'aborted' → Unknown for
+    // every peer. The bounded lookup timeout still guarantees the lookup
+    // cannot outlive its budget, and entry-level pre-abort checks still fail
+    // fast. A cancelled run lets in-flight queries complete with a real verdict
+    // instead of manufacturing an Unknown it could not verify (ADR-0044).
+    // The caller's signal is still forwarded so best-effort sub-work (the
+    // parking-IP probe) terminates with the caller instead of hanging the
+    // shared verdict.
     const promise = this.#lookup(domain, signal);
     this.#pending.set(domain, promise);
     try {
@@ -634,14 +664,14 @@ export class NodeDnsProvider implements DnsProvider {
 
       if (this.#rateLimiter && this.#retryPolicy) {
         await this.#rateLimiter.acquire();
-        resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, signal);
+        resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, undefined);
       } else if (this.#rateLimiter) {
         await this.#rateLimiter.acquire();
-        resolved = await resolveFn(signal);
+        resolved = await resolveFn(undefined);
       } else if (this.#retryPolicy) {
-        resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, signal);
+        resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, undefined);
       } else {
-        resolved = await resolveFn(signal);
+        resolved = await resolveFn(undefined);
       }
 
       if (resolved !== undefined) {
@@ -756,7 +786,13 @@ export class NodeDnsProvider implements DnsProvider {
           combinedSignal,
         );
       }
-      return resolvesAnyDoh(domain, spec.endpoint ?? this.#dohEndpoint, timeout, combinedSignal);
+      return resolvesAnyDoh(
+        domain,
+        spec.endpoint ?? this.#dohEndpoint,
+        timeout,
+        combinedSignal,
+        this.#dohAgents.dispatcherFor(spec.endpoint ?? this.#dohEndpoint),
+      );
     });
 
     const outcomes = await Promise.allSettled(tasks);

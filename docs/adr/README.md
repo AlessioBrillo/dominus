@@ -50,6 +50,7 @@ re-running the original arguments.
 | [0041](0041-provider-fair-share.md)                          | Distributed per-tenant provider fair share — tenant windows on shared Redis budgets                           | 2026-08-07 | Accepted                            |
 | [0042](0042-provider-dns-private-recursor.md)                | DNS consensus private recursor — Unbound override, consensus independent of public DoT egress                | 2026-08-07 | Accepted                            |
 | [0043](0043-configurable-public-rate-limits.md)               | Configurable per-IP rate limits on the public namespace — PUBLIC/PER_DOMAIN/POST rate caps via env          | 2026-08-07 | Accepted                            |
+| [0044](0044-dns-consensus-budget-and-doh-pool.md)             | DNS consensus budget and DoH keep-alive pooling — dedicated secondary budget, verification ceiling, shared Agent | 2026-08-07 | Accepted                            |
 
 ## Conventions
 

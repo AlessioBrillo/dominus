@@ -595,6 +595,30 @@ describe('NodeDnsProvider', () => {
       const result = await dohProvider.checkAvailability('fail-doh.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
+
+    it('routes DoH requests through the shared undici dispatcher (ADR-0044)', async () => {
+      mockFetchResponse(0, [{ type: 1, data: '1.2.3.4' }]);
+      const spy = vi.mocked(global.fetch);
+      spy.mockClear();
+
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'doh-only',
+        cacheTtlMs: 60_000,
+        dohMaxConnections: 16,
+      });
+
+      await p.checkAvailability('taken-doh.com');
+      const firstInit = spy.mock.calls[0]?.[1];
+      const firstDispatcher = (firstInit as { dispatcher?: unknown } | undefined)?.dispatcher;
+      expect(firstDispatcher).toBeDefined();
+
+      await p.checkAvailability('another-doh.com');
+      const secondDispatcher = (spy.mock.calls[1]?.[1] as { dispatcher?: unknown } | undefined)
+        ?.dispatcher;
+      // The dispatcher is a pooled keep-alive agent reused across queries —
+      // without it every DoH check would open a fresh TLS/HTTP connection.
+      expect(secondDispatcher).toBe(firstDispatcher);
+    });
   });
 
   describe('conservative resolver-group decisions', () => {
@@ -806,6 +830,58 @@ describe('NodeDnsProvider', () => {
       expect(result.status).toBe(DomainStatus.Unknown);
       const again = await p.checkAvailability('dispose-pending.com');
       expect(again.status).toBe(DomainStatus.Unknown);
+    });
+  });
+
+  describe('request coalescing (ADR-0044)', () => {
+    it('coalesces concurrent lookups of the same domain into one DNS query', async () => {
+      vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'native',
+        cacheTtlMs: 60_000,
+        lookupTimeoutMs: 10_000,
+      });
+
+      const calls = await Promise.all(
+        Array.from({ length: 25 }, () => p.checkAvailability('taken.com')),
+      );
+
+      expect(vi.mocked(dnsPromises.resolve)).toHaveBeenCalledTimes(1);
+      const checkedAt = calls[0]!.checkedAt;
+      expect(
+        calls.every((c) => c.status === DomainStatus.Registered && c.checkedAt === checkedAt),
+      ).toBe(true);
+    });
+
+    it('does not let an abort of one caller poison a coalesced in-flight lookup', async () => {
+      // The shared lookup is released independently of any caller's abort.
+      let release!: () => void;
+      vi.mocked(dnsPromises.resolve).mockImplementation(
+        (): never =>
+          new Promise((res) => {
+            release = (): void => res(makeResolved());
+          }) as never,
+      );
+      const p = new NodeDnsProvider({
+        lookupStrategy: 'native',
+        cacheTtlMs: 60_000,
+        lookupTimeoutMs: 10_000,
+      });
+
+      const firstControl = new AbortController();
+      const peer = p.checkAvailability('taken.com', new AbortController().signal);
+      const first = p.checkAvailability('taken.com', firstControl.signal);
+
+      // Abort the first caller while the shared lookup is still in flight.
+      firstControl.abort();
+      release();
+
+      const [firstResult, peerResult] = await Promise.all([first, peer]);
+      // Regression: the shared promise used to bake the first caller's signal
+      // into the underlying lookup, so its abort degraded the DNS query into
+      // Unknown for every peer (resolvesAnyNative returns 'aborted').
+      expect(peerResult.status).toBe(DomainStatus.Registered);
+      expect(firstResult.status).toBe(DomainStatus.Registered);
     });
   });
 });

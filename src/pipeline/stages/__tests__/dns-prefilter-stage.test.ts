@@ -553,4 +553,35 @@ describe('DnsPreFilterStage consensus degradation (ADR-0039)', () => {
       }),
     ]);
   });
+
+  it('bounds secondary verification parallelism with consensusConcurrency (ADR-0044)', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const secondary: DnsProvider = {
+      name: 'secondary-slow',
+      checkAvailability: vi.fn().mockImplementation(async () => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return { domain: 'x.io', status: DomainStatus.Available, checkedAt: '' };
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const config: ConsensusDnsConfig = {
+      secondaryProvider: secondary,
+      consensusConcurrency: 2,
+    };
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], config);
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    // Regression: the consensus phase used to batch with the primary's bulk
+    // concurrency (10), firing all four verifications at once. The gate is
+    // fail-closed, so its own burst must be bounded independently.
+    expect(result.passed).toHaveLength(4);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
 });
