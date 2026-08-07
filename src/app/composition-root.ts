@@ -108,6 +108,7 @@ import { BillingService } from '../services/billing-service.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
+import { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
@@ -480,6 +481,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.AUTO_PROVISION_TENANTS || !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env',
   });
 
+  // Entry-point usage guard shared by the job queue chokepoint, the sync
+  // pipeline path, and the portfolio/watchlist add flows (ADR-0038).
+  const usageEnforcer = new PipelineUsageEnforcer(usageService, config.USAGE_ENFORCEMENT_ENABLED);
+
   // Dedicated bulk-write pool for pipeline persistence.
   // SQLite: separate WAL connection with shorter busy_timeout (5s) for write transactions.
   // PostgreSQL: secondary pg.Pool with fewer connections (3) so large pipeline
@@ -685,7 +690,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const autoListingRepo = new AutoListingRepository(repos.provider);
   const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
-  const jobQueueService = createJobQueueService(provider);
+  const jobQueueService = createJobQueueService(provider, { usageEnforcer });
 
   const autoListEnqueuer: AutoListEnqueuer = {
     async enqueue(domain: string, source: string, scoreJson?: string | null): Promise<string> {
@@ -707,6 +712,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     jobQueueService,
     config.WORKER_ENABLED,
     bulkWriteProvider,
+    usageEnforcer,
   );
   runService.setOnRunComplete(async (result, options) => {
     if (!options?.autoList) return;
@@ -742,6 +748,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       npvDiscountRate: config.DROP_NPV_DISCOUNT_RATE,
       npvHorizonYears: config.DROP_NPV_HORIZON_YEARS,
     },
+    usageEnforcer,
   );
   portfolioManager.setRescoreService(
     new PortfolioRescoreService(
@@ -775,6 +782,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rawRdapProvider,
     notifiers,
     config,
+    usageEnforcer,
   );
 
   // --- Portfolio RDAP Healthcheck --- (verifies renewal dates against live RDAP/WHOIS)

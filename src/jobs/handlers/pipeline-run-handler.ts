@@ -22,6 +22,7 @@ export class PipelineRunHandler implements JobHandler<PipelineRunPayload, Pipeli
 
     const result = await this.deps.runService.runSync(candidateGenerationInput, {
       externalRunId: runId,
+      usageMetered: payload.usageMetered ?? false,
       ...(signal !== undefined ? { signal } : {}),
     });
 

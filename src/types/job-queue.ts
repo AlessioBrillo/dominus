@@ -59,6 +59,12 @@ export interface PipelineRunPayload {
   candidateGenerationInput: CandidateGenerationInput;
   runId: string;
   tenantId?: string;
+  /**
+   * True when the enqueue path already metered this run against the
+   * candidates_scored allowance (see PipelineUsageEnforcer). The worker
+   * then skips metering in runSync() to avoid double counting.
+   */
+  usageMetered?: boolean;
 }
 
 export interface PipelineRunResult {

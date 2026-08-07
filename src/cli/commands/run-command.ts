@@ -168,8 +168,13 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
         }
 
         const input = buildInput(options);
-        const { jobId, runId } = await jobQueueService.enqueuePipelineRun(input);
-        printAsyncResult(runId, jobId);
+        try {
+          const { jobId, runId } = await jobQueueService.enqueuePipelineRun(input);
+          printAsyncResult(runId, jobId);
+        } catch (err: unknown) {
+          process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+          process.exit(1);
+        }
       },
     );
 
@@ -252,7 +257,15 @@ export function registerRunCommand(program: Command, deps: RunCommandDeps): void
       }
 
       // Default: enqueue via job queue
-      const { jobId, runId } = await jobQueueService.enqueuePipelineRun(input);
+      let jobId: string;
+      let runId: string;
+      try {
+        ({ jobId, runId } = await jobQueueService.enqueuePipelineRun(input));
+      } catch (err: unknown) {
+        process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+        process.exit(1);
+        return;
+      }
       if (useWait) {
         process.stdout.write(`Pipeline enqueued (job ${jobId}). Waiting for completion...\n`);
         if (deps.runsRepo) {
