@@ -45,6 +45,7 @@ re-running the original arguments.
 | [0036](0036-license-and-ip-protection.md)                    | License and IP protection hardening — AGPL-3.0-only, CLA/CI gates                                           | 2026-08-01 | Accepted                            |
 | [0037](0037-pipeline-run-integrity-at-scale.md)              | Pipeline run integrity at scale — candidate-scaled stage budgets, degraded output surfacing, WHOIS time-box | 2026-08-04 | Accepted                            |
 | [0038](0038-usage-enforcement.md)                            | Usage enforcement — metered candidate scoring, API calls, and portfolio tracking with chokepoint metering   | 2026-08-07 | Accepted                            |
+| [0039](0039-dns-consensus-degradation-policy.md)             | DNS consensus failure policy — fail-closed with degraded-run flagging and verdict metrics                     | 2026-08-07 | Accepted                            |
 
 ## Conventions
 

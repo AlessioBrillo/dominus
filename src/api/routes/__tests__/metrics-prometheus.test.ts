@@ -107,4 +107,42 @@ describe('renderPrometheusMetrics', () => {
     expect(body).not.toContain('dominus_last_run_duration_ms NaN');
     expect(body).not.toContain('dominus_last_run_duration_ms');
   });
+
+  it('emits dns_consensus series only after consensus is observed (ADR-0039)', () => {
+    const pre = renderPrometheusMetrics(snapshot, queueStats, 0);
+    expect(pre).not.toContain('dominus_dns_consensus_verified_total');
+
+    const withConsensus = structuredClone(snapshot);
+    withConsensus.pipeline.dnsConsensus = {
+      verifiedTotal: 12,
+      disagreedTotal: 2,
+      unverifiableTotal: 6,
+      degradedRunsTotal: 1,
+      lastRunDegraded: true,
+      observed: true,
+    };
+    const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
+
+    expect(body).toContain('dominus_dns_consensus_verified_total 12');
+    expect(body).toContain('dominus_dns_consensus_disagreed_total 2');
+    expect(body).toContain('dominus_dns_consensus_unverifiable_total 6');
+    expect(body).toContain('dominus_dns_consensus_degraded_runs_total 1');
+    expect(body).toContain('dominus_dns_consensus_last_run_degraded 1');
+    expect(body).toContain('# TYPE dominus_dns_consensus_verified_total counter');
+    expect(body).toContain('# TYPE dominus_dns_consensus_last_run_degraded gauge');
+  });
+
+  it('renders the last-run degraded gauge as 0 when the latest run was clean', () => {
+    const withConsensus = structuredClone(snapshot);
+    withConsensus.pipeline.dnsConsensus = {
+      verifiedTotal: 3,
+      disagreedTotal: 0,
+      unverifiableTotal: 0,
+      degradedRunsTotal: 1,
+      lastRunDegraded: false,
+      observed: true,
+    };
+    const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
+    expect(body).toContain('dominus_dns_consensus_last_run_degraded 0');
+  });
 });

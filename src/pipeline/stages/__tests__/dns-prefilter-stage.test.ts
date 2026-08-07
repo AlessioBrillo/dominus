@@ -329,3 +329,141 @@ describe('DnsPreFilterStage consensus (strict)', () => {
     expect(secondaryCheck.mock.calls[0]![0]).toBe('free.io');
   });
 });
+
+// --- Consensus degradation (consensus-unverified, ADR-0039) ---
+//
+// A strict 2-of-3 consensus that cannot verify a large share of the
+// Available domains means the availability verdict is unreliable: the run
+// probed forward with Unknown downgrades, which is fail-closed but produces
+// degraded output. The stage must surface that as a degradation reason so
+// runners are told the output is incomplete, not silently empty (ADR-0037).
+
+function makeManyAvailablePrimary(domains: string[]): DnsProvider {
+  return {
+    name: 'primary',
+    checkAvailability: vi.fn(),
+    checkBulk: vi
+      .fn()
+      .mockResolvedValue(
+        domains.map((d) => ({ domain: d, status: DomainStatus.Available, checkedAt: '' })),
+      ),
+    clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
+  };
+}
+
+function makeDownSecondary(notes?: boolean): DnsProvider {
+  return {
+    name: 'secondary-down',
+    checkAvailability: vi.fn().mockImplementation(async () => {
+      if (notes) await Promise.resolve();
+      throw new Error('secondary unreachable');
+    }),
+    checkBulk: vi.fn(),
+    clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
+  };
+}
+
+describe('DnsPreFilterStage consensus degradation (ADR-0039)', () => {
+  it('reports a consensus-unverified degradation when the secondary cannot verify most domains', async () => {
+    const domains = Array.from({ length: 20 }, (_, i) => `free-${i}.io`);
+    const stage = new DnsPreFilterStage(makeManyAvailablePrimary(domains), 10, [], {
+      secondaryProvider: makeDownSecondary(),
+    });
+    const result = await stage.process(domains.map((domain) => createMockCandidate({ domain })));
+    expect(result.degradations).toEqual([
+      expect.objectContaining({
+        stageName: 'DnsPreFilterStage',
+        reason: 'consensus-unverified',
+        expectedCount: 20,
+      }),
+    ]);
+  });
+
+  it('does not degrade when the secondary verifies the majority', async () => {
+    const domains = Array.from({ length: 20 }, (_, i) => `free-${i}.io`);
+    const secondary: DnsProvider = {
+      name: 'secondary-ok',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(makeManyAvailablePrimary(domains), 10, [], {
+      secondaryProvider: secondary,
+    });
+    const result = await stage.process(domains.map((domain) => createMockCandidate({ domain })));
+    expect(result.degradations).toBeUndefined();
+    expect(result.filtered).toHaveLength(0);
+  });
+
+  it('reports a disagreement (Registered) as filtered, not degraded', async () => {
+    // A definitive "Registered" from the secondary is a valid consensus
+    // answer — it downgrades the domain, it is NOT an unverifiable failure.
+    const domains = Array.from({ length: 20 }, (_, i) => `free-${i}.io`);
+    const secondary: DnsProvider = {
+      name: 'secondary-registered',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x.io',
+        status: DomainStatus.Registered,
+        checkedAt: '',
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(makeManyAvailablePrimary(domains), 10, [], {
+      secondaryProvider: secondary,
+    });
+    const result = await stage.process(domains.map((domain) => createMockCandidate({ domain })));
+    expect(result.filtered).toHaveLength(domains.length);
+    expect(result.degradations).toBeUndefined();
+  });
+
+  it('does not degrade small runs below the minimum count', async () => {
+    // 3 unverifiable out of 3 is 100% unverified, but with fewer than the
+    // DNS_CONSENSUS_DEGRADED_MIN floor the stage stays clean — a small run
+    // with one bad resolver should not flag the whole pipeline.
+    const domains = ['a.io', 'b.io', 'c.io'];
+    const stage = new DnsPreFilterStage(makeManyAvailablePrimary(domains), 10, [], {
+      secondaryProvider: makeDownSecondary(),
+    });
+    const result = await stage.process(domains.map((domain) => createMockCandidate({ domain })));
+    expect(result.degradations).toBeUndefined();
+  });
+
+  it('honours a custom degraded ratio via config', async () => {
+    const domains = ['a.io', 'b.io', 'c.io', 'd.io'];
+    const secondary: DnsProvider = {
+      name: 'secondary-partial',
+      checkAvailability: vi.fn().mockImplementation(async (domain: string) => {
+        if (domain.endsWith('a.io') || domain.endsWith('b.io')) {
+          throw new Error('secondary unreachable');
+        }
+        return { domain, status: DomainStatus.Available, checkedAt: '' };
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(makeManyAvailablePrimary(domains), 10, [], {
+      secondaryProvider: secondary,
+      degradedRatio: 0.4,
+      degradedMin: 3,
+    });
+    const result = await stage.process(domains.map((domain) => createMockCandidate({ domain })));
+    // 2/4 unverifiable = 0.5 >= 0.4, and 4 >= 3 — degraded.
+    expect(result.degradations).toEqual([
+      expect.objectContaining({
+        reason: 'consensus-unverified',
+        processedCount: 2,
+        expectedCount: 4,
+      }),
+    ]);
+  });
+});

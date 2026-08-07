@@ -164,6 +164,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     RDAP_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     DNS_CONSENSUS_ENABLED: false,
     DNS_CONSENSUS_STRATEGY: 'dot-only',
+    DNS_CONSENSUS_DEGRADED_RATIO: 0.5,
+    DNS_CONSENSUS_DEGRADED_MIN: 10,
     DNS_USE_DEDICATED_RESOLVER: true,
     DNS_DOT_POOL_MAX_QUEUED: 4096,
     RDAP_WHOIS_BUDGET_MS: 1000,
@@ -212,6 +214,18 @@ describe('buildDnsConsensusConfig', () => {
       DNS_NAMESERVERS: '1.1.1.1',
     });
     expect(buildDnsConsensusConfig(config)).toBeUndefined();
+  });
+
+  it('threads the degraded ratio/min tuning knobs into the consensus config', () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_DEGRADED_RATIO: 0.3,
+      DNS_CONSENSUS_DEGRADED_MIN: 25,
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result?.degradedRatio).toBe(0.3);
+    expect(result?.degradedMin).toBe(25);
   });
 });
 

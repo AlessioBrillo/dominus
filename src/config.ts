@@ -476,6 +476,20 @@ const configSchema = z.object({
     ])
     .default('dot-only'),
   /**
+   * Fraction of consensus-verified domains that may stay unverifiable before
+   * a run is flagged degraded (ADR-0039). When the secondary DNS provider
+   * fails to confirm more than this share of primary-Available verdicts, the
+   * run completes but is marked degraded because its output rests on a single
+   * resolver. Default: 0.5 (half). Range: 0.0–1.0 (0 disables).
+   */
+  DNS_CONSENSUS_DEGRADED_RATIO: z.coerce.number().min(0).max(1).default(0.5),
+  /**
+   * Minimum number of consensus-verified domains before a degradation is
+   * flagged. Small runs must not tag the pipeline on one bad resolver.
+   * Default: 10. Range: 1–1e6.
+   */
+  DNS_CONSENSUS_DEGRADED_MIN: z.coerce.number().int().min(1).max(1_000_000).default(10),
+  /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
    */
