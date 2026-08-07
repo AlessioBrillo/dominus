@@ -54,3 +54,69 @@ describe('config defaults', () => {
     expect(() => loadConfig()).toThrow();
   });
 });
+
+// Locks the public (anonymous /public) per-IP rate-limit defaults so the
+// router timing and the documented .env.example values stay in sync.
+describe('public rate limit config defaults', () => {
+  const ENV_KEYS = [
+    'PUBLIC_RATE_LIMIT_WINDOW_MS',
+    'PUBLIC_RATE_LIMIT_MAX',
+    'PER_DOMAIN_RATE_LIMIT_WINDOW_MS',
+    'PER_DOMAIN_RATE_LIMIT_MAX',
+    'POST_RATE_LIMIT_WINDOW_MS',
+    'POST_RATE_LIMIT_MAX',
+    'POST_BODY_MAX_BYTES',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('PUBLIC_RATE_LIMIT_WINDOW_MS defaults to 60000 (1 minute)', () => {
+    expect(loadConfig().PUBLIC_RATE_LIMIT_WINDOW_MS).toBe(60_000);
+  });
+
+  it('PUBLIC_RATE_LIMIT_MAX defaults to 30 (requests per minute per IP)', () => {
+    expect(loadConfig().PUBLIC_RATE_LIMIT_MAX).toBe(30);
+  });
+
+  it('PER_DOMAIN_RATE_LIMIT_WINDOW_MS defaults to 60000 (1 minute)', () => {
+    expect(loadConfig().PER_DOMAIN_RATE_LIMIT_WINDOW_MS).toBe(60_000);
+  });
+
+  it('PER_DOMAIN_RATE_LIMIT_MAX defaults to 5 (per domain per IP)', () => {
+    expect(loadConfig().PER_DOMAIN_RATE_LIMIT_MAX).toBe(5);
+  });
+
+  it('POST_RATE_LIMIT_WINDOW_MS defaults to 60000 (1 minute)', () => {
+    expect(loadConfig().POST_RATE_LIMIT_WINDOW_MS).toBe(60_000);
+  });
+
+  it('POST_RATE_LIMIT_MAX defaults to 10 (score creations per minute per IP)', () => {
+    expect(loadConfig().POST_RATE_LIMIT_MAX).toBe(10);
+  });
+
+  it('POST_BODY_MAX_BYTES defaults to 1000', () => {
+    expect(loadConfig().POST_BODY_MAX_BYTES).toBe(1000);
+  });
+
+  it('PUBLIC_RATE_LIMIT_MAX accepts an explicit override', () => {
+    process.env.PUBLIC_RATE_LIMIT_MAX = '7';
+    resetConfig();
+    expect(loadConfig().PUBLIC_RATE_LIMIT_MAX).toBe(7);
+  });
+});

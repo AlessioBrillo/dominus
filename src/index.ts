@@ -53,6 +53,13 @@ import {
 function publicAppUrlOption(config: {
   PUBLIC_APP_URL?: string | undefined;
   PUBLIC_ALLOWED_HOSTS?: string | undefined;
+  PUBLIC_RATE_LIMIT_WINDOW_MS: number;
+  PUBLIC_RATE_LIMIT_MAX: number;
+  PER_DOMAIN_RATE_LIMIT_WINDOW_MS: number;
+  PER_DOMAIN_RATE_LIMIT_MAX: number;
+  POST_RATE_LIMIT_WINDOW_MS: number;
+  POST_RATE_LIMIT_MAX: number;
+  POST_BODY_MAX_BYTES: number;
 }): PublicRouterOptions {
   return {
     ...(config.PUBLIC_APP_URL ? { publicAppUrl: config.PUBLIC_APP_URL } : {}),
@@ -63,6 +70,15 @@ function publicAppUrlOption(config: {
             .filter(Boolean),
         }
       : {}),
+    rateLimits: {
+      publicWindowMs: config.PUBLIC_RATE_LIMIT_WINDOW_MS,
+      publicMax: config.PUBLIC_RATE_LIMIT_MAX,
+      perDomainWindowMs: config.PER_DOMAIN_RATE_LIMIT_WINDOW_MS,
+      perDomainMax: config.PER_DOMAIN_RATE_LIMIT_MAX,
+      postWindowMs: config.POST_RATE_LIMIT_WINDOW_MS,
+      postMax: config.POST_RATE_LIMIT_MAX,
+      postBodyMaxBytes: config.POST_BODY_MAX_BYTES,
+    },
   };
 }
 

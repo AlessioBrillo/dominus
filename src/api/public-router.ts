@@ -56,12 +56,27 @@ export interface PublicRouterOptions {
    */
   publicAppUrl?: string;
   /**
-   * Hostnames allowed to become the public origin when publicAppUrl is
+   * Hostnames that can become the public origin when publicAppUrl is
    * unset. Any Host header outside this list is replaced with the first
    * allowed host, so attackers cannot poison canonical/OG/sitemap URLs via
-   * cacheable public responses (see ADR-0030, C3 hardening).
+   * Host-Header-derived /cacheable responses (see ADR-0030, C3 hardening).
    */
   allowedHosts?: string[];
+  /**
+   * Per-IP rate-limit overrides for the public namespace. Any of these
+   * unset falls back to the compiled-in defaults (see config.ts). The full
+   * set is wired from PUBLIC_RATE_LIMIT_* / PER_DOMAIN_RATE_LIMIT_* /
+   * POST_RATE_LIMIT_* / POST_BODY_MAX_BYTES by the composition root.
+   */
+  rateLimits?: {
+    publicWindowMs?: number;
+    publicMax?: number;
+    perDomainWindowMs?: number;
+    perDomainMax?: number;
+    postWindowMs?: number;
+    postMax?: number;
+    postBodyMaxBytes?: number;
+  };
 }
 
 /** Extract the public-facing origin so per-origin caches key correctly. */
@@ -135,22 +150,32 @@ export function createPublicRouter(
   const router = Router();
   const sitemapByOrigin = new Map<string, SitemapCacheEntry>();
   const siteUrlForReq = (req: Request): string => siteUrlFor(req, options);
+
+  const publicWindowMs = options.rateLimits?.publicWindowMs ?? PUBLIC_RATE_LIMIT_WINDOW_MS;
+  const publicMax = options.rateLimits?.publicMax ?? PUBLIC_RATE_LIMIT_MAX;
+  const perDomainWindowMs =
+    options.rateLimits?.perDomainWindowMs ?? PER_DOMAIN_RATE_LIMIT_WINDOW_MS;
+  const perDomainMax = options.rateLimits?.perDomainMax ?? PER_DOMAIN_RATE_LIMIT_MAX;
+  const postWindowMs = options.rateLimits?.postWindowMs ?? POST_RATE_LIMIT_WINDOW_MS;
+  const postMax = options.rateLimits?.postMax ?? POST_RATE_LIMIT_MAX;
+  const postBodyMaxBytes = options.rateLimits?.postBodyMaxBytes ?? POST_BODY_MAX_BYTES;
+
   const domainRateLimiter = createDomainRateLimiter(
     {
-      windowMs: PER_DOMAIN_RATE_LIMIT_WINDOW_MS,
-      max: PER_DOMAIN_RATE_LIMIT_MAX,
+      windowMs: perDomainWindowMs,
+      max: perDomainMax,
     },
     redisClient,
   );
 
   const sharedStore: Store | undefined =
     redisClient?.isConnected === true
-      ? new RedisRateLimitStore(redisClient, PUBLIC_RATE_LIMIT_WINDOW_MS)
+      ? new RedisRateLimitStore(redisClient, publicWindowMs)
       : undefined;
 
   const publicRateLimiter = rateLimit({
-    windowMs: PUBLIC_RATE_LIMIT_WINDOW_MS,
-    max: PUBLIC_RATE_LIMIT_MAX,
+    windowMs: publicWindowMs,
+    max: publicMax,
     standardHeaders: true,
     legacyHeaders: false,
     ...(sharedStore === undefined ? {} : { store: sharedStore }),
@@ -160,8 +185,8 @@ export function createPublicRouter(
   });
 
   const postRateLimiter = rateLimit({
-    windowMs: POST_RATE_LIMIT_WINDOW_MS,
-    max: POST_RATE_LIMIT_MAX,
+    windowMs: postWindowMs,
+    max: postMax,
     standardHeaders: true,
     legacyHeaders: false,
     ...(sharedStore === undefined ? {} : { store: sharedStore }),
@@ -186,7 +211,7 @@ export function createPublicRouter(
       try {
         const rawBody = typeof req.body === 'object' && req.body !== null ? req.body : {};
         const bodyStr = JSON.stringify(rawBody);
-        if (bodyStr.length > POST_BODY_MAX_BYTES) {
+        if (bodyStr.length > postBodyMaxBytes) {
           res.status(413).json({
             error: { code: 'PAYLOAD_TOO_LARGE', message: 'Request body too large' },
           });

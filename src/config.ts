@@ -994,6 +994,44 @@ const configSchema = z.object({
     .refine((val) => val !== 0 || process.env.NODE_ENV === 'development', {
       message: 'RATE_LIMIT_MAX=0 disables rate limiting. Set NODE_ENV=development to allow this.',
     }),
+  /**
+   * Public (anonymous) per-IP rate limiting: window duration in milliseconds
+   * (default: 60000 = 1 minute).
+   */
+  PUBLIC_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Public (anonymous) per-IP rate limiting: max requests per window per IP
+   * across the /public namespace (default: 30). Unauthenticated traffic is
+   * the most exposed surface, so it stays conservative; tune upward only for
+   * large self-hosted installs.
+   */
+  PUBLIC_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
+  /**
+   * Per-domain public rate limiting: window duration in milliseconds
+   * (default: 60000 = 1 minute).
+   */
+  PER_DOMAIN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Per-domain public rate limiting: max requests for the same domain per
+   * window per IP (default: 5). Guards the expensive valuate call on
+   * /public/domain/:domain from domain-scoped scraping.
+   */
+  PER_DOMAIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  /**
+   * Public POST /public/scores rate limiting: window duration in milliseconds
+   * (default: 60000 = 1 minute).
+   */
+  POST_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Public POST /public/scores rate limiting: max score creations per window
+   * per IP (default: 10).
+   */
+  POST_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
+  /**
+   * Public POST /public/scores rate limiting: maximum request body size in
+   * bytes (default: 1000). Keeps anonymous submissions tiny and cheap.
+   */
+  POST_BODY_MAX_BYTES: z.coerce.number().int().positive().default(1000),
 
   // ── API Authentication ────────────────────────────────────────────
 
