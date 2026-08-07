@@ -5,45 +5,46 @@ ADRs document the _why_ behind non-obvious design choices so future
 maintainers (including future-you) can re-derive the trade-offs without
 re-running the original arguments.
 
-| ADR                                                   | Title                                                                              | Date       | Status                   |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------- | ------------------------ |
-| [0001](0001-project-architecture.md)                  | Project architecture and technology decisions                                      | 2026-06-08 | Superseded (see ADR-0026, ADR-0027) |
-| [0002](0002-scoring-engine-design.md)                 | Scoring engine design and conservatism principle                                   | 2026-06-08 | Accepted (retrospective) |
-| [0003](0003-pipeline-stage-separation.md)             | Pipeline stage separation                                                          | 2026-06-08 | Accepted (retrospective) |
-| [0004](0004-provider-abstraction-pattern.md)          | Provider abstraction pattern                                                       | 2026-06-08 | Accepted (retrospective) |
-| [0005](0005-sqlite-schema-and-migrations.md)          | SQLite schema and migration strategy                                               | 2026-06-08 | Accepted (retrospective) |
-| [0006](0006-trademark-gate-mandate.md)                | Trademark gate mandate                                                             | 2026-06-08 | Accepted (retrospective) |
-| [0007](0007-backtest-signals-schema.md)               | backtest_signals schema for prediction-vs-reality audit                            | 2026-06-06 | Accepted                 |
-| [0008](0008-backtest-engine.md)                       | Backtest engine — joining predictions to outcomes with point-in-time correctness   | 2026-06-06 | Accepted                 |
-| [0009](0009-weight-recalibration-suggestion.md)       | Weight recalibration suggestion with manual approval                               | 2026-06-06 | Accepted                 |
-| [0010](0010-rescore-bridge-decision.md)               | Portfolio rescore bridge — why DNS/RDAP are bypassed on owned domains              | 2026-06-06 | Accepted (retrospective) |
-| [0011](0011-pipeline-runs-schema.md)                  | pipeline_runs schema — durable history of every pipeline execution                 | 2026-06-07 | Accepted                 |
-| [0012](0012-trademark-matching-policy.md)             | Trademark matching policy and `.com` USPTO fallback                                | 2026-06-07 | Accepted                 |
-| [0013](0013-domain-parsing-consolidation.md)          | Domain parsing consolidation — canonical SLD/TLD across scoring and trademark gate | 2026-06-07 | Accepted                 |
-| [0014](0014-euipo-api-migration.md)                   | EUIPO provider migration to Trademark Search 1.1.0 (RSQL + X-IBM-Client-Id)        | 2026-06-07 | Accepted                 |
-| [0015](0015-psl-parser-adoption.md)                   | Adopt full Public Suffix List via `psl` npm Package                                | 2026-06-07 | Accepted                 |
-| [0016](0016-registrar-abstraction.md)                 | Registrar provider abstraction                                                     | 2026-06-08 | Accepted                 |
-| [0017](0017-api-authentication.md)                    | API authentication                                                                 | 2026-06-08 | Accepted                 |
-| [0018](0018-open-source-architecture.md)              | Open-source architecture and forkability                                           | 2026-06-09 | Superseded (see ADR-0025, ADR-0026) |
-| [0019](0019-auto-weight-tuning-loop.md)               | Closed-loop auto weight tuning                                                     | 2026-06-09 | Accepted                 |
-| [0020](0020-scoring-confidence-formula.md)            | Scoring confidence formula and intrinsic quality coupling                          | 2026-06-11 | Accepted                 |
-| [0021](0021-provider-resilience-and-observability.md) | Provider resilience and observability layer                                        | 2026-06-12 | Accepted                 |
-| [0022](0022-backup-and-operations.md)                 | Backup and operations                                                              | 2026-06-13 | Accepted                 |
-| [0023](0023-job-queue-worker-pool-architecture.md)    | Job queue and worker pool architecture                                             | 2026-06-16 | Accepted                 |
-| [0024](0024-portfolio-pnl-analytics.md)               | Portfolio P&L tracking and analytics frontend                                      | 2026-06-18 | Accepted                 |
-| [0025](0025-license-change-agpl-commercial.md)        | License change — MIT to AGPL v3 + Commercial                                       | 2026-06-18 | Proposed                 |
-| [0026](0026-monetization-and-saas-model.md)           | Monetization and SaaS model                                                        | 2026-06-18 | Proposed                 |
-| [0027](0027-saas-architecture-multi-tenant.md)        | SaaS architecture — multi-tenancy, database, and authentication                    | 2026-06-18 | Proposed                 |
-| [0028](0028-frontend-architecture-professional-dashboard.md) | Frontend architecture — professional SaaS dashboard                          | 2026-06-18 | Proposed                 |
-| [0029](0029-conversion-driven-features.md)                   | Conversion-driven features for DOMINUS Cloud                                 | 2026-06-21 | Proposed                 |
-| [0030](0030-public-namespace-architecture.md)                | Public namespace architecture                                                | 2026-06-21 | Proposed                 |
-| [0031](0031-production-hardening.md)                         | Production hardening — CSP, auth DI, rate limiting, retry consolidation       | 2026-06-26 | Accepted                 |
-| [0032](0032-cloud-authentication.md)                         | Cloud authentication — external identity provider (Auth0)                     | 2026-06-26 | Proposed                 |
-| [0033](0033-cloud-redis-infrastructure.md)                   | Cloud Redis infrastructure — distributed rate limiting, job queue, cache      | 2026-06-26 | Proposed                 |
-| [0034](0034-multi-tenant-data-model.md)                      | Multi-tenant data model — tenant ID column + PostgreSQL RLS                   | 2026-06-26 | Proposed                 |
-| [0035](0035-rdap-authoritative-bootstrap.md)                  | RDAP authoritative bootstrap — IANA per-TLD resolution, strict 404 semantics | 2026-08-02 | Accepted                 |
-| [0036](0036-license-and-ip-protection.md)                     | License and IP protection hardening — AGPL-3.0-only, CLA/CI gates             | 2026-08-01 | Accepted                 |
-| [0037](0037-pipeline-run-integrity-at-scale.md)                | Pipeline run integrity at scale — candidate-scaled stage budgets, degraded output surfacing, WHOIS time-box | 2026-08-04 | Accepted |
+| ADR                                                          | Title                                                                                                       | Date       | Status                              |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------- |
+| [0001](0001-project-architecture.md)                         | Project architecture and technology decisions                                                               | 2026-06-08 | Superseded (see ADR-0026, ADR-0027) |
+| [0002](0002-scoring-engine-design.md)                        | Scoring engine design and conservatism principle                                                            | 2026-06-08 | Accepted (retrospective)            |
+| [0003](0003-pipeline-stage-separation.md)                    | Pipeline stage separation                                                                                   | 2026-06-08 | Accepted (retrospective)            |
+| [0004](0004-provider-abstraction-pattern.md)                 | Provider abstraction pattern                                                                                | 2026-06-08 | Accepted (retrospective)            |
+| [0005](0005-sqlite-schema-and-migrations.md)                 | SQLite schema and migration strategy                                                                        | 2026-06-08 | Accepted (retrospective)            |
+| [0006](0006-trademark-gate-mandate.md)                       | Trademark gate mandate                                                                                      | 2026-06-08 | Accepted (retrospective)            |
+| [0007](0007-backtest-signals-schema.md)                      | backtest_signals schema for prediction-vs-reality audit                                                     | 2026-06-06 | Accepted                            |
+| [0008](0008-backtest-engine.md)                              | Backtest engine — joining predictions to outcomes with point-in-time correctness                            | 2026-06-06 | Accepted                            |
+| [0009](0009-weight-recalibration-suggestion.md)              | Weight recalibration suggestion with manual approval                                                        | 2026-06-06 | Accepted                            |
+| [0010](0010-rescore-bridge-decision.md)                      | Portfolio rescore bridge — why DNS/RDAP are bypassed on owned domains                                       | 2026-06-06 | Accepted (retrospective)            |
+| [0011](0011-pipeline-runs-schema.md)                         | pipeline_runs schema — durable history of every pipeline execution                                          | 2026-06-07 | Accepted                            |
+| [0012](0012-trademark-matching-policy.md)                    | Trademark matching policy and `.com` USPTO fallback                                                         | 2026-06-07 | Accepted                            |
+| [0013](0013-domain-parsing-consolidation.md)                 | Domain parsing consolidation — canonical SLD/TLD across scoring and trademark gate                          | 2026-06-07 | Accepted                            |
+| [0014](0014-euipo-api-migration.md)                          | EUIPO provider migration to Trademark Search 1.1.0 (RSQL + X-IBM-Client-Id)                                 | 2026-06-07 | Accepted                            |
+| [0015](0015-psl-parser-adoption.md)                          | Adopt full Public Suffix List via `psl` npm Package                                                         | 2026-06-07 | Accepted                            |
+| [0016](0016-registrar-abstraction.md)                        | Registrar provider abstraction                                                                              | 2026-06-08 | Accepted                            |
+| [0017](0017-api-authentication.md)                           | API authentication                                                                                          | 2026-06-08 | Accepted                            |
+| [0018](0018-open-source-architecture.md)                     | Open-source architecture and forkability                                                                    | 2026-06-09 | Superseded (see ADR-0025, ADR-0026) |
+| [0019](0019-auto-weight-tuning-loop.md)                      | Closed-loop auto weight tuning                                                                              | 2026-06-09 | Accepted                            |
+| [0020](0020-scoring-confidence-formula.md)                   | Scoring confidence formula and intrinsic quality coupling                                                   | 2026-06-11 | Accepted                            |
+| [0021](0021-provider-resilience-and-observability.md)        | Provider resilience and observability layer                                                                 | 2026-06-12 | Accepted                            |
+| [0022](0022-backup-and-operations.md)                        | Backup and operations                                                                                       | 2026-06-13 | Accepted                            |
+| [0023](0023-job-queue-worker-pool-architecture.md)           | Job queue and worker pool architecture                                                                      | 2026-06-16 | Accepted                            |
+| [0024](0024-portfolio-pnl-analytics.md)                      | Portfolio P&L tracking and analytics frontend                                                               | 2026-06-18 | Accepted                            |
+| [0025](0025-license-change-agpl-commercial.md)               | License change — MIT to AGPL v3 + Commercial                                                                | 2026-06-18 | Proposed                            |
+| [0026](0026-monetization-and-saas-model.md)                  | Monetization and SaaS model                                                                                 | 2026-06-18 | Proposed                            |
+| [0027](0027-saas-architecture-multi-tenant.md)               | SaaS architecture — multi-tenancy, database, and authentication                                             | 2026-06-18 | Proposed                            |
+| [0028](0028-frontend-architecture-professional-dashboard.md) | Frontend architecture — professional SaaS dashboard                                                         | 2026-06-18 | Proposed                            |
+| [0029](0029-conversion-driven-features.md)                   | Conversion-driven features for DOMINUS Cloud                                                                | 2026-06-21 | Proposed                            |
+| [0030](0030-public-namespace-architecture.md)                | Public namespace architecture                                                                               | 2026-06-21 | Proposed                            |
+| [0031](0031-production-hardening.md)                         | Production hardening — CSP, auth DI, rate limiting, retry consolidation                                     | 2026-06-26 | Accepted                            |
+| [0032](0032-cloud-authentication.md)                         | Cloud authentication — external identity provider (Auth0)                                                   | 2026-06-26 | Proposed                            |
+| [0033](0033-cloud-redis-infrastructure.md)                   | Cloud Redis infrastructure — distributed rate limiting, job queue, cache                                    | 2026-06-26 | Proposed                            |
+| [0034](0034-multi-tenant-data-model.md)                      | Multi-tenant data model — tenant ID column + PostgreSQL RLS                                                 | 2026-06-26 | Proposed                            |
+| [0035](0035-rdap-authoritative-bootstrap.md)                 | RDAP authoritative bootstrap — IANA per-TLD resolution, strict 404 semantics                                | 2026-08-02 | Accepted                            |
+| [0036](0036-license-and-ip-protection.md)                    | License and IP protection hardening — AGPL-3.0-only, CLA/CI gates                                           | 2026-08-01 | Accepted                            |
+| [0037](0037-pipeline-run-integrity-at-scale.md)              | Pipeline run integrity at scale — candidate-scaled stage budgets, degraded output surfacing, WHOIS time-box | 2026-08-04 | Accepted                            |
+| [0038](0038-usage-enforcement.md)                            | Usage enforcement — metered candidate scoring, API calls, and portfolio tracking with chokepoint metering   | 2026-08-07 | Accepted                            |
 
 ## Conventions
 

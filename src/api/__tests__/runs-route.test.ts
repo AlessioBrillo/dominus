@@ -11,6 +11,7 @@ import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import { createRunsRouter } from '../routes/runs.js';
 import { errorHandler } from '../middleware/error-handler.js';
+import { UsageLimitExceededError } from '../../types/errors.js';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 import type { JobQueueService } from '../../app/job-queue-service.js';
 import type { PipelineProgressService } from '../../app/pipeline-progress-service.js';
@@ -63,6 +64,7 @@ function buildApp(provider: SqliteProvider): {
 
 function makeRunService(): PipelineRunService {
   return {
+    enqueueRun: vi.fn().mockResolvedValue({ jobId: 'j-1', runId: 'r-q' }),
     runSync: vi.fn().mockResolvedValue({
       runId: 'r-sync',
       totalDurationMs: 42,
@@ -367,8 +369,9 @@ describe('Runs API', () => {
     });
 
     it('enqueues the run and returns 202 with poll links', async () => {
+      const runService = makeRunService();
       const jobQueueService = makeJobQueueService();
-      const { app } = buildFullApp(provider, { jobQueueService });
+      const { app } = buildFullApp(provider, { runService, jobQueueService });
       const res = await request(app)
         .post('/api/v1/runs')
         .send({ keywords: ['coffee', ''] });
@@ -377,7 +380,7 @@ describe('Runs API', () => {
       expect(res.body.jobId).toBe('j-1');
       expect(res.body.status).toBe('queued');
       expect(res.headers['location']).toContain('/api/v1/runs/r-q');
-      expect(jobQueueService.enqueuePipelineRun).toHaveBeenCalledWith({
+      expect(runService.enqueueRun).toHaveBeenCalledWith({
         keywords: ['coffee'],
         brandableNames: undefined,
         closeoutDomains: undefined,
@@ -422,6 +425,43 @@ describe('Runs API', () => {
       expect(res.status).toBe(500);
       expect(res.body.error.code).toBe('PIPELINE_RUN_FAILED');
       expect(res.body.error.message).toBe('rdap exploded');
+    });
+
+    it('returns structured 429 when the async enqueue rejects on allowance exhaustion', async () => {
+      const runService = {
+        enqueueRun: vi
+          .fn()
+          .mockRejectedValue(new UsageLimitExceededError('candidates_scored', 50, 2, 50)),
+      } as unknown as PipelineRunService;
+      const { app } = buildFullApp(provider, {
+        runService,
+        jobQueueService: makeJobQueueService(),
+      });
+      const res = await request(app)
+        .post('/api/v1/runs')
+        .send({ keywords: ['coffee', 'roast'] });
+      expect(res.status).toBe(429);
+      expect(res.body.error.code).toBe('USAGE_LIMIT_EXCEEDED');
+      expect(res.body.usage.feature).toBe('candidates_scored');
+      expect(res.body.usage.current).toBe(50);
+      expect(res.body.usage.requested).toBe(2);
+      expect(res.body.usage.limitValue).toBe(50);
+    });
+
+    it('returns structured 429 from the sync path when the allowance is exhausted', async () => {
+      const runService = {
+        runSync: vi
+          .fn()
+          .mockRejectedValue(new UsageLimitExceededError('candidates_scored', 50, 1, 50)),
+      } as unknown as PipelineRunService;
+      const { app } = buildFullApp(provider, { runService, jobQueueService: null });
+      const res = await request(app)
+        .post('/api/v1/runs')
+        .send({ keywords: ['coffee'] });
+      expect(res.status).toBe(429);
+      expect(res.body.error.code).toBe('USAGE_LIMIT_EXCEEDED');
+      expect(res.body.usage.feature).toBe('candidates_scored');
+      expect(res.body.usage.limitValue).toBe(50);
     });
   });
 

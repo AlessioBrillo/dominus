@@ -140,16 +140,22 @@ export class AcquisitionService {
           const now = new Date();
           const years = input.registrationYears ?? 1;
 
-          await this.#portfolioManager.add({
-            domain: input.domain,
-            tld: parsed.tld,
-            acquiredAt: now.toISOString(),
-            renewalDate: addYearsToDate(now, years).toISOString(),
-            acquisitionCost: price,
-            renewalCost: this.#defaultRenewalCostEur,
-            registrar: existing.venue,
-            notes: input.notes,
-          });
+          // Mandated bookkeeping after winning an auction (money already
+          // committed): portfolio tracking bypasses the domains_tracked usage
+          // gate — a plan allowance must never break accounting (ADR-0038).
+          await this.#portfolioManager.add(
+            {
+              domain: input.domain,
+              tld: parsed.tld,
+              acquiredAt: now.toISOString(),
+              renewalDate: addYearsToDate(now, years).toISOString(),
+              acquisitionCost: price,
+              renewalCost: this.#defaultRenewalCostEur,
+              registrar: existing.venue,
+              notes: input.notes,
+            },
+            { skipUsageMeter: true },
+          );
 
           await this.#outcomeRepo.insert({
             domain: input.domain,

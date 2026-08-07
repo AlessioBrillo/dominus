@@ -52,7 +52,7 @@ export function createWatchlistRouter(watchlistService: WatchlistService): Route
     }
   });
 
-  router.post('/', (req: Request, res: Response, next: NextFunction): void => {
+  router.post('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsed = addInputSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -60,7 +60,10 @@ export function createWatchlistRouter(watchlistService: WatchlistService): Route
         return;
       }
       const { domain, notes } = parsed.data;
-      const entry = watchlistService.add(domain, notes);
+      // Must await: add() is async (it meters usage first). A fire-and-forget
+      // call would reply 201 before the insert completes and turn a usage
+      // rejection into an unhandled promise rejection instead of a 429.
+      const entry = await watchlistService.add(domain, notes);
       res.status(201).json({ entry });
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes('UNIQUE constraint')) {

@@ -18,6 +18,7 @@ import { MetricsRepository } from '../db/repositories/metrics-repository.js';
 import { getLogger } from '../logger.js';
 import { type PipelineProgressService } from './pipeline-progress-service.js';
 import type { JobQueueService } from './job-queue-service.js';
+import type { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 
 const logger = getLogger();
 
@@ -94,6 +95,13 @@ export interface PipelineRunOptions {
    * during graceful shutdown. Default: undefined (no external signal).
    */
   signal?: AbortSignal;
+  /**
+   * When true, usage for this run was already metered by the enqueue path
+   * (the enqueued job carries usageMetered=true), so runSync() must not
+   * account for it again. Direct sync callers (CLI --sync, API sync
+   * fallback) omit this and are metered inline.
+   */
+  usageMetered?: boolean;
 }
 
 export type OnRunComplete = (
@@ -141,6 +149,7 @@ export class PipelineRunService {
   readonly #workerEnabled: boolean;
   /** Dedicated provider for pipeline persistence writes (separate SQLite connection). */
   readonly #bulkWriteProvider: DatabaseProvider | undefined;
+  readonly #usageEnforcer: PipelineUsageEnforcer | undefined;
   #onRunComplete: OnRunComplete | undefined;
 
   constructor(
@@ -159,6 +168,13 @@ export class PipelineRunService {
      *  main provider. On SQLite with WAL mode, this allows the main connection
      *  to serve reads while a bulk write transaction runs on this dedicated conn. */
     bulkWriteProvider?: DatabaseProvider,
+    /**
+     * Entry-point usage guard for the synchronous path. enqueueRun() meters
+     * via the JobQueueService chokepoint; direct runSync() callers (CLI
+     * --sync, API sync fallback) are metered here unless options.usageMetered
+     * says the enqueue path already accounted for the run.
+     */
+    usageEnforcer?: PipelineUsageEnforcer,
   ) {
     this.#provider = provider;
     this.#orchestrator = orchestrator;
@@ -172,6 +188,7 @@ export class PipelineRunService {
     this.#jobQueueService = jobQueueService;
     this.#workerEnabled = workerEnabled;
     this.#bulkWriteProvider = bulkWriteProvider;
+    this.#usageEnforcer = usageEnforcer;
   }
 
   setOnRunComplete(cb: OnRunComplete): void {
@@ -200,8 +217,11 @@ export class PipelineRunService {
 
   /**
    * Enqueue a pipeline run via the job queue and return immediately.
-   * The pipeline_runs row is created before enqueuing so the operator can
-   * observe a 'stuck' row if the worker crashes (ADR-0011 §5.2).
+   * The job is enqueued before the pipeline_runs row is inserted so a
+   * usage-limit rejection leaves no orphan row; a crash in between is
+   * self-healed by the worker (runSync recreates the row). The row gives
+   * the operator a 'stuck' observable when the worker dies after the
+   * insert (ADR-0011 §5.2, ADR-0038).
    */
   async enqueueRun(input: CandidateGenerationInput): Promise<EnqueueRunResult> {
     if (!this.#jobQueueService) {
@@ -215,16 +235,22 @@ export class PipelineRunService {
     const runRowId = randomUUID();
     const retainedUntil = computeRetainedUntil(startedAt, this.#retentionDays);
     const hostVersion = this.#hostVersion;
+    const inputs = snapshotInputs(input);
+
+    // The job (which meters usage at the shared chokepoint) is created
+    // BEFORE the pipeline_runs row. A usage-limit rejection therefore cannot
+    // leave an orphan 'queued' row with no job behind (ADR-0038). If the
+    // process dies between the two, the worker self-heals: runSync() with
+    // the externalRunId recreates the missing row (see runSync).
+    const { jobId } = await this.#jobQueueService.enqueuePipelineRun(input, runRowId);
 
     await this.#runsRepo.insert({
       runId: runRowId,
       startedAt,
       hostVersion,
       retainedUntil,
-      inputs: snapshotInputs(input),
+      inputs,
     });
-
-    const { jobId } = await this.#jobQueueService.enqueuePipelineRun(input, runRowId);
 
     return { runId: runRowId, jobId };
   }
@@ -239,6 +265,13 @@ export class PipelineRunService {
     input: CandidateGenerationInput,
     options: PipelineRunOptions = {},
   ): Promise<PipelineRunResult> {
+    // Meter the synchronous path (CLI --sync, API sync fallback). Jobs that
+    // went through the enqueue chokepoint already consumed their allowance
+    // and carry usageMetered=true, so the worker never double counts.
+    if (!options.usageMetered) {
+      await this.#usageEnforcer?.checkAndRecordCandidates(input);
+    }
+
     const startedAt = new Date().toISOString();
     const runRowId = options.externalRunId ?? randomUUID();
     const retainedUntil = computeRetainedUntil(startedAt, this.#retentionDays);

@@ -5,6 +5,10 @@ import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { createJobQueueService } from '../job-queue-service.js';
 import type { JobQueueService } from '../job-queue-service.js';
+import { UsageRepository } from '../../db/repositories/usage-repository.js';
+import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
+import { UsageMeterService } from '../../services/usage-meter-service.js';
+import { PipelineUsageEnforcer } from '../../services/pipeline-usage-enforcer.js';
 
 function openTestDb(): SqliteProvider {
   const provider = new SqliteProvider(new Database(':memory:'));
@@ -42,6 +46,78 @@ describe('JobQueueService', () => {
       expect(status).not.toBeNull();
       expect(status!.job.jobType).toBe('PIPELINE_RUN');
       expect(status!.job.priority).toBe(10);
+    });
+
+    describe('when a usage enforcer is wired at the chokepoint', () => {
+      const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
+
+      async function makeEnforcedService(): Promise<{
+        svc: JobQueueService;
+        usageRepo: UsageRepository;
+        enforcer: PipelineUsageEnforcer;
+      }> {
+        const usageRepo = new UsageRepository(provider);
+        const subRepo = new SubscriptionRepository(provider);
+        await subRepo.ensureDefault('default');
+        const usageService = new UsageMeterService(usageRepo, subRepo);
+        const enforcer = new PipelineUsageEnforcer(usageService, true);
+        return {
+          svc: createJobQueueService(provider, { usageEnforcer: enforcer }),
+          usageRepo,
+          enforcer,
+        };
+      }
+
+      it('meters the estimated candidate count and flags the payload as usageMetered', async () => {
+        const { svc, usageRepo } = await makeEnforcedService();
+        const { jobId, runId } = await svc.enqueuePipelineRun({
+          keywords: ['a', 'b'],
+          closeoutDomains: ['x.com'],
+        });
+
+        const usage = await usageRepo.getUsageForPeriod('default', 'candidates_scored', PERIOD);
+        expect(usage).toBe(3);
+
+        const status = await svc.getJobStatus(Number(jobId));
+        const payload = JSON.parse(status!.job.payloadJson);
+        expect(payload.usageMetered).toBe(true);
+        expect(payload.runId).toBe(runId);
+      });
+
+      it('rejects BEFORE a job is created when the allowance is exhausted', async () => {
+        const { svc, usageRepo } = await makeEnforcedService();
+        const subRepo = new SubscriptionRepository(provider);
+        await subRepo.ensureDefault('default');
+        await new UsageMeterService(usageRepo, subRepo).record(
+          'default',
+          'candidates_scored',
+          50,
+          PERIOD,
+        );
+
+        await expect(svc.enqueuePipelineRun({ keywords: ['one'] })).rejects.toThrow(
+          /usage limit exceeded/i,
+        );
+
+        const stats = await svc.getQueueStats();
+        expect(stats.queued).toBe(0);
+      });
+
+      it('does not meter and does not gate when enforcement is disabled', async () => {
+        const usageRepo = new UsageRepository(provider);
+        const usageService = new UsageMeterService(usageRepo, new SubscriptionRepository(provider));
+        const enforcer = new PipelineUsageEnforcer(usageService, false);
+        const svc = createJobQueueService(provider, { usageEnforcer: enforcer });
+
+        const { jobId } = await svc.enqueuePipelineRun({
+          keywords: ['free-tier-community'],
+        });
+
+        const usage = await usageRepo.getUsageForPeriod('default', 'candidates_scored', PERIOD);
+        expect(usage).toBe(0);
+        const status = await svc.getJobStatus(Number(jobId));
+        expect(status).not.toBeNull();
+      });
     });
   });
 

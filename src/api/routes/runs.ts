@@ -11,6 +11,7 @@ import { setupSseResponse } from '../../app/pipeline-progress-service.js';
 import type Database from 'better-sqlite3';
 import type { CandidateGenerationInput } from '../../pipeline/stages/candidate-generation-stage.js';
 import { getRouteParam } from '../route-utils.js';
+import { UsageLimitExceededError } from '../../types/errors.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -170,8 +171,10 @@ export function createRunsRouter(
       };
 
       if (jobQueueService && runService) {
-        // Async path: enqueue and return 202 Accepted
-        const { jobId, runId } = await jobQueueService.enqueuePipelineRun(input);
+        // Async path: enqueue and return 202 Accepted. Enqueueing via
+        // runService.enqueueRun (not jobQueueService directly) so the usage
+        // enforcer meters the run exactly once at the shared chokepoint.
+        const { jobId, runId } = await runService.enqueueRun(input);
         res
           .status(202)
           .location(`/api/v1/runs/${runId}`)
@@ -214,6 +217,13 @@ export function createRunsRouter(
           persistence: result.persistence,
         });
       } catch (err: unknown) {
+        // Usage limit violations must reach the central error handler so the
+        // client gets a structured 429 (with allowance details) instead of a
+        // generic 500 (ADR-0038).
+        if (err instanceof UsageLimitExceededError) {
+          next(err);
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         logger.error({ err }, 'POST /api/runs — sync pipeline run failed');
         res.status(500).json({

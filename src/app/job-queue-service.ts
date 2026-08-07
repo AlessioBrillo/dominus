@@ -12,6 +12,7 @@ import type {
   DeadLetterJobRow,
 } from '../types/job-queue.js';
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
+import type { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { getTenantId } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 
@@ -29,6 +30,14 @@ export interface JobQueueServiceOptions {
    * Default: 1000
    */
   maxQueueDepth?: number;
+  /**
+   * Entry-point usage guard for pipeline runs. When set, every
+   * enqueuePipelineRun() atomically meters the estimated candidate count
+   * against the tenant's candidates_scored allowance before the job is
+   * created, and marks the payload as usageMetered so the worker does not
+   * count it again.
+   */
+  usageEnforcer?: PipelineUsageEnforcer;
 }
 
 export interface JobQueueService {
@@ -97,10 +106,16 @@ export function createJobQueueService(
       input: CandidateGenerationInput,
       runId?: string,
     ): Promise<EnqueueResult> {
+      // Meter at the enqueue boundary — the single chokepoint shared by the
+      // CLI (run / run submit) and the API route. Rejects with
+      // UsageLimitExceededError (HTTP 429 at the route boundary) BEFORE any
+      // work starts, per ADR-0038.
+      await options.usageEnforcer?.checkAndRecordCandidates(input);
       const id = runId ?? generateRunId();
       const payload: PipelineRunPayload = {
         candidateGenerationInput: input,
         runId: id,
+        usageMetered: true,
       };
       const jobId = await enqueue('PIPELINE_RUN', payload, { priority: 10 });
       return { jobId, runId: id };

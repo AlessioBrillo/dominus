@@ -84,6 +84,33 @@ export class UsageRepository {
     return result.changes > 0;
   }
 
+  /**
+   * Decrement a metered unit (floor 0). Used to refund an allowance unit
+   * when the operation that consumed it failed transactionally after the
+   * meter ran (e.g. a duplicate portfolio/watchlist insert). The guarded
+   * upsert only touches rows that already exist, so a refund can never
+   * fabricate negative or spurious usage for a tenant that consumed nothing.
+   */
+  async decrementUsage(
+    tenantId: string,
+    feature: UsageFeature,
+    amount: number,
+    periodStart: string,
+  ): Promise<void> {
+    await this.#db.exec(
+      `INSERT INTO usage_records (tenant_id, feature, amount, period_start)
+       SELECT ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1 FROM usage_records
+         WHERE tenant_id = ? AND feature = ? AND period_start = ?
+       )
+       ON CONFLICT(tenant_id, feature, period_start) DO UPDATE SET
+         amount = MAX(0, usage_records.amount - excluded.amount),
+         recorded_at = datetime('now')`,
+      [tenantId, feature, amount, periodStart, tenantId, feature, periodStart],
+    );
+  }
+
   async getUsageForPeriod(
     tenantId: string,
     feature: UsageFeature,

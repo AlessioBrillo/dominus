@@ -26,7 +26,7 @@ describe('PipelineRunHandler', () => {
 
     expect(runService.runSync).toHaveBeenCalledWith(
       { keywords: ['test'] },
-      { externalRunId: 'run-abc' },
+      { externalRunId: 'run-abc', usageMetered: false },
     );
     expect(result.runId).toBe('run-abc');
     expect(result.recommended).toBe(1);
@@ -34,6 +34,30 @@ describe('PipelineRunHandler', () => {
     expect(result.totalDurationMs).toBe(1200);
     expect(result.stageErrors).toEqual([]);
     expect(handler.jobType).toBe('PIPELINE_RUN');
+  });
+
+  it('forwards the usageMetered flag to runSync', async () => {
+    const runService = {
+      runSync: vi.fn().mockResolvedValue({
+        runId: 'run-abc',
+        recommended: [],
+        scored: [],
+        totalDurationMs: 100,
+        stageErrors: [],
+      }),
+    };
+    const handler = new PipelineRunHandler({ runService } as any);
+
+    await handler.handle({
+      candidateGenerationInput: { keywords: ['test'] },
+      runId: 'run-abc',
+      usageMetered: true,
+    });
+
+    expect(runService.runSync).toHaveBeenCalledWith(
+      { keywords: ['test'] },
+      { externalRunId: 'run-abc', usageMetered: true },
+    );
   });
 
   it('stringifies stage errors', async () => {

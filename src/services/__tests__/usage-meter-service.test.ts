@@ -72,8 +72,8 @@ describe('UsageMeterService', () => {
       expect(usage.isOverLimit).toBe(false);
     });
 
-    it('throws for tenant without subscription', async () => {
-      await expect(service.record(TENANT, 'candidates_scored', 1, PERIOD)).rejects.toThrow(
+    it('rejects recording for a tenant without a subscription', async () => {
+      await expect(service.record(TENANT, 'candidates_scored', 5, PERIOD)).rejects.toThrow(
         /no active subscription/i,
       );
     });

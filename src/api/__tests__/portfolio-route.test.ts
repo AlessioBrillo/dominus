@@ -5,8 +5,12 @@ import request from 'supertest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
-import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
 import { PortfolioRepository } from '../../db/repositories/portfolio-repository.js';
+import { OutcomeRepository } from '../../db/repositories/outcome-repository.js';
+import { UsageRepository } from '../../db/repositories/usage-repository.js';
+import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
+import { UsageMeterService } from '../../services/usage-meter-service.js';
+import { PipelineUsageEnforcer } from '../../services/pipeline-usage-enforcer.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import {
   makeFakeRescoreDeps,
@@ -72,6 +76,39 @@ describe('Portfolio API', () => {
       });
       expect(res.status).toBe(201);
       expect(res.body.entry.domain).toBe('alpha.com');
+    });
+
+    it('returns structured 429 when the domains_tracked allowance is exhausted', async () => {
+      const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
+      const usageRepo = new UsageRepository(provider);
+      const subRepo = new SubscriptionRepository(provider);
+      await subRepo.ensureDefault('default');
+      const usageService = new UsageMeterService(usageRepo, subRepo);
+      await usageService.record('default', 'domains_tracked', 25, PERIOD);
+
+      const enforcer = new PipelineUsageEnforcer(usageService, true);
+      const manager = new PortfolioManager(new PortfolioRepository(provider), 25, 60, {}, enforcer);
+      const deps = makeFakeRescoreDeps(provider);
+      manager.setRescoreService(makeServiceFromFakes(deps).service);
+
+      const app = express();
+      app.use(express.json());
+      app.use('/api/v1/portfolio', createPortfolioRouter(manager, new OutcomeRepository(provider)));
+      app.use(errorHandler);
+
+      const res = await request(app).post('/api/v1/portfolio').send({
+        domain: 'alpha.com',
+        tld: '.com',
+        acquiredAt: '2025-01-01T00:00:00.000Z',
+        renewalDate: '2026-01-01T00:00:00.000Z',
+        acquisitionCost: 12,
+        renewalCost: 12,
+        registrar: 'namecheap',
+      });
+      expect(res.status).toBe(429);
+      expect(res.body.error.code).toBe('USAGE_LIMIT_EXCEEDED');
+      expect(res.body.usage.feature).toBe('domains_tracked');
+      expect(res.body.usage.limitValue).toBe(25);
     });
   });
 
