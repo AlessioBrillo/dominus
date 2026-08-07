@@ -50,8 +50,20 @@ import {
 } from './api/index.js';
 
 /** Build the public router options, omitting the URL when it is unset. */
-function publicAppUrlOption(config: { PUBLIC_APP_URL?: string | undefined }): PublicRouterOptions {
-  return config.PUBLIC_APP_URL ? { publicAppUrl: config.PUBLIC_APP_URL } : {};
+function publicAppUrlOption(config: {
+  PUBLIC_APP_URL?: string | undefined;
+  PUBLIC_ALLOWED_HOSTS?: string | undefined;
+}): PublicRouterOptions {
+  return {
+    ...(config.PUBLIC_APP_URL ? { publicAppUrl: config.PUBLIC_APP_URL } : {}),
+    ...(config.PUBLIC_ALLOWED_HOSTS
+      ? {
+          allowedHosts: config.PUBLIC_ALLOWED_HOSTS.split(',')
+            .map((h) => h.trim())
+            .filter(Boolean),
+        }
+      : {}),
+  };
 }
 
 async function main(): Promise<void> {
@@ -74,6 +86,18 @@ async function main(): Promise<void> {
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
   });
+
+  if (
+    !config.PUBLIC_APP_URL &&
+    !config.PUBLIC_ALLOWED_HOSTS &&
+    (config.HOST === '0.0.0.0' || config.HOST === '::')
+  ) {
+    logger.warn(
+      'PUBLIC_APP_URL (or PUBLIC_ALLOWED_HOSTS) is not set while the server is bound to 0.0.0.0. ' +
+        'Public canonical/OG/sitemap URLs will mirror the request Host header — set ' +
+        'PUBLIC_APP_URL to your public origin to prevent canonical-URL cache poisoning.',
+    );
+  }
 
   const app = express();
 

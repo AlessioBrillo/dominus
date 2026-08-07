@@ -55,6 +55,13 @@ export interface PublicRouterOptions {
    * is correct for self-hosted deployments behind a reverse proxy.
    */
   publicAppUrl?: string;
+  /**
+   * Hostnames allowed to become the public origin when publicAppUrl is
+   * unset. Any Host header outside this list is replaced with the first
+   * allowed host, so attackers cannot poison canonical/OG/sitemap URLs via
+   * cacheable public responses (see ADR-0030, C3 hardening).
+   */
+  allowedHosts?: string[];
 }
 
 /** Extract the public-facing origin so per-origin caches key correctly. */
@@ -64,8 +71,22 @@ function requestOrigin(req: Request): string {
 
 /** Resolve the canonical site origin: configured URL wins, else request origin. */
 function siteUrlFor(req: Request, options: PublicRouterOptions): string {
-  const base = options.publicAppUrl ?? requestOrigin(req);
-  return base.endsWith('/') ? base.slice(0, -1) : base;
+  if (options.publicAppUrl) {
+    return options.publicAppUrl.endsWith('/')
+      ? options.publicAppUrl.slice(0, -1)
+      : options.publicAppUrl;
+  }
+
+  const host = (req.get('host') ?? '').toLowerCase();
+  if (options.allowedHosts?.length && !options.allowedHosts.some((h) => h.toLowerCase() === host)) {
+    logger.warn(
+      { host, allowed: options.allowedHosts },
+      'Host header not in PUBLIC_ALLOWED_HOSTS — pinning canonical origin to the configured host',
+    );
+    return `https://${options.allowedHosts[0]}`;
+  }
+
+  return requestOrigin(req);
 }
 
 /**
