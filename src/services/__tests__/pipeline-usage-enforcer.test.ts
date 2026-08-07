@@ -108,5 +108,37 @@ describe('PipelineUsageEnforcer', () => {
         enforcer.checkAndRecordCandidates({ keywords: ['one-more'] }),
       ).rejects.toBeInstanceOf(UsageLimitExceededError);
     });
+
+    it('refunds domains_tracked units back to the allowance', async () => {
+      await subRepo.ensureDefault('default');
+      const enforcer = new PipelineUsageEnforcer(usageService, true);
+
+      await enforcer.checkAndRecordTracked(2);
+      await enforcer.refundTracked(1);
+
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(1);
+    });
+
+    it('refund floors at zero — a refund without consumed usage is a no-op', async () => {
+      await subRepo.ensureDefault('default');
+      const enforcer = new PipelineUsageEnforcer(usageService, true);
+
+      await enforcer.refundTracked(1);
+      await enforcer.checkAndRecordTracked(1);
+      await enforcer.refundTracked(5);
+
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(0);
+    });
+
+    it('refund is a no-op when enforcement is disabled', async () => {
+      const enforcer = new PipelineUsageEnforcer(usageService, false);
+
+      await enforcer.refundTracked(1);
+
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(0);
+    });
   });
 });

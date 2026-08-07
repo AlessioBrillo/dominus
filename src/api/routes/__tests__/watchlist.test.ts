@@ -5,6 +5,7 @@ import type { Application } from 'express';
 import request from 'supertest';
 import { createWatchlistRouter } from '../watchlist.js';
 import { errorHandler } from '../../middleware/error-handler.js';
+import { UsageLimitExceededError } from '../../../types/errors.js';
 import type { WatchlistService } from '../../../watchlist/watchlist-service.js';
 import type { WatchlistEntry, WatchlistPollResult } from '../../../types/watchlist.js';
 
@@ -116,6 +117,22 @@ describe('API: /api/v1/watchlist', () => {
         .post('/api/v1/watchlist')
         .send({ domain: 'example.com' });
       expect(res.status).toBe(409);
+    });
+
+    it('returns structured 429 when the usage allowance is exhausted', async () => {
+      const service = makeStubService();
+      (service.add as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new UsageLimitExceededError('domains_tracked', 25, 1, 25);
+      });
+      const res = await request(buildApp(service))
+        .post('/api/v1/watchlist')
+        .send({ domain: 'example.com' });
+      expect(res.status).toBe(429);
+      expect(res.body.error.code).toBe('USAGE_LIMIT_EXCEEDED');
+      expect(res.body.usage.feature).toBe('domains_tracked');
+      expect(res.body.usage.current).toBe(25);
+      expect(res.body.usage.requested).toBe(1);
+      expect(res.body.usage.limitValue).toBe(25);
     });
   });
 

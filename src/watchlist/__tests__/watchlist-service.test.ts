@@ -13,6 +13,10 @@ import { DomainStatus } from '../../types/domain-status.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import { AlertType, AlertSeverity } from '../../types/alert.js';
+import { UsageRepository } from '../../db/repositories/usage-repository.js';
+import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
+import { UsageMeterService } from '../../services/usage-meter-service.js';
+import { PipelineUsageEnforcer } from '../../services/pipeline-usage-enforcer.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -429,6 +433,69 @@ describe('WatchlistService', () => {
 
       expect(result.checked).toBe(3);
       expect(elapsed).toBeGreaterThanOrEqual(100); // 2 delays Ãƒâ€” 50ms
+    });
+  });
+
+  describe('usage guard (domains_tracked)', () => {
+    const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
+
+    function makeGuardedService(enabled: boolean): {
+      svc: WatchlistService;
+      usageRepo: UsageRepository;
+    } {
+      const usageRepo = new UsageRepository(dbProvider);
+      const subRepo = new SubscriptionRepository(dbProvider);
+      const usageService = new UsageMeterService(usageRepo, subRepo);
+      const enforcer = new PipelineUsageEnforcer(usageService, enabled);
+      return {
+        svc: new WatchlistService(repo, dnsMock, rdapMock, notifiers, config, enforcer),
+        usageRepo,
+      };
+    }
+
+    it('meters one tracked domain per add when enforcement is enabled', async () => {
+      const { svc, usageRepo } = makeGuardedService(true);
+      await svc.add('a.com');
+      await svc.add('b.com');
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(2);
+    });
+
+    it('rejects the add when the domains_tracked allowance is exhausted', async () => {
+      const { svc } = makeGuardedService(true);
+      const usageRepo = new UsageRepository(dbProvider);
+      const subRepo = new SubscriptionRepository(dbProvider);
+      await new UsageMeterService(usageRepo, subRepo).record(
+        'default',
+        'domains_tracked',
+        25,
+        PERIOD,
+      );
+      await expect(svc.add('c.com')).rejects.toThrow(/usage limit exceeded/i);
+    });
+
+    it('does not record when enforcement is disabled', async () => {
+      const { svc, usageRepo } = makeGuardedService(false);
+      await svc.add('d.com');
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(0);
+    });
+
+    it('refunds the metered unit when the insert fails (duplicate add)', async () => {
+      const { svc, usageRepo } = makeGuardedService(true);
+      await svc.add('a.com');
+      await expect(svc.add('a.com')).rejects.toThrow(/unique constraint/i);
+
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(1);
+    });
+
+    it('does not meter when skipUsageMeter is set (mandated bookkeeping)', async () => {
+      const { svc, usageRepo } = makeGuardedService(true);
+      await svc.add('purchased.com', undefined, { skipUsageMeter: true });
+
+      const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
+      expect(tracked).toBe(0);
     });
   });
 });

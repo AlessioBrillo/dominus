@@ -5,6 +5,13 @@ import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
+import { UsageRepository } from '../../db/repositories/usage-repository.js';
+import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
+import { UsageMeterService } from '../../services/usage-meter-service.js';
+import { PipelineUsageEnforcer } from '../../services/pipeline-usage-enforcer.js';
+import { createJobQueueService } from '../job-queue-service.js';
+import type { JobQueueService } from '../job-queue-service.js';
 import { PipelineRunService } from '../pipeline-run-service.js';
 import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import type { PipelineOrchestrator, PipelineResult } from '../../pipeline/orchestrator.js';
@@ -435,5 +442,139 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
     expect(row).toBeDefined();
     expect(row?.error).toBe('boom');
     expect(row?.finished_at).not.toBeNull();
+  });
+
+  describe('usage enforcement integration', () => {
+    const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
+
+    function makeEnforcedService(provider: SqliteProvider): {
+      service: PipelineRunService;
+      usageRepo: UsageRepository;
+      enforcer: PipelineUsageEnforcer;
+      runsRepo: PipelineRunsRepository;
+      jobQueueService: JobQueueService;
+    } {
+      const runsRepo = new PipelineRunsRepository(provider);
+      const usageRepo = new UsageRepository(provider);
+      const subRepo = new SubscriptionRepository(provider);
+      const usageService = new UsageMeterService(usageRepo, subRepo);
+      const enforcer = new PipelineUsageEnforcer(usageService, true);
+      const jobQueueService = createJobQueueService(provider, { usageEnforcer: enforcer });
+      const result: PipelineResult = {
+        runId: 'run-abc',
+        recommended: [],
+        scored: [],
+        allCandidates: [],
+        degraded: false,
+        degradedReasons: [],
+        stageSummary: {},
+        stageErrors: [],
+        totalDurationMs: 5,
+      };
+      const service = new PipelineRunService(
+        provider,
+        makeMockOrchestrator(result),
+        new CandidateRepository(provider),
+        new ScoringRepository(provider),
+        runsRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        jobQueueService,
+        false,
+        undefined,
+        enforcer,
+      );
+      return { service, usageRepo, enforcer, runsRepo, jobQueueService };
+    }
+
+    it('meters runSync exactly once when enforcement is enabled (no flag)', async () => {
+      const provider = openTestDb();
+      const { service, usageRepo } = makeEnforcedService(provider);
+
+      await service.runSync({ closeoutDomains: ['nova.com'] });
+
+      const usage = await usageRepo.getUsageForPeriod('default', 'candidates_scored', PERIOD);
+      expect(usage).toBe(1);
+    });
+
+    it('skips metering when usageMetered is set (worker re-executes an enqueued job)', async () => {
+      const provider = openTestDb();
+      const { service, usageRepo } = makeEnforcedService(provider);
+
+      await service.runSync({ closeoutDomains: ['nova.com'] }, { usageMetered: true });
+
+      const usage = await usageRepo.getUsageForPeriod('default', 'candidates_scored', PERIOD);
+      expect(usage).toBe(0);
+    });
+
+    it('does not meter when enforcement is disabled', async () => {
+      const provider = openTestDb();
+      const runsRepo = new PipelineRunsRepository(provider);
+      const usageRepo = new UsageRepository(provider);
+      const usageService = new UsageMeterService(usageRepo, new SubscriptionRepository(provider));
+      const enforcer = new PipelineUsageEnforcer(usageService, false);
+      const result: PipelineResult = {
+        runId: 'run-abc',
+        recommended: [],
+        scored: [],
+        allCandidates: [],
+        degraded: false,
+        degradedReasons: [],
+        stageSummary: {},
+        stageErrors: [],
+        totalDurationMs: 5,
+      };
+      const service = new PipelineRunService(
+        provider,
+        makeMockOrchestrator(result),
+        new CandidateRepository(provider),
+        new ScoringRepository(provider),
+        runsRepo,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        enforcer,
+      );
+
+      await service.runSync({ closeoutDomains: ['nova.com'] });
+
+      const usage = await usageRepo.getUsageForPeriod('default', 'candidates_scored', PERIOD);
+      expect(usage).toBe(0);
+    });
+
+    it('enqueueRun leaves no orphan pipeline_runs row when the allowance is rejected', async () => {
+      const provider = openTestDb();
+      const { service, runsRepo, usageRepo, jobQueueService: _q } = makeEnforcedService(provider);
+      await new UsageMeterService(usageRepo, new SubscriptionRepository(provider)).record(
+        'default',
+        'candidates_scored',
+        50,
+        PERIOD,
+      );
+
+      await expect(service.enqueueRun({ keywords: ['x'] })).rejects.toThrow(
+        /usage limit exceeded/i,
+      );
+
+      const rows = await runsRepo.findAll();
+      expect(rows).toHaveLength(0);
+    });
+
+    it('enqueueRun inserts the run row only after the job is enqueued', async () => {
+      const provider = openTestDb();
+      const { service, runsRepo } = makeEnforcedService(provider);
+
+      const { runId } = await service.enqueueRun({ keywords: ['a'] });
+
+      const rows = await runsRepo.findAll();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.runId).toBe(runId);
+    });
   });
 });
