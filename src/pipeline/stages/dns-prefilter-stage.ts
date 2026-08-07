@@ -191,11 +191,17 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     // Stage 1: fast bulk check from the DNS provider (multi-resolver race internally).
     const [bulkOk, results] = await this.#tryBulkCheck(domains, signal, options);
     if (!bulkOk || results === null) {
-      return this.#perDomainFallback(
+      // Bulk check failed entirely — fall back to per-domain checks. ADR-0040:
+      // the 2-of-3 consensus MUST still run on the recovered verdicts; a bulk
+      // failure must not strip the availability guarantee that a healthy run
+      // gets (ADR-0002 parity across every resolution path).
+      return this.#fallbackWithConsensus(
         results ?? new Array(domains.length),
         domains,
         signal,
         options,
+        degradations,
+        consensusStats,
       );
     }
 
@@ -218,36 +224,70 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         if (retried !== null) {
           const stillUndefined = retried.filter((r) => r === undefined).length;
           if (stillUndefined === 0) {
-            // Stage 3: 2-of-3 consensus on Available results
-            if (this.consensusConfig !== undefined) {
-              return await this.#applyConsensusCheck(
-                retried,
-                domains,
-                signal,
-                degradations,
-                consensusStats,
-              );
-            }
-            return retried;
+            // Stage 3: 2-of-3 consensus on the fully-recovered results.
+            return this.#applyConsensusIfConfigured(
+              retried,
+              domains,
+              signal,
+              degradations,
+              consensusStats,
+            );
           }
-          return this.#perDomainFallback(retried, domains, signal, options);
+          return this.#fallbackWithConsensus(
+            retried,
+            domains,
+            signal,
+            options,
+            degradations,
+            consensusStats,
+          );
         }
       }
-      return this.#perDomainFallback(results, domains, signal, options);
-    }
-
-    // Stage 3: 2-of-3 consensus on Available results
-    if (this.consensusConfig !== undefined) {
-      return await this.#applyConsensusCheck(
+      return this.#fallbackWithConsensus(
         results,
         domains,
         signal,
+        options,
         degradations,
         consensusStats,
       );
     }
 
-    return results;
+    // Stage 3: 2-of-3 consensus on Available results.
+    return this.#applyConsensusIfConfigured(results, domains, signal, degradations, consensusStats);
+  }
+
+  /** Runs the per-domain fallback and then applies the 2-of-3 consensus on the
+   *  recovered verdicts — no resolution path is allowed to skip ADR-0002. */
+  async #fallbackWithConsensus(
+    results: (DnsCheckResult | undefined)[],
+    domains: DomainCandidate[],
+    signal?: AbortSignal,
+    options?: DnsCheckOptions,
+    degradations?: StageDegradation[],
+    consensusStats?: DnsConsensusStats,
+  ): Promise<(DnsCheckResult | undefined)[]> {
+    const fallback = await this.#perDomainFallback(results, domains, signal, options);
+    return this.#applyConsensusIfConfigured(
+      fallback,
+      domains,
+      signal,
+      degradations,
+      consensusStats,
+    );
+  }
+
+  /** Applies the 2-of-3 consensus check when the stage is configured with a
+   *  secondary provider; otherwise returns the results unchanged. */
+  async #applyConsensusIfConfigured(
+    results: (DnsCheckResult | undefined)[],
+    domains: DomainCandidate[],
+    signal?: AbortSignal,
+    degradations?: StageDegradation[],
+    consensusStats?: DnsConsensusStats,
+  ): Promise<(DnsCheckResult | undefined)[]> {
+    if (this.consensusConfig === undefined) return results;
+    return this.#applyConsensusCheck(results, domains, signal, degradations, consensusStats);
   }
 
   /**
