@@ -28,6 +28,7 @@ import {
   createProvidersRouter,
   createOutcomesRouter,
   createAuthRouter,
+  createKeyManagementRouter,
   createAlertsRouter,
   createSchedulerRouter,
   createWatchlistRouter,
@@ -49,8 +50,20 @@ import {
 } from './api/index.js';
 
 /** Build the public router options, omitting the URL when it is unset. */
-function publicAppUrlOption(config: { PUBLIC_APP_URL?: string | undefined }): PublicRouterOptions {
-  return config.PUBLIC_APP_URL ? { publicAppUrl: config.PUBLIC_APP_URL } : {};
+function publicAppUrlOption(config: {
+  PUBLIC_APP_URL?: string | undefined;
+  PUBLIC_ALLOWED_HOSTS?: string | undefined;
+}): PublicRouterOptions {
+  return {
+    ...(config.PUBLIC_APP_URL ? { publicAppUrl: config.PUBLIC_APP_URL } : {}),
+    ...(config.PUBLIC_ALLOWED_HOSTS
+      ? {
+          allowedHosts: config.PUBLIC_ALLOWED_HOSTS.split(',')
+            .map((h) => h.trim())
+            .filter(Boolean),
+        }
+      : {}),
+  };
 }
 
 async function main(): Promise<void> {
@@ -73,6 +86,18 @@ async function main(): Promise<void> {
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
   });
+
+  if (
+    !config.PUBLIC_APP_URL &&
+    !config.PUBLIC_ALLOWED_HOSTS &&
+    (config.HOST === '0.0.0.0' || config.HOST === '::')
+  ) {
+    logger.warn(
+      'PUBLIC_APP_URL (or PUBLIC_ALLOWED_HOSTS) is not set while the server is bound to 0.0.0.0. ' +
+        'Public canonical/OG/sitemap URLs will mirror the request Host header — set ' +
+        'PUBLIC_APP_URL to your public origin to prevent canonical-URL cache poisoning.',
+    );
+  }
 
   const app = express();
 
@@ -193,7 +218,7 @@ async function main(): Promise<void> {
       }),
     );
   }
-  app.use('/api/v1/auth', createAuthRouter(deps.authProvider, deps.apiKeyRepo));
+  app.use('/api/v1/auth', createAuthRouter(deps.authProvider));
 
   // Global per-IP rate limit for all remaining API routes (protects against
   // request floods and resource exhaustion). Applied after auth to separate
@@ -289,6 +314,7 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
+  protectedRouter.use('/keys', createKeyManagementRouter(deps.authProvider, deps.apiKeyRepo));
   protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));

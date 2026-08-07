@@ -200,6 +200,16 @@ const configSchema = z.object({
    */
   PUBLIC_APP_URL: z.string().url().optional(),
   /**
+   * Optional comma-separated allowlist of hostnames accepted as the origin
+   * for the public namespace when PUBLIC_APP_URL is unset (e.g.
+   * 'domains.example.com,www.example.com'). Prevents Host-header-derived
+   * canonical/OG/sitemap URL poisoning via cacheable public responses.
+   * When unset, the request origin is used as before (self-hosted installs
+   * behind a single reverse proxy). Set PUBLIC_ALLOWED_HOSTS or
+   * PUBLIC_APP_URL for any deployment exposed over the internet.
+   */
+  PUBLIC_ALLOWED_HOSTS: z.string().optional(),
+  /**
    * Optional path to a JSON file with operator-approved weight overrides.
    * When set, the scoring engine reads this file at startup and uses the
    * weights inside it instead of DEFAULT_WEIGHTS. The CLI's
