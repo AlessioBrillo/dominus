@@ -437,6 +437,93 @@ describe('DnsPreFilterStage consensus degradation (ADR-0039)', () => {
     expect(result.degradations).toBeUndefined();
   });
 
+  it('applies consensus after the per-domain fallback when checkBulk throws (ADR-0040)', async () => {
+    // When the bulk check throws entirely the stage falls back to per-domain
+    // checks. ADR-0002 parity requires the 2-of-3 consensus to still run on
+    // that path — a down secondary must downgrade every Available verdict,
+    // exactly as it does on the bulk path.
+    const primary: DnsProvider = {
+      name: 'primary-bulk-down',
+      checkBulk: vi.fn().mockRejectedValue(new Error('bulk check failed')),
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'free.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const secondary: DnsProvider = {
+      name: 'secondary-down',
+      checkAvailability: vi.fn().mockRejectedValue(new Error('secondary unreachable')),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(primary, 10, [], {
+      secondaryProvider: secondary,
+      degradedMin: 2,
+    });
+    const candidates = [
+      createMockCandidate({ domain: 'free.io' }),
+      createMockCandidate({ domain: 'free2.io' }),
+    ];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+      expect(c.status).toBe(CandidateStatus.DnsFiltered);
+    }
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 2,
+      degraded: true,
+    });
+  });
+
+  it('confirms Available verdicts on the fallback path when the secondary agrees (ADR-0040)', async () => {
+    const primary: DnsProvider = {
+      name: 'primary-bulk-down',
+      checkBulk: vi.fn().mockRejectedValue(new Error('bulk check failed')),
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'free.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const secondary: DnsProvider = {
+      name: 'secondary-ok',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(primary, 10, [], {
+      secondaryProvider: secondary,
+      degradedMin: 2,
+    });
+    const candidates = [
+      createMockCandidate({ domain: 'free.io' }),
+      createMockCandidate({ domain: 'free2.io' }),
+    ];
+    const result = await stage.process(candidates);
+    expect(result.passed.map((c) => c.domain).sort()).toEqual(['free.io', 'free2.io']);
+    expect(result.filtered).toHaveLength(0);
+    expect(result.consensusStats).toEqual({
+      verified: 2,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
   it('honours a custom degraded ratio via config', async () => {
     const domains = ['a.io', 'b.io', 'c.io', 'd.io'];
     const secondary: DnsProvider = {
