@@ -223,8 +223,11 @@ describe('RedisRateLimiter fair share (ADR-0041)', () => {
 
     await runWithTenant('tenant-a', () => limiter.acquire());
     const blocked = runWithTenant('tenant-a', () => limiter.acquire());
+    const rejection = expect(blocked).rejects.toMatchObject({
+      name: 'RateLimiterWaitTimeoutError',
+    });
     await vi.advanceTimersByTimeAsync(200);
-    await expect(blocked).rejects.toMatchObject({ name: 'RateLimiterWaitTimeoutError' });
+    await rejection;
 
     // tenant-b still gets its own slice despite A saturating its window.
     await expect(runWithTenant('tenant-b', () => limiter.acquire())).resolves.toBeUndefined();
