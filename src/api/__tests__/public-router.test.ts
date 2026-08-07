@@ -885,5 +885,69 @@ describe('Public Router — /public', () => {
       expect(res.headers['ratelimit-limit']).toBeDefined();
       expect(res.headers['ratelimit-remaining']).toBeDefined();
     });
+
+    it('honours a configured public per-IP cap (rateLimits.publicMax)', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          rateLimits: { publicWindowMs: 60_000, publicMax: 1 },
+        }),
+      );
+      app.use(errorHandler);
+
+      const first = await request(app).get('/public/sitemap.xml');
+      expect(first.status).toBe(200);
+
+      const second = await request(app).get('/public/sitemap.xml');
+      expect(second.status).toBe(429);
+    });
+
+    it('honours a configured per-domain cap (rateLimits.perDomainMax)', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          rateLimits: { perDomainWindowMs: 60_000, perDomainMax: 1 },
+        }),
+      );
+      app.use(errorHandler);
+
+      const first = await request(app).get('/public/domain/example.com');
+      expect(first.status).toBe(200);
+
+      const second = await request(app).get('/public/domain/example.com');
+      expect(second.status).toBe(429);
+    });
+
+    it('honours a configured POST cap (rateLimits.postMax)', async () => {
+      const app = express();
+      app.use(express.json());
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          rateLimits: { postWindowMs: 60_000, postMax: 1 },
+        }),
+      );
+      app.use(errorHandler);
+
+      const first = await request(app).post('/public/scores').send({ domain: 'example.com' });
+      expect(first.status).toBe(201);
+
+      const second = await request(app).post('/public/scores').send({ domain: 'other.com' });
+      expect(second.status).toBe(429);
+    });
+
+    it('falls back to the default caps when no rateLimits are provided', async () => {
+      const app = express();
+      app.use(express.json());
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).post('/public/scores').send({ domain: 'example.com' });
+
+      expect(res.status).toBe(201);
+      expect(res.headers['ratelimit-limit']).toBeDefined();
+    });
   });
 });
