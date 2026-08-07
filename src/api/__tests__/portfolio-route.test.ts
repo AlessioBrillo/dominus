@@ -82,6 +82,7 @@ describe('Portfolio API', () => {
       const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
       const usageRepo = new UsageRepository(provider);
       const subRepo = new SubscriptionRepository(provider);
+      await subRepo.ensureDefault('default');
       const usageService = new UsageMeterService(usageRepo, subRepo);
       await usageService.record('default', 'domains_tracked', 25, PERIOD);
 

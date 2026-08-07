@@ -68,16 +68,20 @@ describe('PortfolioManager (CRUD)', () => {
   describe('usage guard (domains_tracked)', () => {
     const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
 
-    function makeGuardedManager(): { manager: PortfolioManager; usageRepo: UsageRepository } {
+    async function makeGuardedManager(): Promise<{
+      manager: PortfolioManager;
+      usageRepo: UsageRepository;
+    }> {
       const usageRepo = new UsageRepository(db);
       const subRepo = new SubscriptionRepository(db);
+      await subRepo.ensureDefault('default');
       const usageService = new UsageMeterService(usageRepo, subRepo);
       const enforcer = new PipelineUsageEnforcer(usageService, true);
       return { manager: new PortfolioManager(repo, 25, 60, {}, enforcer), usageRepo };
     }
 
     it('meters one tracked domain per add when enforcement is enabled', async () => {
-      const { manager: guarded, usageRepo } = makeGuardedManager();
+      const { manager: guarded, usageRepo } = await makeGuardedManager();
       await guarded.add(makeAddInput('a.com'));
       await guarded.add(makeAddInput('b.com'));
       const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
@@ -87,6 +91,7 @@ describe('PortfolioManager (CRUD)', () => {
     it('rejects the add when the domains_tracked allowance is exhausted', async () => {
       const usageRepo = new UsageRepository(db);
       const subRepo = new SubscriptionRepository(db);
+      await subRepo.ensureDefault('default');
       const usageService = new UsageMeterService(usageRepo, subRepo);
       await usageService.record('default', 'domains_tracked', 25, PERIOD);
 
@@ -109,7 +114,7 @@ describe('PortfolioManager (CRUD)', () => {
     });
 
     it('refunds the metered unit when the insert fails (duplicate add)', async () => {
-      const { manager: guarded, usageRepo } = makeGuardedManager();
+      const { manager: guarded, usageRepo } = await makeGuardedManager();
       await guarded.add(makeAddInput('a.com'));
       await expect(guarded.add(makeAddInput('a.com', { notes: 'duplicate' }))).rejects.toThrow();
 
@@ -118,16 +123,17 @@ describe('PortfolioManager (CRUD)', () => {
     });
 
     it('does not meter when skipUsageMeter is set (mandated bookkeeping)', async () => {
-      const { manager: guarded, usageRepo } = makeGuardedManager();
+      const { manager: guarded, usageRepo } = await makeGuardedManager();
       await guarded.add(makeAddInput('purchased.com'), { skipUsageMeter: true });
 
       const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
       expect(tracked).toBe(0);
     });
 
-    it('skipUsageMeter still rejects when the allowance is exhausted', async () => {
+    it('skipUsageMeter bypasses the gate when the allowance is exhausted (bookkeeping carve-out)', async () => {
       const usageRepo = new UsageRepository(db);
       const subRepo = new SubscriptionRepository(db);
+      await subRepo.ensureDefault('default');
       const usageService = new UsageMeterService(usageRepo, subRepo);
       await usageService.record('default', 'domains_tracked', 25, PERIOD);
 

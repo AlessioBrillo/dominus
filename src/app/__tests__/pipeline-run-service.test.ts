@@ -447,16 +447,17 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
   describe('usage enforcement integration', () => {
     const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
 
-    function makeEnforcedService(provider: SqliteProvider): {
+    async function makeEnforcedService(provider: SqliteProvider): Promise<{
       service: PipelineRunService;
       usageRepo: UsageRepository;
       enforcer: PipelineUsageEnforcer;
       runsRepo: PipelineRunsRepository;
       jobQueueService: JobQueueService;
-    } {
+    }> {
       const runsRepo = new PipelineRunsRepository(provider);
       const usageRepo = new UsageRepository(provider);
       const subRepo = new SubscriptionRepository(provider);
+      await subRepo.ensureDefault('default');
       const usageService = new UsageMeterService(usageRepo, subRepo);
       const enforcer = new PipelineUsageEnforcer(usageService, true);
       const jobQueueService = createJobQueueService(provider, { usageEnforcer: enforcer });
@@ -491,7 +492,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
     it('meters runSync exactly once when enforcement is enabled (no flag)', async () => {
       const provider = openTestDb();
-      const { service, usageRepo } = makeEnforcedService(provider);
+      const { service, usageRepo } = await makeEnforcedService(provider);
 
       await service.runSync({ closeoutDomains: ['nova.com'] });
 
@@ -501,7 +502,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
     it('skips metering when usageMetered is set (worker re-executes an enqueued job)', async () => {
       const provider = openTestDb();
-      const { service, usageRepo } = makeEnforcedService(provider);
+      const { service, usageRepo } = await makeEnforcedService(provider);
 
       await service.runSync({ closeoutDomains: ['nova.com'] }, { usageMetered: true });
 
@@ -550,7 +551,12 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
     it('enqueueRun leaves no orphan pipeline_runs row when the allowance is rejected', async () => {
       const provider = openTestDb();
-      const { service, runsRepo, usageRepo, jobQueueService: _q } = makeEnforcedService(provider);
+      const {
+        service,
+        runsRepo,
+        usageRepo,
+        jobQueueService: _q,
+      } = await makeEnforcedService(provider);
       await new UsageMeterService(usageRepo, new SubscriptionRepository(provider)).record(
         'default',
         'candidates_scored',
@@ -568,7 +574,7 @@ describe('PipelineRunService — pipeline_runs history (ADR-0011)', () => {
 
     it('enqueueRun inserts the run row only after the job is enqueued', async () => {
       const provider = openTestDb();
-      const { service, runsRepo } = makeEnforcedService(provider);
+      const { service, runsRepo } = await makeEnforcedService(provider);
 
       const { runId } = await service.enqueueRun({ keywords: ['a'] });
 

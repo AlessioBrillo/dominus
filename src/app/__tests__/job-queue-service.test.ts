@@ -51,13 +51,14 @@ describe('JobQueueService', () => {
     describe('when a usage enforcer is wired at the chokepoint', () => {
       const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
 
-      function makeEnforcedService(): {
+      async function makeEnforcedService(): Promise<{
         svc: JobQueueService;
         usageRepo: UsageRepository;
         enforcer: PipelineUsageEnforcer;
-      } {
+      }> {
         const usageRepo = new UsageRepository(provider);
         const subRepo = new SubscriptionRepository(provider);
+        await subRepo.ensureDefault('default');
         const usageService = new UsageMeterService(usageRepo, subRepo);
         const enforcer = new PipelineUsageEnforcer(usageService, true);
         return {
@@ -68,7 +69,7 @@ describe('JobQueueService', () => {
       }
 
       it('meters the estimated candidate count and flags the payload as usageMetered', async () => {
-        const { svc, usageRepo } = makeEnforcedService();
+        const { svc, usageRepo } = await makeEnforcedService();
         const { jobId, runId } = await svc.enqueuePipelineRun({
           keywords: ['a', 'b'],
           closeoutDomains: ['x.com'],
@@ -84,8 +85,10 @@ describe('JobQueueService', () => {
       });
 
       it('rejects BEFORE a job is created when the allowance is exhausted', async () => {
-        const { svc, usageRepo } = makeEnforcedService();
-        await new UsageMeterService(usageRepo, new SubscriptionRepository(provider)).record(
+        const { svc, usageRepo } = await makeEnforcedService();
+        const subRepo = new SubscriptionRepository(provider);
+        await subRepo.ensureDefault('default');
+        await new UsageMeterService(usageRepo, subRepo).record(
           'default',
           'candidates_scored',
           50,
