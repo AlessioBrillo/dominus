@@ -35,10 +35,16 @@ export class DbCheckpointStore implements CheckpointStore {
     passed: DomainCandidate[],
     filtered: DomainCandidate[],
   ): Promise<void> {
+    // Dialect-neutral upsert: ON CONFLICT ... DO UPDATE and CURRENT_TIMESTAMP
+    // work on both SQLite and PostgreSQL (no INSERT OR REPLACE / datetime()).
     await this.db.exec(
-      `INSERT OR REPLACE INTO pipeline_checkpoints
+      `INSERT INTO pipeline_checkpoints
         (run_id, stage_name, passed_ids, filtered_ids, created_at)
-      VALUES (?, ?, ?, ?, datetime('now'))`,
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(run_id, stage_name) DO UPDATE SET
+        passed_ids = excluded.passed_ids,
+        filtered_ids = excluded.filtered_ids,
+        created_at = CURRENT_TIMESTAMP`,
       [runId, stageName, JSON.stringify(passed), JSON.stringify(filtered)],
     );
   }
@@ -53,7 +59,7 @@ export class DbCheckpointStore implements CheckpointStore {
 
   async load(runId: string): Promise<CheckpointData | null> {
     const rows = await this.db.query<CheckpointRow>(
-      'SELECT run_id, stage_name, passed_ids, filtered_ids FROM pipeline_checkpoints WHERE run_id = ? ORDER BY rowid ASC',
+      'SELECT run_id, stage_name, passed_ids, filtered_ids FROM pipeline_checkpoints WHERE run_id = ? ORDER BY id ASC',
       [runId],
     );
 
@@ -86,7 +92,7 @@ export class DbCheckpointStore implements CheckpointStore {
 
   async getLastCompletedStage(runId: string): Promise<string | null> {
     const row = await this.db.queryOne<{ stage_name: string }>(
-      'SELECT stage_name FROM pipeline_checkpoints WHERE run_id = ? ORDER BY rowid DESC LIMIT 1',
+      'SELECT stage_name FROM pipeline_checkpoints WHERE run_id = ? ORDER BY id DESC LIMIT 1',
       [runId],
     );
     return row?.stage_name ?? null;

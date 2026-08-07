@@ -42,6 +42,7 @@ import {
   RdapConfirmationStage,
   ScoringStage,
   TrademarkGateStage,
+  DbCheckpointStore,
 } from '../pipeline/index.js';
 import {
   PortfolioManager,
@@ -636,7 +637,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     // lockProvider (9th param): Redis-backed distributed lock when configured
     lockProvider,
     // checkpointStore (10th param): optional durable run checkpoints
-    undefined,
+    config.PIPELINE_CHECKPOINTS_ENABLED ? new DbCheckpointStore(provider) : undefined,
     // stageBudget (11th param): candidate-scaled per-stage execution budget (ADR-0037)
     {
       baseMs: config.STAGE_TIMEOUT_BASE_MS,
