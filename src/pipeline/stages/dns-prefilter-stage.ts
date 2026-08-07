@@ -4,7 +4,7 @@ import { CandidateStatus } from '../../types/candidate.js';
 import { CandidateSource, type DomainCandidate } from '../../types/candidate.js';
 import type { DnsProvider, DnsCheckOptions } from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { Stage, StageResult } from '../stage.js';
+import type { Stage, StageResult, StageDegradation } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
 
@@ -15,6 +15,19 @@ export interface ConsensusDnsConfig {
   secondaryProvider: DnsProvider;
   /** TLDs requiring cross-validation. Default: all TLDs. */
   requiredTlds?: string[];
+  /**
+   * Fraction of consensus-verified domains that may be unverifiable before the
+   * run is flagged degraded. Default: 0.5 (half). A run where the secondary
+   * cannot confirm more than this share of primary-Available domains is
+   * degraded, because the verdicts downstream rest on a single resolver.
+   */
+  degradedRatio?: number;
+  /**
+   * Minimum number of consensus-verified domains before a degradation is
+   * flagged. Small runs must not flag the pipeline on one bad resolver.
+   * Default: 10.
+   */
+  degradedMin?: number;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -69,11 +82,17 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     }
 
     const perDomainResults: (DnsCheckResult | undefined)[] = new Array(toFilter.length);
+    const degradations: StageDegradation[] = [];
 
     if (closeoutIndices.length > 0) {
       const closeoutDomains = closeoutIndices.map((i) => toFilter[i]!);
       const closeoutOpts: DnsCheckOptions = { forceRecheck: true };
-      const results = await this.#resolveBulkWithFallback(closeoutDomains, signal, closeoutOpts);
+      const results = await this.#resolveBulkWithFallback(
+        closeoutDomains,
+        signal,
+        closeoutOpts,
+        degradations,
+      );
       for (let j = 0; j < closeoutIndices.length; j++) {
         perDomainResults[closeoutIndices[j]!] = results[j];
       }
@@ -81,7 +100,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     if (otherIndices.length > 0) {
       const otherDomains = otherIndices.map((i) => toFilter[i]!);
-      const results = await this.#resolveBulkWithFallback(otherDomains, signal);
+      const results = await this.#resolveBulkWithFallback(
+        otherDomains,
+        signal,
+        undefined,
+        degradations,
+      );
       for (let j = 0; j < otherIndices.length; j++) {
         perDomainResults[otherIndices[j]!] = results[j];
       }
@@ -122,16 +146,30 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
-    return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
+    return {
+      passed,
+      filtered,
+      stageName: this.name,
+      durationMs: Date.now() - start,
+      ...(degradations.length > 0 ? { degradations } : {}),
+    };
   }
 
   /** Threshold fraction of undefined results that triggers a cross-validation retry. */
   static readonly #CROSS_VALIDATE_UNDEFINED_THRESHOLD = 0.1;
 
+  /** Default fraction of consensus-verified domains that may stay unverifiable
+   *  before the run is flagged degraded (see ADR-0039). */
+  static readonly #DEFAULT_DEGRADED_RATIO = 0.5;
+
+  /** Default minimum consensus-verified domains before degradation is flagged. */
+  static readonly #DEFAULT_DEGRADED_MIN = 10;
+
   async #resolveBulkWithFallback(
     domains: DomainCandidate[],
     signal?: AbortSignal,
     options?: DnsCheckOptions,
+    degradations?: StageDegradation[],
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (domains.length === 0) return [];
     if (signal?.aborted) return new Array(domains.length);
@@ -168,7 +206,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           if (stillUndefined === 0) {
             // Stage 3: 2-of-3 consensus on Available results
             if (this.consensusConfig !== undefined) {
-              return await this.#applyConsensusCheck(retried, domains, signal);
+              return await this.#applyConsensusCheck(retried, domains, signal, degradations);
             }
             return retried;
           }
@@ -180,7 +218,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     // Stage 3: 2-of-3 consensus on Available results
     if (this.consensusConfig !== undefined) {
-      return await this.#applyConsensusCheck(results, domains, signal);
+      return await this.#applyConsensusCheck(results, domains, signal, degradations);
     }
 
     return results;
@@ -198,6 +236,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     results: (DnsCheckResult | undefined)[],
     domains: DomainCandidate[],
     signal?: AbortSignal,
+    degradations?: StageDegradation[],
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (signal?.aborted) return results;
     const cfg = this.consensusConfig!;
@@ -269,6 +308,40 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     if (disagreed > 0 || unverifiable > 0) {
       logger.info({ verified, disagreed, unverifiable }, 'DNS: 2-of-3 consensus check complete');
+    }
+
+    // Fail-closed with a visible flag: when the secondary cannot confirm the
+    // majority of primary-Available verdicts, the run continues (domains are
+    // downgraded to Unknown and filtered) but the pipeline is marked degraded
+    // so the caller knows the output rests on a single resolver. Small runs
+    // below degradedMin never flag (one bad resolver must not poison a short
+    // run). See ADR-0039.
+    const consensusTotal = verified + disagreed + unverifiable;
+    const degradedRatio = cfg.degradedRatio ?? DnsPreFilterStage.#DEFAULT_DEGRADED_RATIO;
+    const degradedMin = cfg.degradedMin ?? DnsPreFilterStage.#DEFAULT_DEGRADED_MIN;
+    if (
+      consensusTotal >= degradedMin &&
+      unverifiable / consensusTotal >= degradedRatio &&
+      degradations !== undefined
+    ) {
+      degradations.push({
+        stageName: this.name,
+        reason: 'consensus-unverified',
+        processedCount: verified,
+        expectedCount: consensusTotal,
+        message: `${unverifiable}/${consensusTotal} Available verdicts unconfirmed by the secondary provider`,
+      });
+      logger.warn(
+        {
+          verified,
+          disagreed,
+          unverifiable,
+          consensusTotal,
+          degradedRatio,
+          degradedMin,
+        },
+        'DNS: consensus degraded — secondary could not verify the majority of Available domains',
+      );
     }
 
     return results;

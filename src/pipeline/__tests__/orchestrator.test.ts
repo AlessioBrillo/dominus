@@ -531,4 +531,60 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
     expect(result.degradedReasons).toHaveLength(0);
     expect(result.recommended).toHaveLength(5);
   });
+
+  it('surfaces a stage-reported degradation (consensus-unverified) in the run result', async () => {
+    // Arrange — the primary resolves everything Available, but the consensus
+    // secondary is down: the DNS stage fails closed and flags itself
+    const primaryDns: DnsProvider = {
+      name: 'PrimaryDns',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      checkBulk: vi
+        .fn()
+        .mockImplementation((domains: string[]) =>
+          Promise.resolve(
+            domains.map((d) => ({ domain: d, status: DomainStatus.Available, checkedAt: '' })),
+          ),
+        ),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const downSecondary: DnsProvider = {
+      name: 'DownSecondary',
+      checkAvailability: vi.fn().mockRejectedValue(new Error('secondary unreachable')),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const orchestrator = new PipelineOrchestrator(
+      new CandidateGenerationStage(),
+      new DnsPreFilterStage(primaryDns, 10, [], {
+        secondaryProvider: downSecondary,
+        degradedMin: 1,
+      }),
+      new RdapConfirmationStage(makeMockRdap()),
+      new ScoringStage(makeMockEngine()),
+      new TrademarkGateStage(makeMockGate()),
+      0,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { baseMs: 10_000, perCandidateMs: 0, capMs: 60_000, graceMs: 0 },
+    );
+
+    // Act — the run is degraded, and the reason flows from the stage to the result
+    const result = await orchestrator.run({ brandableNames: ['a.com', 'b.com'] });
+
+    // Assert
+    expect(result.degraded).toBe(true);
+    expect(result.degradedReasons).toHaveLength(1);
+    expect(result.degradedReasons[0]!.stageName).toBe('DnsPreFilterStage');
+    expect(result.degradedReasons[0]!.reason).toBe('consensus-unverified');
+    expect(result.degradedReasons[0]!.expectedCount).toBe(2);
+    expect(result.recommended).toHaveLength(0);
+  });
 });

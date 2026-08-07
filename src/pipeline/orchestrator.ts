@@ -11,7 +11,7 @@ import type { LockProvider } from '../types/lock.js';
 import { ProviderError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 import { resolveTenantId } from '../utils/tenant-context.js';
-import type { StageResult } from './stage.js';
+import type { StageDegradation, StageResult } from './stage.js';
 import type { CheckpointStore, StageCheckpoint } from './checkpoint-store.js';
 import { getResumeIndex } from './db-checkpoint-store.js';
 
@@ -57,17 +57,7 @@ export interface StageError {
   isTransient?: boolean;
 }
 
-export type StageDegradationReason = 'timeout' | 'error';
-
-export interface StageDegradation {
-  stageName: string;
-  reason: StageDegradationReason;
-  /** Number of input candidates the stage processed before degrading. */
-  processedCount: number;
-  /** Number of input candidates the stage was expected to process. */
-  expectedCount: number;
-  message?: string;
-}
+export type { StageDegradation, StageDegradationReason } from './stage.js';
 
 /** Options for the per-stage execution budget.
  *  The budget scales with the number of candidates flowing into the stage, so
@@ -702,6 +692,12 @@ export class PipelineOrchestrator {
             { label, inputCount, processed },
             `Pipeline: ${label} stage exceeded its budget — continuing with partial results`,
           );
+        }
+
+        // Merge degradations reported by the stage itself (fail-closed paths
+        // that still produced partial output, e.g. DNS consensus-unverified).
+        if (result.degradations !== undefined && result.degradations.length > 0) {
+          degradations.push(...result.degradations);
         }
 
         if (attempt > 1) {
