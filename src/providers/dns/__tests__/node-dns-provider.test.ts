@@ -650,6 +650,100 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('majority resolver-group decisions', () => {
+    const CLOUDFLARE = 'cloudflare-dns.com';
+    const GOOGLE = 'dns.google';
+    const QUAD9 = 'dns.quad9.net';
+
+    function mockDohOutcomes(
+      outcomesByHost: Record<
+        string,
+        { Status: number; Answer?: Array<{ type: number; data: string }> } | 'network-error'
+      >,
+    ): void {
+      vi.spyOn(global, 'fetch').mockImplementation((input) => {
+        const host = new URL(String(input)).hostname;
+        const outcome = outcomesByHost[host];
+        if (outcome === undefined || outcome === 'network-error') {
+          return Promise.reject(new Error(`DoH network error for ${host}`));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(outcome),
+        } as Response);
+      });
+    }
+
+    it('reports Available on a 2/3 NXDOMAIN majority without consulting the native fallback', async () => {
+      // Regression: a single SERVFAIL/error in the group used to make the
+      // whole group undecided, pushing the verdict onto the native
+      // system-resolver fallback — the least independent node in the path.
+      mockDohOutcomes({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: { Status: 3 },
+        [QUAD9]: 'network-error',
+      });
+      const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('majority-free.com');
+      expect(result.status).toBe(DomainStatus.Available);
+      expect(dnsPromises.resolve).not.toHaveBeenCalled();
+    });
+
+    it('treats a DoH SERVFAIL response as a neutral vote, never as NXDOMAIN', async () => {
+      // Regression: Status:2 with no Answer used to fall into the NODATA
+      // branch and count as a definitive "available" — a false positive
+      // from a resolver that could not answer.
+      mockDohOutcomes({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: { Status: 2 },
+        [QUAD9]: { Status: 2 },
+      });
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('servfail-neutral.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+
+    it('keeps Available when a SERVFAIL minority cannot block a 2/3 NXDOMAIN majority', async () => {
+      mockDohOutcomes({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: { Status: 3 },
+        [QUAD9]: { Status: 2 },
+      });
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('servfail-minority.com');
+      expect(result.status).toBe(DomainStatus.Available);
+    });
+
+    it('returns Registered when any resolver in the group resolves', async () => {
+      mockDohOutcomes({
+        [CLOUDFLARE]: { Status: 0, Answer: [{ type: 1, data: '1.2.3.4' }] },
+        [GOOGLE]: 'network-error',
+        [QUAD9]: 'network-error',
+      });
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('any-resolve.com');
+      expect(result.status).toBe(DomainStatus.Registered);
+    });
+
+    it('returns Unknown when no strict majority exists', async () => {
+      mockDohOutcomes({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: 'network-error',
+        [QUAD9]: 'network-error',
+      });
+
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('no-majority.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+  });
+
   describe('buildDnsQuery', () => {
     it('produces different query IDs on successive calls', () => {
       const q1 = buildDnsQuery('example.com', 1);
