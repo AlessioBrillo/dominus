@@ -120,3 +120,73 @@ describe('public rate limit config defaults', () => {
     expect(loadConfig().PUBLIC_RATE_LIMIT_MAX).toBe(7);
   });
 });
+
+// Locks the dedicated 2-of-3 DNS consensus control budget (ADR-0044). The
+// consensus secondary must run against its own rate-limit bucket, concurrency
+// ceiling, and per-tenant fair share — sharing the primary's would let a
+// strict gate starve under the very load it is supposed to verify, and both
+// budgets would count against each other.
+describe('DNS consensus budget config defaults', () => {
+  const ENV_KEYS = [
+    'DNS_CONSENSUS_RATE_LIMIT_TOKENS',
+    'DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS',
+    'DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS',
+    'DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS',
+    'DNS_CONSENSUS_BULK_CONCURRENCY',
+    'DNS_DOH_MAX_CONNECTIONS',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('DNS_CONSENSUS_RATE_LIMIT_TOKENS defaults to 20 (mirrors the primary)', () => {
+    expect(loadConfig().DNS_CONSENSUS_RATE_LIMIT_TOKENS).toBe(20);
+  });
+
+  it('DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS defaults to 1000', () => {
+    expect(loadConfig().DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS).toBe(1000);
+  });
+
+  it('DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS defaults to 5', () => {
+    expect(loadConfig().DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS).toBe(5);
+  });
+
+  it('DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS defaults to 1000', () => {
+    expect(loadConfig().DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS).toBe(1000);
+  });
+
+  it('DNS_CONSENSUS_BULK_CONCURRENCY defaults to 20 (independent of DNS_BULK_CONCURRENCY=200)', () => {
+    expect(loadConfig().DNS_CONSENSUS_BULK_CONCURRENCY).toBe(20);
+  });
+
+  it('DNS_DOH_MAX_CONNECTIONS defaults to 64 (keep-alive agent per origin)', () => {
+    expect(loadConfig().DNS_DOH_MAX_CONNECTIONS).toBe(64);
+  });
+
+  it('DNS_CONSENSUS_RATE_LIMIT_TOKENS accepts an explicit override', () => {
+    process.env.DNS_CONSENSUS_RATE_LIMIT_TOKENS = '8';
+    resetConfig();
+    expect(loadConfig().DNS_CONSENSUS_RATE_LIMIT_TOKENS).toBe(8);
+  });
+
+  it('DNS_CONSENSUS_BULK_CONCURRENCY rejects values below 1', () => {
+    process.env.DNS_CONSENSUS_BULK_CONCURRENCY = '0';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+});

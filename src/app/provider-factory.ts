@@ -288,6 +288,7 @@ export function buildDnsProvider(
     lookupStrategy: config.DNS_LOOKUP_STRATEGY,
     ...(resolverGroups !== undefined ? { resolverGroups } : {}),
     dohEndpoint: config.DNS_DOH_ENDPOINT,
+    dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
     parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
     parkingRegistry,
@@ -348,6 +349,7 @@ export function buildSecondaryDnsProvider(
     // the pin the configured DNS_CONSENSUS_STRATEGY is used verbatim.
     lookupStrategy: consensusNameservers ? 'native' : config.DNS_CONSENSUS_STRATEGY,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
+    dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
     ...(consensusNameservers !== undefined ? { nameservers: consensusNameservers } : {}),
     rateLimiter,
@@ -358,10 +360,17 @@ export function buildSecondaryDnsProvider(
 /**
  * Builds the DNS 2-of-3 consensus config for the pipeline's DNS prefilter
  * stage, or undefined when DNS_CONSENSUS_ENABLED is off (the default).
+ *
+ * `consensusRateLimiter` is the dedicated consensus budget (ADR-0044): the
+ * secondary provider must NOT draw from the primary DNS bucket, else a heavy
+ * run would starve the very gate that is supposed to fail it closed. When
+ * omitted, a dedicated in-memory limiter is built from the
+ * DNS_CONSENSUS_RATE_LIMIT_* config so the isolation holds even for callers
+ * that never build the shared budget.
  */
 export function buildDnsConsensusConfig(
   config: Config,
-  rateLimiter?: RateLimiterLike,
+  consensusRateLimiter?: RateLimiterLike,
 ): ConsensusDnsConfig | undefined {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
@@ -407,10 +416,12 @@ export function buildDnsConsensusConfig(
   ) {
     return undefined;
   }
+  const secondaryRateLimiter = consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
   return {
-    secondaryProvider: buildSecondaryDnsProvider(config, rateLimiter),
+    secondaryProvider: buildSecondaryDnsProvider(config, secondaryRateLimiter),
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
+    consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
   };
 }
 
@@ -505,6 +516,45 @@ export interface BuiltRateLimiters {
   euipo: RateLimiterLike;
   wayback: RateLimiterLike;
   dns: RateLimiterLike;
+  /** Dedicated budget for the 2-of-3 DNS consensus secondary (ADR-0044). */
+  dnsConsensus: RateLimiterLike;
+}
+
+/**
+ * Dedicated rate limiter for the 2-of-3 DNS consensus secondary (ADR-0044).
+ * The gate must run against its own budget: sharing `dns` would let a heavy
+ * primary run starve the exact check that is supposed to fail it closed, and
+ * the two providers' budgets would count against each other. Uses the
+ * DNS_CONSENSUS_RATE_LIMIT_* tuning, a `dns-consensus` Redis namespace in
+ * cloud mode, and the same per-tenant fair share as the primary (ADR-0041).
+ */
+export function buildConsensusRateLimiter(
+  config: Config,
+  redisClient?: RedisClient,
+): RateLimiterLike {
+  const fairShare = config.PROVIDER_FAIR_SHARE_ENABLED;
+  if (redisClient?.isConnected) {
+    return new RedisRateLimiter(
+      {
+        tokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
+        intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
+        namespace: 'dns-consensus',
+        fairShare,
+        perTenantTokens: config.DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS,
+        ...(fairShare &&
+        config.DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS !==
+          config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS
+          ? { perTenantIntervalMs: config.DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS }
+          : {}),
+      },
+      redisClient,
+    );
+  }
+  return new RateLimiter({
+    maxTokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
+    intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
+  });
 }
 
 export function buildRateLimiters(config: Config, redisClient?: RedisClient): BuiltRateLimiters {
@@ -564,7 +614,8 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
       },
       redisClient,
     );
-    return { rdap, uspto, euipo, wayback, dns };
+    const dnsConsensus = buildConsensusRateLimiter(config, redisClient);
+    return { rdap, uspto, euipo, wayback, dns, dnsConsensus };
   }
 
   const rdap = new RateLimiter({
@@ -592,5 +643,6 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
     tokensPerInterval: config.DNS_RATE_LIMIT_TOKENS,
     intervalMs: config.DNS_RATE_LIMIT_INTERVAL_MS,
   });
-  return { rdap, uspto, euipo, wayback, dns };
+  const dnsConsensus = buildConsensusRateLimiter(config);
+  return { rdap, uspto, euipo, wayback, dns, dnsConsensus };
 }

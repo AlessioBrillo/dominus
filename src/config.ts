@@ -263,6 +263,16 @@ const configSchema = z.object({
    * Default: Cloudflare DNS over HTTPS (privacy-first, no ECS).
    */
   DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
+  /**
+   * Max keep-alive connections per DoH endpoint origin (ADI-0044). DoH
+   * requests are routed through a pooled undici Agent instead of the default
+   * one-shot global dispatcher: bounded idle connections are reused across
+   * queries, so a bulk run no longer opens a fresh TLS/HTTP handshake per
+   * request. One Agent pool is shared by all endpoints; each origin receives
+   * at most this many concurrent sockets, excess requests queue in undici.
+   * Default: 64. Range: 1–1000.
+   */
+  DNS_DOH_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(1000).default(64),
 
   /**
    * Comma-separated list of custom DNS resolver IP addresses for the native
@@ -512,6 +522,41 @@ const configSchema = z.object({
    * Default: 10. Range: 1–1e6.
    */
   DNS_CONSENSUS_DEGRADED_MIN: z.coerce.number().int().min(1).max(1_000_000).default(10),
+  /**
+   * Rate limiting (ADR-0044): max tokens (burst capacity) for the DNS
+   * consensus SECONDARY provider only. The 2-of-3 gate must not draw from
+   * the primary DNS bucket: sharing it would let a heavy Primary run starve
+   * the exact check that is supposed to fail the run closed, and the two
+   * providers' budgets would count against each other. Mirrors the primary
+   * default (20 req/sec, burst 20) so consensus adds a bounded, isolated
+   * second budget.
+   */
+  DNS_CONSENSUS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(20),
+  /** Rate limiting: refill interval in ms for consensus DNS requests (default: 1000). */
+  DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Per-tenant fair share (Cloud only, ADR-0041): max consensus DNS tokens
+   * per tenant per DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS, enforced
+   * on top of the shared platform consensus bucket when Redis is the rate
+   * limiter and PROVIDER_FAIR_SHARE_ENABLED is on. Mirrors the primary
+   * default (5 req/sec per tenant).
+   */
+  DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).default(5),
+  /** Per-tenant fair share: refill interval in ms for the consensus tenant window (default: 1000). */
+  DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .max(60000)
+    .default(1000),
+  /**
+   * Concurrency ceiling for the secondary DNS consensus verification phase
+   * (ADR-0044). The gate is fail-closed, so its own burst must be bounded
+   * independently of the Primary's DNS_BULK_CONCURRENCY (default 200): a
+   * verification stampede would otherwise multiply the DNS traffic of every
+   * run that is already heavy. Default: 20. Range: 1–500.
+   */
+  DNS_CONSENSUS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(20),
   /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.

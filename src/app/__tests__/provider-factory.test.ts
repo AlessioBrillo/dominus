@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi } from 'vitest';
 import {
+  buildConsensusRateLimiter,
   buildDnsConsensusConfig,
+  buildRateLimiters,
   buildRdapCircuitBreakers,
   isRdapResultCacheable,
   isRdapResultStale,
@@ -10,7 +12,12 @@ import {
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
 import { CircuitBreaker } from '../../providers/circuit-breaker.js';
-import { DistributedCircuitBreaker, type RedisClient } from '../../providers/redis/index.js';
+import type { RateLimiter } from '../../providers/rate-limiter.js';
+import {
+  DistributedCircuitBreaker,
+  RedisRateLimiter,
+  type RedisClient,
+} from '../../providers/redis/index.js';
 import { DomainStatus } from '../../types/domain-status.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
@@ -178,6 +185,12 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_CONSENSUS_STRATEGY: 'dot-only',
     DNS_CONSENSUS_DEGRADED_RATIO: 0.5,
     DNS_CONSENSUS_DEGRADED_MIN: 10,
+    DNS_CONSENSUS_RATE_LIMIT_TOKENS: 20,
+    DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS: 1000,
+    DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS: 5,
+    DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: 1000,
+    DNS_CONSENSUS_BULK_CONCURRENCY: 20,
+    DNS_DOH_MAX_CONNECTIONS: 64,
     DNS_USE_DEDICATED_RESOLVER: true,
     DNS_DOT_POOL_MAX_QUEUED: 4096,
     RDAP_WHOIS_BUDGET_MS: 1000,
@@ -485,5 +498,51 @@ describe('isRdapResultStale', () => {
         HOURS,
       ),
     ).toBe(false);
+  });
+});
+
+// Regression (ADR-0044): the 2-of-3 consensus secondary must run against its
+// own rate-limit budget. Sharing the primary DNS bucket would let a heavy
+// Primary run starve the very gate that is supposed to fail the run closed,
+// and the two providers' budgets would count against each other.
+describe('buildRateLimiters DNS consensus budget', () => {
+  function fakeRedis(): RedisClient {
+    return {
+      isConnected: true,
+      keyPrefix: 'dominus:',
+      prefixed: (key: string) => `dominus:${key}`,
+      withRedis: vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => fn()),
+      client: {} as never,
+      ping: vi.fn(),
+      shutdown: vi.fn(),
+    } as unknown as RedisClient;
+  }
+
+  it('returns a dedicated in-memory limiter separate from the primary DNS bucket', () => {
+    const rl = buildRateLimiters(makeConfig());
+    expect(rl.dnsConsensus).toBeDefined();
+    expect(rl.dnsConsensus).not.toBe(rl.dns);
+    expect((rl.dnsConsensus as RateLimiter).maxTokens).toBe(20);
+  });
+
+  it('honours the DNS_CONSENSUS_RATE_LIMIT_TOKENS override for the consensus budget', () => {
+    const config = makeConfig({ DNS_CONSENSUS_RATE_LIMIT_TOKENS: 7 });
+    const rl = buildRateLimiters(config);
+    expect((rl.dnsConsensus as RateLimiter).maxTokens).toBe(7);
+    // The primary budget is untouched by the consensus override.
+    expect((rl.dns as RateLimiter).maxTokens).toBe(20);
+  });
+
+  it('returns a distinct Redis limiter with its own namespace in cloud mode', () => {
+    const rl = buildRateLimiters(makeConfig(), fakeRedis());
+    expect(rl.dnsConsensus).toBeInstanceOf(RedisRateLimiter);
+    expect(rl.dnsConsensus).not.toBe(rl.dns);
+    expect((rl.dnsConsensus as RedisRateLimiter).metrics().namespace).toBe('dns-consensus');
+  });
+
+  it('buildConsensusRateLimiter cycles on DNS_CONSENSUS_* tuning when no redis is connected', () => {
+    const config = makeConfig({ DNS_CONSENSUS_RATE_LIMIT_TOKENS: 3 });
+    const limiter = buildConsensusRateLimiter(config);
+    expect((limiter as RateLimiter).maxTokens).toBe(3);
   });
 });

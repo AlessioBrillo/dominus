@@ -28,6 +28,13 @@ export interface ConsensusDnsConfig {
    * Default: 10.
    */
   degradedMin?: number;
+  /**
+   * Concurrency ceiling for the secondary verification phase (ADR-0044).
+   * Bounded independently of the primary's DNS_BULK_CONCURRENCY: the gate is
+   * fail-closed, so its own burst must not multiply the DNS traffic of an
+   * already-heavy run. Default: falls back to the stage's bulk concurrency.
+   */
+  consensusConcurrency?: number;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -328,13 +335,16 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       'DNS: 2-of-3 consensus check on Available domains',
     );
 
-    // Batch-verify with concurrency control
+    // Batch-verify with concurrency control. The consensus gate gets its own
+    // ceiling (consensusConcurrency) instead of borrowing the primary's bulk
+    // concurrency, so a verification stampede cannot multiply DNS traffic.
+    const consensusConcurrency = cfg.consensusConcurrency ?? this.fallbackConcurrency;
     let verified = 0;
     let disagreed = 0;
     let unverifiable = 0;
-    for (let i = 0; i < toVerify.length; i += this.fallbackConcurrency) {
+    for (let i = 0; i < toVerify.length; i += consensusConcurrency) {
       if (signal?.aborted) return results;
-      const batch = toVerify.slice(i, i + this.fallbackConcurrency);
+      const batch = toVerify.slice(i, i + consensusConcurrency);
       const batchResults = await Promise.all(
         batch.map(async ({ index, domain }) => {
           try {
