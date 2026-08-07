@@ -192,6 +192,16 @@ async function resolveDoh(
     throw Object.assign(new Error('DoH NXDOMAIN'), { code: 'ENOTFOUND' });
   }
 
+  // Any non-zero status other than NXDOMAIN (SERVFAIL, REFUSED, ...) is a
+  // resolver-side failure, not a verdict. It must vote neutral: mirrors
+  // the DoT classifyResponse semantics (dot-pool.ts) so a broken resolver
+  // can never be counted as a definitive "available". Previously Status:2
+  // with no Answer fell into the NODATA branch and outvoted resolvers
+  // that answered — a false positive.
+  if (data.Status !== 0) {
+    throw Object.assign(new Error(`DoH RCODE ${data.Status}`), { code: 'ESERVFAIL' });
+  }
+
   if (!data.Answer || data.Answer.length === 0) {
     throw Object.assign(new Error('DoH NODATA'), { code: 'ENODATA' });
   }
@@ -751,6 +761,10 @@ export class NodeDnsProvider implements DnsProvider {
 
     const outcomes = await Promise.allSettled(tasks);
 
+    // A definitive resolve (records returned) is the conservative-safe
+    // verdict: reporting a domain Registered when it is free only costs an
+    // opportunity, never a wasted buy. Any resolver proving resolution
+    // wins, regardless of what the rest of the group says.
     for (const o of outcomes) {
       if (o.status === 'fulfilled' && o.value === true) {
         childAbort.abort();
@@ -760,20 +774,19 @@ export class NodeDnsProvider implements DnsProvider {
 
     childAbort.abort();
 
-    // A lookup that produced no opinion (timeout, network error, or a
-    // rejected task) must not be outvoted by a definitive NXDOMAIN from
-    // another resolver in the group. One resolver's failure to confirm
-    // availability means the domain must not be reported Available —
-    // unknown wins over available (ADR-0002 conservatism).
+    // Availability is the risky verdict (ADR-0002), so a lone NXDOMAIN must
+    // not outvote resolvers that could not answer — but a strict majority
+    // of the group agreeing on NXDOMAIN is trusted even when a minority
+    // failed (SERVFAIL, timeout). Previously any single failure made the
+    // whole group undecided, pushing the verdict onto the native
+    // system-resolver fallback — the least independent node in the path.
+    let availableVotes = 0;
     for (const o of outcomes) {
-      if (o.status === 'rejected' || (o.status === 'fulfilled' && o.value === undefined)) {
-        return undefined;
-      }
+      if (o.status === 'fulfilled' && o.value === false) availableVotes++;
     }
+    if (availableVotes > group.lookups.length / 2) return false;
 
-    // Every remaining outcome is a definitive false (NXDOMAIN) — the
-    // whole group agrees the domain is available.
-    return false;
+    return undefined;
   }
 
   async checkBulk(
