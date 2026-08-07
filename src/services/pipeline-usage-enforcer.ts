@@ -43,6 +43,11 @@ export class PipelineUsageEnforcer {
     this.#enabled = enabled;
   }
 
+  /** Whether enforcement is active (USAGE_ENFORCEMENT_ENABLED=true). */
+  get enabled(): boolean {
+    return this.#enabled;
+  }
+
   async checkAndRecord(feature: UsageFeature, amount: number): Promise<void> {
     if (!this.#enabled) return;
     const tenantId = getTenantId() ?? 'default';
@@ -58,5 +63,18 @@ export class PipelineUsageEnforcer {
   /** Meter a portfolio/watchlist addition against the domains_tracked allowance. */
   async checkAndRecordTracked(amount: number = 1): Promise<void> {
     await this.checkAndRecord('domains_tracked', amount);
+  }
+
+  /**
+   * Refund a domains_tracked unit (floor 0) when the tracked insert failed
+   * after the meter ran (duplicate, invalid domain, FK violation). Must only
+   * be called for units this enforcer already consumed; a no-op when
+   * enforcement is disabled (ADR-0038, failure policy).
+   */
+  async refundTracked(amount: number = 1): Promise<void> {
+    if (!this.#enabled) return;
+    const tenantId = getTenantId() ?? 'default';
+    const periodStart = UsageMeterService.periodStart(new Date().toISOString());
+    await this.#usageService.refund(tenantId, 'domains_tracked', amount, periodStart);
   }
 }

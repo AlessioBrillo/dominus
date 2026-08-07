@@ -172,15 +172,22 @@ export class PurchaseService {
       if (this.#registrar.name === 'manual') {
         const tld = parseDomain(domain).tld ?? '';
         const now = new Date();
-        await this.#portfolioManager.add({
-          domain,
-          tld,
-          acquiredAt: now.toISOString(),
-          renewalDate: addYearsToDate(now, years).toISOString(),
-          acquisitionCost: check.registerPriceEur ?? 0,
-          renewalCost: check.renewalPriceEur ?? 0,
-          registrar: this.#registrar.name,
-        });
+        // Mandated bookkeeping: the purchase is a financial transaction, so
+        // portfolio tracking bypasses the domains_tracked usage gate — a
+        // plan allowance must never break post-purchase accounting
+        // (ADR-0038).
+        await this.#portfolioManager.add(
+          {
+            domain,
+            tld,
+            acquiredAt: now.toISOString(),
+            renewalDate: addYearsToDate(now, years).toISOString(),
+            acquisitionCost: check.registerPriceEur ?? 0,
+            renewalCost: check.renewalPriceEur ?? 0,
+            registrar: this.#registrar.name,
+          },
+          { skipUsageMeter: true },
+        );
 
         await this.#outcomeRepo.insert({
           domain,
@@ -228,15 +235,21 @@ export class PurchaseService {
       }
 
       const now = new Date();
-      await this.#portfolioManager.add({
-        domain,
-        tld,
-        acquiredAt: now.toISOString(),
-        renewalDate: addYearsToDate(now, years).toISOString(),
-        acquisitionCost: result.priceEur,
-        renewalCost: result.renewalPriceEur,
-        registrar: this.#registrar.name,
-      });
+      // Mandated bookkeeping after a real registrar purchase: portfolio
+      // tracking bypasses the domains_tracked usage gate (ADR-0038) — the
+      // money is already spent, so the plan must not break accounting.
+      await this.#portfolioManager.add(
+        {
+          domain,
+          tld,
+          acquiredAt: now.toISOString(),
+          renewalDate: addYearsToDate(now, years).toISOString(),
+          acquisitionCost: result.priceEur,
+          renewalCost: result.renewalPriceEur,
+          registrar: this.#registrar.name,
+        },
+        { skipUsageMeter: true },
+      );
 
       await this.#outcomeRepo.insert({
         domain,

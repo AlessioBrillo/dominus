@@ -56,6 +56,20 @@ export class UsageMeterService {
     return this.getUsageForPeriod(tenantId, feature, periodStart);
   }
 
+  /**
+   * Refund a metered unit (floor 0) after a transactional failure. Callers
+   * must only invoke this for units they actually consumed — the repository
+   * guard makes spurious refunds a no-op (ADR-0038, failure policy).
+   */
+  async refund(
+    tenantId: string,
+    feature: UsageFeature,
+    amount: number,
+    periodStart: string,
+  ): Promise<void> {
+    await this.#usageRepo.decrementUsage(tenantId, feature, amount, periodStart);
+  }
+
   async getUsageForPeriod(
     tenantId: string,
     feature: UsageFeature,

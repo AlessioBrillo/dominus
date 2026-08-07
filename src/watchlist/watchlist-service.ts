@@ -5,6 +5,7 @@ import type { RdapProvider } from '../providers/rdap/rdap-provider.js';
 import type { Notifier } from '../notifiers/notifier.js';
 import type { Config } from '../config.js';
 import type { WatchlistEntry, WatchlistPollResult } from '../types/watchlist.js';
+import type { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { AlertType, AlertSeverity } from '../types/alert.js';
 import { DomainStatus } from '../types/domain-status.js';
 import type { RdapResult } from '../types/domain-status.js';
@@ -14,6 +15,15 @@ import { parseDomain } from '../utils/domain.js';
 
 const logger = getLogger();
 
+export interface WatchlistAddOptions {
+  /**
+   * Skip the domains_tracked meter when true. Reserved for mandated
+   * bookkeeping flows where the domain is a financial transaction already
+   * (ADR-0038). Voluntary API/CLI adds always meter.
+   */
+  skipUsageMeter?: boolean;
+}
+
 export class WatchlistService {
   constructor(
     private readonly repo: WatchlistRepository,
@@ -21,12 +31,37 @@ export class WatchlistService {
     private readonly rdapProvider: RdapProvider,
     private readonly notifiers: Notifier[],
     private readonly config: Config,
+    /**
+     * Optional domains_tracked guard. When enforcement is disabled it is a
+     * no-op; when enabled, every add() atomically consumes one tracked
+     * domain unit against the tenant plan (ADR-0038).
+     */
+    private readonly usageEnforcer?: PipelineUsageEnforcer,
   ) {}
 
-  async add(domain: string, notes?: string): Promise<WatchlistEntry> {
-    const parsed = parseDomain(domain);
-    const tld = parsed.tld ?? 'unknown';
-    return await this.repo.insert({ domain, tld, notes });
+  async add(
+    domain: string,
+    notes?: string,
+    options: WatchlistAddOptions = {},
+  ): Promise<WatchlistEntry> {
+    const metered = this.usageEnforcer?.enabled && !options.skipUsageMeter;
+    if (metered) {
+      await this.usageEnforcer!.checkAndRecordTracked(1);
+    }
+    try {
+      const parsed = parseDomain(domain);
+      const tld = parsed.tld ?? 'unknown';
+      return await this.repo.insert({ domain, tld, notes });
+    } catch (err) {
+      // Refund the metered unit when the insert failed after the meter ran
+      // (duplicate, invalid domain) so failed adds never burn allowance
+      // (ADR-0038, failure policy). A refund failure must never mask the
+      // original insert error.
+      if (metered) {
+        await this.usageEnforcer!.refundTracked(1).catch(() => {});
+      }
+      throw err;
+    }
   }
 
   async remove(domain: string): Promise<boolean> {
