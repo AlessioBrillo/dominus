@@ -40,7 +40,7 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     {
       name: 'DNS',
       configured: true,
-      note: `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.`,
+      note: `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.${config.DNS_CONSENSUS_NAMESERVERS ? ` Consensus secondary via private recursor ${config.DNS_CONSENSUS_NAMESERVERS}.` : ''}`,
     },
     {
       name: 'RDAP',

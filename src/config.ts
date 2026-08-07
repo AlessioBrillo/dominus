@@ -487,6 +487,18 @@ const configSchema = z.object({
     ])
     .default('dot-only'),
   /**
+   * Comma-separated private recursor addresses (host or host:port) for the
+   * DNS consensus secondary (ADR-0042, C3 of the cloud hardening review).
+   * Default DHCP-provided DoT relies on egress TCP/853 to public resolvers,
+   * which is not guaranteed on a single-VM deployment. Pointing this at a
+   * co-hosted recursive resolver (e.g. Unbound from the docker-compose
+   * dns-consensus override, `127.0.0.1:5300` via an SSH tunnel)
+   * keeps the 2-of-3 gate independent of public egress. When set, the
+   * secondary queries these addresses with plain native DNS, overriding
+   * DNS_CONSENSUS_STRATEGY. Example: 127.0.0.1:5300,::1:5300
+   */
+  DNS_CONSENSUS_NAMESERVERS: z.string().optional(),
+  /**
    * Fraction of consensus-verified domains that may stay unverifiable before
    * a run is flagged degraded (ADR-0039). When the secondary DNS provider
    * fails to confirm more than this share of primary-Available verdicts, the

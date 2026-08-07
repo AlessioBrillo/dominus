@@ -232,6 +232,46 @@ describe('buildDnsConsensusConfig', () => {
     expect(result?.degradedRatio).toBe(0.3);
     expect(result?.degradedMin).toBe(25);
   });
+
+  it('returns undefined when DNS_CONSENSUS_NAMESERVERS reuses the primary resolvers', () => {
+    // A private-recursor pin (C3) is not an independent opinion when it
+    // forwards to the same public resolvers the primary already queries.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'native',
+      DNS_CONSENSUS_NAMESERVERS: '1.1.1.1',
+    });
+    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+  });
+
+  it('uses the private recursor as the secondary when DNS_CONSENSUS_NAMESERVERS is set', () => {
+    // C3: 'dot-only' consensus needs egress TCP/853, which is not guaranteed
+    // on a single-VM deployment. When the operator pins a private recursor
+    // (e.g. Unbound on 127.0.0.1:5300), the secondary must query it via
+    // plain native DNS instead of the public DoT strategy.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'doh-primary',
+      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_NAMESERVERS: '127.0.0.1:5300',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+  });
+
+  it('keeps the consensus strategy when no private recursor is pinned', () => {
+    // Backward compatible: without DNS_CONSENSUS_NAMESERVERS the secondary
+    // is built exactly as before (dot-only default).
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'doh-primary',
+      DNS_CONSENSUS_STRATEGY: 'dot-only',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+  });
 });
 
 describe('parseRdapBootstrapUrls', () => {

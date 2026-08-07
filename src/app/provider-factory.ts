@@ -337,13 +337,19 @@ export function buildSecondaryDnsProvider(
   config: Config,
   rateLimiter?: RateLimiterLike,
 ): DnsProvider {
+  const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
   return new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
     maxSize: config.DNS_CACHE_MAX_SIZE,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
-    lookupStrategy: config.DNS_CONSENSUS_STRATEGY,
+    // When a private recursor is pinned (C3, e.g. Unbound on 127.0.0.1:5300)
+    // the secondary queries it with plain native DNS — no dependency on
+    // egress TCP/853 that the default 'dot-only' strategy requires. Without
+    // the pin the configured DNS_CONSENSUS_STRATEGY is used verbatim.
+    lookupStrategy: consensusNameservers ? 'native' : config.DNS_CONSENSUS_STRATEGY,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+    ...(consensusNameservers !== undefined ? { nameservers: consensusNameservers } : {}),
     rateLimiter,
     retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
   });
@@ -358,11 +364,20 @@ export function buildDnsConsensusConfig(
   rateLimiter?: RateLimiterLike,
 ): ConsensusDnsConfig | undefined {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
+
+  // A pinned private recursor (C3) replaces the consensus strategy's resolver
+  // set with a native query to the local Unbound — the effective secondary
+  // lookup mode is 'native' regardless of DNS_CONSENSUS_STRATEGY.
+  const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+  const effectiveConsensusStrategy: string = consensusNameservers
+    ? 'native'
+    : config.DNS_CONSENSUS_STRATEGY;
+
   if (
     !validateConsensusStrategyDisjointness(
       config.DNS_CONSENSUS_ENABLED,
       config.DNS_LOOKUP_STRATEGY,
-      config.DNS_CONSENSUS_STRATEGY,
+      effectiveConsensusStrategy,
     )
   ) {
     return undefined;
@@ -378,13 +393,16 @@ export function buildDnsConsensusConfig(
     (config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined) ??
     strategyToResolverGroups(config.DNS_LOOKUP_STRATEGY, config.DNS_DOH_ENDPOINT);
   const consensusGroups = strategyToResolverGroups(
-    config.DNS_CONSENSUS_STRATEGY,
+    effectiveConsensusStrategy,
     config.DNS_DOH_ENDPOINT,
   );
+  // The consensus resolver set: a pinned private recursor overrides; otherwise
+  // the shared DNS_NAMESERVERS apply (a native consensus reuses them).
+  const effectiveConsensusNameservers = consensusNameservers ?? nameservers;
   if (
     !validateConsensusEndpointDisjointness(
       collectResolverEndpoints(primaryGroups, nameservers),
-      collectResolverEndpoints(consensusGroups, nameservers),
+      collectResolverEndpoints(consensusGroups, effectiveConsensusNameservers),
     )
   ) {
     return undefined;
