@@ -29,6 +29,12 @@ export class MetricsCollector {
   #totalRecommended = 0;
   #lastRunAt: string | null = null;
   #lastRunDurationMs: number | null = null;
+  #dnsConsensusVerified = 0;
+  #dnsConsensusDisagreed = 0;
+  #dnsConsensusUnverifiable = 0;
+  #dnsConsensusDegradedRuns = 0;
+  #dnsConsensusLastDegraded = false;
+  #dnsConsensusObserved = false;
 
   recordStage(
     stageName: string,
@@ -65,6 +71,20 @@ export class MetricsCollector {
     this.#totalRecommended += recommended;
     this.#lastRunAt = new Date().toISOString();
     this.#lastRunDurationMs = durationMs;
+  }
+
+  recordDnsConsensus(stats: {
+    verified: number;
+    disagreed: number;
+    unverifiable: number;
+    degraded: boolean;
+  }): void {
+    this.#dnsConsensusVerified += stats.verified;
+    this.#dnsConsensusDisagreed += stats.disagreed;
+    this.#dnsConsensusUnverifiable += stats.unverifiable;
+    this.#dnsConsensusObserved = true;
+    this.#dnsConsensusLastDegraded = stats.degraded;
+    if (stats.degraded) this.#dnsConsensusDegradedRuns++;
   }
 
   recordProviderError(providerName: string, method: string, errorCode: string): void {
@@ -125,6 +145,14 @@ export class MetricsCollector {
         lastRunAt: this.#lastRunAt,
         lastRunDurationMs: this.#lastRunDurationMs,
         providerMetrics,
+        dnsConsensus: {
+          verifiedTotal: this.#dnsConsensusVerified,
+          disagreedTotal: this.#dnsConsensusDisagreed,
+          unverifiableTotal: this.#dnsConsensusUnverifiable,
+          degradedRunsTotal: this.#dnsConsensusDegradedRuns,
+          lastRunDegraded: this.#dnsConsensusLastDegraded,
+          observed: this.#dnsConsensusObserved,
+        },
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -144,5 +172,11 @@ export class MetricsCollector {
     this.#totalRecommended = 0;
     this.#lastRunAt = null;
     this.#lastRunDurationMs = null;
+    this.#dnsConsensusVerified = 0;
+    this.#dnsConsensusDisagreed = 0;
+    this.#dnsConsensusUnverifiable = 0;
+    this.#dnsConsensusDegradedRuns = 0;
+    this.#dnsConsensusLastDegraded = false;
+    this.#dnsConsensusObserved = false;
   }
 }

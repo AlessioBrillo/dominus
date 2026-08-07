@@ -4,7 +4,7 @@ import { CandidateStatus } from '../../types/candidate.js';
 import { CandidateSource, type DomainCandidate } from '../../types/candidate.js';
 import type { DnsProvider, DnsCheckOptions } from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { Stage, StageResult, StageDegradation } from '../stage.js';
+import type { DnsConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
 
@@ -83,6 +83,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     const perDomainResults: (DnsCheckResult | undefined)[] = new Array(toFilter.length);
     const degradations: StageDegradation[] = [];
+    const consensusStats: DnsConsensusStats = {
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    };
 
     if (closeoutIndices.length > 0) {
       const closeoutDomains = closeoutIndices.map((i) => toFilter[i]!);
@@ -92,6 +98,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         signal,
         closeoutOpts,
         degradations,
+        consensusStats,
       );
       for (let j = 0; j < closeoutIndices.length; j++) {
         perDomainResults[closeoutIndices[j]!] = results[j];
@@ -105,6 +112,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         signal,
         undefined,
         degradations,
+        consensusStats,
       );
       for (let j = 0; j < otherIndices.length; j++) {
         perDomainResults[otherIndices[j]!] = results[j];
@@ -152,6 +160,11 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       stageName: this.name,
       durationMs: Date.now() - start,
       ...(degradations.length > 0 ? { degradations } : {}),
+      ...(consensusStats.verified > 0 ||
+      consensusStats.disagreed > 0 ||
+      consensusStats.unverifiable > 0
+        ? { consensusStats }
+        : {}),
     };
   }
 
@@ -170,6 +183,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     signal?: AbortSignal,
     options?: DnsCheckOptions,
     degradations?: StageDegradation[],
+    consensusStats?: DnsConsensusStats,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (domains.length === 0) return [];
     if (signal?.aborted) return new Array(domains.length);
@@ -206,7 +220,13 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           if (stillUndefined === 0) {
             // Stage 3: 2-of-3 consensus on Available results
             if (this.consensusConfig !== undefined) {
-              return await this.#applyConsensusCheck(retried, domains, signal, degradations);
+              return await this.#applyConsensusCheck(
+                retried,
+                domains,
+                signal,
+                degradations,
+                consensusStats,
+              );
             }
             return retried;
           }
@@ -218,7 +238,13 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     // Stage 3: 2-of-3 consensus on Available results
     if (this.consensusConfig !== undefined) {
-      return await this.#applyConsensusCheck(results, domains, signal, degradations);
+      return await this.#applyConsensusCheck(
+        results,
+        domains,
+        signal,
+        degradations,
+        consensusStats,
+      );
     }
 
     return results;
@@ -237,6 +263,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     domains: DomainCandidate[],
     signal?: AbortSignal,
     degradations?: StageDegradation[],
+    consensusStats?: DnsConsensusStats,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (signal?.aborted) return results;
     const cfg = this.consensusConfig!;
@@ -306,6 +333,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
+    if (consensusStats !== undefined) {
+      consensusStats.verified += verified;
+      consensusStats.disagreed += disagreed;
+      consensusStats.unverifiable += unverifiable;
+    }
+
     if (disagreed > 0 || unverifiable > 0) {
       logger.info({ verified, disagreed, unverifiable }, 'DNS: 2-of-3 consensus check complete');
     }
@@ -324,6 +357,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       unverifiable / consensusTotal >= degradedRatio &&
       degradations !== undefined
     ) {
+      if (consensusStats !== undefined) consensusStats.degraded = true;
       degradations.push({
         stageName: this.name,
         reason: 'consensus-unverified',

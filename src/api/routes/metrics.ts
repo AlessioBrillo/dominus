@@ -232,6 +232,45 @@ export function renderPrometheusMetrics(
     );
   }
 
+  const consensus = snapshot.pipeline.dnsConsensus;
+  if (consensus !== undefined && consensus.observed) {
+    g(
+      '2-of-3 DNS consensus verdicts verified (confirmed Available).',
+      'dominus_dns_consensus_verified_total',
+      consensus.verifiedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      '2-of-3 DNS consensus definitive disagreements (secondary Registered).',
+      'dominus_dns_consensus_disagreed_total',
+      consensus.disagreedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      '2-of-3 DNS consensus domains the secondary could not answer.',
+      'dominus_dns_consensus_unverifiable_total',
+      consensus.unverifiableTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Runs flagged degraded over DNS consensus (ADR-0039).',
+      'dominus_dns_consensus_degraded_runs_total',
+      consensus.degradedRunsTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      '1 when the last consensus-checked run was degraded, else 0.',
+      'dominus_dns_consensus_last_run_degraded',
+      consensus.lastRunDegraded ? 1 : 0,
+      undefined,
+      'gauge',
+    );
+  }
+
   g('Jobs currently queued awaiting a worker.', 'dominus_queue_queued', queueStats.queued);
   g('Jobs currently running.', 'dominus_queue_running', queueStats.running);
   g('Jobs completed.', 'dominus_queue_completed_total', queueStats.completed, undefined, 'counter');

@@ -26,6 +26,21 @@ export interface ProviderMetrics {
   currentErrors: ProviderErrorMetric[];
 }
 
+export interface DnsConsensusMetrics {
+  /** Available verdicts confirmed by the secondary across all runs. */
+  verifiedTotal: number;
+  /** Definitive disagreements (secondary Registered) across all runs. */
+  disagreedTotal: number;
+  /** Unanswerable domains (errors/timeouts) across all runs. */
+  unverifiableTotal: number;
+  /** Number of runs flagged degraded over consensus (ADR-0039). */
+  degradedRunsTotal: number;
+  /** Whether the most recent consensus-checked run was degraded. */
+  lastRunDegraded: boolean;
+  /** Whether consensus ran at least once since process start. */
+  observed: boolean;
+}
+
 export interface PipelineRunSummary {
   totalRuns: number;
   totalCandidatesEvaluated: number;
@@ -34,6 +49,7 @@ export interface PipelineRunSummary {
   lastRunAt: string | null;
   lastRunDurationMs: number | null;
   providerMetrics: Record<string, ProviderMetrics>;
+  dnsConsensus?: DnsConsensusMetrics;
 }
 
 export interface SystemMetrics {

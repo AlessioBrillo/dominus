@@ -26,6 +26,13 @@ export interface PipelineMetricsDelegate {
     errorCodes?: string[],
   ): void;
   recordPipelineRun(totalCandidates: number, recommended: number, durationMs: number): void;
+  /** Records 2-of-3 DNS consensus verdict tallies for a completed run. */
+  recordDnsConsensus?(stats: {
+    verified: number;
+    disagreed: number;
+    unverifiable: number;
+    degraded: boolean;
+  }): void;
 }
 
 const logger = getLogger();
@@ -698,6 +705,11 @@ export class PipelineOrchestrator {
         // that still produced partial output, e.g. DNS consensus-unverified).
         if (result.degradations !== undefined && result.degradations.length > 0) {
           degradations.push(...result.degradations);
+        }
+
+        // Forward per-run DNS consensus tallies to the metrics delegate.
+        if (result.consensusStats !== undefined) {
+          this.metrics?.recordDnsConsensus?.(result.consensusStats);
         }
 
         if (attempt > 1) {
