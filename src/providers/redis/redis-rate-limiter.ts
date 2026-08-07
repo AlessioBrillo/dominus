@@ -15,6 +15,15 @@ export interface RedisRateLimiterConfig {
    *  failing fast (default: max(2 × intervalMs, 5s)). Prevents callers
    *  from waiting indefinitely on a perpetually full bucket. */
   maxWaitMs?: number;
+  /** Distributed per-tenant fair share (ADR-0041). When enabled, acquire()
+   *  also enforces an independent sliding window of `perTenantTokens` keyed
+   *  by the tenant resolved from AsyncLocalStorage, so one tenant can never
+   *  monopolise the shared platform bucket. Enforcement is skipped for the
+   *  community `'default'` tenant and when no tenant context is present. */
+  fairShare?: boolean;
+  /** Per-tenant window capacity used when `fairShare` is enabled. Must be
+   *  lower than or equal to `tokens` to provide actual isolation. */
+  perTenantTokens?: number;
 }
 
 /** Raised when acquire() polls a saturated bucket for maxWaitMs without
