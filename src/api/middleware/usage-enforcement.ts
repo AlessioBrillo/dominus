@@ -35,7 +35,8 @@ export function createUsageEnforcementMiddleware(
   const feature: UsageFeature = options.feature ?? 'api_calls';
   const defaultPeriodStart = (): string => UsageMeterService.periodStart(new Date().toISOString());
   const periodStart: () => string = options.periodStart ?? defaultPeriodStart;
-  const skipPaths = options.skipPaths ?? ['/usage', '/billing', '/system'];
+  // Admin/self-serve control-plane routes are never metered.
+  const skipPaths = options.skipPaths ?? ['/usage', '/billing', '/system', '/keys'];
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!enabled) {

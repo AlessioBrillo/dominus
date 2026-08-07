@@ -5,7 +5,7 @@ import request from 'supertest';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
 import type { DatabaseProvider, ExecResult } from '../../db/provider/interface.js';
-import { createAuthRouter } from '../routes/auth.js';
+import { createKeyManagementRouter } from '../routes/api-keys.js';
 import { DbApiKeyProvider } from '../../providers/auth/db-api-key-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
 
@@ -237,30 +237,39 @@ describe('API key management endpoints', () => {
     } as unknown as ApiKeyRepository;
   }
 
-  let provider: DbApiKeyProvider;
   let repo: ApiKeyRepository;
+  let keysProvider: DbApiKeyProvider;
 
   beforeEach(() => {
     repo = mockKeyRepo();
-    provider = new DbApiKeyProvider(repo);
+    keysProvider = new DbApiKeyProvider(repo);
   });
 
-  function buildAdminApp(): express.Express {
+  // Realistic wiring: the key management router sits behind the auth
+  // middleware (protected router), so req.auth and the tenant context are
+  // populated exactly as in production (src/index.ts).
+  function buildKeyApp(role: string): express.Express {
     const app = express();
+    const authProvider = makeAuthProvider(
+      vi.fn().mockResolvedValue({
+        authenticated: true,
+        tenantId: 'tenant-1',
+        role,
+        keyName: 'admin-key',
+      }),
+    );
     app.use(express.json());
-    app.use((req, _res, next) => {
-      req.auth = { role: 'admin' };
-      next();
-    });
-    app.use('/api/v1/auth', createAuthRouter(provider, repo));
+    app.use('/api/v1', createAuthMiddleware(authProvider, makeMockDb()));
+    app.use('/api/v1/keys', createKeyManagementRouter(keysProvider, repo));
     return app;
   }
 
-  it('POST /api-keys creates a key and returns it once', async () => {
-    const app = buildAdminApp();
+  it('POST /keys creates a key and returns it once', async () => {
+    const app = buildKeyApp('admin');
 
     const res = await request(app)
-      .post('/api/v1/auth/api-keys')
+      .post('/api/v1/keys')
+      .set('Authorization', 'Bearer admin-key')
       .send({ name: 'my-key', role: 'admin' });
 
     expect(res.status).toBe(201);
@@ -268,53 +277,67 @@ describe('API key management endpoints', () => {
     expect(res.body.name).toBe('my-key');
   });
 
-  it('POST /api-keys returns 400 when name is missing', async () => {
-    const app = buildAdminApp();
+  it('POST /keys scopes the new key to the caller tenant', async () => {
+    const app = buildKeyApp('admin');
 
-    const res = await request(app).post('/api/v1/auth/api-keys').send({ role: 'admin' });
+    await request(app)
+      .post('/api/v1/keys')
+      .set('Authorization', 'Bearer admin-key')
+      .send({ name: 'scoped' });
+
+    expect(repo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: 'tenant-1', name: 'scoped' }),
+    );
+  });
+
+  it('POST /keys returns 400 when name is missing', async () => {
+    const app = buildKeyApp('admin');
+
+    const res = await request(app)
+      .post('/api/v1/keys')
+      .set('Authorization', 'Bearer admin-key')
+      .send({ role: 'admin' });
 
     expect(res.status).toBe(400);
   });
 
-  it('GET /api-keys lists all keys for the tenant', async () => {
-    const app = buildAdminApp();
+  it('GET /keys lists all keys for the tenant', async () => {
+    const app = buildKeyApp('admin');
 
-    await provider.generate({ tenantId: 'default', name: 'k1' });
-    await provider.generate({ tenantId: 'default', name: 'k2' });
+    await keysProvider.generate({ tenantId: 'tenant-1', name: 'k1' });
+    await keysProvider.generate({ tenantId: 'tenant-1', name: 'k2' });
 
-    const res = await request(app).get('/api/v1/auth/api-keys');
+    const res = await request(app).get('/api/v1/keys').set('Authorization', 'Bearer admin-key');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(2);
   });
 
-  it('DELETE /api-keys/:id revokes a key', async () => {
-    const app = buildAdminApp();
+  it('DELETE /keys/:id revokes a key', async () => {
+    const app = buildKeyApp('admin');
 
-    const { id } = await provider.generate({ tenantId: 'default', name: 'del' });
+    const { id } = await keysProvider.generate({ tenantId: 'tenant-1', name: 'del' });
 
-    const res = await request(app).delete(`/api/v1/auth/api-keys/${id}`);
+    const res = await request(app)
+      .delete(`/api/v1/keys/${id}`)
+      .set('Authorization', 'Bearer admin-key');
     expect(res.status).toBe(204);
   });
 
-  it('POST /api-keys returns 403 for a non-admin caller', async () => {
-    const app = express();
-    app.use(express.json());
-    app.use((req, _res, next) => {
-      req.auth = { role: 'member' };
-      next();
-    });
-    app.use('/api/v1/auth', createAuthRouter(provider, repo));
+  it('POST /keys returns 403 for a non-admin caller', async () => {
+    const app = buildKeyApp('member');
 
-    const res = await request(app).post('/api/v1/auth/api-keys').send({ name: 'nope' });
+    const res = await request(app)
+      .post('/api/v1/keys')
+      .set('Authorization', 'Bearer member-key')
+      .send({ name: 'nope' });
     expect(res.status).toBe(403);
   });
 
-  it('GET /api-keys returns 403 without req.auth (no auth middleware in front)', async () => {
-    const app = express();
-    app.use(express.json());
-    app.use('/api/v1/auth', createAuthRouter(provider, repo));
+  it('GET /keys returns 401 without a valid token (auth middleware rejects)', async () => {
+    const app = buildKeyApp('admin');
 
-    const res = await request(app).get('/api/v1/auth/api-keys');
-    expect(res.status).toBe(403);
+    const res = await request(app).get('/api/v1/keys');
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('UNAUTHORIZED');
   });
 });

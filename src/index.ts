@@ -28,6 +28,7 @@ import {
   createProvidersRouter,
   createOutcomesRouter,
   createAuthRouter,
+  createKeyManagementRouter,
   createAlertsRouter,
   createSchedulerRouter,
   createWatchlistRouter,
@@ -193,7 +194,7 @@ async function main(): Promise<void> {
       }),
     );
   }
-  app.use('/api/v1/auth', createAuthRouter(deps.authProvider, deps.apiKeyRepo));
+  app.use('/api/v1/auth', createAuthRouter(deps.authProvider));
 
   // Global per-IP rate limit for all remaining API routes (protects against
   // request floods and resource exhaustion). Applied after auth to separate
@@ -289,6 +290,7 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
+  protectedRouter.use('/keys', createKeyManagementRouter(deps.authProvider, deps.apiKeyRepo));
   protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
