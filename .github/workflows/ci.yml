@@ -208,6 +208,23 @@ jobs:
             }
           done
 
+      # The optional DNS-consensus override (ADR-0042) must merge cleanly on
+      # top of the prod profile and pin the recursor to its fixed address.
+      - name: Validate DNS-consensus override compose config
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml config --quiet
+          services=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml config --services)
+          for expected in api worker scheduler postgres redis consensus-dns; do
+            echo "$services" | grep -qx "$expected" || {
+              echo "FATAL: dns-consensus override is missing service '$expected'"; exit 1
+            }
+          done
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml config --format json \
+            | grep -q '"172.20.0.10"' || {
+              echo "FATAL: consensus-dns must be pinned to 172.20.0.10"; exit 1
+            }
+
       - name: Validate Prometheus config and rules
         run: |
           set -euo pipefail

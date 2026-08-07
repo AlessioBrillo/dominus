@@ -1,0 +1,73 @@
+# DOMINUS DNS consensus recursor (optional, ADR-0042 / C3).
+#
+# Opt-in override: a co-hosted Unbound recursive resolver that the 2-of-3
+# DNS consensus secondary queries, so the gate keeps an independent opinion
+# without depending on egress TCP/853 to public DoT providers.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml up -d
+#
+# The recursor is pinned to the deterministic address 172.20.0.10 (Node's
+# resolver.setServers only accepts IPs, not service hostnames). Point the app
+# at it with DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300 and leave
+# DNS_CONSENSUS_STRATEGY at its default ('dot-only' is overridden by the pin).
+#
+# The dedicated /24 keeps the recursor on the loopback-isolated compose
+# subnet it is allowed to serve (access-control 172.20.0.0/24 in unbound.conf).
+
+services:
+  consensus-dns:
+    image: nlnetlabs/unbound:latest
+    restart: always
+    networks:
+      dns-consensus-net:
+        ipv4_address: 172.20.0.10
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    volumes:
+      - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
+    command: ["-d", "-c", "/opt/unbound/unbound.conf"]
+    healthcheck:
+      test: ["CMD", "unbound-control", "status"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    networks:
+      - default
+      - dns-consensus-net
+    depends_on:
+      - consensus-dns
+
+  worker:
+    networks:
+      - default
+      - dns-consensus-net
+    depends_on:
+      - consensus-dns
+
+  scheduler:
+    networks:
+      - default
+      - dns-consensus-net
+    depends_on:
+      - consensus-dns
+
+networks:
+  dns-consensus-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

@@ -48,6 +48,7 @@ re-running the original arguments.
 | [0039](0039-dns-consensus-degradation-policy.md)             | DNS consensus failure policy — fail-closed with degraded-run flagging and verdict metrics                     | 2026-08-07 | Accepted                            |
 | [0040](0040-dns-consensus-fallback-parity.md)                | DNS consensus fallback parity — 2-of-3 gate on every resolution path                                          | 2026-08-07 | Accepted                            |
 | [0041](0041-provider-fair-share.md)                          | Distributed per-tenant provider fair share — tenant windows on shared Redis budgets                           | 2026-08-07 | Accepted                            |
+| [0042](0042-provider-dns-private-recursor.md)                | DNS consensus private recursor — Unbound override, consensus independent of public DoT egress                | 2026-08-07 | Accepted                            |
 
 ## Conventions
 
