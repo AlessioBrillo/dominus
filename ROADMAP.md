@@ -99,6 +99,10 @@ estimates and subject to change.
       unknown secondary resolver downgrades the verdict to Unknown instead
       of trusting the primary, plus a startup probe that fails fast when
       the consensus provider is misconfigured
+- [x] DNS consensus failure policy (ADR-0039): fail-closed with a visible
+      `consensus-unverified` degraded-run flag, majority + floor knobs
+      (`DNS_CONSENSUS_DEGRADED_RATIO`/`_MIN`), and `dominus_dns_consensus_*`
+      Prometheus tallies
 - [x] Metrics access control: optional `METRICS_TOKEN` bearer auth on the
       `/api/v1/metrics/*` router (401 when set and not presented;
       unchanged when unset), with a commented Prometheus scrape
