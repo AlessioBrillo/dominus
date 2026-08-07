@@ -148,6 +148,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-dominus}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dominus}"]
       interval: 10s
