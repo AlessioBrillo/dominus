@@ -7,7 +7,13 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from './dns-provider.js';
 import { strategyToResolverGroups } from './dns-provider.js';
 import { DohAgentPool } from './doh-agents.js';
-import { DotPool } from './dot-pool.js';
+import {
+  DotPool,
+  buildDnsQuery,
+  classifyResponse,
+  recordTypeToQtype,
+  validateDnsResponse,
+} from './dot-pool.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { withRetry } from '../retryable-provider.js';
 import type { RetryPolicy } from '../retry-policy.js';
@@ -174,6 +180,10 @@ async function resolveDoh(
   const url = new URL(endpoint);
   url.searchParams.set('name', domain);
   url.searchParams.set('type', recordType);
+  // Google's JSON API rejects the request without the ct= parameter
+  // (verified live: dns.google/dns-query returns 400 without it, ADR-0047).
+  // Cloudflare accepts and ignores it, so the parameter is unconditional.
+  url.searchParams.set('ct', 'application/dns-json');
 
   const init: {
     headers: Record<string, string>;
@@ -214,6 +224,56 @@ async function resolveDoh(
     throw Object.assign(new Error('DoH NODATA'), { code: 'ENODATA' });
   }
 
+  return true;
+}
+
+/**
+ * RFC 8484 DoH wire-format leg (GET ?dns=<base64url>). Vendors that only
+ * speak the wire protocol (Quad9, AdGuard, Mullvad) can never answer the
+ * JSON API; every default DoH group carries one wire leg so the majority
+ * vote needs three live transports, not two (ADR-0047).
+ *
+ * Verdict semantics are the conservative DoT ones (see classifyResponse in
+ * dot-pool.ts): NXDOMAIN and NODATA are definitive, SERVFAIL/REFUSED are
+ * neutral resolver failures, and a response whose query ID does not match
+ * the request is dropped as corrupt.
+ */
+async function resolveDohWire(
+  domain: string,
+  recordType: string,
+  endpoint: string,
+  signal?: AbortSignal,
+  dispatcher?: Dispatcher,
+): Promise<boolean> {
+  const query = buildDnsQuery(domain, recordTypeToQtype(recordType));
+  const url = new URL(endpoint);
+  url.searchParams.set('dns', query.toString('base64url'));
+
+  const init: {
+    headers: Record<string, string>;
+    signal?: AbortSignal;
+    dispatcher?: unknown;
+  } = {
+    headers: { accept: 'application/dns-message' },
+  };
+  if (signal !== undefined) init.signal = signal;
+  if (dispatcher !== undefined) init.dispatcher = dispatcher;
+
+  const response = await fetch(url.toString(), init as Parameters<typeof fetch>[1]);
+
+  if (!response.ok) {
+    throw new Error(`DoH wire query failed: ${response.status}`);
+  }
+
+  const body = Buffer.from(await response.arrayBuffer());
+  if (!validateDnsResponse(body, query.readUInt16BE(0))) {
+    throw Object.assign(new Error('DoH wire response ID mismatch'), { code: 'ESERVFAIL' });
+  }
+
+  const outcome = classifyResponse(body);
+  if (outcome.kind === 'error') {
+    throw Object.assign(new Error(outcome.message), { code: outcome.code });
+  }
   return true;
 }
 
@@ -292,6 +352,10 @@ async function resolvesAnyNative(
  * Requests ride the provider's shared undici Agent (see DohAgentPool): one
  * keep-alive pool per endpoint origin, so consecutive queries reuse sockets
  * instead of paying a fresh TLS/HTTP handshake each (ADR-0044).
+ *
+ * `format` selects the request shape: 'json' (Google-style JSON API, the
+ * default) or 'wire' (RFC 8484 base64url GET). Vendors without a JSON API
+ * ride the wire path (ADR-0047).
  */
 async function resolvesAnyDoh(
   domain: string,
@@ -299,11 +363,17 @@ async function resolvesAnyDoh(
   timeout: number,
   signal?: AbortSignal,
   dispatcher?: Dispatcher,
+  format: 'json' | 'wire' = 'json',
 ): Promise<boolean | undefined> {
+  const query = (type: string, merged: AbortSignal): Promise<boolean> =>
+    format === 'wire'
+      ? resolveDohWire(domain, type, endpoint, merged, dispatcher)
+      : resolveDoh(domain, type, endpoint, merged, dispatcher);
+
   // Phase 1: A record only
   const aTimeoutSignal = AbortSignal.timeout(timeout);
   const aCombined = signal ? AbortSignal.any([signal, aTimeoutSignal]) : aTimeoutSignal;
-  const aOutcome = await resolveDoh(domain, 'A', endpoint, aCombined, dispatcher)
+  const aOutcome = await query('A', aCombined)
     .then(() => true as const)
     .catch((err: unknown) => {
       const e = err as { code?: string; name?: string };
@@ -324,7 +394,7 @@ async function resolvesAnyDoh(
     fallbackTypes.map((type) => {
       const typeTimeout = AbortSignal.timeout(timeout);
       const merged = AbortSignal.any([fallbackSignal, typeTimeout]);
-      return resolveDoh(domain, type, endpoint, merged, dispatcher)
+      return query(type, merged)
         .then(() => {
           fallbackAc.abort();
           return {
@@ -792,6 +862,7 @@ export class NodeDnsProvider implements DnsProvider {
         timeout,
         combinedSignal,
         this.#dohAgents.dispatcherFor(spec.endpoint ?? this.#dohEndpoint),
+        spec.format ?? 'json',
       );
     });
 

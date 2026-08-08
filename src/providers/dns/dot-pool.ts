@@ -59,7 +59,7 @@ function encodeDnsName(name: string): Buffer {
   return Buffer.concat(buffers);
 }
 
-function recordTypeToQtype(type: string): number {
+export function recordTypeToQtype(type: string): number {
   switch (type) {
     case 'A':
       return 1;
@@ -137,8 +137,10 @@ interface PendingQuery {
 
 type QueryOutcome = { kind: 'resolved' } | { kind: 'error'; code: string; message: string };
 
-/** Classify a complete DNS response (RFC 1035 header, no length prefix). */
-function classifyResponse(msg: Buffer): QueryOutcome {
+/** Classify a complete DNS response (RFC 1035 header, no length prefix).
+ *  Shared by the DoT pool and the RFC 8484 DoH wire leg so both transports
+ *  apply the same conservative RCODE semantics (ADR-0002). */
+export function classifyResponse(msg: Buffer): QueryOutcome {
   const flags = msg.readUInt16BE(2);
   const rcode = flags & 0x000f;
   const truncated = (flags & 0x0200) !== 0;

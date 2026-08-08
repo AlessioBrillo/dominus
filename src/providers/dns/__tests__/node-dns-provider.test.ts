@@ -768,6 +768,152 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('DoH JSON vs RFC 8484 wire legs (ADR-0047)', () => {
+    // Live evidence (2026-08-08): Google's JSON API answers 400 on
+    // /dns-query and only serves JSON on /resolve; Quad9's /dns-query is
+    // RFC 8484-only (505 with an HTTP/1.1 JSON request). Two of the three
+    // default legs were silently inert.
+    const CLOUDFLARE = 'cloudflare-dns.com';
+    const GOOGLE = 'dns.google';
+    const QUAD9 = 'dns.quad9.net';
+
+    type DohOutcome =
+      | { Status: number; Answer?: Array<{ type: number; data: string }> }
+      | { wire: { rcode: number; ancount?: number; echoId?: boolean } }
+      | 'network-error';
+
+    function mockDohFetch(outcomesByHost: Record<string, DohOutcome>): void {
+      vi.spyOn(global, 'fetch').mockImplementation((input) => {
+        const host = new URL(String(input)).hostname;
+        const outcome = outcomesByHost[host];
+        if (outcome === undefined || outcome === 'network-error') {
+          return Promise.reject(new Error(`DoH network error for ${host}`));
+        }
+        if ('wire' in outcome) {
+          const dnsParam = new URL(String(input)).searchParams.get('dns');
+          const queryId =
+            outcome.wire.echoId !== false && dnsParam !== null
+              ? Buffer.from(dnsParam, 'base64url').readUInt16BE(0)
+              : 0x9999;
+          const body = Buffer.alloc(12);
+          body.writeUInt16BE(queryId, 0);
+          body.writeUInt16BE(0x8180 | (outcome.wire.rcode & 0x000f), 2);
+          body.writeUInt16BE(outcome.wire.ancount ?? 0, 6);
+          return Promise.resolve({
+            ok: true,
+            arrayBuffer: () =>
+              Promise.resolve(
+                body.buffer.slice(
+                  body.byteOffset,
+                  body.byteOffset + body.byteLength,
+                ) as ArrayBuffer,
+              ),
+          } as unknown as Response);
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(outcome) } as Response);
+      });
+    }
+
+    it('queries Google JSON via /resolve with ct=application/dns-json', async () => {
+      // Regression: dns.google/dns-query returns 400 for JSON GET requests;
+      // the Google JSON API lives on /resolve. Without ct= the endpoint
+      // rejects the request — the leg could never answer.
+      mockDohFetch({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: { Status: 3 },
+        [QUAD9]: { Status: 3 },
+      });
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      await p.checkAvailability('google-url-check.com');
+
+      const googleCall = vi
+        .mocked(global.fetch)
+        .mock.calls.find(([input]) => String(input).includes('dns.google'));
+      expect(googleCall).toBeDefined();
+      const url = new URL(String(googleCall![0]));
+      expect(url.pathname).toBe('/resolve');
+      expect(url.searchParams.get('ct')).toBe('application/dns-json');
+    });
+
+    it('queries Quad9 with the RFC 8484 wire format (dns= param, no name=)', async () => {
+      // Regression: dns.quad9.net/dns-query only implements RFC 8484 (the
+      // server answers 505 to HTTP/1.1 JSON GETs). The wire format is the
+      // only request shape that leg can ever answer.
+      mockDohFetch({
+        [CLOUDFLARE]: { wire: { rcode: 3 } },
+        [GOOGLE]: 'network-error',
+        [QUAD9]: { wire: { rcode: 3 } },
+      });
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      await p.checkAvailability('quad9-wire-check.com');
+
+      const quad9Calls = vi
+        .mocked(global.fetch)
+        .mock.calls.filter(([input]) => String(input).includes('dns.quad9.net'));
+      expect(quad9Calls.length).toBeGreaterThan(0);
+      const url = new URL(String(quad9Calls[0]![0]));
+      expect(url.searchParams.has('dns')).toBe(true);
+      expect(url.searchParams.has('name')).toBe(false);
+    });
+
+    it('maps Google to /resolve and Quad9 to wire format in the default DoH set', () => {
+      const groups = strategyToResolverGroups('doh-only', 'https://cloudflare-dns.com/dns-query');
+      const lookups = groups[0]?.lookups ?? [];
+      const google = lookups.find((l) => l.endpoint?.includes('dns.google'));
+      const quad9 = lookups.find((l) => l.endpoint?.includes('dns.quad9.net'));
+      expect(lookups.filter((l) => l.type === 'doh')).toHaveLength(3);
+      expect(google?.endpoint).toBe('https://dns.google/resolve');
+      expect(quad9?.format).toBe('wire');
+    });
+
+    it('reports Available on a 2/3 NXDOMAIN majority when the third leg answers via wire', async () => {
+      const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
+      vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
+      mockDohFetch({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: { Status: 3 },
+        [QUAD9]: { wire: { rcode: 3 } },
+      });
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('wire-majority.com');
+      expect(result.status).toBe(DomainStatus.Available);
+      expect(dnsPromises.resolve).not.toHaveBeenCalled();
+    });
+
+    it('treats a wire SERVFAIL (rcode 2) as a neutral vote, never as NXDOMAIN', async () => {
+      mockDohFetch({
+        [CLOUDFLARE]: { Status: 3 },
+        [GOOGLE]: { Status: 3 },
+        [QUAD9]: { wire: { rcode: 2 } },
+      });
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('wire-servfail.com');
+      expect(result.status).toBe(DomainStatus.Available);
+    });
+
+    it('does not let a lone wire-format NXDOMAIN outvote two failed legs', async () => {
+      mockDohFetch({
+        [CLOUDFLARE]: 'network-error',
+        [GOOGLE]: 'network-error',
+        [QUAD9]: { wire: { rcode: 3 } },
+      });
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('lone-wire.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+
+    it('treats a wire response with a mismatched query ID as a neutral vote', async () => {
+      mockDohFetch({
+        [CLOUDFLARE]: 'network-error',
+        [GOOGLE]: 'network-error',
+        [QUAD9]: { wire: { rcode: 3, echoId: false } },
+      });
+      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const result = await p.checkAvailability('wire-id-mismatch.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+  });
+
   describe('buildDnsQuery', () => {
     it('produces different query IDs on successive calls', () => {
       const q1 = buildDnsQuery('example.com', 1);
