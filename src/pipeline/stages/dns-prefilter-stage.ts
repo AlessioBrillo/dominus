@@ -35,6 +35,22 @@ export interface ConsensusDnsConfig {
    * already-heavy run. Default: falls back to the stage's bulk concurrency.
    */
   consensusConcurrency?: number;
+  /**
+   * Optional third DNS provider (ADR-0045). Consulted when the secondary
+   * cannot answer an Available primary verdict: a tertiary Available
+   * confirmation rescues the domain, a tertiary Registered answer vetoes
+   * it. Also mandatory when requiredAvailable is 2.
+   */
+  tertiaryProvider?: DnsProvider;
+  /**
+   * How many verification legs must confirm an Available verdict (1 or 2,
+   * default 1): 1 = the secondary alone suffices (tertiary consulted only
+   * when the secondary cannot answer), 2 = BOTH the secondary and the
+   * tertiary must confirm. Clamped to 1 when no tertiaryProvider is
+   * configured — a requirement no leg can satisfy must never silently
+   * downgrade every domain (ADR-0045).
+   */
+  requiredAvailable?: number;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -46,6 +62,9 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     private readonly skipSources: CandidateSource[] = [],
     private readonly consensusConfig?: ConsensusDnsConfig,
   ) {}
+
+  /** Whether the requiredAvailable=2-without-tertiary clamp was already logged. */
+  #tertiaryClampWarned = false;
 
   async process(
     candidates: DomainCandidate[],
@@ -304,6 +323,14 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
    * independently confirms it: a disagreement (Registered) OR a failure to
    * answer (undefined) OR an Unknown answer downgrades the domain to
    * Unknown — "unknown wins over available" (ADR-0002).
+   *
+   * ADR-0045 adds an optional tertiary leg: when the secondary cannot answer
+   * (error/timeout), the tertiary is consulted instead of failing the
+   * domain: a tertiary Available confirmation rescues the domain, a
+   * tertiary Registered answer vetoes it. With requiredAvailable = 2 the
+   * tertiary becomes mandatory — both verification legs must confirm. A
+   * Registered verdict from the secondary remains a final veto: the law is
+   * "registered wins", never "registered rescued".
    */
   async #applyConsensusCheck(
     results: (DnsCheckResult | undefined)[],
@@ -330,8 +357,19 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     if (toVerify.length === 0) return results;
 
+    const tertiary = cfg.tertiaryProvider;
+    const required = cfg.requiredAvailable === 2 && tertiary !== undefined ? 2 : 1;
+    if (cfg.requiredAvailable === 2 && tertiary === undefined && !this.#tertiaryClampWarned) {
+      this.#tertiaryClampWarned = true;
+      logger.warn(
+        'DNS: DNS_CONSENSUS_REQUIRED_AVAILABLE=2 has no tertiary leg — clamping to 1 ' +
+          '(one confirmation beyond the primary) so the gate cannot demand a ' +
+          'confirmation no configured leg can provide',
+      );
+    }
+
     logger.info(
-      { verifyCount: toVerify.length, totalAvailable: toVerify.length },
+      { verifyCount: toVerify.length, totalAvailable: toVerify.length, requiredLegs: required },
       'DNS: 2-of-3 consensus check on Available domains',
     );
 
@@ -342,10 +380,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     let verified = 0;
     let disagreed = 0;
     let unverifiable = 0;
+    let tertiaryRescued = 0;
     for (let i = 0; i < toVerify.length; i += consensusConcurrency) {
       if (signal?.aborted) return results;
       const batch = toVerify.slice(i, i + consensusConcurrency);
-      const batchResults = await Promise.all(
+
+      const secondaryResults = await Promise.all(
         batch.map(async ({ index, domain }) => {
           try {
             const secondary = await cfg.secondaryProvider.checkAvailability(domain, signal);
@@ -356,30 +396,105 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         }),
       );
 
-      for (const { index, domain, secondary } of batchResults) {
-        // Strict 2-of-3 consensus: only an explicit Available from the
-        // secondary confirms the primary's verdict. A non-answer (thrown
-        // error or undefined) and an Unknown answer are treated the same
-        // as a disagreement — the domain must not pass on a single
-        // resolver's opinion (ADR-0002 conservatism).
-        if (secondary === undefined || secondary.status !== DomainStatus.Available) {
-          if (secondary?.status === DomainStatus.Registered) disagreed++;
-          else unverifiable++;
+      // Domains that need the tertiary before a verdict can be cast: either
+      // the secondary could not answer (rescue path) or requiredAvailable=2
+      // demands a second confirmation in addition to the secondary's.
+      const needsTertiary: Array<{ index: number; domain: string; secondaryConfirmed: boolean }> =
+        [];
+      for (const { index, domain, secondary } of secondaryResults) {
+        // A definitive Registered from the secondary is a final veto: the
+        // domain must not pass on any other leg (ADR-0002 conservatism).
+        if (secondary !== undefined && secondary.status === DomainStatus.Registered) {
+          disagreed++;
           results[index] = {
             domain,
             status: DomainStatus.Unknown,
             checkedAt: new Date().toISOString(),
           };
           logger.warn(
-            {
-              domain,
-              secondary: secondary?.status ?? 'no-answer',
-            },
+            { domain, secondary: secondary.status },
+            'DNS: 2-of-3 consensus vetoed (secondary Registered) — downgraded to Unknown',
+          );
+          continue;
+        }
+
+        if (secondary !== undefined && secondary.status === DomainStatus.Available) {
+          if (required >= 2) {
+            needsTertiary.push({ index, domain, secondaryConfirmed: true });
+          } else {
+            verified++;
+          }
+          continue;
+        }
+
+        // Secondary cannot answer (error, timeout, Unknown).
+        if (tertiary !== undefined) {
+          needsTertiary.push({ index, domain, secondaryConfirmed: false });
+        } else {
+          unverifiable++;
+          results[index] = {
+            domain,
+            status: DomainStatus.Unknown,
+            checkedAt: new Date().toISOString(),
+          };
+          logger.warn(
+            { domain, secondary: secondary?.status ?? 'no-answer' },
             'DNS: 2-of-3 consensus not confirmed — downgraded to Unknown',
           );
-        } else {
-          verified++;
         }
+      }
+
+      if (needsTertiary.length === 0) continue;
+
+      const tertiaryResults = await Promise.all(
+        needsTertiary.map(async ({ index, domain }) => {
+          try {
+            const third = await tertiary!.checkAvailability(domain, signal);
+            return { index, domain, third };
+          } catch {
+            return { index, domain, third: undefined as DnsCheckResult | undefined };
+          }
+        }),
+      );
+
+      for (const { index, domain, third } of tertiaryResults) {
+        const entry = needsTertiary.find((n) => n.index === index)!;
+        if (third !== undefined && third.status === DomainStatus.Registered) {
+          // The tertiary vetoes: Registered wins over any Available.
+          disagreed++;
+          results[index] = {
+            domain,
+            status: DomainStatus.Unknown,
+            checkedAt: new Date().toISOString(),
+          };
+          logger.warn(
+            { domain, tertiary: third.status },
+            'DNS: 2-of-3 consensus vetoed by tertiary (Registered) — downgraded to Unknown',
+          );
+          continue;
+        }
+        if (third !== undefined && third.status === DomainStatus.Available) {
+          if (entry.secondaryConfirmed) {
+            // requiredAvailable=2: both verification legs confirmed.
+            verified++;
+          } else {
+            // Rescue path (ADR-0045): the secondary could not answer and the
+            // tertiary confirmed the primary's Available verdict.
+            verified++;
+            tertiaryRescued++;
+          }
+          continue;
+        }
+        unverifiable++;
+        results[index] = {
+          domain,
+          status: DomainStatus.Unknown,
+          checkedAt: new Date().toISOString(),
+        };
+        logger.warn(
+          { domain, tertiary: third?.status ?? 'no-answer' },
+          'DNS: 2-of-3 consensus not confirmed (tertiary could not answer) — downgraded to Unknown',
+        );
       }
     }
 
@@ -387,10 +502,16 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       consensusStats.verified += verified;
       consensusStats.disagreed += disagreed;
       consensusStats.unverifiable += unverifiable;
+      if (tertiaryRescued > 0) {
+        consensusStats.tertiaryRescued = (consensusStats.tertiaryRescued ?? 0) + tertiaryRescued;
+      }
     }
 
     if (disagreed > 0 || unverifiable > 0) {
-      logger.info({ verified, disagreed, unverifiable }, 'DNS: 2-of-3 consensus check complete');
+      logger.info(
+        { verified, disagreed, unverifiable, tertiaryRescued },
+        'DNS: 2-of-3 consensus check complete',
+      );
     }
 
     // Fail-closed with a visible flag: when the secondary cannot confirm the
