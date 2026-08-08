@@ -14,6 +14,7 @@ import {
   ParkingIpRegistry,
   collectResolverEndpoints,
   strategyToResolverGroups,
+  type DnsLookupStrategy,
   type DnsProvider,
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
@@ -417,12 +418,91 @@ export function buildDnsConsensusConfig(
     return undefined;
   }
   const secondaryRateLimiter = consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
+  const tertiaryProvider = buildTertiaryConsensusProvider(
+    config,
+    secondaryRateLimiter,
+    primaryGroups,
+    nameservers,
+    consensusGroups,
+    effectiveConsensusNameservers,
+  );
   return {
     secondaryProvider: buildSecondaryDnsProvider(config, secondaryRateLimiter),
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
+    ...(tertiaryProvider !== undefined ? { tertiaryProvider } : {}),
+    requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
   };
+}
+
+/**
+ * Builds the optional THIRD DNS consensus opinion (ADR-0045), when
+ * DNS_TERTIARY_ENABLED is on. Returns undefined when the leg is disabled or
+ * when its resolver set overlaps either the primary or the secondary —
+ * a third opinion through the same endpoints is no opinion at all, and the
+ * gate must never silently degrade by thinning redundancy. Shares the
+ * dedicated consensus rate-limit budget (ADR-0044): the whole verification
+ * gate counts against its own bucket, never against the primary's.
+ */
+function buildTertiaryConsensusProvider(
+  config: Config,
+  rateLimiter: RateLimiterLike,
+  primaryGroups: DnsResolverGroup[],
+  primaryNameservers: string[] | undefined,
+  consensusGroups: DnsResolverGroup[],
+  consensusNameservers: string[] | undefined,
+): DnsProvider | undefined {
+  if (!config.DNS_TERTIARY_ENABLED) return undefined;
+
+  const logger = getLogger();
+  // A pinned private recursor replaces the strategy's resolver set with a
+  // native query to the local recursor — mirroring the secondary's C3 rule.
+  const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+  const effectiveTertiaryStrategy: DnsLookupStrategy = tertiaryNameservers
+    ? 'native'
+    : config.DNS_TERTIARY_STRATEGY;
+  const tertiaryGroups = strategyToResolverGroups(
+    effectiveTertiaryStrategy,
+    config.DNS_DOH_ENDPOINT,
+  );
+  const effectiveTertiaryNameservers = tertiaryNameservers ?? primaryNameservers;
+
+  // Endpoint-level disjointness against BOTH existing legs: the tertiary
+  // through the primary's or the secondary's own servers adds no opinion.
+  const tertiaryEndpoints = collectResolverEndpoints(tertiaryGroups, effectiveTertiaryNameservers);
+  const primaryEndpoints = collectResolverEndpoints(primaryGroups, primaryNameservers);
+  const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers);
+  if (
+    !validateConsensusEndpointDisjointness(primaryEndpoints, tertiaryEndpoints) ||
+    !validateConsensusEndpointDisjointness(consensusEndpoints, tertiaryEndpoints)
+  ) {
+    logger.warn(
+      {
+        strategy: effectiveTertiaryStrategy,
+        nameservers: effectiveTertiaryNameservers,
+      },
+      'DNS: tertiary consensus leg disabled — its resolver set overlaps the primary ' +
+        'or the secondary. A third opinion through the same servers adds no information ' +
+        '(ADR-0045). Pin DNS_TERTIARY_NAMESERVERS to an independent recursor.',
+    );
+    return undefined;
+  }
+
+  return new NodeDnsProvider({
+    cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+    maxSize: config.DNS_CACHE_MAX_SIZE,
+    lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+    lookupStrategy: effectiveTertiaryStrategy,
+    dohEndpoint: config.DNS_DOH_ENDPOINT,
+    dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+    bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+    ...(effectiveTertiaryNameservers !== undefined
+      ? { nameservers: effectiveTertiaryNameservers }
+      : {}),
+    rateLimiter,
+    retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+  });
 }
 
 /**

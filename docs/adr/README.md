@@ -51,6 +51,7 @@ re-running the original arguments.
 | [0042](0042-provider-dns-private-recursor.md)                | DNS consensus private recursor — Unbound override, consensus independent of public DoT egress                | 2026-08-07 | Accepted                            |
 | [0043](0043-configurable-public-rate-limits.md)               | Configurable per-IP rate limits on the public namespace — PUBLIC/PER_DOMAIN/POST rate caps via env          | 2026-08-07 | Accepted                            |
 | [0044](0044-dns-consensus-budget-and-doh-pool.md)             | DNS consensus budget and DoH keep-alive pooling — dedicated secondary budget, verification ceiling, shared Agent | 2026-08-07 | Accepted                            |
+| [0045](0045-dns-consensus-tertiary-leg.md)                    | DNS consensus third leg — optional tertiary opinion rescuing Available verdicts the secondary cannot confirm  | 2026-08-08 | Accepted                            |
 
 ## Conventions
 

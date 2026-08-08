@@ -18,6 +18,12 @@ export interface DnsConsensusStats {
   disagreed: number;
   /** Domains the secondary could not answer at all (errors, timeouts). */
   unverifiable: number;
+  /**
+   * Available verdicts the tertiary leg rescued (ADR-0045): the secondary
+   * could not answer and the tertiary confirmed Available. Present only
+   * when > 0.
+   */
+  tertiaryRescued?: number;
   /** True when the run was flagged degraded over consensus (ADR-0039). */
   degraded: boolean;
 }

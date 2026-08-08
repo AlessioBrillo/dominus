@@ -32,6 +32,7 @@ export interface PipelineMetricsDelegate {
     disagreed: number;
     unverifiable: number;
     degraded: boolean;
+    tertiaryRescued?: number;
   }): void;
 }
 

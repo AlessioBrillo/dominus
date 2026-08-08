@@ -256,6 +256,13 @@ export function renderPrometheusMetrics(
       'counter',
     );
     g(
+      'Available verdicts rescued by the tertiary DNS opinion (ADR-0045).',
+      'dominus_dns_consensus_tertiary_rescued_total',
+      consensus.tertiaryRescuedTotal,
+      undefined,
+      'counter',
+    );
+    g(
       'Runs flagged degraded over DNS consensus (ADR-0039).',
       'dominus_dns_consensus_degraded_runs_total',
       consensus.degradedRunsTotal,

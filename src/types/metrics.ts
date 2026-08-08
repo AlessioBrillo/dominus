@@ -33,6 +33,8 @@ export interface DnsConsensusMetrics {
   disagreedTotal: number;
   /** Unanswerable domains (errors/timeouts) across all runs. */
   unverifiableTotal: number;
+  /** Domains rescued by the tertiary leg (ADR-0045) across all runs. */
+  tertiaryRescuedTotal: number;
   /** Number of runs flagged degraded over consensus (ADR-0039). */
   degradedRunsTotal: number;
   /** Whether the most recent consensus-checked run was degraded. */

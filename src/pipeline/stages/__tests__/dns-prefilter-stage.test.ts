@@ -585,3 +585,231 @@ describe('DnsPreFilterStage consensus degradation (ADR-0039)', () => {
     expect(maxInFlight).toBeLessThanOrEqual(2);
   });
 });
+
+// --- Third consensus leg (ADR-0045) ---
+//
+// When the secondary fails to answer (error/timeout) the strict 2-of-3
+// gate has no second opinion to confirm the primary's Available verdict,
+// so every domain degrades to Unknown and the run is flagged degraded. An
+// optional third provider (DNS_TERTIARY_ENABLED) rescues those domains:
+// a tertiary Available confirmation passes them, a tertiary Registered
+// vetoes them. DNS_CONSENSUS_REQUIRED_AVAILABLE (1 or 2) controls how many
+// of the verification legs must confirm Available.
+
+function makeAvailableProvider(name: string): DnsProvider {
+  return {
+    name,
+    checkAvailability: vi.fn().mockResolvedValue({
+      domain: 'x.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+    }),
+    checkBulk: vi.fn(),
+    clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
+  };
+}
+
+function makeThrowingProvider(name: string): DnsProvider {
+  return {
+    name,
+    checkAvailability: vi.fn().mockRejectedValue(new Error(`${name} unreachable`)),
+    checkBulk: vi.fn(),
+    clearCache: vi.fn(),
+    pruneCache: vi.fn().mockReturnValue(0),
+  };
+}
+
+describe('DnsPreFilterStage third consensus leg (ADR-0045)', () => {
+  it('rescues Available verdicts via the tertiary when the secondary throws', async () => {
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeThrowingProvider('secondary'),
+      tertiaryProvider: makeAvailableProvider('tertiary'),
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed.map((c) => c.domain).sort()).toEqual([...CONSENSUS_DOMAINS].sort());
+    expect(result.filtered).toHaveLength(0);
+    expect(result.consensusStats).toEqual({
+      verified: 4,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+      tertiaryRescued: 4,
+    });
+  });
+
+  it('downgrades to Unknown when the tertiary also cannot answer', async () => {
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeThrowingProvider('secondary'),
+      tertiaryProvider: makeThrowingProvider('tertiary'),
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+    }
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 4,
+      degraded: false,
+    });
+  });
+
+  it('vetoes through the tertiary: a Registered tertiary answer blocks the domain', async () => {
+    const tertiary = makeAvailableProvider('tertiary');
+    tertiary.checkAvailability = vi.fn().mockResolvedValue({
+      domain: 'x.io',
+      status: DomainStatus.Registered,
+      checkedAt: '',
+    });
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeThrowingProvider('secondary'),
+      tertiaryProvider: tertiary,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+    }
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 4,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('does not consult the tertiary when the secondary already confirms', async () => {
+    const tertiary = makeAvailableProvider('tertiary');
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeAvailableProvider('secondary'),
+      tertiaryProvider: tertiary,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(4);
+    expect(tertiary.checkAvailability).not.toHaveBeenCalled();
+    expect(result.consensusStats).toEqual({
+      verified: 4,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('does not rescue Registered verdicts from the secondary (veto is final)', async () => {
+    const secondary = makeAvailableProvider('secondary');
+    secondary.checkAvailability = vi.fn().mockResolvedValue({
+      domain: 'x.io',
+      status: DomainStatus.Registered,
+      checkedAt: '',
+    });
+    const tertiary = makeAvailableProvider('tertiary');
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: secondary,
+      tertiaryProvider: tertiary,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    expect(tertiary.checkAvailability).not.toHaveBeenCalled();
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 4,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('requires BOTH verification legs when DNS_CONSENSUS_REQUIRED_AVAILABLE=2', async () => {
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeAvailableProvider('secondary'),
+      tertiaryProvider: makeAvailableProvider('tertiary'),
+      requiredAvailable: 2,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(4);
+    expect(result.consensusStats).toEqual({
+      verified: 4,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('blocks when requiredAvailable=2 and the tertiary disagrees', async () => {
+    const tertiary = makeAvailableProvider('tertiary');
+    tertiary.checkAvailability = vi.fn().mockResolvedValue({
+      domain: 'x.io',
+      status: DomainStatus.Registered,
+      checkedAt: '',
+    });
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeAvailableProvider('secondary'),
+      tertiaryProvider: tertiary,
+      requiredAvailable: 2,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 4,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('blocks when requiredAvailable=2 and the tertiary throws', async () => {
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeAvailableProvider('secondary'),
+      tertiaryProvider: makeThrowingProvider('tertiary'),
+      requiredAvailable: 2,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+    }
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 4,
+      degraded: false,
+    });
+  });
+
+  it('clamps requiredAvailable to 1 when no tertiary leg is configured', async () => {
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeAvailableProvider('secondary'),
+      requiredAvailable: 2,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    // Without a third leg there is no way to satisfy a 2-leg requirement,
+    // so the gate must fall back to the single-confirmation semantics
+    // instead of silently downgrading every domain.
+    expect(result.passed).toHaveLength(4);
+    expect(result.consensusStats).toEqual({
+      verified: 4,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+});

@@ -509,6 +509,59 @@ const configSchema = z.object({
    */
   DNS_CONSENSUS_NAMESERVERS: z.string().optional(),
   /**
+   * Enable an optional THIRD DNS consensus opinion (ADR-0045): when true,
+   * domains the secondary cannot answer (error/timeout) are re-queried
+   * against a third independent provider built from DNS_TERTIARY_STRATEGY.
+   * A tertiary Available confirmation rescues the domain; a tertiary
+   * Registered answer vetoes it. Default: false — the strict 2-of-3 gate
+   * already fails closed, so the third leg is only worth its extra query
+   * when a genuinely independent resolver is available (e.g. a pinned
+   * second recursor via DNS_TERTIARY_NAMESERVERS). The leg is dropped at
+   * startup (with a warning) when its resolver set overlaps the primary or
+   * the secondary, exactly like the secondary-vs-primary disjointness rule.
+   */
+  DNS_TERTIARY_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+  /**
+   * Lookup strategy for the DNS consensus tertiary provider (see
+   * DNS_TERTIARY_ENABLED). Default: 'native' — the system recursor, the
+   * most common independent opinion on a host that also runs DoH/DoT
+   * egress. Should differ from DNS_CONSENSUS_STRATEGY and
+   * DNS_LOOKUP_STRATEGY; overlapping setups disable the leg with a warning.
+   */
+  DNS_TERTIARY_STRATEGY: z
+    .enum([
+      'native',
+      'native-with-doh-fallback',
+      'doh-only',
+      'doh-primary',
+      'dot-only',
+      'dot-with-doh-fallback',
+      'multi-doh-plus-native',
+    ])
+    .default('native'),
+  /**
+   * Comma-separated private recursor addresses (host or host:port) for the
+   * DNS consensus tertiary (ADR-0043). Allows a second pinned independent
+   * recursor (e.g. a separate Unbound instance on the same host) to serve
+   * as the third opinion. When set, the tertiary queries these addresses
+   * with plain native DNS, overriding DNS_TERTIARY_STRATEGY.
+   * Example: 192.168.1.2:5300
+   */
+  DNS_TERTIARY_NAMESERVERS: z.string().optional(),
+  /**
+   * How many verification legs must confirm an Available verdict before it
+   * passes the consensus gate: 1 = a single confirmation beyond the primary
+   * (secondary, or tertiary when the secondary cannot answer), 2 = BOTH the
+   * secondary and the tertiary must confirm. Default: 1 — preserves the
+   * strict 2-of-3 semantics, where one independent confirmation is the
+   * minimum bar the ADR-0002 mandate requires. Setting 2 makes the gate
+   * stricter (triple agreement) at the cost of extra DNS queries.
+   * Accepted values: 1-2.
+   */
+  DNS_CONSENSUS_REQUIRED_AVAILABLE: z.coerce.number().int().min(1).max(2).default(1),
+  /**
    * Fraction of consensus-verified domains that may stay unverifiable before
    * a run is flagged degraded (ADR-0039). When the secondary DNS provider
    * fails to confirm more than this share of primary-Available verdicts, the

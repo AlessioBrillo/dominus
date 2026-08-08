@@ -190,6 +190,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS: 5,
     DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: 1000,
     DNS_CONSENSUS_BULK_CONCURRENCY: 20,
+    DNS_TERTIARY_ENABLED: false,
+    DNS_TERTIARY_STRATEGY: 'native',
+    DNS_TERTIARY_NAMESERVERS: undefined,
+    DNS_CONSENSUS_REQUIRED_AVAILABLE: 1,
     DNS_DOH_MAX_CONNECTIONS: 64,
     DNS_USE_DEDICATED_RESOLVER: true,
     DNS_DOT_POOL_MAX_QUEUED: 4096,
@@ -291,6 +295,90 @@ describe('buildDnsConsensusConfig', () => {
     });
     const result = buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
+  });
+});
+
+describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
+  it('builds a tertiary provider from a pinned independent recursor', () => {
+    // A pinned third recursor (e.g. a second Unbound instance) is the
+    // standard way to add a genuinely independent opinion: native DNS to
+    // 192.0.2.1:53 shares no endpoint with the DoH primary or the DoT
+    // secondary, so the disjointness gate lets it through.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-only',
+      DNS_TERTIARY_ENABLED: true,
+      DNS_TERTIARY_STRATEGY: 'native',
+      DNS_TERTIARY_NAMESERVERS: '192.0.2.1:53',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(typeof result?.tertiaryProvider?.checkAvailability).toBe('function');
+  });
+
+  it('uses DNS_TERTIARY_STRATEGY when no tertiary nameservers are pinned', () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-only',
+      DNS_TERTIARY_ENABLED: true,
+      DNS_TERTIARY_STRATEGY: 'native',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(typeof result?.tertiaryProvider?.checkAvailability).toBe('function');
+  });
+
+  it('does not build a tertiary leg when DNS_TERTIARY_ENABLED is off', () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-only',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result?.tertiaryProvider).toBeUndefined();
+  });
+
+  it('drops the tertiary leg when it overlaps the secondary resolver set', () => {
+    // 'doh-only' (secondary) and 'doh-primary' (tertiary) both race the same
+    // default DoH endpoints — a third opinion on the same servers adds no
+    // information, so the leg is dropped at startup with a warning.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-only',
+      DNS_TERTIARY_ENABLED: true,
+      DNS_TERTIARY_STRATEGY: 'doh-primary',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.secondaryProvider).toBeDefined();
+    expect(result?.tertiaryProvider).toBeUndefined();
+  });
+
+  it('threads DNS_CONSENSUS_REQUIRED_AVAILABLE into the consensus config', () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-only',
+      DNS_TERTIARY_ENABLED: true,
+      DNS_TERTIARY_STRATEGY: 'native',
+      DNS_CONSENSUS_REQUIRED_AVAILABLE: 2,
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result?.requiredAvailable).toBe(2);
+  });
+
+  it('defaults requiredAvailable to 1', () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'doh-only',
+      DNS_TERTIARY_ENABLED: true,
+      DNS_TERTIARY_STRATEGY: 'native',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result?.requiredAvailable).toBe(1);
   });
 });
 

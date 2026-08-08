@@ -32,6 +32,7 @@ export class MetricsCollector {
   #dnsConsensusVerified = 0;
   #dnsConsensusDisagreed = 0;
   #dnsConsensusUnverifiable = 0;
+  #dnsConsensusTertiaryRescued = 0;
   #dnsConsensusDegradedRuns = 0;
   #dnsConsensusLastDegraded = false;
   #dnsConsensusObserved = false;
@@ -78,10 +79,12 @@ export class MetricsCollector {
     disagreed: number;
     unverifiable: number;
     degraded: boolean;
+    tertiaryRescued?: number;
   }): void {
     this.#dnsConsensusVerified += stats.verified;
     this.#dnsConsensusDisagreed += stats.disagreed;
     this.#dnsConsensusUnverifiable += stats.unverifiable;
+    this.#dnsConsensusTertiaryRescued += stats.tertiaryRescued ?? 0;
     this.#dnsConsensusObserved = true;
     this.#dnsConsensusLastDegraded = stats.degraded;
     if (stats.degraded) this.#dnsConsensusDegradedRuns++;
@@ -149,6 +152,7 @@ export class MetricsCollector {
           verifiedTotal: this.#dnsConsensusVerified,
           disagreedTotal: this.#dnsConsensusDisagreed,
           unverifiableTotal: this.#dnsConsensusUnverifiable,
+          tertiaryRescuedTotal: this.#dnsConsensusTertiaryRescued,
           degradedRunsTotal: this.#dnsConsensusDegradedRuns,
           lastRunDegraded: this.#dnsConsensusLastDegraded,
           observed: this.#dnsConsensusObserved,
@@ -175,6 +179,7 @@ export class MetricsCollector {
     this.#dnsConsensusVerified = 0;
     this.#dnsConsensusDisagreed = 0;
     this.#dnsConsensusUnverifiable = 0;
+    this.#dnsConsensusTertiaryRescued = 0;
     this.#dnsConsensusDegradedRuns = 0;
     this.#dnsConsensusLastDegraded = false;
     this.#dnsConsensusObserved = false;
