@@ -50,14 +50,15 @@
     "release:minor": "standard-version --release-as minor",
     "release:major": "standard-version --release-as major",
     "release:dry": "standard-version --dry-run",
-    "prepush": "npm run typecheck && npm run lint && npm test && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
-    "prepush:local": "npm run typecheck && npm run lint && npm test && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
+    "prepush": "npm run typecheck && npm run lint && npm test && npm run check:image-pins && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
+    "prepush:local": "npm run typecheck && npm run lint && npm test && npm run check:image-pins && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
     "ci:backend": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm test -- --coverage",
     "ci:frontend": "cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
     "ci:local": "npm run typecheck && npm run build && npm run db:sync:check && npm test",
     "ci:local:frontend": "cd frontend && npm run typecheck && npm run test && npm run build",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('coverage',{recursive:true,force:true})\"",
     "db:sync:check": "tsx src/db/validate-migration-sync.ts",
+    "check:image-pins": "node scripts/check-image-pins.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
