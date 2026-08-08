@@ -315,9 +315,11 @@ const configSchema = z.object({
     .default(false),
   /**
    * Path to a JSON file containing known parking IP ranges for registrar
-   * parking page detection. When absent, a built-in default list is used.
+   * parking page detection. When absent, parking detection is a no-op:
+   * no built-in list is loaded. The bundled reference list lives at
+   * src/providers/dns/parking-ips.json (matching the format the registrar
+   * uses to publish parking ranges).
    * Format: array of { name: string, cidr: string[] } objects.
-   * See data/parking-ips.json for the default format.
    */
   DNS_PARKING_IPS_PATH: z.string().optional(),
 
