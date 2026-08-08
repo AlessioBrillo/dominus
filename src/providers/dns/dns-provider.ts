@@ -9,6 +9,8 @@ export interface DnsLookupSpec {
   port?: number;
   /** Optional hostname for DoT TLS SNI verification (default: from endpoint). */
   servername?: string;
+  /** DoH request format: JSON API (default) or RFC 8484 wire (base64url `dns=` GET). */
+  format?: 'json' | 'wire';
   /** Per-lookup nameservers (only for type: 'native'). When set, creates a dedicated Resolver. */
   nameservers?: string[];
 }
