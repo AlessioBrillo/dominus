@@ -41,8 +41,12 @@ spec:
       terminationGracePeriodSeconds: 45
       containers:
         - name: dominus
-          image: ghcr.io/alessiobrillo/dominus:latest
-          imagePullPolicy: Always
+          # ADR-0046: immutable ref — the tag is created once per release by
+          # the Deploy workflow (type=semver) and never re-pointed. Bump it
+          # with the next release; imagePullPolicy IfNotPresent because a
+          # digest/release-tag ref needs no registry round-trip per pod start.
+          image: ghcr.io/alessiobrillo/dominus:v0.10.1
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
