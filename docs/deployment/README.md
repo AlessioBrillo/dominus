@@ -274,7 +274,7 @@ Key variables for deployment:
 | `API_KEYS` | (empty) | **Set this in production** to enable authentication |
 | `SCHEDULER_ENABLED` | `false` | Enable for automated renewal checks, rescoring, pruning |
 | `LOG_LEVEL` | `info` | Set to `warn` in production to reduce noise |
-| `DOMINUS_IMAGE_TAG` | `master` | Compose-only: pin to a `sha-…` tag for immutable rollouts |
+| `DOMINUS_IMAGE_TAG` | (required) | Compose-only (ADR-0046): no default — pin to `vX.Y.Z` or a `sha-…` tag for immutable rollouts; compose fails fast if unset |
 | `BACKUP_DIR` | `./data/backup` | In the prod profile: `/backups` (dedicated volume) |
 
 ## Security Checklist
@@ -284,7 +284,7 @@ Key variables for deployment:
 - [ ] Restrict `HOST` to `127.0.0.1` unless proxied
 - [ ] Set `RATE_LIMIT_MAX` to protect against abuse
 - [ ] Use a non-root user (Docker: `USER dominus`, systemd: `User=dominus`)
-- [ ] Pin `DOMINUS_IMAGE_TAG` to a `sha-…` tag in production (immutable rollouts)
+- [ ] Set `DOMINUS_IMAGE_TAG` to a `vX.Y.Z` or `sha-…` tag in production (required, immutable rollouts — ADR-0046)
 - [x] Keep backups off the DB disk (dedicated `backups` volume, ideally a Hetzner Volume or S3 target)
 - [x] Test a backup restore at least once per release (`node scripts/restore-drill.mjs`)
 - [ ] Keep `dominus.db` on local disk only — never on a network filesystem

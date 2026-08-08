@@ -15,11 +15,13 @@
 #     on SQLite), so the documented command starts the full stack
 #   - Adds the monitoring stack: prometheus, alertmanager, grafana
 #
-# Image pinning:
+# Image pinning (ADR-0046):
 #   The Deploy workflow publishes `master`, `sha-<commit>` and `vX.Y.Z`
-#   tags (plus -worker/-scheduler variants). The default resolves to
-#   `master` for convenience; pin DOMINUS_IMAGE_TAG to a sha tag for
-#   immutable production rollouts:
+#   tags (plus -worker/-scheduler variants). DOMINUS_IMAGE_TAG is REQUIRED:
+#   the default `master` was removed so a rollout that forgets the pin
+#   fails fast instead of silently deploying a drifting tag. Pin it to a
+#   release tag or a sha tag for immutable rollouts:
+#     DOMINUS_IMAGE_TAG=v0.10.1
 #     DOMINUS_IMAGE_TAG=sha-6f4b3c2a1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a
 #
 # Backups:
@@ -44,7 +46,7 @@
 
 services:
   api:
-    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}
+    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}
     restart: always
     deploy:
       resources:
@@ -67,7 +69,7 @@ services:
         max-file: "3"
 
   worker:
-    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}-worker
+    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}-worker
     restart: always
     depends_on:
       redis:
@@ -99,7 +101,7 @@ services:
         max-file: "3"
 
   scheduler:
-    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:-master}-scheduler
+    image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}-scheduler
     restart: always
     depends_on:
       redis:
@@ -132,7 +134,7 @@ services:
   # ── Cloud data stores (defined here, not in the base file: the community
   # edition runs on SQLite and must never pull these containers) ─────────
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     restart: always
     deploy:
       resources:
@@ -161,7 +163,7 @@ services:
         max-file: "3"
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     restart: always
     command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     deploy:
@@ -187,7 +189,7 @@ services:
 
   # ── Monitoring stack ──────────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:v2.53.1
+    image: prom/prometheus:v2.53.1@sha256:f20d3127bf2876f4a1df76246fca576b41ddf1125ed1c546fbd8b16ea55117e6
     restart: always
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -215,7 +217,7 @@ services:
         max-file: "3"
 
   alertmanager:
-    image: prom/alertmanager:v0.27.0
+    image: prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
     restart: always
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
@@ -238,7 +240,7 @@ services:
         max-file: "3"
 
   grafana:
-    image: grafana/grafana-oss:11.2.0
+    image: grafana/grafana-oss:11.2.0@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
     restart: always
     ports:
       - "${GRAFANA_BIND:-127.0.0.1}:3001:3000"
