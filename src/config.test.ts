@@ -121,6 +121,63 @@ describe('public rate limit config defaults', () => {
   });
 });
 
+// Locks DNS_RESOLVER_GROUPS parsing (ADR-0047): custom DoH lookups must be
+// able to express the RFC 8484 wire format for providers without a JSON API
+// (Quad9, AdGuard, Mullvad). A group pointing at a wire-only endpoint that
+// cannot say so would silently send JSON and never contribute a vote.
+describe('DNS resolver groups config (custom groups)', () => {
+  const ENV_KEYS = ['DNS_RESOLVER_GROUPS', 'DNS_LOOKUP_STRATEGY'] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('preserves the wire format on a custom DoH lookup (ADR-0047)', () => {
+    process.env.DNS_RESOLVER_GROUPS =
+      '[{"name":"primary","lookups":[{"type":"doh","endpoint":"https://dns.quad9.net/dns-query","format":"wire"}]}]';
+    resetConfig();
+    const groups = loadConfig().DNS_RESOLVER_GROUPS;
+    expect(groups).toBeDefined();
+    const lookup = groups?.[0]?.lookups[0] as unknown as {
+      type?: string;
+      format?: string;
+    };
+    expect(lookup?.type).toBe('doh');
+    expect(lookup?.format).toBe('wire');
+  });
+
+  it('defaults the format to json when unspecified (JSON API compatibility)', () => {
+    process.env.DNS_RESOLVER_GROUPS =
+      '[{"name":"primary","lookups":[{"type":"doh","endpoint":"https://cloudflare-dns.com/dns-query"}]}]';
+    resetConfig();
+    const lookup = loadConfig().DNS_RESOLVER_GROUPS?.[0]?.lookups[0] as
+      { type: 'doh'; format?: 'json' | 'wire' } | undefined;
+    expect(lookup?.type).toBe('doh');
+    expect(lookup?.format).toBeUndefined();
+  });
+
+  it('rejects an unknown wire format value', () => {
+    process.env.DNS_RESOLVER_GROUPS =
+      '[{"name":"primary","lookups":[{"type":"doh","endpoint":"https://dns.quad9.net/dns-query","format":"spdy"}]}]';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+});
+
 // Locks the dedicated 2-of-3 DNS consensus control budget (ADR-0044). The
 // consensus secondary must run against its own rate-limit bucket, concurrency
 // ceiling, and per-tenant fair share — sharing the primary's would let a

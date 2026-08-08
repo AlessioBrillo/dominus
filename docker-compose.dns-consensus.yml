@@ -20,7 +20,7 @@
 # could never be pulled). This uses the community-maintained mvance/unbound
 # recommended by the Unbound project, digest-pinned. NOTE: it is amd64-only;
 # an arm64 host cannot run this override until a self-built multi-arch
-# recursor image lands (candidate ADR-0047).
+# recursor image lands — tracked as deferred follow-up per ADR-0046.
 
 services:
   consensus-dns:

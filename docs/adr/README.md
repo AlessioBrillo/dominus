@@ -54,6 +54,7 @@ re-running the original arguments.
 | [0045](0045-dns-consensus-tertiary-leg.md)                    | DNS consensus third leg — optional tertiary opinion rescuing Available verdicts the secondary cannot confirm  | 2026-08-08 | Accepted                            |
 | [0046](0046-image-supply-chain-pinning.md)                    | Immutable image supply chain — digest pins, no floating tags, registry-verified overrides                       | 2026-08-08 | Accepted                            |
 | [0047](0047-doh-json-legs-verified.md)                        | Live-verified DoH legs — provider endpoint fixes, RFC 8484 wire leg for Quad9                                  | 2026-08-08 | Accepted                            |
+| [0048](0048-resolver-groups-wire-format.md)                    | Custom resolver groups accept the DoH wire format — ADR-0047 config gap, doc drift cleanup                    | 2026-08-08 | Accepted                            |
 
 ## Conventions
 

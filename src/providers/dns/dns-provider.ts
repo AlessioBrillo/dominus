@@ -134,18 +134,6 @@ export function strategyToResolverGroups(
   }
 }
 
-export function getDefaultDohProviders(): Array<{
-  name: string;
-  url: string;
-  format?: 'json' | 'wire';
-}> {
-  return DEFAULT_DOH_PROVIDERS;
-}
-
-export function getDefaultDotProviders(): Array<{ name: string; host: string }> {
-  return DEFAULT_DOT_PROVIDERS;
-}
-
 /**
  * Distinct resolver endpoints a set of resolver groups will issue queries
  * against, used to verify that a DNS 2-of-3 consensus secondary does not

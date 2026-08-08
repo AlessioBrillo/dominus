@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectResolverEndpoints, strategyToResolverGroups } from '../dns-provider.js';
 import {
   validateConsensusEndpointDisjointness,
   validateConsensusStrategyDisjointness,
+  validateResolverGroups,
 } from '../resolver-validator.js';
-import type { DnsResolverGroup } from '../dns-provider.js';
+import { DomainStatus, type DnsCheckResult } from '../../../types/domain-status.js';
+import type { DnsProvider, DnsResolverGroup } from '../dns-provider.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('collectResolverEndpoints', () => {
   it('collects DoH hosts, DoT endpoints, and pinned native nameservers', () => {
@@ -116,5 +122,68 @@ describe('validateConsensusStrategyDisjointness', () => {
 
   it('ignores the check when disabled', () => {
     expect(validateConsensusStrategyDisjointness(false, 'dot-only', 'dot-only')).toBe(true);
+  });
+});
+
+describe('validateResolverGroups', () => {
+  const providerStub = {
+    name: 'FakeDnsProvider',
+    checkBulk: (): Promise<DnsCheckResult[]> => Promise.resolve([]),
+    clearCache: (): void => undefined,
+    pruneCache: (): number => 0,
+  };
+
+  function fakeProvider(status: DomainStatus | 'reject'): DnsProvider {
+    return {
+      ...providerStub,
+      async checkAvailability(domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
+        expect(domain).toMatch(/^(google|cloudflare|github)\.com$/);
+        expect(signal).toBeDefined();
+        if (status === 'reject') throw new Error('probe network failure');
+        return { domain, status: status as DomainStatus, checkedAt: new Date().toISOString() };
+      },
+    };
+  }
+
+  it('passes when the probe resolves a known status', async () => {
+    await expect(
+      validateResolverGroups(fakeProvider(DomainStatus.Available)),
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not throw on an unexpected status — logs a warning instead', async () => {
+    await expect(validateResolverGroups(fakeProvider(DomainStatus.Error))).resolves.toBeUndefined();
+  });
+
+  it('rethrows when the probe network check fails', async () => {
+    await expect(validateResolverGroups(fakeProvider('reject'))).rejects.toThrow(
+      'probe network failure',
+    );
+  });
+
+  it('aborts the probe after the validation timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const abortSpy = vi.spyOn(AbortController.prototype, 'abort');
+      let capturedSignal: AbortSignal | undefined;
+      const slowProvider: DnsProvider = {
+        ...providerStub,
+        name: 'SlowDnsProvider',
+        checkAvailability(_domain: string, signal?: AbortSignal): Promise<DnsCheckResult> {
+          capturedSignal = signal;
+          return new Promise<DnsCheckResult>((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('AbortError')));
+          });
+        },
+      };
+      const pending = validateResolverGroups(slowProvider);
+      pending.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(pending).rejects.toThrow('AbortError');
+      expect(abortSpy).toHaveBeenCalled();
+      expect(capturedSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
