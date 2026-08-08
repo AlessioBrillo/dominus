@@ -45,11 +45,14 @@ consensus gate exists precisely to avoid sharing resolver endpoints
 - When unset, behaviour is unchanged: `DNS_CONSENSUS_STRATEGY` is used as
   before (backward compatible).
 - The recursor is an optional compose override
-  (`docker-compose.dns-consensus.yml`): an `nlnetlabs/unbound` service on a
-  dedicated `/24` subnet (`172.20.0.0/24`), pinned to the deterministic
-  address `172.20.0.10:5300`, with `api`, `worker`, and `scheduler` joining
-  that network. The base and prod compose files are untouched; the override
-  is opt-in via `-f docker-compose.dns-consensus.yml`.
+  (`docker-compose.dns-consensus.yml`): a `mvance/unbound` service (the
+  community-maintained image recommended by the Unbound project — NLnet Labs
+  publishes no official image, and the original `nlnetlabs/unbound` reference
+  did not exist on Docker Hub) on a dedicated `/24` subnet (`172.20.0.0/24`),
+  pinned to the deterministic address `172.20.0.10:5300`, with `api`,
+  `worker`, and `scheduler` joining that network. The image is digest-pinned
+  and amd64-only (ADR-0046). The base and prod compose files are untouched;
+  the override is opt-in via `-f docker-compose.dns-consensus.yml`.
 - Node's `resolver.setServers()` only accepts IP literals, not service
   hostnames — hence the fixed IPAM address instead of a service name.
 - Unbound config (`deploy/unbound/unbound.conf`): recursive resolution from

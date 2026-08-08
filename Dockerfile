@@ -11,10 +11,27 @@
 #   docker run -d -v ./data:/app/data dominus-worker
 #   docker run -d -v ./data:/app/data dominus-scheduler
 
-ARG NODE_VERSION=22
+# DOMINUS — Multi-stage production build
+# Requires Docker BuildKit (default since Docker 23.0).
+#
+# Build targets:
+#   docker build --target api    -t dominus-api:latest .
+#   docker build --target worker -t dominus-worker:latest .
+#   docker build --target scheduler -t dominus-scheduler:latest .
+#
+# Run:
+#   docker run -d -p 3000:3000 -v ./data:/app/data dominus-api
+#   docker run -d -v ./data:/app/data dominus-worker
+#   docker run -d -v ./data:/app/data dominus-scheduler
+
+# Immutable base image (ADR-0046): pinned by digest so a retagged
+# node:22-alpine cannot silently inject new CVEs into the build. Bump the
+# digest deliberately along with an upstream release with:
+#   docker buildx imagetools inspect node:22-alpine --format '{{.Manifest.Digest}}'
+ARG NODE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
 
 # ---- Stage 1: Install production dependencies ----
-FROM node:${NODE_VERSION}-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -31,7 +48,7 @@ RUN npm ci --only=production --ignore-scripts \
   && npm rebuild better-sqlite3
 
 # ---- Stage 2: Backend Build ----
-FROM node:${NODE_VERSION}-alpine AS backend-build
+FROM ${NODE_IMAGE} AS backend-build
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json ./
@@ -39,7 +56,7 @@ COPY src/ src/
 RUN npm ci && npm run build
 
 # ---- Stage 3: Frontend Build (API only) ----
-FROM node:${NODE_VERSION}-alpine AS frontend-build
+FROM ${NODE_IMAGE} AS frontend-build
 WORKDIR /app
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -49,8 +66,20 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- Stage 4: API Server (Express + SPA) ----
-FROM node:${NODE_VERSION}-alpine AS api
+FROM ${NODE_IMAGE} AS api
 WORKDIR /app
+
+# Runtime strip (ADR-0046): the base image bundles the npm CLI with its own
+# dependency tree (/usr/local/lib/node_modules/npm). The runtime never
+# invokes npm — entrypoint and healthchecks are plain `node` — so the
+# bundled tree is pure attack surface. Removing it eliminates the entire
+# class of bundled-npm CVEs (e.g. ip-address, brace-expansion) from the
+# shipped image. Build stages keep npm: they run `npm ci`/`npm run build`.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack
 
 RUN addgroup -S dominus && adduser -S dominus -G dominus
 
@@ -77,8 +106,17 @@ ENTRYPOINT ["node"]
 CMD ["dist/index.js"]
 
 # ---- Stage 5: Job Worker (no HTTP listener) ----
-FROM node:${NODE_VERSION}-alpine AS worker
+FROM ${NODE_IMAGE} AS worker
 WORKDIR /app
+
+# Runtime strip (ADR-0046): npm/corepack are unused at runtime — see the
+# comment in the api stage. Removes the bundled-npm CVE surface class from
+# the shipped image.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack
 
 RUN addgroup -S dominus && adduser -S dominus -G dominus
 
@@ -110,8 +148,16 @@ ENTRYPOINT ["node"]
 CMD ["dist/worker-entrypoint.js"]
 
 # ---- Stage 6: Scheduler (lightweight cron container) ----
-FROM node:${NODE_VERSION}-alpine AS scheduler
+FROM ${NODE_IMAGE} AS scheduler
 WORKDIR /app
+
+# Runtime strip (ADR-0046): npm/corepack/npx are never used at runtime —
+# see the comment in the api stage.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack
 
 RUN addgroup -S dominus && adduser -S dominus -G dominus
 

@@ -171,6 +171,10 @@ jobs:
     timeout-minutes: 10
     env:
       POSTGRES_PASSWORD: ci-test-password
+      # DOMINUS_IMAGE_TAG is required (ADR-0046): a stable release tag is
+      # enough for topology validation; the pinned-digest existence check
+      # below validates the immutable refs against the registry.
+      DOMINUS_IMAGE_TAG: v0.10.1
 
     steps:
       - uses: actions/checkout@v4
@@ -231,16 +235,50 @@ jobs:
           # prom/prometheus ENTRYPOINT is the prometheus binary, so promtool
           # must be set via --entrypoint, not appended as a command.
           docker run --rm --entrypoint promtool -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.53.1 check config /etc/prometheus/prometheus.yml
+            prom/prometheus:v2.53.1@sha256:f20d3127bf2876f4a1df76246fca576b41ddf1125ed1c546fbd8b16ea55117e6 check config /etc/prometheus/prometheus.yml
           docker run --rm --entrypoint promtool -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
-            prom/prometheus:v2.53.1 check rules /etc/prometheus/rules.yml
+            prom/prometheus:v2.53.1@sha256:f20d3127bf2876f4a1df76246fca576b41ddf1125ed1c546fbd8b16ea55117e6 check rules /etc/prometheus/rules.yml
 
       - name: Validate Alertmanager config
         run: |
           set -euo pipefail
           # Same entrypoint caveat as promtool: override to run amtool directly.
           docker run --rm --entrypoint amtool -v "$PWD/deploy/prometheus:/etc/alertmanager:ro" \
-            prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml
+            prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5 check-config /etc/alertmanager/alertmanager.yml
+
+      # ADR-0046: a digest-pinned reference to a nonexistent image is still a
+      # broken rollout (the original nlnetlabs/unbound recursor reference was
+      # exactly that). Verify every pinned external image actually exists in
+      # its registry before the PR can merge.
+      - name: Verify pinned image digests exist in registry
+        run: |
+          set -euo pipefail
+          refs=$(grep -hoE 'image: [^ ]+@sha256:[0-9a-f]{64}' \
+            docker-compose.prod.yml docker-compose.dns-consensus.yml | awk '{print $2}' | sort -u)
+          for ref in $refs; do
+            docker buildx imagetools inspect "$ref" >/dev/null 2>&1 || {
+              echo "FATAL: pinned image not found in registry: $ref"; exit 1
+            }
+            echo "OK: $ref"
+          done
+
+  image-pins:
+    name: Immutable image pins (ADR-0046)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check every image reference is pinned
+        run: npm run check:image-pins
 
   frontend:
     name: Frontend (typecheck, lint, test, build)

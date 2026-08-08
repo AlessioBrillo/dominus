@@ -14,10 +14,17 @@
 #
 # The dedicated /24 keeps the recursor on the loopback-isolated compose
 # subnet it is allowed to serve (access-control 172.20.0.0/24 in unbound.conf).
+#
+# Image (ADR-0046): NLnet Labs publishes no official Unbound image
+# (nlnetlabs/unbound does not exist on Docker Hub — the original reference
+# could never be pulled). This uses the community-maintained mvance/unbound
+# recommended by the Unbound project, digest-pinned. NOTE: it is amd64-only;
+# an arm64 host cannot run this override until a self-built multi-arch
+# recursor image lands (candidate ADR-0047).
 
 services:
   consensus-dns:
-    image: nlnetlabs/unbound:latest
+    image: mvance/unbound@sha256:76906da36d1806f3387338f15dcf8b357c51ce6897fb6450d6ce010460927e90
     restart: always
     networks:
       dns-consensus-net:
