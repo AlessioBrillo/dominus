@@ -442,6 +442,13 @@ const configSchema = z.object({
                   z.object({
                     type: z.literal('doh'),
                     endpoint: z.string().url().describe('DoH endpoint URL'),
+                    format: z
+                      .enum(['json', 'wire'])
+                      .optional()
+                      .describe(
+                        "DoH request format: 'json' (default, Google-style DNS JSON API) " +
+                          "or 'wire' (RFC 8484 base64url GET for providers without a JSON API, e.g. Quad9)",
+                      ),
                   }),
                   z.object({
                     type: z.literal('dot'),
@@ -463,7 +470,9 @@ const configSchema = z.object({
     .describe(
       'JSON array of resolver groups. ' +
         'Each group has a name and an array of lookups (native, doh, or dot). ' +
-        'Example: [{"name":"primary","lookups":[{"type":"native"},{"type":"doh","endpoint":"https://dns.google/dns-query"}]}]',
+        'DoH lookups accept an optional format ("json" default, RFC 8484 wire for ' +
+        'providers without a JSON API). ' +
+        'Example: [{"name":"primary","lookups":[{"type":"native"},{"type":"doh","endpoint":"https://dns.google/resolve","format":"json"}]}]',
     ),
   /**
    * Enable 2-of-3 DNS consensus cross-validation. When true, every domain the

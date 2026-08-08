@@ -866,6 +866,56 @@ describe('NodeDnsProvider', () => {
       expect(quad9?.format).toBe('wire');
     });
 
+    it('honors a custom group read from config: wire format requests use dns=, not name=', async () => {
+      // ADR-0047: DNS_RESOLVER_GROUPS entries from config carry an optional
+      // format per lookup. A custom wire-only endpoint (Quad9) must be called
+      // with the RFC 8484 shape — receiving a JSON request answers 505.
+      mockDohFetch({ [QUAD9]: { wire: { rcode: 3 } }, [CLOUDFLARE]: 'network-error' });
+      const p = new NodeDnsProvider({
+        cacheTtlMs: 60_000,
+        resolverGroups: [
+          {
+            name: 'custom-wire',
+            lookups: [{ type: 'doh', endpoint: 'https://dns.quad9.net/dns-query', format: 'wire' }],
+          },
+        ],
+      });
+      await p.checkAvailability('custom-wire-check.com');
+
+      const quad9Call = vi
+        .mocked(global.fetch)
+        .mock.calls.find(([input]) => String(input).includes('dns.quad9.net'));
+      expect(quad9Call).toBeDefined();
+      const url = new URL(String(quad9Call![0]));
+      expect(url.pathname).toBe('/dns-query');
+      expect(url.searchParams.has('dns')).toBe(true);
+      expect(url.searchParams.has('name')).toBe(false);
+    });
+
+    it('honors a custom group with explicit json format via the JSON API path', async () => {
+      mockDohFetch({ [CLOUDFLARE]: { Status: 3 } });
+      const p = new NodeDnsProvider({
+        cacheTtlMs: 60_000,
+        resolverGroups: [
+          {
+            name: 'custom-json',
+            lookups: [
+              { type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query', format: 'json' },
+            ],
+          },
+        ],
+      });
+      await p.checkAvailability('custom-json-check.com');
+
+      const cfCall = vi
+        .mocked(global.fetch)
+        .mock.calls.find(([input]) => String(input).includes('cloudflare-dns.com'));
+      expect(cfCall).toBeDefined();
+      const url = new URL(String(cfCall![0]));
+      expect(url.searchParams.get('name')).toBe('custom-json-check.com');
+      expect(url.searchParams.has('dns')).toBe(false);
+    });
+
     it('reports Available on a 2/3 NXDOMAIN majority when the third leg answers via wire', async () => {
       const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
       vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
