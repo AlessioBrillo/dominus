@@ -111,6 +111,7 @@ describe('renderPrometheusMetrics', () => {
   it('emits dns_consensus series only after consensus is observed (ADR-0039)', () => {
     const pre = renderPrometheusMetrics(snapshot, queueStats, 0);
     expect(pre).not.toContain('dominus_dns_consensus_verified_total');
+    expect(pre).not.toContain('dominus_dns_consensus_tertiary_rescued_total');
 
     const withConsensus = structuredClone(snapshot);
     withConsensus.pipeline.dnsConsensus = {
@@ -120,6 +121,7 @@ describe('renderPrometheusMetrics', () => {
       degradedRunsTotal: 1,
       lastRunDegraded: true,
       observed: true,
+      tertiaryRescuedTotal: 4,
     };
     const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
 
@@ -128,7 +130,9 @@ describe('renderPrometheusMetrics', () => {
     expect(body).toContain('dominus_dns_consensus_unverifiable_total 6');
     expect(body).toContain('dominus_dns_consensus_degraded_runs_total 1');
     expect(body).toContain('dominus_dns_consensus_last_run_degraded 1');
+    expect(body).toContain('dominus_dns_consensus_tertiary_rescued_total 4');
     expect(body).toContain('# TYPE dominus_dns_consensus_verified_total counter');
+    expect(body).toContain('# TYPE dominus_dns_consensus_tertiary_rescued_total counter');
     expect(body).toContain('# TYPE dominus_dns_consensus_last_run_degraded gauge');
   });
 
@@ -141,6 +145,7 @@ describe('renderPrometheusMetrics', () => {
       degradedRunsTotal: 1,
       lastRunDegraded: false,
       observed: true,
+      tertiaryRescuedTotal: 0,
     };
     const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
     expect(body).toContain('dominus_dns_consensus_last_run_degraded 0');

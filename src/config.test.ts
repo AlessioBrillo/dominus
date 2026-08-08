@@ -190,3 +190,68 @@ describe('DNS consensus budget config defaults', () => {
     expect(() => loadConfig()).toThrow();
   });
 });
+
+// Locks the optional third consensus leg (ADR-0045). DNS_TERTIARY_ENABLED is
+// opt-in (a third opinion is only worth its extra query when the deployment
+// can actually provide an independent resolver), and
+// DNS_CONSENSUS_REQUIRED_AVAILABLE controls how many verification legs must
+// confirm an Available verdict (1 = secondary confirmation suffices,
+// 2 = both secondary and tertiary must confirm). Default 1 preserves the
+// strict 2-of-3 semantics: a single confirmation beyond the primary is
+// still the gate's minimum bar.
+describe('DNS consensus tertiary leg config defaults (ADR-0045)', () => {
+  const ENV_KEYS = [
+    'DNS_TERTIARY_ENABLED',
+    'DNS_TERTIARY_STRATEGY',
+    'DNS_TERTIARY_NAMESERVERS',
+    'DNS_CONSENSUS_REQUIRED_AVAILABLE',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('DNS_TERTIARY_ENABLED defaults to false (third opinion is opt-in)', () => {
+    expect(loadConfig().DNS_TERTIARY_ENABLED).toBe(false);
+  });
+
+  it('DNS_TERTIARY_STRATEGY defaults to native (system recursor)', () => {
+    expect(loadConfig().DNS_TERTIARY_STRATEGY).toBe('native');
+  });
+
+  it('DNS_CONSENSUS_REQUIRED_AVAILABLE defaults to 1 (a single confirmation beyond the primary)', () => {
+    expect(loadConfig().DNS_CONSENSUS_REQUIRED_AVAILABLE).toBe(1);
+  });
+
+  it('DNS_CONSENSUS_REQUIRED_AVAILABLE accepts 2 (both verification legs must confirm)', () => {
+    process.env.DNS_CONSENSUS_REQUIRED_AVAILABLE = '2';
+    resetConfig();
+    expect(loadConfig().DNS_CONSENSUS_REQUIRED_AVAILABLE).toBe(2);
+  });
+
+  it('DNS_CONSENSUS_REQUIRED_AVAILABLE rejects values outside 1..2', () => {
+    process.env.DNS_CONSENSUS_REQUIRED_AVAILABLE = '3';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('DNS_TERTIARY_ENABLED accepts an explicit true', () => {
+    process.env.DNS_TERTIARY_ENABLED = 'true';
+    resetConfig();
+    expect(loadConfig().DNS_TERTIARY_ENABLED).toBe(true);
+  });
+});

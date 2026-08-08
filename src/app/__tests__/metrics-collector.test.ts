@@ -6,7 +6,13 @@ describe('MetricsCollector DNS consensus (ADR-0039)', () => {
   it('records and accumulates consensus verdict tallies', () => {
     const collector = new MetricsCollector();
     collector.recordDnsConsensus({ verified: 3, disagreed: 1, unverifiable: 2, degraded: false });
-    collector.recordDnsConsensus({ verified: 4, disagreed: 0, unverifiable: 0, degraded: false });
+    collector.recordDnsConsensus({
+      verified: 4,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+      tertiaryRescued: 3,
+    });
 
     const consensus = collector.snapshot().pipeline.dnsConsensus!;
     expect(consensus.observed).toBe(true);
@@ -14,6 +20,30 @@ describe('MetricsCollector DNS consensus (ADR-0039)', () => {
     expect(consensus.disagreedTotal).toBe(1);
     expect(consensus.unverifiableTotal).toBe(2);
     expect(consensus.degradedRunsTotal).toBe(0);
+    expect(consensus.lastRunDegraded).toBe(false);
+  });
+
+  it('accumulates tertiary-rescue tallies (ADR-0045)', () => {
+    const collector = new MetricsCollector();
+    collector.recordDnsConsensus({ verified: 2, disagreed: 0, unverifiable: 1, degraded: false });
+    collector.recordDnsConsensus({
+      verified: 1,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+      tertiaryRescued: 1,
+    });
+
+    const consensus = collector.snapshot().pipeline.dnsConsensus!;
+    expect(consensus.tertiaryRescuedTotal).toBe(1);
+  });
+
+  it('reports observed=false before any consensus run', () => {
+    const collector = new MetricsCollector();
+    const consensus = collector.snapshot().pipeline.dnsConsensus!;
+    expect(consensus.observed).toBe(false);
+    expect(consensus.verifiedTotal).toBe(0);
+    expect(consensus.tertiaryRescuedTotal).toBe(0);
     expect(consensus.lastRunDegraded).toBe(false);
   });
 
@@ -37,12 +67,19 @@ describe('MetricsCollector DNS consensus (ADR-0039)', () => {
 
   it('reset clears consensus tallies', () => {
     const collector = new MetricsCollector();
-    collector.recordDnsConsensus({ verified: 1, disagreed: 0, unverifiable: 1, degraded: true });
+    collector.recordDnsConsensus({
+      verified: 1,
+      disagreed: 0,
+      unverifiable: 1,
+      degraded: true,
+      tertiaryRescued: 2,
+    });
     collector.reset();
 
     const consensus = collector.snapshot().pipeline.dnsConsensus!;
     expect(consensus.observed).toBe(false);
     expect(consensus.verifiedTotal).toBe(0);
+    expect(consensus.tertiaryRescuedTotal).toBe(0);
     expect(consensus.degradedRunsTotal).toBe(0);
   });
 });
