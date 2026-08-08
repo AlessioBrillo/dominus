@@ -20,10 +20,14 @@ export interface DnsResolverGroup {
   lookups: DnsLookupSpec[];
 }
 
-const DEFAULT_DOH_PROVIDERS: Array<{ name: string; url: string }> = [
+const DEFAULT_DOH_PROVIDERS: Array<{ name: string; url: string; format?: 'json' | 'wire' }> = [
+  // Live-verified JSON API endpoints (2026-08-08). dns.google must be hit
+  // on /resolve (the /dns-query path answers 400 to JSON GETs) and
+  // dns.quad9.net is RFC 8484 wire-format only (formerly a silent 505 for
+  // every JSON query — ADR-0047). Cloudflare answers JSON on /dns-query.
   { name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query' },
-  { name: 'Google', url: 'https://dns.google/dns-query' },
-  { name: 'Quad9', url: 'https://dns.quad9.net/dns-query' },
+  { name: 'Google', url: 'https://dns.google/resolve' },
+  { name: 'Quad9', url: 'https://dns.quad9.net/dns-query', format: 'wire' },
 ];
 
 const DEFAULT_DOT_PROVIDERS: Array<{ name: string; host: string }> = [
@@ -31,6 +35,20 @@ const DEFAULT_DOT_PROVIDERS: Array<{ name: string; host: string }> = [
   { name: 'Google', host: '8.8.8.8' },
   { name: 'Quad9', host: '9.9.9.9' },
 ];
+
+/** Map a default DoH provider entry to a resolver lookup spec, carrying its
+ *  request format (RFC 8484 wire for providers without a JSON API). */
+function dohProviderToSpec(p: {
+  name: string;
+  url: string;
+  format?: 'json' | 'wire';
+}): DnsLookupSpec {
+  return {
+    type: 'doh',
+    endpoint: p.url,
+    ...(p.format !== undefined ? { format: p.format } : {}),
+  };
+}
 
 export function strategyToResolverGroups(
   strategy: string,
@@ -41,10 +59,7 @@ export function strategyToResolverGroups(
       return [
         {
           name: 'multi-doh',
-          lookups: DEFAULT_DOH_PROVIDERS.map((p) => ({
-            type: 'doh' as const,
-            endpoint: p.url,
-          })),
+          lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
     case 'doh-primary':
@@ -55,10 +70,7 @@ export function strategyToResolverGroups(
       return [
         {
           name: 'multi-doh',
-          lookups: DEFAULT_DOH_PROVIDERS.map((p) => ({
-            type: 'doh' as const,
-            endpoint: p.url,
-          })),
+          lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
         {
           name: 'multi-doh-native-fallback',
@@ -69,13 +81,7 @@ export function strategyToResolverGroups(
       return [
         {
           name: 'multi-doh',
-          lookups: [
-            ...DEFAULT_DOH_PROVIDERS.map((p) => ({
-              type: 'doh' as const,
-              endpoint: p.url,
-            })),
-            { type: 'native' as const },
-          ],
+          lookups: [...DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec), { type: 'native' as const }],
         },
       ];
     case 'dot-only':
@@ -111,10 +117,7 @@ export function strategyToResolverGroups(
         },
         {
           name: 'multi-doh-fallback',
-          lookups: DEFAULT_DOH_PROVIDERS.map((p) => ({
-            type: 'doh' as const,
-            endpoint: p.url,
-          })),
+          lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
     case 'native-with-doh-fallback':
@@ -122,10 +125,7 @@ export function strategyToResolverGroups(
         { name: 'primary', lookups: [{ type: 'native' }] },
         {
           name: 'multi-doh-fallback',
-          lookups: DEFAULT_DOH_PROVIDERS.map((p) => ({
-            type: 'doh' as const,
-            endpoint: p.url,
-          })),
+          lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
     case 'native':
@@ -134,7 +134,11 @@ export function strategyToResolverGroups(
   }
 }
 
-export function getDefaultDohProviders(): Array<{ name: string; url: string }> {
+export function getDefaultDohProviders(): Array<{
+  name: string;
+  url: string;
+  format?: 'json' | 'wire';
+}> {
   return DEFAULT_DOH_PROVIDERS;
 }
 
