@@ -11,6 +11,8 @@ import {
   type ICircuitBreaker,
 } from '../circuit-breaker.js';
 import { type IanaRdapBootstrap, RDAP_ORG_UNIVERSAL } from './rdap-bootstrap.js';
+import type { RdapAgentPool } from './rdap-agent-pool.js';
+import { rdapAgentPool } from './rdap-agent-pool.js';
 import { extractTld } from '../../utils/domain.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
@@ -60,6 +62,7 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly #perServerCircuitBreakerPolicy: Partial<CircuitBreakerPolicy> | undefined;
   readonly #breakerFactory: RdapBreakerFactory | undefined;
   readonly #bootstrap: IanaRdapBootstrap | undefined;
+  readonly #agentPool: RdapAgentPool;
   readonly #perTldProviders = new Map<string, RdapProvider[]>();
 
   // Intra-run cache: avoids re-querying RDAP for the same domain within a
@@ -79,12 +82,14 @@ export class FailoverRdapProvider implements RdapProvider {
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
     bootstrap?: IanaRdapBootstrap,
     breakerFactory?: RdapBreakerFactory,
+    agentPool: RdapAgentPool = rdapAgentPool,
   ) {
     this.#providers = providers ?? [];
     this.#sharedRateLimiter = sharedRateLimiter ?? RateLimiter.unlimited();
     this.#bootstrap = bootstrap;
     this.#perServerCircuitBreakerPolicy = perServerCircuitBreakerPolicy;
     this.#breakerFactory = breakerFactory;
+    this.#agentPool = agentPool;
     this.name =
       this.#providers.length > 0
         ? `FailoverRdapProvider(${this.#providers.map((s) => s.name).join(',')})`
@@ -129,6 +134,7 @@ export class FailoverRdapProvider implements RdapProvider {
     rateLimiter?: RateLimiterLike,
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
     breakerFactory?: RdapBreakerFactory,
+    agentPool: RdapAgentPool = rdapAgentPool,
   ): FailoverRdapProvider {
     const providers = urls.map((entry, i) => {
       const url = typeof entry === 'string' ? entry : entry.url;
@@ -140,6 +146,7 @@ export class FailoverRdapProvider implements RdapProvider {
         rateLimiter ?? RateLimiter.unlimited(),
         DEFAULT_RDAP_TIMEOUT_MS,
         tlds,
+        agentPool,
       );
     });
     return new FailoverRdapProvider(
@@ -148,6 +155,7 @@ export class FailoverRdapProvider implements RdapProvider {
       perServerCircuitBreakerPolicy,
       undefined,
       breakerFactory,
+      agentPool,
     );
   }
 
@@ -162,6 +170,7 @@ export class FailoverRdapProvider implements RdapProvider {
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
     bootstrap?: IanaRdapBootstrap,
     breakerFactory?: RdapBreakerFactory,
+    agentPool: RdapAgentPool = rdapAgentPool,
   ): FailoverRdapProvider {
     const limiter = rateLimiter ?? RateLimiter.unlimited();
     const universal = new PublicRdapProvider(
@@ -169,13 +178,16 @@ export class FailoverRdapProvider implements RdapProvider {
       RDAP_ORG_UNIVERSAL.name,
       limiter,
       DEFAULT_RDAP_TIMEOUT_MS,
+      undefined,
+      agentPool,
     );
     return new FailoverRdapProvider(
       [universal],
-      limiter,
+      rateLimiter,
       perServerCircuitBreakerPolicy,
       bootstrap,
       breakerFactory,
+      agentPool,
     );
   }
 
@@ -316,6 +328,7 @@ export class FailoverRdapProvider implements RdapProvider {
           this.#sharedRateLimiter,
           DEFAULT_RDAP_TIMEOUT_MS,
           server.tlds.length > 0 ? server.tlds : undefined,
+          this.#agentPool,
         ),
       );
     }
