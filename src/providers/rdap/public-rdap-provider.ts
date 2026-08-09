@@ -5,6 +5,8 @@ import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
 import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 import { extractTld } from '../../utils/domain.js';
+import type { RdapAgentPool } from './rdap-agent-pool.js';
+import { rdapAgentPool } from './rdap-agent-pool.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
@@ -58,6 +60,7 @@ export class PublicRdapProvider implements RdapProvider {
   readonly #baseUrl: string;
   readonly #rateLimiter: RateLimiterLike;
   readonly #timeoutMs: number;
+  readonly #agentPool: RdapAgentPool;
   /** TLDs this server serves authoritatively. Undefined = all TLDs
    *  (universal routing servers such as rdap.org). */
   readonly #servesTlds: Set<string> | undefined;
@@ -68,11 +71,13 @@ export class PublicRdapProvider implements RdapProvider {
     rateLimiter?: RateLimiterLike,
     timeoutMs = DEFAULT_RDAP_TIMEOUT_MS,
     tlds?: readonly string[],
+    agentPool: RdapAgentPool = rdapAgentPool,
   ) {
     this.#baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     this.name = name ?? 'PublicRdapProvider';
     this.#rateLimiter = rateLimiter ?? RateLimiter.unlimited();
     this.#timeoutMs = timeoutMs;
+    this.#agentPool = agentPool;
     this.#servesTlds =
       tlds !== undefined ? new Set(tlds.map((t) => t.toLowerCase().replace(/^\./, ''))) : undefined;
   }
@@ -107,7 +112,11 @@ export class PublicRdapProvider implements RdapProvider {
     let response: Response;
 
     try {
-      response = await fetch(url, { signal });
+      // dispatcher is typed unknown to bridge undici vs undici-types (same
+      // pattern as node-dns-provider resolveDoh, ADR-0049).
+      const init: { signal: AbortSignal; dispatcher?: unknown } = { signal };
+      init.dispatcher = await this.#agentPool.getDispatcher();
+      response = await fetch(url, init as Parameters<typeof fetch>[1]);
     } catch (err: unknown) {
       throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
     }

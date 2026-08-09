@@ -29,7 +29,11 @@ import {
   DistributedCircuitBreaker,
   type RedisClient,
 } from '../providers/redis/index.js';
-import { FailoverRdapProvider, type RdapBootstrapUrlEntry } from '../providers/rdap/index.js';
+import {
+  FailoverRdapProvider,
+  RdapAgentPool,
+  type RdapBootstrapUrlEntry,
+} from '../providers/rdap/index.js';
 import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import { DomainStatus, type RdapResult } from '../types/domain-status.js';
@@ -223,6 +227,9 @@ export function buildRdapProviders(
 ): BuiltRdapProviders {
   const rdapBootstrapUrls = parseRdapBootstrapUrls(config.RDAP_BOOTSTRAP_URLS);
   const breakers = buildRdapCircuitBreakers(redisClient);
+  const rdapAgentPool = new RdapAgentPool({
+    maxConnections: config.RDAP_MAX_CONNECTIONS,
+  });
 
   const ianaBootstrap = config.RDAP_BOOTSTRAP_URL
     ? new IanaRdapBootstrap(config.RDAP_BOOTSTRAP_URL)
@@ -238,12 +245,14 @@ export function buildRdapProviders(
           rdapRateLimiter,
           undefined,
           breakers.perServer,
+          rdapAgentPool,
         )
       : FailoverRdapProvider.withDefaults(
           rdapRateLimiter,
           undefined,
           ianaBootstrap,
           breakers.perServer,
+          rdapAgentPool,
         );
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, breakers.global);

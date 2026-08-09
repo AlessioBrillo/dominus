@@ -13,9 +13,10 @@ import {
 
 // Counts confirm() calls on the bootstrap-derived authoritative servers.
 // Shared via vi.hoisted so the vi.mock factories below can access it.
-const { authCallCounter, constructedServers } = vi.hoisted(() => ({
+const { authCallCounter, constructedServers, constructedAgentPools } = vi.hoisted(() => ({
   authCallCounter: { count: 0 },
   constructedServers: [] as Array<{ url: string; tlds?: readonly string[] }>,
+  constructedAgentPools: [] as unknown[],
 }));
 
 // Mock the IANA bootstrap: every TLD resolves to one authoritative server
@@ -52,9 +53,11 @@ vi.mock('../public-rdap-provider.js', async () => {
         _limiter?: unknown,
         _timeout?: unknown,
         tlds?: readonly string[],
+        agentPool?: unknown,
       ) {
         this.name = name;
         constructedServers.push(tlds === undefined ? { url } : { url, tlds });
+        constructedAgentPools.push(agentPool);
       }
       async confirm(domain: string): Promise<unknown> {
         authCallCounter.count++;
@@ -259,6 +262,50 @@ describe('FailoverRdapProvider', () => {
       { url: 'https://rdap.org/domain/' },
       { url: 'https://rdap.verisign.com/com/domain/', tlds: ['com', 'net'] },
     ]);
+  });
+
+  it('propagates the shared agent pool from fromConfig to every server (ADR-0049)', () => {
+    const pool = { maxConnections: 64 } as never;
+    constructedAgentPools.length = 0;
+    FailoverRdapProvider.fromConfig(
+      ['https://rdap.org/domain/', 'https://rdap.verisign.com/com/domain/'],
+      undefined,
+      undefined,
+      undefined,
+      pool,
+    );
+
+    expect(constructedAgentPools).toEqual([pool, pool]);
+  });
+
+  it('propagates the shared agent pool from withDefaults to the universal server (ADR-0049)', () => {
+    const pool = { maxConnections: 64 } as never;
+    constructedAgentPools.length = 0;
+    FailoverRdapProvider.withDefaults(undefined, undefined, undefined, undefined, pool);
+
+    expect(constructedAgentPools).toEqual([pool]);
+  });
+
+  it('propagates the shared agent pool to bootstrap-derived servers (ADR-0049)', async () => {
+    const pool = { maxConnections: 64 } as never;
+    constructedAgentPools.length = 0;
+    const provider = new FailoverRdapProvider(
+      undefined,
+      undefined,
+      undefined,
+      new IanaRdapBootstrap('https://data.iana.org/rdap/dns.json'),
+      undefined,
+      pool,
+    );
+
+    await provider.confirm('example.com');
+
+    // The rdap.org universal fallback plus the TLD's authoritative server.
+    expect(constructedAgentPools.length).toBeGreaterThanOrEqual(2);
+    expect(constructedAgentPools.every((p) => p === pool)).toBe(true);
+
+    // Do not leak confirm() calls into the bootstrap suite that follows.
+    authCallCounter.count = 0;
   });
 
   describe('per-server circuit breaker', () => {

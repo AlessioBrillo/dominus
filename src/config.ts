@@ -703,6 +703,77 @@ const configSchema = z.object({
    * Example: https://data.iana.org/rdap/dns.json
    */
   RDAP_BOOTSTRAP_URL: z.string().url().or(z.literal('')).optional(),
+
+  /**
+   * Maximum keep-alive connections per RDAP origin for the shared undici
+   * Agent pool (ADR-0049). Independent of DNS_DOH_MAX_CONNECTIONS and
+   * DNS_DOT_POOL_MAX_QUEUED. Default: 32. Range: 1-512.
+   */
+  RDAP_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(512).default(32),
+
+  /**
+   * Enable the RDAP 2-of-2 consensus gate (ADR-0050): every Available
+   * verdict from the primary failover must be independently confirmed by a
+   * dedicated second RDAP provider (rdap.org by default). Opt-in: a second
+   * HTTP query per Available doubles RDAP volume, so it is off by default.
+   */
+  RDAP_CONSENSUS_ENABLED: z.coerce.boolean().default(false),
+
+  /**
+   * Required Available confirmations from the second RDAP opinion beyond the
+   * primary. Fixed at 1: only one independent confirmation (2-of-2 total).
+   */
+  RDAP_CONSENSUS_REQUIRED_AVAILABLE: z.coerce.number().int().min(1).max(2).default(1),
+
+  /**
+   * Fraction of consensus-confirmed Available domains that may be unverifiable
+   * before the run is flagged degraded (rdap-consensus-unverified, ADR-0039
+   * pattern). Default: 0.5 (50%). Range: 0.01-1.
+   */
+  RDAP_CONSENSUS_DEGRADED_RATIO: z.coerce.number().min(0.01).max(1).default(0.5),
+
+  /**
+   * Minimum number of consensus-confirmed Available domains before a
+   * degradation is ever considered. Protects small runs. Default: 10.
+   */
+  RDAP_CONSENSUS_DEGRADED_MIN: z.coerce.number().int().min(1).max(1000).default(10),
+
+  /**
+   * Rate limiting: token bucket for the second RDAP consensus leg
+   * (ADR-0050). Dedicated budget in its own Redis namespace ('rdap-consensus') —
+   * a heavy primary run must never starve the gate meant to fail it closed
+   * (ADR-0044). Default: 5 req/sec (lower than the primary 10 req/sec).
+   */
+  RDAP_CONSENSUS_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(5),
+  /** Rate limiting: refill interval in ms for RDAP consensus requests (default: 1000). */
+  RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Per-tenant fair share (Cloud only, ADR-0041): max RDAP consensus tokens
+   * per tenant per interval, on top of the shared rdap-consensus bucket.
+   * Default: 2 req/sec per tenant.
+   */
+  RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).default(2),
+  /** Per-tenant fair share: refill interval in ms for the RDAP consensus tenant window (default: 1000). */
+  RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .max(60000)
+    .default(1000),
+
+  /**
+   * Concurrency ceiling for the RDAP consensus verification phase
+   * (ADR-0050). Bounded independently of RDAP_BATCH_CONCURRENCY so a
+   * verification stampede cannot multiply registry traffic. Default: 10.
+   * Range: 1-50.
+   */
+  RDAP_CONSENSUS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(10),
+
+  /**
+   * Timeout for a single RDAP consensus query on the second leg (ms).
+   * Default: 10000. Range: 1000-30000.
+   */
+  RDAP_CONSENSUS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
   /**
    * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
    * WHOIS servers are generally more restrictive than RDAP.

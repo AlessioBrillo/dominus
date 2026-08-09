@@ -312,3 +312,103 @@ describe('DNS consensus tertiary leg config defaults (ADR-0045)', () => {
     expect(loadConfig().DNS_TERTIARY_ENABLED).toBe(true);
   });
 });
+
+// Locks the RDAP 2-of-2 consensus gate (ADR-0050) and the shared keep-alive
+// agent pool (ADR-0049). The gate is opt-in: every Available verdict from the
+// primary failover is confirmed by a dedicated second RDAP provider, so a
+// second HTTP query per Available doubles RDAP volume when enabled.
+describe('RDAP consensus config defaults (ADR-0050)', () => {
+  const ENV_KEYS = [
+    'RDAP_MAX_CONNECTIONS',
+    'RDAP_CONSENSUS_ENABLED',
+    'RDAP_CONSENSUS_REQUIRED_AVAILABLE',
+    'RDAP_CONSENSUS_DEGRADED_RATIO',
+    'RDAP_CONSENSUS_DEGRADED_MIN',
+    'RDAP_CONSENSUS_RATE_LIMIT_TOKENS',
+    'RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS',
+    'RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS',
+    'RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS',
+    'RDAP_CONSENSUS_BULK_CONCURRENCY',
+    'RDAP_CONSENSUS_TIMEOUT_MS',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('RDAP_MAX_CONNECTIONS defaults to 32 (keep-alive agent per origin)', () => {
+    expect(loadConfig().RDAP_MAX_CONNECTIONS).toBe(32);
+  });
+
+  it('RDAP_CONSENSUS_ENABLED defaults to false (gate is opt-in)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(false);
+  });
+
+  it('RDAP_CONSENSUS_REQUIRED_AVAILABLE defaults to 1 (2-of-2 total)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_REQUIRED_AVAILABLE).toBe(1);
+  });
+
+  it('RDAP_CONSENSUS_DEGRADED_RATIO defaults to 0.5', () => {
+    expect(loadConfig().RDAP_CONSENSUS_DEGRADED_RATIO).toBe(0.5);
+  });
+
+  it('RDAP_CONSENSUS_DEGRADED_MIN defaults to 10 (protects small runs)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_DEGRADED_MIN).toBe(10);
+  });
+
+  it('RDAP_CONSENSUS_RATE_LIMIT_TOKENS defaults to 5 (below the primary 10)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_TOKENS).toBe(5);
+  });
+
+  it('RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS defaults to 1000', () => {
+    expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS).toBe(1000);
+  });
+
+  it('RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS defaults to 2', () => {
+    expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS).toBe(2);
+  });
+
+  it('RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS defaults to 1000', () => {
+    expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS).toBe(1000);
+  });
+
+  it('RDAP_CONSENSUS_BULK_CONCURRENCY defaults to 10 (independent of RDAP_BATCH_CONCURRENCY)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_BULK_CONCURRENCY).toBe(10);
+  });
+
+  it('RDAP_CONSENSUS_TIMEOUT_MS defaults to 10000', () => {
+    expect(loadConfig().RDAP_CONSENSUS_TIMEOUT_MS).toBe(10000);
+  });
+
+  it('RDAP_CONSENSUS_RATE_LIMIT_TOKENS accepts an explicit override', () => {
+    process.env.RDAP_CONSENSUS_RATE_LIMIT_TOKENS = '8';
+    resetConfig();
+    expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_TOKENS).toBe(8);
+  });
+
+  it('RDAP_CONSENSUS_REQUIRED_AVAILABLE rejects values outside 1..2', () => {
+    process.env.RDAP_CONSENSUS_REQUIRED_AVAILABLE = '3';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('RDAP_MAX_CONNECTIONS rejects values above 512', () => {
+    process.env.RDAP_MAX_CONNECTIONS = '513';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+});
