@@ -321,6 +321,7 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
   const ENV_KEYS = [
     'RDAP_MAX_CONNECTIONS',
     'RDAP_CONSENSUS_ENABLED',
+    'RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED',
     'RDAP_CONSENSUS_ENDPOINT',
     'RDAP_CONSENSUS_DEGRADED_RATIO',
     'RDAP_CONSENSUS_DEGRADED_MIN',
@@ -356,6 +357,16 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
 
   it('RDAP_CONSENSUS_ENABLED defaults to false (gate is opt-in)', () => {
     expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(false);
+  });
+
+  it('RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED defaults to false (rescue is opt-in, ADR-0051)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED).toBe(false);
+  });
+
+  it('RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED accepts an explicit true', () => {
+    process.env.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED = 'true';
+    resetConfig();
+    expect(loadConfig().RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED).toBe(true);
   });
 
   it('RDAP_CONSENSUS_DEGRADED_RATIO defaults to 0.5', () => {
