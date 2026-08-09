@@ -54,6 +54,7 @@ import {
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
 import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
+import type { RdapConsensusConfig } from '../pipeline/stages/rdap-confirmation-stage.js';
 import { getLogger } from '../logger.js';
 
 export function buildKeywordProvider(
@@ -599,6 +600,43 @@ export function buildWaybackProvider(
   return cached;
 }
 
+/**
+ * Dedicated rate limiter for the 2-of-2 RDAP consensus leg (ADR-0050). Like
+ * the DNS consensus budget (ADR-0044), the second RDAP provider must run
+ * against its own bucket: sharing the primary's would let a heavy run starve
+ * the very verification gate that is supposed to fail it closed. Uses the
+ * RDAP_CONSENSUS_RATE_LIMIT_* tuning and a `rdap-consensus` Redis namespace
+ * in cloud mode.
+ */
+export function buildRdapConsensusRateLimiter(
+  config: Config,
+  redisClient?: RedisClient,
+): RateLimiterLike {
+  const fairShare = config.PROVIDER_FAIR_SHARE_ENABLED;
+  if (redisClient?.isConnected) {
+    return new RedisRateLimiter(
+      {
+        tokens: config.RDAP_CONSENSUS_RATE_LIMIT_TOKENS,
+        intervalMs: config.RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
+        namespace: 'rdap-consensus',
+        fairShare,
+        perTenantTokens: config.RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS,
+        ...(fairShare &&
+        config.RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS !==
+          config.RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS
+          ? { perTenantIntervalMs: config.RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS }
+          : {}),
+      },
+      redisClient,
+    );
+  }
+  return new RateLimiter({
+    maxTokens: config.RDAP_CONSENSUS_RATE_LIMIT_TOKENS,
+    tokensPerInterval: config.RDAP_CONSENSUS_RATE_LIMIT_TOKENS,
+    intervalMs: config.RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
+  });
+}
+
 export interface BuiltRateLimiters {
   rdap: RateLimiterLike;
   uspto: RateLimiterLike;
@@ -607,6 +645,8 @@ export interface BuiltRateLimiters {
   dns: RateLimiterLike;
   /** Dedicated budget for the 2-of-3 DNS consensus secondary (ADR-0044). */
   dnsConsensus: RateLimiterLike;
+  /** Dedicated budget for the 2-of-2 RDAP consensus leg (ADR-0050). */
+  rdapConsensus: RateLimiterLike;
 }
 
 /**
@@ -704,7 +744,8 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
       redisClient,
     );
     const dnsConsensus = buildConsensusRateLimiter(config, redisClient);
-    return { rdap, uspto, euipo, wayback, dns, dnsConsensus };
+    const rdapConsensus = buildRdapConsensusRateLimiter(config, redisClient);
+    return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus };
   }
 
   const rdap = new RateLimiter({
@@ -733,5 +774,70 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
     intervalMs: config.DNS_RATE_LIMIT_INTERVAL_MS,
   });
   const dnsConsensus = buildConsensusRateLimiter(config);
-  return { rdap, uspto, euipo, wayback, dns, dnsConsensus };
+  const rdapConsensus = buildRdapConsensusRateLimiter(config);
+  return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus };
+}
+
+/**
+ * Builds the RDAP 2-of-2 consensus config for the pipeline's RDAP
+ * confirmation stage, or undefined when RDAP_CONSENSUS_ENABLED is off (the
+ * default). The second leg is a real, dedicated RDAP provider pinned to the
+ * independent origin in RDAP_CONSENSUS_ENDPOINT (ADR-0050): verification
+ * must come from a registrar/registry infrastructure that did not produce
+ * the primary verdict, so it cannot draw on the same bootstrap or cache.
+ *
+ * The consensus leg draws from its own rate-limit budget (`rdapConsensus`,
+ * ADR-0044 pattern): the verification queries must never be starved by the
+ * primary's traffic, and the two providers' budgets stay independent.
+ *
+ * Returns undefined (gate off) when the feature flag is off or when the
+ * endpoint is not configured — a misconfigured gate logs prominently
+ * instead of silently passing single-leg verdicts.
+ */
+export function createRdapConsensusConfig(
+  config: Config,
+  rdapConsensusRateLimiter?: RateLimiterLike,
+  redisClient?: RedisClient,
+): RdapConsensusConfig | undefined {
+  if (!config.RDAP_CONSENSUS_ENABLED) return undefined;
+  const logger = getLogger();
+
+  const endpoint = config.RDAP_CONSENSUS_ENDPOINT.trim();
+  if (!endpoint) {
+    logger.error(
+      'RDAP: consensus enabled but RDAP_CONSENSUS_ENDPOINT is empty — 2-of-2 gate disabled. ' +
+        'Set the independent second-leg origin to harden availability verdicts (ADR-0050).',
+    );
+    return undefined;
+  }
+
+  const rateLimiter =
+    rdapConsensusRateLimiter ?? buildRdapConsensusRateLimiter(config, redisClient);
+  const breakers = buildRdapCircuitBreakers(redisClient);
+  const rdapAgentPool = new RdapAgentPool({
+    maxConnections: config.RDAP_MAX_CONNECTIONS,
+  });
+
+  // A single pinned origin: the consensus leg is a verification query to the
+  // configured independent server, never a bootstrap-followed lookup that
+  // could converge back onto the primary's infrastructure.
+  const secondaryProvider = FailoverRdapProvider.fromConfig(
+    [{ url: endpoint }],
+    rateLimiter,
+    undefined,
+    breakers.perServer,
+    rdapAgentPool,
+  );
+
+  logger.info(
+    { endpoint },
+    'RDAP: 2-of-2 consensus enabled — Available verdicts are re-confirmed by the second provider',
+  );
+  return {
+    secondaryProvider,
+    secondaryOrigin: endpoint,
+    degradedRatio: config.RDAP_CONSENSUS_DEGRADED_RATIO,
+    degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
+    consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
+  };
 }

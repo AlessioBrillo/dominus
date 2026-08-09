@@ -6,7 +6,7 @@ import { CandidateSource } from '../../types/candidate.js';
 import type { RdapResult } from '../../types/domain-status.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
-import type { Stage, StageResult } from '../stage.js';
+import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
 import { getLogger } from '../../logger.js';
 
 const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
@@ -68,6 +68,33 @@ function buildWhoisMeta(result: AvailabilityResult): WhoisMeta | undefined {
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
+export interface RdapConsensusConfig {
+  /** Dedicated second RDAP provider on an independent origin (ADR-0050). */
+  secondaryProvider: RdapProvider;
+  /** Endpoint origin of the second leg, for diagnostics. */
+  secondaryOrigin: string;
+  /**
+   * Fraction of consensus-confirmed Available domains that may be
+   * unverifiable before the run is flagged degraded. Default: 0.5.
+   */
+  degradedRatio?: number;
+  /** Minimum consensus-confirmed domains before a degradation is flagged. Default: 10. */
+  degradedMin?: number;
+  /**
+   * Concurrency ceiling for the verification phase (ADR-0050 §4).
+   * Bounded independently of RDAP_BATCH_CONCURRENCY so a verification
+   * stampede cannot multiply registry traffic.
+   */
+  consensusConcurrency?: number;
+}
+
+/** Default fraction of unverifiable Available domains that flags a run degraded. */
+const DEFAULT_CONSENSUS_DEGRADED_RATIO = 0.5;
+/** Default minimum consensus-confirmed domains before degradation counts. */
+const DEFAULT_CONSENSUS_DEGRADED_MIN = 10;
+/** Default concurrency ceiling for the consensus verification phase. */
+const DEFAULT_CONSENSUS_CONCURRENCY = 10;
+
 export class RdapConfirmationStage implements Stage<DomainCandidate> {
   readonly name = 'RdapConfirmationStage';
 
@@ -88,6 +115,12 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
      * mirroring the DNS stage's forceRecheck for closeout sources.
      */
     private readonly freshRdapProvider?: RdapProvider,
+    /**
+     * Optional 2-of-2 consensus gate (ADR-0050): every Available verdict is
+     * re-confirmed by an independent second provider. Fail-closed — a
+     * disagreement or unverifiable confirmation downgrades the candidate.
+     */
+    private readonly consensusConfig?: RdapConsensusConfig,
   ) {}
 
   async process(
@@ -97,7 +130,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     const start = Date.now();
     if (signal?.aborted) return { passed: [], filtered: [], stageName: this.name, durationMs: 0 };
 
-    const passed: DomainCandidate[] = [];
+    let passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
 
     const batches = this.#toBatches(candidates, this.concurrency);
@@ -152,15 +185,147 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       }
     }
 
+    // 2-of-2 consensus (ADR-0050): every primary-Available verdict must be
+    // independently confirmed by the second provider. Fail-closed — a
+    // disagreement or an unverifiable answer downgrades the candidate. The
+    // gate covers BOTH provider paths (cached and fresh closeout lookups):
+    // it runs on the stage's outcome, not inside a single provider.
+    const rdapConsensusStats: RdapConsensusStats | undefined = this.consensusConfig
+      ? { verified: 0, disagreed: 0, unverifiable: 0, degraded: false }
+      : undefined;
+    if (this.consensusConfig !== undefined && passed.length > 0) {
+      const degradations: StageDegradation[] = [];
+      passed = await this.#verifyConsensus(
+        passed,
+        filtered,
+        signal,
+        rdapConsensusStats!,
+        degradations,
+      );
+      const result: StageResult<DomainCandidate> = {
+        passed,
+        filtered,
+        stageName: this.name,
+        durationMs: Date.now() - start,
+        ...(rdapConsensusStats ? { rdapConsensusStats } : {}),
+      };
+      if (degradations.length > 0) result.degradations = degradations;
+      return result;
+    }
+
     return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
   }
 
-  #toBatches<T>(items: T[], size: number): T[][] {
-    const batches: T[][] = [];
-    for (let i = 0; i < items.length; i += size) {
-      batches.push(items.slice(i, i + size));
+  /**
+   * Re-confirms every primary-Available verdict on the dedicated second leg
+   * (ADR-0050). A definitive Registered (or premium) answer from the second
+   * provider vetoes the domain — "registered wins", ADR-0002 conservatism,
+   * mirroring the DNS secondary veto (ADR-0045): the outcome is never
+   * Available. A failure to answer (error/timeout/Unknown) downgrades to
+   * Unknown as well: the gate is fail-closed and never lets a single-leg
+   * Available pass. Returns the candidates that survived the gate.
+   *
+   * Runs under its own concurrency ceiling (RDAP_CONSENSUS_BULK_CONCURRENCY)
+   * and flags the run degraded when the secondary cannot verify the majority
+   * of a minimum sample, mirroring the DNS consensus-degradation policy
+   * (ADR-0039).
+   */
+  async #verifyConsensus(
+    passed: DomainCandidate[],
+    filtered: DomainCandidate[],
+    signal: AbortSignal | undefined,
+    stats: RdapConsensusStats,
+    degradations: StageDegradation[],
+  ): Promise<DomainCandidate[]> {
+    const cfg = this.consensusConfig!;
+    const logger = getLogger();
+    const concurrency = cfg.consensusConcurrency ?? DEFAULT_CONSENSUS_CONCURRENCY;
+
+    // Outcome per verified domain. Batches are re-checked in slices over the
+    // original array; the survivors are re-assembled at the end.
+    const survivor = new Set<string>();
+
+    const batches = this.#toBatches(passed, concurrency);
+    for (const batch of batches) {
+      if (signal?.aborted) break;
+      const results = await Promise.all(
+        batch.map(async (candidate) => {
+          try {
+            const result = await cfg.secondaryProvider.confirm(candidate.domain, signal);
+            return { candidate, result };
+          } catch (error) {
+            return { candidate, result: undefined, error };
+          }
+        }),
+      );
+      for (const { candidate, result } of results) {
+        if (result === undefined) {
+          stats.unverifiable++;
+          continue;
+        }
+        if (result.status === DomainStatus.Available && !result.isPremium) {
+          survivor.add(candidate.domain);
+          stats.verified++;
+          continue;
+        }
+        if (result.status === DomainStatus.Registered || result.isPremium) {
+          stats.disagreed++;
+          logger.warn(
+            {
+              domain: candidate.domain,
+              secondStatus: result.status,
+              isPremium: result.isPremium,
+            },
+            'RDAP: 2-of-2 consensus vetoed (second leg says registered) — downgraded',
+          );
+          continue;
+        }
+        stats.unverifiable++;
+      }
     }
-    return batches;
+
+    // Fail-closed with a visible flag (ADR-0039 pattern): when the second leg
+    // cannot verify the majority of a minimum sample of Available domains,
+    // the run completes but is marked degraded so the caller knows the
+    // verdicts downstream rest on a single provider. Small runs never flag.
+    const consensusTotal = stats.verified + stats.disagreed + stats.unverifiable;
+    const degradedRatio = cfg.degradedRatio ?? DEFAULT_CONSENSUS_DEGRADED_RATIO;
+    const degradedMin = cfg.degradedMin ?? DEFAULT_CONSENSUS_DEGRADED_MIN;
+    if (
+      consensusTotal >= degradedMin &&
+      stats.unverifiable / consensusTotal >= degradedRatio &&
+      degradations !== undefined
+    ) {
+      stats.degraded = true;
+      degradations.push({
+        stageName: this.name,
+        reason: 'consensus-unverified',
+        processedCount: stats.verified,
+        expectedCount: consensusTotal,
+        message: `${stats.unverifiable}/${consensusTotal} Available verdicts unconfirmed by the second RDAP provider`,
+      });
+      logger.warn(
+        { verified: stats.verified, unverifiable: stats.unverifiable, consensusTotal },
+        'RDAP: consensus degraded — second provider could not verify the majority of Available domains',
+      );
+    }
+
+    const remaining: DomainCandidate[] = [];
+    for (const candidate of passed) {
+      if (survivor.has(candidate.domain)) {
+        remaining.push(candidate);
+        continue;
+      }
+      // Fail-closed (ADR-0050): both a definitive veto and a failure to
+      // verify downgrade the candidate to Unknown — never Available.
+      filtered.push({
+        ...candidate,
+        rdapStatus: DomainStatus.Unknown,
+        isPremium: false,
+        status: CandidateStatus.RdapFiltered,
+      });
+    }
+    return remaining;
   }
 
   /** Closeout candidates always hit the fresh provider (cache-bypassing live
@@ -171,6 +336,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return this.freshRdapProvider;
     }
     return this.rdapProvider;
+  }
+
+  #toBatches<T>(items: T[], size: number): T[][] {
+    const batches: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      batches.push(items.slice(i, i + size));
+    }
+    return batches;
   }
 
   async #checkAvailability(

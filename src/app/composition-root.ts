@@ -95,6 +95,7 @@ import {
   buildDnsProvider,
   buildDnsConsensusConfig,
   probeConsensusProvider,
+  createRdapConsensusConfig,
   buildWhoisProviders,
   buildRateLimiters,
   buildWaybackProvider,
@@ -530,6 +531,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     euipo: euipoRateLimiter,
     dns: dnsRateLimiter,
     dnsConsensus: dnsConsensusRateLimiter,
+    rdapConsensus: rdapConsensusRateLimiter,
   } = buildRateLimiters(config, redisClient);
 
   // --- Providers ---
@@ -619,6 +621,17 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider);
   }
 
+  // 2-of-2 RDAP consensus (ADR-0050): a dedicated second RDAP provider on the
+  // independent RDAP_CONSENSUS_ENDPOINT re-confirms every Available verdict
+  // from the primary leg. Fail-closed — the gate downgrades any candidate the
+  // second leg cannot independently confirm. Off by default; the second leg
+  // draws from its own rdapConsensus rate-limit budget (ADR-0044 pattern).
+  const rdapConsensusConfig = createRdapConsensusConfig(
+    config,
+    rdapConsensusRateLimiter,
+    redisClient,
+  );
+
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(
@@ -634,6 +647,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
       config.RDAP_WHOIS_BUDGET_MS,
       freshRdapProvider,
+      rdapConsensusConfig,
     ),
     new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),

@@ -5,6 +5,7 @@ import {
   buildDnsConsensusConfig,
   buildRateLimiters,
   buildRdapCircuitBreakers,
+  createRdapConsensusConfig,
   isRdapResultCacheable,
   isRdapResultStale,
   parseRdapBootstrapUrls,
@@ -103,7 +104,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     RDAP_BATCH_CONCURRENCY: 5,
     RDAP_MAX_CONNECTIONS: 32,
     RDAP_CONSENSUS_ENABLED: false,
-    RDAP_CONSENSUS_REQUIRED_AVAILABLE: 1,
+    RDAP_CONSENSUS_ENDPOINT: '',
     RDAP_CONSENSUS_DEGRADED_RATIO: 0.5,
     RDAP_CONSENSUS_DEGRADED_MIN: 10,
     RDAP_CONSENSUS_RATE_LIMIT_TOKENS: 5,
@@ -601,23 +602,23 @@ describe('isRdapResultStale', () => {
   });
 });
 
+function fakeRedis(): RedisClient {
+  return {
+    isConnected: true,
+    keyPrefix: 'dominus:',
+    prefixed: (key: string) => `dominus:${key}`,
+    withRedis: vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => fn()),
+    client: {} as never,
+    ping: vi.fn(),
+    shutdown: vi.fn(),
+  } as unknown as RedisClient;
+}
+
 // Regression (ADR-0044): the 2-of-3 consensus secondary must run against its
 // own rate-limit budget. Sharing the primary DNS bucket would let a heavy
 // Primary run starve the very gate that is supposed to fail the run closed,
 // and the two providers' budgets would count against each other.
 describe('buildRateLimiters DNS consensus budget', () => {
-  function fakeRedis(): RedisClient {
-    return {
-      isConnected: true,
-      keyPrefix: 'dominus:',
-      prefixed: (key: string) => `dominus:${key}`,
-      withRedis: vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => fn()),
-      client: {} as never,
-      ping: vi.fn(),
-      shutdown: vi.fn(),
-    } as unknown as RedisClient;
-  }
-
   it('returns a dedicated in-memory limiter separate from the primary DNS bucket', () => {
     const rl = buildRateLimiters(makeConfig());
     expect(rl.dnsConsensus).toBeDefined();
@@ -644,5 +645,72 @@ describe('buildRateLimiters DNS consensus budget', () => {
     const config = makeConfig({ DNS_CONSENSUS_RATE_LIMIT_TOKENS: 3 });
     const limiter = buildConsensusRateLimiter(config);
     expect((limiter as RateLimiter).maxTokens).toBe(3);
+  });
+});
+
+// Regression (ADR-0050): the 2-of-2 RDAP consensus gate was implemented and
+// unit-tested at the stage level but composition-root never passed a
+// consensusConfig, so it never ran in production — the same wiring failure
+// the DNS consensus had (see buildDnsConsensusConfig regression above).
+// This locks in the factory boundary: the second leg is a real provider
+// pinned to the independent RDAP_CONSENSUS_ENDPOINT.
+describe('createRdapConsensusConfig (ADR-0050)', () => {
+  it('returns undefined when RDAP_CONSENSUS_ENABLED is false (default)', () => {
+    const config = makeConfig({ RDAP_CONSENSUS_ENABLED: false });
+    expect(createRdapConsensusConfig(config)).toBeUndefined();
+  });
+
+  it('returns undefined with a prominent log when enabled but the endpoint is empty', () => {
+    const config = makeConfig({ RDAP_CONSENSUS_ENABLED: true, RDAP_CONSENSUS_ENDPOINT: '' });
+    expect(createRdapConsensusConfig(config)).toBeUndefined();
+  });
+
+  it('builds a secondary provider pinned to the independent endpoint', () => {
+    const config = makeConfig({
+      RDAP_CONSENSUS_ENABLED: true,
+      RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+    });
+    const result = createRdapConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.secondaryOrigin).toBe('https://rdap.secondary.example.com/');
+    expect(typeof result?.secondaryProvider.confirm).toBe('function');
+  });
+
+  it('threads the degraded ratio/min and concurrency tuning into the config', () => {
+    const config = makeConfig({
+      RDAP_CONSENSUS_ENABLED: true,
+      RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+      RDAP_CONSENSUS_DEGRADED_RATIO: 0.3,
+      RDAP_CONSENSUS_DEGRADED_MIN: 25,
+      RDAP_CONSENSUS_BULK_CONCURRENCY: 3,
+    });
+    const result = createRdapConsensusConfig(config);
+    expect(result?.degradedRatio).toBe(0.3);
+    expect(result?.degradedMin).toBe(25);
+    expect(result?.consensusConcurrency).toBe(3);
+  });
+});
+
+describe('buildRateLimiters RDAP consensus budget (ADR-0050)', () => {
+  it('returns a dedicated in-memory limiter separate from the primary RDAP bucket', () => {
+    const rl = buildRateLimiters(makeConfig());
+    expect(rl.rdapConsensus).toBeDefined();
+    expect(rl.rdapConsensus).not.toBe(rl.rdap);
+    expect((rl.rdapConsensus as RateLimiter).maxTokens).toBe(5);
+  });
+
+  it('honours the RDAP_CONSENSUS_RATE_LIMIT_TOKENS override for the consensus budget', () => {
+    const config = makeConfig({ RDAP_CONSENSUS_RATE_LIMIT_TOKENS: 7 });
+    const rl = buildRateLimiters(config);
+    expect((rl.rdapConsensus as RateLimiter).maxTokens).toBe(7);
+    // The primary budget is untouched by the consensus override.
+    expect((rl.rdap as RateLimiter).maxTokens).toBe(10);
+  });
+
+  it('returns a distinct Redis limiter with its own namespace in cloud mode', () => {
+    const rl = buildRateLimiters(makeConfig(), fakeRedis());
+    expect(rl.rdapConsensus).toBeInstanceOf(RedisRateLimiter);
+    expect(rl.rdapConsensus).not.toBe(rl.rdap);
+    expect((rl.rdapConsensus as RedisRateLimiter).metrics().namespace).toBe('rdap-consensus');
   });
 });

@@ -28,6 +28,17 @@ export interface DnsConsensusStats {
   degraded: boolean;
 }
 
+export interface RdapConsensusStats {
+  /** Available verdicts independently confirmed by the second provider (ADR-0050). */
+  verified: number;
+  /** Definitive disagreements (second leg says Registered) — valid answers. */
+  disagreed: number;
+  /** Domains the second leg could not answer at all (errors, timeouts). */
+  unverifiable: number;
+  /** True when the run was flagged degraded over consensus (ADR-0039 pattern). */
+  degraded: boolean;
+}
+
 export interface StageResult<T> {
   passed: T[];
   filtered: T[];
@@ -41,6 +52,8 @@ export interface StageResult<T> {
   degradations?: StageDegradation[];
   /** Per-run 2-of-3 DNS consensus tallies, when the stage ran consensus. */
   consensusStats?: DnsConsensusStats;
+  /** Per-run 2-of-2 RDAP consensus tallies, when the stage ran consensus. */
+  rdapConsensusStats?: RdapConsensusStats;
 }
 
 export interface Stage<TIn, TOut = TIn> {

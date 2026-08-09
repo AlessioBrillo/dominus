@@ -321,7 +321,7 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
   const ENV_KEYS = [
     'RDAP_MAX_CONNECTIONS',
     'RDAP_CONSENSUS_ENABLED',
-    'RDAP_CONSENSUS_REQUIRED_AVAILABLE',
+    'RDAP_CONSENSUS_ENDPOINT',
     'RDAP_CONSENSUS_DEGRADED_RATIO',
     'RDAP_CONSENSUS_DEGRADED_MIN',
     'RDAP_CONSENSUS_RATE_LIMIT_TOKENS',
@@ -356,10 +356,6 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
 
   it('RDAP_CONSENSUS_ENABLED defaults to false (gate is opt-in)', () => {
     expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(false);
-  });
-
-  it('RDAP_CONSENSUS_REQUIRED_AVAILABLE defaults to 1 (2-of-2 total)', () => {
-    expect(loadConfig().RDAP_CONSENSUS_REQUIRED_AVAILABLE).toBe(1);
   });
 
   it('RDAP_CONSENSUS_DEGRADED_RATIO defaults to 0.5', () => {
@@ -400,8 +396,12 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
     expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_TOKENS).toBe(8);
   });
 
-  it('RDAP_CONSENSUS_REQUIRED_AVAILABLE rejects values outside 1..2', () => {
-    process.env.RDAP_CONSENSUS_REQUIRED_AVAILABLE = '3';
+  it('RDAP_CONSENSUS_ENDPOINT defaults to empty (gate off by default)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_ENDPOINT).toBe('');
+  });
+
+  it('RDAP_CONSENSUS_ENDPOINT requires an https URL when set', () => {
+    process.env.RDAP_CONSENSUS_ENDPOINT = 'http://consensus.example.com';
     resetConfig();
     expect(() => loadConfig()).toThrow();
   });
