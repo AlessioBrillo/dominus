@@ -55,6 +55,8 @@ re-running the original arguments.
 | [0046](0046-image-supply-chain-pinning.md)                    | Immutable image supply chain — digest pins, no floating tags, registry-verified overrides                       | 2026-08-08 | Accepted                            |
 | [0047](0047-doh-json-legs-verified.md)                        | Live-verified DoH legs — provider endpoint fixes, RFC 8484 wire leg for Quad9                                  | 2026-08-08 | Accepted                            |
 | [0048](0048-resolver-groups-wire-format.md)                    | Custom resolver groups accept the DoH wire format — ADR-0047 config gap, doc drift cleanup                    | 2026-08-08 | Accepted                            |
+| [0049](0049-rdap-transport-parity.md)                          | RDAP transport parity — shared undici keep-alive pool and connection budget                                   | 2026-08-09 | Accepted                            |
+| [0050](0050-rdap-consensus.md)                                 | RDAP consensus — opt-in 2-of-2 second opinion, dedicated budget, degraded-run flagging                       | 2026-08-09 | Accepted                            |
 
 ## Conventions
 
