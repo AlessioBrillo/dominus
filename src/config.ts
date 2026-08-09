@@ -714,16 +714,27 @@ const configSchema = z.object({
   /**
    * Enable the RDAP 2-of-2 consensus gate (ADR-0050): every Available
    * verdict from the primary failover must be independently confirmed by a
-   * dedicated second RDAP provider (rdap.org by default). Opt-in: a second
-   * HTTP query per Available doubles RDAP volume, so it is off by default.
+   * dedicated second RDAP provider (see RDAP_CONSENSUS_ENDPOINT). Opt-in:
+   * a second HTTP query per Available doubles RDAP volume, so it is off by
+   * default.
    */
   RDAP_CONSENSUS_ENABLED: z.coerce.boolean().default(false),
 
   /**
-   * Required Available confirmations from the second RDAP opinion beyond the
-   * primary. Fixed at 1: only one independent confirmation (2-of-2 total).
+   * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2). Empty by
+   * default: enabling the gate without an endpoint disables it at startup
+   * with a prominent warning — a second opinion must come from an origin the
+   * operator explicitly trusts as independent of the primary's bootstrap
+   * (example: a Verisign server for .com while the primary boots VRS/other
+   * failover mix). Your own private RDAP relay or a registry's direct server
+   * is the strongest setup. Must be an https URL when set.
    */
-  RDAP_CONSENSUS_REQUIRED_AVAILABLE: z.coerce.number().int().min(1).max(2).default(1),
+  RDAP_CONSENSUS_ENDPOINT: z
+    .string()
+    .refine((v) => v === '' || v.startsWith('https://'), {
+      message: 'RDAP_CONSENSUS_ENDPOINT must be an https URL or empty (empty = not configured)',
+    })
+    .default(''),
 
   /**
    * Fraction of consensus-confirmed Available domains that may be unverifiable

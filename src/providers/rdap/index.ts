@@ -2,6 +2,12 @@
 export type { RdapProvider } from './rdap-provider.js';
 export { PublicRdapProvider } from './public-rdap-provider.js';
 export { RdapAgentPool, rdapAgentPool } from './rdap-agent-pool.js';
+export {
+  collectRdapOrigins,
+  rdapUrlOrigin,
+  validateRdapConsensusOriginDisjointness,
+  type OriginDisjointnessResult,
+} from './rdap-consensus-validator.js';
 export { FailoverRdapProvider, type RdapBootstrapUrlEntry } from './failover-rdap-provider.js';
 export {
   IanaRdapBootstrap,

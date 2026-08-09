@@ -86,6 +86,32 @@ genuinely independent channel exists at acceptable cost, and a fabricated
 third leg would add latency without real redundancy (unlike DNS ADR-0045,
 where a pinned recursor is a genuinely independent resolver).
 
+### Implementation notes (2026-08-09)
+
+- **Second leg is operator-pinned, not rdap.org by default.**
+  `RDAP_CONSENSUS_ENDPOINT` (https-only, default **empty**) names the
+  independent origin; rdap.org as the default was dropped because for the
+  TLDs the primary already races against the registry it would converge back
+  onto the primary's infrastructure (a rubber stamp). Empty endpoint with the
+  gate enabled disables the gate at boot with a prominent warning — the gate
+  never silently degrades into single-leg verdicts.
+- **The gate rides on the stage, not the providers.** `RdapConfirmationStage`
+  re-confirms the primary `Available` subset through an `rdapConsensusConfig`
+  (secondary provider, degraded ratio/min, concurrency ceiling). Fail-closed:
+  a definitive `Registered` from the second leg vetoes the domain, an
+  unverifiable second leg (error/timeout/Unknown) downgrades it to `Unknown`
+  — never `Available`. Covers both provider paths (cached and fresh closeout
+  lookups).
+- **Factory boundaries locked by regression tests.** `composition-root` wires
+  the gate through `createRdapConsensusConfig`, which builds a dedicated
+  failover provider pinned to `RDAP_CONSENSUS_ENDPOINT` with its own keyed
+  agent pool, per-server circuit breakers, and the `rdap-consensus` budget
+  (`rdapConsensus` in `buildRateLimiters`).
+- **`RDAP_CONSENSUS_REQUIRED_AVAILABLE`** was implemented in the first pass
+  then removed: it was dead config — the semantics are fixed 2-of-2, and a
+  knob that cannot change the outcome is a trap. Removed from schema, docs
+  and fixtures in the same change (decision above holds).
+
 ### Options considered and rejected
 
 - **Status quo (single authoritative verdict + WHOIS)** — rejected: WHOIS is
