@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   buildConsensusRateLimiter,
   buildDnsConsensusConfig,
@@ -9,6 +9,7 @@ import {
   isRdapResultCacheable,
   isRdapResultStale,
   parseRdapBootstrapUrls,
+  probeRdapConsensusEndpoint,
 } from '../provider-factory.js';
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
@@ -20,6 +21,9 @@ import {
   type RedisClient,
 } from '../../providers/redis/index.js';
 import { DomainStatus } from '../../types/domain-status.js';
+import { FailoverRdapProvider } from '../../providers/rdap/failover-rdap-provider.js';
+import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
+import { getLogger, resetLogger } from '../../logger.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -709,6 +713,82 @@ describe('createRdapConsensusConfig (ADR-0050)', () => {
       }),
     );
     expect(off?.rescueWhoisEnabled).toBe(false);
+  });
+
+  it('passes RDAP_CONSENSUS_TIMEOUT_MS to the consensus second provider (fixes the dead knob)', () => {
+    const fromConfig = vi.spyOn(FailoverRdapProvider, 'fromConfig').mockReturnValue({
+      confirm: vi.fn().mockResolvedValue({
+        domain: 'example.com',
+        status: DomainStatus.Available,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      }),
+    } as unknown as FailoverRdapProvider);
+    afterEach(() => fromConfig.mockRestore());
+
+    const config = makeConfig({
+      RDAP_CONSENSUS_ENABLED: true,
+      RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+      RDAP_CONSENSUS_TIMEOUT_MS: 7333,
+    });
+    createRdapConsensusConfig(config);
+
+    const args = fromConfig.mock.calls[0]!;
+    expect(args[args.length - 1]).toBe(7333);
+  });
+});
+
+describe('probeRdapConsensusEndpoint (ADR-0051)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetLogger();
+  });
+
+  it('is a no-op when the consensus gate is off', async () => {
+    const provider: RdapProvider = { name: 'probe', confirm: vi.fn() };
+    await probeRdapConsensusEndpoint(makeConfig({ RDAP_CONSENSUS_ENABLED: false }), provider);
+    expect(provider.confirm).not.toHaveBeenCalled();
+  });
+
+  it('resolves without throwing when the second leg answers', async () => {
+    const provider: RdapProvider = {
+      name: 'probe',
+      confirm: vi.fn().mockResolvedValue({
+        domain: 'example.com',
+        status: DomainStatus.Registered,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      }),
+    };
+    await expect(
+      probeRdapConsensusEndpoint(
+        makeConfig({
+          RDAP_CONSENSUS_ENABLED: true,
+          RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+        }),
+        provider,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('logs an error but never rejects when the second leg is unreachable', async () => {
+    const errorSpy = vi.spyOn(getLogger(), 'error').mockImplementation(() => {
+      return undefined as never;
+    });
+    const provider: RdapProvider = {
+      name: 'probe',
+      confirm: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')),
+    };
+    await expect(
+      probeRdapConsensusEndpoint(
+        makeConfig({
+          RDAP_CONSENSUS_ENABLED: true,
+          RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+        }),
+        provider,
+      ),
+    ).resolves.toBeUndefined();
+    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 });
 
