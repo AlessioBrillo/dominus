@@ -46,6 +46,24 @@ function makeMockWhois(available: boolean): WhoisProvider {
   };
 }
 
+/** Secondary provider answering per-domain: Available, Registered (veto),
+ *  or throwing (unverifiable). */
+function makeSecondary(statusByDomain: Record<string, DomainStatus>): RdapProvider {
+  return {
+    name: 'consensus-secondary',
+    confirm: vi.fn().mockImplementation(async (domain: string) => {
+      const status = statusByDomain[domain];
+      if (status === undefined) throw new Error('secondary unverifiable');
+      return {
+        domain,
+        status,
+        isPremium: false,
+        checkedAt: new Date().toISOString(),
+      };
+    }),
+  };
+}
+
 describe('RdapConfirmationStage (RDAP-only)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -478,24 +496,6 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
     vi.clearAllMocks();
   });
 
-  /** Secondary provider answering per-domain: Available, Registered (veto),
-   *  or throwing (unverifiable). */
-  function makeSecondary(statusByDomain: Record<string, DomainStatus>): RdapProvider {
-    return {
-      name: 'consensus-secondary',
-      confirm: vi.fn().mockImplementation(async (domain: string) => {
-        const status = statusByDomain[domain];
-        if (status === undefined) throw new Error('secondary unverifiable');
-        return {
-          domain,
-          status,
-          isPremium: false,
-          checkedAt: new Date().toISOString(),
-        };
-      }),
-    };
-  }
-
   function consensusStage(secondary: RdapProvider): RdapConfirmationStage {
     return new RdapConfirmationStage(
       makeMockRdap('primary.com'),
@@ -681,5 +681,137 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
 
     expect(result.passed).toHaveLength(4);
     expect(peak).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  /** Stage with the rescue leg enabled and a WHOIS provider wired in. */
+  function rescueStage(
+    secondary: RdapProvider,
+    whois: WhoisProvider | undefined,
+    overrides: Partial<ConstructorParameters<typeof RdapConfirmationStage>[6]> = {},
+  ): RdapConfirmationStage {
+    return new RdapConfirmationStage(
+      makeMockRdap('primary.com'),
+      whois,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      {
+        secondaryProvider: secondary,
+        secondaryOrigin: 'https://secondary.example.com/',
+        rescueWhoisEnabled: true,
+        ...overrides,
+      },
+    );
+  }
+
+  it('rescues an unverifiable verdict when WHOIS confirms Available', async () => {
+    const secondary = makeSecondary({}); // second leg throws for every domain
+    const whois = makeMockWhois(true);
+    const result = await rescueStage(secondary, whois).process([makeCandidate('rescue.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(result.filtered).toHaveLength(0);
+    expect(whois.checkAvailability).toHaveBeenCalledWith('rescue.com', expect.anything());
+    expect(result.rdapConsensusStats).toEqual({
+      verified: 1,
+      disagreed: 0,
+      unverifiable: 0,
+      whoisRescued: 1,
+      degraded: false,
+    });
+  });
+
+  it('vetoes when WHOIS says registered — rescue is not a rubber stamp', async () => {
+    const secondary = makeSecondary({});
+    // 1st call: primary WHOIS cross-validation says available (domain passes
+    // to the gate). 2nd call: the rescue leg says registered → veto.
+    const whois: WhoisProvider = {
+      checkAvailability: vi
+        .fn()
+        .mockResolvedValueOnce({
+          domain: 'veto-rescue.com',
+          available: true,
+          checkedAt: new Date().toISOString(),
+        })
+        .mockResolvedValueOnce({
+          domain: 'veto-rescue.com',
+          available: false,
+          checkedAt: new Date().toISOString(),
+        }),
+    };
+    const result = await rescueStage(secondary, whois).process([makeCandidate('veto-rescue.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Unknown);
+    expect(whois.checkAvailability).toHaveBeenCalledTimes(2);
+    expect(result.rdapConsensusStats!.disagreed).toBe(1);
+    expect(result.rdapConsensusStats!.whoisRescued).toBeUndefined();
+  });
+
+  it('stays fail-closed when the rescue WHOIS answer is unavailable', async () => {
+    const secondary = makeSecondary({});
+    const whois: WhoisProvider = {
+      checkAvailability: vi.fn().mockRejectedValue(new Error('whois timeout')),
+    };
+    const result = await rescueStage(secondary, whois).process([makeCandidate('fail.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Unknown);
+    expect(result.rdapConsensusStats!.unverifiable).toBe(1);
+  });
+
+  it('never consults the rescue leg on a definitive second-leg veto', async () => {
+    const secondary = makeSecondary({ 'def.com': DomainStatus.Registered });
+    const whois = makeMockWhois(true);
+    const result = await rescueStage(secondary, whois).process([makeCandidate('def.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    // WHOIS ran the primary cross-validation, but the rescue leg must not be
+    // consulted after a definitive Registered from the second RDAP leg.
+    expect(whois.checkAvailability).toHaveBeenCalledTimes(1);
+    expect(result.rdapConsensusStats!.disagreed).toBe(1);
+  });
+
+  it('does not rescue when the flag is off (default posture stays fail-closed)', async () => {
+    const secondary = makeSecondary({});
+    const whois = makeMockWhois(true);
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('primary.com'),
+      whois,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      {
+        secondaryProvider: secondary,
+        secondaryOrigin: 'https://secondary.example.com/',
+      },
+    );
+    const result = await stage.process([makeCandidate('off.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    // Only the primary cross-validation touched WHOIS, never the consensus gate.
+    expect(whois.checkAvailability).toHaveBeenCalledTimes(1);
+    expect(result.rdapConsensusStats!.unverifiable).toBe(1);
+  });
+
+  it('degrades gracefully when the rescue flag is on but no WHOIS provider is wired', async () => {
+    const secondary = makeSecondary({});
+    const result = await rescueStage(secondary, undefined).process([makeCandidate('nowhois.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.rdapConsensusStats!.unverifiable).toBe(1);
   });
 });

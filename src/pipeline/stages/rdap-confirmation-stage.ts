@@ -86,6 +86,12 @@ export interface RdapConsensusConfig {
    * stampede cannot multiply registry traffic.
    */
   consensusConcurrency?: number;
+  /**
+   * Opt-in WHOIS rescue leg (ADR-0051): when the second RDAP leg cannot
+   * answer, the verdict is re-checked through WHOIS within the same bounded
+   * budget as the stage's enrichment race. False by default — fail-closed.
+   */
+  rescueWhoisEnabled?: boolean;
 }
 
 /** Default fraction of unverifiable Available domains that flags a run degraded. */

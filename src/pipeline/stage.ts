@@ -35,6 +35,12 @@ export interface RdapConsensusStats {
   disagreed: number;
   /** Domains the second leg could not answer at all (errors, timeouts). */
   unverifiable: number;
+  /**
+   * Domains the opt-in WHOIS rescue leg recovered (ADR-0051): the second
+   * RDAP leg could not answer and WHOIS confirmed Available. Present only
+   * when > 0.
+   */
+  whoisRescued?: number;
   /** True when the run was flagged degraded over consensus (ADR-0039 pattern). */
   degraded: boolean;
 }
