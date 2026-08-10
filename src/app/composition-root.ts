@@ -95,6 +95,7 @@ import {
   buildDnsProvider,
   buildDnsConsensusConfig,
   probeConsensusProvider,
+  probeRdapConsensusEndpoint,
   createRdapConsensusConfig,
   buildWhoisProviders,
   buildRateLimiters,
@@ -631,6 +632,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rdapConsensusRateLimiter,
     redisClient,
   );
+  if (rdapConsensusConfig !== undefined) {
+    // Startup probe of the consensus second leg (ADR-0051): with the
+    // fail-closed 2-of-2 gate a dead endpoint downgrades every unconfirmable
+    // Available verdict, so surface egress problems at boot like the DNS
+    // consensus probe does.
+    void probeRdapConsensusEndpoint(config, rdapConsensusConfig.secondaryProvider);
+  }
 
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),

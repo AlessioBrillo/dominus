@@ -45,7 +45,7 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     {
       name: 'RDAP',
       configured: true,
-      note: `Public RDAP confirmation via rdap.org universal + IANA per-TLD bootstrap${config.RDAP_BOOTSTRAP_URLS ? ' (custom RDAP_BOOTSTRAP_URLS configured)' : ''}.`,
+      note: `Public RDAP confirmation via rdap.org universal + IANA per-TLD bootstrap${config.RDAP_BOOTSTRAP_URLS ? ' (custom RDAP_BOOTSTRAP_URLS configured)' : ''}.${config.RDAP_CONSENSUS_ENABLED ? ` 2-of-2 consensus gate on ${config.RDAP_CONSENSUS_ENDPOINT}${config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED ? ' with WHOIS rescue leg (ADR-0051)' : ''}.` : ''}`,
     },
     {
       name: 'USPTO',

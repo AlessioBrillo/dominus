@@ -97,6 +97,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     RDAP_BATCH_CONCURRENCY: 5,
     RDAP_MAX_CONNECTIONS: 32,
     RDAP_CONSENSUS_ENABLED: false,
+    RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
     RDAP_CONSENSUS_ENDPOINT: '',
     RDAP_CONSENSUS_DEGRADED_RATIO: 0.5,
     RDAP_CONSENSUS_DEGRADED_MIN: 10,
@@ -311,6 +312,19 @@ describe('reportProviderStatuses', () => {
     // Assert
     const rdap = rows.find((r) => r.name === 'RDAP');
     expect(rdap?.configured).toBe(true);
+  });
+
+  it('mentions the consensus gate and the WHOIS rescue leg in the RDAP note when enabled (ADR-0051)', () => {
+    const rows = reportProviderStatuses(
+      buildConfig({
+        RDAP_CONSENSUS_ENABLED: true,
+        RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+        RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: true,
+      }),
+    );
+    const rdap = rows.find((r) => r.name === 'RDAP');
+    expect(rdap?.note).toContain('2-of-2 consensus gate');
+    expect(rdap?.note).toContain('WHOIS rescue leg (ADR-0051)');
   });
 
   it('reports 9 provider status rows', () => {

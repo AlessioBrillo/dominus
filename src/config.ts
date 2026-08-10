@@ -721,6 +721,20 @@ const configSchema = z.object({
   RDAP_CONSENSUS_ENABLED: z.coerce.boolean().default(false),
 
   /**
+   * Opt-in WHOIS rescue leg for the RDAP 2-of-2 consensus gate (ADR-0051):
+   * when the second RDAP leg cannot answer (error/timeout/Unknown), the
+   * candidate's verdict is re-checked through the WHOIS port-43 channel
+   * within the same bounded budget as the stage's enrichment race. WHOIS
+   * "available" confirms the verdict; WHOIS "registered" vetoes it ("registered
+   * wins", ADR-0002); a WHOIS timeout/error stays unverifiable and the
+   * candidate is downgraded exactly as without the rescue. Rescue is NEVER
+   * consulted on a definitive Registered from the second RDAP leg. Default
+   * false: this is a narrow, explicit override of ADR-0050's fail-closed
+   * rule for the unverifiable class only.
+   */
+  RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: z.coerce.boolean().default(false),
+
+  /**
    * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2). Empty by
    * default: enabling the gate without an endpoint disables it at startup
    * with a prominent warning — a second opinion must come from an origin the

@@ -541,6 +541,41 @@ export function probeConsensusProvider(config: Config, secondaryProvider: DnsPro
   });
 }
 
+/**
+ * Startup probe for the RDAP consensus second provider (ADR-0050 §6,
+ * delivered by ADR-0051). The fail-closed 2-of-2 gate downgrades every
+ * Available verdict the second leg cannot confirm, so a dead endpoint
+ * (egress blocked, expired TLS, wrong host) is a silent outage worth
+ * surfacing at boot. Non-fatal: the gate stays enabled, but the operator is
+ * told clearly what is degrading every run.
+ *
+ * Probes with `confirm()` on a stable, well-known registered domain
+ * (`example.com`): any definitive verdict (Available or Registered) proves
+ * the endpoint answers, while an error/timeout proves it does not. The probe
+ * verdict is never used for anything.
+ */
+export async function probeRdapConsensusEndpoint(
+  config: Config,
+  secondaryProvider: RdapProvider,
+): Promise<void> {
+  if (!config.RDAP_CONSENSUS_ENABLED) return;
+  const logger = getLogger();
+  const endpoint = config.RDAP_CONSENSUS_ENDPOINT;
+  logger.warn({ endpoint }, 'RDAP: probing consensus second provider at startup');
+  const probeSignal = AbortSignal.timeout(config.RDAP_CONSENSUS_TIMEOUT_MS);
+  try {
+    await secondaryProvider.confirm('example.com', probeSignal);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(
+      { err: message, endpoint },
+      'RDAP: consensus second provider unreachable at startup — the fail-closed 2-of-2 ' +
+        'gate will downgrade unconfirmable Available verdicts. Verify egress to the ' +
+        'consensus endpoint or disable the gate (RDAP_CONSENSUS_ENABLED=false).',
+    );
+  }
+}
+
 export interface BuiltWhoisProvider {
   raw: NodeWhoisProviderWithIanaFallback;
   withRetry: WhoisProviderInterface;
@@ -827,17 +862,26 @@ export function createRdapConsensusConfig(
     undefined,
     breakers.perServer,
     rdapAgentPool,
+    config.RDAP_CONSENSUS_TIMEOUT_MS,
   );
 
   logger.info(
     { endpoint },
     'RDAP: 2-of-2 consensus enabled — Available verdicts are re-confirmed by the second provider',
   );
+  if (config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED) {
+    logger.warn(
+      'RDAP: WHOIS rescue leg enabled (ADR-0051) — verdicts the second RDAP leg cannot ' +
+        'answer are re-checked through WHOIS within the stage budget. Unverifiable verdicts ' +
+        'are no longer strictly fail-closed for the rescue-enabled class.',
+    );
+  }
   return {
     secondaryProvider,
     secondaryOrigin: endpoint,
     degradedRatio: config.RDAP_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
+    rescueWhoisEnabled: config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED,
   };
 }

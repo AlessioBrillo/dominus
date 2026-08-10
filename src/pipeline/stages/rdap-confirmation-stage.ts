@@ -86,6 +86,12 @@ export interface RdapConsensusConfig {
    * stampede cannot multiply registry traffic.
    */
   consensusConcurrency?: number;
+  /**
+   * Opt-in WHOIS rescue leg (ADR-0051): when the second RDAP leg cannot
+   * answer, the verdict is re-checked through WHOIS within the same bounded
+   * budget as the stage's enrichment race. False by default — fail-closed.
+   */
+  rescueWhoisEnabled?: boolean;
 }
 
 /** Default fraction of unverifiable Available domains that flags a run degraded. */
@@ -260,6 +266,28 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       );
       for (const { candidate, result } of results) {
         if (result === undefined) {
+          // WHOIS rescue leg (ADR-0051): the opt-in re-check runs ONLY when
+          // the second RDAP leg could not answer. A definitive Registered is
+          // never re-litigated — "registered wins" (ADR-0002). WHOIS
+          // "available" confirms the verdict, WHOIS "registered" vetoes it,
+          // and a WHOIS failure stays unverifiable (fail-closed, unchanged).
+          if (cfg.rescueWhoisEnabled === true && this.whoisProvider !== undefined) {
+            const rescued = await this.#tryWhoisRescue(candidate);
+            if (rescued === true) {
+              survivor.add(candidate.domain);
+              stats.verified++;
+              stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
+              continue;
+            }
+            if (rescued === false) {
+              stats.disagreed++;
+              logger.warn(
+                { domain: candidate.domain },
+                'RDAP: 2-of-2 consensus vetoed by WHOIS rescue leg (registered) — downgraded',
+              );
+              continue;
+            }
+          }
           stats.unverifiable++;
           continue;
         }
@@ -326,6 +354,32 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       });
     }
     return remaining;
+  }
+
+  /**
+   * WHOIS rescue leg for the 2-of-2 consensus gate (ADR-0051): re-checks a
+   * verdict the second RDAP leg could not confirm, through the WHOIS channel
+   * within the same bounded budget as the stage's enrichment race. Returns
+   * true when WHOIS confirms Available (rescued), false when WHOIS says
+   * registered (veto — "registered wins", ADR-0002), and undefined when the
+   * WHOIS answer is unavailable or late (stays unverifiable, fail-closed).
+   */
+  async #tryWhoisRescue(candidate: DomainCandidate): Promise<boolean | undefined> {
+    const budgetSignal = AbortSignal.any([AbortSignal.timeout(this.whoisBudgetMs)]);
+    try {
+      const result = await Promise.race([
+        this.whoisProvider!.checkAvailability(candidate.domain, budgetSignal).catch(
+          () => undefined,
+        ),
+        new Promise<undefined>((resolve) =>
+          setTimeout(() => resolve(undefined), this.whoisBudgetMs).unref(),
+        ),
+      ]);
+      if (result === undefined) return undefined;
+      return result.available ? true : false;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Closeout candidates always hit the fresh provider (cache-bypassing live

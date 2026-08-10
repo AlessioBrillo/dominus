@@ -135,6 +135,7 @@ export class FailoverRdapProvider implements RdapProvider {
     perServerCircuitBreakerPolicy?: Partial<CircuitBreakerPolicy>,
     breakerFactory?: RdapBreakerFactory,
     agentPool: RdapAgentPool = rdapAgentPool,
+    timeoutMs: number = DEFAULT_RDAP_TIMEOUT_MS,
   ): FailoverRdapProvider {
     const providers = urls.map((entry, i) => {
       const url = typeof entry === 'string' ? entry : entry.url;
@@ -144,7 +145,7 @@ export class FailoverRdapProvider implements RdapProvider {
         url,
         name,
         rateLimiter ?? RateLimiter.unlimited(),
-        DEFAULT_RDAP_TIMEOUT_MS,
+        timeoutMs,
         tlds,
         agentPool,
       );
