@@ -833,11 +833,19 @@ export function createRdapConsensusConfig(
     { endpoint },
     'RDAP: 2-of-2 consensus enabled — Available verdicts are re-confirmed by the second provider',
   );
+  if (config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED) {
+    logger.warn(
+      'RDAP: WHOIS rescue leg enabled (ADR-0051) — verdicts the second RDAP leg cannot ' +
+        'answer are re-checked through WHOIS within the stage budget. Unverifiable verdicts ' +
+        'are no longer strictly fail-closed for the rescue-enabled class.',
+    );
+  }
   return {
     secondaryProvider,
     secondaryOrigin: endpoint,
     degradedRatio: config.RDAP_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
+    rescueWhoisEnabled: config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED,
   };
 }

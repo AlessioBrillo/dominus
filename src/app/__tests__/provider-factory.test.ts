@@ -690,6 +690,26 @@ describe('createRdapConsensusConfig (ADR-0050)', () => {
     expect(result?.degradedMin).toBe(25);
     expect(result?.consensusConcurrency).toBe(3);
   });
+
+  it('wires the WHOIS rescue leg flag through the stage config (ADR-0051)', () => {
+    const on = createRdapConsensusConfig(
+      makeConfig({
+        RDAP_CONSENSUS_ENABLED: true,
+        RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+        RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: true,
+      }),
+    );
+    expect(on?.rescueWhoisEnabled).toBe(true);
+
+    const off = createRdapConsensusConfig(
+      makeConfig({
+        RDAP_CONSENSUS_ENABLED: true,
+        RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
+        RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
+      }),
+    );
+    expect(off?.rescueWhoisEnabled).toBe(false);
+  });
 });
 
 describe('buildRateLimiters RDAP consensus budget (ADR-0050)', () => {
