@@ -5,6 +5,8 @@ import {
   buildDnsConsensusConfig,
   buildRateLimiters,
   buildRdapCircuitBreakers,
+  buildWhoisPerTldRateLimiters,
+  buildWhoisRateLimiter,
   createRdapConsensusConfig,
   isRdapResultCacheable,
   isRdapResultStale,
@@ -71,6 +73,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     EUIPO_RATE_LIMIT_INTERVAL_MS: 1000,
     WHOIS_RATE_LIMIT_TOKENS: 1,
     WHOIS_RATE_LIMIT_INTERVAL_MS: 2000,
+    WHOIS_RATE_LIMIT_PER_TENANT_TOKENS: 1,
+    WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: 2000,
     BUY_MAX_ABSOLUTE_CAP: 500,
     HOST: '127.0.0.1',
     RENEWAL_WARNING_DAYS: 30,
@@ -659,6 +663,66 @@ describe('buildRateLimiters DNS consensus budget', () => {
 // the DNS consensus had (see buildDnsConsensusConfig regression above).
 // This locks in the factory boundary: the second leg is a real provider
 // pinned to the independent RDAP_CONSENSUS_ENDPOINT.
+// Regression (ADR-0052): WHOIS is the last provider without a distributed
+// rate-limit budget. Every other network channel (rdap/uspto/euipo/wayback/
+// dns/dns-consensus/rdap-consensus) gets a Redis namespace in cloud mode;
+// WHOIS ran on per-process in-memory buckets, so N replicas multiplied the
+// registry-query rate N× and per-tenant fair share (ADR-0041) could not be
+// enforced. These tests lock the parity boundary before wiring.
+describe('WHOIS distributed rate-limit parity (ADR-0052)', () => {
+  it('exposes a whois budget in buildRateLimiters, in-memory when no Redis', () => {
+    const rl = buildRateLimiters(makeConfig());
+    expect(rl.whois).toBeDefined();
+    expect(rl.whois).toBeInstanceOf(RateLimiter);
+    expect((rl.whois as RateLimiter).maxTokens).toBe(1);
+    expect(rl.whois).not.toBe(rl.dns);
+  });
+
+  it('uses a dedicated Redis namespace in cloud mode', () => {
+    const rl = buildRateLimiters(makeConfig(), fakeRedis());
+    expect(rl.whois).toBeInstanceOf(RedisRateLimiter);
+    expect((rl.whois as RedisRateLimiter).metrics().namespace).toBe('whois');
+  });
+
+  it('buildWhoisRateLimiter honours the WHOIS_RATE_LIMIT_TOKENS override', () => {
+    const limiter = buildWhoisRateLimiter(makeConfig({ WHOIS_RATE_LIMIT_TOKENS: 3 }));
+    expect((limiter as RateLimiter).maxTokens).toBe(3);
+  });
+
+  it('buildWhoisRateLimiter becomes a Redis limiter when Redis is connected', () => {
+    const limiter = buildWhoisRateLimiter(makeConfig({ WHOIS_RATE_LIMIT_TOKENS: 4 }), fakeRedis());
+    expect(limiter).toBeInstanceOf(RedisRateLimiter);
+    expect((limiter as RedisRateLimiter).metrics().namespace).toBe('whois');
+    expect((limiter as RedisRateLimiter).metrics().maxTokens).toBe(4);
+  });
+
+  it('buildWhoisPerTldRateLimiters maps overrides to per-TLD Redis namespaces', () => {
+    const limiters = buildWhoisPerTldRateLimiters(
+      makeConfig({ WHOIS_RATE_LIMIT_OVERRIDES: '{"de":{"tokensPerInterval":1,"intervalMs":20000}}' }),
+      fakeRedis(),
+    );
+    const de = limiters['.de'] as RedisRateLimiter;
+    expect(de).toBeInstanceOf(RedisRateLimiter);
+    expect(de.metrics().namespace).toBe('whois:de');
+    expect(de.metrics().maxTokens).toBe(1);
+  });
+
+  it('buildWhoisPerTldRateLimiters falls back to in-memory buckets without Redis', () => {
+    const limiters = buildWhoisPerTldRateLimiters(
+      makeConfig({ WHOIS_RATE_LIMIT_OVERRIDES: '{"de":{"tokensPerInterval":1,"intervalMs":20000}}' }),
+    );
+    const de = limiters['.de'] as RateLimiter;
+    expect(de).toBeInstanceOf(RateLimiter);
+    expect(de.maxTokens).toBe(1);
+    expect((de as RateLimiter).metrics().intervalMs).toBe(20000);
+  });
+
+  it('buildWhoisPerTldRateLimiters returns nothing when no overrides are set', () => {
+    expect(buildWhoisPerTldRateLimiters(makeConfig())).toEqual({});
+    expect(buildWhoisPerTldRateLimiters(makeConfig(), fakeRedis())).toEqual({});
+  });
+});
+
 describe('createRdapConsensusConfig (ADR-0050)', () => {
   it('returns undefined when RDAP_CONSENSUS_ENABLED is false (default)', () => {
     const config = makeConfig({ RDAP_CONSENSUS_ENABLED: false });

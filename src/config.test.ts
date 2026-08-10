@@ -423,3 +423,62 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
     expect(() => loadConfig()).toThrow();
   });
 });
+
+// Locks the WHOIS distributed fair share (ADR-0052). WHOIS is the most
+// restrictive channel in the stack (default 2 tokens / 2000ms), so the
+// shared Redis bucket gains an independent per-tenant window before
+// multi-replica/multi-tenant deployments can multiply registry traffic.
+describe('WHOIS rate limit config defaults (ADR-0052)', () => {
+  const ENV_KEYS = [
+    'WHOIS_RATE_LIMIT_TOKENS',
+    'WHOIS_RATE_LIMIT_INTERVAL_MS',
+    'WHOIS_RATE_LIMIT_PER_TENANT_TOKENS',
+    'WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('WHOIS_RATE_LIMIT_TOKENS defaults to 2 (strictest channel in the stack)', () => {
+    expect(loadConfig().WHOIS_RATE_LIMIT_TOKENS).toBe(2);
+  });
+
+  it('WHOIS_RATE_LIMIT_INTERVAL_MS defaults to 2000', () => {
+    expect(loadConfig().WHOIS_RATE_LIMIT_INTERVAL_MS).toBe(2000);
+  });
+
+  it('WHOIS_RATE_LIMIT_PER_TENANT_TOKENS defaults to 1 (below the shared 2)', () => {
+    expect(loadConfig().WHOIS_RATE_LIMIT_PER_TENANT_TOKENS).toBe(1);
+  });
+
+  it('WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS defaults to 2000 (mirrors the shared interval)', () => {
+    expect(loadConfig().WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS).toBe(2000);
+  });
+
+  it('WHOIS_RATE_LIMIT_PER_TENANT_TOKENS accepts an explicit override', () => {
+    process.env.WHOIS_RATE_LIMIT_PER_TENANT_TOKENS = '3';
+    resetConfig();
+    expect(loadConfig().WHOIS_RATE_LIMIT_PER_TENANT_TOKENS).toBe(3);
+  });
+
+  it('WHOIS_RATE_LIMIT_PER_TENANT_TOKENS rejects values below 1', () => {
+    process.env.WHOIS_RATE_LIMIT_PER_TENANT_TOKENS = '0';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+});
