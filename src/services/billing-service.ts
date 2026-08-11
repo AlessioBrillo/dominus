@@ -18,7 +18,7 @@ const logger = getLogger();
 export type BillingInterval = 'month' | 'year';
 
 /** Plans that can be purchased via Stripe Checkout. */
-export const PAID_PLANS: SubscriptionPlan[] = ['pro', 'enterprise'];
+export const PAID_PLANS: SubscriptionPlan[] = ['pro', 'team', 'enterprise'];
 
 /** Maximum event ids kept in the in-memory dedup fast path. */
 const EVENT_ID_CACHE_MAX = 10_000;
@@ -116,6 +116,11 @@ export class BillingService {
         ? (this.#config.STRIPE_PRICE_ID_PRO_MONTHLY ?? this.#config.STRIPE_PRICE_ID_MONTHLY)
         : (this.#config.STRIPE_PRICE_ID_PRO_YEARLY ?? this.#config.STRIPE_PRICE_ID_YEARLY);
     }
+    if (plan === 'team') {
+      return interval === 'month'
+        ? this.#config.STRIPE_PRICE_ID_TEAM_MONTHLY
+        : this.#config.STRIPE_PRICE_ID_TEAM_YEARLY;
+    }
     return interval === 'month'
       ? this.#config.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY
       : this.#config.STRIPE_PRICE_ID_ENTERPRISE_YEARLY;
@@ -133,6 +138,8 @@ export class BillingService {
       [this.#config.STRIPE_PRICE_ID_YEARLY, 'pro'],
       [this.#config.STRIPE_PRICE_ID_PRO_MONTHLY, 'pro'],
       [this.#config.STRIPE_PRICE_ID_PRO_YEARLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_TEAM_MONTHLY, 'team'],
+      [this.#config.STRIPE_PRICE_ID_TEAM_YEARLY, 'team'],
       [this.#config.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY, 'enterprise'],
       [this.#config.STRIPE_PRICE_ID_ENTERPRISE_YEARLY, 'enterprise'],
     ];
