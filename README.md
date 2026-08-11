@@ -1,21 +1,21 @@
-# DOMINUS
+# DOMINUS — Open-Source Domain Valuation & Domain Portfolio Management Software
 
-> Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios — available as self-hosted community edition or managed cloud service.
+> Open-source decision-support engine for domain valuation, buying, reselling, and managing DNS domain portfolios — available as a self-hosted community edition or managed cloud service.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-0.10.1-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
 [![Open Source](https://img.shields.io/badge/open-source-AGPLv3-333333)](#)
 
-DOMINUS is an **open-source domain investment tool** that helps you make better purchase, portfolio, and pricing decisions than the market average. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
+DOMINUS is an **open-source domain investment tool** that helps you make better domain purchase, portfolio, and pricing decisions than the market average. It combines **domain valuation** (heuristic appraisal of market value, buy ceiling, and list price), **expired domain analysis** (age, backlinks, Wayback history), and **domain portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
 
 **DOMINUS Community** (AGPL v3) — self-hosted, all features, unlimited use, forever free.
 
-**DOMINUS Cloud** — managed hosting with multi-tenant support, PostgreSQL, automated backups, and priority support. [Coming soon.](#)
+**DOMINUS Cloud** — managed hosting with multi-tenant support, PostgreSQL, automated backups with point-in-time recovery, and priority support. [Coming soon.](#)
 
 ---
 
@@ -231,7 +231,30 @@ Commands:
 
 ## Project Status
 
-DOMINUS v0.10.1 — operations and reliability polish. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker with renewal clock and keep/drop verdicts, outcomes, backtest engine, and the professional React dashboard are implemented and tested. The community edition is fully functional and production-ready.
+DOMINUS v0.11.0 — DNS/RDAP/WHOIS consensus hardening and reliability polish. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker with renewal clock and keep/drop verdicts, outcomes, backtest engine, and the professional React dashboard are implemented and tested. The community edition is fully functional and production-ready.
+
+## FAQ
+
+**How does DOMINUS value a domain?**
+DOMINUS uses a transparent heuristic appraisal engine with four signal groups: intrinsic quality (length, pronounceability, hyphens/numbers, TLD bonus), commercial demand (keyword search volume × CPC), market comparables (NameBio sales data), and expiry signals for expired/closeout domains (age, backlinks, Wayback snapshots). Every weight is visible and tunable — no black box. The engine is deliberately **more conservative than commercial appraisal tools**.
+
+**Is DOMINUS really free?**
+Yes. The community edition is AGPL v3, self-hosted, and runs on free data sources (public RDAP, USPTO, EUIPO, DoH/DoT resolvers). No paid API is required and there is no feature gating — DOMINUS Cloud monetises hosting only.
+
+**What is the trademark gate?**
+Before recommending any buy, DOMINUS checks the candidate against USPTO and EUIPO trademark records. Any match blocks the candidate. This check is mandatory and cannot be bypassed — see [ADR-0006](docs/adr/0006-trademark-gate-mandate.md).
+
+**Does DOMINUS support expired domain analysis?**
+Yes. Import closeout CSVs of expired domains and DOMINUS carries age, backlinks, and Wayback history into the expiry signal, then runs the same DNS/RDAP availability verification and trademark gate.
+
+**How does DOMINUS check if a domain is available?**
+A two-stage gate: a fast DNS pre-filter (bulk, DoH/DoT with 2-of-3 resolver consensus) followed by authoritative RDAP confirmation with opt-in second-opinion consensus. Verdicts are fail-closed — a disagreement downgrades to "unknown" rather than trusting a single resolver.
+
+**How is DOMINUS different from Estibot, GoDaddy Appraisal, or Sedo?**
+Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear *buy/pass* verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
+
+**Can I self-host DOMINUS?**
+Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to Kubernetes. See the [Deployment Guide](docs/deployment/README.md).
 
 ## License
 
