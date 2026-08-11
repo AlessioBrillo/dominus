@@ -23,11 +23,7 @@ import {
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
 } from '../providers/dns/resolver-validator.js';
-import {
-  RateLimiter,
-  type RateLimiterConfig,
-  type RateLimiterLike,
-} from '../providers/rate-limiter.js';
+import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import {
   RedisRateLimiter,
   DistributedCircuitBreaker,
@@ -41,7 +37,10 @@ import {
 import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import { DomainStatus, type RdapResult } from '../types/domain-status.js';
-import { NodeWhoisProviderWithIanaFallback } from '../providers/whois/index.js';
+import {
+  NodeWhoisProviderWithIanaFallback,
+  parseWhoisRateLimitOverrides,
+} from '../providers/whois/index.js';
 import { RetryingWhoisProvider, WHOIS_CIRCUIT_BREAKER } from './retrying-whois-provider.js';
 import type { WhoisProvider as WhoisProviderInterface } from '../providers/whois/whois-provider.js';
 import { RetryingRdapProvider } from './retrying-rdap-provider.js';
@@ -619,12 +618,11 @@ export function buildWhoisRateLimiter(config: Config, redisClient?: RedisClient)
 
 /**
  * Per-TLD WHOIS budgets (ADR-0052). WHOIS_RATE_LIMIT_OVERRIDES semantics are
- * preserved exactly (same parsing and token fallback rules as
- * buildPerTldWhoisRateLimiters) but each TLD override becomes its own
- * `whois:<tld>` Redis namespace in cloud mode, with per-tenant fair share
- * enabled so one tenant cannot drain the strictest registries on behalf of
- * all. Invalid JSON silently falls back to an empty set, mirroring the
- * in-memory builder.
+ * preserved exactly (shared parseWhoisRateLimitOverrides parser) but each
+ * TLD override becomes its own `whois:<tld>` Redis namespace in cloud mode,
+ * with per-tenant fair share enabled so one tenant cannot drain the
+ * strictest registries on behalf of all. Invalid JSON silently falls back to
+ * an empty set, mirroring the in-memory builder.
  */
 export function buildWhoisPerTldRateLimiters(
   config: Config,
@@ -632,18 +630,9 @@ export function buildWhoisPerTldRateLimiters(
 ): Record<string, RateLimiterLike> {
   const limiters: Record<string, RateLimiterLike> = {};
 
-  const overridesJson = config.WHOIS_RATE_LIMIT_OVERRIDES;
-  if (!overridesJson) return limiters;
+  const overrides = parseWhoisRateLimitOverrides(config.WHOIS_RATE_LIMIT_OVERRIDES);
 
-  let parsed: Record<string, Partial<RateLimiterConfig>>;
-  try {
-    parsed = JSON.parse(overridesJson) as Record<string, Partial<RateLimiterConfig>>;
-  } catch {
-    return limiters;
-  }
-
-  for (const [tld, cfg] of Object.entries(parsed)) {
-    const cleanTld = tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`;
+  for (const [cleanTld, cfg] of Object.entries(overrides)) {
     const tokens = cfg.maxTokens ?? cfg.tokensPerInterval ?? config.WHOIS_RATE_LIMIT_TOKENS;
     const intervalMs = cfg.intervalMs ?? config.WHOIS_RATE_LIMIT_INTERVAL_MS;
     if (redisClient?.isConnected) {

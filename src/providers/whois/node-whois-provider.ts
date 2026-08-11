@@ -407,26 +407,42 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
   }
 }
 
+/**
+ * Shared WHOIS overrides parser (ADR-0052). Cleans TLD keys (`.tld` or
+ * `tld` → `.tld`, lowercased) and returns the raw per-TLD partial configs.
+ * Invalid JSON silently yields an empty set — the same fallback semantics as
+ * the in-memory builder. Consumers apply their own token/interval defaults.
+ */
+export function parseWhoisRateLimitOverrides(
+  overridesJson: string | undefined,
+): Record<string, Partial<RateLimiterConfig>> {
+  if (!overridesJson) return {};
+
+  try {
+    const parsed = JSON.parse(overridesJson) as Record<string, Partial<RateLimiterConfig>>;
+    const cleaned: Record<string, Partial<RateLimiterConfig>> = {};
+    for (const [tld, cfg] of Object.entries(parsed)) {
+      cleaned[tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`] = cfg;
+    }
+    return cleaned;
+  } catch {
+    // Invalid JSON — silently fall back to defaults
+    return {};
+  }
+}
+
 export function buildPerTldWhoisRateLimiters(
   overridesJson: string | undefined,
   defaultConfig: RateLimiterConfig,
 ): Record<string, RateLimiter> {
   const limiters: Record<string, RateLimiter> = {};
 
-  if (!overridesJson) return limiters;
-
-  try {
-    const parsed = JSON.parse(overridesJson) as Record<string, Partial<RateLimiterConfig>>;
-    for (const [tld, cfg] of Object.entries(parsed)) {
-      const cleanTld = tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`;
-      limiters[cleanTld] = new RateLimiter({
-        maxTokens: cfg.maxTokens ?? defaultConfig.maxTokens,
-        tokensPerInterval: cfg.tokensPerInterval ?? defaultConfig.tokensPerInterval,
-        intervalMs: cfg.intervalMs ?? defaultConfig.intervalMs,
-      });
-    }
-  } catch {
-    // Invalid JSON — silently fall back to defaults
+  for (const [cleanTld, cfg] of Object.entries(parseWhoisRateLimitOverrides(overridesJson))) {
+    limiters[cleanTld] = new RateLimiter({
+      maxTokens: cfg.maxTokens ?? defaultConfig.maxTokens,
+      tokensPerInterval: cfg.tokensPerInterval ?? defaultConfig.tokensPerInterval,
+      intervalMs: cfg.intervalMs ?? defaultConfig.intervalMs,
+    });
   }
 
   return limiters;
