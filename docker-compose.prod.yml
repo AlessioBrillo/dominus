@@ -165,7 +165,7 @@ services:
   redis:
     image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     restart: always
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy volatile-lru
     deploy:
       resources:
         limits:
@@ -181,6 +181,30 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis metrics exporter — scraped by Prometheus so eviction pressure and
+  # memory usage are observable (RedisDown / RedisEvictionsHigh alerts).
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.64.0@sha256:164814f4fb1455eb96a303a7fe4cebe0f6db62ae533c167adc97be6e04e94bc3
+    restart: always
+    command:
+      - --check-keys
+      - --redis.addr=redis://redis:6379
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+        reservations:
+          cpus: '0.01'
+          memory: 16M
     logging:
       driver: "json-file"
       options:

@@ -206,7 +206,7 @@ jobs:
           set -euo pipefail
           docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
           services=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml config --services)
-          for expected in api worker scheduler postgres redis prometheus alertmanager grafana; do
+          for expected in api worker scheduler postgres redis redis-exporter prometheus alertmanager grafana; do
             echo "$services" | grep -qx "$expected" || {
               echo "FATAL: prod compose is missing service '$expected'"; exit 1
             }
