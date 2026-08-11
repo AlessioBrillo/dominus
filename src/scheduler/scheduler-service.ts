@@ -12,9 +12,20 @@ import type { BackupService } from './backup-service.js';
 import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
 import type { JobQueueService } from '../app/job-queue-service.js';
+import type { LockProvider } from '../types/lock.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
+
+// Per-cron-fire dedupe lock name. The lock is scoped to the job name and the
+// minute slot in which the fire happened, so two scheduler replicas firing the
+// same cron tick can never enqueue the job twice, while the very next fire
+// (a different slot) is never blocked by a stale lock.
+export function cronFireSlotLockName(jobName: string, when: Date): string {
+  return `scheduler:fire:${jobName}:${when.toISOString().slice(0, 16)}`;
+}
+
+const CRON_FIRE_LOCK_TTL_MS = 10 * 60_000;
 
 export interface ScheduledJob {
   name: string;
@@ -37,6 +48,13 @@ export interface SchedulerOptions {
   backupService?: BackupService;
   jobQueueService?: JobQueueService;
   portfolioHealthcheckService?: PortfolioRdapService;
+  /**
+   * Distributed lock (Redis composite or DB pipeline_locks). When present,
+   * concurrent cron fires from multiple scheduler replicas are deduplicated:
+   * only the first replica to acquire the per-minute-slot lock enqueues/runs
+   * the job. Manual `runOnce` invocations bypass the lock.
+   */
+  lock?: LockProvider;
 }
 
 export class SchedulerService {
@@ -53,6 +71,7 @@ export class SchedulerService {
   private readonly jobRepo: SchedulerJobRepository | undefined;
   private readonly jobQueueService: JobQueueService | undefined;
   private readonly portfolioHealthcheckService: PortfolioRdapService | undefined;
+  private readonly lock: LockProvider | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -68,6 +87,7 @@ export class SchedulerService {
     this.jobRepo = options.jobRepo;
     this.jobQueueService = options.jobQueueService;
     this.portfolioHealthcheckService = options.portfolioHealthcheckService;
+    this.lock = options.lock;
   }
 
   start(): void {
@@ -275,32 +295,47 @@ export class SchedulerService {
 
     if (cron.validate(cronExpression)) {
       const task = cron.schedule(cronExpression, () => {
-        const started = Date.now();
-        wrappedExec()
-          .then(async (result) => {
-            const durationMs = Date.now() - started;
-            await this.jobRepo?.updateResult(name, {
-              lastRunAt: new Date().toISOString(),
-              lastResult: result,
-              durationMs,
-              isError: false,
-            });
-          })
-          .catch(async (err: unknown) => {
-            const durationMs = Date.now() - started;
-            const errorMsg = err instanceof Error ? err.message : String(err);
-            logger.error(`Job ${name} failed: ${errorMsg}`);
-            await this.jobRepo?.updateResult(name, {
-              lastRunAt: new Date().toISOString(),
-              lastResult: `Error: ${errorMsg}`,
-              durationMs,
-              isError: true,
-            });
-          });
+        void this.#runScheduled(name, wrappedExec);
       });
       this.jobs.set(name, task);
     } else {
       logger.warn(`Invalid cron expression for job "${name}": ${cronExpression}. Job disabled.`);
+    }
+  }
+
+  async #runScheduled(name: string, execute: () => Promise<string>): Promise<void> {
+    const started = Date.now();
+    if (this.lock) {
+      const acquired = await this.lock.tryLock(
+        cronFireSlotLockName(name, new Date()),
+        CRON_FIRE_LOCK_TTL_MS,
+      );
+      if (!acquired) {
+        logger.info(
+          `Scheduled job ${name} skipped — another scheduler instance already fired in this window`,
+        );
+        return;
+      }
+    }
+    try {
+      const result = await execute();
+      const durationMs = Date.now() - started;
+      await this.jobRepo?.updateResult(name, {
+        lastRunAt: new Date().toISOString(),
+        lastResult: result,
+        durationMs,
+        isError: false,
+      });
+    } catch (err: unknown) {
+      const durationMs = Date.now() - started;
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      logger.error(`Job ${name} failed: ${errorMsg}`);
+      await this.jobRepo?.updateResult(name, {
+        lastRunAt: new Date().toISOString(),
+        lastResult: `Error: ${errorMsg}`,
+        durationMs,
+        isError: true,
+      });
     }
   }
 

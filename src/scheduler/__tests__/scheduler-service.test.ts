@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SchedulerService } from '../scheduler-service.js';
+import { SchedulerService, cronFireSlotLockName } from '../scheduler-service.js';
 import type { RenewalAlertEngine } from '../../portfolio/renewal-alert-engine.js';
 import type { PortfolioRdapService } from '../../portfolio/portfolio-rdap-service.js';
+import type { JobQueueService } from '../../app/job-queue-service.js';
+import type { LockProvider } from '../../types/lock.js';
 import type { Config } from '../../config.js';
 import { resetConfig } from '../../config.js';
 import { resetLogger } from '../../logger.js';
@@ -214,6 +216,22 @@ function makeMockAlertEngine(): RenewalAlertEngine {
   } as unknown as RenewalAlertEngine;
 }
 
+function makeLock(acquired: boolean): LockProvider {
+  return {
+    tryLock: vi.fn().mockResolvedValue(acquired),
+    renewLock: vi.fn().mockResolvedValue(true),
+    unlock: vi.fn().mockResolvedValue(undefined),
+  } as unknown as LockProvider;
+}
+
+function makeJobQueue(): JobQueueService {
+  return {
+    enqueueRenewalCheck: vi.fn().mockResolvedValue('job-1'),
+  } as unknown as JobQueueService;
+}
+
+const EVERY_SECOND_CRON = '*/1 * * * * *';
+
 describe('SchedulerService', () => {
   let alertEngine: RenewalAlertEngine;
   let config: Config;
@@ -297,5 +315,59 @@ describe('SchedulerService', () => {
     const status = await scheduler.getStatus();
     expect(status.some((j) => j.name === 'portfolio-healthcheck')).toBe(false);
     scheduler.stop();
+  });
+
+  it('cronFireSlotLockName is scoped to job name and minute slot', () => {
+    const a = cronFireSlotLockName('backup', new Date('2026-08-11T08:00:00Z'));
+    const sameMinute = cronFireSlotLockName('backup', new Date('2026-08-11T08:00:30Z'));
+    const nextMinute = cronFireSlotLockName('backup', new Date('2026-08-11T08:01:00Z'));
+    const otherJob = cronFireSlotLockName('prune', new Date('2026-08-11T08:00:00Z'));
+    expect(a).toBe('scheduler:fire:backup:2026-08-11T08:00');
+    expect(sameMinute).toBe(a);
+    expect(nextMinute).not.toBe(a);
+    expect(otherJob).not.toBe(a);
+  });
+
+  it('skips cron fire when the per-slot lock is not acquired (dedupe across replicas)', async () => {
+    const mockEngine = {
+      checkAll: vi.fn().mockResolvedValue({ generated: 0, alerts: [] }),
+    } as unknown as RenewalAlertEngine;
+    const scheduler = new SchedulerService({
+      config: { ...config, SCHEDULER_RENEWAL_CHECK_CRON: EVERY_SECOND_CRON },
+      alertEngine: mockEngine,
+      lock: makeLock(false),
+    });
+    scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    scheduler.stop();
+    expect(mockEngine.checkAll).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue when the per-slot lock is not acquired', async () => {
+    const jobQueue = makeJobQueue();
+    const scheduler = new SchedulerService({
+      config: { ...config, SCHEDULER_RENEWAL_CHECK_CRON: EVERY_SECOND_CRON },
+      alertEngine,
+      lock: makeLock(false),
+      jobQueueService: jobQueue,
+    });
+    scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    scheduler.stop();
+    expect(jobQueue.enqueueRenewalCheck).not.toHaveBeenCalled();
+  });
+
+  it('enqueues on cron fire when the per-slot lock is acquired', async () => {
+    const jobQueue = makeJobQueue();
+    const scheduler = new SchedulerService({
+      config: { ...config, SCHEDULER_RENEWAL_CHECK_CRON: EVERY_SECOND_CRON },
+      alertEngine,
+      lock: makeLock(true),
+      jobQueueService: jobQueue,
+    });
+    scheduler.start();
+    await new Promise((resolve) => setTimeout(resolve, 1300));
+    scheduler.stop();
+    expect(jobQueue.enqueueRenewalCheck).toHaveBeenCalled();
   });
 });

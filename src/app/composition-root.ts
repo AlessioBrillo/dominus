@@ -426,6 +426,7 @@ function buildSchedulerIfEnabled(
   jobQueueService: ReturnType<typeof createJobQueueService>,
   autoTuner: AutoWeightTuner | undefined,
   portfolioHealthcheckService: PortfolioRdapService,
+  lockProvider: LockProvider | undefined,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
   return new SchedulerService({
@@ -440,6 +441,7 @@ function buildSchedulerIfEnabled(
     jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
     portfolioHealthcheckService,
+    ...(lockProvider ? { lock: lockProvider } : {}),
     ...(autoTuner ? { autoTuner } : {}),
   });
 }
@@ -936,6 +938,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     jobQueueService,
     autoTuner,
     portfolioHealthcheckService,
+    lockProvider,
   );
 
   return {
