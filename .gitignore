@@ -41,6 +41,9 @@ data/
 # --- Claude runtime ---
 .claude/scheduled_tasks.lock
 
+# --- Local agent harness config ---
+.opencode/
+
 # --- Coverage check snapshot (stale copies, do not commit) ---
 coverage-check/
 
