@@ -2,6 +2,7 @@
 export { createUsageRouter } from './routes/usage.js';
 export { createBillingRouter } from './routes/billing.js';
 export { createAdminRouter } from './routes/admin.js';
+export { createTeamRouter } from './routes/team.js';
 export { createCandidatesRouter } from './routes/candidates.js';
 export { createPortfolioRouter } from './routes/portfolio.js';
 export { createRunsRouter } from './routes/runs.js';
