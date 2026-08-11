@@ -58,6 +58,7 @@ re-running the original arguments.
 | [0049](0049-rdap-transport-parity.md)                          | RDAP transport parity — shared undici keep-alive pool and connection budget                                   | 2026-08-09 | Accepted                            |
 | [0050](0050-rdap-consensus.md)                                 | RDAP consensus — opt-in 2-of-2 second opinion, dedicated budget, degraded-run flagging                       | 2026-08-09 | Accepted                            |
 | [0051](0051-rdap-consensus-rescue-and-probe.md)                 | RDAP consensus rescue leg and startup probe — closure of ADR-0050 gaps                                         | 2026-08-10 | Accepted                            |
+| [0052](0052-whois-distributed-rate-limit.md)                     | WHOIS distributed rate-limit parity — `whois` Redis namespace, per-TLD buckets, per-tenant fair share           | 2026-08-10 | Accepted                            |
 
 ## Conventions
 

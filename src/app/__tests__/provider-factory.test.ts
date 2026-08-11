@@ -16,7 +16,7 @@ import {
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
 import { CircuitBreaker } from '../../providers/circuit-breaker.js';
-import type { RateLimiter } from '../../providers/rate-limiter.js';
+import { RateLimiter } from '../../providers/rate-limiter.js';
 import {
   DistributedCircuitBreaker,
   RedisRateLimiter,
@@ -698,7 +698,9 @@ describe('WHOIS distributed rate-limit parity (ADR-0052)', () => {
 
   it('buildWhoisPerTldRateLimiters maps overrides to per-TLD Redis namespaces', () => {
     const limiters = buildWhoisPerTldRateLimiters(
-      makeConfig({ WHOIS_RATE_LIMIT_OVERRIDES: '{"de":{"tokensPerInterval":1,"intervalMs":20000}}' }),
+      makeConfig({
+        WHOIS_RATE_LIMIT_OVERRIDES: '{"de":{"tokensPerInterval":1,"intervalMs":20000}}',
+      }),
       fakeRedis(),
     );
     const de = limiters['.de'] as RedisRateLimiter;
@@ -709,7 +711,9 @@ describe('WHOIS distributed rate-limit parity (ADR-0052)', () => {
 
   it('buildWhoisPerTldRateLimiters falls back to in-memory buckets without Redis', () => {
     const limiters = buildWhoisPerTldRateLimiters(
-      makeConfig({ WHOIS_RATE_LIMIT_OVERRIDES: '{"de":{"tokensPerInterval":1,"intervalMs":20000}}' }),
+      makeConfig({
+        WHOIS_RATE_LIMIT_OVERRIDES: '{"de":{"tokensPerInterval":1,"intervalMs":20000}}',
+      }),
     );
     const de = limiters['.de'] as RateLimiter;
     expect(de).toBeInstanceOf(RateLimiter);
