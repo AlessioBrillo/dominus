@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.11.0](https://github.com/AlessioBrillo/dominus/compare/v0.10.1...v0.11.0) (2026-08-11)
+
+
+### Features
+
+* **api:** configurable per-IP rate limits on the public namespace (ADR-0043) ([#255](https://github.com/AlessioBrillo/dominus/issues/255)) ([9662618](https://github.com/AlessioBrillo/dominus/commit/96626183f27302dad3d9b5dd0d4599aad2c54c01))
+* **dns:** consensus budget and DoH pooling ([#256](https://github.com/AlessioBrillo/dominus/issues/256)) ([d5aefa4](https://github.com/AlessioBrillo/dominus/commit/d5aefa469e5cad343511fa60eeeb57a4053fbdfe))
+* **dns:** majority-vote consensus + fail-degraded failure policy (ADR-0039) ([#251](https://github.com/AlessioBrillo/dominus/issues/251)) ([85217c7](https://github.com/AlessioBrillo/dominus/commit/85217c798f60779db83f009ff9aca80452467e0b))
+* **dns:** private recursor for the consensus secondary (ADR-0042) ([#254](https://github.com/AlessioBrillo/dominus/issues/254)) ([00868d7](https://github.com/AlessioBrillo/dominus/commit/00868d778797ad93fb017930266e51c08f8bd406))
+* **dns:** tertiary consensus leg rescues Availability (ADR-0045) ([#257](https://github.com/AlessioBrillo/dominus/issues/257)) ([01234a2](https://github.com/AlessioBrillo/dominus/commit/01234a22ba8fe007e7cf7f15f880ce45912fcca7))
+* **providers:** per-tenant fair share on shared Redis budgets (ADR-0041) ([#253](https://github.com/AlessioBrillo/dominus/issues/253)) ([a4abf38](https://github.com/AlessioBrillo/dominus/commit/a4abf389f40675679c353d5cfc273a5a35055405))
+* **rdap:** shared keep-alive agent pool and consensus config (ADR-0049, ADR-0050) ([#261](https://github.com/AlessioBrillo/dominus/issues/261)) ([a84ebeb](https://github.com/AlessioBrillo/dominus/commit/a84ebeb27f4501454a9049ae46b3508f8ea68774))
+* **rdap:** WHOIS rescue leg and startup probe for the 2-of-2 consensus gate (ADR-0051) ([#263](https://github.com/AlessioBrillo/dominus/issues/263)) ([5f7901e](https://github.com/AlessioBrillo/dominus/commit/5f7901e2b33c36596e53dc311bc02985ae4dee4f))
+* **rdap:** wire 2-of-2 consensus gate into the pipeline (ADR-0050) ([#262](https://github.com/AlessioBrillo/dominus/issues/262)) ([d76159b](https://github.com/AlessioBrillo/dominus/commit/d76159b14747e82d8491856ba2e06fbf91202fc1))
+* **tenancy:** auto-provision free plan + resumable pipeline runs ([#249](https://github.com/AlessioBrillo/dominus/issues/249)) ([81dbaea](https://github.com/AlessioBrillo/dominus/commit/81dbaeabb7646b22c0caec742405c151d1cf380f))
+* **usage:** enforce plan allowances at chokepoints (ADR-0038) ([#250](https://github.com/AlessioBrillo/dominus/issues/250)) ([3bca088](https://github.com/AlessioBrillo/dominus/commit/3bca088ca2f76fb3213114f996172981e872046f))
+* **whois:** distributed rate-limit parity with per-tenant fair share (ADR-0052) ([#271](https://github.com/AlessioBrillo/dominus/issues/271)) ([89de152](https://github.com/AlessioBrillo/dominus/commit/89de15286aea9e8461aee9914b71d7bea00582a7))
+
+
+### Bug Fixes
+
+* **dns:** apply 2-of-3 consensus on every resolution path (ADR-0040) ([#252](https://github.com/AlessioBrillo/dominus/issues/252)) ([d5418de](https://github.com/AlessioBrillo/dominus/commit/d5418de8bd5caadea5fa132fec1838d90069e8a9))
+* **dns:** custom resolver groups accept the DoH wire format (ADR-0048) ([#260](https://github.com/AlessioBrillo/dominus/issues/260)) ([0baa50e](https://github.com/AlessioBrillo/dominus/commit/0baa50e925b21dfc24c489cf715509d4b18f5156))
+* **dns:** serve all three DoH legs live — Google /resolve+ct, Quad9 RFC 8484 wire ([#259](https://github.com/AlessioBrillo/dominus/issues/259)) ([5b2341c](https://github.com/AlessioBrillo/dominus/commit/5b2341c91a67f335fe49805aaa1dc803b6525bc3))
+* **security:** api-key management wiring, forced RLS isolation, public origin pinning ([#248](https://github.com/AlessioBrillo/dominus/issues/248)) ([7346e59](https://github.com/AlessioBrillo/dominus/commit/7346e596a54cff6de1384c363d8fad6bca52ffc9))
+
 ### [0.10.1](https://github.com/AlessioBrillo/dominus/compare/v0.10.0...v0.10.1) (2026-08-06)
 
 
