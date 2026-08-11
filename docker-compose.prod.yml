@@ -67,6 +67,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   worker:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}-worker
@@ -99,6 +100,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   scheduler:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}-scheduler
@@ -130,6 +132,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   # ── Cloud data stores (defined here, not in the base file: the community
   # edition runs on SQLite and must never pull these containers) ─────────
@@ -161,6 +164,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   redis:
     image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
@@ -186,6 +190,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   # Redis metrics exporter — scraped by Prometheus so eviction pressure and
   # memory usage are observable (RedisDown / RedisEvictionsHigh alerts).
@@ -210,6 +215,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   # ── Monitoring stack ──────────────────────────────────────────────────
   prometheus:
@@ -239,6 +245,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   alertmanager:
     image: prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
@@ -262,6 +269,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
   grafana:
     image: grafana/grafana-oss:11.2.0@sha256:408afb9726de5122b00a2576763a8a57a3c86d5b0eff5305bc994ceb3eb96c3f
@@ -289,6 +297,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+        compress: "true"
 
 volumes:
   backups:
