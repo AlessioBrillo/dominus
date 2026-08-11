@@ -109,6 +109,8 @@ import { AcquisitionService } from '../services/acquisition-service.js';
 import { BillingService } from '../services/billing-service.js';
 import { AdminService } from '../services/admin-service.js';
 import { AdminRepository } from '../db/repositories/admin-repository.js';
+import { TeamSeatsRepository } from '../db/repositories/team-seats-repository.js';
+import { TeamService } from '../services/team-service.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
@@ -157,10 +159,12 @@ export interface DominusDependencies {
   listingRepo: ListingRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
+  teamSeatsRepo: TeamSeatsRepository;
 
   billingService: BillingService;
   usageService: UsageMeterService;
   adminService: AdminService;
+  teamService: TeamService;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -223,6 +227,7 @@ interface BuiltRepositories {
   listingRepo: ListingRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
+  teamSeatsRepo: TeamSeatsRepository;
   usageRepo: UsageRepository;
   adminRepo: AdminRepository;
   publicScoreRepo: PublicScoreRepository;
@@ -247,6 +252,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     acquisitionRepo: new AcquisitionRepository(provider),
     listingRepo: new ListingRepository(provider),
     subscriptionRepo: new SubscriptionRepository(provider),
+    teamSeatsRepo: new TeamSeatsRepository(provider),
     usageRepo: new UsageRepository(provider),
     adminRepo: new AdminRepository(provider),
     publicScoreRepo: new PublicScoreRepository(provider),
@@ -493,6 +499,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // Platform admin read model: cross-tenant subscriptions, API key counts
   // and metered usage for the operator panel (Cloud).
   const adminService = new AdminService(repos.adminRepo, repos.usageRepo);
+  const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo);
 
   // Entry-point usage guard shared by the job queue chokepoint, the sync
   // pipeline path, and the portfolio/watchlist add flows (ADR-0038).
@@ -989,5 +996,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     billingService,
     usageService,
     adminService,
+    teamService,
   };
 }

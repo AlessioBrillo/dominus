@@ -1673,6 +1673,14 @@ const configSchema = z.object({
   STRIPE_PRICE_ID_PRO_YEARLY: z.string().optional(),
 
   /**
+   * Stripe Price IDs for the team plan (€79/mo, 10 seats, 500 runs/day).
+   * Required to offer team checkout; when unset, team subscriptions are
+   * handled outside self-service checkout.
+   */
+  STRIPE_PRICE_ID_TEAM_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_ID_TEAM_YEARLY: z.string().optional(),
+
+  /**
    * Stripe Price IDs for the enterprise plan (custom pricing, dedicated
    * support). Required to offer enterprise checkout; when unset, enterprise
    * subscriptions are handled outside self-service checkout.
@@ -1684,9 +1692,10 @@ const configSchema = z.object({
    * Default subscription plan for new tenants.
    * 'free' — community edition, no Stripe integration required.
    * 'pro' — DOMINUS Cloud with Stripe billing.
+   * 'team' — DOMINUS Cloud with team seats and Slack support.
    * 'enterprise' — custom plan with dedicated support.
    */
-  SUBSCRIPTION_DEFAULT_PLAN: z.enum(['free', 'pro', 'enterprise']).optional(),
+  SUBSCRIPTION_DEFAULT_PLAN: z.enum(['free', 'pro', 'team', 'enterprise']).optional(),
 
   // ── Data retention ─────────────────────────────────────────────────
 
