@@ -65,3 +65,32 @@ groups:
         annotations:
           summary: "Jobs entered the dead-letter queue"
           description: "One or more jobs exhausted their retries in the last hour."
+
+  - name: dominus-cache
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is unreachable"
+          description: "Prometheus cannot scrape redis-exporter for 5 minutes."
+
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory above 80%"
+          description: "Redis is using {{ $value | humanizePercentage }} of its maxmemory (volatile-lru eviction will kick in)."
+
+      - alert: RedisEvictionsHigh
+        expr: increase(redis_evicted_keys_total[15m]) > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Redis eviction rate"
+          description: "More than 1000 keys evicted in 15 minutes — check cache TTLs and rate-limit window sizes."
