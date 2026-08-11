@@ -7,7 +7,7 @@ import { ProviderError } from '../../types/errors.js';
 import type { WhoisProvider, WhoisResult } from './whois-provider.js';
 import { resolveWhoisServer } from './iana-server-lookup.js';
 import { RateLimiter } from '../rate-limiter.js';
-import type { RateLimiterConfig } from '../rate-limiter.js';
+import type { RateLimiterConfig, RateLimiterLike } from '../rate-limiter.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { CircuitBreakerPolicy } from '../circuit-breaker.js';
 
@@ -103,8 +103,8 @@ export interface NodeWhoisProviderConfig {
   timeoutMs?: number;
   serverOverrides?: Record<string, string>;
   connect?: WhoisConnectFn | undefined;
-  defaultRateLimiter?: RateLimiter | undefined;
-  perTldRateLimiters?: Record<string, RateLimiter> | undefined;
+  defaultRateLimiter?: RateLimiterLike | undefined;
+  perTldRateLimiters?: Record<string, RateLimiterLike> | undefined;
   /** When true, use TLS connections for WHOIS servers that support it.
    *  Servers in WHOIS_TLS_SERVERS are tried with TLS first; plaintext
    *  fallback on connection timeout. Default: true. */
@@ -240,8 +240,8 @@ export class NodeWhoisProvider implements WhoisProvider {
   readonly #serverOverrides: Record<string, string>;
   readonly #connectFn: WhoisConnectFn;
   readonly #tlsConnectFn: WhoisConnectFn;
-  readonly #defaultRateLimiter: RateLimiter;
-  readonly #perTldRateLimiters: Record<string, RateLimiter>;
+  readonly #defaultRateLimiter: RateLimiterLike;
+  readonly #perTldRateLimiters: Record<string, RateLimiterLike>;
   readonly #circuitBreaker: CircuitBreaker;
   readonly #tlsEnabled: boolean;
 
@@ -263,7 +263,7 @@ export class NodeWhoisProvider implements WhoisProvider {
     this.#tlsEnabled = config.tlsEnabled ?? true;
   }
 
-  #rateLimiterFor(tld: string): RateLimiter {
+  #rateLimiterFor(tld: string): RateLimiterLike {
     const cleanTld = tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`;
     return this.#perTldRateLimiters[cleanTld] ?? this.#defaultRateLimiter;
   }
@@ -367,8 +367,8 @@ export class NodeWhoisProvider implements WhoisProvider {
 export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
   readonly #delegate: NodeWhoisProvider;
   readonly #connectFn: ((port: number, host: string, callback?: () => void) => Socket) | undefined;
-  readonly #defaultRateLimiter: RateLimiter;
-  readonly #perTldRateLimiters: Record<string, RateLimiter>;
+  readonly #defaultRateLimiter: RateLimiterLike;
+  readonly #perTldRateLimiters: Record<string, RateLimiterLike>;
   readonly #tlsEnabled: boolean;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
@@ -407,26 +407,42 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
   }
 }
 
+/**
+ * Shared WHOIS overrides parser (ADR-0052). Cleans TLD keys (`.tld` or
+ * `tld` → `.tld`, lowercased) and returns the raw per-TLD partial configs.
+ * Invalid JSON silently yields an empty set — the same fallback semantics as
+ * the in-memory builder. Consumers apply their own token/interval defaults.
+ */
+export function parseWhoisRateLimitOverrides(
+  overridesJson: string | undefined,
+): Record<string, Partial<RateLimiterConfig>> {
+  if (!overridesJson) return {};
+
+  try {
+    const parsed = JSON.parse(overridesJson) as Record<string, Partial<RateLimiterConfig>>;
+    const cleaned: Record<string, Partial<RateLimiterConfig>> = {};
+    for (const [tld, cfg] of Object.entries(parsed)) {
+      cleaned[tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`] = cfg;
+    }
+    return cleaned;
+  } catch {
+    // Invalid JSON — silently fall back to defaults
+    return {};
+  }
+}
+
 export function buildPerTldWhoisRateLimiters(
   overridesJson: string | undefined,
   defaultConfig: RateLimiterConfig,
 ): Record<string, RateLimiter> {
   const limiters: Record<string, RateLimiter> = {};
 
-  if (!overridesJson) return limiters;
-
-  try {
-    const parsed = JSON.parse(overridesJson) as Record<string, Partial<RateLimiterConfig>>;
-    for (const [tld, cfg] of Object.entries(parsed)) {
-      const cleanTld = tld.startsWith('.') ? tld.toLowerCase() : `.${tld.toLowerCase()}`;
-      limiters[cleanTld] = new RateLimiter({
-        maxTokens: cfg.maxTokens ?? defaultConfig.maxTokens,
-        tokensPerInterval: cfg.tokensPerInterval ?? defaultConfig.tokensPerInterval,
-        intervalMs: cfg.intervalMs ?? defaultConfig.intervalMs,
-      });
-    }
-  } catch {
-    // Invalid JSON — silently fall back to defaults
+  for (const [cleanTld, cfg] of Object.entries(parseWhoisRateLimitOverrides(overridesJson))) {
+    limiters[cleanTld] = new RateLimiter({
+      maxTokens: cfg.maxTokens ?? defaultConfig.maxTokens,
+      tokensPerInterval: cfg.tokensPerInterval ?? defaultConfig.tokensPerInterval,
+      intervalMs: cfg.intervalMs ?? defaultConfig.intervalMs,
+    });
   }
 
   return limiters;

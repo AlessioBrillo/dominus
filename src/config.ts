@@ -809,6 +809,24 @@ const configSchema = z.object({
   /** Rate limiting: refill interval in ms for WHOIS requests (default: 2000). */
   WHOIS_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(2000),
   /**
+   * Per-tenant fair share (Cloud only, ADR-0041): max WHOIS tokens per tenant
+   * per WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS, enforced on top of the shared
+   * platform WHOIS bucket when Redis is the rate limiter and
+   * PROVIDER_FAIR_SHARE_ENABLED is on (ADR-0052). WHOIS is the most restrictive
+   * channel in the stack (default 2 tokens / 2000ms): without an independent
+   * tenant window, one tenant's run would starve every other tenant on the
+   * shared bucket. Must be lower than or equal to WHOIS_RATE_LIMIT_TOKENS.
+   * Default: 1 token per tenant against a 2-token shared budget.
+   */
+  WHOIS_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(100).default(1),
+  /** Per-tenant fair share: refill interval in ms for the WHOIS tenant window (default: 2000). */
+  WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .max(60000)
+    .default(2000),
+  /**
    * Optional JSON string mapping TLDs to per-registry WHOIS rate limiter configs.
    * Each entry overrides the global WHOIS_RATE_LIMIT_TOKENS/INTERVAL for that TLD.
    * Example:

@@ -39,7 +39,7 @@ import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import { DomainStatus, type RdapResult } from '../types/domain-status.js';
 import {
   NodeWhoisProviderWithIanaFallback,
-  buildPerTldWhoisRateLimiters,
+  parseWhoisRateLimitOverrides,
 } from '../providers/whois/index.js';
 import { RetryingWhoisProvider, WHOIS_CIRCUIT_BREAKER } from './retrying-whois-provider.js';
 import type { WhoisProvider as WhoisProviderInterface } from '../providers/whois/whois-provider.js';
@@ -581,18 +581,86 @@ export interface BuiltWhoisProvider {
   withRetry: WhoisProviderInterface;
 }
 
-export function buildWhoisProviders(config: Config): BuiltWhoisProvider {
-  const whoisDefaultLimiter = new RateLimiter({
+/**
+ * Dedicated rate limiter for WHOIS port-43 traffic (ADR-0052). WHOIS is the
+ * most restrictive channel in the stack (default 2 tokens / 2000ms) and the
+ * last provider without a distributed budget: rdap/uspto/euipo/wayback/dns
+ * plus both consensus gates already run on Redis namespaces (ADR-0041,
+ * ADR-0044, ADR-0050). In cloud mode the shared bucket is a `whois` Redis
+ * namespace with per-tenant fair share (ADR-0041): N replicas enforce ONE
+ * registry-facing rate and no tenant can starve the others. Without Redis
+ * the behaviour is unchanged — a per-process in-memory token bucket.
+ */
+export function buildWhoisRateLimiter(config: Config, redisClient?: RedisClient): RateLimiterLike {
+  const fairShare = config.PROVIDER_FAIR_SHARE_ENABLED;
+  if (redisClient?.isConnected) {
+    return new RedisRateLimiter(
+      {
+        tokens: config.WHOIS_RATE_LIMIT_TOKENS,
+        intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
+        namespace: 'whois',
+        fairShare,
+        perTenantTokens: config.WHOIS_RATE_LIMIT_PER_TENANT_TOKENS,
+        ...(fairShare &&
+        config.WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS !== config.WHOIS_RATE_LIMIT_INTERVAL_MS
+          ? { perTenantIntervalMs: config.WHOIS_RATE_LIMIT_PER_TENANT_INTERVAL_MS }
+          : {}),
+      },
+      redisClient,
+    );
+  }
+  return new RateLimiter({
     maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
     tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
     intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
   });
+}
 
-  const whoisPerTldLimiters = buildPerTldWhoisRateLimiters(config.WHOIS_RATE_LIMIT_OVERRIDES, {
-    maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
-    intervalMs: config.WHOIS_RATE_LIMIT_INTERVAL_MS,
-  });
+/**
+ * Per-TLD WHOIS budgets (ADR-0052). WHOIS_RATE_LIMIT_OVERRIDES semantics are
+ * preserved exactly (shared parseWhoisRateLimitOverrides parser) but each
+ * TLD override becomes its own `whois:<tld>` Redis namespace in cloud mode,
+ * with per-tenant fair share enabled so one tenant cannot drain the
+ * strictest registries on behalf of all. Invalid JSON silently falls back to
+ * an empty set, mirroring the in-memory builder.
+ */
+export function buildWhoisPerTldRateLimiters(
+  config: Config,
+  redisClient?: RedisClient,
+): Record<string, RateLimiterLike> {
+  const limiters: Record<string, RateLimiterLike> = {};
+
+  const overrides = parseWhoisRateLimitOverrides(config.WHOIS_RATE_LIMIT_OVERRIDES);
+
+  for (const [cleanTld, cfg] of Object.entries(overrides)) {
+    const tokens = cfg.maxTokens ?? cfg.tokensPerInterval ?? config.WHOIS_RATE_LIMIT_TOKENS;
+    const intervalMs = cfg.intervalMs ?? config.WHOIS_RATE_LIMIT_INTERVAL_MS;
+    if (redisClient?.isConnected) {
+      limiters[cleanTld] = new RedisRateLimiter(
+        {
+          tokens,
+          intervalMs,
+          namespace: `whois:${cleanTld.slice(1)}`,
+          fairShare: config.PROVIDER_FAIR_SHARE_ENABLED,
+        },
+        redisClient,
+      );
+    } else {
+      limiters[cleanTld] = new RateLimiter({
+        maxTokens: tokens,
+        tokensPerInterval: tokens,
+        intervalMs,
+      });
+    }
+  }
+
+  return limiters;
+}
+
+export function buildWhoisProviders(config: Config, redisClient?: RedisClient): BuiltWhoisProvider {
+  const whoisDefaultLimiter = buildWhoisRateLimiter(config, redisClient);
+
+  const whoisPerTldLimiters = buildWhoisPerTldRateLimiters(config, redisClient);
 
   const raw = new NodeWhoisProviderWithIanaFallback({
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
@@ -682,6 +750,8 @@ export interface BuiltRateLimiters {
   dnsConsensus: RateLimiterLike;
   /** Dedicated budget for the 2-of-2 RDAP consensus leg (ADR-0050). */
   rdapConsensus: RateLimiterLike;
+  /** Distributed WHOIS budget with per-tenant fair share (ADR-0052). */
+  whois: RateLimiterLike;
 }
 
 /**
@@ -780,7 +850,8 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
     );
     const dnsConsensus = buildConsensusRateLimiter(config, redisClient);
     const rdapConsensus = buildRdapConsensusRateLimiter(config, redisClient);
-    return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus };
+    const whois = buildWhoisRateLimiter(config, redisClient);
+    return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus, whois };
   }
 
   const rdap = new RateLimiter({
@@ -810,7 +881,8 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
   });
   const dnsConsensus = buildConsensusRateLimiter(config);
   const rdapConsensus = buildRdapConsensusRateLimiter(config);
-  return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus };
+  const whois = buildWhoisRateLimiter(config);
+  return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus, whois };
 }
 
 /**
