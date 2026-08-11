@@ -60,10 +60,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const res = await fetch(url, { ...options, signal: outerSignal, headers });
 
-  if (res.status === 401 || res.status === 403) {
+  if (res.status === 401) {
     clearApiKey();
     onUnauthorized?.();
     throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
+  }
+
+  // 403 means "authenticated but not allowed" (e.g. role-gated admin
+  // routes). The session is still valid, so the key must NOT be cleared —
+  // clearing it would log the user out for a role problem, not a session
+  // problem. The server error body carries the structured code/message.
+  if (res.status === 403) {
+    const body = await res
+      .json()
+      .catch(() => ({ error: { code: 'FORBIDDEN', message: res.statusText } }));
+    throw new ApiError(
+      res.status,
+      body?.error?.code ?? 'FORBIDDEN',
+      body?.error?.message ?? 'Forbidden',
+    );
   }
 
   if (!res.ok) {
