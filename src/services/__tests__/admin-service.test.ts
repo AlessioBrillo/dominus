@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
+import { AdminRepository } from '../../db/repositories/admin-repository.js';
+import { UsageRepository } from '../../db/repositories/usage-repository.js';
+import { AdminService } from '../admin-service.js';
+
+describe('AdminService', () => {
+  let db: SqliteProvider;
+  let service: AdminService;
+
+  beforeEach(async () => {
+    db = SqliteProvider.openInMemory();
+    await db.runMigrations();
+    service = new AdminService(new AdminRepository(db), new UsageRepository(db));
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  const PERIOD = '2026-08-01';
+
+  function seedSubscription(tenantId: string, plan: string, status: string): void {
+    db.exec(
+      `INSERT INTO tenant_subscriptions (tenant_id, plan, status, stripe_customer_id)
+       VALUES (?, ?, ?, ?)`,
+      [tenantId, plan, status, `cus_${tenantId}`],
+    );
+  }
+
+  function seedApiKey(tenantId: string, name: string, lastUsedAt: string | null = null): void {
+    db.exec(
+      `INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, role, expires_at, last_used_at)
+       VALUES (?, ?, ?, ?, 'admin', NULL, ?)`,
+      [tenantId, name, `hash-${tenantId}-${name}`, `pre_${tenantId}_${name}`, lastUsedAt],
+    );
+  }
+
+  function seedUsage(tenantId: string, feature: string, amount: number): void {
+    db.exec(
+      `INSERT INTO usage_records (tenant_id, feature, amount, period_start, recorded_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`,
+      [tenantId, feature, amount, PERIOD],
+    );
+  }
+
+  describe('overview', () => {
+    it('reports totals across all tenants for the period', async () => {
+      seedSubscription('tenant-a', 'pro', 'active');
+      seedSubscription('tenant-b', 'enterprise', 'past_due');
+      seedSubscription('tenant-c', 'free', 'active');
+      seedUsage('tenant-a', 'candidates_scored', 10);
+      seedUsage('tenant-b', 'candidates_scored', 25);
+      seedUsage('tenant-a', 'api_calls', 300);
+      seedUsage('tenant-c', 'api_calls', 50);
+
+      const overview = await service.overview(PERIOD);
+      expect(overview.tenantsCount).toBe(3);
+      expect(overview.activeSubscriptions).toBe(2);
+      // tenant-b is past_due, so only tenant-a counts as a paid active plan.
+      expect(overview.paidPlans).toBe(1);
+      expect(overview.candidatesScoredTotal).toBe(35);
+      expect(overview.apiCallsTotal).toBe(350);
+      expect(overview.periodStart).toBe(PERIOD);
+    });
+
+    it('reports zeros when no tenants exist', async () => {
+      const overview = await service.overview(PERIOD);
+      expect(overview.tenantsCount).toBe(0);
+      expect(overview.activeSubscriptions).toBe(0);
+      expect(overview.paidPlans).toBe(0);
+      expect(overview.candidatesScoredTotal).toBe(0);
+      expect(overview.apiCallsTotal).toBe(0);
+    });
+  });
+
+  describe('listTenants', () => {
+    it('summarises plan, status, key count and per-feature usage with limits', async () => {
+      seedSubscription('tenant-a', 'pro', 'active');
+      seedApiKey('tenant-a', 'ops-1');
+      seedApiKey('tenant-a', 'ops-2');
+      seedUsage('tenant-a', 'candidates_scored', 20);
+      seedUsage('tenant-a', 'api_calls', 5);
+
+      const tenants = await service.listTenants(PERIOD);
+      expect(tenants).toHaveLength(1);
+
+      const tenant = tenants[0]!;
+      expect(tenant.tenantId).toBe('tenant-a');
+      expect(tenant.plan).toBe('pro');
+      expect(tenant.status).toBe('active');
+      expect(tenant.apiKeyCount).toBe(2);
+
+      const usageByFeature = Object.fromEntries(tenant.usage.map((u) => [u.feature, u]));
+      expect(usageByFeature['candidates_scored']).toEqual({
+        feature: 'candidates_scored',
+        used: 20,
+        limit: 500,
+      });
+      expect(usageByFeature['api_calls']).toEqual({
+        feature: 'api_calls',
+        used: 5,
+        limit: 10000,
+      });
+      expect(usageByFeature['domains_tracked']).toEqual({
+        feature: 'domains_tracked',
+        used: 0,
+        limit: 250,
+      });
+    });
+
+    it('defaults a tenant without a subscription row to the free plan', async () => {
+      seedApiKey('tenant-x', 'ci');
+      seedUsage('tenant-x', 'candidates_scored', 3);
+
+      const tenants = await service.listTenants(PERIOD);
+      expect(tenants).toHaveLength(1);
+      expect(tenants[0]!.plan).toBe('free');
+      expect(tenants[0]!.status).toBe('active');
+      expect(tenants[0]!.usage.find((u) => u.feature === 'candidates_scored')).toEqual({
+        feature: 'candidates_scored',
+        used: 3,
+        limit: 50,
+      });
+    });
+
+    it('applies unlimited limits for enterprise', async () => {
+      seedSubscription('tenant-e', 'enterprise', 'active');
+      seedUsage('tenant-e', 'api_calls', 999999);
+
+      const tenants = await service.listTenants(PERIOD);
+      expect(tenants[0]!.usage.find((u) => u.feature === 'api_calls')?.limit).toBeNull();
+    });
+  });
+});

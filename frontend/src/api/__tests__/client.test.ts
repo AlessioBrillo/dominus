@@ -124,12 +124,41 @@ describe('api.get', () => {
     expect(getStoredApiKey()).toBeNull();
   });
 
-  it('throws an ApiError with code UNAUTHORIZED on 403', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(mockResponse({ ok: false, status: 403 }));
-    await expect(api.get('/runs')).rejects.toMatchObject({
+  it('keeps the key and surfaces FORBIDDEN on 403', async () => {
+    const onUnauthorized = vi.fn();
+    setOnUnauthorized(onUnauthorized);
+    storeApiKey('valid-but-not-admin');
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockResponse({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: { code: 'FORBIDDEN', message: 'Insufficient role' } }),
+      }),
+    );
+    await expect(api.get('/admin/tenants')).rejects.toMatchObject({
       status: 403,
-      code: 'UNAUTHORIZED',
-      message: 'Authentication required',
+      code: 'FORBIDDEN',
+      message: 'Insufficient role',
+    });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(getStoredApiKey()).toBe('valid-but-not-admin');
+  });
+
+  it('falls back to FORBIDDEN when the 403 body is not JSON', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      mockResponse({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        json: async () => {
+          throw new Error('not json');
+        },
+      }),
+    );
+    await expect(api.get('/admin/overview')).rejects.toMatchObject({
+      status: 403,
+      code: 'FORBIDDEN',
+      message: 'Forbidden',
     });
   });
 

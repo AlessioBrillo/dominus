@@ -17,6 +17,7 @@ import { verifyAndStoreKey, checkHealth } from '../auth.js';
 import { rebuildSnapshot, fetchBacktestReport, suggestWeights, runAutoTune } from '../backtest.js';
 import { placeBid, resolveBid, listBids, listPendingBids, getBid } from '../bids.js';
 import { fetchSubscription, createCheckoutSession, createPortalSession } from '../billing.js';
+import { fetchAdminOverview, fetchAdminTenants } from '../admin.js';
 import { fetchCandidates, runPipeline, deleteCandidate, fetchRuns } from '../candidates.js';
 import { fetchDashboardStats } from '../dashboard.js';
 import {
@@ -222,6 +223,20 @@ describe('api/billing', () => {
     mockedPost.mockResolvedValueOnce({ url: 'https://portal' });
     await createPortalSession('https://back');
     expect(mockedPost).toHaveBeenCalledWith('/billing/portal', { returnUrl: 'https://back' });
+  });
+});
+
+describe('api/admin', () => {
+  it('fetchAdminOverview gets the platform overview', async () => {
+    mockedGet.mockResolvedValueOnce({ tenantsCount: 2 });
+    await expect(fetchAdminOverview()).resolves.toMatchObject({ tenantsCount: 2 });
+    expect(mockedGet).toHaveBeenCalledWith('/admin/overview');
+  });
+
+  it('fetchAdminTenants gets the tenants list', async () => {
+    mockedGet.mockResolvedValueOnce([{ tenantId: 'tenant-a' }]);
+    await expect(fetchAdminTenants()).resolves.toEqual([{ tenantId: 'tenant-a' }]);
+    expect(mockedGet).toHaveBeenCalledWith('/admin/tenants');
   });
 });
 

@@ -20,6 +20,7 @@ import { serverTimeoutConfig } from './utils/server-timeouts.js';
 import {
   createUsageRouter,
   createBillingRouter,
+  createAdminRouter,
   createCandidatesRouter,
   createPortfolioRouter,
   createRunsRouter,
@@ -334,6 +335,7 @@ async function main(): Promise<void> {
   protectedRouter.use('/keys', createKeyManagementRouter(deps.authProvider, deps.apiKeyRepo));
   protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
+  protectedRouter.use('/admin', createAdminRouter(deps.adminService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));
   protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));

@@ -107,6 +107,8 @@ import type { PurchaseService as PurchaseServiceType } from '../services/purchas
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
 import { AcquisitionService } from '../services/acquisition-service.js';
 import { BillingService } from '../services/billing-service.js';
+import { AdminService } from '../services/admin-service.js';
+import { AdminRepository } from '../db/repositories/admin-repository.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
@@ -158,6 +160,7 @@ export interface DominusDependencies {
 
   billingService: BillingService;
   usageService: UsageMeterService;
+  adminService: AdminService;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -221,6 +224,7 @@ interface BuiltRepositories {
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
   usageRepo: UsageRepository;
+  adminRepo: AdminRepository;
   publicScoreRepo: PublicScoreRepository;
   webhookEventsRepo: WebhookEventsRepository;
 }
@@ -244,6 +248,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     listingRepo: new ListingRepository(provider),
     subscriptionRepo: new SubscriptionRepository(provider),
     usageRepo: new UsageRepository(provider),
+    adminRepo: new AdminRepository(provider),
     publicScoreRepo: new PublicScoreRepository(provider),
     webhookEventsRepo: new WebhookEventsRepository(provider),
   };
@@ -484,6 +489,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoProvisionTenants:
       config.AUTO_PROVISION_TENANTS || !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env',
   });
+
+  // Platform admin read model: cross-tenant subscriptions, API key counts
+  // and metered usage for the operator panel (Cloud).
+  const adminService = new AdminService(repos.adminRepo, repos.usageRepo);
 
   // Entry-point usage guard shared by the job queue chokepoint, the sync
   // pipeline path, and the portfolio/watchlist add flows (ADR-0038).
@@ -979,5 +988,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     redisClient,
     billingService,
     usageService,
+    adminService,
   };
 }
