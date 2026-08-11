@@ -16,6 +16,7 @@ import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforce
 import { isMultiTenantAuth } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
+import { serverTimeoutConfig } from './utils/server-timeouts.js';
 import {
   createUsageRouter,
   createBillingRouter,
@@ -392,6 +393,22 @@ async function main(): Promise<void> {
       }, warmupMs);
     }
   });
+
+  // Explicit socket-level timeouts. Node defaults (keepAliveTimeout 5s,
+  // headersTimeout 60s, requestTimeout 300s) are either too short for edge
+  // connection reuse (Cloudflare/ALB idle ~60s) or too lax for slowloris.
+  // See src/utils/server-timeouts.ts for the tuning rationale.
+  const timeouts = serverTimeoutConfig(config.REQUEST_TIMEOUT_MS);
+  server.keepAliveTimeout = timeouts.keepAliveTimeoutMs;
+  server.headersTimeout = timeouts.headersTimeoutMs;
+  server.requestTimeout = timeouts.requestTimeoutMs;
+  logger.info(
+    {
+      keepAliveTimeoutMs: timeouts.keepAliveTimeoutMs,
+      headersTimeoutMs: timeouts.headersTimeoutMs,
+    },
+    'HTTP server timeouts configured',
+  );
 
   async function shutdown(signal: string): Promise<void> {
     logger.info({ signal }, 'Shutdown signal received — draining connections');
