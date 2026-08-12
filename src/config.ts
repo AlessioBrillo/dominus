@@ -1072,6 +1072,35 @@ const configSchema = z.object({
    */
   SCHEDULER_BACKUP_CRON: z.string().default('0 4 * * *'),
 
+  // ── Point-in-time recovery config (PostgreSQL only, ADR-0054) ──────
+
+  /**
+   * Cron expression for the pitr-health job. Verifies PostgreSQL WAL
+   * archiving lag and base-backup freshness and feeds the
+   * dominus_pitr_* Prometheus gauges. Registered only when the database
+   * is PostgreSQL (no-op on the SQLite community edition).
+   * Default: every 15 minutes.
+   */
+  SCHEDULER_PITR_HEALTH_CRON: z.string().default('*/15 * * * *'),
+
+  /**
+   * Maximum acceptable WAL archiving lag in bytes before pitr-health
+   * reports degraded. WAL segments are 16MB; the default (64MB) tolerates
+   * ~4 unarchived segments — far more than an idle archive_timeout cycle.
+   */
+  PITR_WAL_LAG_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(64 * 1024 * 1024),
+
+  /**
+   * Maximum age in hours of the newest PostgreSQL base backup before
+   * pitr-health reports degraded. Default 26h: base backups are expected
+   * daily (base-backup cron on the host), 26h still covers a missed fire.
+   */
+  PITR_BASE_BACKUP_MAX_AGE_HOURS: z.coerce.number().int().positive().default(26),
+
   /**
    * Warmup delay in milliseconds before the scheduler starts its first job
    * after the HTTP server boots. Allows the database connection, provider

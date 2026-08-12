@@ -40,6 +40,13 @@ const snapshot: MetricsSnapshot = {
     version: '0.10.1',
     timestamp: '2026-08-06T00:00:00.000Z',
   },
+  backup: {
+    lastSuccessAtMs: null,
+    pitrWalLagBytes: null,
+    pitrBaseBackupAgeHours: null,
+    pitrArchivingActive: null,
+    pitrCheckedAtMs: null,
+  },
 };
 
 const queueStats: JobQueueStats = {

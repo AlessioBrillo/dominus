@@ -36,6 +36,11 @@ export class MetricsCollector {
   #dnsConsensusDegradedRuns = 0;
   #dnsConsensusLastDegraded = false;
   #dnsConsensusObserved = false;
+  #backupLastSuccessAtMs: number | null = null;
+  #pitrWalLagBytes: number | null = null;
+  #pitrBaseBackupAgeHours: number | null = null;
+  #pitrArchivingActive: boolean | null = null;
+  #pitrCheckedAtMs: number | null = null;
 
   recordStage(
     stageName: string,
@@ -128,6 +133,24 @@ export class MetricsCollector {
     this.#providerMetrics.set(providerName, existing);
   }
 
+  /** Record a successful database backup (fed by BackupService.onSuccess). */
+  recordBackupSuccess(timestampMs: number): void {
+    this.#backupLastSuccessAtMs = timestampMs;
+  }
+
+  /** Record the outcome of a pitr-health check (fed by PitrHealthService). */
+  recordPitrCheck(metrics: {
+    walLagBytes: number | null;
+    baseBackupAgeHours: number | null;
+    archivingActive: boolean;
+    checkedAtMs: number;
+  }): void {
+    this.#pitrWalLagBytes = metrics.walLagBytes;
+    this.#pitrBaseBackupAgeHours = metrics.baseBackupAgeHours;
+    this.#pitrArchivingActive = metrics.archivingActive;
+    this.#pitrCheckedAtMs = metrics.checkedAtMs;
+  }
+
   snapshot(): MetricsSnapshot {
     const stageMetrics: Record<string, StageMetrics> = {};
     for (const [key, value] of this.#stageMetrics) {
@@ -165,6 +188,13 @@ export class MetricsCollector {
         version: readVersion(),
         timestamp: new Date().toISOString(),
       },
+      backup: {
+        lastSuccessAtMs: this.#backupLastSuccessAtMs,
+        pitrWalLagBytes: this.#pitrWalLagBytes,
+        pitrBaseBackupAgeHours: this.#pitrBaseBackupAgeHours,
+        pitrArchivingActive: this.#pitrArchivingActive,
+        pitrCheckedAtMs: this.#pitrCheckedAtMs,
+      },
     };
   }
 
@@ -183,5 +213,10 @@ export class MetricsCollector {
     this.#dnsConsensusDegradedRuns = 0;
     this.#dnsConsensusLastDegraded = false;
     this.#dnsConsensusObserved = false;
+    this.#backupLastSuccessAtMs = null;
+    this.#pitrWalLagBytes = null;
+    this.#pitrBaseBackupAgeHours = null;
+    this.#pitrArchivingActive = null;
+    this.#pitrCheckedAtMs = null;
   }
 }

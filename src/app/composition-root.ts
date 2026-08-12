@@ -53,7 +53,7 @@ import {
 import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.js';
 import { buildNotifiers } from '../notifiers/index.js';
 import type { Notifier } from '../notifiers/notifier.js';
-import { SchedulerService, BackupService } from '../scheduler/index.js';
+import { SchedulerService, BackupService, PitrHealthService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
 import { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import {
@@ -438,8 +438,29 @@ function buildSchedulerIfEnabled(
   autoTuner: AutoWeightTuner | undefined,
   portfolioHealthcheckService: PortfolioRdapService,
   lockProvider: LockProvider | undefined,
+  metrics: MetricsCollector,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
+
+  // PITR is a PostgreSQL concept (ADR-0054): on the SQLite community
+  // edition there is no WAL archiving to observe, so no pitr-health job.
+  const pitrHealthService =
+    provider.dialect === 'postgres'
+      ? new PitrHealthService({
+          provider,
+          backupDir: config.BACKUP_DIR,
+          walLagMaxBytes: config.PITR_WAL_LAG_MAX_BYTES,
+          baseBackupMaxAgeHours: config.PITR_BASE_BACKUP_MAX_AGE_HOURS,
+          onCheck: (result): void =>
+            metrics.recordPitrCheck({
+              walLagBytes: result.walLagBytes,
+              baseBackupAgeHours: result.baseBackupAgeHours,
+              archivingActive: result.archivingActive,
+              checkedAtMs: Date.now(),
+            }),
+        })
+      : undefined;
+
   return new SchedulerService({
     config,
     alertEngine,
@@ -452,6 +473,7 @@ function buildSchedulerIfEnabled(
     jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
     portfolioHealthcheckService,
+    ...(pitrHealthService ? { pitrHealthService } : {}),
     ...(lockProvider ? { lock: lockProvider } : {}),
     ...(autoTuner ? { autoTuner } : {}),
   });
@@ -912,11 +934,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const allOutcomes = await repos.outcomeRepo.findAll();
   const pnlService = new PnlService(repos.portfolioRepo, allOutcomes);
 
-  // --- Backup ---
+  // --- Backup (ADR-0054: onSuccess feeds the BackupStale alert metric) ---
   const backupService = new BackupService({
     provider,
     backupDir: config.BACKUP_DIR,
     retentionDays: config.BACKUP_RETENTION_DAYS,
+    onSuccess: (): void => metrics.recordBackupSuccess(Date.now()),
   });
 
   // --- Worker ---
@@ -955,6 +978,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoTuner,
     portfolioHealthcheckService,
     lockProvider,
+    metrics,
   );
 
   return {

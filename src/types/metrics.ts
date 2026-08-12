@@ -62,7 +62,23 @@ export interface SystemMetrics {
   timestamp: string;
 }
 
+/** Backup + point-in-time recovery health (ADR-0054). Values are
+ *  process-lifetime snapshots recorded by BackupService/PitrHealthService. */
+export interface BackupMetrics {
+  /** Epoch ms of the last successful database backup, or null. */
+  lastSuccessAtMs: number | null;
+  /** WAL archiving lag in bytes at the last pitr-health check. */
+  pitrWalLagBytes: number | null;
+  /** Age in hours of the newest base backup at the last check. */
+  pitrBaseBackupAgeHours: number | null;
+  /** True when PostgreSQL archived at least one WAL segment. */
+  pitrArchivingActive: boolean | null;
+  /** Epoch ms of the last pitr-health check, or null. */
+  pitrCheckedAtMs: number | null;
+}
+
 export interface MetricsSnapshot {
   pipeline: PipelineRunSummary;
   system: SystemMetrics;
+  backup: BackupMetrics;
 }

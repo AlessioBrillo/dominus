@@ -16,17 +16,24 @@ export interface BackupServiceOptions {
   provider: DatabaseProvider;
   backupDir: string;
   retentionDays: number;
+  /**
+   * Optional hook fired after a successful backup — used to record the
+   * `dominus_backup_last_success_timestamp` gauge (BackupStale alert).
+   */
+  onSuccess?: () => void;
 }
 
 export class BackupService {
   readonly #provider: DatabaseProvider;
   readonly #backupDir: string;
   readonly #retentionDays: number;
+  readonly #onSuccess: (() => void) | undefined;
 
   constructor(options: BackupServiceOptions) {
     this.#provider = options.provider;
     this.#backupDir = resolve(options.backupDir);
     this.#retentionDays = options.retentionDays;
+    this.#onSuccess = options.onSuccess;
   }
 
   async create(): Promise<BackupResult> {
@@ -35,7 +42,9 @@ export class BackupService {
     const fileName = `dominus-${dateStr}-${timestamp}.db`;
     const absPath = join(this.#backupDir, fileName);
 
-    return this.#provider.backup(absPath);
+    const result = await this.#provider.backup(absPath);
+    this.#onSuccess?.();
+    return result;
   }
 
   prune(): number {

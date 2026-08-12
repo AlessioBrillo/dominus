@@ -134,6 +134,43 @@ Exit code 0 = green, 1 = red (do not ship). On a scheduled basis this can
 be wired into the scheduler, but a manual run before each release is the
 requirement.
 
+### Point-in-time recovery (DOMINUS Cloud / PostgreSQL)
+
+The daily `pg_dump` backup has an RPO of up to 24h. For the Cloud stack
+(Dominus Cloud), PostgreSQL additionally ships with WAL archiving
+(ADR-0054) so a restore can replay the database to *any* point in time:
+
+- **WAL archiving** is enabled in `docker-compose.prod.yml`:
+  `archive_mode=on` copies each switched segment into
+  `PGDATA/archive` (inside the `pgdata` volume; `archive_timeout=300`
+  forces a segment at least every 5 minutes of activity).
+- **Base backups** anchor the archive. Run `deploy/postgres/base-backup.sh`
+  daily on the host (cron/systemd timer, `pg_basebackup` from the
+  postgresql-client package):
+  ```bash
+  crontab -e
+  30 4 * * * PG_PASSWORD=<pass> /opt/dominus/deploy/postgres/base-backup.sh
+  ```
+  Base backups land in `$BACKUP_DIR/base-<timestamp>` next to the
+  `pg_dump` files; the script prunes bases older than
+  `PG_BASE_RETENTION_DAYS` (default 14).
+- **Health**: the scheduler's `pitr-health` job (PostgreSQL only) polls
+  WAL archiving lag every 15 minutes and the age of the newest base
+  backup; Prometheus alerts `PitrWalLagHigh`, `PitrBaseBackupStale` and
+  `BackupStale` (the latter fires whenever the daily dump has not
+  succeeded for 26h — including a failed or silently skipped backup).
+- **Restore**: `deploy/postgres/restore-base.sh <base-dir> <archive-dir>
+  [recovery_target_time]` replays the archive into a fresh cluster on a
+  spare port. Verify, then point `DATABASE_URL` at it and run
+  `dominus maintenance vacuum`-style checks before promoting.
+
+> **Trade-off (documented in ADR-0054):** the WAL archive shares the DB
+> disk, so PITR protects against *logical* corruption (bad migration,
+> accidental delete, buggy write) — the realistic failure mode — not
+> against host death. If the VPS dies, the archive dies with it: ship
+> the `backups` volume off-host (Hetzner Volume + snapshot, or object
+> storage) and keep the daily `pg_dump` as the transportable artifact.
+
 > **Never place `dominus.db` itself on a network filesystem** (NFS/SMB,
 > Hetzner Volume, etc.). SQLite WAL mode is unsafe over network storage —
 > the WAL/SHM coordination assumes a local POSIX filesystem and risks
