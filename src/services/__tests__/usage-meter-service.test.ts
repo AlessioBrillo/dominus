@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { UsageRepository } from '../../db/repositories/usage-repository.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
-import { UsageMeterService } from '../usage-meter-service.js';
+import { UsageMeterService, effectivePlanFor } from '../usage-meter-service.js';
+import type { Subscription } from '../../types/subscription.js';
 
 describe('UsageMeterService', () => {
   let db: SqliteProvider;
@@ -76,6 +77,32 @@ describe('UsageMeterService', () => {
       await expect(service.record(TENANT, 'candidates_scored', 5, PERIOD)).rejects.toThrow(
         /no active subscription/i,
       );
+    });
+
+    it('enforces free limits when the subscription is past_due', async () => {
+      await subRepo.upsert({ tenantId: TENANT, plan: 'pro', status: 'past_due' });
+      await service.record(TENANT, 'candidates_scored', 50, PERIOD);
+      await expect(service.record(TENANT, 'candidates_scored', 1, PERIOD)).rejects.toThrow(
+        /Usage limit exceeded/i,
+      );
+      const usage = await service.getUsageForPeriod(TENANT, 'candidates_scored', PERIOD);
+      expect(usage.plan).toBe('free');
+      expect(usage.limitValue).toBe(50);
+    });
+
+    it('enforces free limits when the subscription is canceled', async () => {
+      await subRepo.upsert({ tenantId: TENANT, plan: 'team', status: 'canceled' });
+      await service.record(TENANT, 'candidates_scored', 50, PERIOD);
+      await expect(service.record(TENANT, 'candidates_scored', 1, PERIOD)).rejects.toThrow(
+        /Usage limit exceeded/i,
+      );
+    });
+
+    it('keeps paid limits while the subscription is trialing', async () => {
+      await subRepo.upsert({ tenantId: TENANT, plan: 'team', status: 'trialing' });
+      const info = await service.record(TENANT, 'candidates_scored', 100, PERIOD);
+      expect(info.plan).toBe('team');
+      expect(info.limitValue).toBe(2500);
     });
 
     describe('with auto-provisioning enabled', () => {
@@ -168,6 +195,43 @@ describe('UsageMeterService', () => {
     it('handles December correctly', () => {
       const start = UsageMeterService.periodStart('2026-12-31T23:59:59.000Z');
       expect(start).toBe('2026-12-01');
+    });
+  });
+
+  describe('effectivePlanFor', () => {
+    const sub = (status: Subscription['status']): Subscription =>
+      ({
+        id: 1,
+        tenantId: TENANT,
+        plan: 'pro',
+        status,
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        trialEnd: null,
+        canceledAt: null,
+        createdAt: '2026-07-01T00:00:00.000Z',
+        updatedAt: '2026-07-01T00:00:00.000Z',
+      }) as Subscription;
+
+    it('returns the plan for active subscriptions', () => {
+      expect(effectivePlanFor(sub('active'))).toBe('pro');
+    });
+
+    it('returns the plan for trialing subscriptions', () => {
+      expect(effectivePlanFor(sub('trialing'))).toBe('pro');
+    });
+
+    it.each(['past_due', 'canceled', 'incomplete'] as const)(
+      'fails closed to free for status %s',
+      (status) => {
+        expect(effectivePlanFor(sub(status))).toBe('free');
+      },
+    );
+
+    it('fails closed to free for a missing subscription', () => {
+      expect(effectivePlanFor(null)).toBe('free');
     });
   });
 });
