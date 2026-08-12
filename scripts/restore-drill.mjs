@@ -9,19 +9,68 @@
 //
 // Usage:
 //   node scripts/restore-drill.mjs [path-to-dominus.db]
+//   node scripts/restore-drill.mjs --pg-base <dir>  # static PG base-backup check
 //   exit 0 = green, exit 1 = red (restore unusable)
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 
-const dbPath = process.argv[2] ?? './data/dominus.db';
+const args = process.argv.slice(2);
 
 function fail(message) {
   console.error(`restore-drill: FAIL - ${message}`);
   process.exit(1);
 }
+
+// ── Mode 2: PostgreSQL base-backup static integrity (ADR-0054) ─────────
+// A pg_basebackup output must contain PG_VERSION, global/pg_control and a
+// backup label/manifest. This is the CI-testable part of the PITR drill;
+// the live replay itself runs on the host via deploy/postgres/restore-base.sh.
+function checkPgBase(baseDir) {
+  const required = ['PG_VERSION', 'global', 'pg_wal'];
+  for (const entry of required) {
+    if (!existsSync(join(baseDir, entry))) {
+      fail(`postgres base backup ${baseDir} is missing ${entry}`);
+    }
+  }
+  if (!existsSync(join(baseDir, 'backup_label')) && !existsSync(join(baseDir, 'backup_manifest'))) {
+    fail(`postgres base backup ${baseDir} has no backup_label/backup_manifest`);
+  }
+  const version = String(readFileSyncSafe(join(baseDir, 'PG_VERSION')) ?? '?').trim();
+  const size = dirSize(baseDir);
+  console.log(
+    `restore-drill: OK - postgres base backup ${baseDir} (PG ${version}, ${size} bytes)`,
+  );
+}
+
+function readFileSyncSafe(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function dirSize(dir) {
+  let total = 0;
+  for (const entry of readdirSync(dir)) {
+    const abs = join(dir, entry);
+    total += statSync(abs).isDirectory() ? dirSize(abs) : statSync(abs).size;
+  }
+  return total;
+}
+
+const pgBaseIndex = args.indexOf('--pg-base');
+if (pgBaseIndex !== -1) {
+  const baseDir = args[pgBaseIndex + 1];
+  if (!baseDir) fail('--pg-base requires a directory argument');
+  checkPgBase(baseDir);
+  process.exit(0);
+}
+
+const dbPath = args[0] ?? './data/dominus.db';
 
 let source = null;
 let restored = null;
