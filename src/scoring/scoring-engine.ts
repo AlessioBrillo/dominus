@@ -25,7 +25,7 @@ export class ScoringEngine {
     private readonly keywordProvider: KeywordProvider,
     private readonly compsProvider: CompsProvider,
     weights: ScoringWeights = DEFAULT_WEIGHTS,
-    private readonly buyMaxAbsoluteCap: number = 500,
+    private readonly buyMaxAbsoluteCap: number = 0,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
     tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
   ) {
@@ -168,13 +168,25 @@ export class ScoringEngine {
         : 0;
     const confidence = Math.min(confidenceCap, confidenceBase + signalConfidence + qualityBoost);
 
-    const expectedValue = weightedScore * baseMarketValueEur;
+    // The value scale is anchored to the market evidence when it exists:
+    // a domain whose comparables trade at €50k must not be valued on the
+    // same €500 base as one with no sales history. Without market data
+    // the anchor stays at baseMarketValueEur (fail-conservative).
+    // See ADR-0055.
+    const valueAnchorEur = hasMarketData
+      ? Math.max(baseMarketValueEur, market.medianSalePrice)
+      : baseMarketValueEur;
+    const expectedValue = weightedScore * valueAnchorEur;
 
     let buyMax = expectedValue * buyMaxRatio;
     if (input.renewalCost !== undefined) {
       buyMax = Math.max(0, buyMax - input.renewalCost * this.scoringConfig.constants.holdingYears);
     }
-    const suggestedBuyMax = Math.min(buyMax, this.buyMaxAbsoluteCap);
+    // Absolute operator cap: 0 = no ceiling (value derives from evidence and
+    // the buyMaxRatio). A fixed positive cap flattens every above-cap domain
+    // to the same recommendation (see ADR-0055 for the rationale).
+    const suggestedBuyMax =
+      this.buyMaxAbsoluteCap > 0 ? Math.min(buyMax, this.buyMaxAbsoluteCap) : buyMax;
     const suggestedListPrice = expectedValue * listPriceMultiplier;
 
     const aggressive = suggestedBuyMax;

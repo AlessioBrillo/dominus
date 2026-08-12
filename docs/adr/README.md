@@ -60,6 +60,8 @@ re-running the original arguments.
 | [0051](0051-rdap-consensus-rescue-and-probe.md)                 | RDAP consensus rescue leg and startup probe — closure of ADR-0050 gaps                                         | 2026-08-10 | Accepted                            |
 | [0052](0052-whois-distributed-rate-limit.md)                     | WHOIS distributed rate-limit parity — `whois` Redis namespace, per-TLD buckets, per-tenant fair share           | 2026-08-10 | Accepted                            |
 | [0053](0053-billing-loop-completion.md)                         | Billing loop completion — Team checkout, status-aware usage enforcement, trial-once                            | 2026-08-12 | Proposed                            |
+| [0054](0054-pitr-backup-strategy.md)                            | Point-in-time recovery for the Cloud stack — WAL archiving and restore playbook                               | 2026-08-12 | Accepted                            |
+| [0055](0055-evidence-anchored-value.md)                         | Evidence-anchored expectedValue — value follows comparables, cap becomes an operator preference                | 2026-08-12 | Accepted                            |
 
 ## Conventions
 

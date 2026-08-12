@@ -64,11 +64,37 @@ export const MIN_EFFECTIVE_CONFIDENCE_THRESHOLD = 0.18;
  */
 export const MAX_EFFECTIVE_CONFIDENCE_THRESHOLD = 0.3;
 
+/**
+ * Multiplier applied to the intrinsic quality score by TLD. Calibrated
+ * conservatively on aftermarket liquidity/value; unknowns get the floor
+ * multiplier (0.45) rather than being structurally unrecommendable:
+ * the signalled gTLDs (.xyz, .app, .dev, ...) dominate closeout pipelines
+ * and a hard 0.3 penalty made them un-enterable in data-sparse runs.
+ */
 export const DEFAULT_TLD_BONUS: Record<string, number> = {
   '.com': 1.0,
-  '.io': 0.85,
   '.ai': 0.9,
+  '.io': 0.85,
   '.co': 0.75,
   '.net': 0.65,
   '.org': 0.55,
+  '.app': 0.5,
+  '.dev': 0.5,
+  '.tv': 0.5,
+  '.me': 0.45,
+  '.us': 0.45,
+  '.tech': 0.45,
+  '.xyz': 0.45,
+  '.shop': 0.4,
+  '.site': 0.4,
+  '.online': 0.4,
+  '.store': 0.4,
 };
+
+/**
+ * Multiplier for TLDs not present in the bonus map. Raised from 0.3 to
+ * 0.45 so unknown gTLDs stay penalised (vs .com) without becoming
+ * unrecommendable in data-sparse runs: intrinsic 0.45 × fallback weight
+ * 0.6 = 0.27 ≥ MIN_EFFECTIVE_RECOMMEND_THRESHOLD (0.2).
+ */
+export const UNKNOWN_TLD_MULTIPLIER = 0.45;

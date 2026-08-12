@@ -72,8 +72,8 @@ describe('IntrinsicSignal', () => {
     it('produces the same intrinsic score for nike.co.uk and nike.com (canonical SLD)', () => {
       // Once the SLD is canonical, the intrinsic signal depends only on
       // SLD + TLD multiplier. The TLD multiplier still differentiates
-      // .com from .co.uk (the latter is not in PREMIUM_TLD_BONUS, so it
-      // falls back to the 0.3 default).
+      // .com from .co.uk (the latter is not in DEFAULT_TLD_BONUS, so it
+      // falls back to the UNKNOWN_TLD_MULTIPLIER floor).
       const coUk = computeIntrinsicScore(makeInput('nike.co.uk', '.co.uk', 'nike'), 1);
       const com = computeIntrinsicScore(makeInput('nike.com', '.com', 'nike'), 1);
       // .com must score strictly higher because the TLD multiplier is

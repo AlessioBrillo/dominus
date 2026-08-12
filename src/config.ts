@@ -871,12 +871,15 @@ const configSchema = z.object({
       { message: 'Must be a valid JSON object mapping TLDs (e.g. ".com") to rate limiter configs' },
     ),
   /**
-   * Absolute cap on suggestedBuyMax in EUR. Prevents the scoring engine
-   * from recommending purchases beyond the operator's stated ~500€ budget,
-   * even when comparable sales suggest extreme values.
-   * Default: 500. Set to 0 for unlimited (not recommended).
+   * Absolute cap on suggestedBuyMax in EUR, applied AFTER the evidence
+   * anchor and buyMaxRatio. The default 0 means NO cap: expectedValue is
+   * anchored to the market signal's median comparable price when market
+   * data exists (ADR-0055), so a fixed ceiling would flatten every
+   * above-cap domain to the same recommendation. Set a positive value to
+   * enforce a hard per-deal budget regardless of evidence.
+   * Default: 0 (uncapped).
    */
-  BUY_MAX_ABSOLUTE_CAP: z.coerce.number().min(0).default(500),
+  BUY_MAX_ABSOLUTE_CAP: z.coerce.number().min(0).default(0),
   /**
    * Number of years of renewal costs to subtract from the raw buy-max.
    * suggestedBuyMax = max(0, expectedValue × buyMaxRatio − renewalCost ×
@@ -1221,9 +1224,11 @@ const configSchema = z.object({
    * Behind a single reverse proxy (K8s nginx-ingress, Cloudflare, Traefik),
    * set to 1 so req.ip reflects the client IP from X-Forwarded-For.
    * Without this, rate limiting keys on the proxy IP — all users share a bucket.
-   * Set to 0 for direct deployments (no proxy). Default: 1.
+   * Default: 0. A direct deployment must never trust X-Forwarded-For:
+   * with depth > 0 and no proxy in front, clients can spoof the header and
+   * empty every per-IP rate limit (public namespace included).
    */
-  TRUST_PROXY_DEPTH: z.coerce.number().int().min(0).max(10).default(1),
+  TRUST_PROXY_DEPTH: z.coerce.number().int().min(0).max(10).default(0),
 
   /**
    * Rate limiting: window duration in milliseconds (default: 15 minutes).
