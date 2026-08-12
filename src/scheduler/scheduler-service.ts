@@ -9,6 +9,7 @@ import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
 import type { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
 import type { BackupService } from './backup-service.js';
+import type { PitrHealthService } from './pitr-health-service.js';
 import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
 import type { JobQueueService } from '../app/job-queue-service.js';
@@ -55,6 +56,13 @@ export interface SchedulerOptions {
    * the job. Manual `runOnce` invocations bypass the lock.
    */
   lock?: LockProvider;
+  /**
+   * Point-in-time recovery health checker (PostgreSQL only, ADR-0054).
+   * When provided, a `pitr-health` job runs inline in the scheduler
+   * (lightweight SQL + fs stat — no worker roundtrip) every
+   * SCHEDULER_PITR_HEALTH_CRON and records the dominus_pitr_* gauges.
+   */
+  pitrHealthService?: PitrHealthService;
 }
 
 export class SchedulerService {
@@ -72,6 +80,7 @@ export class SchedulerService {
   private readonly jobQueueService: JobQueueService | undefined;
   private readonly portfolioHealthcheckService: PortfolioRdapService | undefined;
   private readonly lock: LockProvider | undefined;
+  private readonly pitrHealthService: PitrHealthService | undefined;
   private running = false;
 
   constructor(options: SchedulerOptions) {
@@ -88,6 +97,7 @@ export class SchedulerService {
     this.jobQueueService = options.jobQueueService;
     this.portfolioHealthcheckService = options.portfolioHealthcheckService;
     this.lock = options.lock;
+    this.pitrHealthService = options.pitrHealthService;
   }
 
   start(): void {
@@ -210,6 +220,26 @@ export class SchedulerService {
       );
     } else {
       logger.warn('backup job disabled (BackupService not provided)');
+    }
+
+    if (this.pitrHealthService) {
+      // No jobType: runs inline in the scheduler process (single cheap SQL
+      // + fs stat), so the gauges stay fresh without a worker roundtrip.
+      this.#register(
+        'pitr-health',
+        this.config.SCHEDULER_PITR_HEALTH_CRON,
+        'Verify PostgreSQL WAL archiving and base-backup freshness (ADR-0054)',
+        async () => {
+          const result = await this.pitrHealthService!.check();
+          const msg = result.ok
+            ? `PITR OK: walLag=${result.walLagBytes ?? 'n/a'}, baseAge=${result.baseBackupAgeHours?.toFixed(1) ?? 'n/a'}h`
+            : `PITR DEGRADED: ${result.problems.join('; ')}`;
+          logger.info(msg);
+          return msg;
+        },
+      );
+    } else {
+      logger.debug('pitr-health job disabled (PitrHealthService not provided)');
     }
 
     logger.info(`Scheduler started with ${this.jobs.size} job(s)`);

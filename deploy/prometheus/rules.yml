@@ -94,3 +94,44 @@ groups:
         annotations:
           summary: "High Redis eviction rate"
           description: "More than 1000 keys evicted in 15 minutes — check cache TTLs and rate-limit window sizes."
+
+  - name: dominus-backup
+    rules:
+      - alert: BackupStale
+        # The daily backup (04:00) feeds dominus_backup_last_success_timestamp
+        # via BackupService.onSuccess. Absent success for >26h covers both a
+        # failed dump and a dump that silently never ran (ADR-0054).
+        expr: time() - dominus_backup_last_success_timestamp > 26 * 3600
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No successful database backup in 26 hours"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago. The database may be unrecoverable."
+
+      - alert: PitrArchivingDown
+        expr: dominus_pitr_archiving_active == 0
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL WAL archiving is not running"
+          description: "The pitr-health check found no archived WAL segment — point-in-time recovery is silently unavailable."
+
+      - alert: PitrWalLagHigh
+        expr: dominus_pitr_wal_lag_bytes > 64 * 1024 * 1024
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL WAL archiving lag above 64MB"
+          description: "{{ $value | humanize1024 }}B of WAL not yet archived — archives may be lost if the server dies."
+
+      - alert: PitrBaseBackupStale
+        expr: dominus_pitr_base_backup_age_hours > 26
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL base backup older than 26 hours"
+          description: "The newest base backup is {{ $value }}h old — replay would need more than a day of WAL."

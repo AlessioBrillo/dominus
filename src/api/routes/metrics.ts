@@ -296,6 +296,34 @@ export function renderPrometheusMetrics(
     'counter',
   );
 
+  const backup = snapshot.backup;
+  if (backup !== undefined) {
+    if (backup.lastSuccessAtMs !== null) {
+      g(
+        'Unix timestamp (seconds) of the last successful database backup; alerts on staleness.',
+        'dominus_backup_last_success_timestamp',
+        Math.floor(backup.lastSuccessAtMs / 1000),
+      );
+    }
+    if (backup.pitrCheckedAtMs !== null) {
+      g(
+        'PostgreSQL WAL archiving lag in bytes at the last pitr-health check.',
+        'dominus_pitr_wal_lag_bytes',
+        backup.pitrWalLagBytes ?? 0,
+      );
+      g(
+        'Age in hours of the newest PostgreSQL base backup at the last pitr-health check.',
+        'dominus_pitr_base_backup_age_hours',
+        backup.pitrBaseBackupAgeHours ?? -1,
+      );
+      g(
+        '1 when PostgreSQL WAL archiving confirmed at least one archived segment, else 0.',
+        'dominus_pitr_archiving_active',
+        backup.pitrArchivingActive ? 1 : 0,
+      );
+    }
+  }
+
   return `${lines.join('\n')}\n`;
 }
 
