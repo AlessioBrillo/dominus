@@ -30,6 +30,8 @@ const baseConfig = {
   STRIPE_PRICE_ID_PRO_YEARLY: 'price_pro_yearly',
   STRIPE_PRICE_ID_ENTERPRISE_MONTHLY: 'price_ent_monthly',
   STRIPE_PRICE_ID_ENTERPRISE_YEARLY: 'price_ent_yearly',
+  STRIPE_PRICE_ID_TEAM_MONTHLY: 'price_team_monthly',
+  STRIPE_PRICE_ID_TEAM_YEARLY: 'price_team_yearly',
 } as Config;
 
 function stubWebhookEvent(event: {
@@ -66,6 +68,14 @@ describe('BillingService price resolution', () => {
     const service = new BillingService(baseConfig, {} as SubscriptionRepository);
     expect(service.resolvePriceId('enterprise', 'month')).toBe('price_ent_monthly');
     expect(service.resolvePriceId('enterprise', 'year')).toBe('price_ent_yearly');
+  });
+
+  it('resolves team price IDs', () => {
+    const service = new BillingService(baseConfig, {} as SubscriptionRepository);
+    expect(service.resolvePriceId('team', 'month')).toBe('price_team_monthly');
+    expect(service.resolvePriceId('team', 'year')).toBe('price_team_yearly');
+    expect(service.resolvePlanForPriceId('price_team_monthly')).toBe('team');
+    expect(service.resolvePlanForPriceId('price_team_yearly')).toBe('team');
   });
 
   it('returns undefined for the free plan', () => {
@@ -160,6 +170,38 @@ describe('BillingService.checkout', () => {
     );
 
     expect(result).toBeNull();
+  });
+
+  it('grants a trial only on the first-ever checkout', async () => {
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.createCheckoutSession(
+      'tenant-1',
+      'pro',
+      'month',
+      'https://dominus.app/billing?ok=1',
+      'https://dominus.app/billing?cancel=1',
+    );
+    const firstCall = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(firstCall.subscription_data).toEqual({ trial_period_days: 14 });
+
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'active',
+      stripeCustomerId: 'cus_1',
+    });
+
+    await service.createCheckoutSession(
+      'tenant-1',
+      'team',
+      'year',
+      'https://dominus.app/billing?ok=1',
+      'https://dominus.app/billing?cancel=1',
+    );
+    const secondCall = mockStripeApi.createSession.mock.calls[1]?.[0] as Record<string, unknown>;
+    expect(secondCall.subscription_data).toBeUndefined();
+    expect(secondCall.line_items).toEqual([{ price: 'price_team_yearly', quantity: 1 }]);
   });
 });
 
@@ -265,5 +307,37 @@ describe('BillingService webhook handling', () => {
     await service.handleWebhookEvent(RAW, 'sig');
 
     expect(await subRepo.findByTenantId('tenant-1')).toBeUndefined();
+  });
+
+  it('marks the subscription past_due on invoice.payment_failed', async () => {
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'active',
+      stripeCustomerId: 'cus_9',
+    });
+    stubWebhookEvent({
+      id: 'evt_9',
+      type: 'invoice.payment_failed',
+      object: { customer: 'cus_9' },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.status).toBe('past_due');
+    expect(sub?.plan).toBe('pro');
+  });
+
+  it('ignores invoice.payment_failed for unknown customers', async () => {
+    stubWebhookEvent({
+      id: 'evt_10',
+      type: 'invoice.payment_failed',
+      object: { customer: 'cus_nobody' },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await expect(service.handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
   });
 });

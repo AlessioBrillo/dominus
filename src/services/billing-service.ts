@@ -181,6 +181,12 @@ export class BillingService {
 
     const sub = await this.#subRepo.findByTenantId(tenantId);
 
+    // Trial only for first-ever checkout: once a tenant has a Stripe
+    // customer, new subscriptions (upgrades, re-subscribes) start on a
+    // paid cycle — Stripe's trial_period_days would otherwise re-grant 14
+    // days on every plan change.
+    const firstCheckout = sub?.stripeCustomerId == null;
+
     // Idempotency window bucket: same tenant+plan+interval within 24h reuses
     // the same key, so Stripe returns the original session on retry instead
     // of creating a second one. See:
@@ -196,7 +202,7 @@ export class BillingService {
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: { tenantId, plan },
-      subscription_data: { trial_period_days: 14 },
+      ...(firstCheckout ? { subscription_data: { trial_period_days: 14 } } : {}),
       idempotency_key: idempotencyKey,
     });
 
@@ -360,6 +366,21 @@ export class BillingService {
             : new Date().toISOString(),
           plan,
         );
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        // Dunning signal: mark the subscription past_due immediately so
+        // usage enforcement fails closed to free-plan limits (ADR-0053).
+        // The later customer.subscription.updated carries the same status;
+        // handling the invoice event first just shortens the exposure.
+        const invoice = event.data.object as { customer?: string };
+        const failTenant = (await this.#subRepo.findByStripeCustomerId(invoice.customer ?? ''))
+          ?.tenantId;
+        if (failTenant) {
+          await this.#subRepo.updateStatus(failTenant, 'past_due');
+          logger.warn({ tenantId: failTenant, eventId: event.id }, 'Invoice payment failed');
+        }
         break;
       }
 
