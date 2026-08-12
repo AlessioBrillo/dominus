@@ -132,7 +132,8 @@ estimates and subject to change.
 - [ ] Free tier: rate-limited pipeline runs, single user
 - [ ] Pro tier (€29/mo): 100 runs/day, 3 team seats, email support
 - [ ] Team tier (€79/mo): 500 runs/day, 10 team seats, Slack support
-- [ ] Stripe billing integration (subscriptions + customer portal)
+- [x] Stripe billing integration (subscriptions + customer portal)
+      — incl. Team checkout and status-aware enforcement (ADR-0053)
 - [ ] Usage metering (pipeline runs, API calls per tenant)
 - [ ] Admin panel (user management, usage metrics)
 - [ ] Automated daily backups with point-in-time recovery

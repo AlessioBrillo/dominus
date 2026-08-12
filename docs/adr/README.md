@@ -59,6 +59,7 @@ re-running the original arguments.
 | [0050](0050-rdap-consensus.md)                                 | RDAP consensus — opt-in 2-of-2 second opinion, dedicated budget, degraded-run flagging                       | 2026-08-09 | Accepted                            |
 | [0051](0051-rdap-consensus-rescue-and-probe.md)                 | RDAP consensus rescue leg and startup probe — closure of ADR-0050 gaps                                         | 2026-08-10 | Accepted                            |
 | [0052](0052-whois-distributed-rate-limit.md)                     | WHOIS distributed rate-limit parity — `whois` Redis namespace, per-TLD buckets, per-tenant fair share           | 2026-08-10 | Accepted                            |
+| [0053](0053-billing-loop-completion.md)                         | Billing loop completion — Team checkout, status-aware usage enforcement, trial-once                            | 2026-08-12 | Proposed                            |
 
 ## Conventions
 

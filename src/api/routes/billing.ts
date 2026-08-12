@@ -7,7 +7,7 @@ import type { Config } from '../../config.js';
 import type { SubscriptionPlan } from '../../types/subscription.js';
 
 const checkoutSchema = z.object({
-  plan: z.enum(['pro', 'enterprise']),
+  plan: z.enum(['pro', 'team', 'enterprise']),
   interval: z.enum(['month', 'year']),
   successUrl: z.string().url(),
   cancelUrl: z.string().url(),
@@ -31,6 +31,13 @@ export function createBillingRouter(config: Config, billingService: BillingServi
           name: 'Pro',
           monthlyPriceId: billingService.resolvePriceId('pro', 'month') ?? null,
           yearlyPriceId: billingService.resolvePriceId('pro', 'year') ?? null,
+          available: billingService.isConfigured,
+        },
+        {
+          id: 'team',
+          name: 'Team',
+          monthlyPriceId: billingService.resolvePriceId('team', 'month') ?? null,
+          yearlyPriceId: billingService.resolvePriceId('team', 'year') ?? null,
           available: billingService.isConfigured,
         },
         {
