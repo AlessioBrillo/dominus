@@ -15,7 +15,20 @@ import { useState } from 'react';
 const PLAN_LABELS: Record<string, string> = {
   free: 'Community',
   pro: 'Pro',
+  team: 'Team',
   enterprise: 'Enterprise',
+};
+
+const PLAN_PRICES: Record<BillingPlan, { month: string; year: string }> = {
+  pro: { month: '€19/mo', year: '€190/yr' },
+  team: { month: '€79/mo', year: '€790/yr' },
+  enterprise: { month: '€99/mo', year: '€990/yr' },
+};
+
+const PLAN_FEATURES: Record<BillingPlan, string[]> = {
+  pro: ['Multi-tenant', 'PostgreSQL database', 'Priority support', 'Stripe billing'],
+  team: ['Everything in Pro', '10 team seats', '500 runs/day', 'Slack support'],
+  enterprise: ['Everything in Team', 'Dedicated support', 'Custom SLA', 'Custom onboarding'],
 };
 
 const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
@@ -159,30 +172,8 @@ export function BillingPage() {
                   <PlanCard
                     key={plan.id}
                     name={PLAN_LABELS[plan.id] ?? plan.id}
-                    price={
-                      interval === 'year'
-                        ? plan.id === 'pro'
-                          ? '€190/yr'
-                          : '€990/yr'
-                        : plan.id === 'pro'
-                          ? '€19/mo'
-                          : '€99/mo'
-                    }
-                    features={
-                      plan.id === 'pro'
-                        ? [
-                            'Multi-tenant',
-                            'PostgreSQL database',
-                            'Priority support',
-                            'Stripe billing',
-                          ]
-                        : [
-                            'Everything in Pro',
-                            'Dedicated support',
-                            'Custom SLA',
-                            'Custom onboarding',
-                          ]
-                    }
+                    price={PLAN_PRICES[plan.id][interval]}
+                    features={PLAN_FEATURES[plan.id]}
                     current={subscription?.plan === plan.id}
                     highlighted={plan.id === 'pro'}
                     onUpgrade={

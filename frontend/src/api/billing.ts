@@ -4,7 +4,7 @@ import { api } from './client.js';
 export interface SubscriptionData {
   id: number;
   tenantId: string;
-  plan: 'free' | 'pro' | 'enterprise';
+  plan: 'free' | 'pro' | 'team' | 'enterprise';
   status: 'active' | 'past_due' | 'canceled' | 'incomplete' | 'trialing';
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
@@ -23,7 +23,7 @@ export interface BillingResponse {
   publishableKey: string | null;
 }
 
-export type BillingPlan = 'pro' | 'enterprise';
+export type BillingPlan = 'pro' | 'team' | 'enterprise';
 export type BillingInterval = 'month' | 'year';
 
 export interface PlanCatalogEntry {
