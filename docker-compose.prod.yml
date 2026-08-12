@@ -139,6 +139,25 @@ services:
   postgres:
     image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     restart: always
+    # Point-in-time recovery (ADR-0054): archive every 16MB segment into a
+    # subdir of PGDATA immediately after it is switched (archive_mode=on),
+    # or at least every 5 minutes of activity (archive_timeout). Standing
+    # inside PGDATA avoids volume-ownership pitfalls and keeps the archive
+    # on the same persistent disk as the database; base backups land in
+    # /backups via deploy/postgres/base-backup.sh (host cron). Trade-off:
+    # WAL archive shares the DB disk — off-VPS durability comes from
+    # shipping backups off-host (see docs/deployment/README.md).
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=mkdir -p /var/lib/postgresql/data/archive && test ! -f /var/lib/postgresql/data/archive/%f && cp %p /var/lib/postgresql/data/archive/%f
+      - -c
+      - archive_timeout=300
+    deploy:
     deploy:
       resources:
         limits:
