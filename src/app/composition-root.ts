@@ -34,7 +34,7 @@ import { ProviderHealthCheck } from '../providers/provider-health.js';
 import type { WhoisProvider } from '../providers/whois/whois-provider.js';
 import { AutoWeightTuner, type ScoringEngine, type ScoringWeights } from '../scoring/index.js';
 import { BacktestEngine, WeightSuggester } from '../scoring/backtest/index.js';
-import { TrademarkGate } from '../trademark/index.js';
+import { GateVerdict, TrademarkGate } from '../trademark/index.js';
 import {
   PipelineOrchestrator,
   CandidateGenerationStage,
@@ -265,7 +265,8 @@ function buildTrademarkProviderStack(
   providerCacheRepo: ProviderCacheRepository,
   usptoRateLimiter: RateLimiterLike,
   euipoRateLimiter: RateLimiterLike,
-  redisClient?: RedisClient,
+  redisClient: RedisClient | undefined,
+  metrics: MetricsCollector,
 ): {
   usptoTmProvider: CachedTrademarkProvider;
   euipoTmProvider: CachedTrademarkProvider;
@@ -328,7 +329,22 @@ function buildTrademarkProviderStack(
     minMarkTokenLengthForSubstring: config.TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING,
     maxLevenshteinDistance: config.TRADEMARK_MAX_LEVENSHTEIN,
   };
-  const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig);
+  const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig, {
+    providerTimeoutMs: config.TRADEMARK_PROVIDER_TIMEOUT_MS,
+    onResult: (stats): void => {
+      metrics.recordTrademarkGate({
+        verdict:
+          stats.verdict === GateVerdict.Blocked
+            ? 'blocked'
+            : stats.verdict === GateVerdict.Unverified
+              ? 'unverified'
+              : 'clear',
+        partial: stats.partial,
+        usptoOk: stats.usptoOk,
+        euipoOk: stats.euipoOk,
+      });
+    },
+  });
 
   return {
     usptoTmProvider,
@@ -589,6 +605,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Wayback Machine (expiry data enrichment) ---
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
 
+  // --- Metrics (created before the trademark layer so the gate can feed
+  //     its telemetry callback; all other consumers read it later) ---
+  const metrics = new MetricsCollector();
+
   // --- Trademark Gate ---
   const { usptoTmProvider, euipoTmProvider, trademarkGate, usptoWafStats } =
     buildTrademarkProviderStack(
@@ -597,6 +617,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       usptoRateLimiter,
       euipoRateLimiter,
       redisClient,
+      metrics,
     );
 
   // --- Scoring ---
@@ -631,8 +652,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   );
 
   // --- Metrics & Pipeline ---
-  const metrics = new MetricsCollector();
-
   // When Redis is available, use CompositeLockProvider with Redis primary
   // and database-based advisory lock as fallback. This handles the case
   // where Redis goes down mid-operation — the lock falls back to the DB

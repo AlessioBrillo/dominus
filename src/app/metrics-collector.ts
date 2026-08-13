@@ -7,6 +7,7 @@ import type {
   StageMetrics,
   ProviderMetrics,
   ProviderErrorMetric,
+  TrademarkGateVerdict,
 } from '../types/metrics.js';
 
 function readVersion(): string {
@@ -36,6 +37,13 @@ export class MetricsCollector {
   #dnsConsensusDegradedRuns = 0;
   #dnsConsensusLastDegraded = false;
   #dnsConsensusObserved = false;
+  #tmGateClear = 0;
+  #tmGateBlocked = 0;
+  #tmGateUnverified = 0;
+  #tmGatePartial = 0;
+  #tmGateUsptoFailures = 0;
+  #tmGateEuipoFailures = 0;
+  #tmGateObserved = false;
   #backupLastSuccessAtMs: number | null = null;
   #pitrWalLagBytes: number | null = null;
   #pitrBaseBackupAgeHours: number | null = null;
@@ -93,6 +101,27 @@ export class MetricsCollector {
     this.#dnsConsensusObserved = true;
     this.#dnsConsensusLastDegraded = stats.degraded;
     if (stats.degraded) this.#dnsConsensusDegradedRuns++;
+  }
+
+  /** Record the outcome of a single trademark-gate check (fed by the gate's
+   *  onResult telemetry callback, wired in the composition root). */
+  recordTrademarkGate(stats: {
+    verdict: TrademarkGateVerdict;
+    partial?: boolean | undefined;
+    usptoOk: boolean;
+    euipoOk: boolean;
+  }): void {
+    this.#tmGateObserved = true;
+    if (stats.verdict === 'clear') {
+      this.#tmGateClear++;
+      if (stats.partial) this.#tmGatePartial++;
+    } else if (stats.verdict === 'blocked') {
+      this.#tmGateBlocked++;
+    } else {
+      this.#tmGateUnverified++;
+    }
+    if (!stats.usptoOk) this.#tmGateUsptoFailures++;
+    if (!stats.euipoOk) this.#tmGateEuipoFailures++;
   }
 
   recordProviderError(providerName: string, method: string, errorCode: string): void {
@@ -180,6 +209,15 @@ export class MetricsCollector {
           lastRunDegraded: this.#dnsConsensusLastDegraded,
           observed: this.#dnsConsensusObserved,
         },
+        trademarkGate: {
+          clearTotal: this.#tmGateClear,
+          blockedTotal: this.#tmGateBlocked,
+          unverifiedTotal: this.#tmGateUnverified,
+          partialTotal: this.#tmGatePartial,
+          usptoFailuresTotal: this.#tmGateUsptoFailures,
+          euipoFailuresTotal: this.#tmGateEuipoFailures,
+          observed: this.#tmGateObserved,
+        },
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -213,6 +251,13 @@ export class MetricsCollector {
     this.#dnsConsensusDegradedRuns = 0;
     this.#dnsConsensusLastDegraded = false;
     this.#dnsConsensusObserved = false;
+    this.#tmGateClear = 0;
+    this.#tmGateBlocked = 0;
+    this.#tmGateUnverified = 0;
+    this.#tmGatePartial = 0;
+    this.#tmGateUsptoFailures = 0;
+    this.#tmGateEuipoFailures = 0;
+    this.#tmGateObserved = false;
     this.#backupLastSuccessAtMs = null;
     this.#pitrWalLagBytes = null;
     this.#pitrBaseBackupAgeHours = null;

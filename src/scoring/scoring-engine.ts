@@ -105,7 +105,13 @@ export class ScoringEngine {
     // the remainder to intrinsic (always available) so the recommendation
     // threshold remains achievable. A domain with 2 old sales gets ~10% of
     // the market weight; one with 50 recent sales gets the full weight.
-    const marketDensity = market.dataDensity ?? (hasMarketData ? 1 : 0);
+    const rawMarketDensity = market.dataDensity;
+    const marketDensity =
+      typeof rawMarketDensity === 'number' && Number.isFinite(rawMarketDensity)
+        ? rawMarketDensity
+        : hasMarketData
+          ? 1
+          : 0;
     const densityAdjustedWeights = { ...effectiveWeights };
     if (hasMarketData && marketDensity < 1) {
       const marketScale = marketDensity;

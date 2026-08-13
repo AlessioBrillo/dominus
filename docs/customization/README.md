@@ -209,6 +209,7 @@ Three parameters control the matching behaviour:
 | `TRADEMARK_MIN_TOKEN_LENGTH_FUZZY` | `4` | Minimum token length for Levenshtein-1 matching |
 | `TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING` | `3` | Minimum mark token length for substring matching |
 | `TRADEMARK_MAX_LEVENSHTEIN` | `1` | Maximum edit distance for fuzzy matching |
+| `TRADEMARK_PROVIDER_TIMEOUT_MS` | `15000` | Per-provider gate deadline (ms, min 1000); a fired deadline counts as provider failure |
 
 ### Strict USPTO TLDs
 

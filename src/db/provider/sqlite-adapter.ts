@@ -201,7 +201,7 @@ export class SqliteProvider implements DatabaseProvider {
       const workerId = this.#workerId(lockName);
       const result = this.#db
         .prepare(
-          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch') WHERE lock_name = ? AND expires_at >= datetime('now') AND worker_id = ?",
+          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch'), renewed_count = renewed_count + 1, last_renewed_at = datetime('now') WHERE lock_name = ? AND expires_at >= datetime('now') AND worker_id = ?",
         )
         .run(expiresAt, lockName, workerId);
       return result.changes > 0;

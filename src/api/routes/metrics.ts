@@ -278,6 +278,52 @@ export function renderPrometheusMetrics(
     );
   }
 
+  const tmGate = snapshot.pipeline.trademarkGate;
+  if (tmGate !== undefined && tmGate.observed) {
+    g(
+      'Trademark gate checks cleared since process start.',
+      'dominus_trademark_gate_clear_total',
+      tmGate.clearTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Trademark gate checks blocked (trademark match) since process start.',
+      'dominus_trademark_gate_blocked_total',
+      tmGate.blockedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Trademark gate checks unverified (sources down) since process start.',
+      'dominus_trademark_gate_unverified_total',
+      tmGate.unverifiedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Trademark gate clear verdicts relying on a single source.',
+      'dominus_trademark_gate_partial_total',
+      tmGate.partialTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Trademark gate checks where the USPTO source failed.',
+      'dominus_trademark_gate_uspto_failures_total',
+      tmGate.usptoFailuresTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Trademark gate checks where the EUIPO source failed.',
+      'dominus_trademark_gate_euipo_failures_total',
+      tmGate.euipoFailuresTotal,
+      undefined,
+      'counter',
+    );
+  }
+
   g('Jobs currently queued awaiting a worker.', 'dominus_queue_queued', queueStats.queued);
   g('Jobs currently running.', 'dominus_queue_running', queueStats.running);
   g('Jobs completed.', 'dominus_queue_completed_total', queueStats.completed, undefined, 'counter');

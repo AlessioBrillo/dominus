@@ -37,6 +37,25 @@ groups:
           summary: "Pipeline stage {{ $labels.stage }} is failing"
           description: "Stage '{{ $labels.stage }}' recorded new errors in the last 30 minutes."
 
+      - alert: TrademarkGateUnverifiedHigh
+        expr: |
+          sum(rate(dominus_trademark_gate_unverified_total[15m]))
+            / clamp_min(
+                sum(
+                  rate(dominus_trademark_gate_clear_total[15m])
+                  + rate(dominus_trademark_gate_blocked_total[15m])
+                  + rate(dominus_trademark_gate_unverified_total[15m])
+                ),
+                1
+              )
+            > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than half of trademark gate checks are Unverified"
+          description: "{{ $value | humanizePercentage }} of trademark checks returned Unverified over 15 minutes — USPTO/EUIPO sources may be down (strict-TLD domains degrade to Unverified)."
+
   - name: dominus-queue
     rules:
       - alert: QueueStuck

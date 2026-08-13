@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TrademarkGate, GateVerdict, STRICT_USPTO_TLDS } from '../trademark-gate.js';
 import type { TrademarkProvider } from '../../providers/trademark/trademark-provider.js';
+import type { TrademarkMatch } from '../../providers/trademark/trademark-provider.js';
 import { ProviderError } from '../../types/errors.js';
 
 function mockProvider(
@@ -12,6 +13,22 @@ function mockProvider(
 
 function errorProvider(): TrademarkProvider {
   return { search: vi.fn().mockRejectedValue(new ProviderError('unavailable', 'test')) };
+}
+
+/** Provider that never settles on its own — rejects only when the signal aborts. */
+function hangingProvider(): TrademarkProvider {
+  return {
+    search: (_term: string, signal?: AbortSignal) =>
+      new Promise<TrademarkMatch[]>((_resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'));
+          return;
+        }
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+          once: true,
+        });
+      }),
+  };
 }
 
 describe('TrademarkGate', () => {
@@ -182,5 +199,139 @@ describe('TrademarkGate — abort signal', () => {
     }
     expect(err).toBeInstanceOf(DOMException);
     expect((err as DOMException).name).toBe('AbortError');
+  });
+});
+
+describe('TrademarkGate — parallel execution', () => {
+  function deferredProvider(): { provider: TrademarkProvider; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<TrademarkMatch[]>((r) => {
+      resolve = (): void => r([]);
+    });
+    return { provider: { search: vi.fn().mockReturnValue(promise) }, resolve };
+  }
+
+  it('invokes both sources before either resolves (parallel, not sequential)', async () => {
+    const usp = deferredProvider();
+    const eup = deferredProvider();
+    const gate = new TrademarkGate(usp.provider, eup.provider);
+
+    const checkPromise = gate.check('nova.io');
+    expect(usp.provider.search).toHaveBeenCalled();
+    expect(eup.provider.search).toHaveBeenCalled();
+
+    usp.resolve();
+    eup.resolve();
+    const result = await checkPromise;
+    expect(result.verdict).toBe(GateVerdict.Clear);
+    expect(result.verifiedSources).toEqual(['USPTO', 'EUIPO']);
+  });
+});
+
+describe('TrademarkGate — provider deadline (TRADEMARK_PROVIDER_TIMEOUT_MS)', () => {
+  it('bounds a hung provider: timeout counts as provider failure, not a hang', async () => {
+    const gate = new TrademarkGate(hangingProvider(), hangingProvider(), undefined, {
+      providerTimeoutMs: 30,
+    });
+
+    const startedAt = Date.now();
+    const result = await gate.check('nova.io');
+    const elapsed = Date.now() - startedAt;
+
+    expect(elapsed).toBeLessThan(1000);
+    expect(result.verdict).toBe(GateVerdict.Unverified);
+    expect(result.verifiedSources).toEqual([]);
+  });
+
+  it('deadline on a strict-TLD domain forces Unverified via usptoFailed (conservative)', async () => {
+    const gate = new TrademarkGate(hangingProvider(), mockProvider([]), undefined, {
+      providerTimeoutMs: 30,
+    });
+
+    const result = await gate.check('alpha.com');
+    expect(result.verdict).toBe(GateVerdict.Unverified);
+    expect(result.usptoFailed).toBe(true);
+    expect(result.verifiedSources).toEqual(['EUIPO']);
+  });
+
+  it('deadline on a non-strict TLD degrades gracefully to Clear (partial)', async () => {
+    const gate = new TrademarkGate(hangingProvider(), mockProvider([]), undefined, {
+      providerTimeoutMs: 30,
+    });
+
+    const result = await gate.check('alpha.io');
+    expect(result.verdict).toBe(GateVerdict.Clear);
+    expect(result.partial).toBe(true);
+    expect(result.usptoFailed).toBeUndefined();
+  });
+
+  it('does not mask caller cancellation: aborting the run signal still propagates', async () => {
+    const gate = new TrademarkGate(hangingProvider(), hangingProvider(), undefined, {
+      providerTimeoutMs: 5000,
+    });
+    const ac = new AbortController();
+
+    const checkPromise = gate.check('nova.io', ac.signal);
+    setTimeout(() => ac.abort(), 10);
+
+    await expect(checkPromise).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('TrademarkGate — telemetry callback', () => {
+  it('emits stats with verdict, source health and duration', async () => {
+    const onResult = vi.fn();
+    const gate = new TrademarkGate(mockProvider([]), errorProvider(), undefined, {
+      onResult,
+    });
+
+    const result = await gate.check('nova.io');
+
+    expect(result.verdict).toBe(GateVerdict.Clear);
+    expect(onResult).toHaveBeenCalledTimes(1);
+    const stats = onResult.mock.calls[0]![0];
+    expect(stats.domain).toBe('nova.io');
+    expect(stats.verdict).toBe(GateVerdict.Clear);
+    expect(stats.partial).toBe(true);
+    expect(stats.usptoOk).toBe(true);
+    expect(stats.euipoOk).toBe(false);
+    expect(typeof stats.durationMs).toBe('number');
+  });
+
+  it('emits stats on Blocked verdicts with matched source health', async () => {
+    const onResult = vi.fn();
+    const gate = new TrademarkGate(
+      mockProvider([
+        { markName: 'nova', owner: 'Nova Corp', status: 'registered', source: 'USPTO' },
+      ]),
+      mockProvider([]),
+      undefined,
+      { onResult },
+    );
+
+    await gate.check('nova.io');
+
+    expect(onResult).toHaveBeenCalledTimes(1);
+    const stats = onResult.mock.calls[0]![0];
+    expect(stats.verdict).toBe(GateVerdict.Blocked);
+    expect(stats.usptoOk).toBe(true);
+    expect(stats.euipoOk).toBe(true);
+  });
+
+  it('a throwing telemetry callback does not break the gate', async () => {
+    const gate = new TrademarkGate(mockProvider([]), mockProvider([]), undefined, {
+      onResult: (): never => {
+        throw new Error('broken sink');
+      },
+    });
+
+    const result = await gate.check('nova.io');
+    expect(result.verdict).toBe(GateVerdict.Clear);
+  });
+
+  it('works without an onResult callback (default no-op)', async () => {
+    const gate = new TrademarkGate(mockProvider([]), mockProvider([]));
+    const result = await gate.check('nova.io');
+    expect(result.verdict).toBe(GateVerdict.Clear);
   });
 });

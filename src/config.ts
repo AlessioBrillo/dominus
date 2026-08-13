@@ -946,6 +946,14 @@ const configSchema = z.object({
   TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING: z.coerce.number().int().min(1).default(3),
   /** Maximum Levenshtein distance for fuzzy matching (default: 1). */
   TRADEMARK_MAX_LEVENSHTEIN: z.coerce.number().int().min(0).default(1),
+  /**
+   * Per-provider deadline for trademark lookups inside the gate, in ms.
+   * A hung USPTO/EUIPO call is bounded by this deadline and counts as a
+   * provider failure (conservative, ADR-0012: strict-TLD domains become
+   * Unverified instead of being cleared on one source alone).
+   * Minimum 1000 ms. Default: 15000 ms.
+   */
+  TRADEMARK_PROVIDER_TIMEOUT_MS: z.coerce.number().int().min(1000).default(15000),
   // ── Wayback Machine CDX expiry data enrichment ─────────────────────
 
   /**
