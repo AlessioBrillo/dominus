@@ -231,6 +231,11 @@ export class BillingService {
    * Dedup gate for webhook events. Stripe delivers at-least-once and may
    * re-deliver across replicas and restarts. The database record is the
    * authoritative source; the in-memory set is a bounded fast path.
+   *
+   * Fail-closed: when the dedup store is unavailable the claim THROWS, the
+   * route answers 4xx, and Stripe re-delivers. Processing a duplicate
+   * subscription transition (double upgrade/downgrade, double trial grant)
+   * is a worse failure than a webhook that retries.
    */
   async #claimEvent(eventId: string, eventType: string): Promise<boolean> {
     const inMemory = this.#processedEventIds.get(eventId);
@@ -244,14 +249,7 @@ export class BillingService {
     }
 
     if (this.#webhookRepo) {
-      const newlyRecorded = await this.#webhookRepo
-        .markProcessed('stripe', eventId, eventType)
-        .catch((err: unknown) => {
-          // Dedup must never break processing: if the dedup store is down,
-          // fall back to the in-memory fast path only.
-          logger.error({ err, eventId }, 'Webhook dedup store unavailable — processing without it');
-          return true;
-        });
+      const newlyRecorded = await this.#webhookRepo.markProcessed('stripe', eventId, eventType);
       if (!newlyRecorded) {
         logger.debug({ eventId, eventType }, 'Duplicate webhook event (store) — skipping');
         return false;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { SignalOutput, ScoringInput } from '../../types/score.js';
-import { DEFAULT_TLD_BONUS } from '../weights.js';
+import { DEFAULT_TLD_BONUS, UNKNOWN_TLD_MULTIPLIER } from '../weights.js';
 import type { IntrinsicSignalConfig } from '../scoring-config.js';
 import { DEFAULT_INTRINSIC_CONFIG } from '../scoring-config.js';
 
@@ -24,7 +24,7 @@ export function computeIntrinsicScore(
   const digitCount = (sld.match(/[0-9]/g) ?? []).length;
   const penaltyScore = Math.max(0, 1 - hyphenCount * 0.25 - digitCount * 0.15);
 
-  const tldMultiplier = tldBonuses[input.tld!] ?? 0.3;
+  const tldMultiplier = tldBonuses[input.tld!] ?? UNKNOWN_TLD_MULTIPLIER;
 
   const pronounceabilityScore = computePronounceability(sld);
 

@@ -137,7 +137,7 @@ Every tunable parameter is exposed via environment variables:
 - **Signal strengths**: weights for intrinsic, commercial, market, expiry signals (`SCORING_WEIGHTS_OVERRIDE`)
 - **Signal calibrations**: ideal length, volume caps, floor values (see `src/config.ts`)
 - **TLD bonuses**: override `.com=1.0, .io=0.85` via JSON file (`TLD_BONUSES_PATH`)
-- **Budget caps**: `BUY_MAX_ABSOLUTE_CAP`, `SCORING_RECOMMEND_THRESHOLD`
+- **Budget caps**: `BUY_MAX_ABSOLUTE_CAP` (0 = uncapped, evidence-anchored value), `SCORING_RECOMMEND_THRESHOLD`
 - **Drop logic**: `DROP_SCORE_THRESHOLD`, `DROP_RENEWAL_HORIZON_DAYS`
 
 ### Providers
@@ -186,7 +186,7 @@ Key variables:
 | `DATABASE_PATH` | `./data/dominus.db` | SQLite database location |
 | `KEYWORD_DATA_PATH` | (optional) | Google Keyword Planner JSON export |
 | `COMPS_DATA_PATH` | (optional) | NameBio comparable sales CSV |
-| `BUY_MAX_ABSOLUTE_CAP` | `500` | Max recommended purchase price (EUR) |
+| `BUY_MAX_ABSOLUTE_CAP` | `0` | Hard cap on recommended buy price (EUR); `0` = evidence-anchored (ADR-0055) |
 | `SCORING_WEIGHTS_OVERRIDE` | (optional) | Custom scoring weights JSON |
 | `TLD_BONUSES_PATH` | (optional) | Custom TLD multiplier bonuses JSON |
 | `EUIPO_CLIENT_ID` | (optional) | EUIPO trademark search (free registration) |

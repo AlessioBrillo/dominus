@@ -19,11 +19,16 @@ data:
   NODE_ENV: 'production'
   PORT: '3000'
   HOST: '0.0.0.0'
+  # API sits behind nginx-ingress: trust exactly one proxy hop so
+  # per-IP rate limits key on the real client (never spoofable at depth 1
+  # behind the ingress, which overwrites X-Forwarded-For).
+  TRUST_PROXY_DEPTH: '1'
   LOG_LEVEL: 'info'
   LOG_PRETTY: 'false'
   SCORING_RECOMMEND_THRESHOLD: '0.4'
   SCORING_CONFIDENCE_THRESHOLD: '0.3'
-  BUY_MAX_ABSOLUTE_CAP: '500'
+  # 0 = no hard cap: expectedValue anchors to market evidence (ADR-0055).
+  BUY_MAX_ABSOLUTE_CAP: '0'
   DROP_SCORE_THRESHOLD: '25'
   DROP_RENEWAL_HORIZON_DAYS: '60'
   DNS_BULK_CONCURRENCY: '10'

@@ -61,17 +61,18 @@ export interface ScoreResult {
   /**
    * Bid range advises a conservative floor and an aggressive ceiling
    * for aftermarket negotiation. Both values are REALISTIC bids, not
-   * aspirational — they are bounded by BUY_MAX_ABSOLUTE_CAP but also
-   * reflect that the cap flattens the market signal above ~€500.
+   * aspirational — they derive from the evidence-anchored expectedValue
+   * (ADR-0055) and are bounded only when the operator sets
+   * BUY_MAX_ABSOLUTE_CAP > 0.
    *
    * - `conservative`: the price at which the deal is an unambiguous
    *   bargain (≈ buyMax at 50% confidence).
    * - `aggressive`: the maximum justifiable bid (≈ buyMax at full
    *   confidence).
    *
-   * Both are clamped to [0, buyMaxAbsoluteCap]. When the cap is hit,
-   * aggressive equals the cap and conservative trails proportionally
-   * to confidence/cap ratio.
+   * With an operator cap set, both are clamped to [0, buyMaxAbsoluteCap]:
+   * when the cap is hit, aggressive equals the cap and conservative
+   * trails proportionally to confidence/cap ratio.
    */
   bidRange: {
     conservative: number;

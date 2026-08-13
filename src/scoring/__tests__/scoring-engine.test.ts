@@ -155,7 +155,7 @@ describe('ScoringEngine', () => {
     expect(result.suggestedBuyMax).toBeGreaterThan(0);
   });
 
-  it('BUY_MAX_ABSOLUTE_CAP of 0 zeroes out suggestedBuyMax', async () => {
+  it('BUY_MAX_ABSOLUTE_CAP of 0 leaves buy max evidence-derived (ADR-0055)', async () => {
     const { keyword, comps } = makeProviders(1_000_000, 50, [200_000]);
     const engine = new ScoringEngine(keyword, comps, undefined, 0);
     const result = await engine.score({
@@ -164,7 +164,35 @@ describe('ScoringEngine', () => {
       sld: 'premium',
       isCloseout: false,
     });
-    expect(result.suggestedBuyMax).toBe(0);
+    expect(result.suggestedBuyMax).toBeGreaterThan(0);
+    expect(result.suggestedBuyMax).toBeLessThanOrEqual(result.expectedValue * 0.5 + 0.01);
+  });
+
+  it('anchors expectedValue to the market median when market data exists (ADR-0055)', async () => {
+    const { keyword, comps } = makeProviders(1_000_000, 50, [200_000]);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'premium.ai',
+      tld: '.ai',
+      sld: 'premium',
+      isCloseout: false,
+    });
+    expect(result.expectedValue).toBeGreaterThan(500);
+    expect(result.expectedValue).toBeLessThanOrEqual(200_000 + 0.01);
+    expect(result.suggestedListPrice).toBeGreaterThan(result.expectedValue);
+  });
+
+  it('keeps the €500 base anchor when no market data exists (ADR-0055)', async () => {
+    const { keyword, comps } = makeProviders(500_000, 25, []);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'strong-word.com',
+      tld: '.com',
+      sld: 'strongword',
+      isCloseout: false,
+    });
+    expect(result.expectedValue).toBeLessThanOrEqual(500 + 0.01);
+    expect(result.suggestedBuyMax).toBeLessThanOrEqual(250 + 0.01);
   });
 
   it('renewal cost penalty reduces suggestedBuyMax', async () => {

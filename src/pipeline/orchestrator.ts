@@ -122,8 +122,8 @@ export class PipelineTimeoutError extends Error {
   }
 }
 
-function pipelineLockName(): string {
-  return `pipeline_run:${resolveTenantId()}`;
+function pipelineLockName(tenantId: string = resolveTenantId()): string {
+  return `pipeline_run:${tenantId}`;
 }
 
 /**
@@ -168,6 +168,11 @@ export class PipelineOrchestrator {
   #runControllers: Map<string, AbortController> = new Map();
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #heartbeatFailures = 0;
+  /** Tenant whose run owns the heartbeat loop. The lock key and the abort
+   *  on heartbeat loss are scoped to this tenant — renewing a different
+   *  key (e.g. the ambient 'default' outside runWithTenant) or aborting
+   *  every tenant's run would be a cross-tenant bug. */
+  #heartbeatTenant: string | null = null;
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -288,7 +293,7 @@ export class PipelineOrchestrator {
       this.#activeTenants.add(tenantId);
       this.#runControllers.set(tenantId, controller);
       logger.info({ workerId: process.pid }, 'Pipeline advisory lock acquired');
-      this.#startHeartbeat();
+      this.#startHeartbeat(tenantId);
     } else {
       // No distributed lock — serialise via in-process tenant slot.
       await this.#acquireTenantSlot(tenantId, controller);
@@ -335,26 +340,31 @@ export class PipelineOrchestrator {
     }
   }
 
-  #startHeartbeat(): void {
+  #startHeartbeat(tenantId: string): void {
     if (this.#heartbeatTimer) return;
     this.#heartbeatFailures = 0;
+    this.#heartbeatTenant = tenantId;
     this.#heartbeatTimer = setInterval(async () => {
       if (!this.#lock) return;
-      const renewed = await this.#lock
-        .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
-        .catch(() => false);
+      // The interval callback runs outside the caller's runWithTenant scope,
+      // so the lock key must come from the captured tenant, not from
+      // resolveTenantId() (which would renew 'pipeline_run:default').
+      const lockKey = pipelineLockName(this.#heartbeatTenant ?? tenantId);
+      const renewed = await this.#lock.renewLock(lockKey, PIPELINE_LOCK_TTL_MS).catch(() => false);
       if (renewed) {
         this.#heartbeatFailures = 0;
       } else {
         this.#heartbeatFailures++;
         if (this.#heartbeatFailures >= 3) {
           logger.error(
-            { failures: this.#heartbeatFailures },
+            { failures: this.#heartbeatFailures, tenantId: this.#heartbeatTenant },
             'Pipeline lock heartbeat failed 3 consecutive times — lock may have been lost. Aborting run.',
           );
-          for (const [, ac] of this.#runControllers) {
-            ac.abort();
-          }
+          // Abort only the run that owns this heartbeat. Aborting every
+          // tenant's controller turns one tenant's Redis outage into a
+          // platform-wide pipeline outage.
+          const ac = this.#runControllers.get(this.#heartbeatTenant ?? tenantId);
+          ac?.abort();
         } else {
           logger.warn(
             { failures: this.#heartbeatFailures },
@@ -368,7 +378,7 @@ export class PipelineOrchestrator {
   async #ensureLockHeld(key: string): Promise<void> {
     if (!this.#lock) return;
     const renewed = await this.#lock
-      .renewLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS)
+      .renewLock(pipelineLockName(key), PIPELINE_LOCK_TTL_MS)
       .catch(() => false);
     if (!renewed) {
       this.#runControllers.get(key)?.abort();
@@ -384,6 +394,8 @@ export class PipelineOrchestrator {
       clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = null;
     }
+    this.#heartbeatTenant = null;
+    this.#heartbeatFailures = 0;
   }
 
   async #runInternal(
@@ -476,12 +488,12 @@ export class PipelineOrchestrator {
         logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
         const errDuration = Date.now() - start;
         return {
-          runId: 'unknown',
+          runId: externalRunId ?? key,
           recommended: [],
           scored: [],
           allCandidates: [],
           stageSummary: {
-            CandidateGeneration: { passed: 0, filtered: 0, durationMs: errDuration },
+            CandidateGenerationStage: { passed: 0, filtered: 0, durationMs: errDuration },
           },
           totalDurationMs: errDuration,
           stageErrors: [
