@@ -41,7 +41,11 @@ groups:
         expr: |
           sum(rate(dominus_trademark_gate_unverified_total[15m]))
             / clamp_min(
-                sum(rate(dominus_trademark_gate_clear_total[15m] + dominus_trademark_gate_blocked_total[15m] + dominus_trademark_gate_unverified_total[15m])),
+                sum(
+                  rate(dominus_trademark_gate_clear_total[15m])
+                  + rate(dominus_trademark_gate_blocked_total[15m])
+                  + rate(dominus_trademark_gate_unverified_total[15m])
+                ),
                 1
               )
             > 0.5
