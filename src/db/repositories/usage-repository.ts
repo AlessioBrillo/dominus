@@ -123,6 +123,22 @@ export class UsageRepository {
     return row?.total ?? 0;
   }
 
+  async findUsageByPeriodRange(tenantId: string, from: string, to: string): Promise<UsageRecord[]> {
+    const rows = await this.#db.query<UsageRecordRow>(
+      'SELECT * FROM usage_records WHERE tenant_id = ? AND period_start >= ? AND period_start <= ?',
+      [tenantId, from, to],
+    );
+    return rows.map(usageRecordFromRow);
+  }
+
+  async countUsageOlderThan(cutoff: string): Promise<number> {
+    const row = await this.#db.queryOne<{ total: number }>(
+      'SELECT COUNT(*) AS total FROM usage_records WHERE recorded_at < ?',
+      [cutoff],
+    );
+    return row?.total ?? 0;
+  }
+
   async getPlanLimit(
     plan: SubscriptionPlan,
     feature: UsageFeature,

@@ -5,6 +5,12 @@ export type { SubscriptionPlan };
 
 export type UsageFeature = 'candidates_scored' | 'api_calls' | 'domains_tracked';
 
+export const USAGE_FEATURES = ['candidates_scored', 'api_calls', 'domains_tracked'] as const;
+
+export function isUsageFeature(value: string): value is UsageFeature {
+  return (USAGE_FEATURES as readonly string[]).includes(value);
+}
+
 export interface UsageRecord {
   id: number;
   tenantId: string;
@@ -67,4 +73,11 @@ export interface UsageForPeriod {
 
 export interface PlanLimitsMap {
   [feature: string]: number | null;
+}
+
+export interface UsageHistoryEntry {
+  periodStart: string;
+  periodEnd: string;
+  plan: SubscriptionPlan;
+  usage: Record<UsageFeature, UsageForPeriod>;
 }

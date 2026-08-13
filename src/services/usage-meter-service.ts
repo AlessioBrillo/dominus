@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
-import type { UsageFeature, UsageForPeriod, PlanLimit } from '../types/usage.js';
+import type { UsageFeature, UsageForPeriod, UsageHistoryEntry, PlanLimit } from '../types/usage.js';
+import { USAGE_FEATURES } from '../types/usage.js';
 import { UsageLimitExceededError } from '../types/errors.js';
 import { effectivePlanFor, ACTIVE_PLAN_STATUSES } from './effective-plan.js';
 
@@ -108,10 +109,7 @@ export class UsageMeterService {
 
     const currentUsage = await this.#usageRepo.getUsageForPeriod(tenantId, feature, periodStart);
 
-    const year = periodStart.slice(0, 4);
-    const month = periodStart.slice(5, 7);
-    const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
-    const periodEnd = `${year}-${month}-${String(daysInMonth).padStart(2, '0')}`;
+    const periodEnd = this.#periodEnd(periodStart);
 
     const remaining = limitValue !== null ? Math.max(0, limitValue - currentUsage) : null;
     const isOverLimit = limitValue !== null ? currentUsage >= limitValue : false;
@@ -132,5 +130,66 @@ export class UsageMeterService {
     const sub = await this.#subRepo.findByTenantId(tenantId);
     const plan = effectivePlanFor(sub);
     return this.#usageRepo.getAllPlanLimits(plan);
+  }
+
+  /**
+   * Per-month usage history for a tenant, oldest month first. Limits are
+   * resolved once against the tenant's current effective plan, so a
+   * past-due subscription shows free-plan limits across the whole window
+   * (same fail-closed rule as `getUsageForPeriod`).
+   */
+  async getUsageHistory(tenantId: string, months = 6): Promise<UsageHistoryEntry[]> {
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    const plan = effectivePlanFor(sub);
+
+    const now = new Date();
+    const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const from = UsageMeterService.periodStart(first.toISOString());
+    const to = UsageMeterService.periodStart(now.toISOString());
+
+    const records = await this.#usageRepo.findUsageByPeriodRange(tenantId, from, to);
+    const sums = new Map<string, Partial<Record<UsageFeature, number>>>();
+    for (const record of records) {
+      const entry = sums.get(record.periodStart) ?? {};
+      entry[record.feature] = (entry[record.feature] ?? 0) + record.amount;
+      sums.set(record.periodStart, entry);
+    }
+
+    const limits = await this.#usageRepo.getAllPlanLimits(plan);
+    const limitByFeature = new Map(limits.map((l) => [l.feature, l.limitValue]));
+
+    const history: UsageHistoryEntry[] = [];
+    for (let offset = months - 1; offset >= 0; offset--) {
+      const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+      const periodStart = UsageMeterService.periodStart(month.toISOString());
+      const periodEnd = this.#periodEnd(periodStart);
+      const periodSums = sums.get(periodStart) ?? {};
+
+      const usage = {} as Record<UsageFeature, UsageForPeriod>;
+      for (const feature of USAGE_FEATURES) {
+        const limitValue = limitByFeature.get(feature) ?? null;
+        const currentUsage = periodSums[feature] ?? 0;
+        usage[feature] = {
+          feature,
+          currentUsage,
+          limitValue,
+          remaining: limitValue !== null ? Math.max(0, limitValue - currentUsage) : null,
+          isOverLimit: limitValue !== null ? currentUsage >= limitValue : false,
+          plan,
+          periodStart,
+          periodEnd,
+        };
+      }
+
+      history.push({ periodStart, periodEnd, plan, usage });
+    }
+    return history;
+  }
+
+  #periodEnd(periodStart: string): string {
+    const year = periodStart.slice(0, 4);
+    const month = periodStart.slice(5, 7);
+    const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
+    return `${year}-${month}-${String(daysInMonth).padStart(2, '0')}`;
   }
 }

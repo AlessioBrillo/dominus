@@ -46,6 +46,7 @@ function makeStubService(): UsageMeterService {
       { plan: 'free', feature: 'api_calls', limitValue: 1000 },
       { plan: 'free', feature: 'domains_tracked', limitValue: 25 },
     ] as PlanLimit[]),
+    getUsageHistory: vi.fn().mockResolvedValue([]),
   } as unknown as UsageMeterService;
 }
 

@@ -8,6 +8,7 @@ import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import type { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import type { UsageRepository } from '../../db/repositories/usage-repository.js';
 import type { BackupService } from '../../scheduler/backup-service.js';
 import { RESCORE_RUN_ID_PREFIX } from '../../portfolio/portfolio-rescore-service.js';
 
@@ -18,6 +19,7 @@ export interface MaintenanceCommandDeps {
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
   scoringRepo?: ScoringRepository | undefined;
+  usageRepo?: UsageRepository | undefined;
   backupService?: BackupService | undefined;
 }
 
@@ -105,11 +107,8 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     .option('--provider-cache-only', 'Prune only the provider cache')
     .option('--runs-only', 'Prune only the pipeline_runs history')
     .option('--rescore-only', 'Prune only synthetic portfolio_rescore candidates')
-    .option(
-      '--before <days>',
-      'Prune pipeline_runs or rescore candidates older than N days (default: 90)',
-      parseInt,
-    )
+    .option('--usage-only', 'Prune only the usage_records meter history')
+    .option('--before <days>', 'Prune rows older than N days (default: 90)', parseInt)
     .option('--dry-run', 'Print counts of rows that would be removed without writing')
     .action(
       async (options: {
@@ -117,6 +116,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
         providerCacheOnly?: boolean;
         runsOnly?: boolean;
         rescoreOnly?: boolean;
+        usageOnly?: boolean;
         before?: number;
         dryRun?: boolean;
       }) => {
@@ -137,14 +137,45 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
           process.stderr.write('Error: --rescore-only is mutually exclusive with other flags\n');
           process.exit(1);
         }
+        if (
+          options.usageOnly === true &&
+          (options.cacheOnly === true ||
+            options.providerCacheOnly === true ||
+            options.runsOnly === true ||
+            options.rescoreOnly === true)
+        ) {
+          process.stderr.write('Error: --usage-only and other flags are mutually exclusive\n');
+          process.exit(1);
+        }
 
-        const pruneCache = options.runsOnly !== true && options.rescoreOnly !== true;
+        const usageOnly = options.usageOnly === true;
+        const pruneCache =
+          usageOnly === false && options.runsOnly !== true && options.rescoreOnly !== true;
         const pruneProviderCache =
-          options.providerCacheOnly === true ||
-          (options.runsOnly !== true && options.cacheOnly !== true && options.rescoreOnly !== true);
-        const pruneRuns = options.cacheOnly !== true && options.rescoreOnly !== true;
-        const pruneRescore = options.rescoreOnly === true;
+          usageOnly === false &&
+          (options.providerCacheOnly === true ||
+            (options.runsOnly !== true &&
+              options.cacheOnly !== true &&
+              options.rescoreOnly !== true));
+        const pruneRuns =
+          usageOnly === false && options.cacheOnly !== true && options.rescoreOnly !== true;
+        const pruneRescore = usageOnly === false && options.rescoreOnly === true;
         const retentionDays = options.before ?? 90;
+
+        if (usageOnly && deps.usageRepo) {
+          const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+          if (options.dryRun === true) {
+            const expired = await deps.usageRepo.countUsageOlderThan(cutoff);
+            process.stdout.write(
+              `Would prune ${expired} usage_records row(s) started before ${cutoff}.\n`,
+            );
+          } else {
+            const removed = await deps.usageRepo.deleteUsageOlderThan(cutoff);
+            process.stdout.write(
+              `Pruned ${removed} usage_records row(s) started before ${cutoff}.\n`,
+            );
+          }
+        }
 
         if (pruneProviderCache && deps.providerCacheRepo) {
           const before = await deps.providerCacheRepo.count();
