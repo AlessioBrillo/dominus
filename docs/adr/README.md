@@ -62,6 +62,7 @@ re-running the original arguments.
 | [0053](0053-billing-loop-completion.md)                         | Billing loop completion — Team checkout, status-aware usage enforcement, trial-once                            | 2026-08-12 | Proposed                            |
 | [0054](0054-pitr-backup-strategy.md)                            | Point-in-time recovery for the Cloud stack — WAL archiving and restore playbook                               | 2026-08-12 | Accepted                            |
 | [0055](0055-evidence-anchored-value.md)                         | Evidence-anchored expectedValue — value follows comparables, cap becomes an operator preference                | 2026-08-12 | Accepted                            |
+| [0056](0056-anonymous-trademark-budget.md)                       | Anonymous trademark budget isolation — dedicated fail-open budget for public valuations, shared pipeline buckets untouched | 2026-08-13 | Accepted                            |
 
 ## Conventions
 
