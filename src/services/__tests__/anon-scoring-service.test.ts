@@ -4,6 +4,8 @@ import { AnonScoringService, DomainValidationError } from '../anon-scoring-servi
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { PublicScoreRepository } from '../../db/repositories/public-score-repository.js';
+import { AnonBudgetGate } from '../../providers/anon-budget-gate.js';
+import { RateLimiter } from '../../providers/rate-limiter.js';
 
 function createMockTrademarkGate(verdict: string = 'clear'): TrademarkGate {
   return {
@@ -452,6 +454,81 @@ describe('AnonScoringService', () => {
         service.dispose();
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('anonymous trademark budget (ADR-0056)', () => {
+    it('runs the trademark gate when the budget grants a slot', async () => {
+      const limiter = new RateLimiter({
+        maxTokens: 2,
+        tokensPerInterval: 2,
+        intervalMs: 1_000_000,
+      });
+      const gate = new AnonBudgetGate(limiter, { enabled: true, acquireTimeoutMs: 100 });
+      const onGranted = vi.fn();
+      service = new AnonScoringService(engine, trademarkGate, 5000, 500, undefined, gate, onGranted);
+
+      const result = await service.valuate('example.com');
+
+      expect(result.trademark!.verdict).toBe('clear');
+      expect(result.score.suggestedBuyMax).toBe(75);
+      expect(vi.mocked(trademarkGate.check)).toHaveBeenCalledTimes(1);
+      expect(onGranted).toHaveBeenCalledWith(true);
+    });
+
+    it('fails open to unverified when the budget is exhausted', async () => {
+      const limiter = new RateLimiter({
+        maxTokens: 1,
+        tokensPerInterval: 1,
+        intervalMs: 1_000_000,
+      });
+      const gate = new AnonBudgetGate(limiter, { enabled: true, acquireTimeoutMs: 50 });
+      const onGranted = vi.fn();
+      service = new AnonScoringService(engine, trademarkGate, 5000, 500, undefined, gate, onGranted);
+
+      const first = await service.valuate('domain-a.com');
+      const result = await service.valuate('domain-b.com');
+
+      expect(first.trademark!.verdict).toBe('clear');
+      expect(result.trademark!.verdict).toBe('unverified');
+      expect(result.trademark!.verifiedSources).toEqual([]);
+      expect(result.score.suggestedBuyMax).toBeUndefined();
+      expect(vi.mocked(trademarkGate.check)).toHaveBeenCalledTimes(1);
+      expect(onGranted).toHaveBeenNthCalledWith(1, true);
+      expect(onGranted).toHaveBeenNthCalledWith(2, false);
+    });
+
+    it('never invokes the trademark gate when the budget is denied', async () => {
+      const limiter = new RateLimiter({
+        maxTokens: 0,
+        tokensPerInterval: 1,
+        intervalMs: 1_000_000,
+      });
+      const gate = new AnonBudgetGate(limiter, { enabled: true, acquireTimeoutMs: 50 });
+      service = new AnonScoringService(engine, trademarkGate, 5000, 500, undefined, gate);
+
+      const result = await service.score('example.com');
+
+      expect(result.trademark!.verdict).toBe('unverified');
+      expect(vi.mocked(trademarkGate.check)).not.toHaveBeenCalled();
+    });
+
+    it('does not report budget outcomes when no budget gate is wired', async () => {
+      const onGranted = vi.fn();
+      service = new AnonScoringService(
+        engine,
+        trademarkGate,
+        5000,
+        500,
+        undefined,
+        undefined,
+        onGranted,
+      );
+
+      await service.valuate('example.com');
+
+      expect(onGranted).not.toHaveBeenCalled();
+      expect(vi.mocked(trademarkGate.check)).toHaveBeenCalledTimes(1);
     });
   });
 });

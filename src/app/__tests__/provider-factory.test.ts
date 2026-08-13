@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  buildAnonBudgetGate,
   buildConsensusRateLimiter,
   buildDnsConsensusConfig,
   buildRateLimiters,
@@ -166,6 +167,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     FRONTEND_DIST_PATH: './frontend/dist',
     FRONTEND_BASE_PATH: '',
     PUBLIC_CACHE_TTL_MS: 300000,
+    ANON_TRADEMARK_BUDGET_ENABLED: false,
+    ANON_TRADEMARK_RATE_LIMIT_TOKENS: 2,
+    ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS: 1000,
+    ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS: 1000,
     NAMEBIO_API_KEY: undefined,
     SCORING_INTRINSIC_QUALITY_INFLUENCE: 0.12,
     DROP_METHOD: 'threshold',
@@ -885,5 +890,40 @@ describe('buildRateLimiters RDAP consensus budget (ADR-0050)', () => {
     expect(rl.rdapConsensus).toBeInstanceOf(RedisRateLimiter);
     expect(rl.rdapConsensus).not.toBe(rl.rdap);
     expect((rl.rdapConsensus as RedisRateLimiter).metrics().namespace).toBe('rdap-consensus');
+  });
+});
+
+describe('buildAnonBudgetGate (ADR-0056)', () => {
+  it('returns a disabled gate when the anonymous trademark budget is off', () => {
+    const gate = buildAnonBudgetGate(makeConfig({ ANON_TRADEMARK_BUDGET_ENABLED: false }));
+    expect(gate.enabled).toBe(false);
+    expect(gate.maxTokens).toBe(-1);
+  });
+
+  it('builds an in-memory budget when enabled without Redis', async () => {
+    const gate = buildAnonBudgetGate(makeConfig({ ANON_TRADEMARK_BUDGET_ENABLED: true }));
+    expect(gate.enabled).toBe(true);
+    expect(gate.limiter).toBeInstanceOf(RateLimiter);
+    await expect(gate.tryAcquire()).resolves.toBe(true);
+  });
+
+  it('honours the token override for the in-memory budget', () => {
+    const gate = buildAnonBudgetGate(
+      makeConfig({
+        ANON_TRADEMARK_BUDGET_ENABLED: true,
+        ANON_TRADEMARK_RATE_LIMIT_TOKENS: 7,
+      }),
+    );
+    expect(gate.maxTokens).toBe(7);
+  });
+
+  it('builds a distributed budget on the anon-trademark namespace in cloud mode', () => {
+    const gate = buildAnonBudgetGate(
+      makeConfig({ ANON_TRADEMARK_BUDGET_ENABLED: true }),
+      fakeRedis(),
+    );
+    expect(gate.enabled).toBe(true);
+    expect(gate.limiter).toBeInstanceOf(RedisRateLimiter);
+    expect((gate.limiter as RedisRateLimiter).metrics().namespace).toBe('anon-trademark');
   });
 });
