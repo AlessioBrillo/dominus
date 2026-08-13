@@ -6,8 +6,18 @@ export interface PortfolioListResponse {
   portfolio: PortfolioEntry[];
 }
 
+/** The API wraps each entry in a renewal-clock envelope: `{ entry, renewalClock }`. */
+export function fetchPortfolioEntries(signal?: AbortSignal): Promise<PortfolioEntry[]> {
+  return api
+    .get<{ portfolio: Array<{ entry: PortfolioEntry; renewalClock: unknown }> }>(
+      '/portfolio',
+      signal,
+    )
+    .then((data) => data.portfolio.map((item) => item.entry));
+}
+
 export function fetchPortfolio(): Promise<PortfolioListResponse> {
-  return api.get<PortfolioListResponse>('/portfolio');
+  return fetchPortfolioEntries().then((portfolio) => ({ portfolio }));
 }
 
 export interface RescoreResponse {

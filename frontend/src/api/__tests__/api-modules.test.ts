@@ -275,9 +275,9 @@ describe('api/dashboard', () => {
       .mockResolvedValueOnce({ status: 'ok' })
       .mockResolvedValueOnce({
         portfolio: [
-          { verdict: 'keep', suggestedListPrice: 100 },
-          { verdict: 'drop' },
-          { verdict: 'reprice', suggestedListPrice: 50 },
+          { entry: { verdict: 'keep', suggestedListPrice: 100 }, renewalClock: {} },
+          { entry: { verdict: 'drop' }, renewalClock: {} },
+          { entry: { verdict: 'reprice', suggestedListPrice: 50 }, renewalClock: {} },
         ],
       })
       .mockResolvedValueOnce({
@@ -444,10 +444,22 @@ describe('api/outcomes', () => {
 });
 
 describe('api/portfolio', () => {
-  it('fetchPortfolio gets the portfolio', async () => {
+  it('fetchPortfolio unwraps the renewal-clock envelope', async () => {
+    mockedGet.mockResolvedValueOnce({
+      portfolio: [
+        { entry: { domain: 'a.com', verdict: 'keep' }, renewalClock: { domain: 'a.com' } },
+      ],
+    });
+    await expect(fetchPortfolio()).resolves.toEqual({
+      portfolio: [{ domain: 'a.com', verdict: 'keep' }],
+    });
+    expect(mockedGet).toHaveBeenCalledWith('/portfolio', undefined);
+  });
+
+  it('fetchPortfolio handles an empty portfolio', async () => {
     mockedGet.mockResolvedValueOnce({ portfolio: [] });
-    await fetchPortfolio();
-    expect(mockedGet).toHaveBeenCalledWith('/portfolio');
+    await expect(fetchPortfolio()).resolves.toEqual({ portfolio: [] });
+    expect(mockedGet).toHaveBeenCalledWith('/portfolio', undefined);
   });
 
   it('rescorePortfolio posts the rescore', async () => {
