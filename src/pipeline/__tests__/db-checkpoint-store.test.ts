@@ -3,7 +3,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { runMigrations } from '../../db/migrator.js';
-import { DbCheckpointStore, getResumeIndex } from '../db-checkpoint-store.js';
+import {
+  CHECKPOINT_FORMAT_VERSION,
+  CHECKPOINT_MAX_AGE_MS,
+  DbCheckpointStore,
+  getResumeIndex,
+} from '../db-checkpoint-store.js';
 import { CandidateSource, CandidateStatus, type DomainCandidate } from '../../types/candidate.js';
 
 function cand(domain: string): DomainCandidate {
@@ -61,5 +66,32 @@ describe('DbCheckpointStore', () => {
   it('returns no checkpoint for an unknown run', async () => {
     expect(await store.load('nope')).toBeNull();
     expect(await store.getLastCompletedStage('nope')).toBeNull();
+  });
+
+  it('ignores checkpoints with a mismatched format version (stale binary)', async () => {
+    await store.save('run-1', 'DnsPreFilterStage', [cand('a.com')], []);
+    await sqlite
+      .prepare('UPDATE pipeline_checkpoints SET format_version = ? WHERE run_id = ?')
+      .run(CHECKPOINT_FORMAT_VERSION + 1, 'run-1');
+    expect(await store.load('run-1')).toBeNull();
+    expect(await store.hasCheckpoint('run-1')).toBe(true);
+  });
+
+  it('ignores checkpoints older than the staleness ceiling', async () => {
+    await store.save('run-1', 'DnsPreFilterStage', [cand('a.com')], []);
+    const stale = new Date(Date.now() - CHECKPOINT_MAX_AGE_MS - 60_000)
+      .toISOString()
+      .replace('T', ' ')
+      .replace('Z', '');
+    await sqlite
+      .prepare('UPDATE pipeline_checkpoints SET created_at = ? WHERE run_id = ?')
+      .run(stale, 'run-1');
+    expect(await store.load('run-1')).toBeNull();
+  });
+
+  it('reloads fresh checkpoints with the current format version', async () => {
+    await store.save('run-1', 'DnsPreFilterStage', [cand('a.com')], []);
+    const data = await store.load('run-1');
+    expect(data?.passed.map((c) => c.domain)).toEqual(['a.com']);
   });
 });
