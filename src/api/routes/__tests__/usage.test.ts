@@ -121,4 +121,80 @@ describe('API: /api/v1/usage', () => {
       expect(res.body[0]).toHaveProperty('limitValue');
     });
   });
+
+  describe('GET /history', () => {
+    it('returns the usage history for the tenant', async () => {
+      const service = makeStubService();
+      (service.getUsageHistory as ReturnType<typeof vi.fn>).mockResolvedValue([
+        {
+          periodStart: '2026-05-01',
+          periodEnd: '2026-05-31',
+          plan: 'free',
+          usage: {
+            candidates_scored: {
+              feature: 'candidates_scored',
+              currentUsage: 0,
+              limitValue: 50,
+              remaining: 50,
+              isOverLimit: false,
+              plan: 'free',
+              periodStart: '2026-05-01',
+              periodEnd: '2026-05-31',
+            },
+            api_calls: {
+              feature: 'api_calls',
+              currentUsage: 0,
+              limitValue: 1000,
+              remaining: 1000,
+              isOverLimit: false,
+              plan: 'free',
+              periodStart: '2026-05-01',
+              periodEnd: '2026-05-31',
+            },
+            domains_tracked: {
+              feature: 'domains_tracked',
+              currentUsage: 0,
+              limitValue: 25,
+              remaining: 25,
+              isOverLimit: false,
+              plan: 'free',
+              periodStart: '2026-05-01',
+              periodEnd: '2026-05-31',
+            },
+          },
+        },
+      ] as never);
+
+      const res = await request(buildApp(service)).get('/api/v1/usage/history?months=3');
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toHaveProperty('periodStart');
+      expect(res.body[0].usage.candidates_scored.currentUsage).toBe(0);
+    });
+
+    it('defaults to 6 months when months is omitted', async () => {
+      const service = makeStubService();
+      (service.getUsageHistory as ReturnType<typeof vi.fn>).mockResolvedValue([] as never);
+
+      const res = await request(buildApp(service)).get('/api/v1/usage/history');
+      expect(res.status).toBe(200);
+      expect(service.getUsageHistory).toHaveBeenCalledWith('default', 6);
+    });
+
+    it('returns 400 when months is out of range', async () => {
+      const res = await request(buildApp()).get('/api/v1/usage/history?months=0');
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when months exceeds the 24-month cap', async () => {
+      const res = await request(buildApp()).get('/api/v1/usage/history?months=25');
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when months is not a number', async () => {
+      const res = await request(buildApp()).get('/api/v1/usage/history?months=abc');
+      expect(res.status).toBe(400);
+    });
+  });
 });
