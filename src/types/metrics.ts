@@ -43,6 +43,26 @@ export interface DnsConsensusMetrics {
   observed: boolean;
 }
 
+/** Verdict labels reported by the trademark gate. */
+export type TrademarkGateVerdict = 'clear' | 'blocked' | 'unverified';
+
+export interface TrademarkGateMetrics {
+  /** Checks resolved to Clear since process start. */
+  clearTotal: number;
+  /** Checks resolved to Blocked (trademark match) since process start. */
+  blockedTotal: number;
+  /** Checks resolved to Unverified (sources down) since process start. */
+  unverifiedTotal: number;
+  /** Clear verdicts that relied on a single responding source. */
+  partialTotal: number;
+  /** Checks where the USPTO source failed. */
+  usptoFailuresTotal: number;
+  /** Checks where the EUIPO source failed. */
+  euipoFailuresTotal: number;
+  /** Whether the gate ran at least once since process start. */
+  observed: boolean;
+}
+
 export interface PipelineRunSummary {
   totalRuns: number;
   totalCandidatesEvaluated: number;
@@ -52,6 +72,7 @@ export interface PipelineRunSummary {
   lastRunDurationMs: number | null;
   providerMetrics: Record<string, ProviderMetrics>;
   dnsConsensus?: DnsConsensusMetrics;
+  trademarkGate?: TrademarkGateMetrics;
 }
 
 export interface SystemMetrics {

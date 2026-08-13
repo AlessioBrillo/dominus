@@ -83,3 +83,67 @@ describe('MetricsCollector DNS consensus (ADR-0039)', () => {
     expect(consensus.degradedRunsTotal).toBe(0);
   });
 });
+
+describe('MetricsCollector trademark gate', () => {
+  it('records and accumulates verdict tallies', () => {
+    const collector = new MetricsCollector();
+    collector.recordTrademarkGate({ verdict: 'clear', usptoOk: true, euipoOk: true });
+    collector.recordTrademarkGate({ verdict: 'blocked', usptoOk: true, euipoOk: true });
+    collector.recordTrademarkGate({
+      verdict: 'unverified',
+      usptoOk: false,
+      euipoOk: false,
+    });
+
+    const tm = collector.snapshot().pipeline.trademarkGate!;
+    expect(tm.observed).toBe(true);
+    expect(tm.clearTotal).toBe(1);
+    expect(tm.blockedTotal).toBe(1);
+    expect(tm.unverifiedTotal).toBe(1);
+    expect(tm.partialTotal).toBe(0);
+    expect(tm.usptoFailuresTotal).toBe(1);
+    expect(tm.euipoFailuresTotal).toBe(1);
+  });
+
+  it('counts partial clear verdicts separately', () => {
+    const collector = new MetricsCollector();
+    collector.recordTrademarkGate({
+      verdict: 'clear',
+      partial: true,
+      usptoOk: true,
+      euipoOk: false,
+    });
+    collector.recordTrademarkGate({ verdict: 'clear', usptoOk: true, euipoOk: true });
+
+    const tm = collector.snapshot().pipeline.trademarkGate!;
+    expect(tm.clearTotal).toBe(2);
+    expect(tm.partialTotal).toBe(1);
+    expect(tm.euipoFailuresTotal).toBe(1);
+  });
+
+  it('reports observed=false before any gate check', () => {
+    const collector = new MetricsCollector();
+    const tm = collector.snapshot().pipeline.trademarkGate!;
+    expect(tm.observed).toBe(false);
+    expect(tm.clearTotal).toBe(0);
+    expect(tm.unverifiedTotal).toBe(0);
+  });
+
+  it('reset clears trademark gate tallies', () => {
+    const collector = new MetricsCollector();
+    collector.recordTrademarkGate({
+      verdict: 'clear',
+      partial: true,
+      usptoOk: false,
+      euipoOk: true,
+    });
+    collector.recordTrademarkGate({ verdict: 'unverified', usptoOk: false, euipoOk: false });
+    collector.reset();
+
+    const tm = collector.snapshot().pipeline.trademarkGate!;
+    expect(tm.observed).toBe(false);
+    expect(tm.clearTotal).toBe(0);
+    expect(tm.partialTotal).toBe(0);
+    expect(tm.usptoFailuresTotal).toBe(0);
+  });
+});

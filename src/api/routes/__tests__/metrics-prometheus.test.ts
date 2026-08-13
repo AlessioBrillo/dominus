@@ -157,4 +157,31 @@ describe('renderPrometheusMetrics', () => {
     const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
     expect(body).toContain('dominus_dns_consensus_last_run_degraded 0');
   });
+
+  it('emits trademark gate series only after the gate is observed', () => {
+    const pre = renderPrometheusMetrics(snapshot, queueStats, 0);
+    expect(pre).not.toContain('dominus_trademark_gate_clear_total');
+    expect(pre).not.toContain('dominus_trademark_gate_unverified_total');
+
+    const withGate = structuredClone(snapshot);
+    withGate.pipeline.trademarkGate = {
+      clearTotal: 14,
+      blockedTotal: 2,
+      unverifiedTotal: 3,
+      partialTotal: 5,
+      usptoFailuresTotal: 4,
+      euipoFailuresTotal: 1,
+      observed: true,
+    };
+    const body = renderPrometheusMetrics(withGate, queueStats, 0);
+
+    expect(body).toContain('dominus_trademark_gate_clear_total 14');
+    expect(body).toContain('dominus_trademark_gate_blocked_total 2');
+    expect(body).toContain('dominus_trademark_gate_unverified_total 3');
+    expect(body).toContain('dominus_trademark_gate_partial_total 5');
+    expect(body).toContain('dominus_trademark_gate_uspto_failures_total 4');
+    expect(body).toContain('dominus_trademark_gate_euipo_failures_total 1');
+    expect(body).toContain('# TYPE dominus_trademark_gate_clear_total counter');
+    expect(body).toContain('# TYPE dominus_trademark_gate_unverified_total counter');
+  });
 });
