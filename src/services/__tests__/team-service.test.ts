@@ -145,6 +145,7 @@ describe('TeamService', () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'canceled' });
       expect(await service.canAddSeat('tenant-1')).toBe(true);
       await service.inviteMember('tenant-1', 'user-1', 'member', 'owner-1');
+      await service.acceptInvite('tenant-1', 'user-1');
       expect(await service.canAddSeat('tenant-1')).toBe(false);
     });
   });
