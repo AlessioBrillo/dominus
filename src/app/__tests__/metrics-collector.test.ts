@@ -147,3 +147,36 @@ describe('MetricsCollector trademark gate', () => {
     expect(tm.usptoFailuresTotal).toBe(0);
   });
 });
+
+describe('MetricsCollector anonymous trademark budget (ADR-0056)', () => {
+  it('records and accumulates budget grants and fail-open blocks', () => {
+    const collector = new MetricsCollector();
+    collector.recordAnonTrademarkBudget(true);
+    collector.recordAnonTrademarkBudget(true);
+    collector.recordAnonTrademarkBudget(false);
+
+    const anon = collector.snapshot().anonTrademark!;
+    expect(anon.observed).toBe(true);
+    expect(anon.hitsTotal).toBe(2);
+    expect(anon.blockedTotal).toBe(1);
+  });
+
+  it('reports observed=false before any anonymous budget outcome', () => {
+    const collector = new MetricsCollector();
+    const anon = collector.snapshot().anonTrademark!;
+    expect(anon.observed).toBe(false);
+    expect(anon.hitsTotal).toBe(0);
+    expect(anon.blockedTotal).toBe(0);
+  });
+
+  it('reset clears anonymous budget tallies', () => {
+    const collector = new MetricsCollector();
+    collector.recordAnonTrademarkBudget(false);
+    collector.reset();
+
+    const anon = collector.snapshot().anonTrademark!;
+    expect(anon.observed).toBe(false);
+    expect(anon.blockedTotal).toBe(0);
+    expect(anon.hitsTotal).toBe(0);
+  });
+});

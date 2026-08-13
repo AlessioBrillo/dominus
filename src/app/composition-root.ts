@@ -99,6 +99,7 @@ import {
   createRdapConsensusConfig,
   buildWhoisProviders,
   buildRateLimiters,
+  buildAnonBudgetGate,
   buildWaybackProvider,
 } from './provider-factory.js';
 import type { DnsProvider } from '../providers/dns/dns-provider.js';
@@ -628,12 +629,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   );
 
   // --- Anonymous Scoring Service ---
+  // The public namespace draws trademark-gate budget from its own dedicated
+  // allowance (ADR-0056): an anonymous valuation spike can never starve
+  // pipeline runs of USPTO/EUIPO capacity. Denials fail open to an
+  // 'unverified' verdict, and every grant/denial feeds gate telemetry.
+  const anonBudgetGate = buildAnonBudgetGate(config, redisClient);
   const anonScoringService = new AnonScoringService(
     engine,
     trademarkGate,
     config.PUBLIC_CACHE_TTL_MS,
     500,
     repos.publicScoreRepo,
+    anonBudgetGate,
+    (granted: boolean): void => metrics.recordAnonTrademarkBudget(granted),
   );
 
   // --- Health ---

@@ -121,6 +121,61 @@ describe('public rate limit config defaults', () => {
   });
 });
 
+// Locks the anonymous trademark budget defaults (ADR-0056) so the schema and
+// the documented .env.example values cannot drift apart again.
+describe('anonymous trademark budget config defaults (ADR-0056)', () => {
+  const ENV_KEYS = [
+    'ANON_TRADEMARK_BUDGET_ENABLED',
+    'ANON_TRADEMARK_RATE_LIMIT_TOKENS',
+    'ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS',
+    'ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('ANON_TRADEMARK_BUDGET_ENABLED defaults to false (community behaviour unchanged)', () => {
+    expect(loadConfig().ANON_TRADEMARK_BUDGET_ENABLED).toBe(false);
+  });
+
+  it('ANON_TRADEMARK_RATE_LIMIT_TOKENS defaults to 2', () => {
+    expect(loadConfig().ANON_TRADEMARK_RATE_LIMIT_TOKENS).toBe(2);
+  });
+
+  it('ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS defaults to 1000', () => {
+    expect(loadConfig().ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS).toBe(1000);
+  });
+
+  it('ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS defaults to 1000', () => {
+    expect(loadConfig().ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS).toBe(1000);
+  });
+
+  it('accepts explicit overrides', () => {
+    process.env.ANON_TRADEMARK_BUDGET_ENABLED = 'true';
+    process.env.ANON_TRADEMARK_RATE_LIMIT_TOKENS = '4';
+    process.env.ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS = '250';
+    resetConfig();
+    expect(loadConfig().ANON_TRADEMARK_BUDGET_ENABLED).toBe(true);
+    expect(loadConfig().ANON_TRADEMARK_RATE_LIMIT_TOKENS).toBe(4);
+    expect(loadConfig().ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS).toBe(250);
+  });
+});
+
 // Locks DNS_RESOLVER_GROUPS parsing (ADR-0047): custom DoH lookups must be
 // able to express the RFC 8484 wire format for providers without a JSON API
 // (Quad9, AdGuard, Mullvad). A group pointing at a wire-only endpoint that

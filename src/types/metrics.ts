@@ -98,8 +98,22 @@ export interface BackupMetrics {
   pitrCheckedAtMs: number | null;
 }
 
+/** Anonymous trademark-gate budget outcomes (ADR-0056). */
+export interface AnonTrademarkBudgetMetrics {
+  /** Gate checks executed for anonymous valuations since process start. */
+  hitsTotal: number;
+  /** Anonymous valuations failed open to 'unverified' because the budget
+   *  could not grant a slot in time (fail-open, ADR-0056). */
+  blockedTotal: number;
+  /** Whether any anonymous budget outcome was recorded since process start. */
+  observed: boolean;
+}
+
 export interface MetricsSnapshot {
   pipeline: PipelineRunSummary;
   system: SystemMetrics;
   backup: BackupMetrics;
+  /** Optional so callers constructing snapshots remain valid even when the
+   *  anonymous trademark budget has never fired. */
+  anonTrademark?: AnonTrademarkBudgetMetrics;
 }

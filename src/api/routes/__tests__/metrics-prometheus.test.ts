@@ -184,4 +184,19 @@ describe('renderPrometheusMetrics', () => {
     expect(body).toContain('# TYPE dominus_trademark_gate_clear_total counter');
     expect(body).toContain('# TYPE dominus_trademark_gate_unverified_total counter');
   });
+
+  it('emits anonymous trademark budget series only after observed (ADR-0056)', () => {
+    const pre = renderPrometheusMetrics(snapshot, queueStats, 0);
+    expect(pre).not.toContain('dominus_anon_trademark_hits_total');
+    expect(pre).not.toContain('dominus_anon_trademark_blocked_total');
+
+    const withAnon = structuredClone(snapshot);
+    withAnon.anonTrademark = { hitsTotal: 4, blockedTotal: 2, observed: true };
+    const body = renderPrometheusMetrics(withAnon, queueStats, 0);
+
+    expect(body).toContain('dominus_anon_trademark_hits_total 4');
+    expect(body).toContain('dominus_anon_trademark_blocked_total 2');
+    expect(body).toContain('# TYPE dominus_anon_trademark_hits_total counter');
+    expect(body).toContain('# TYPE dominus_anon_trademark_blocked_total counter');
+  });
 });
