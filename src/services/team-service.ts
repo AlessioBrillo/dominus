@@ -3,7 +3,8 @@ import type { TeamSeatsRepository } from '../db/repositories/team-seats-reposito
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { TeamRole } from '../types/team.js';
 import { TEAM_PLAN_LIMITS } from '../types/team.js';
-import type { SubscriptionPlan } from '../types/subscription.js';
+import type { Subscription, SubscriptionPlan } from '../types/subscription.js';
+import { effectivePlanFor } from './effective-plan.js';
 
 export class TeamSeatLimitError extends Error {
   constructor(
@@ -40,7 +41,8 @@ export interface TeamMember {
 export interface TeamSummary {
   tenantId: string;
   plan: SubscriptionPlan;
-  seatLimit: number;
+  /** Maximum active seats; null when the plan is unlimited (enterprise). */
+  seatLimit: number | null;
   activeSeats: number;
   pendingSeats: number;
   members: TeamMember[];
@@ -49,15 +51,21 @@ export interface TeamSummary {
 export class TeamService {
   readonly #seatsRepo: TeamSeatsRepository;
   readonly #subRepo: SubscriptionRepository;
+  readonly #resolvePlan: (sub: Subscription | null | undefined) => SubscriptionPlan;
 
-  constructor(seatsRepo: TeamSeatsRepository, subRepo: SubscriptionRepository) {
+  constructor(
+    seatsRepo: TeamSeatsRepository,
+    subRepo: SubscriptionRepository,
+    resolvePlan: (sub: Subscription | null | undefined) => SubscriptionPlan = effectivePlanFor,
+  ) {
     this.#seatsRepo = seatsRepo;
     this.#subRepo = subRepo;
+    this.#resolvePlan = resolvePlan;
   }
 
   async getTeamSummary(tenantId: string): Promise<TeamSummary> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan: SubscriptionPlan = sub?.plan ?? 'free';
+    const plan = this.#resolvePlan(sub);
     const limits = TEAM_PLAN_LIMITS[plan];
     const seats = await this.#seatsRepo.findByTenantId(tenantId);
 
@@ -72,7 +80,7 @@ export class TeamService {
     return {
       tenantId,
       plan,
-      seatLimit: limits.seats,
+      seatLimit: Number.isFinite(limits.seats) ? limits.seats : null,
       activeSeats: seats.filter((s) => s.status === 'active').length,
       pendingSeats: seats.filter((s) => s.status === 'pending').length,
       members,
@@ -90,7 +98,7 @@ export class TeamService {
     }
 
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan: SubscriptionPlan = sub?.plan ?? 'free';
+    const plan = this.#resolvePlan(sub);
     const limits = TEAM_PLAN_LIMITS[plan];
 
     if (limits.seats === 0) {
@@ -136,7 +144,7 @@ export class TeamService {
 
   async canAddSeat(tenantId: string): Promise<boolean> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan: SubscriptionPlan = sub?.plan ?? 'free';
+    const plan = this.#resolvePlan(sub);
     const limits = TEAM_PLAN_LIMITS[plan];
 
     if (limits.seats === 0) return false;

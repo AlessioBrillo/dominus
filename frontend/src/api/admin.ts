@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { api } from './client.js';
 
-export type AdminPlan = 'free' | 'pro' | 'enterprise';
+export type AdminPlan = 'free' | 'pro' | 'team' | 'enterprise';
 export type AdminStatus = 'active' | 'past_due' | 'canceled' | 'incomplete' | 'trialing';
 export type AdminFeature = 'candidates_scored' | 'api_calls' | 'domains_tracked';
 
