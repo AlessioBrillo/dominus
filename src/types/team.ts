@@ -58,5 +58,10 @@ export const TEAM_PLAN_LIMITS: Record<SubscriptionPlan, TeamPlanLimits> = {
   free: { seats: 1, candidatesScored: 50, apiCalls: 1000, domainsTracked: 25 },
   pro: { seats: 3, candidatesScored: 500, apiCalls: 10000, domainsTracked: 250 },
   team: { seats: 10, candidatesScored: 2500, apiCalls: 50000, domainsTracked: 1000 },
-  enterprise: { seats: 0, candidatesScored: 0, apiCalls: 0, domainsTracked: 0 },
+  enterprise: {
+    seats: Number.POSITIVE_INFINITY,
+    candidatesScored: Number.POSITIVE_INFINITY,
+    apiCalls: Number.POSITIVE_INFINITY,
+    domainsTracked: Number.POSITIVE_INFINITY,
+  },
 };

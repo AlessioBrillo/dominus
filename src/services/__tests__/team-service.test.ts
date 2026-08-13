@@ -55,7 +55,7 @@ describe('TeamService', () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'enterprise', status: 'active' });
       const summary = await service.getTeamSummary('tenant-1');
       expect(summary.plan).toBe('enterprise');
-      expect(summary.seatLimit).toBe(0);
+      expect(summary.seatLimit).toBeNull();
     });
 
     it('lists members with their status', async () => {
@@ -78,11 +78,14 @@ describe('TeamService', () => {
       );
     });
 
-    it('throws when plan does not support seats', async () => {
+    it('supports unlimited invites on enterprise', async () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'enterprise', status: 'active' });
-      await expect(service.inviteMember('tenant-1', 'user-1', 'member', 'owner-1')).rejects.toThrow(
-        'Current plan does not support team seats',
-      );
+      for (let i = 1; i <= 5; i++) {
+        await service.inviteMember('tenant-1', `user-${i}`, 'member', 'owner-1');
+      }
+      expect(await service.canAddSeat('tenant-1')).toBe(true);
+      const summary = await service.getTeamSummary('tenant-1');
+      expect(summary.pendingSeats).toBe(5);
     });
 
     it('throws DuplicateSeatError for already active member', async () => {
@@ -111,6 +114,39 @@ describe('TeamService', () => {
       await expect(service.inviteMember('tenant-1', 'user-4', 'member', 'owner-1')).rejects.toThrow(
         TeamSeatLimitError,
       );
+    });
+  });
+
+  describe('status-aware plan resolution (ADR-0053)', () => {
+    it('downgrades past_due subscriptions to free seat limits', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });
+      const summary = await service.getTeamSummary('tenant-1');
+      expect(summary.plan).toBe('free');
+      expect(summary.seatLimit).toBe(1);
+    });
+
+    it('keeps trialing subscriptions on the paid plan', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'trialing' });
+      const summary = await service.getTeamSummary('tenant-1');
+      expect(summary.plan).toBe('team');
+      expect(summary.seatLimit).toBe(10);
+    });
+
+    it('blocks invites at the free seat cap when billing lapsed', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });
+      await service.inviteMember('tenant-1', 'user-1', 'member', 'owner-1');
+      await service.acceptInvite('tenant-1', 'user-1');
+      await expect(service.inviteMember('tenant-1', 'user-2', 'member', 'owner-1')).rejects.toThrow(
+        TeamSeatLimitError,
+      );
+    });
+
+    it('reports canAddSeat=false when the effective plan is free and the seat is taken', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'canceled' });
+      expect(await service.canAddSeat('tenant-1')).toBe(true);
+      await service.inviteMember('tenant-1', 'user-1', 'member', 'owner-1');
+      await service.acceptInvite('tenant-1', 'user-1');
+      expect(await service.canAddSeat('tenant-1')).toBe(false);
     });
   });
 

@@ -20,15 +20,15 @@ const PLAN_LABELS: Record<string, string> = {
 };
 
 const PLAN_PRICES: Record<BillingPlan, { month: string; year: string }> = {
-  pro: { month: '€19/mo', year: '€190/yr' },
+  pro: { month: '€29/mo', year: '€290/yr' },
   team: { month: '€79/mo', year: '€790/yr' },
-  enterprise: { month: '€99/mo', year: '€990/yr' },
+  enterprise: { month: 'Custom', year: 'Custom' },
 };
 
 const PLAN_FEATURES: Record<BillingPlan, string[]> = {
-  pro: ['Multi-tenant', 'PostgreSQL database', 'Priority support', 'Stripe billing'],
-  team: ['Everything in Pro', '10 team seats', '500 runs/day', 'Slack support'],
-  enterprise: ['Everything in Team', 'Dedicated support', 'Custom SLA', 'Custom onboarding'],
+  pro: ['Multi-tenant', 'PostgreSQL database', '500 candidates/month', 'Priority support'],
+  team: ['Everything in Pro', '10 team seats', '2,500 candidates/month', 'Slack support'],
+  enterprise: ['Everything in Team', 'Unlimited candidates', 'Dedicated support', 'Custom SLA'],
 };
 
 const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
