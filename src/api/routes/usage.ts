@@ -4,13 +4,11 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { UsageMeterService } from '../../services/usage-meter-service.js';
 import type { UsageFeature } from '../../types/usage.js';
-import { USAGE_FEATURES } from '../../types/usage.js';
+import { USAGE_FEATURES, isUsageFeature } from '../../types/usage.js';
 import { UsageLimitExceededError } from '../../types/errors.js';
 
-const FEATURES = USAGE_FEATURES;
-
-const featureParam = z.string().refine((v) => (FEATURES as readonly string[]).includes(v), {
-  message: `feature must be one of: ${FEATURES.join(', ')}`,
+const featureParam = z.string().refine(isUsageFeature, {
+  message: `feature must be one of: ${USAGE_FEATURES.join(', ')}`,
 });
 
 const recordSchema = z.object({
