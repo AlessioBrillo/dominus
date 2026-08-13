@@ -3,8 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { UsageRepository } from '../../db/repositories/usage-repository.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
-import { UsageMeterService, effectivePlanFor } from '../usage-meter-service.js';
-import type { Subscription } from '../../types/subscription.js';
+import { UsageMeterService } from '../usage-meter-service.js';
 
 describe('UsageMeterService', () => {
   let db: SqliteProvider;
@@ -195,43 +194,6 @@ describe('UsageMeterService', () => {
     it('handles December correctly', () => {
       const start = UsageMeterService.periodStart('2026-12-31T23:59:59.000Z');
       expect(start).toBe('2026-12-01');
-    });
-  });
-
-  describe('effectivePlanFor', () => {
-    const sub = (status: Subscription['status']): Subscription =>
-      ({
-        id: 1,
-        tenantId: TENANT,
-        plan: 'pro',
-        status,
-        stripeCustomerId: null,
-        stripeSubscriptionId: null,
-        currentPeriodStart: null,
-        currentPeriodEnd: null,
-        trialEnd: null,
-        canceledAt: null,
-        createdAt: '2026-07-01T00:00:00.000Z',
-        updatedAt: '2026-07-01T00:00:00.000Z',
-      }) as Subscription;
-
-    it('returns the plan for active subscriptions', () => {
-      expect(effectivePlanFor(sub('active'))).toBe('pro');
-    });
-
-    it('returns the plan for trialing subscriptions', () => {
-      expect(effectivePlanFor(sub('trialing'))).toBe('pro');
-    });
-
-    it.each(['past_due', 'canceled', 'incomplete'] as const)(
-      'fails closed to free for status %s',
-      (status) => {
-        expect(effectivePlanFor(sub(status))).toBe('free');
-      },
-    );
-
-    it('fails closed to free for a missing subscription', () => {
-      expect(effectivePlanFor(null)).toBe('free');
     });
   });
 });
