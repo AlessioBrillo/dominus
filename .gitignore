@@ -55,3 +55,8 @@ dominus-conversion-features-spec.md
 # Vitest benchmark output
 bench-results.json
 
+# --- Playwright E2E ---
+.e2e/
+playwright-report/
+test-results/
+

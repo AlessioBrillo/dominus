@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { api } from './client.js';
-import type { Alert, HealthResponse } from '../types/domain.js';
+import { fetchPortfolioEntries } from './portfolio.js';
+import type { Alert, HealthResponse, PortfolioEntry } from '../types/domain.js';
 
 export interface DashboardStats {
   totalDomains: number;
@@ -22,12 +23,9 @@ export interface DashboardResult {
 export async function fetchDashboardStats(signal?: AbortSignal): Promise<DashboardResult> {
   const failures: string[] = [];
 
-  const [health, portfolioData, alertsData] = await Promise.allSettled([
+  const [health, portfolioEntries, alertsData] = await Promise.allSettled([
     api.get<HealthResponse>('/health', signal),
-    api.get<{ portfolio: Array<{ verdict: string; suggestedListPrice?: number }> }>(
-      '/portfolio',
-      signal,
-    ),
+    fetchPortfolioEntries(signal),
     api.get<{ alerts: Alert[] }>('/alerts', signal),
   ]);
 
@@ -39,11 +37,11 @@ export async function fetchDashboardStats(signal?: AbortSignal): Promise<Dashboa
           return null;
         })();
   const portfolioVal =
-    portfolioData.status === 'fulfilled'
-      ? portfolioData.value
+    portfolioEntries.status === 'fulfilled'
+      ? portfolioEntries.value
       : (() => {
           failures.push('portfolio');
-          return { portfolio: [] as Array<{ verdict: string; suggestedListPrice?: number }> };
+          return [] as PortfolioEntry[];
         })();
   const alertsVal =
     alertsData.status === 'fulfilled'
@@ -53,7 +51,7 @@ export async function fetchDashboardStats(signal?: AbortSignal): Promise<Dashboa
           return { alerts: [] as Alert[] };
         })();
 
-  const portfolio = portfolioVal.portfolio;
+  const portfolio = portfolioVal;
   const alerts = alertsVal.alerts;
 
   return {

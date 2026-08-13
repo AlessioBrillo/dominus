@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('@/api/candidates', () => ({
   fetchCandidates: vi.fn(),
@@ -73,6 +74,46 @@ describe('CandidatesPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Run Pipeline')).toBeInTheDocument();
+    });
+  });
+
+  it('auto-selects the most recent run so candidates load without a manual pick', async () => {
+    vi.mocked(fetchCandidates).mockResolvedValue([
+      {
+        id: 1,
+        domain: 'auto-run.com',
+        tld: 'com',
+        source: 'closeout',
+        status: 'recommended',
+        createdAt: '2026-08-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(fetchRuns).mockResolvedValue([
+      { runId: 'run-abc', createdAt: '2026-08-01T00:00:00Z' },
+    ] as never);
+    render(<CandidatesPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByText('auto-run.com')).toBeInTheDocument();
+    });
+    expect(fetchCandidates).toHaveBeenCalledWith('run-abc');
+  });
+
+  it('keeps a manual run selection after auto-selection', async () => {
+    vi.mocked(fetchCandidates).mockResolvedValue([]);
+    vi.mocked(fetchRuns).mockResolvedValue([
+      { runId: 'run-first', createdAt: '2026-08-01T00:00:00Z' },
+    ] as never);
+    render(<CandidatesPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(fetchCandidates).toHaveBeenCalledWith('run-first');
+    });
+
+    await userEvent.click(screen.getByText('All Runs'));
+
+    await waitFor(() => {
+      expect(fetchCandidates).toHaveBeenCalledWith(undefined);
     });
   });
 });

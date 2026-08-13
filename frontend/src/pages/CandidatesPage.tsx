@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Play } from 'lucide-react';
 import { useCandidatesList, useRunsList, useRunPipeline } from '@/hooks/useCandidates';
@@ -16,6 +16,19 @@ export function CandidatesPage() {
   const { data: candidates = [], isLoading, error } = useCandidatesList(selectedRunId);
   const { data: runs = [] } = useRunsList();
   const runPipeline = useRunPipeline();
+  const autoSelectedRun = useRef(false);
+
+  // The candidates API requires a runId; default to the most recent run on
+  // first load so the page does not error out before the user picks a tab.
+  useEffect(() => {
+    if (!autoSelectedRun.current && runs.length > 0) {
+      const firstRunId = runs[0]?.runId;
+      if (firstRunId) {
+        autoSelectedRun.current = true;
+        setSelectedRunId(firstRunId);
+      }
+    }
+  }, [runs]);
 
   const recommended = candidates.filter((c) => c.status === 'recommended');
   const scored = candidates.filter((c) => c.status !== 'recommended');
