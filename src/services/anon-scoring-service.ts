@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { ScoringEngine } from '../scoring/index.js';
 import type { ScoreResult } from '../types/score.js';
 import type { TrademarkGate } from '../trademark/index.js';
+import type { AnonBudgetGate } from '../providers/anon-budget-gate.js';
 import { isValidDomain, parseDomain } from '../utils/domain.js';
 import { MemoryCache } from '../providers/cached-provider.js';
 import type { PublicScoreRepository } from '../db/repositories/public-score-repository.js';
@@ -101,6 +102,8 @@ const VIEW_COUNT_RETRY_MAX = 1_000;
 export class AnonScoringService {
   readonly #engine: ScoringEngine;
   readonly #trademarkGate: TrademarkGate | undefined;
+  readonly #anonBudgetGate: AnonBudgetGate | undefined;
+  readonly #onAnonBudgetGranted: ((granted: boolean) => void) | undefined;
   readonly #repo: PublicScoreRepository | undefined;
   readonly #cache: MemoryCache<AnonScoreResult>;
   readonly #valuateCache: MemoryCache<AnonValuateResult>;
@@ -118,9 +121,13 @@ export class AnonScoringService {
     cacheTtlMs: number = 300_000,
     maxCacheSize: number = 500,
     repo?: PublicScoreRepository,
+    anonBudgetGate?: AnonBudgetGate,
+    onAnonBudgetGranted?: (granted: boolean) => void,
   ) {
     this.#engine = engine;
     this.#trademarkGate = trademarkGate;
+    this.#anonBudgetGate = anonBudgetGate;
+    this.#onAnonBudgetGranted = onAnonBudgetGranted;
     this.#repo = repo;
     const cacheTtlSeconds = Math.ceil(cacheTtlMs / 1000);
     this.#cache = new MemoryCache<AnonScoreResult>(maxCacheSize, cacheTtlSeconds);
@@ -140,21 +147,7 @@ export class AnonScoringService {
 
     const parsed = parseDomain(domain);
 
-    let trademark: AnonTrademarkInfo | null = null;
-    if (this.#trademarkGate) {
-      try {
-        const gateResult = await this.#trademarkGate.check(domain);
-        trademark = {
-          verdict: gateResult.verdict,
-          verifiedSources: gateResult.verifiedSources,
-          matchedMark: gateResult.matchedMark ?? null,
-          matchedOwner: gateResult.matchedOwner ?? null,
-        };
-      } catch (err) {
-        logger.warn({ err, domain }, 'Trademark gate failed during anonymous scoring');
-        trademark = { verdict: 'unverified', verifiedSources: [] };
-      }
-    }
+    const trademark = await this.#runTrademarkCheck(domain);
 
     const scoreResult = await this.#engine.score({
       domain,
@@ -186,21 +179,7 @@ export class AnonScoringService {
 
     const parsed = parseDomain(domain);
 
-    let trademark: AnonTrademarkInfo | null = null;
-    if (this.#trademarkGate) {
-      try {
-        const gateResult = await this.#trademarkGate.check(domain);
-        trademark = {
-          verdict: gateResult.verdict,
-          verifiedSources: gateResult.verifiedSources,
-          matchedMark: gateResult.matchedMark ?? null,
-          matchedOwner: gateResult.matchedOwner ?? null,
-        };
-      } catch (err) {
-        logger.warn({ err, domain }, 'Trademark gate failed during anonymous valuation');
-        trademark = { verdict: 'unverified', verifiedSources: [] };
-      }
-    }
+    const trademark = await this.#runTrademarkCheck(domain);
 
     const scoreResult = await this.#engine.score({
       domain,
@@ -234,6 +213,42 @@ export class AnonScoringService {
     this.#valuateCache.clear();
     this.#scoreCache.clear();
     this.#compareCache.clear();
+  }
+
+  /**
+   * Trademark check for an anonymous (public) valuation, bounded by the
+   * anonymous trademark budget (ADR-0056). When the budget gate is enabled
+   * and cannot grant a slot within its acquire timeout, the check fails
+   * open: the verdict is 'unverified' (buy signal stripped, ADR-0006) and
+   * the underlying provider is never touched, so anonymous traffic can
+   * never starve pipeline runs of USPTO/EUIPO capacity. The gate outcome is
+   * reported to the telemetry callback (when wired) for every attempt.
+   */
+  async #runTrademarkCheck(domain: string): Promise<AnonTrademarkInfo | null> {
+    if (!this.#trademarkGate) return null;
+
+    const budgetEnabled = this.#anonBudgetGate !== undefined && this.#anonBudgetGate.enabled;
+    if (budgetEnabled) {
+      const granted = await this.#anonBudgetGate!.tryAcquire();
+      this.#onAnonBudgetGranted?.(granted);
+      if (!granted) {
+        logger.warn({ domain }, 'Anonymous trademark budget exhausted; failing open to unverified');
+        return { verdict: 'unverified', verifiedSources: [] };
+      }
+    }
+
+    try {
+      const gateResult = await this.#trademarkGate.check(domain);
+      return {
+        verdict: gateResult.verdict,
+        verifiedSources: gateResult.verifiedSources,
+        matchedMark: gateResult.matchedMark ?? null,
+        matchedOwner: gateResult.matchedOwner ?? null,
+      };
+    } catch (err) {
+      logger.warn({ err, domain }, 'Trademark gate failed during anonymous scoring');
+      return { verdict: 'unverified', verifiedSources: [] };
+    }
   }
 
   /**

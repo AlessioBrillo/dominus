@@ -49,6 +49,9 @@ export class MetricsCollector {
   #pitrBaseBackupAgeHours: number | null = null;
   #pitrArchivingActive: boolean | null = null;
   #pitrCheckedAtMs: number | null = null;
+  #anonTrademarkHits = 0;
+  #anonTrademarkBlocked = 0;
+  #anonTrademarkObserved = false;
 
   recordStage(
     stageName: string,
@@ -180,6 +183,15 @@ export class MetricsCollector {
     this.#pitrCheckedAtMs = metrics.checkedAtMs;
   }
 
+  /** Record an anonymous trademark budget outcome (ADR-0056): whether the
+   *  public scoring namespace obtained a budget slot (true) or failed open
+   *  to an 'unverified' verdict (false). */
+  recordAnonTrademarkBudget(granted: boolean): void {
+    this.#anonTrademarkObserved = true;
+    if (granted) this.#anonTrademarkHits++;
+    else this.#anonTrademarkBlocked++;
+  }
+
   snapshot(): MetricsSnapshot {
     const stageMetrics: Record<string, StageMetrics> = {};
     for (const [key, value] of this.#stageMetrics) {
@@ -233,6 +245,11 @@ export class MetricsCollector {
         pitrArchivingActive: this.#pitrArchivingActive,
         pitrCheckedAtMs: this.#pitrCheckedAtMs,
       },
+      anonTrademark: {
+        hitsTotal: this.#anonTrademarkHits,
+        blockedTotal: this.#anonTrademarkBlocked,
+        observed: this.#anonTrademarkObserved,
+      },
     };
   }
 
@@ -263,5 +280,8 @@ export class MetricsCollector {
     this.#pitrBaseBackupAgeHours = null;
     this.#pitrArchivingActive = null;
     this.#pitrCheckedAtMs = null;
+    this.#anonTrademarkHits = 0;
+    this.#anonTrademarkBlocked = 0;
+    this.#anonTrademarkObserved = false;
   }
 }

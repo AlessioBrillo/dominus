@@ -24,6 +24,7 @@ import {
   validateResolverGroups,
 } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
+import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
 import {
   RedisRateLimiter,
   DistributedCircuitBreaker,
@@ -883,6 +884,51 @@ export function buildRateLimiters(config: Config, redisClient?: RedisClient): Bu
   const rdapConsensus = buildRdapConsensusRateLimiter(config);
   const whois = buildWhoisRateLimiter(config);
   return { rdap, uspto, euipo, wayback, dns, dnsConsensus, rdapConsensus, whois };
+}
+
+/**
+ * Anonymous trademark-gate budget (ADR-0056). Gives the public scoring
+ * namespace a dedicated trademark-check allowance so anonymous valuation
+ * traffic can never starve pipeline runs of USPTO/EUIPO capacity, and the
+ * two surfaces' budgets stay independent.
+ *
+ * The gate fails open: a valuation that cannot obtain a slot within
+ * ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS returns an 'unverified' verdict (buy
+ * signal stripped) instead of waiting indefinitely or erroring. Uses the
+ * 'anon-trademark' Redis namespace in cloud mode so api/worker/scheduler
+ * processes share one budget; disabled when ANON_TRADEMARK_BUDGET_ENABLED
+ * is off (community default — anonymous scoring behaves as before).
+ */
+export function buildAnonBudgetGate(config: Config, redisClient?: RedisClient): AnonBudgetGate {
+  const enabled = config.ANON_TRADEMARK_BUDGET_ENABLED;
+  const acquireTimeoutMs = config.ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS;
+  if (!enabled) {
+    return new AnonBudgetGate(RateLimiter.unlimited(), { enabled: false, acquireTimeoutMs });
+  }
+  if (redisClient?.isConnected) {
+    return new AnonBudgetGate(
+      new RedisRateLimiter(
+        {
+          tokens: config.ANON_TRADEMARK_RATE_LIMIT_TOKENS,
+          intervalMs: config.ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS,
+          namespace: 'anon-trademark',
+          // Keep the Redis poll loop bounded by the same deadline as the
+          // gate's own timeout so both paths fail open together.
+          maxWaitMs: acquireTimeoutMs,
+        },
+        redisClient,
+      ),
+      { enabled: true, acquireTimeoutMs },
+    );
+  }
+  return new AnonBudgetGate(
+    new RateLimiter({
+      maxTokens: config.ANON_TRADEMARK_RATE_LIMIT_TOKENS,
+      tokensPerInterval: config.ANON_TRADEMARK_RATE_LIMIT_TOKENS,
+      intervalMs: config.ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS,
+    }),
+    { enabled: true, acquireTimeoutMs },
+  );
 }
 
 /**

@@ -191,6 +191,27 @@ const configSchema = z.object({
    */
   PUBLIC_CACHE_TTL_MS: z.coerce.number().int().min(1000).max(86400000).default(300000),
   /**
+   * Anonymous (public) trademark-gate budget (ADR-0056). When enabled, the
+   * public scoring namespace draws from a dedicated trademark-check budget
+   * (ANON_TRADEMARK_RATE_LIMIT_TOKENS per
+   * ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS) instead of the shared USPTO/EUIPO
+   * buckets, so an anonymous valuation spike can never starve pipeline runs
+   * of trademark capacity.
+   * Fail-open: a valuation that cannot obtain a budget slot within
+   * ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS returns an 'unverified' verdict (buy
+   * signal stripped) instead of waiting or erroring — quality degrades
+   * gracefully while provider cost stays bounded.
+   * Default: false (community edition keeps today's behaviour).
+   */
+  ANON_TRADEMARK_BUDGET_ENABLED: z.coerce.boolean().default(false),
+  /** Rate limiting: max burst of anonymous trademark checks per interval. */
+  ANON_TRADEMARK_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(2),
+  /** Rate limiting: refill interval in ms for the anonymous trademark budget. */
+  ANON_TRADEMARK_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /** Max wait in ms for an anonymous trademark budget slot before failing
+   *  open to 'unverified' (must stay well below the provider deadline). */
+  ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().min(100).max(15000).default(1000),
+  /**
    * Absolute base URL of the public site (e.g. 'https://dominus.app').
    * Used as the origin for canonical URLs, Open Graph metadata, JSON-LD,
    * the robots.txt Sitemap directive, and the sitemap URLs on the

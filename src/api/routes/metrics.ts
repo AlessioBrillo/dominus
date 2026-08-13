@@ -324,6 +324,24 @@ export function renderPrometheusMetrics(
     );
   }
 
+  const anonTm = snapshot.anonTrademark;
+  if (anonTm !== undefined && anonTm.observed) {
+    g(
+      'Anonymous trademark checks executed since process start.',
+      'dominus_anon_trademark_hits_total',
+      anonTm.hitsTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Anonymous trademark checks failed open to unverified (budget exhausted) since process start.',
+      'dominus_anon_trademark_blocked_total',
+      anonTm.blockedTotal,
+      undefined,
+      'counter',
+    );
+  }
+
   g('Jobs currently queued awaiting a worker.', 'dominus_queue_queued', queueStats.queued);
   g('Jobs currently running.', 'dominus_queue_running', queueStats.running);
   g('Jobs completed.', 'dominus_queue_completed_total', queueStats.completed, undefined, 'counter');
