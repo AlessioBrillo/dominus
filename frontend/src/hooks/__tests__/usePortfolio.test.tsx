@@ -6,10 +6,27 @@ vi.mock('@/api/portfolio', () => ({
   fetchPortfolio: vi.fn(),
   rescorePortfolio: vi.fn(),
   refreshVerdicts: vi.fn(),
+  updateVerdict: vi.fn(),
+  removeFromPortfolio: vi.fn(),
+  updatePortfolioEntry: vi.fn(),
 }));
 
-import { usePortfolioList, useRescorePortfolio, useRefreshVerdicts } from '../usePortfolio';
-import { fetchPortfolio, rescorePortfolio, refreshVerdicts } from '@/api/portfolio';
+import {
+  usePortfolioList,
+  useRescorePortfolio,
+  useRefreshVerdicts,
+  useUpdateVerdict,
+  useRemoveFromPortfolio,
+  useUpdatePortfolioEntry,
+} from '../usePortfolio';
+import {
+  fetchPortfolio,
+  rescorePortfolio,
+  refreshVerdicts,
+  updateVerdict,
+  removeFromPortfolio,
+  updatePortfolioEntry,
+} from '@/api/portfolio';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockPortfolio = [
@@ -93,5 +110,77 @@ describe('useRefreshVerdicts', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(refreshVerdicts).toHaveBeenCalledOnce();
+  });
+});
+
+describe('useUpdateVerdict', () => {
+  it('applies a verdict and reports success', async () => {
+    vi.mocked(updateVerdict).mockResolvedValueOnce({ ok: true });
+
+    const { result } = renderHook(() => useUpdateVerdict(), { wrapper: createWrapper() });
+
+    result.current.mutate({ domain: 'example.com', input: { verdict: 'keep' } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(updateVerdict).toHaveBeenCalledWith('example.com', { verdict: 'keep' });
+  });
+
+  it('reports failure when the verdict update errors', async () => {
+    vi.mocked(updateVerdict).mockRejectedValueOnce(new Error('boom'));
+
+    const { result } = renderHook(() => useUpdateVerdict(), { wrapper: createWrapper() });
+
+    result.current.mutate({ domain: 'example.com', input: { verdict: 'drop' } });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(updateVerdict).toHaveBeenCalledWith('example.com', { verdict: 'drop' });
+  });
+});
+
+describe('useRemoveFromPortfolio', () => {
+  it('removes a domain and reports success', async () => {
+    vi.mocked(removeFromPortfolio).mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => useRemoveFromPortfolio(), { wrapper: createWrapper() });
+
+    result.current.mutate('example.com');
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(removeFromPortfolio).toHaveBeenCalledWith('example.com');
+  });
+
+  it('reports failure when removal errors', async () => {
+    vi.mocked(removeFromPortfolio).mockRejectedValueOnce(new Error('boom'));
+
+    const { result } = renderHook(() => useRemoveFromPortfolio(), { wrapper: createWrapper() });
+
+    result.current.mutate('example.com');
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(removeFromPortfolio).toHaveBeenCalledWith('example.com');
+  });
+});
+
+describe('useUpdatePortfolioEntry', () => {
+  it('updates an entry and reports success', async () => {
+    vi.mocked(updatePortfolioEntry).mockResolvedValueOnce({ ok: true });
+
+    const { result } = renderHook(() => useUpdatePortfolioEntry(), { wrapper: createWrapper() });
+
+    result.current.mutate({ domain: 'example.com', input: { notes: 'bought cheap' } });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(updatePortfolioEntry).toHaveBeenCalledWith('example.com', { notes: 'bought cheap' });
+  });
+
+  it('reports failure when the entry update errors', async () => {
+    vi.mocked(updatePortfolioEntry).mockRejectedValueOnce(new Error('boom'));
+
+    const { result } = renderHook(() => useUpdatePortfolioEntry(), { wrapper: createWrapper() });
+
+    result.current.mutate({ domain: 'example.com', input: { renewalCost: 15 } });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(updatePortfolioEntry).toHaveBeenCalledWith('example.com', { renewalCost: 15 });
   });
 });
