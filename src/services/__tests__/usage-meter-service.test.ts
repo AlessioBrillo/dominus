@@ -203,7 +203,7 @@ describe('UsageMeterService', () => {
       const history = await service.getUsageHistory(TENANT, 3);
 
       expect(history).toHaveLength(3);
-      const first = history[0];
+      const first = history[0]!;
       expect(first.plan).toBe('free');
       expect(first.periodStart).toMatch(/^\d{4}-\d{2}-01$/);
       expect(first.usage.candidates_scored.currentUsage).toBe(0);
@@ -225,18 +225,18 @@ describe('UsageMeterService', () => {
       await usageRepo.incrementUsage(TENANT, 'api_calls', 42, prevPeriod);
 
       const history = await service.getUsageHistory(TENANT, 2);
-      expect(history[0].periodStart).toBe(prevPeriod);
-      expect(history[0].usage.api_calls.currentUsage).toBe(42);
-      expect(history[1].periodStart).toBe(current);
-      expect(history[1].usage.candidates_scored.currentUsage).toBe(15);
+      expect(history[0]!.periodStart).toBe(prevPeriod);
+      expect(history[0]!.usage.api_calls.currentUsage).toBe(42);
+      expect(history[1]!.periodStart).toBe(current);
+      expect(history[1]!.usage.candidates_scored.currentUsage).toBe(15);
     });
 
     it('resolves limits from the effective plan (past_due fails closed)', async () => {
       await subRepo.upsert({ tenantId: TENANT, plan: 'pro', status: 'past_due' });
       const history = await service.getUsageHistory(TENANT, 1);
 
-      expect(history[0].plan).toBe('free');
-      expect(history[0].usage.candidates_scored.limitValue).toBe(50);
+      expect(history[0]!.plan).toBe('free');
+      expect(history[0]!.usage.candidates_scored.limitValue).toBe(50);
     });
   });
 });

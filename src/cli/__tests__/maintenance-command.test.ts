@@ -318,13 +318,7 @@ describe('CLI: dominus maintenance', () => {
       });
 
       const out = await captureStdout(async () => {
-        await program.parseAsync([
-          'node',
-          'dominus',
-          'maintenance',
-          'prune',
-          '--usage-only',
-        ]);
+        await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--usage-only']);
       });
 
       expect(out).not.toMatch(/trademark_results/);
