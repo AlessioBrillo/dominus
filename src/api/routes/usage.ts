@@ -4,12 +4,11 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { UsageMeterService } from '../../services/usage-meter-service.js';
 import type { UsageFeature } from '../../types/usage.js';
+import { USAGE_FEATURES, isUsageFeature } from '../../types/usage.js';
 import { UsageLimitExceededError } from '../../types/errors.js';
 
-const FEATURES: UsageFeature[] = ['candidates_scored', 'api_calls', 'domains_tracked'];
-
-const featureParam = z.string().refine((v) => (FEATURES as readonly string[]).includes(v), {
-  message: `feature must be one of: ${FEATURES.join(', ')}`,
+const featureParam = z.string().refine(isUsageFeature, {
+  message: `feature must be one of: ${USAGE_FEATURES.join(', ')}`,
 });
 
 const recordSchema = z.object({
@@ -19,6 +18,10 @@ const recordSchema = z.object({
 
 const querySchema = z.object({
   feature: featureParam,
+});
+
+const historyQuerySchema = z.object({
+  months: z.coerce.number().int().min(1).max(24).optional(),
 });
 
 export function createUsageRouter(usageService: UsageMeterService): Router {
@@ -56,6 +59,28 @@ export function createUsageRouter(usageService: UsageMeterService): Router {
       const tenantId = req.tenantId ?? 'default';
       const limits = await usageService.getAllPlanLimitsForTenant(tenantId);
       res.json(limits);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/history', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = historyQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid query parameters',
+            issues: parsed.error.issues,
+          },
+        });
+        return;
+      }
+
+      const tenantId = req.tenantId ?? 'default';
+      const history = await usageService.getUsageHistory(tenantId, parsed.data.months ?? 6);
+      res.json(history);
     } catch (err) {
       next(err);
     }

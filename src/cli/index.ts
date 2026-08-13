@@ -20,6 +20,7 @@ import type { RenewalAlertEngine } from '../portfolio/renewal-alert-engine.js';
 import type { RenewalAlertRepository } from '../db/repositories/renewal-alert-repository.js';
 import { BackupService } from '../scheduler/backup-service.js';
 import { SqliteProvider } from '../db/provider/sqlite-adapter.js';
+import { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { SchedulerService } from '../scheduler/scheduler-service.js';
 import type { ScoringWeights } from '../scoring/weights.js';
 import type { PurchaseService } from '../services/purchase-service.js';
@@ -143,6 +144,7 @@ export function createCli(options: CreateCliOptions): Command {
     runsRepo,
     candidateRepo,
     scoringRepo,
+    usageRepo: backupProvider ? new UsageRepository(backupProvider) : undefined,
     backupService,
   });
   registerProvidersCommand(program, { config });

@@ -7,6 +7,7 @@ import { TrademarkRepository } from '../../db/repositories/trademark-repository.
 import { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import { CandidateRepository } from '../../db/repositories/candidate-repository.js';
 import { ScoringRepository } from '../../db/repositories/scoring-repository.js';
+import { UsageRepository } from '../../db/repositories/usage-repository.js';
 import { registerMaintenanceCommand } from '../commands/maintenance-command.js';
 import { Command } from 'commander';
 
@@ -24,11 +25,13 @@ function buildProgram(provider: SqliteProvider): {
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
+  usageRepo: UsageRepository;
 } {
   const tmRepo = new TrademarkRepository(provider);
   const runsRepo = new PipelineRunsRepository(provider);
   const candidateRepo = new CandidateRepository(provider);
   const scoringRepo = new ScoringRepository(provider);
+  const usageRepo = new UsageRepository(provider);
   const program = new Command();
   registerMaintenanceCommand(program, {
     db: provider.rawDb,
@@ -36,8 +39,9 @@ function buildProgram(provider: SqliteProvider): {
     runsRepo,
     candidateRepo,
     scoringRepo,
+    usageRepo,
   });
-  return { program, tmRepo, runsRepo, candidateRepo, scoringRepo };
+  return { program, tmRepo, runsRepo, candidateRepo, scoringRepo, usageRepo };
 }
 
 function captureStdout(fn: () => Promise<void> | void): Promise<string> {
@@ -263,5 +267,107 @@ describe('CLI: dominus maintenance', () => {
       }
     });
     expect(err).toMatch(/--cache-only and --runs-only are mutually exclusive/);
+  });
+
+  describe('prune --usage-only', () => {
+    function seedUsage(provider: SqliteProvider, tenantId: string): void {
+      provider.rawDb.exec(`
+        INSERT INTO usage_records (tenant_id, feature, amount, period_start, recorded_at) VALUES
+          ('${tenantId}', 'api_calls', 10, '2024-01-01', '2024-01-15T00:00:00.000Z'),
+          ('${tenantId}', 'api_calls', 5, '2024-02-01', '2024-02-15T00:00:00.000Z')
+      `);
+    }
+
+    function countUsage(db: Database.Database): number {
+      const row = db.prepare('SELECT COUNT(*) AS c FROM usage_records').get() as { c: number };
+      return row.c;
+    }
+
+    it('removes usage_records older than the cutoff and keeps recent ones', async () => {
+      seedUsage(provider, 't1');
+      provider.rawDb.exec(`
+        INSERT INTO usage_records (tenant_id, feature, amount, period_start, recorded_at)
+          VALUES ('t1', 'candidates_scored', 1, '2026-08-01', datetime('now'))
+      `);
+      const before = countUsage(provider.rawDb);
+
+      const out = await captureStdout(async () => {
+        await program.parseAsync([
+          'node',
+          'dominus',
+          'maintenance',
+          'prune',
+          '--usage-only',
+          '--before',
+          '90',
+        ]);
+      });
+
+      expect(out).toMatch(/Pruned 2 usage_records row\(s\) started before/);
+      expect(countUsage(provider.rawDb)).toBe(before - 2);
+    });
+
+    it('prune --usage-only leaves other targets alone', async () => {
+      seedUsage(provider, 't1');
+      await tmRepo.insertByTerm('expired', 'USPTO', false, [], { hits: [] }, -1);
+      await runsRepo.insert({
+        runId: 'r-expired',
+        startedAt: '2025-01-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2025-06-30T00:00:00.000Z',
+      });
+
+      const out = await captureStdout(async () => {
+        await program.parseAsync(['node', 'dominus', 'maintenance', 'prune', '--usage-only']);
+      });
+
+      expect(out).not.toMatch(/trademark_results/);
+      expect(out).not.toMatch(/pipeline_runs/);
+      expect(await tmRepo.count()).toBe(1);
+      expect(await runsRepo.count()).toBe(1);
+    });
+
+    it('prune --usage-only --dry-run does not delete', async () => {
+      seedUsage(provider, 't1');
+      const before = countUsage(provider.rawDb);
+
+      const out = await captureStdout(async () => {
+        await program.parseAsync([
+          'node',
+          'dominus',
+          'maintenance',
+          'prune',
+          '--usage-only',
+          '--dry-run',
+        ]);
+      });
+
+      expect(out).toMatch(/Would prune 2 usage_records/);
+      expect(countUsage(provider.rawDb)).toBe(before);
+    });
+
+    it('rejects --usage-only combined with --cache-only', async () => {
+      const err = await captureStderr(async () => {
+        const origExit = process.exit;
+        (process as unknown as { exit: (code: number) => never }).exit = ((code: number) => {
+          throw new Error(`__exit:${code}`);
+        }) as never;
+        try {
+          await program.parseAsync([
+            'node',
+            'dominus',
+            'maintenance',
+            'prune',
+            '--usage-only',
+            '--cache-only',
+          ]);
+        } catch (e) {
+          void e;
+        } finally {
+          (process as unknown as { exit: (code: number) => never }).exit = origExit;
+        }
+      });
+      expect(err).toMatch(/are mutually exclusive/);
+    });
   });
 });
