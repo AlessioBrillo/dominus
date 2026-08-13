@@ -62,6 +62,7 @@ from the environment (`.env` file or process env).
 | `TRADEMARK_MIN_TOKEN_LENGTH_FUZZY` | `4` | Min token length for Levenshtein |
 | `TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING` | `3` | Min mark length for substring |
 | `TRADEMARK_MAX_LEVENSHTEIN` | `1` | Max edit distance |
+| `TRADEMARK_PROVIDER_TIMEOUT_MS` | `15000` | Per-provider gate deadline in ms (min 1000); a fired deadline counts as provider failure |
 
 ## Pipeline
 

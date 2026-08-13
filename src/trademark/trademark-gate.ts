@@ -19,6 +19,31 @@ export enum GateVerdict {
   Unverified = 'unverified',
 }
 
+/** Per-check observability snapshot handed to the optional telemetry
+ *  callback (wired to the metrics collector in the composition root). */
+export interface TrademarkGateStats {
+  domain: string;
+  verdict: GateVerdict;
+  /** True when the verdict relied on a single responding source. */
+  partial?: boolean | undefined;
+  usptoOk: boolean;
+  euipoOk: boolean;
+  durationMs: number;
+}
+
+export interface TrademarkGateOptions {
+  /**
+   * Bounded per-provider deadline for each trademark lookup. When the
+   * deadline fires the provider call counts as a failure (conservative,
+   * ADR-0012: a strict-TLD domain becomes Unverified instead of being
+   * cleared on one source alone). Default: no gate-level deadline — the
+   * provider stack's own retry/timeout policies apply.
+   */
+  providerTimeoutMs?: number;
+  /** Optional telemetry sink invoked once per check() with the outcome. */
+  onResult?: (stats: TrademarkGateStats) => void;
+}
+
 export interface GateResult {
   domain: string;
   verdict: GateVerdict;
@@ -73,190 +98,145 @@ export class TrademarkGate {
   private usptoProvider: TrademarkProvider;
   private euipoProvider: TrademarkProvider;
   private matchConfig: MatchDetectorConfig;
-  private providerTimeoutMs: number;
-  /**
-   * Circuit breaker state: tracked failure counts per provider.
-   * After 3 consecutive failures, the provider is considered unhealthy
-   * and future runs will short-circuit to Unverified for strict TLDs.
-   */
-  private usptoFailureCount = 0;
-  private euipoFailureCount = 0;
+  private providerTimeoutMs: number | undefined;
+  private onResult: (stats: TrademarkGateStats) => void;
 
   constructor(
     usptoProvider: TrademarkProvider,
     euipoProvider: TrademarkProvider,
     matchConfig: MatchDetectorConfig = DEFAULT_MATCH_DETECTOR_CONFIG,
+    options: TrademarkGateOptions = {},
   ) {
     this.usptoProvider = usptoProvider;
     this.euipoProvider = euipoProvider;
     this.matchConfig = matchConfig;
-    this.providerTimeoutMs = 15_000; // 15s per-provider timeout
+    this.providerTimeoutMs = options.providerTimeoutMs;
+    this.onResult = options.onResult ?? ((): void => {});
   }
 
   async check(domain: string, signal?: AbortSignal): Promise<GateResult> {
     const sld = getSldForTrademark(domain) || extractSld(domain);
+    const startedAt = performance.now();
 
-    // Run USPTO search with timeout and failure tracking
-    const usptoResult = await this.#runWithTimeoutAndTrack(
-      'USPTO',
-      () => this.usptoProvider.search(sld, signal),
-      this.providerTimeoutMs,
-      signal,
-    );
+    // Parallel trademark gate: both sources race and verdicts are combined.
+    // Each provider (RetryingTrademarkProvider + CircuitBreaker) already
+    // handles its own timeout/retry/breaker — the gate only orchestrates
+    // and picks the conservative verdict per ADR-0012.
+    //
+    // An optional gate-level deadline (TRADEMARK_PROVIDER_TIMEOUT_MS) is
+    // combined with the caller's signal, so run cancellation still
+    // propagates instantly while a hung provider is bounded. Providers
+    // observe any abort as AbortError; the reject handler below maps that
+    // to a provider failure UNLESS the caller's own signal aborted, in
+    // which case the cancellation propagates (an aborted run must not
+    // manufacture a verdict).
+    const timeoutSignal =
+      this.providerTimeoutMs !== undefined
+        ? AbortSignal.timeout(this.providerTimeoutMs)
+        : undefined;
+    const combinedSignal =
+      timeoutSignal !== undefined
+        ? signal !== undefined
+          ? AbortSignal.any([signal, timeoutSignal])
+          : timeoutSignal
+        : signal;
 
-    // Run EUIPO search with timeout and failure tracking
-    const euipoResult = await this.#runWithTimeoutAndTrack(
-      'EUIPO',
-      () => this.euipoProvider.search(sld, signal),
-      this.providerTimeoutMs,
-      signal,
-    );
-
-    const verifiedSources: string[] = [];
-    if (usptoResult.ok) {
-      verifiedSources.push('USPTO');
-      this.usptoFailureCount = 0;
-    } else {
-      this.usptoFailureCount++;
-    }
-    if (euipoResult.ok) {
-      verifiedSources.push('EUIPO');
-      this.euipoFailureCount = 0;
-    } else {
-      this.euipoFailureCount++;
-    }
+    const [usptoResult, euipoResult] = await Promise.all([
+      this.searchSource(this.usptoProvider, sld, signal, combinedSignal),
+      this.searchSource(this.euipoProvider, sld, signal, combinedSignal),
+    ]);
 
     const allMatches = [...usptoResult.matches, ...euipoResult.matches];
     const detected = detectMatch(sld, allMatches, this.matchConfig);
 
+    let result: GateResult;
     if (detected !== null) {
-      return {
+      result = {
         domain,
         verdict: GateVerdict.Blocked,
-        verifiedSources,
+        verifiedSources: [],
         matchedMark: detected.markName,
         matchedOwner: detected.owner,
         matchSource: detected.source,
       };
-    }
+    } else {
+      const verifiedSources: string[] = [];
+      if (usptoResult.ok) {
+        verifiedSources.push('USPTO');
+      }
+      if (euipoResult.ok) {
+        verifiedSources.push('EUIPO');
+      }
 
-    if (!usptoResult.ok && isStrictTld(domain)) {
-      logger.warn(
-        {
+      if (!usptoResult.ok && isStrictTld(domain)) {
+        logger.warn(
+          {
+            domain,
+            verifiedSources,
+          },
+          'Trademark gate: USPTO unreachable for strict-TLD domain — verdict: Unverified',
+        );
+        result = {
           domain,
+          verdict: GateVerdict.Unverified,
           verifiedSources,
           usptoFailed: true,
-        },
-        'Trademark gate: USPTO unreachable for strict-TLD domain — verdict: Unverified',
-      );
-      return {
-        domain,
-        verdict: GateVerdict.Unverified,
-        verifiedSources,
-        usptoFailed: true,
-      };
+        };
+      } else if (verifiedSources.length === 0) {
+        logger.error(
+          { domain },
+          'Trademark gate: all trademark sources failed — verdict: Unverified',
+        );
+        result = { domain, verdict: GateVerdict.Unverified, verifiedSources };
+      } else {
+        const partial = verifiedSources.length < 2;
+        if (partial) {
+          logger.warn(
+            {
+              domain,
+              sources: verifiedSources,
+              partial: true,
+            },
+            'Trademark gate: only one source responded — verdict: Clear (partial)',
+          );
+        }
+        result = { domain, verdict: GateVerdict.Clear, verifiedSources, partial };
+      }
     }
 
-    if (verifiedSources.length === 0) {
-      logger.error(
-        { domain },
-        'Trademark gate: all trademark sources failed — verdict: Unverified',
-      );
-      return { domain, verdict: GateVerdict.Unverified, verifiedSources };
-    }
-
-    const partial = verifiedSources.length < 2;
-    if (partial) {
-      logger.warn(
-        {
-          domain,
-          sources: verifiedSources,
-          partial: true,
-        },
-        'Trademark gate: only one source responded — verdict: Clear (partial)',
-      );
-    }
-    return { domain, verdict: GateVerdict.Clear, verifiedSources, partial };
-  }
-
-  /**
-   * Run a provider search with a per-provider timeout and circuit breaker
-   * failure tracking. On timeout, the provider is marked as failed (not ok)
-   * and the failure count is incremented. On success, the failure count is
-   * reset.
-   *
-   * The callback fn is expected to return TrademarkMatch[] (the provider's
-   * native search result). This method wraps it into { ok, matches }.
-   */
-  async #runWithTimeoutAndTrack(
-    providerName: string,
-    fn: () => Promise<TrademarkMatch[]>,
-    timeoutMs: number,
-    signal?: AbortSignal,
-  ): Promise<{ ok: boolean; matches: TrademarkMatch[] }> {
-    const timeoutError = new Error(`Provider search timed out after ${timeoutMs}ms`) as Error & {
-      transient?: boolean;
-    };
-
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      const timeoutId = setTimeout(() => {
-        clearTimeout(timeoutId);
-        reject(timeoutError);
-      }, timeoutMs);
-      timeoutId.unref();
+    this.#emitStats({
+      domain,
+      verdict: result.verdict,
+      partial: result.partial,
+      usptoOk: usptoResult.ok,
+      euipoOk: euipoResult.ok,
+      durationMs: Math.round(performance.now() - startedAt),
     });
 
-    const signalPromise = signal?.aborted
-      ? Promise.reject(new DOMException('Aborted', 'AbortError'))
-      : Promise.resolve();
+    return result;
+  }
 
-    let result: TrademarkMatch[] | undefined;
+  private async searchSource(
+    provider: TrademarkProvider,
+    sld: string,
+    runSignal: AbortSignal | undefined,
+    combinedSignal: AbortSignal | undefined,
+  ): Promise<{ ok: true; matches: TrademarkMatch[] } | { ok: false; matches: never[] }> {
     try {
-      const raceResult = await Promise.race([fn(), timeoutPromise, signalPromise]);
-      result = raceResult as TrademarkMatch[];
+      const matches = await provider.search(sld, combinedSignal);
+      return { ok: true as const, matches };
     } catch (err) {
-      const domErr = err as DOMException;
-      // Allow AbortError from AbortSignal to propagate (test expects re-throw)
-      if (domErr.name === 'AbortError') {
-        throw err;
-      }
-      if (err === timeoutError) {
-        logger.warn(
-          { provider: providerName, timeoutMs: timeoutMs },
-          `Trademark gate: ${providerName} search timed out after ${timeoutMs}ms`,
-        );
-        // Increment failure count for circuit breaker
-        if (providerName === 'USPTO') {
-          this.usptoFailureCount++;
-        } else {
-          this.euipoFailureCount++;
-        }
-        return { ok: false, matches: [] as TrademarkMatch[] };
-      }
-      // Treat provider errors (ProviderError, etc.) as provider failures
-      // rather than propagating them upstream
-      logger.debug(
-        { provider: providerName, error: domErr.message },
-        `Trademark gate: ${providerName} search failed — treating as provider failure`,
-      );
-      if (providerName === 'USPTO') {
-        this.usptoFailureCount++;
-      } else {
-        this.euipoFailureCount++;
-      }
-      return { ok: false, matches: [] as TrademarkMatch[] };
+      if (runSignal !== undefined && runSignal.aborted) throw err;
+      return { ok: false as const, matches: [] };
     }
+  }
 
-    // Success — reset failure count for this provider
-    if (providerName === 'USPTO') {
-      this.usptoFailureCount = 0;
-    } else {
-      this.euipoFailureCount = 0;
+  #emitStats(stats: TrademarkGateStats): void {
+    try {
+      this.onResult(stats);
+    } catch (err) {
+      // A broken telemetry sink must never break the gate itself.
+      logger.error({ err, domain: stats.domain }, 'Trademark gate: telemetry callback failed');
     }
-    // Defensive check for undefined result
-    if (result === undefined) {
-      return { ok: false, matches: [] as TrademarkMatch[] };
-    }
-    return { ok: true, matches: result };
   }
 }
