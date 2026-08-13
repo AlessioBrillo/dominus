@@ -28,7 +28,7 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 
 | Layer | Technology |
 |-------|-----------|
-| **Backend** | Node.js 20+, Express 5 |
+| **Backend** | Node.js 22+, Express 5 |
 | **Database** | SQLite (community) / PostgreSQL (cloud) |
 | **CLI** | Commander (18 commands) |
 | **API** | Express REST (18 route modules) |
