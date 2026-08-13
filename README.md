@@ -100,7 +100,7 @@ docker run -d -p 3000:3000 -v ./data:/app/data dominus
 
 | Layer | Technology | Why |
 |-------|-----------|-----|
-| **Backend** | Node.js 20+, Express 5 | Zero-cost, universally forkable, massive ecosystem |
+| **Backend** | Node.js 22+, Express 5 | Zero-cost, universally forkable, massive ecosystem |
 | **Database** | SQLite (community) / PostgreSQL (cloud) | Abstraction layer supports both — choose your deployment |
 | **CLI** | Commander (18 commands) | Full functionality without a browser |
 | **API** | Express REST (18 route modules) | Dashboard-ready, swappable frontend |
