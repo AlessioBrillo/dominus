@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 import { getLogger } from '../../logger.js';
 
-export const name = '0037_create_pipeline_locks';
+export const name = '0051_add_pipeline_lock_renewal_tracking';
 
 function columnExists(db: Database.Database, table: string, column: string): boolean {
   const info = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];

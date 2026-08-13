@@ -101,8 +101,7 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
   async function renewLock(lockName: string, ttlMs: number): Promise<boolean> {
     try {
       const result = await queryFn(
-        `UPDATE pipeline_locks SET expires_at = NOW() + $2::integer * INTERVAL '1 millisecond'
-         WHERE lock_name = $1 AND expires_at >= NOW() AND worker_id = $3`,
+        `UPDATE pipeline_locks SET expires_at = NOW() + $2::integer * INTERVAL '1 millisecond', renewed_count = renewed_count + 1, last_renewed_at = NOW() WHERE lock_name = $1 AND expires_at >= NOW() AND worker_id = $3`,
         [lockName, ttlMs, workerId(lockName)],
       );
       return (result.rowCount ?? 0) > 0;
