@@ -466,7 +466,15 @@ describe('AnonScoringService', () => {
       });
       const gate = new AnonBudgetGate(limiter, { enabled: true, acquireTimeoutMs: 100 });
       const onGranted = vi.fn();
-      service = new AnonScoringService(engine, trademarkGate, 5000, 500, undefined, gate, onGranted);
+      service = new AnonScoringService(
+        engine,
+        trademarkGate,
+        5000,
+        500,
+        undefined,
+        gate,
+        onGranted,
+      );
 
       const result = await service.valuate('example.com');
 
@@ -484,7 +492,15 @@ describe('AnonScoringService', () => {
       });
       const gate = new AnonBudgetGate(limiter, { enabled: true, acquireTimeoutMs: 50 });
       const onGranted = vi.fn();
-      service = new AnonScoringService(engine, trademarkGate, 5000, 500, undefined, gate, onGranted);
+      service = new AnonScoringService(
+        engine,
+        trademarkGate,
+        5000,
+        500,
+        undefined,
+        gate,
+        onGranted,
+      );
 
       const first = await service.valuate('domain-a.com');
       const result = await service.valuate('domain-b.com');
