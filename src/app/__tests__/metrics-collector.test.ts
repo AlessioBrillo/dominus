@@ -84,6 +84,93 @@ describe('MetricsCollector DNS consensus (ADR-0039)', () => {
   });
 });
 
+describe('MetricsCollector RDAP consensus + bootstrap (ADR-0058)', () => {
+  it('records and accumulates RDAP consensus verdict tallies', () => {
+    const collector = new MetricsCollector();
+    collector.recordRdapConsensus({ verified: 3, disagreed: 1, unverifiable: 2, degraded: false });
+    collector.recordRdapConsensus({
+      verified: 4,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+      whoisRescued: 2,
+      originOverlap: 1,
+    });
+
+    const consensus = collector.snapshot().pipeline.rdapConsensus!;
+    expect(consensus.observed).toBe(true);
+    expect(consensus.verifiedTotal).toBe(7);
+    expect(consensus.disagreedTotal).toBe(1);
+    expect(consensus.unverifiableTotal).toBe(2);
+    expect(consensus.whoisRescuedTotal).toBe(2);
+    expect(consensus.originOverlapTotal).toBe(1);
+    expect(consensus.degradedRunsTotal).toBe(0);
+    expect(consensus.lastRunDegraded).toBe(false);
+  });
+
+  it('reports observed=false before any RDAP consensus run', () => {
+    const collector = new MetricsCollector();
+    const consensus = collector.snapshot().pipeline.rdapConsensus!;
+    expect(consensus.observed).toBe(false);
+    expect(consensus.verifiedTotal).toBe(0);
+    expect(consensus.whoisRescuedTotal).toBe(0);
+    expect(consensus.originOverlapTotal).toBe(0);
+    expect(consensus.lastRunDegraded).toBe(false);
+  });
+
+  it('tracks degraded runs and the last-run degraded flag', () => {
+    const collector = new MetricsCollector();
+    collector.recordRdapConsensus({ verified: 1, disagreed: 0, unverifiable: 5, degraded: true });
+    collector.recordRdapConsensus({ verified: 2, disagreed: 0, unverifiable: 0, degraded: false });
+
+    const consensus = collector.snapshot().pipeline.rdapConsensus!;
+    expect(consensus.degradedRunsTotal).toBe(1);
+    expect(consensus.lastRunDegraded).toBe(false);
+  });
+
+  it('records the latest bootstrap status', () => {
+    const collector = new MetricsCollector();
+    collector.recordRdapBootstrap({
+      ok: false,
+      consecutiveFailures: 2,
+      lastSuccessAtMs: 1_700_000_000_000,
+      nextRetryAtMs: 1_700_000_300_000,
+    });
+
+    const bootstrap = collector.snapshot().rdapBootstrap!;
+    expect(bootstrap.observed).toBe(true);
+    expect(bootstrap.ok).toBe(false);
+    expect(bootstrap.consecutiveFailures).toBe(2);
+    expect(bootstrap.lastSuccessAtMs).toBe(1_700_000_000_000);
+    expect(bootstrap.nextRetryAtMs).toBe(1_700_000_300_000);
+  });
+
+  it('reports observed=false before any bootstrap status', () => {
+    const collector = new MetricsCollector();
+    const bootstrap = collector.snapshot().rdapBootstrap!;
+    expect(bootstrap.observed).toBe(false);
+    expect(bootstrap.ok).toBeNull();
+  });
+
+  it('reset clears RDAP consensus and bootstrap tallies', () => {
+    const collector = new MetricsCollector();
+    collector.recordRdapConsensus({ verified: 1, disagreed: 0, unverifiable: 1, degraded: true });
+    collector.recordRdapBootstrap({
+      ok: true,
+      consecutiveFailures: 0,
+      lastSuccessAtMs: 1,
+      nextRetryAtMs: null,
+    });
+    collector.reset();
+
+    const consensus = collector.snapshot().pipeline.rdapConsensus!;
+    expect(consensus.observed).toBe(false);
+    expect(consensus.verifiedTotal).toBe(0);
+    expect(consensus.whoisRescuedTotal).toBe(0);
+    expect(collector.snapshot().rdapBootstrap!.observed).toBe(false);
+  });
+});
+
 describe('MetricsCollector trademark gate', () => {
   it('records and accumulates verdict tallies', () => {
     const collector = new MetricsCollector();

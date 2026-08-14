@@ -185,18 +185,46 @@ describe('renderPrometheusMetrics', () => {
     expect(body).toContain('# TYPE dominus_trademark_gate_unverified_total counter');
   });
 
-  it('emits anonymous trademark budget series only after observed (ADR-0056)', () => {
+  it('emits rdap consensus and bootstrap series only after observed (ADR-0058)', () => {
     const pre = renderPrometheusMetrics(snapshot, queueStats, 0);
-    expect(pre).not.toContain('dominus_anon_trademark_hits_total');
-    expect(pre).not.toContain('dominus_anon_trademark_blocked_total');
+    expect(pre).not.toContain('dominus_rdap_consensus_verified_total');
+    expect(pre).not.toContain('dominus_rdap_consensus_origin_overlap_total');
+    expect(pre).not.toContain('dominus_rdap_bootstrap_ok');
 
-    const withAnon = structuredClone(snapshot);
-    withAnon.anonTrademark = { hitsTotal: 4, blockedTotal: 2, observed: true };
-    const body = renderPrometheusMetrics(withAnon, queueStats, 0);
+    const withRdap = structuredClone(snapshot);
+    withRdap.pipeline.rdapConsensus = {
+      verifiedTotal: 9,
+      disagreedTotal: 1,
+      unverifiableTotal: 3,
+      whoisRescuedTotal: 2,
+      originOverlapTotal: 4,
+      degradedRunsTotal: 1,
+      lastRunDegraded: true,
+      observed: true,
+    };
+    withRdap.rdapBootstrap = {
+      ok: true,
+      consecutiveFailures: 0,
+      lastSuccessAtMs: 1_700_000_000_000,
+      nextRetryAtMs: null,
+      observed: true,
+    };
+    const body = renderPrometheusMetrics(withRdap, queueStats, 0);
 
-    expect(body).toContain('dominus_anon_trademark_hits_total 4');
-    expect(body).toContain('dominus_anon_trademark_blocked_total 2');
-    expect(body).toContain('# TYPE dominus_anon_trademark_hits_total counter');
-    expect(body).toContain('# TYPE dominus_anon_trademark_blocked_total counter');
+    expect(body).toContain('dominus_rdap_consensus_verified_total 9');
+    expect(body).toContain('dominus_rdap_consensus_disagreed_total 1');
+    expect(body).toContain('dominus_rdap_consensus_unverifiable_total 3');
+    expect(body).toContain('dominus_rdap_consensus_whois_rescued_total 2');
+    expect(body).toContain('dominus_rdap_consensus_origin_overlap_total 4');
+    expect(body).toContain('dominus_rdap_consensus_degraded_runs_total 1');
+    expect(body).toContain('dominus_rdap_consensus_last_run_degraded 1');
+    expect(body).toContain('# TYPE dominus_rdap_consensus_verified_total counter');
+    expect(body).toContain('# TYPE dominus_rdap_consensus_origin_overlap_total counter');
+    expect(body).toContain('# TYPE dominus_rdap_consensus_last_run_degraded gauge');
+    expect(body).toContain('dominus_rdap_bootstrap_ok 1');
+    expect(body).toContain('dominus_rdap_bootstrap_failures_total 0');
+    expect(body).toContain('# TYPE dominus_rdap_bootstrap_ok gauge');
+    expect(body).toContain('# TYPE dominus_rdap_bootstrap_failures_total counter');
   });
 });
+
