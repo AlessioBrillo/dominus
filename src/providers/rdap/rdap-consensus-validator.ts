@@ -63,3 +63,26 @@ export function validateRdapConsensusOriginDisjointness(
   }
   return { ok: true };
 }
+
+/**
+ * Per-TLD origin overlap guard for the 2-of-2 consensus gate (ADR-0058).
+ * The second opinion endpoint must not route through an origin that is
+ * authoritative for the candidate's TLD — otherwise the second leg is a
+ * rubber stamp of the primary's registry query and cannot catch a wrong
+ * answer served by that origin. Authoritative origins are resolved at
+ * runtime from the IANA bootstrap and exclude the bootstrap's universal
+ * rdap.org fallback (it doubles as the default second leg, mirroring
+ * validateRdapConsensusOriginDisjointness). An unparsable secondary
+ * endpoint never flags (cannot prove overlap), mirroring rdapUrlOrigin's
+ * stance on typos.
+ */
+export function hasAuthoritativeOriginOverlap(
+  authoritativeOrigins: readonly string[],
+  secondaryEndpoint: string,
+): boolean {
+  const secondaryOrigin = rdapUrlOrigin(secondaryEndpoint);
+  if (secondaryOrigin === undefined) return false;
+  // Normalize both sides to canonical origins so trailing slashes or path
+  // differences on the authoritative entries cannot mask an overlap.
+  return authoritativeOrigins.some((origin) => rdapUrlOrigin(origin) === secondaryOrigin);
+}

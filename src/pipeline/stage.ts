@@ -41,6 +41,12 @@ export interface RdapConsensusStats {
    * when > 0.
    */
   whoisRescued?: number;
+  /**
+   * Verdicts skipped because the second leg's origin was authoritative for
+   * the candidate's TLD — the 2-of-2 would have been a rubber stamp
+   * (ADR-0058). Present only when > 0.
+   */
+  originOverlap?: number;
   /** True when the run was flagged degraded over consensus (ADR-0039 pattern). */
   degraded: boolean;
 }
