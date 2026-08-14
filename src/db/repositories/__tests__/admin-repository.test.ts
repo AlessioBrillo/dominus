@@ -142,4 +142,130 @@ describe('AdminRepository', () => {
       expect(await repo.getLastActivity()).toEqual([]);
     });
   });
+
+  describe('getAdminFlag', () => {
+    it('returns null when no flag row exists (safe default)', async () => {
+      expect(await repo.getAdminFlag('tenant-a')).toBeNull();
+    });
+  });
+
+  describe('setSuspended / clearSuspended', () => {
+    it('suspends a tenant idempotently and stores the reason', async () => {
+      const flag = await repo.setSuspended(
+        'tenant-a',
+        'Terms of service violation',
+        '2026-08-13T10:00:00Z',
+      );
+      expect(flag.suspendedAt).toBe('2026-08-13T10:00:00Z');
+      expect(flag.suspendedReason).toBe('Terms of service violation');
+      expect(flag.planOverride).toBeNull();
+
+      await repo.setSuspended('tenant-a', null, '2026-08-13T11:00:00Z');
+      const again = await repo.getAdminFlag('tenant-a');
+      expect(again?.suspendedAt).toBe('2026-08-13T11:00:00Z');
+      expect(again?.suspendedReason).toBeNull();
+      expect(again?.planOverride).toBeNull();
+    });
+
+    it('clears the suspension but preserves the plan override', async () => {
+      await repo.setSuspended('tenant-a', 'abuse', '2026-08-13T10:00:00Z');
+      await repo.setPlanOverride('tenant-a', 'enterprise', '2026-08-13T10:30:00Z');
+
+      const flag = await repo.clearSuspended('tenant-a', '2026-08-13T12:00:00Z');
+      expect(flag?.suspendedAt).toBeNull();
+      expect(flag?.suspendedReason).toBeNull();
+      expect(flag?.planOverride).toBe('enterprise');
+    });
+  });
+
+  describe('setPlanOverride', () => {
+    it('sets and clears the override independently of suspension', async () => {
+      const set = await repo.setPlanOverride('tenant-a', 'enterprise', '2026-08-13T10:00:00Z');
+      expect(set?.planOverride).toBe('enterprise');
+
+      const cleared = await repo.setPlanOverride('tenant-a', null, '2026-08-13T11:00:00Z');
+      expect(cleared?.planOverride).toBeNull();
+    });
+
+    it('upserts without overwriting an existing suspension', async () => {
+      await repo.setSuspended('tenant-a', 'abuse', '2026-08-13T10:00:00Z');
+      const flag = await repo.setPlanOverride('tenant-a', 'pro', '2026-08-13T10:30:00Z');
+      expect(flag?.suspendedAt).toBe('2026-08-13T10:00:00Z');
+      expect(flag?.planOverride).toBe('pro');
+    });
+  });
+
+  describe('listAdminFlags', () => {
+    it('returns flag rows for all tenants with flags', async () => {
+      await repo.setSuspended('tenant-a', 'abuse', '2026-08-13T10:00:00Z');
+      await repo.setPlanOverride('tenant-b', 'enterprise', '2026-08-13T11:00:00Z');
+
+      const flags = await repo.listAdminFlags();
+      expect(flags.map((f) => f.tenantId).sort()).toEqual(['tenant-a', 'tenant-b']);
+      expect(flags.find((f) => f.tenantId === 'tenant-b')?.planOverride).toBe('enterprise');
+    });
+
+    it('returns an empty list when no flags exist', async () => {
+      expect(await repo.listAdminFlags()).toEqual([]);
+    });
+  });
+
+  describe('getTenantUsageSeries', () => {
+    function seedUsageAt(
+      tenantId: string,
+      feature: string,
+      amount: number,
+      recordedAt: string,
+    ): void {
+      db.exec(
+        `INSERT INTO usage_records (tenant_id, feature, amount, period_start, recorded_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [tenantId, feature, amount, recordedAt.slice(0, 10), recordedAt],
+      );
+    }
+
+    it('groups usage by day and feature for one tenant', async () => {
+      seedUsageAt('tenant-a', 'api_calls', 3, '2026-08-05T10:00:00Z');
+      seedUsageAt('tenant-a', 'candidates_scored', 1, '2026-08-05T09:00:00Z');
+      seedUsageAt('tenant-a', 'api_calls', 7, '2026-08-06T10:00:00Z');
+      seedUsageAt('tenant-b', 'api_calls', 99, '2026-08-06T10:00:00Z');
+
+      const series = await repo.getTenantUsageSeries('tenant-a', '2026-08-01T00:00:00Z');
+      const key = (p: { date: string; feature: string }): string => `${p.date}:${p.feature}`;
+      const byKey = Object.fromEntries(series.map((p) => [key(p), p.amount]));
+      expect(byKey).toEqual({
+        '2026-08-05:api_calls': 3,
+        '2026-08-05:candidates_scored': 1,
+        '2026-08-06:api_calls': 7,
+      });
+    });
+
+    it('filters by feature when requested', async () => {
+      seedUsageAt('tenant-a', 'api_calls', 3, '2026-08-05T10:00:00Z');
+      seedUsageAt('tenant-a', 'candidates_scored', 1, '2026-08-05T09:00:00Z');
+
+      const series = await repo.getTenantUsageSeries(
+        'tenant-a',
+        '2026-08-01T00:00:00Z',
+        'candidates_scored',
+      );
+      expect(series).toHaveLength(1);
+      expect(series[0]!.feature).toBe('candidates_scored');
+      expect(series[0]!.amount).toBe(1);
+    });
+
+    it('honours the from-date bound', async () => {
+      seedUsageAt('tenant-a', 'api_calls', 1, '2026-07-30T10:00:00Z');
+      seedUsageAt('tenant-a', 'api_calls', 2, '2026-08-03T10:00:00Z');
+
+      const series = await repo.getTenantUsageSeries('tenant-a', '2026-08-01T00:00:00Z');
+      expect(series).toHaveLength(1);
+      expect(series[0]!.date).toBe('2026-08-03');
+      expect(series[0]!.amount).toBe(2);
+    });
+
+    it('returns an empty list for a tenant with no usage', async () => {
+      expect(await repo.getTenantUsageSeries('tenant-a', '2026-08-01T00:00:00Z')).toEqual([]);
+    });
+  });
 });

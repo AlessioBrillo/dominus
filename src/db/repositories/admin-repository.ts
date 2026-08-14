@@ -3,6 +3,7 @@ import type { DatabaseProvider } from '../provider/interface.js';
 import type { Subscription, SubscriptionRow } from '../../types/subscription.js';
 import { subscriptionFromRow } from '../../types/subscription.js';
 import type { UsageFeature } from '../../types/usage.js';
+import type { TenantAdminFlag, AdminUsageSeriesPoint } from '../../types/admin.js';
 
 export interface AdminUsageRow {
   tenantId: string;
@@ -18,6 +19,24 @@ export interface ApiKeyCountRow {
 export interface TenantActivityRow {
   tenantId: string;
   lastActiveAt: string;
+}
+
+export interface AdminFlagRow {
+  tenant_id: string;
+  suspended_at: string | null;
+  suspended_reason: string | null;
+  plan_override: string | null;
+  updated_at: string | null;
+}
+
+export function adminFlagFromRow(row: AdminFlagRow): TenantAdminFlag {
+  return {
+    tenantId: row.tenant_id,
+    suspendedAt: row.suspended_at,
+    suspendedReason: row.suspended_reason,
+    planOverride: row.plan_override as TenantAdminFlag['planOverride'],
+    updatedAt: row.updated_at,
+  };
 }
 
 /**
@@ -115,6 +134,102 @@ export class AdminRepository {
     return [...merged.entries()].map(([tenantId, lastActiveAt]) => ({
       tenantId,
       lastActiveAt,
+    }));
+  }
+
+  /** Operator flag row for a tenant, or null when none was ever set. */
+  async getAdminFlag(tenantId: string): Promise<TenantAdminFlag | null> {
+    const row = await this.#db.queryOne<AdminFlagRow>(
+      'SELECT * FROM tenant_admin_flags WHERE tenant_id = ?',
+      [tenantId],
+    );
+    return row ? adminFlagFromRow(row) : null;
+  }
+
+  /** All operator flag rows (for the tenant list badge). */
+  async listAdminFlags(): Promise<TenantAdminFlag[]> {
+    const rows = await this.#db.query<AdminFlagRow>(
+      'SELECT * FROM tenant_admin_flags ORDER BY tenant_id',
+    );
+    return rows.map(adminFlagFromRow);
+  }
+
+  /** Mark a tenant as suspended (ADR-0057). Idempotent. */
+  async setSuspended(
+    tenantId: string,
+    reason: string | null,
+    nowIso: string,
+  ): Promise<TenantAdminFlag> {
+    await this.#db.exec(
+      `INSERT INTO tenant_admin_flags (tenant_id, suspended_at, suspended_reason, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(tenant_id) DO UPDATE SET
+         suspended_at = excluded.suspended_at,
+         suspended_reason = excluded.suspended_reason,
+         updated_at = excluded.updated_at`,
+      [tenantId, nowIso, reason, nowIso],
+    );
+    return (await this.getAdminFlag(tenantId))!;
+  }
+
+  /** Clear the suspension (ADR-0057). Idempotent; the plan override, if any, survives. */
+  async clearSuspended(tenantId: string, nowIso: string): Promise<TenantAdminFlag | null> {
+    await this.#db.exec(
+      `INSERT INTO tenant_admin_flags (tenant_id, suspended_at, suspended_reason, updated_at)
+       VALUES (?, NULL, NULL, ?)
+       ON CONFLICT(tenant_id) DO UPDATE SET
+         suspended_at = NULL,
+         suspended_reason = NULL,
+         updated_at = excluded.updated_at`,
+      [tenantId, nowIso],
+    );
+    return this.getAdminFlag(tenantId);
+  }
+
+  /**
+   * Set or clear the plan override (ADR-0057). `planOverride` null clears
+   * the override; the suspension state, if any, survives.
+   */
+  async setPlanOverride(
+    tenantId: string,
+    planOverride: string | null,
+    nowIso: string,
+  ): Promise<TenantAdminFlag | null> {
+    await this.#db.exec(
+      `INSERT INTO tenant_admin_flags (tenant_id, plan_override, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(tenant_id) DO UPDATE SET
+         plan_override = excluded.plan_override,
+         updated_at = excluded.updated_at`,
+      [tenantId, planOverride, nowIso],
+    );
+    return this.getAdminFlag(tenantId);
+  }
+
+  /**
+   * Daily usage series for one tenant (operator drill-down, ADR-0057).
+   * ISO string comparison is chronological for both dialects; `date()`
+   * normalises recorded_at to the UTC day in SQLite and PostgreSQL alike.
+   */
+  async getTenantUsageSeries(
+    tenantId: string,
+    fromIso: string,
+    feature?: UsageFeature,
+  ): Promise<AdminUsageSeriesPoint[]> {
+    const featureFilter = feature ? 'AND feature = ?' : '';
+    const params = feature ? [tenantId, fromIso, feature] : [tenantId, fromIso];
+    const rows = await this.#db.query<{ date: string; feature: string; amount: number }>(
+      `SELECT date(recorded_at) AS date, feature, SUM(amount) AS amount
+       FROM usage_records
+       WHERE tenant_id = ? AND recorded_at >= ? ${featureFilter}
+       GROUP BY date(recorded_at), feature
+       ORDER BY date(recorded_at), feature`,
+      params,
+    );
+    return rows.map((r) => ({
+      date: r.date,
+      feature: r.feature as UsageFeature,
+      amount: Number(r.amount),
     }));
   }
 }
