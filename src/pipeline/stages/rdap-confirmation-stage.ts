@@ -7,6 +7,10 @@ import type { RdapResult } from '../../types/domain-status.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
 import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
+import {
+  hasAuthoritativeOriginOverlap,
+  rdapUrlOrigin,
+} from '../../providers/rdap/rdap-consensus-validator.js';
 import { getLogger } from '../../logger.js';
 
 const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
@@ -92,6 +96,15 @@ export interface RdapConsensusConfig {
    * budget as the stage's enrichment race. False by default — fail-closed.
    */
   rescueWhoisEnabled?: boolean;
+  /**
+   * Per-TLD authoritative origin resolver (ADR-0058): returns the origins
+   * that are authoritative for a TLD (IANA bootstrap, rdap.org excluded —
+   * it doubles as the default second leg). When configured, the stage skips
+   * the second leg and counts the verdict as originOverlap whenever the
+   * second endpoint's origin is authoritative for the candidate's TLD: the
+   * 2-of-2 would be a rubber stamp. Unset disables the runtime guard.
+   */
+  tldOriginsResolver?: (tld: string) => Promise<string[]>;
 }
 
 /** Default fraction of unverifiable Available domains that flags a run degraded. */
@@ -251,20 +264,68 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     // original array; the survivors are re-assembled at the end.
     const survivor = new Set<string>();
 
+    // ADR-0058 origin-overlap guard: per-TLD authoritative origins (IANA
+    // bootstrap, rdap.org excluded upstream) resolved once per TLD per run.
+    // In-flight resolutions are deduplicated so a parallel batch cannot
+    // hammer the resolver for the same TLD.
+    const secondaryOrigin = rdapUrlOrigin(cfg.secondaryOrigin);
+    const authoritativeOriginsByTld = new Map<string, string[]>();
+    const authoritativeOriginsInFlight = new Map<string, Promise<string[] | undefined>>();
+    const resolveAuthoritativeOrigins = async (tld: string): Promise<string[] | undefined> => {
+      if (cfg.tldOriginsResolver === undefined || secondaryOrigin === undefined) return undefined;
+      const cached = authoritativeOriginsByTld.get(tld);
+      if (cached !== undefined) return cached;
+      const inFlight = authoritativeOriginsInFlight.get(tld);
+      if (inFlight !== undefined) return inFlight;
+      const pending = cfg
+        .tldOriginsResolver(tld)
+        .then((origins) => {
+          authoritativeOriginsByTld.set(tld, origins);
+          return origins;
+        })
+        .catch((error) => {
+          logger.warn(
+            { error, tld },
+            'RDAP: authoritative origin lookup failed — origin-overlap check skipped for the TLD',
+          );
+          return undefined;
+        })
+        .finally(() => {
+          authoritativeOriginsInFlight.delete(tld);
+        });
+      authoritativeOriginsInFlight.set(tld, pending);
+      return pending;
+    };
+
     const batches = this.#toBatches(passed, concurrency);
     for (const batch of batches) {
       if (signal?.aborted) break;
       const results = await Promise.all(
         batch.map(async (candidate) => {
           try {
+            const authoritativeOrigins = await resolveAuthoritativeOrigins(candidate.tld);
+            const originOverlap =
+              authoritativeOrigins !== undefined &&
+              hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.secondaryOrigin);
+            if (originOverlap) return { candidate, result: undefined, overlap: true };
             const result = await cfg.secondaryProvider.confirm(candidate.domain, signal);
-            return { candidate, result };
+            return { candidate, result, overlap: false };
           } catch (error) {
-            return { candidate, result: undefined, error };
+            return { candidate, result: undefined, error, overlap: false };
           }
         }),
       );
-      for (const { candidate, result } of results) {
+      for (const { candidate, result, overlap } of results) {
+        if (overlap === true) {
+          stats.unverifiable++;
+          stats.originOverlap = (stats.originOverlap ?? 0) + 1;
+          logger.warn(
+            { domain: candidate.domain, origin: secondaryOrigin },
+            'RDAP: 2-of-2 consensus skipped — the second leg origin is authoritative for the ' +
+              'candidate TLD (rubber-stamp guard, ADR-0058) — downgraded as unverifiable',
+          );
+          continue;
+        }
         if (result === undefined) {
           // WHOIS rescue leg (ADR-0051): the opt-in re-check runs ONLY when
           // the second RDAP leg could not answer. A definitive Registered is

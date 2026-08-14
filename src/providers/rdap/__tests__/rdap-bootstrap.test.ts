@@ -7,7 +7,8 @@ import {
   RDAP_ORG_UNIVERSAL,
 } from '../rdap-bootstrap.js';
 import { DomainStatus } from '../../../types/domain-status.js';
-import type { RdapBootstrapServer } from '../rdap-bootstrap.js';
+import type { RdapBootstrapServer, BootstrapStatus } from '../rdap-bootstrap.js';
+import type { Dispatcher } from 'undici';
 
 const IANA_SAMPLE = {
   services: [
@@ -157,6 +158,136 @@ describe('IanaRdapBootstrap', () => {
       },
       { timeout: 5000 },
     );
+  });
+});
+
+describe('IanaRdapBootstrap backoff and status (ADR-0058)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('backs off exponentially and refetches only when the window elapses', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json', 60_000, {
+      retryBaseMs: 10,
+      retryMaxMs: 100,
+    });
+
+    await bootstrap.getServers('com');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(bootstrap.getStatus()).toMatchObject({ ok: false, consecutiveFailures: 1 });
+
+    // Still inside the backoff window: no refetch is attempted.
+    await bootstrap.getServers('com');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+    // Once the window elapses the next attempt fires.
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    await bootstrap.getServers('com');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(bootstrap.getStatus().consecutiveFailures).toBe(2);
+  });
+
+  it('caps the exponential backoff at retryMaxMs', async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json', 60_000, {
+      retryBaseMs: 10,
+      retryMaxMs: 15,
+    });
+
+    await bootstrap.getServers('com');
+    expect(bootstrap.getStatus().nextRetryAt).toBe(Date.now() + 10);
+
+    await vi.advanceTimersByTimeAsync(11);
+    await bootstrap.getServers('com');
+    expect(bootstrap.getStatus().nextRetryAt).toBe(Date.now() + 15);
+
+    await vi.advanceTimersByTimeAsync(16);
+    await bootstrap.getServers('com');
+    // 2^2 * 10 = 40 would be the uncapped delay; the cap holds at 15.
+    expect(bootstrap.getStatus().nextRetryAt).toBe(Date.now() + 15);
+    expect(bootstrap.getStatus().consecutiveFailures).toBe(3);
+  });
+
+  it('keeps serving cached servers during a backoff window after a failed refresh', async () => {
+    mockFetchResponse(IANA_SAMPLE);
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json', 1, {
+      retryBaseMs: 10_000,
+      retryMaxMs: 10_000,
+    });
+    await bootstrap.refresh();
+
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    await bootstrap.refresh();
+
+    const servers = await bootstrap.getServers('com');
+    expect(servers.some((s) => s.name === 'rdap.verisign.com')).toBe(true);
+    // Only the failed refresh hit the network; the backoff window held.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(bootstrap.getStatus().consecutiveFailures).toBe(1);
+  });
+
+  it('notifies status listeners on success and failure', async () => {
+    const events: BootstrapStatus[] = [];
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json');
+    bootstrap.subscribeStatus((status) => events.push(status));
+
+    mockFetchResponse(IANA_SAMPLE);
+    await bootstrap.refresh();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ ok: true, consecutiveFailures: 0 });
+    expect(events[0]?.lastSuccessAt).not.toBeNull();
+
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    await bootstrap.refresh();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ ok: false, consecutiveFailures: 1 });
+    expect(events[1]?.nextRetryAt).not.toBeNull();
+    expect(events[1]?.lastError).toBe('network down');
+  });
+
+  it('routes the bootstrap fetch through the shared agent pool dispatcher', async () => {
+    const dispatcher = { fake: true } as unknown as Dispatcher;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => IANA_SAMPLE,
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json', 60_000, {
+      getDispatcher: async (): Promise<Dispatcher> => dispatcher,
+    });
+    await bootstrap.refresh();
+
+    const init = fetchMock.mock.calls[0]?.[1] as { dispatcher?: unknown } | undefined;
+    expect(init?.dispatcher).toBe(dispatcher);
+  });
+
+  it('unsubscribes a status listener', async () => {
+    const events: BootstrapStatus[] = [];
+    const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json');
+    const unsubscribe = bootstrap.subscribeStatus((status) => events.push(status));
+
+    mockFetchResponse(IANA_SAMPLE);
+    await bootstrap.refresh();
+    expect(events).toHaveLength(1);
+
+    unsubscribe();
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
+    await bootstrap.refresh();
+    expect(events).toHaveLength(1);
   });
 });
 

@@ -684,6 +684,120 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
   });
 });
 
+describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function overlapStage(
+    secondary: RdapProvider,
+    secondaryOrigin: string,
+    resolver: (tld: string) => Promise<string[]>,
+  ): RdapConfirmationStage {
+    return new RdapConfirmationStage(
+      makeMockRdap('primary.com'),
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      {
+        secondaryProvider: secondary,
+        secondaryOrigin,
+        tldOriginsResolver: resolver,
+      },
+    );
+  }
+
+  it('skips the second leg and counts origin overlap when it is authoritative for the candidate TLD', async () => {
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const resolver = vi.fn().mockResolvedValue(['https://rdap.verisign.com/']);
+    const stage = overlapStage(secondary, 'https://rdap.verisign.com/', resolver);
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Unknown);
+    // The rubber-stamp second leg must not be consulted at all.
+    expect(secondary.confirm).not.toHaveBeenCalled();
+    expect(result.rdapConsensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 1,
+      originOverlap: 1,
+      degraded: false,
+    });
+  });
+
+  it('confirms normally when the second leg is not authoritative for the TLD', async () => {
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const resolver = vi.fn().mockResolvedValue(['https://rdap.verisign.com/']);
+    const stage = overlapStage(secondary, 'https://rdap.org/', resolver);
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(secondary.confirm).toHaveBeenCalledWith('x.com', undefined);
+    expect(result.rdapConsensusStats).toEqual({
+      verified: 1,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('skips the overlap check entirely when the resolver is not configured', async () => {
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('primary.com'),
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+    );
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(result.rdapConsensusStats!.verified).toBe(1);
+  });
+
+  it('never flags overlap on an unparsable secondary endpoint', async () => {
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const resolver = vi.fn().mockResolvedValue(['https://rdap.verisign.com/']);
+    const stage = overlapStage(secondary, 'not-a-url', resolver);
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(secondary.confirm).toHaveBeenCalled();
+  });
+
+  it('resolves each TLD once per run and tolerates resolver failures', async () => {
+    const secondary = makeSecondary({
+      'x.com': DomainStatus.Available,
+      'y.com': DomainStatus.Available,
+    });
+    const resolver = vi.fn().mockImplementation(async (tld: string) => {
+      if (tld === '.fail') throw new Error('resolver down');
+      return ['https://rdap.verisign.com/'];
+    });
+    const stage = overlapStage(secondary, 'https://rdap.org/', resolver);
+    const result = await stage.process([
+      makeCandidate('x.com'),
+      makeCandidate('y.com'),
+      makeCandidate('example.fail'),
+    ]);
+
+    // '.com' resolved once (cached for the second candidate), '.fail' once.
+    expect(resolver).toHaveBeenCalledTimes(2);
+    // x.com and y.com verified; example.fail's resolver failure skips the
+    // overlap check and its second leg throws → unverifiable.
+    expect(result.rdapConsensusStats!.verified).toBe(2);
+    expect(result.rdapConsensusStats!.unverifiable).toBe(1);
+    expect(result.rdapConsensusStats!.originOverlap).toBeUndefined();
+  });
+});
+
 describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
   beforeEach(() => {
     vi.clearAllMocks();

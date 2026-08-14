@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Config } from '../config.js';
+import type { Dispatcher } from 'undici';
 import type { ProviderCacheRepository } from '../db/index.js';
 import {
   createKeywordProvider,
@@ -35,7 +36,7 @@ import {
   RdapAgentPool,
   type RdapBootstrapUrlEntry,
 } from '../providers/rdap/index.js';
-import { IanaRdapBootstrap } from '../providers/rdap/rdap-bootstrap.js';
+import { IanaRdapBootstrap, IANA_RDAP_BOOTSTRAP_URL } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import { DomainStatus, type RdapResult } from '../types/domain-status.js';
 import {
@@ -126,6 +127,14 @@ export interface BuiltRdapProviders {
    * states (closeouts) where a stale row would wrongly gate the verdict.
    */
   fresh: RdapProvider;
+  /**
+   * IANA per-TLD bootstrap (RFC 7484) backing the primary failover leg and
+   * the ADR-0058 origin-overlap resolution. Always present: with the
+   * 2-of-2 gate defaulting on (rdap.org second leg), the primary must draw
+   * its authoritative per-TLD servers from IANA or the gate would be a
+   * self-consistency check against the same router.
+   */
+  ianaBootstrap: IanaRdapBootstrap;
 }
 
 /**
@@ -233,12 +242,18 @@ export function buildRdapProviders(
     maxConnections: config.RDAP_MAX_CONNECTIONS,
   });
 
-  const ianaBootstrap = config.RDAP_BOOTSTRAP_URL
-    ? new IanaRdapBootstrap(config.RDAP_BOOTSTRAP_URL)
-    : undefined;
+  const ianaBootstrap = new IanaRdapBootstrap(
+    config.RDAP_BOOTSTRAP_URL?.trim() || IANA_RDAP_BOOTSTRAP_URL,
+    undefined,
+    {
+      getDispatcher: (): Promise<Dispatcher> => rdapAgentPool.getDispatcher(),
+      retryBaseMs: config.RDAP_BOOTSTRAP_RETRY_BASE_MS,
+      retryMaxMs: config.RDAP_BOOTSTRAP_RETRY_MAX_MS,
+    },
+  );
   // Warm the IANA bootstrap (RFC 7484) at startup, fire-and-forget, so the
   // first RDAP query of the process does not stall on the cold fetch.
-  ianaBootstrap?.warm();
+  ianaBootstrap.warm();
 
   const raw: RdapProvider =
     rdapBootstrapUrls.length > 0
@@ -279,7 +294,7 @@ export function buildRdapProviders(
       rdapCache.get(domain, signal, { forceRecheck: true }),
   };
 
-  return { raw, withRetry: withRetryProvider, cached, fresh };
+  return { raw, withRetry: withRetryProvider, cached, fresh, ianaBootstrap };
 }
 
 export function buildDnsProvider(
@@ -951,6 +966,7 @@ export function createRdapConsensusConfig(
   config: Config,
   rdapConsensusRateLimiter?: RateLimiterLike,
   redisClient?: RedisClient,
+  tldOriginsResolver?: (tld: string) => Promise<string[]>,
 ): RdapConsensusConfig | undefined {
   if (!config.RDAP_CONSENSUS_ENABLED) return undefined;
   const logger = getLogger();
@@ -1001,5 +1017,6 @@ export function createRdapConsensusConfig(
     degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
     rescueWhoisEnabled: config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED,
+    ...(tldOriginsResolver !== undefined ? { tldOriginsResolver } : {}),
   };
 }

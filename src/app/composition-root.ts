@@ -102,6 +102,8 @@ import {
   buildAnonBudgetGate,
   buildWaybackProvider,
 } from './provider-factory.js';
+import { RDAP_ORG_UNIVERSAL } from '../providers/rdap/rdap-bootstrap.js';
+import { rdapUrlOrigin } from '../providers/rdap/rdap-consensus-validator.js';
 import type { DnsProvider } from '../providers/dns/dns-provider.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
@@ -611,6 +613,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     raw: rawRdapProvider,
     cached: cachedRdapProvider,
     fresh: freshRdapProvider,
+    ianaBootstrap,
   } = buildRdapProviders(config, rdapRateLimiter, repos.providerCacheRepo, redisClient);
   const dnsProvider = buildDnsProvider(config, repos.providerCacheRepo, dnsRateLimiter);
   const { withRetry: whoisProvider } = buildWhoisProviders(config, redisClient);
@@ -621,6 +624,16 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Metrics (created before the trademark layer so the gate can feed
   //     its telemetry callback; all other consumers read it later) ---
   const metrics = new MetricsCollector();
+
+  // RDAP bootstrap health feeds the process-lifetime metrics (ADR-0058).
+  ianaBootstrap.subscribeStatus((status) => {
+    metrics.recordRdapBootstrap({
+      ok: status.ok,
+      consecutiveFailures: status.consecutiveFailures,
+      lastSuccessAtMs: status.lastSuccessAt !== null ? Date.parse(status.lastSuccessAt) : null,
+      nextRetryAtMs: status.nextRetryAt,
+    });
+  });
 
   // --- Trademark Gate ---
   const { usptoTmProvider, euipoTmProvider, trademarkGate, usptoWafStats } =
@@ -704,12 +717,24 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // 2-of-2 RDAP consensus (ADR-0050): a dedicated second RDAP provider on the
   // independent RDAP_CONSENSUS_ENDPOINT re-confirms every Available verdict
   // from the primary leg. Fail-closed — the gate downgrades any candidate the
-  // second leg cannot independently confirm. Off by default; the second leg
+  // second leg cannot independently confirm. Default on (ADR-0058): the
+  // second leg is rdap.org and the primary draws its authoritative per-TLD
+  // servers from IANA, so the two legs stay independent. The second leg
   // draws from its own rdapConsensus rate-limit budget (ADR-0044 pattern).
   const rdapConsensusConfig = createRdapConsensusConfig(
     config,
     rdapConsensusRateLimiter,
     redisClient,
+    // ADR-0058 origin-overlap guard: authoritative per-TLD origins for the
+    // second leg's disjointness check. rdap.org is deliberately excluded —
+    // it doubles as the default second leg, mirroring the static
+    // disjointness semantics of rdap-consensus-validator.ts.
+    async (tld: string): Promise<string[]> => {
+      const servers = await ianaBootstrap.getServers(tld);
+      return servers
+        .map((server) => server.baseUrl)
+        .filter((url) => rdapUrlOrigin(url) !== rdapUrlOrigin(RDAP_ORG_UNIVERSAL.baseUrl));
+    },
   );
   if (rdapConsensusConfig !== undefined) {
     // Startup probe of the consensus second leg (ADR-0051): with the

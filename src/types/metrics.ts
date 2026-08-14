@@ -43,6 +43,39 @@ export interface DnsConsensusMetrics {
   observed: boolean;
 }
 
+export interface RdapConsensusMetrics {
+  /** Available verdicts confirmed by the second RDAP leg across all runs. */
+  verifiedTotal: number;
+  /** Definitive disagreements (second leg Registered) across all runs. */
+  disagreedTotal: number;
+  /** Unanswerable domains (errors/timeouts) across all runs. */
+  unverifiableTotal: number;
+  /** Domains rescued by the opt-in WHOIS rescue leg (ADR-0051). */
+  whoisRescuedTotal: number;
+  /** Verdicts skipped on per-TLD origin overlap (ADR-0058). */
+  originOverlapTotal: number;
+  /** Number of runs flagged degraded over RDAP consensus. */
+  degradedRunsTotal: number;
+  /** Whether the most recent consensus-checked run was degraded. */
+  lastRunDegraded: boolean;
+  /** Whether RDAP consensus ran at least once since process start. */
+  observed: boolean;
+}
+
+/** IANA RDAP bootstrap health, recorded on every refresh outcome (ADR-0058). */
+export interface RdapBootstrapMetrics {
+  /** Whether the latest bootstrap refresh succeeded. Null before the first outcome. */
+  ok: boolean | null;
+  /** Consecutive failed refresh attempts since the last success. */
+  consecutiveFailures: number;
+  /** Epoch ms of the last successful refresh, or null. */
+  lastSuccessAtMs: number | null;
+  /** Epoch ms of the next retry after a failure, or null. */
+  nextRetryAtMs: number | null;
+  /** Whether any bootstrap outcome was recorded since process start. */
+  observed: boolean;
+}
+
 /** Verdict labels reported by the trademark gate. */
 export type TrademarkGateVerdict = 'clear' | 'blocked' | 'unverified';
 
@@ -72,6 +105,7 @@ export interface PipelineRunSummary {
   lastRunDurationMs: number | null;
   providerMetrics: Record<string, ProviderMetrics>;
   dnsConsensus?: DnsConsensusMetrics;
+  rdapConsensus?: RdapConsensusMetrics;
   trademarkGate?: TrademarkGateMetrics;
 }
 
@@ -116,4 +150,7 @@ export interface MetricsSnapshot {
   /** Optional so callers constructing snapshots remain valid even when the
    *  anonymous trademark budget has never fired. */
   anonTrademark?: AnonTrademarkBudgetMetrics;
+  /** IANA RDAP bootstrap health (ADR-0058). Always present; `observed`
+   *  distinguishes "never recorded" from a healthy/failed refresh. */
+  rdapBootstrap?: RdapBootstrapMetrics;
 }

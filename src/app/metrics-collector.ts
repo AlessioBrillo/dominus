@@ -37,6 +37,19 @@ export class MetricsCollector {
   #dnsConsensusDegradedRuns = 0;
   #dnsConsensusLastDegraded = false;
   #dnsConsensusObserved = false;
+  #rdapConsensusVerified = 0;
+  #rdapConsensusDisagreed = 0;
+  #rdapConsensusUnverifiable = 0;
+  #rdapConsensusWhoisRescued = 0;
+  #rdapConsensusOriginOverlap = 0;
+  #rdapConsensusDegradedRuns = 0;
+  #rdapConsensusLastDegraded = false;
+  #rdapConsensusObserved = false;
+  #rdapBootstrapOk: boolean | null = null;
+  #rdapBootstrapFailures = 0;
+  #rdapBootstrapLastSuccessAtMs: number | null = null;
+  #rdapBootstrapNextRetryAtMs: number | null = null;
+  #rdapBootstrapObserved = false;
   #tmGateClear = 0;
   #tmGateBlocked = 0;
   #tmGateUnverified = 0;
@@ -104,6 +117,41 @@ export class MetricsCollector {
     this.#dnsConsensusObserved = true;
     this.#dnsConsensusLastDegraded = stats.degraded;
     if (stats.degraded) this.#dnsConsensusDegradedRuns++;
+  }
+
+  /** Record per-run 2-of-2 RDAP consensus tallies (fed by the pipeline
+   *  orchestrator from the stage's rdapConsensusStats, ADR-0058). */
+  recordRdapConsensus(stats: {
+    verified: number;
+    disagreed: number;
+    unverifiable: number;
+    degraded: boolean;
+    whoisRescued?: number;
+    originOverlap?: number;
+  }): void {
+    this.#rdapConsensusVerified += stats.verified;
+    this.#rdapConsensusDisagreed += stats.disagreed;
+    this.#rdapConsensusUnverifiable += stats.unverifiable;
+    this.#rdapConsensusWhoisRescued += stats.whoisRescued ?? 0;
+    this.#rdapConsensusOriginOverlap += stats.originOverlap ?? 0;
+    this.#rdapConsensusObserved = true;
+    this.#rdapConsensusLastDegraded = stats.degraded;
+    if (stats.degraded) this.#rdapConsensusDegradedRuns++;
+  }
+
+  /** Record the latest IANA RDAP bootstrap refresh outcome (fed by the
+   *  bootstrap's subscribeStatus listener, ADR-0058). */
+  recordRdapBootstrap(status: {
+    ok: boolean;
+    consecutiveFailures: number;
+    lastSuccessAtMs: number | null;
+    nextRetryAtMs: number | null;
+  }): void {
+    this.#rdapBootstrapObserved = true;
+    this.#rdapBootstrapOk = status.ok;
+    this.#rdapBootstrapFailures = status.consecutiveFailures;
+    this.#rdapBootstrapLastSuccessAtMs = status.lastSuccessAtMs;
+    this.#rdapBootstrapNextRetryAtMs = status.nextRetryAtMs;
   }
 
   /** Record the outcome of a single trademark-gate check (fed by the gate's
@@ -221,6 +269,16 @@ export class MetricsCollector {
           lastRunDegraded: this.#dnsConsensusLastDegraded,
           observed: this.#dnsConsensusObserved,
         },
+        rdapConsensus: {
+          verifiedTotal: this.#rdapConsensusVerified,
+          disagreedTotal: this.#rdapConsensusDisagreed,
+          unverifiableTotal: this.#rdapConsensusUnverifiable,
+          whoisRescuedTotal: this.#rdapConsensusWhoisRescued,
+          originOverlapTotal: this.#rdapConsensusOriginOverlap,
+          degradedRunsTotal: this.#rdapConsensusDegradedRuns,
+          lastRunDegraded: this.#rdapConsensusLastDegraded,
+          observed: this.#rdapConsensusObserved,
+        },
         trademarkGate: {
           clearTotal: this.#tmGateClear,
           blockedTotal: this.#tmGateBlocked,
@@ -250,6 +308,13 @@ export class MetricsCollector {
         blockedTotal: this.#anonTrademarkBlocked,
         observed: this.#anonTrademarkObserved,
       },
+      rdapBootstrap: {
+        ok: this.#rdapBootstrapOk,
+        consecutiveFailures: this.#rdapBootstrapFailures,
+        lastSuccessAtMs: this.#rdapBootstrapLastSuccessAtMs,
+        nextRetryAtMs: this.#rdapBootstrapNextRetryAtMs,
+        observed: this.#rdapBootstrapObserved,
+      },
     };
   }
 
@@ -268,6 +333,19 @@ export class MetricsCollector {
     this.#dnsConsensusDegradedRuns = 0;
     this.#dnsConsensusLastDegraded = false;
     this.#dnsConsensusObserved = false;
+    this.#rdapConsensusVerified = 0;
+    this.#rdapConsensusDisagreed = 0;
+    this.#rdapConsensusUnverifiable = 0;
+    this.#rdapConsensusWhoisRescued = 0;
+    this.#rdapConsensusOriginOverlap = 0;
+    this.#rdapConsensusDegradedRuns = 0;
+    this.#rdapConsensusLastDegraded = false;
+    this.#rdapConsensusObserved = false;
+    this.#rdapBootstrapOk = null;
+    this.#rdapBootstrapFailures = 0;
+    this.#rdapBootstrapLastSuccessAtMs = null;
+    this.#rdapBootstrapNextRetryAtMs = null;
+    this.#rdapBootstrapObserved = false;
     this.#tmGateClear = 0;
     this.#tmGateBlocked = 0;
     this.#tmGateUnverified = 0;

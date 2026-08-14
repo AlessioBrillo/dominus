@@ -369,9 +369,10 @@ describe('DNS consensus tertiary leg config defaults (ADR-0045)', () => {
 });
 
 // Locks the RDAP 2-of-2 consensus gate (ADR-0050) and the shared keep-alive
-// agent pool (ADR-0049). The gate is opt-in: every Available verdict from the
-// primary failover is confirmed by a dedicated second RDAP provider, so a
-// second HTTP query per Available doubles RDAP volume when enabled.
+// agent pool (ADR-0049). The gate is ON by default (ADR-0058): every Available
+// verdict from the primary failover is confirmed by a dedicated second RDAP
+// provider (rdap.org by default), so a second HTTP query per Available
+// doubles RDAP volume. Operators disable it with an explicit flag.
 describe('RDAP consensus config defaults (ADR-0050)', () => {
   const ENV_KEYS = [
     'RDAP_MAX_CONNECTIONS',
@@ -386,6 +387,8 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
     'RDAP_CONSENSUS_RATE_LIMIT_PER_TENANT_INTERVAL_MS',
     'RDAP_CONSENSUS_BULK_CONCURRENCY',
     'RDAP_CONSENSUS_TIMEOUT_MS',
+    'RDAP_BOOTSTRAP_RETRY_BASE_MS',
+    'RDAP_BOOTSTRAP_RETRY_MAX_MS',
   ] as const;
   const backup = new Map<string, string | undefined>();
 
@@ -410,8 +413,8 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
     expect(loadConfig().RDAP_MAX_CONNECTIONS).toBe(32);
   });
 
-  it('RDAP_CONSENSUS_ENABLED defaults to false (gate is opt-in)', () => {
-    expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(false);
+  it('RDAP_CONSENSUS_ENABLED defaults to true (gate on by default, ADR-0058)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(true);
   });
 
   it('RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED defaults to false (rescue is opt-in, ADR-0051)', () => {
@@ -462,14 +465,22 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
     expect(loadConfig().RDAP_CONSENSUS_RATE_LIMIT_TOKENS).toBe(8);
   });
 
-  it('RDAP_CONSENSUS_ENDPOINT defaults to empty (gate off by default)', () => {
-    expect(loadConfig().RDAP_CONSENSUS_ENDPOINT).toBe('');
+  it('RDAP_CONSENSUS_ENDPOINT defaults to the rdap.org universal router (ADR-0058)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_ENDPOINT).toBe('https://rdap.org/');
   });
 
   it('RDAP_CONSENSUS_ENDPOINT requires an https URL when set', () => {
     process.env.RDAP_CONSENSUS_ENDPOINT = 'http://consensus.example.com';
     resetConfig();
     expect(() => loadConfig()).toThrow();
+  });
+
+  it('RDAP_BOOTSTRAP_RETRY_BASE_MS defaults to 300000 (5 min exponential base)', () => {
+    expect(loadConfig().RDAP_BOOTSTRAP_RETRY_BASE_MS).toBe(300000);
+  });
+
+  it('RDAP_BOOTSTRAP_RETRY_MAX_MS defaults to 86400000 (24h backoff cap)', () => {
+    expect(loadConfig().RDAP_BOOTSTRAP_RETRY_MAX_MS).toBe(86400000);
   });
 
   it('RDAP_MAX_CONNECTIONS rejects values above 512', () => {

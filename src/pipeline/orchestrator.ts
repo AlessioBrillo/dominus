@@ -34,6 +34,15 @@ export interface PipelineMetricsDelegate {
     degraded: boolean;
     tertiaryRescued?: number;
   }): void;
+  /** Records 2-of-2 RDAP consensus verdict tallies for a completed run (ADR-0058). */
+  recordRdapConsensus?(stats: {
+    verified: number;
+    disagreed: number;
+    unverifiable: number;
+    degraded: boolean;
+    whoisRescued?: number;
+    originOverlap?: number;
+  }): void;
 }
 
 const logger = getLogger();
@@ -723,6 +732,11 @@ export class PipelineOrchestrator {
         // Forward per-run DNS consensus tallies to the metrics delegate.
         if (result.consensusStats !== undefined) {
           this.metrics?.recordDnsConsensus?.(result.consensusStats);
+        }
+
+        // Forward per-run RDAP consensus tallies to the metrics delegate.
+        if (result.rdapConsensusStats !== undefined) {
+          this.metrics?.recordRdapConsensus?.(result.rdapConsensusStats);
         }
 
         if (attempt > 1) {
