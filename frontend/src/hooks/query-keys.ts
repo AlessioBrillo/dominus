@@ -55,4 +55,11 @@ export const queryKeys = {
     all: ['usage'] as const,
     history: () => [...queryKeys.usage.all, 'history'] as const,
   },
+  admin: {
+    all: ['admin'] as const,
+    overview: () => [...queryKeys.admin.all, 'overview'] as const,
+    tenants: () => [...queryKeys.admin.all, 'tenants'] as const,
+    tenantUsage: (tenantId: string, days: number) =>
+      [...queryKeys.admin.all, 'tenant-usage', tenantId, days] as const,
+  },
 };
