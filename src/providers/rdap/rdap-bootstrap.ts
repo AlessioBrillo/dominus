@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { getLogger } from '../../logger.js';
+import type { Dispatcher } from 'undici';
 
 export interface RdapBootstrapServer {
   /** Human-readable server name (hostname). */
@@ -25,6 +26,38 @@ const BOOTSTRAP_FETCH_TIMEOUT_MS = 10_000;
  * fetch must never stall a domain query for its 10s timeout. */
 const BOOTSTRAP_INFLIGHT_BUDGET_MS = 1_000;
 
+/**
+ * Observable state of the IANA bootstrap (ADR-0058). Emitted to status
+ * subscribers after every fetch attempt and served by getStatus() for
+ * health/metrics surfaces.
+ */
+export interface BootstrapStatus {
+  /** True when the last fetch attempt succeeded. */
+  ok: boolean;
+  /** Consecutive failed fetch attempts (resets on success). */
+  consecutiveFailures: number;
+  /** ISO timestamp of the last successful fetch, or null. */
+  lastSuccessAt: string | null;
+  /** Epoch ms after which the next fetch attempt is allowed, or null. */
+  nextRetryAt: number | null;
+  /** Message of the last fetch failure, or null. */
+  lastError: string | null;
+}
+
+export interface IanaRdapBootstrapOptions {
+  /** Injectable fetch implementation (defaults to globalThis.fetch, resolved
+   *  at call time so tests can swap the global mock mid-flight). */
+  fetchFn?: typeof fetch;
+  /** Supplies the shared undici dispatcher (ADR-0049) so the bootstrap
+   *  fetch reuses the keep-alive pool instead of a one-shot connection. */
+  getDispatcher?: () => Promise<Dispatcher>;
+  /** Exponential backoff base for failed refresh attempts (ADR-0058).
+   *  Default: 5 minutes. */
+  retryBaseMs?: number;
+  /** Cap for the exponential backoff (ADR-0058). Default: 24 hours. */
+  retryMaxMs?: number;
+}
+
 interface IanaService {
   ldhName?: string[];
   urls?: string[];
@@ -44,17 +77,61 @@ interface IanaDnsBootstrap {
  *
  * Degrades gracefully: an unknown TLD or a failed fetch resolves to
  * rdap.org (a routing service that can answer any TLD) and never throws.
+ *
+ * A failed refresh is retried with exponential backoff (ADR-0058) instead
+ * of waiting a full TTL: the schedule is `base * 2^(failures-1)` capped at
+ * `retryMaxMs`, and previously loaded servers keep being served during the
+ * backoff window.
  */
 export class IanaRdapBootstrap {
   readonly #url: string;
   readonly #ttlMs: number;
+  readonly #fetchFn: typeof fetch | undefined;
+  readonly #getDispatcher: (() => Promise<Dispatcher>) | undefined;
+  readonly #retryBaseMs: number;
+  readonly #retryMaxMs: number;
   #cache = new Map<string, RdapBootstrapServer[]>();
-  #fetchedAt = 0;
+  #lastSuccessAt = 0;
+  #nextRetryAt = 0;
+  #consecutiveFailures = 0;
+  #lastError: string | null = null;
+  #statusListeners = new Set<(status: BootstrapStatus) => void>();
   #inFlight: Promise<void> | null = null;
 
-  constructor(url: string = IANA_RDAP_BOOTSTRAP_URL, ttlMs: number = 24 * 60 * 60 * 1000) {
+  constructor(
+    url: string = IANA_RDAP_BOOTSTRAP_URL,
+    ttlMs: number = 24 * 60 * 60 * 1000,
+    options: IanaRdapBootstrapOptions = {},
+  ) {
     this.#url = url;
     this.#ttlMs = ttlMs;
+    this.#fetchFn = options.fetchFn;
+    this.#getDispatcher = options.getDispatcher;
+    this.#retryBaseMs = options.retryBaseMs ?? 5 * 60 * 1000;
+    this.#retryMaxMs = options.retryMaxMs ?? 24 * 60 * 60 * 1000;
+  }
+
+  /** Current observable state (ADR-0058) for health and metrics surfaces. */
+  getStatus(): BootstrapStatus {
+    return {
+      ok: this.#consecutiveFailures === 0,
+      consecutiveFailures: this.#consecutiveFailures,
+      lastSuccessAt: this.#lastSuccessAt > 0 ? new Date(this.#lastSuccessAt).toISOString() : null,
+      nextRetryAt: this.#nextRetryAt > 0 ? this.#nextRetryAt : null,
+      lastError: this.#lastError,
+    };
+  }
+
+  /**
+   * Subscribe to fetch-attempt outcomes. The listener is invoked after every
+   * attempt (success or failure) with the current status. Returns an
+   * unsubscribe function.
+   */
+  subscribeStatus(listener: (status: BootstrapStatus) => void): () => void {
+    this.#statusListeners.add(listener);
+    return () => {
+      this.#statusListeners.delete(listener);
+    };
   }
 
   /**
@@ -102,7 +179,11 @@ export class IanaRdapBootstrap {
   }
 
   async #refreshIfStale(): Promise<void> {
-    if (Date.now() - this.#fetchedAt < this.#ttlMs) return;
+    // Fresh data: nothing to do.
+    if (this.#lastSuccessAt !== 0 && Date.now() - this.#lastSuccessAt < this.#ttlMs) return;
+    // Inside the backoff window after a failure: keep serving what we have
+    // (stale cache or the rdap.org fallback) instead of hammering IANA.
+    if (Date.now() < this.#nextRetryAt) return;
     if (this.#inFlight) {
       // A refresh is already running (e.g. the startup warm-up). Wait only
       // a short budget before serving the rdap.org fallback — a domain
@@ -118,9 +199,18 @@ export class IanaRdapBootstrap {
 
   async #fetch(): Promise<void> {
     try {
-      const response = await fetch(this.#url, {
+      const dispatcher =
+        this.#getDispatcher !== undefined ? await this.#getDispatcher() : undefined;
+      // dispatcher is typed unknown to bridge undici vs undici-types (same
+      // approach as the public RDAP provider, ADR-0049).
+      const init: { signal: AbortSignal; dispatcher?: unknown } = {
         signal: AbortSignal.timeout(BOOTSTRAP_FETCH_TIMEOUT_MS),
-      });
+      };
+      if (dispatcher !== undefined) {
+        init.dispatcher = dispatcher;
+      }
+      const fetchFn = this.#fetchFn ?? globalThis.fetch;
+      const response = await fetchFn(this.#url, init as Parameters<typeof fetch>[1]);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
@@ -136,15 +226,45 @@ export class IanaRdapBootstrap {
         }
       }
       this.#cache = byTld;
-      this.#fetchedAt = Date.now();
+      this.#lastSuccessAt = Date.now();
+      this.#consecutiveFailures = 0;
+      this.#nextRetryAt = 0;
+      this.#lastError = null;
       getLogger().info(
         { tlds: this.#cache.size },
         'RDAP bootstrap refreshed from IANA registry data',
       );
     } catch (err) {
-      // Mark fetched so we retry only after the TTL, not on every call.
-      this.#fetchedAt = Date.now();
-      getLogger().warn({ err }, 'RDAP bootstrap fetch failed — falling back to rdap.org routing');
+      // Schedule the next attempt with exponential backoff (ADR-0058):
+      // base * 2^(failures-1), capped at retryMaxMs. Previously loaded
+      // servers remain in the cache and keep being served meanwhile.
+      this.#consecutiveFailures++;
+      const delay = Math.min(
+        this.#retryMaxMs,
+        this.#retryBaseMs * 2 ** (this.#consecutiveFailures - 1),
+      );
+      this.#nextRetryAt = Date.now() + delay;
+      this.#lastError = err instanceof Error ? err.message : String(err);
+      getLogger().warn(
+        { err, retryInMs: delay },
+        'RDAP bootstrap fetch failed — falling back to rdap.org routing',
+      );
+    } finally {
+      this.#emitStatus();
+    }
+  }
+
+  #emitStatus(): void {
+    const status = this.getStatus();
+    for (const listener of this.#statusListeners) {
+      try {
+        listener(status);
+      } catch (err) {
+        getLogger().warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'RDAP bootstrap status listener threw',
+        );
+      }
     }
   }
 }
