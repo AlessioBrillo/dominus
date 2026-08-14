@@ -181,15 +181,39 @@ export function parseWhoisResponse(domain: string, raw: string): WhoisResult {
   };
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
 function queryWhoisServer(
   host: string,
   domain: string,
   timeoutMs: number,
   connectFn: WhoisConnectFn,
   tlsConfig?: TlsConfig,
+  signal?: AbortSignal,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     let settled = false;
+
+    const settle = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      fn();
+    };
+
+    const onAbort = (): void => {
+      settle(() => {
+        socket.destroy();
+        reject(new DOMException('Aborted', 'AbortError'));
+      });
+    };
+
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
 
     const onConnect = (): void => {
       socket.write(`${domain}\r\n`);
@@ -213,25 +237,29 @@ function queryWhoisServer(
     });
 
     socket.on('end', () => {
-      if (settled) return;
-      settled = true;
-      const raw = Buffer.concat(chunks).toString('utf-8');
-      resolve(raw);
+      settle(() => {
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        resolve(raw);
+      });
     });
 
     socket.on('timeout', () => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      reject(new Error(`WHOIS connection timed out after ${timeoutMs}ms for ${domain} on ${host}`));
+      settle(() => {
+        socket.destroy();
+        reject(
+          new Error(`WHOIS connection timed out after ${timeoutMs}ms for ${domain} on ${host}`),
+        );
+      });
     });
 
     socket.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      socket.destroy();
-      reject(err instanceof Error ? err : new Error(String(err)));
+      settle(() => {
+        socket.destroy();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      });
     });
+
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -275,8 +303,8 @@ export class NodeWhoisProvider implements WhoisProvider {
     return limiter.throttle(() => this.#doCheckAvailability(domain, signal));
   }
 
-  async #doCheckAvailability(domain: string, _signal?: AbortSignal): Promise<WhoisResult> {
-    if (_signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  async #doCheckAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
     if (!this.#circuitBreaker.allow()) {
       throw new ProviderError(
@@ -317,10 +345,14 @@ export class NodeWhoisProvider implements WhoisProvider {
         this.#timeoutMs,
         this.#connectFn,
         tlsConfig,
+        signal,
       );
       this.#circuitBreaker.onSuccess();
       return parseWhoisResponse(domain, raw);
     } catch (err: unknown) {
+      // A caller-initiated abort is not a server failure: it must not burn
+      // the circuit breaker nor trigger the TLS fallback (ADR-0058).
+      if (isAbortError(err)) throw err;
       // If TLS connection timed out, retry with plaintext before failing.
       if (
         useTls &&
@@ -328,10 +360,18 @@ export class NodeWhoisProvider implements WhoisProvider {
         (err.message.includes('timed out') || err.message.includes('TLS'))
       ) {
         try {
-          const raw = await queryWhoisServer(server, domain, this.#timeoutMs, this.#connectFn);
+          const raw = await queryWhoisServer(
+            server,
+            domain,
+            this.#timeoutMs,
+            this.#connectFn,
+            undefined,
+            signal,
+          );
           this.#circuitBreaker.onSuccess();
           return parseWhoisResponse(domain, raw);
-        } catch {
+        } catch (fallbackErr: unknown) {
+          if (isAbortError(fallbackErr)) throw fallbackErr;
           // fall through to the original error below
         }
       }
