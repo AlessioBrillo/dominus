@@ -7,6 +7,7 @@ import {
   ProviderError,
   PortfolioError,
   DuplicateDomainError,
+  TenantSuspendedError,
 } from '../../../types/errors.js';
 
 describe('errorHandler', () => {
@@ -48,6 +49,19 @@ describe('errorHandler', () => {
     const res = mockRes();
     errorHandler(new ProviderError('PROVIDER_TIMEOUT', 'RDAP'), {} as Request, res, vi.fn());
     expect(res.status).toHaveBeenCalledWith(502);
+  });
+
+  it('returns 403 for TenantSuspendedError (ADR-0057)', () => {
+    const res = mockRes();
+    errorHandler(new TenantSuspendedError('tenant-a'), {} as Request, res, vi.fn());
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(jsonCall(res)).toEqual({
+      error: {
+        code: 'TENANT_SUSPENDED',
+        message: expect.stringContaining('suspended'),
+        context: { tenantId: 'tenant-a' },
+      },
+    });
   });
 
   it('returns 500 for generic DominusError', () => {

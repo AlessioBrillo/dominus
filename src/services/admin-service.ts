@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { AdminRepository } from '../db/repositories/admin-repository.js';
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
-import type { AdminOverview, AdminTenantSummary, AdminTenantUsage } from '../types/admin.js';
+import type {
+  AdminOverview,
+  AdminTenantSummary,
+  AdminTenantUsage,
+  AdminTenantDetail,
+  AdminUsageSeriesPoint,
+  TenantAdminFlag,
+} from '../types/admin.js';
 import type { UsageFeature } from '../types/usage.js';
 import type { Subscription, SubscriptionPlan, SubscriptionStatus } from '../types/subscription.js';
+import { getLogger } from '../logger.js';
 
 const FEATURES: UsageFeature[] = ['candidates_scored', 'api_calls', 'domains_tracked'];
+
+const logger = getLogger();
 
 /** Last day of the month for a `YYYY-MM-01` period start. */
 export function periodEnd(periodStart: string): string {
@@ -60,18 +70,22 @@ export class AdminService {
   }
 
   async listTenants(periodStart: string): Promise<AdminTenantSummary[]> {
-    const [tenantIds, subs, keyCounts, usageRows, activity] = await Promise.all([
+    const [tenantIds, subs, keyCounts, usageRows, activity, flags] = await Promise.all([
       this.#adminRepo.listTenantIds(),
       this.#adminRepo.listSubscriptions(),
       this.#adminRepo.countApiKeysPerTenant(),
       this.#adminRepo.getUsageForPeriod(periodStart),
       this.#adminRepo.getLastActivity(),
+      this.#adminRepo.listAdminFlags(),
     ]);
 
     const subByTenant = new Map<string, Subscription>(subs.map((s) => [s.tenantId, s]));
     const keyCountByTenant = new Map<string, number>(keyCounts.map((k) => [k.tenantId, k.count]));
     const activityByTenant = new Map<string, string>(
       activity.map((a) => [a.tenantId, a.lastActiveAt]),
+    );
+    const suspendedByTenant = new Map<string, boolean>(
+      flags.map((f) => [f.tenantId, f.suspendedAt !== null]),
     );
 
     // Usage rows are per (tenant, feature, period); merge features per tenant.
@@ -105,10 +119,51 @@ export class AdminService {
         status,
         apiKeyCount: keyCountByTenant.get(tenantId) ?? 0,
         lastActiveAt: activityByTenant.get(tenantId) ?? null,
+        suspended: suspendedByTenant.get(tenantId) ?? false,
         usage,
       });
     }
 
     return summaries;
+  }
+
+  /** Full tenant detail: summary + operator flags (ADR-0057). */
+  async tenantDetail(tenantId: string, periodStart: string): Promise<AdminTenantDetail | null> {
+    const summary = (await this.listTenants(periodStart)).find((t) => t.tenantId === tenantId);
+    if (!summary) return null;
+    const flags = await this.#adminRepo.getAdminFlag(tenantId);
+    return { ...summary, flags };
+  }
+
+  /** Daily usage series for the operator drill-down (ADR-0057). */
+  async tenantUsageSeries(tenantId: string, fromIso: string): Promise<AdminUsageSeriesPoint[]> {
+    return this.#adminRepo.getTenantUsageSeries(tenantId, fromIso);
+  }
+
+  /** Suspend a tenant (ADR-0057). Idempotent; keeps any plan override. */
+  async suspendTenant(tenantId: string, reason: string | null): Promise<TenantAdminFlag> {
+    const flag = await this.#adminRepo.setSuspended(tenantId, reason, new Date().toISOString());
+    logger.warn({ tenantId, reason, flag }, `Tenant suspended by platform operator (ADR-0057)`);
+    return flag;
+  }
+
+  /** Lift a tenant's suspension (ADR-0057). Idempotent. */
+  async unsuspendTenant(tenantId: string): Promise<TenantAdminFlag | null> {
+    const flag = await this.#adminRepo.clearSuspended(tenantId, new Date().toISOString());
+    logger.info({ tenantId }, `Tenant suspension lifted by platform operator (ADR-0057)`);
+    return flag;
+  }
+
+  /**
+   * Set or clear a tenant's plan override (ADR-0057). `plan` null clears
+   * the override and restores subscription-driven enforcement.
+   */
+  async setPlanOverride(
+    tenantId: string,
+    plan: SubscriptionPlan | null,
+  ): Promise<TenantAdminFlag | null> {
+    const flag = await this.#adminRepo.setPlanOverride(tenantId, plan, new Date().toISOString());
+    logger.info({ tenantId, plan }, `Tenant plan override set by platform operator (ADR-0057)`);
+    return flag;
   }
 }

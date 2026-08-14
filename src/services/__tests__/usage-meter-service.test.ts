@@ -4,6 +4,7 @@ import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { UsageRepository } from '../../db/repositories/usage-repository.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
 import { UsageMeterService } from '../usage-meter-service.js';
+import type { SubscriptionPlan } from '../../types/subscription.js';
 
 describe('UsageMeterService', () => {
   let db: SqliteProvider;
@@ -237,6 +238,43 @@ describe('UsageMeterService', () => {
 
       expect(history[0]!.plan).toBe('free');
       expect(history[0]!.usage.candidates_scored.limitValue).toBe(50);
+    });
+  });
+
+  describe('planOverrideProvider (ADR-0057)', () => {
+    function serviceWithOverride(override: SubscriptionPlan | null): UsageMeterService {
+      return new UsageMeterService(usageRepo, subRepo, {
+        planOverrideProvider: async () => override,
+      });
+    }
+
+    it('a pro override raises the candidate limit above free', async () => {
+      await subRepo.ensureDefault(TENANT);
+      const service = serviceWithOverride('pro');
+
+      await service.record(TENANT, 'candidates_scored', 100, PERIOD);
+      const usage = await service.getUsageForPeriod(TENANT, 'candidates_scored', PERIOD);
+      expect(usage.currentUsage).toBe(100);
+      expect(usage.limitValue).toBe(500);
+      expect(usage.plan).toBe('pro');
+    });
+
+    it('a null override provider result falls back to the subscription plan', async () => {
+      await subRepo.ensureDefault(TENANT);
+      const service = serviceWithOverride(null);
+
+      await expect(service.record(TENANT, 'candidates_scored', 60, PERIOD)).rejects.toThrow(
+        /Usage limit exceeded/i,
+      );
+    });
+
+    it('an enterprise override removes the limit', async () => {
+      await subRepo.ensureDefault(TENANT);
+      const service = serviceWithOverride('enterprise');
+
+      await expect(
+        service.record(TENANT, 'candidates_scored', 10_000_000, PERIOD),
+      ).resolves.not.toThrow();
     });
   });
 });

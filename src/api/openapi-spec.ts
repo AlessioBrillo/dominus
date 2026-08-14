@@ -622,6 +622,157 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
+    '/api/v1/admin/tenants/{tenantId}/suspend': {
+      post: {
+        tags: ['Admin'],
+        summary: 'Suspend a tenant (operator lifecycle, ADR-0057)',
+        description:
+          'Rejects the tenant with 403 TENANT_SUSPENDED on every protected route except /billing (payment escape hatch). Requires the admin role.',
+        parameters: [
+          {
+            name: 'tenantId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { reason: { type: 'string', maxLength: 500 } },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Updated tenant admin flag',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/TenantAdminFlag' } },
+            },
+          },
+          '403': { $ref: '#/components/responses/Forbidden' },
+        },
+      },
+    },
+    '/api/v1/admin/tenants/{tenantId}/unsuspend': {
+      post: {
+        tags: ['Admin'],
+        summary: 'Lift a tenant suspension (ADR-0057)',
+        parameters: [
+          {
+            name: 'tenantId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Updated tenant admin flag (or null when no row exists)',
+            content: {
+              'application/json': {
+                schema: {
+                  oneOf: [{ $ref: '#/components/schemas/TenantAdminFlag' }, { type: 'null' }],
+                },
+              },
+            },
+          },
+          '403': { $ref: '#/components/responses/Forbidden' },
+        },
+      },
+    },
+    '/api/v1/admin/tenants/{tenantId}/plan-override': {
+      post: {
+        tags: ['Admin'],
+        summary: 'Set or clear a tenant plan override (ADR-0057)',
+        description:
+          'A non-null plan wins over the subscription-derived effective plan at the metering chokepoints. Send plan: null to clear.',
+        parameters: [
+          {
+            name: 'tenantId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  plan: {
+                    type: 'string',
+                    enum: ['free', 'pro', 'team', 'enterprise'],
+                    nullable: true,
+                  },
+                },
+                required: ['plan'],
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Updated tenant admin flag (or null when no row exists)',
+            content: {
+              'application/json': {
+                schema: {
+                  oneOf: [{ $ref: '#/components/schemas/TenantAdminFlag' }, { type: 'null' }],
+                },
+              },
+            },
+          },
+          '403': { $ref: '#/components/responses/Forbidden' },
+        },
+      },
+    },
+    '/api/v1/admin/tenants/{tenantId}/usage': {
+      get: {
+        tags: ['Admin'],
+        summary: 'Daily usage series for one tenant (ADR-0057)',
+        parameters: [
+          {
+            name: 'tenantId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+          },
+          {
+            name: 'days',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 365, default: 30 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Daily aggregated usage points',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      date: { type: 'string', example: '2026-08-01' },
+                      feature: { type: 'string' },
+                      amount: { type: 'number' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '403': { $ref: '#/components/responses/Forbidden' },
+        },
+      },
+    },
   },
   components: {
     schemas: {
@@ -703,6 +854,22 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
         required: ['error'],
       },
+      TenantAdminFlag: {
+        type: 'object',
+        description: 'Operator-managed tenant state (ADR-0057).',
+        properties: {
+          tenantId: { type: 'string' },
+          suspendedAt: { type: 'string', format: 'date-time', nullable: true },
+          suspendedReason: { type: 'string', nullable: true },
+          planOverride: {
+            type: 'string',
+            enum: ['free', 'pro', 'team', 'enterprise'],
+            nullable: true,
+          },
+          updatedAt: { type: 'string', format: 'date-time', nullable: true },
+        },
+        required: ['tenantId'],
+      },
     },
     responses: {
       ValidationError: {
@@ -715,6 +882,14 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
       },
       NotFound: {
         description: 'Resource not found',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ApiError' },
+          },
+        },
+      },
+      Forbidden: {
+        description: 'Insufficient role (admin surface) or suspended tenant',
         content: {
           'application/json': {
             schema: { $ref: '#/components/schemas/ApiError' },
