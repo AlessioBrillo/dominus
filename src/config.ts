@@ -726,6 +726,27 @@ const configSchema = z.object({
   RDAP_BOOTSTRAP_URL: z.string().url().or(z.literal('')).optional(),
 
   /**
+   * Exponential backoff base for IANA bootstrap refresh retries (ADR-0058).
+   * A failed bootstrap fetch no longer waits a full TTL before retrying:
+   * the next attempt is scheduled at `base * 2^(failures-1)`, capped at
+   * RDAP_BOOTSTRAP_RETRY_MAX_MS. Default: 300000 (5 minutes). Range: 1000
+   * (1s) — 86400000 (24h).
+   */
+  RDAP_BOOTSTRAP_RETRY_BASE_MS: z.coerce.number().int().min(1000).max(86_400_000).default(300_000),
+
+  /**
+   * Upper cap for the IANA bootstrap backoff (ADR-0058): the retry delay
+   * never exceeds this value, so a long outage polls at most once per cap.
+   * Default: 86400000 (24h). Range: 1000 (1s) — 604800000 (7 days).
+   */
+  RDAP_BOOTSTRAP_RETRY_MAX_MS: z.coerce
+    .number()
+    .int()
+    .min(1000)
+    .max(604_800_000)
+    .default(86_400_000),
+
+  /**
    * Maximum keep-alive connections per RDAP origin for the shared undici
    * Agent pool (ADR-0049). Independent of DNS_DOH_MAX_CONNECTIONS and
    * DNS_DOT_POOL_MAX_QUEUED. Default: 32. Range: 1-512.
@@ -733,13 +754,15 @@ const configSchema = z.object({
   RDAP_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(512).default(32),
 
   /**
-   * Enable the RDAP 2-of-2 consensus gate (ADR-0050): every Available
-   * verdict from the primary failover must be independently confirmed by a
-   * dedicated second RDAP provider (see RDAP_CONSENSUS_ENDPOINT). Opt-in:
-   * a second HTTP query per Available doubles RDAP volume, so it is off by
-   * default.
+   * Enable the RDAP 2-of-2 consensus gate (ADR-0050, ADR-0058): every
+   * Available verdict from the primary failover must be independently
+   * confirmed by a dedicated second RDAP provider (rdap.org by default,
+   * see RDAP_CONSENSUS_ENDPOINT). ON by default: the extra HTTP query per
+   * Available is the price of the fail-closed guarantee, mirroring the DNS
+   * consensus gate (DNS_CONSENSUS_ENABLED, ADR-0040). Disable explicitly
+   * to trade safety for volume.
    */
-  RDAP_CONSENSUS_ENABLED: z.coerce.boolean().default(false),
+  RDAP_CONSENSUS_ENABLED: z.coerce.boolean().default(true),
 
   /**
    * Opt-in WHOIS rescue leg for the RDAP 2-of-2 consensus gate (ADR-0051):
@@ -756,20 +779,23 @@ const configSchema = z.object({
   RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: z.coerce.boolean().default(false),
 
   /**
-   * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2). Empty by
-   * default: enabling the gate without an endpoint disables it at startup
-   * with a prominent warning — a second opinion must come from an origin the
-   * operator explicitly trusts as independent of the primary's bootstrap
-   * (example: a Verisign server for .com while the primary boots VRS/other
-   * failover mix). Your own private RDAP relay or a registry's direct server
-   * is the strongest setup. Must be an https URL when set.
+   * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2, ADR-0058).
+   * Defaults to the rdap.org universal router: the primary's per-TLD
+   * authoritative servers are resolved from the IANA bootstrap, so the
+   * universal router is the only single endpoint that is neutral for every
+   * TLD. It is deliberately excluded from the origin-disjointness checks
+   * (static and runtime) because it doubles as the default second leg —
+   * the checks exist to catch a secondary pinned to a registry origin the
+   * primary already queries (e.g. a Verisign server for .com while the
+   * primary boots VRS/other failover mix). Your own private RDAP relay is
+   * the strongest setup. Must be an https URL when set.
    */
   RDAP_CONSENSUS_ENDPOINT: z
     .string()
     .refine((v) => v === '' || v.startsWith('https://'), {
       message: 'RDAP_CONSENSUS_ENDPOINT must be an https URL or empty (empty = not configured)',
     })
-    .default(''),
+    .default('https://rdap.org/'),
 
   /**
    * Fraction of consensus-confirmed Available domains that may be unverifiable
