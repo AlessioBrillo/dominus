@@ -229,7 +229,9 @@ describe('IanaRdapBootstrap backoff and status (ADR-0058)', () => {
 
     const servers = await bootstrap.getServers('com');
     expect(servers.some((s) => s.name === 'rdap.verisign.com')).toBe(true);
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    // Only the failed refresh hit the network; the backoff window held.
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(bootstrap.getStatus().consecutiveFailures).toBe(1);
   });
 
   it('notifies status listeners on success and failure', async () => {
@@ -263,7 +265,7 @@ describe('IanaRdapBootstrap backoff and status (ADR-0058)', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json', 60_000, {
-      getDispatcher: async () => dispatcher,
+      getDispatcher: async (): Promise<Dispatcher> => dispatcher,
     });
     await bootstrap.refresh();
 

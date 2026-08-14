@@ -773,7 +773,10 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
   });
 
   it('resolves each TLD once per run and tolerates resolver failures', async () => {
-    const secondary = makeSecondary({});
+    const secondary = makeSecondary({
+      'x.com': DomainStatus.Available,
+      'y.com': DomainStatus.Available,
+    });
     const resolver = vi.fn().mockImplementation(async (tld: string) => {
       if (tld === '.fail') throw new Error('resolver down');
       return ['https://rdap.verisign.com/'];
@@ -796,7 +799,6 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
 });
 
 describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
