@@ -227,4 +227,3 @@ describe('renderPrometheusMetrics', () => {
     expect(body).toContain('# TYPE dominus_rdap_bootstrap_failures_total counter');
   });
 });
-

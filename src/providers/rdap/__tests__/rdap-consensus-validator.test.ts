@@ -10,9 +10,9 @@ describe('hasAuthoritativeOriginOverlap (ADR-0058)', () => {
   });
 
   it('passes when the second endpoint is not authoritative for the TLD', () => {
-    expect(
-      hasAuthoritativeOriginOverlap(['https://rdap.verisign.com/'], 'https://rdap.org/'),
-    ).toBe(false);
+    expect(hasAuthoritativeOriginOverlap(['https://rdap.verisign.com/'], 'https://rdap.org/')).toBe(
+      false,
+    );
   });
 
   it('passes when no authoritative origins are known (bootstrap down)', () => {
