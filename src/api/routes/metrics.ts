@@ -278,6 +278,77 @@ export function renderPrometheusMetrics(
     );
   }
 
+  const rdapConsensus = snapshot.pipeline.rdapConsensus;
+  if (rdapConsensus !== undefined && rdapConsensus.observed) {
+    g(
+      '2-of-2 RDAP consensus verdicts verified (confirmed Available).',
+      'dominus_rdap_consensus_verified_total',
+      rdapConsensus.verifiedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      '2-of-2 RDAP consensus definitive disagreements (second leg Registered).',
+      'dominus_rdap_consensus_disagreed_total',
+      rdapConsensus.disagreedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      '2-of-2 RDAP consensus domains the second leg could not answer.',
+      'dominus_rdap_consensus_unverifiable_total',
+      rdapConsensus.unverifiableTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Available verdicts rescued by the WHOIS rescue leg (ADR-0051).',
+      'dominus_rdap_consensus_whois_rescued_total',
+      rdapConsensus.whoisRescuedTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Verdicts skipped on per-TLD origin overlap (ADR-0058).',
+      'dominus_rdap_consensus_origin_overlap_total',
+      rdapConsensus.originOverlapTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      'Runs flagged degraded over RDAP consensus.',
+      'dominus_rdap_consensus_degraded_runs_total',
+      rdapConsensus.degradedRunsTotal,
+      undefined,
+      'counter',
+    );
+    g(
+      '1 when the last consensus-checked run was degraded, else 0.',
+      'dominus_rdap_consensus_last_run_degraded',
+      rdapConsensus.lastRunDegraded ? 1 : 0,
+      undefined,
+      'gauge',
+    );
+  }
+
+  const rdapBootstrap = snapshot.rdapBootstrap;
+  if (rdapBootstrap !== undefined && rdapBootstrap.observed) {
+    g(
+      '1 when the last IANA RDAP bootstrap refresh succeeded, else 0 (ADR-0058).',
+      'dominus_rdap_bootstrap_ok',
+      rdapBootstrap.ok ? 1 : 0,
+      undefined,
+      'gauge',
+    );
+    g(
+      'Consecutive failed IANA RDAP bootstrap refresh attempts (ADR-0058).',
+      'dominus_rdap_bootstrap_failures_total',
+      rdapBootstrap.consecutiveFailures,
+      undefined,
+      'counter',
+    );
+  }
+
   const tmGate = snapshot.pipeline.trademarkGate;
   if (tmGate !== undefined && tmGate.observed) {
     g(

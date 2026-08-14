@@ -625,6 +625,16 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   //     its telemetry callback; all other consumers read it later) ---
   const metrics = new MetricsCollector();
 
+  // RDAP bootstrap health feeds the process-lifetime metrics (ADR-0058).
+  ianaBootstrap.subscribeStatus((status) => {
+    metrics.recordRdapBootstrap({
+      ok: status.ok,
+      consecutiveFailures: status.consecutiveFailures,
+      lastSuccessAtMs: status.lastSuccessAt !== null ? Date.parse(status.lastSuccessAt) : null,
+      nextRetryAtMs: status.nextRetryAt,
+    });
+  });
+
   // --- Trademark Gate ---
   const { usptoTmProvider, euipoTmProvider, trademarkGate, usptoWafStats } =
     buildTrademarkProviderStack(
