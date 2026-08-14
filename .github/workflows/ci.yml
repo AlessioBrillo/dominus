@@ -94,7 +94,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build api image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: api
@@ -106,7 +106,7 @@ jobs:
       # Build-only validation of the remaining runtime targets so a broken
       # Dockerfile stage (worker/scheduler) fails the PR, not the deploy.
       - name: Build worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: worker
@@ -115,7 +115,7 @@ jobs:
           cache-from: type=gha
 
       - name: Build scheduler image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: scheduler
