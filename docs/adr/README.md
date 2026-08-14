@@ -64,6 +64,8 @@ re-running the original arguments.
 | [0054](0054-pitr-backup-strategy.md)                            | Point-in-time recovery for the Cloud stack — WAL archiving and restore playbook                               | 2026-08-12 | Accepted                            |
 | [0055](0055-evidence-anchored-value.md)                         | Evidence-anchored expectedValue — value follows comparables, cap becomes an operator preference                | 2026-08-12 | Accepted                            |
 | [0056](0056-anonymous-trademark-budget.md)                       | Anonymous trademark budget isolation — dedicated fail-open budget for public valuations, shared pipeline buckets untouched | 2026-08-13 | Accepted                            |
+| [0057](0057-tenant-lifecycle-management.md)                       | Tenant lifecycle management — admin operations loop (suspend, plan override, usage history)                             | 2026-08-13 | Proposed                            |
+| [0058](0058-rdap-gate-parity.md)                                  | RDAP gate parity — consensus default-on with rdap.org, resilient bootstrap, per-TLD origin-overlap guard                | 2026-08-14 | Accepted                            |
 
 ## Conventions
 
