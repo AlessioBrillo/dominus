@@ -737,7 +737,7 @@ describe('WHOIS distributed rate-limit parity (ADR-0052)', () => {
 });
 
 describe('createRdapConsensusConfig (ADR-0050)', () => {
-  it('returns undefined when RDAP_CONSENSUS_ENABLED is false (default)', () => {
+  it('returns undefined when RDAP_CONSENSUS_ENABLED is explicitly false', () => {
     const config = makeConfig({ RDAP_CONSENSUS_ENABLED: false });
     expect(createRdapConsensusConfig(config)).toBeUndefined();
   });
