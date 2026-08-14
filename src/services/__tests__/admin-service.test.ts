@@ -132,5 +132,104 @@ describe('AdminService', () => {
       const tenants = await service.listTenants(PERIOD);
       expect(tenants[0]!.usage.find((u) => u.feature === 'api_calls')?.limit).toBeNull();
     });
+
+    it('marks suspended tenants in the list', async () => {
+      seedApiKey('tenant-x', 'ci');
+      await db.exec(
+        `INSERT INTO tenant_admin_flags (tenant_id, suspended_at, suspended_reason)
+         VALUES ('tenant-x', '2026-08-13T10:00:00Z', 'abuse')`,
+      );
+
+      const tenants = await service.listTenants(PERIOD);
+      expect(tenants[0]!.suspended).toBe(true);
+    });
+
+    it('leaves non-suspended tenants unflagged', async () => {
+      seedApiKey('tenant-x', 'ci');
+      const tenants = await service.listTenants(PERIOD);
+      expect(tenants[0]!.suspended).toBe(false);
+    });
+  });
+
+  describe('tenantDetail', () => {
+    it('returns the summary plus operator flags', async () => {
+      seedSubscription('tenant-a', 'pro', 'active');
+      await db.exec(
+        `INSERT INTO tenant_admin_flags (tenant_id, plan_override)
+         VALUES ('tenant-a', 'enterprise')`,
+      );
+
+      const detail = await service.tenantDetail('tenant-a', PERIOD);
+      expect(detail?.tenantId).toBe('tenant-a');
+      expect(detail?.flags?.planOverride).toBe('enterprise');
+      expect(detail?.flags?.suspendedAt).toBeNull();
+    });
+
+    it('returns null for an unknown tenant', async () => {
+      expect(await service.tenantDetail('ghost', PERIOD)).toBeNull();
+    });
+
+    it('returns null flags when no flag row exists', async () => {
+      seedSubscription('tenant-a', 'pro', 'active');
+      const detail = await service.tenantDetail('tenant-a', PERIOD);
+      expect(detail?.flags).toBeNull();
+    });
+  });
+
+  describe('tenantUsageSeries', () => {
+    it('returns the daily series from the repository', async () => {
+      db.exec(
+        `INSERT INTO usage_records (tenant_id, feature, amount, period_start, recorded_at)
+         VALUES ('tenant-a', 'api_calls', 4, ?, '2026-08-05T10:00:00Z')`,
+        [PERIOD],
+      );
+
+      const series = await service.tenantUsageSeries('tenant-a', '2026-08-01T00:00:00Z');
+      expect(series).toHaveLength(1);
+      expect(series[0]).toEqual({
+        date: '2026-08-05',
+        feature: 'api_calls',
+        amount: 4,
+      });
+    });
+  });
+
+  describe('suspendTenant / unsuspendTenant', () => {
+    it('suspends a tenant with the given reason', async () => {
+      const flag = await service.suspendTenant('tenant-a', 'Payment overdue');
+      expect(flag.suspendedAt).not.toBeNull();
+      expect(flag.suspendedReason).toBe('Payment overdue');
+    });
+
+    it('suspending again updates the flag idempotently', async () => {
+      await service.suspendTenant('tenant-a', 'first');
+      const flag = await service.suspendTenant('tenant-a', 'second');
+      expect(flag.suspendedReason).toBe('second');
+    });
+
+    it('unsuspends a tenant and clears the reason', async () => {
+      await service.suspendTenant('tenant-a', 'abuse');
+      const flag = await service.unsuspendTenant('tenant-a');
+      expect(flag?.suspendedAt).toBeNull();
+      expect(flag?.suspendedReason).toBeNull();
+    });
+
+    it('unsuspending a tenant without a flag returns a row with nulls', async () => {
+      const flag = await service.unsuspendTenant('tenant-a');
+      expect(flag?.suspendedAt).toBeNull();
+    });
+  });
+
+  describe('setPlanOverride', () => {
+    it('sets an enterprise override', async () => {
+      const flag = await service.setPlanOverride('tenant-a', 'enterprise');
+      expect(flag?.planOverride).toBe('enterprise');
+    });
+
+    it('clears the override when plan is null', async () => {
+      await service.setPlanOverride('tenant-a', 'enterprise');
+      const flag = await service.setPlanOverride('tenant-a', null);
+      expect(flag?.planOverride).toBeNull();
+    });
   });
 });

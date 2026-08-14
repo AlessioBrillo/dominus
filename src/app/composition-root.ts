@@ -115,6 +115,7 @@ import { TeamService } from '../services/team-service.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
+import type { SubscriptionPlan } from '../types/subscription.js';
 import { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import { FunnelRepository } from '../db/repositories/funnel-repository.js';
@@ -165,6 +166,7 @@ export interface DominusDependencies {
   billingService: BillingService;
   usageService: UsageMeterService;
   adminService: AdminService;
+  adminRepo: AdminRepository;
   teamService: TeamService;
 
   keywordProvider: KeywordProvider;
@@ -533,16 +535,26 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     // db/auth0 implies managed identity. Self-hosted community stays strict.
     autoProvisionTenants:
       config.AUTO_PROVISION_TENANTS || !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env',
+    // Operator plan overrides (ADR-0057) win over subscription-derived plans.
+    planOverrideProvider: (tenantId: string): Promise<SubscriptionPlan | null> =>
+      repos.adminRepo.getAdminFlag(tenantId).then((flag) => flag?.planOverride ?? null),
   });
 
-  // Platform admin read model: cross-tenant subscriptions, API key counts
-  // and metered usage for the operator panel (Cloud).
+  // Platform admin read model + tenant lifecycle (ADR-0057): cross-tenant
+  // subscriptions, API key counts, metered usage and operator
+  // suspend/unsuspend/plan-override for the operator panel (Cloud).
   const adminService = new AdminService(repos.adminRepo, repos.usageRepo);
   const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo);
 
   // Entry-point usage guard shared by the job queue chokepoint, the sync
   // pipeline path, and the portfolio/watchlist add flows (ADR-0038).
-  const usageEnforcer = new PipelineUsageEnforcer(usageService, config.USAGE_ENFORCEMENT_ENABLED);
+  // The admin repo wires the suspended-tenant gate for those chokepoints
+  // (ADR-0057); community installs pass none and stay unaffected.
+  const usageEnforcer = new PipelineUsageEnforcer(
+    usageService,
+    config.USAGE_ENFORCEMENT_ENABLED,
+    repos.adminRepo,
+  );
 
   // Dedicated bulk-write pool for pipeline persistence.
   // SQLite: separate WAL connection with shorter busy_timeout (5s) for write transactions.

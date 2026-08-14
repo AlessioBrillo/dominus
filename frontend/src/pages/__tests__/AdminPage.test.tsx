@@ -1,15 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { createWrapper } from '@/hooks/__tests__/test-utils';
 
 vi.mock('@/api/admin', () => ({
   fetchAdminOverview: vi.fn(),
   fetchAdminTenants: vi.fn(),
+  fetchAdminTenantUsage: vi.fn(),
+  suspendTenant: vi.fn(),
+  unsuspendTenant: vi.fn(),
+  setPlanOverride: vi.fn(),
 }));
 
 import { AdminPage } from '../AdminPage';
-import { fetchAdminOverview, fetchAdminTenants } from '@/api/admin';
+import {
+  fetchAdminOverview,
+  fetchAdminTenants,
+  fetchAdminTenantUsage,
+  suspendTenant,
+  unsuspendTenant,
+  setPlanOverride,
+} from '@/api/admin';
 
 const overview = {
   periodStart: '2026-08-01',
@@ -28,6 +39,7 @@ const tenants = [
     status: 'active',
     apiKeyCount: 2,
     lastActiveAt: '2026-08-06T10:00:00Z',
+    suspended: true,
     usage: [
       { feature: 'candidates_scored', used: 20, limit: 500 },
       { feature: 'api_calls', used: 5, limit: 10000 },
@@ -40,6 +52,7 @@ const tenants = [
     status: 'active',
     apiKeyCount: 0,
     lastActiveAt: null,
+    suspended: false,
     usage: [
       { feature: 'candidates_scored', used: 15, limit: null },
       { feature: 'api_calls', used: 345, limit: null },
@@ -50,12 +63,12 @@ const tenants = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(fetchAdminOverview).mockResolvedValue(overview as never);
+  vi.mocked(fetchAdminTenants).mockResolvedValue(tenants as never);
 });
 
 describe('AdminPage', () => {
   it('renders overview cards and the tenants table', async () => {
-    vi.mocked(fetchAdminOverview).mockResolvedValueOnce(overview as never);
-    vi.mocked(fetchAdminTenants).mockResolvedValueOnce(tenants as never);
     render(<AdminPage />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(screen.getByText('Tenants')).toBeInTheDocument());
@@ -71,6 +84,66 @@ describe('AdminPage', () => {
     expect(screen.getByText('tenant-e')).toBeInTheDocument();
     expect(screen.getByText('20 / 500')).toBeInTheDocument();
     expect(screen.getByText('15')).toBeInTheDocument();
+  });
+
+  it('shows a suspended badge for suspended tenants only', async () => {
+    render(<AdminPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('suspended')).toBeInTheDocument());
+    expect(screen.getByTestId('suspended-badge-tenant-a')).toBeInTheDocument();
+    expect(screen.queryByTestId('suspended-badge-tenant-e')).not.toBeInTheDocument();
+  });
+
+  it('suspends a tenant with a reason via the inline form', async () => {
+    vi.mocked(suspendTenant).mockResolvedValue({} as never);
+    render(<AdminPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Suspend')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Suspend/ }));
+
+    const input = screen.getByTestId('suspend-reason-tenant-e');
+    fireEvent.change(input, { target: { value: 'Payment overdue' } });
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/ }));
+
+    await waitFor(() => expect(suspendTenant).toHaveBeenCalledWith('tenant-e', 'Payment overdue'));
+  });
+
+  it('restores a suspended tenant', async () => {
+    vi.mocked(unsuspendTenant).mockResolvedValue({} as never);
+    render(<AdminPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Restore')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Restore/ }));
+
+    await waitFor(() => expect(unsuspendTenant).toHaveBeenCalledWith('tenant-a'));
+  });
+
+  it('applies a plan override from the select', async () => {
+    vi.mocked(setPlanOverride).mockResolvedValue({} as never);
+    render(<AdminPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByTestId('plan-override-tenant-e')).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId('plan-override-tenant-e'), {
+      target: { value: 'team' },
+    });
+
+    await waitFor(() => expect(setPlanOverride).toHaveBeenCalledWith('tenant-e', 'team'));
+  });
+
+  it('drills into the daily usage series for a tenant', async () => {
+    vi.mocked(fetchAdminTenantUsage).mockResolvedValue([
+      { date: '2026-08-05', feature: 'api_calls', amount: 3 },
+    ] as never);
+    render(<AdminPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByTestId('usage-toggle-tenant-e')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('usage-toggle-tenant-e'));
+
+    await waitFor(() =>
+      expect(fetchAdminTenantUsage).toHaveBeenCalledWith('tenant-e', 14, expect.anything()),
+    );
+    expect(await screen.findByText('2026-08-05')).toBeInTheDocument();
+    expect(screen.getByText('api_calls')).toBeInTheDocument();
   });
 
   it('shows skeletons while loading', () => {

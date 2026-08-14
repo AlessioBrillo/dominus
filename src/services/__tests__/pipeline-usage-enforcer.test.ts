@@ -3,10 +3,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { UsageRepository } from '../../db/repositories/usage-repository.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
+import { AdminRepository } from '../../db/repositories/admin-repository.js';
 import { UsageMeterService } from '../usage-meter-service.js';
 import { PipelineUsageEnforcer, estimateCandidateCount } from '../pipeline-usage-enforcer.js';
 import { runWithTenant } from '../../utils/tenant-context.js';
-import { UsageLimitExceededError } from '../../types/errors.js';
+import { TenantSuspendedError, UsageLimitExceededError } from '../../types/errors.js';
 import type { CandidateGenerationInput } from '../../pipeline/stages/candidate-generation-stage.js';
 
 const PERIOD = UsageMeterService.periodStart(new Date().toISOString());
@@ -36,12 +37,14 @@ describe('PipelineUsageEnforcer', () => {
   let usageRepo: UsageRepository;
   let subRepo: SubscriptionRepository;
   let usageService: UsageMeterService;
+  let adminRepo: AdminRepository;
 
   beforeEach(async () => {
     db = SqliteProvider.openInMemory();
     await db.runMigrations();
     usageRepo = new UsageRepository(db);
     subRepo = new SubscriptionRepository(db);
+    adminRepo = new AdminRepository(db);
     usageService = new UsageMeterService(usageRepo, subRepo);
   });
 
@@ -139,6 +142,74 @@ describe('PipelineUsageEnforcer', () => {
 
       const tracked = await usageRepo.getUsageForPeriod('default', 'domains_tracked', PERIOD);
       expect(tracked).toBe(0);
+    });
+  });
+
+  describe('suspension gate (ADR-0057)', () => {
+    it('throws TenantSuspendedError for a suspended tenant', async () => {
+      await subRepo.ensureDefault('tenant-x');
+      await adminRepo.setSuspended('tenant-x', 'abuse', new Date().toISOString());
+      const enforcer = new PipelineUsageEnforcer(usageService, true, adminRepo);
+
+      await expect(
+        runWithTenant('tenant-x', () => enforcer.checkAndRecordCandidates({ keywords: ['a'] })),
+      ).rejects.toBeInstanceOf(TenantSuspendedError);
+    });
+
+    it('blocks tracked recording for a suspended tenant too', async () => {
+      await subRepo.ensureDefault('tenant-x');
+      await adminRepo.setSuspended('tenant-x', 'abuse', new Date().toISOString());
+      const enforcer = new PipelineUsageEnforcer(usageService, true, adminRepo);
+
+      await expect(
+        runWithTenant('tenant-x', () => enforcer.checkAndRecordTracked(1)),
+      ).rejects.toBeInstanceOf(TenantSuspendedError);
+    });
+
+    it('does not record usage when the suspension gate fires', async () => {
+      await subRepo.ensureDefault('tenant-x');
+      await adminRepo.setSuspended('tenant-x', 'abuse', new Date().toISOString());
+      const enforcer = new PipelineUsageEnforcer(usageService, true, adminRepo);
+
+      await runWithTenant('tenant-x', () =>
+        enforcer.checkAndRecordCandidates({ keywords: ['a'] }).catch(() => null),
+      );
+
+      const usage = await usageRepo.getUsageForPeriod('tenant-x', 'candidates_scored', PERIOD);
+      expect(usage).toBe(0);
+    });
+
+    it('allows a non-suspended tenant through', async () => {
+      await subRepo.ensureDefault('tenant-x');
+      const enforcer = new PipelineUsageEnforcer(usageService, true, adminRepo);
+
+      await runWithTenant('tenant-x', () => enforcer.checkAndRecordCandidates({ keywords: ['a'] }));
+
+      const usage = await usageRepo.getUsageForPeriod('tenant-x', 'candidates_scored', PERIOD);
+      expect(usage).toBe(1);
+    });
+
+    it('allows a cleared suspension through', async () => {
+      await subRepo.ensureDefault('tenant-x');
+      await adminRepo.setSuspended('tenant-x', 'abuse', new Date().toISOString());
+      await adminRepo.clearSuspended('tenant-x', new Date().toISOString());
+      const enforcer = new PipelineUsageEnforcer(usageService, true, adminRepo);
+
+      await runWithTenant('tenant-x', () => enforcer.checkAndRecordCandidates({ keywords: ['a'] }));
+
+      const usage = await usageRepo.getUsageForPeriod('tenant-x', 'candidates_scored', PERIOD);
+      expect(usage).toBe(1);
+    });
+
+    it('is a no-op when no admin repo is wired (community edition)', async () => {
+      await subRepo.ensureDefault('tenant-x');
+      await adminRepo.setSuspended('tenant-x', 'abuse', new Date().toISOString());
+      const enforcer = new PipelineUsageEnforcer(usageService, true);
+
+      await runWithTenant('tenant-x', () => enforcer.checkAndRecordCandidates({ keywords: ['a'] }));
+
+      const usage = await usageRepo.getUsageForPeriod('tenant-x', 'candidates_scored', PERIOD);
+      expect(usage).toBe(1);
     });
   });
 });

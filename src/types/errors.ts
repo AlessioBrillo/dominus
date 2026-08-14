@@ -115,3 +115,18 @@ export class UsageLimitExceededError extends DominusError {
     this.limitValue = limitValue;
   }
 }
+
+/**
+ * Raised when a suspended tenant attempts a metered operation (ADR-0057).
+ * Mapped to HTTP 403 TENANT_SUSPENDED by the error handler; the API-level
+ * middleware rejects suspended tenants before any work starts, this error
+ * covers the pipeline/CLI chokepoints that bypass the HTTP layer.
+ */
+export class TenantSuspendedError extends DominusError {
+  constructor(tenantId: string) {
+    super(`Tenant '${tenantId}' is suspended. Contact the platform operator.`, 'TENANT_SUSPENDED', {
+      tenantId,
+    });
+    this.name = 'TenantSuspendedError';
+  }
+}

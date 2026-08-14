@@ -134,8 +134,9 @@ estimates and subject to change.
 - [ ] Team tier (€79/mo): 500 runs/day, 10 team seats, Slack support
 - [x] Stripe billing integration (subscriptions + customer portal)
       — incl. Team checkout and status-aware enforcement (ADR-0053)
-- [ ] Usage metering (pipeline runs, API calls per tenant)
-- [ ] Admin panel (user management, usage metrics)
+- [x] Usage metering (pipeline runs, API calls per tenant)
+- [x] Admin panel (tenant lifecycle + usage metrics — ADR-0057: overview,
+      per-tenant daily usage drill-down, suspend/unsuspend, plan override)
 - [ ] Automated daily backups with point-in-time recovery
 - [ ] Monitoring and alerting (uptime, error rate, latency)
 - [ ] Migration guide: from community edition to DOMINUS Cloud

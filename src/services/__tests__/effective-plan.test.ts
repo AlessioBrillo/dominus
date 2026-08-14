@@ -39,4 +39,28 @@ describe('effectivePlanFor', () => {
   it('fails closed to free for a missing subscription', () => {
     expect(effectivePlanFor(null)).toBe('free');
   });
+
+  describe('plan override (ADR-0057)', () => {
+    it('an override wins over an active subscription', () => {
+      expect(effectivePlanFor(sub('active'), 'enterprise')).toBe('enterprise');
+    });
+
+    it('an override wins even when the subscription lapsed', () => {
+      expect(effectivePlanFor(sub('past_due'), 'pro')).toBe('pro');
+    });
+
+    it('an override wins when there is no subscription at all', () => {
+      expect(effectivePlanFor(null, 'team')).toBe('team');
+    });
+
+    it('a null override leaves the subscription-derived plan untouched', () => {
+      expect(effectivePlanFor(sub('active'), null)).toBe('pro');
+      expect(effectivePlanFor(sub('canceled'), null)).toBe('free');
+    });
+
+    it('no override argument leaves the subscription-derived plan untouched', () => {
+      expect(effectivePlanFor(sub('active'))).toBe('pro');
+      expect(effectivePlanFor(null)).toBe('free');
+    });
+  });
 });

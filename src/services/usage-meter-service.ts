@@ -2,6 +2,7 @@
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { UsageFeature, UsageForPeriod, UsageHistoryEntry, PlanLimit } from '../types/usage.js';
+import type { Subscription, SubscriptionPlan } from '../types/subscription.js';
 import { USAGE_FEATURES } from '../types/usage.js';
 import { UsageLimitExceededError } from '../types/errors.js';
 import { effectivePlanFor, ACTIVE_PLAN_STATUSES } from './effective-plan.js';
@@ -16,12 +17,22 @@ export interface UsageMeterServiceOptions {
    * AUTO_PROVISION_TENANTS; the community edition keeps `record()` strict.
    */
   autoProvisionTenants?: boolean;
+  /**
+   * Operator plan override lookup (ADR-0057). When the provider returns a
+   * non-null plan, it wins over the subscription-derived effective plan —
+   * a deliberate manual grant (enterprise trials, SLA compensation) that
+   * must survive subscription status changes. Absent, enforcement stays
+   * purely subscription-driven.
+   */
+  planOverrideProvider?: (tenantId: string) => Promise<SubscriptionPlan | null>;
 }
 
 export class UsageMeterService {
   readonly #usageRepo: UsageRepository;
   readonly #subRepo: SubscriptionRepository;
   readonly #autoProvisionTenants: boolean;
+  readonly #planOverrideProvider:
+    ((tenantId: string) => Promise<SubscriptionPlan | null>) | undefined;
 
   constructor(
     usageRepo: UsageRepository,
@@ -31,6 +42,16 @@ export class UsageMeterService {
     this.#usageRepo = usageRepo;
     this.#subRepo = subRepo;
     this.#autoProvisionTenants = options.autoProvisionTenants ?? false;
+    this.#planOverrideProvider = options.planOverrideProvider;
+  }
+
+  /** Effective plan for a tenant: operator override first, then subscription. */
+  async #resolvePlan(
+    tenantId: string,
+    sub: Subscription | null | undefined,
+  ): Promise<SubscriptionPlan> {
+    const override = this.#planOverrideProvider ? await this.#planOverrideProvider(tenantId) : null;
+    return effectivePlanFor(sub, override);
   }
 
   static periodStart(dateStr: string): string {
@@ -52,7 +73,7 @@ export class UsageMeterService {
       throw new Error(`No active subscription for tenant ${tenantId}`);
     }
 
-    const plan = effectivePlanFor(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
     const limit = await this.#usageRepo.getPlanLimit(plan, feature);
     const limitValue = limit?.limitValue ?? null;
 
@@ -102,7 +123,7 @@ export class UsageMeterService {
     periodStart: string,
   ): Promise<UsageForPeriod> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan = effectivePlanFor(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
 
     const limit = await this.#usageRepo.getPlanLimit(plan, feature);
     const limitValue = limit?.limitValue ?? null;
@@ -128,7 +149,7 @@ export class UsageMeterService {
 
   async getAllPlanLimitsForTenant(tenantId: string): Promise<PlanLimit[]> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan = effectivePlanFor(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
     return this.#usageRepo.getAllPlanLimits(plan);
   }
 
@@ -140,7 +161,7 @@ export class UsageMeterService {
    */
   async getUsageHistory(tenantId: string, months = 6): Promise<UsageHistoryEntry[]> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan = effectivePlanFor(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
 
     const now = new Date();
     const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));

@@ -12,6 +12,7 @@ import { closeDatabase } from './db/database.js';
 import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
+import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
@@ -258,6 +259,11 @@ async function main(): Promise<void> {
 
   const protectedRouter = express.Router();
   protectedRouter.use(authMiddleware);
+  // Tenant suspension gate (ADR-0057): a suspended tenant is rejected with
+  // 403 TENANT_SUSPENDED on every protected route except /billing (payment
+  // escape hatch) and admin-role callers. Community installs have an empty
+  // flag table, so this is a single PK lookup that always passes.
+  protectedRouter.use(createTenantStatusMiddleware(deps.adminRepo));
   // Plan usage enforcement: records one api_call per request and rejects
   // with 429 once the tenant's monthly plan limit is exhausted. No-op unless
   // USAGE_ENFORCEMENT_ENABLED=true (see middleware docs). Mounted after auth

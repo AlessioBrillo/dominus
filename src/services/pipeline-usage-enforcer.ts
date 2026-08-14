@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { CandidateGenerationInput } from '../pipeline/stages/candidate-generation-stage.js';
 import type { UsageFeature } from '../types/usage.js';
+import type { AdminRepository } from '../db/repositories/admin-repository.js';
 import { UsageMeterService } from './usage-meter-service.js';
 import { getTenantId } from '../utils/tenant-context.js';
+import { TenantSuspendedError } from '../types/errors.js';
 
 /**
  * Conservative estimate of how many candidates a pipeline run will score:
@@ -37,10 +39,12 @@ export function estimateCandidateCount(input: CandidateGenerationInput): number 
 export class PipelineUsageEnforcer {
   readonly #usageService: UsageMeterService;
   readonly #enabled: boolean;
+  readonly #adminRepo: AdminRepository | undefined;
 
-  constructor(usageService: UsageMeterService, enabled: boolean) {
+  constructor(usageService: UsageMeterService, enabled: boolean, adminRepo?: AdminRepository) {
     this.#usageService = usageService;
     this.#enabled = enabled;
+    this.#adminRepo = adminRepo;
   }
 
   /** Whether enforcement is active (USAGE_ENFORCEMENT_ENABLED=true). */
@@ -48,9 +52,24 @@ export class PipelineUsageEnforcer {
     return this.#enabled;
   }
 
+  /**
+   * Suspension gate for non-HTTP chokepoints (ADR-0057). Runs whenever an
+   * admin repo is wired (Cloud); the community edition passes no repo, so
+   * this is a no-op. Jobs enqueued before the suspension are allowed to
+   * drain — suspension is preventive, not a mid-flight abort.
+   */
+  async #assertNotSuspended(tenantId: string): Promise<void> {
+    if (!this.#adminRepo) return;
+    const flag = await this.#adminRepo.getAdminFlag(tenantId);
+    if (flag?.suspendedAt) {
+      throw new TenantSuspendedError(tenantId);
+    }
+  }
+
   async checkAndRecord(feature: UsageFeature, amount: number): Promise<void> {
     if (!this.#enabled) return;
     const tenantId = getTenantId() ?? 'default';
+    await this.#assertNotSuspended(tenantId);
     const periodStart = UsageMeterService.periodStart(new Date().toISOString());
     await this.#usageService.record(tenantId, feature, amount, periodStart);
   }

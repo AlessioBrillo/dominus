@@ -6,6 +6,7 @@ import {
   PortfolioError,
   DuplicateDomainError,
   UsageLimitExceededError,
+  TenantSuspendedError,
 } from '../../types/errors.js';
 import { getLogger } from '../../logger.js';
 
@@ -28,6 +29,7 @@ function statusFromError(err: DominusError): number {
   if (err instanceof PortfolioError) return 404;
   if (err instanceof ProviderError) return 502;
   if (err instanceof UsageLimitExceededError) return 429;
+  if (err instanceof TenantSuspendedError) return 403;
   return 500;
 }
 
@@ -54,7 +56,14 @@ export function errorHandler(
 
   if (err instanceof DominusError) {
     const status = statusFromError(err);
-    res.status(status).json({ error: { code: err.code, message: err.message } });
+    const hasContext = Object.keys(err.context).length > 0;
+    res.status(status).json({
+      error: {
+        code: err.code,
+        message: err.message,
+        ...(hasContext ? { context: err.context } : {}),
+      },
+    });
     return;
   }
 
