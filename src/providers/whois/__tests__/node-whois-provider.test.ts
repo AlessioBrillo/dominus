@@ -208,6 +208,58 @@ describe('NodeWhoisProvider', () => {
     await expect(promise).rejects.toBeInstanceOf(ProviderError);
   });
 
+  it('aborts the in-flight socket and rejects with AbortError (ADR-0058)', async () => {
+    let socketRef: Socket | undefined;
+    const connect = vi.fn((_port: number, _host: string, callback?: () => void) => {
+      const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+      const socket = {
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          const existing = handlers.get(event) ?? [];
+          existing.push(handler);
+          handlers.set(event, existing);
+          return socket;
+        }),
+        setTimeout: vi.fn(),
+        write: vi.fn(),
+        destroy: vi.fn(),
+      } as unknown as Socket;
+      socketRef = socket;
+      if (callback !== undefined) process.nextTick(callback);
+      return socket;
+    });
+
+    const provider = new NodeWhoisProvider({ timeoutMs: 5000, connect: connect as ConnectFn });
+    const controller = new AbortController();
+    const promise = provider.checkAvailability('abort.com', controller.signal);
+    await vi.waitFor(() => {
+      expect(socketRef).toBeDefined();
+    });
+    controller.abort();
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    expect(socketRef!.destroy).toHaveBeenCalled();
+  });
+
+  it('does not burn the circuit breaker on caller aborts (3 aborts + 1 success)', async () => {
+    const provider = new NodeWhoisProvider({ timeoutMs: 300, connect: mockConnect });
+    for (let i = 0; i < 3; i++) {
+      const controller = new AbortController();
+      const promise = provider.checkAvailability(`abort${i}.io`, controller.signal);
+      await vi.waitFor(() => {
+        expect(emittedEvents.length).toBeGreaterThanOrEqual(i + 1);
+      });
+      controller.abort();
+      await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
+    }
+    // A healthy query after the aborts must still pass: caller aborts are not
+    // server failures, so they must not trip the breaker.
+    const promise = provider.checkAvailability('ok.io');
+    process.nextTick(() => {
+      lastEvents().emit('data', Buffer.from('No match for'));
+      lastEvents().emit('end');
+    });
+    await expect(promise).resolves.toMatchObject({ available: true });
+  });
+
   it('connects to verisign-grs for .com', async () => {
     const provider = new NodeWhoisProvider({ timeoutMs: 5000, connect: mockConnect });
     const promise = provider.checkAvailability('test.com');
