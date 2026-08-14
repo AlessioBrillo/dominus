@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Redis, type RedisOptions } from 'ioredis';
+import { Redis } from 'ioredis';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -41,11 +41,14 @@ export class RedisClient {
       return;
     }
 
-    const options: RedisOptions = {
+    // ioredis v6 exports a RedisOptions type whose optional properties
+    // (replyMapping et al.) are not assignable under exactOptionalPropertyTypes;
+    // an inferred object literal side-steps the broken annotation.
+    const options = {
       lazyConnect: true,
       enableAutoPipelining: false,
       maxRetriesPerRequest: null,
-      retryStrategy: (times: number) => {
+      retryStrategy: (times: number): number | null => {
         if (times > this.#config.maxRetries) {
           logger.error(
             { maxRetries: this.#config.maxRetries },

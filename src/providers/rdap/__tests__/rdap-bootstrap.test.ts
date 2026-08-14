@@ -167,6 +167,7 @@ describe('IanaRdapBootstrap backoff and status (ADR-0058)', () => {
   });
 
   it('backs off exponentially and refetches only when the window elapses', async () => {
+    vi.useFakeTimers();
     globalThis.fetch = vi
       .fn()
       .mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
@@ -184,7 +185,7 @@ describe('IanaRdapBootstrap backoff and status (ADR-0058)', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
 
     // Once the window elapses the next attempt fires.
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    await vi.advanceTimersByTimeAsync(15);
     await bootstrap.getServers('com');
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     expect(bootstrap.getStatus().consecutiveFailures).toBe(2);
