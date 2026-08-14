@@ -14,10 +14,6 @@ updates:
       # Pin at 1.1.3 which ships real declarations.
       - dependency-name: "@types/psl"
         versions: [">=1.4.0"]
-      # better-sqlite3 ≥ 13 requires node >= 22, but the CI matrix still
-      # runs Node 20. Un-ignore when Node 20 is dropped from CI.
-      - dependency-name: "better-sqlite3"
-        versions: [">=13.0.0"]
     groups:
       production:
         dependency-type: "production"
