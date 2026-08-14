@@ -5,9 +5,9 @@
 ```mermaid
 flowchart LR
     subgraph Build[Multi-Stage Docker Build]
-        BASE["base<br/>node:20-alpine<br/>npm ci --production"]
-        BUILD["build<br/>node:20-alpine<br/>npm ci + npm run build"]
-        RUNTIME["runtime<br/>node:20-alpine (slim)<br/>dist/ + node_modules"]
+        BASE["base<br/>node:22-alpine<br/>npm ci --production"]
+        BUILD["build<br/>node:22-alpine<br/>npm ci + npm run build"]
+        RUNTIME["runtime<br/>node:22-alpine (slim)<br/>dist/ + node_modules"]
     end
 
     subgraph Artifacts[Build Artifacts]

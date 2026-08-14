@@ -3,8 +3,8 @@
 > Open-source decision-support engine for domain valuation, buying, reselling, and managing DNS domain portfolios — available as a self-hosted community edition or managed cloud service.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](package.json)
-[![TypeScript](https://img.shields.io/badge/typescript-5.x-3178C6)](tsconfig.json)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
+[![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
 [![Version](https://img.shields.io/badge/version-0.11.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
@@ -15,7 +15,7 @@ DOMINUS is an **open-source domain investment tool** that helps you make better 
 
 **DOMINUS Community** (AGPL v3) — self-hosted, all features, unlimited use, forever free.
 
-**DOMINUS Cloud** — managed hosting with multi-tenant support, PostgreSQL, automated backups with point-in-time recovery, and priority support. [Coming soon.](#)
+**DOMINUS Cloud** — managed hosting with multi-tenant support, PostgreSQL, automated backups with point-in-time recovery, and priority support. Billing, usage metering, and the admin panel ship ahead of the managed hosting launch (v1.0.0).
 
 ---
 

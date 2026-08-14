@@ -45,8 +45,7 @@ re-running the original arguments.
 | [0036](0036-license-and-ip-protection.md)                    | License and IP protection hardening — AGPL-3.0-only, CLA/CI gates                                           | 2026-08-01 | Accepted                            |
 | [0037](0037-pipeline-run-integrity-at-scale.md)              | Pipeline run integrity at scale — candidate-scaled stage budgets, degraded output surfacing, WHOIS time-box | 2026-08-04 | Accepted                            |
 | [0038](0038-usage-enforcement.md)                            | Usage enforcement — metered candidate scoring, API calls, and portfolio tracking with chokepoint metering   | 2026-08-07 | Accepted                            |
-| [0038](0038-tenant-isolation.md)                             | Tenant isolation — FORCE ROW LEVEL SECURITY and a dedicated non-superuser app role                           | 2026-08-07 | Accepted                            |
-| [0039](0039-dns-consensus-degradation-policy.md)             | DNS consensus failure policy — fail-closed with degraded-run flagging and verdict metrics                     | 2026-08-07 | Accepted                            |
+| [0038](0038-tenant-isolation.md)                             | Tenant isolation — FORCE ROW LEVEL SECURITY and a dedicated non-superuser app role                           | 2026-08-07 | Accepted                            || [0039](0039-dns-consensus-degradation-policy.md)             | DNS consensus failure policy — fail-closed with degraded-run flagging and verdict metrics                     | 2026-08-07 | Accepted                            |
 | [0040](0040-dns-consensus-fallback-parity.md)                | DNS consensus fallback parity — 2-of-3 gate on every resolution path                                          | 2026-08-07 | Accepted                            |
 | [0041](0041-provider-fair-share.md)                          | Distributed per-tenant provider fair share — tenant windows on shared Redis budgets                           | 2026-08-07 | Accepted                            |
 | [0042](0042-provider-dns-private-recursor.md)                | DNS consensus private recursor — Unbound override, consensus independent of public DoT egress                | 2026-08-07 | Accepted                            |
@@ -94,3 +93,11 @@ re-running the original arguments.
 Run `/adr <decision-title>` and follow the prompts. The skill enforces
 the MADR format, requires at least 2 considered alternatives, and
 updates this index on completion.
+
+## Numbering note
+
+ADR-0038 was assigned twice in the same day: `0038-usage-enforcement.md`
+and `0038-tenant-isolation.md` (both 2026-08-07, both Accepted). The
+filenames and links are kept as-is — renumbering merged ADRs would break
+every reference across docs, commits, and PRs. Subsequent ADRs continue
+from 0039; the numbering gap is a registry quirk, not a missing record.

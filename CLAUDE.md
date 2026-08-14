@@ -106,7 +106,8 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v0.10.0-dev — operations, reliability, and production hardening.
+DOMINUS v0.11.0 — DNS/RDAP/WHOIS consensus hardening (released).
+Next: v1.0.0 — DOMINUS Cloud MVP (managed hosting).
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
