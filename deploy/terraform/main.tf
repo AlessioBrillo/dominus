@@ -84,7 +84,13 @@ variable "app_env" {
 variable "db_password" {
   type        = string
   sensitive   = true
-  description = "Password for the dominus_app PostgreSQL role (never committed)."
+  description = "Password for the dominus owner role (db administration; never used by the app)."
+}
+
+variable "db_app_password" {
+  type        = string
+  sensitive   = true
+  description = "Password for the dominus_app role — the RLS-scoped app connection (ADR-0038/0047)."
 }
 
 variable "b2_backup" {
@@ -181,31 +187,32 @@ resource "hcloud_firewall" "db_ssh" {
 module "db_node" {
   source = "./modules/db-node"
 
-  project     = var.project
-  location    = var.location
-  server_type = var.db_server_type
-  ssh_key_id  = hcloud_ssh_key.operator.id
-  network_id  = hcloud_network.private.id
-  firewall_id = hcloud_firewall.db_ssh.id
-  image_tag   = var.image_tag
-  db_password = var.db_password
-  b2_backup   = var.b2_backup
+  project         = var.project
+  location        = var.location
+  server_type     = var.db_server_type
+  ssh_key_id      = hcloud_ssh_key.operator.id
+  network_id      = hcloud_network.private.id
+  firewall_id     = hcloud_firewall.db_ssh.id
+  image_tag       = var.image_tag
+  db_password     = var.db_password
+  db_app_password = var.db_app_password
+  b2_backup       = var.b2_backup
 }
 
 module "app_node" {
   source = "./modules/app-node"
 
-  project     = var.project
-  location    = var.location
-  server_type = var.app_server_type
-  ssh_key_id  = hcloud_ssh_key.operator.id
-  network_id  = hcloud_network.private.id
-  firewall_id = hcloud_firewall.public.id
-  domain      = var.domain
-  image_tag   = var.image_tag
-  app_env     = var.app_env
-  db_host     = module.db_node.private_ip
-  db_password = var.db_password
+  project         = var.project
+  location        = var.location
+  server_type     = var.app_server_type
+  ssh_key_id      = hcloud_ssh_key.operator.id
+  network_id      = hcloud_network.private.id
+  firewall_id     = hcloud_firewall.public.id
+  domain          = var.domain
+  image_tag       = var.image_tag
+  app_env         = var.app_env
+  db_host         = module.db_node.private_ip
+  db_app_password = var.db_app_password
 }
 
 # DNS: create the A record at your registrar (or Hetzner DNS — separate

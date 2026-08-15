@@ -55,7 +55,8 @@ jobs:
 
           fixtures = {
               'project': 'dominus', 'image_tag': 'v0.11.0', 'domain': 'test.example',
-              'db_host': '10.0.0.3', 'db_password': 'dummy', 'b2_enabled': True,
+              'db_host': '10.0.0.3', 'db_password': 'dummy', 'db_app_password': 'dummy_app',
+              'b2_enabled': True,
               'b2_bucket': 'b', 'b2_account_id': 'a', 'b2_app_key': 'k',
               'b2_endpoint': 'https://s3.example',
           }
