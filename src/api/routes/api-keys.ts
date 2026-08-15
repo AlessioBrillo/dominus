@@ -2,8 +2,11 @@
 import { Router } from 'express';
 import type { AuthProvider, KeyManager } from '../../providers/auth/auth-provider.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
+import type { UsageMeterService } from '../../services/usage-meter-service.js';
+import { TEAM_PLAN_LIMITS } from '../../types/team.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
 import { requireRole } from '../middleware/require-role.js';
+import { SeatLimitExceededError } from '../../types/errors.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -24,6 +27,7 @@ function resolveKeyManager(authProvider: AuthProvider): KeyManager | undefined {
 export function createKeyManagementRouter(
   authProvider: AuthProvider,
   apiKeyRepo?: ApiKeyRepository,
+  usageService?: UsageMeterService,
 ): Router {
   const router = Router();
 
@@ -44,6 +48,22 @@ export function createKeyManagementRouter(
     return router;
   }
 
+  // Free/pro/team seat limits (ADR-0038): the number of active API keys is
+  // the tenant's practical user count, so key mint is the enforcement
+  // point for the "single user" free tier. Enterprise is unlimited.
+  async function assertSeatAvailable(): Promise<void> {
+    if (!apiKeyRepo || !usageService) {
+      return;
+    }
+    const tenantId = resolveTenantId();
+    const plan = await usageService.effectivePlan(tenantId);
+    const seats = TEAM_PLAN_LIMITS[plan].seats;
+    const activeKeys = await apiKeyRepo.countActiveByTenant(tenantId);
+    if (activeKeys >= seats) {
+      throw new SeatLimitExceededError(plan, seats);
+    }
+  }
+
   router.post('/', requireRole('admin'), async (req, res, next) => {
     try {
       const { name, role } = req.body as { name?: string; role?: string };
@@ -51,6 +71,7 @@ export function createKeyManagementRouter(
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'name is required' } });
         return;
       }
+      await assertSeatAvailable();
       const generated = await provider.generate({
         tenantId: resolveTenantId(),
         name: name.trim(),
