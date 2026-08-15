@@ -226,6 +226,21 @@ jobs:
             | grep -q '"172.20.0.10"' || {
               echo "FATAL: consensus-dns must be pinned to 172.20.0.10"; exit 1
             }
+          # The app services must receive the pinned recursor and the enabled
+          # gate — otherwise the override is documented-only and silently
+          # inert (ADR-0042 regression guard). jq checks per-service env.
+          MERGED_JSON=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            -f docker-compose.dns-consensus.yml config --format json)
+          for svc in api worker scheduler; do
+            echo "$MERGED_JSON" | jq -e \
+              ".services.$svc.environment[\"DNS_CONSENSUS_NAMESERVERS\"] == \"172.20.0.10:5300\"" >/dev/null || {
+                echo "FATAL: service '$svc' must set DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300"; exit 1
+              }
+            echo "$MERGED_JSON" | jq -e \
+              ".services.$svc.environment[\"DNS_CONSENSUS_ENABLED\"] == \"true\"" >/dev/null || {
+                echo "FATAL: service '$svc' must enable DNS_CONSENSUS_ENABLED=true"; exit 1
+              }
+          done
 
       - name: Validate Prometheus config and rules
         run: |
