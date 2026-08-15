@@ -14,7 +14,7 @@ import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware } from './api/middleware/auth.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
-import { isMultiTenantAuth } from './app/auth-factory.js';
+import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import { serverTimeoutConfig } from './utils/server-timeouts.js';
@@ -265,11 +265,12 @@ async function main(): Promise<void> {
   // flag table, so this is a single PK lookup that always passes.
   protectedRouter.use(createTenantStatusMiddleware(deps.adminRepo));
   // Plan usage enforcement: records one api_call per request and rejects
-  // with 429 once the tenant's monthly plan limit is exhausted. No-op unless
-  // USAGE_ENFORCEMENT_ENABLED=true (see middleware docs). Mounted after auth
-  // because it keys on req.tenantId.
+  // with 429 once the tenant's monthly plan limit is exhausted. Fail-closed
+  // in Cloud mode (managed identity implies billing); no-op on the
+  // community edition unless USAGE_ENFORCEMENT_ENABLED=true (ADR-0038).
+  // Mounted after auth because it keys on req.tenantId.
   protectedRouter.use(
-    createUsageEnforcementMiddleware(deps.usageService, config.USAGE_ENFORCEMENT_ENABLED),
+    createUsageEnforcementMiddleware(deps.usageService, isUsageEnforcementActive(config)),
   );
   protectedRouter.use(responseCache(60));
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
-import { buildAuthProvider, isMultiTenantAuth } from '../auth-factory.js';
+import { buildAuthProvider, isMultiTenantAuth, isUsageEnforcementActive } from '../auth-factory.js';
 import { EnvApiKeyProvider } from '../../providers/auth/env-api-key-provider.js';
 import { DbApiKeyProvider } from '../../providers/auth/db-api-key-provider.js';
 import { CompositeAuthProvider } from '../../providers/auth/composite-auth-provider.js';
@@ -60,5 +60,21 @@ describe('isMultiTenantAuth', () => {
   it('is true for db and auth0', () => {
     expect(isMultiTenantAuth(baseConfig({ AUTH_PROVIDER: 'db' }))).toBe(true);
     expect(isMultiTenantAuth(baseConfig({ AUTH_PROVIDER: 'auth0' }))).toBe(true);
+  });
+});
+
+describe('isUsageEnforcementActive', () => {
+  it('is opt-in on the community edition (env keys)', () => {
+    expect(isUsageEnforcementActive(baseConfig({ AUTH_PROVIDER: 'env' }))).toBe(false);
+    expect(
+      isUsageEnforcementActive(
+        baseConfig({ AUTH_PROVIDER: 'env', USAGE_ENFORCEMENT_ENABLED: true }),
+      ),
+    ).toBe(true);
+  });
+
+  it('is fail-closed for managed identity even without the env flag', () => {
+    expect(isUsageEnforcementActive(baseConfig({ AUTH_PROVIDER: 'db' }))).toBe(true);
+    expect(isUsageEnforcementActive(baseConfig({ AUTH_PROVIDER: 'auth0' }))).toBe(true);
   });
 });
