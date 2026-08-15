@@ -1642,10 +1642,13 @@ const configSchema = z.object({
    * to the protected API atomically records one `api_calls` unit against the
    * tenant's monthly plan limit and rejects the request with HTTP 429
    * (USAGE_LIMIT_EXCEEDED) once the limit is exhausted. Free-tier tenants
-   * use the limits seeded by migration 0045. When disabled (default), the
-   * middleware is a no-op; clients may still meter usage explicitly via
+   * use the limits seeded by migration 0045. When disabled, the middleware
+   * is a no-op; clients may still meter usage explicitly via
    * POST /api/v1/usage/record.
-   * Default: false (opt-in).
+   * Default: false (opt-in) for the community edition. Managed identity
+   * (AUTH_PROVIDER=db/auth0) forces enforcement ON regardless of this flag
+   * — a Cloud deploy must never charge for plans while metering nothing.
+   * See isUsageEnforcementActive in src/app/auth-factory.ts.
    */
   USAGE_ENFORCEMENT_ENABLED: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())

@@ -80,7 +80,7 @@ import {
 } from '../providers/redis/index.js';
 import type { LockProvider } from '../types/lock.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
-import { buildAuthProvider } from './auth-factory.js';
+import { buildAuthProvider, isUsageEnforcementActive } from './auth-factory.js';
 import {
   CircuitBreaker,
   USPTO_CIRCUIT_BREAKER,
@@ -167,6 +167,7 @@ export interface DominusDependencies {
 
   billingService: BillingService;
   usageService: UsageMeterService;
+  usageEnforcer: PipelineUsageEnforcer;
   adminService: AdminService;
   adminRepo: AdminRepository;
   teamService: TeamService;
@@ -552,9 +553,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // pipeline path, and the portfolio/watchlist add flows (ADR-0038).
   // The admin repo wires the suspended-tenant gate for those chokepoints
   // (ADR-0057); community installs pass none and stay unaffected.
+  // Fail-closed in Cloud mode: managed identity implies billing, so
+  // enforcement is on even when the operator forgets the env var.
   const usageEnforcer = new PipelineUsageEnforcer(
     usageService,
-    config.USAGE_ENFORCEMENT_ENABLED,
+    isUsageEnforcementActive(config),
     repos.adminRepo,
   );
 
@@ -1083,6 +1086,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     redisClient,
     billingService,
     usageService,
+    usageEnforcer,
     adminService,
     teamService,
   };

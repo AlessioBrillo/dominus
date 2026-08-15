@@ -44,3 +44,14 @@ export function buildAuthProvider(config: Config, apiKeyRepo: ApiKeyRepository):
 export function isMultiTenantAuth(config: Config): boolean {
   return config.AUTH_PROVIDER !== 'env';
 }
+
+/**
+ * Whether plan usage enforcement is active at the chokepoints. Fail-closed
+ * in managed (Cloud) mode: identity db/auth0 implies billing, so metering
+ * is forced on even if the operator forgets USAGE_ENFORCEMENT_ENABLED — a
+ * Cloud deploy must never charge for plans while metering nothing
+ * (ADR-0038). The community edition (env keys, single user) stays opt-in.
+ */
+export function isUsageEnforcementActive(config: Config): boolean {
+  return config.USAGE_ENFORCEMENT_ENABLED || isMultiTenantAuth(config);
+}
