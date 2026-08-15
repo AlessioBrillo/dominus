@@ -48,24 +48,45 @@ export interface TeamSummary {
   members: TeamMember[];
 }
 
+export interface TeamServiceOptions {
+  /**
+   * Operator plan override lookup (ADR-0057), same contract as
+   * UsageMeterService: when the provider returns a non-null plan it wins
+   * over the subscription-derived effective plan, so an operator grant
+   * (enterprise trial, SLA compensation) raises seat limits exactly like
+   * usage limits — the two enforcement surfaces must never disagree.
+   */
+  planOverrideProvider?: (tenantId: string) => Promise<SubscriptionPlan | null>;
+}
+
 export class TeamService {
   readonly #seatsRepo: TeamSeatsRepository;
   readonly #subRepo: SubscriptionRepository;
-  readonly #resolvePlan: (sub: Subscription | null | undefined) => SubscriptionPlan;
+  readonly #planOverrideProvider:
+    ((tenantId: string) => Promise<SubscriptionPlan | null>) | undefined;
 
   constructor(
     seatsRepo: TeamSeatsRepository,
     subRepo: SubscriptionRepository,
-    resolvePlan: (sub: Subscription | null | undefined) => SubscriptionPlan = effectivePlanFor,
+    options: TeamServiceOptions = {},
   ) {
     this.#seatsRepo = seatsRepo;
     this.#subRepo = subRepo;
-    this.#resolvePlan = resolvePlan;
+    this.#planOverrideProvider = options.planOverrideProvider;
+  }
+
+  /** Effective plan for a tenant: operator override first, then subscription. */
+  async #resolvePlan(
+    tenantId: string,
+    sub: Subscription | null | undefined,
+  ): Promise<SubscriptionPlan> {
+    const override = this.#planOverrideProvider ? await this.#planOverrideProvider(tenantId) : null;
+    return effectivePlanFor(sub, override);
   }
 
   async getTeamSummary(tenantId: string): Promise<TeamSummary> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan = this.#resolvePlan(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
     const limits = TEAM_PLAN_LIMITS[plan];
     const seats = await this.#seatsRepo.findByTenantId(tenantId);
 
@@ -98,7 +119,7 @@ export class TeamService {
     }
 
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan = this.#resolvePlan(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
     const limits = TEAM_PLAN_LIMITS[plan];
 
     if (limits.seats === 0) {
@@ -144,7 +165,7 @@ export class TeamService {
 
   async canAddSeat(tenantId: string): Promise<boolean> {
     const sub = await this.#subRepo.findByTenantId(tenantId);
-    const plan = this.#resolvePlan(sub);
+    const plan = await this.#resolvePlan(tenantId, sub);
     const limits = TEAM_PLAN_LIMITS[plan];
 
     if (limits.seats === 0) return false;

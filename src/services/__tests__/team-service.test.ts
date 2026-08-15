@@ -9,6 +9,7 @@ import {
   DuplicateSeatError,
   SeatNotFoundError,
 } from '../team-service.js';
+import type { SubscriptionPlan } from '../../types/subscription.js';
 
 describe('TeamService', () => {
   let db: SqliteProvider;
@@ -147,6 +148,49 @@ describe('TeamService', () => {
       await service.inviteMember('tenant-1', 'user-1', 'member', 'owner-1');
       await service.acceptInvite('tenant-1', 'user-1');
       expect(await service.canAddSeat('tenant-1')).toBe(false);
+    });
+  });
+
+  describe('plan override (ADR-0057)', () => {
+    it('raises seat limits when an operator override is wired', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'free', status: 'active' });
+      const overridden = new TeamService(seatsRepo, subRepo, {
+        planOverrideProvider: async (tenantId: string): Promise<SubscriptionPlan | null> =>
+          tenantId === 'tenant-1' ? 'enterprise' : null,
+      });
+
+      for (let i = 1; i <= 5; i++) {
+        await overridden.inviteMember('tenant-1', `user-${i}`, 'member', 'owner-1');
+      }
+      const summary = await overridden.getTeamSummary('tenant-1');
+      expect(summary.plan).toBe('enterprise');
+      expect(summary.seatLimit).toBeNull();
+      expect(summary.pendingSeats).toBe(5);
+    });
+
+    it('survives a lapsed subscription (deliberate manual grant)', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });
+      const overridden = new TeamService(seatsRepo, subRepo, {
+        planOverrideProvider: async (tenantId: string): Promise<SubscriptionPlan | null> =>
+          tenantId === 'tenant-1' ? 'team' : null,
+      });
+
+      expect(await overridden.canAddSeat('tenant-1')).toBe(true);
+      const summary = await overridden.getTeamSummary('tenant-1');
+      expect(summary.plan).toBe('team');
+      expect(summary.seatLimit).toBe(10);
+    });
+
+    it('leaves other tenants on subscription-driven limits', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'free', status: 'active' });
+      const overridden = new TeamService(seatsRepo, subRepo, {
+        planOverrideProvider: async (tenantId: string): Promise<SubscriptionPlan | null> =>
+          tenantId === 'tenant-2' ? 'enterprise' : null,
+      });
+
+      const summary = await overridden.getTeamSummary('tenant-1');
+      expect(summary.plan).toBe('free');
+      expect(summary.seatLimit).toBe(1);
     });
   });
 
