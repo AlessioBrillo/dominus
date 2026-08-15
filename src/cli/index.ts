@@ -30,6 +30,8 @@ import type { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import type { AcquisitionService } from '../services/acquisition-service.js';
 import type { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import type { ListingManager } from '../listing/listing-manager.js';
+import type { KeyManager } from '../providers/auth/auth-provider.js';
+import type { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -61,6 +63,7 @@ import { registerFunnelCommand } from './commands/funnel-command.js';
 import { registerRegistrarsCommand } from './commands/registrars-command.js';
 import { registerReportCommand } from './commands/report-command.js';
 import { registerAnalyticsCommand } from './commands/analytics-command.js';
+import { registerKeysCommand } from './commands/keys-command.js';
 
 export interface CreateCliOptions {
   db: Database.Database | null;
@@ -87,6 +90,8 @@ export interface CreateCliOptions {
   acquisitionService?: AcquisitionService;
   funnelService?: AcquisitionFunnelService;
   listingManager?: ListingManager;
+  keyManager?: KeyManager | undefined;
+  apiKeyRepo?: ApiKeyRepository | undefined;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -181,6 +186,11 @@ export function createCli(options: CreateCliOptions): Command {
   if (options.listingManager) {
     registerListingCommand(program, { listingManager: options.listingManager });
   }
+
+  registerKeysCommand(program, {
+    keyManager: options.keyManager,
+    apiKeyRepo: options.apiKeyRepo,
+  });
 
   return program;
 }
