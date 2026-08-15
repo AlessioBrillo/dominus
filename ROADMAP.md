@@ -137,9 +137,12 @@ estimates and subject to change.
 - [x] Usage metering (pipeline runs, API calls per tenant)
 - [x] Admin panel (tenant lifecycle + usage metrics — ADR-0057: overview,
       per-tenant daily usage drill-down, suspend/unsuspend, plan override)
-- [ ] Automated daily backups with point-in-time recovery
-- [ ] Monitoring and alerting (uptime, error rate, latency)
-- [ ] Migration guide: from community edition to DOMINUS Cloud
+- [x] Automated daily backups with point-in-time recovery
+      (ADR-0054: `deploy/postgres/base-backup.sh` + restore drill script)
+- [x] Monitoring and alerting (uptime, error rate, latency —
+      Prometheus/Alertmanager/Grafana stack in the prod compose profile)
+- [x] Migration guide: from community edition to DOMINUS Cloud
+      (`docs/migration/community-to-cloud.md`)
 - [x] `AnonScoringService` — scoring engine in no-persist mode for public endpoints
 - [x] `GET /public/domain/:name` — public domain valuation page (crawlable, cached)
 - [x] `GET /sitemap.xml` — dynamic sitemap with public pages
