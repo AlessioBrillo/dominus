@@ -131,8 +131,8 @@ estimates and subject to change.
 - [x] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
       — Hetzner IaC in `deploy/terraform/` (app node + PITR DB node + Caddy)
 - [ ] Free tier: rate-limited pipeline runs, single user
-- [ ] Pro tier (€29/mo): 100 runs/day, 3 team seats, email support
-- [ ] Team tier (€79/mo): 500 runs/day, 10 team seats, Slack support
+- [ ] Pro tier (€29/mo): 500 candidates scored/month, 3 team seats, email support
+- [ ] Team tier (€79/mo): 2,500 candidates scored/month, 10 team seats, Slack support
 - [x] Stripe billing integration (subscriptions + customer portal)
       — incl. Team checkout and status-aware enforcement (ADR-0053)
 - [x] Usage metering (pipeline runs, API calls per tenant)
