@@ -74,3 +74,40 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release from CHANGELOG section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          version="${tag#v}"
+          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+            echo "No CHANGELOG section for ${version} — creating release with auto-generated notes"
+            gh release create "$tag" --generate-notes
+            exit 0
+          fi
+          # Extract the version's section: from its header to the next top-level
+          # header (## [x.y.z] or ## x.y.z), then write the release notes.
+          awk -v v="${version}" '
+            $0 ~ "^## \\[" v "\\]" || $0 ~ "^## " v " " { insec=1; next }
+            insec && /^## / { exit }
+            insec { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          test -s /tmp/release-notes.md || { echo "Empty section for ${version}"; exit 1; }
+          gh release create "$tag" --notes-file /tmp/release-notes.md
