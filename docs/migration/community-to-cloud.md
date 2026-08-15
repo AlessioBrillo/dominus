@@ -12,6 +12,14 @@ schema (ADR-0027 "zero lock-in"). This guide walks the full path.
 - The community SQLite file (`DATABASE_PATH`, default `./data/dominus.db`).
 - The migration tools: `npm install` in a checkout of the repo.
 
+Provisioning the Cloud instance: `deploy/terraform/` (Hetzner) creates the
+two-node topology (app + PostgreSQL with PITR) and prints the public URL;
+the `DATABASE_URL` used by the app equals
+`postgres://dominus:<db_password>@10.0.0.3:5432/dominus` on the private
+network — from an operator machine, port-forward or use the app node as a
+jump host (`ssh -L 5432:10.0.0.3:5432 root@<app-ip>`). See
+`deploy/terraform/README.md`.
+
 ## Step 1 — Export (source side, read-only)
 
 ```bash

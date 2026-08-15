@@ -1,0 +1,77 @@
+#cloud-config
+# DOMINUS Cloud — db-node (PostgreSQL 17 + PITR, ADR-0054).
+# Rendered by Terraform from module inputs; no secrets in the repo.
+package_update: true
+packages:
+  - postgresql-17
+  - rclone
+
+write_files:
+  - path: /opt/dominus/backup.env
+    content: |
+      PG_HOST=127.0.0.1
+      PG_PORT=5432
+      PG_USER=dominus
+      PG_PASSWORD=${db_password}
+      BACKUP_DIR=/var/lib/postgresql/backups
+      PG_BASE_RETENTION_DAYS=14
+    permissions: "0600"
+
+  - path: /var/lib/postgresql/.config/rclone/rclone.conf
+    content: |
+      [b2]
+      type = b2
+      account = ${b2_account_id}
+      key = ${b2_app_key}
+      endpoint = ${b2_endpoint}
+    permissions: "0600"
+    owner: postgres:postgres
+
+  # ADR-0054 PITR wiring. With archive_mode=on but no reachable archive the
+  # WAL archiver stalls the node — so the archive is only enabled when B2
+  # credentials were provided.
+  - path: /etc/postgresql/17/main/conf.d/dominus-pitr.conf
+    content: |
+      %{ if b2_enabled }
+      wal_level = replica
+      archive_mode = on
+      archive_command = 'test ! -f /var/lib/postgresql/backups/wal/%f && rclone copy %p b2:${b2_bucket}/wal/%f'
+      archive_timeout = 300
+      %{ else }
+      wal_level = replica
+      archive_mode = off
+      %{ endif }
+    permissions: "0644"
+
+runcmd:
+  - mkdir -p /var/lib/postgresql/backups/wal
+  - chown -R postgres:postgres /var/lib/postgresql/backups
+  - |
+    sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOSQL
+    DO \$\$ BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus') THEN
+        CREATE ROLE dominus LOGIN PASSWORD '${db_password}';
+      END IF;
+    END \$\$;
+    SELECT 'CREATE DATABASE dominus OWNER dominus'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'dominus')\gexec
+    GRANT ALL PRIVILEGES ON DATABASE dominus TO dominus;
+    EOSQL
+  - |
+    if ! grep -q "10.0.0.0/16" /etc/postgresql/17/main/pg_hba.conf; then
+      cat >> /etc/postgresql/17/main/pg_hba.conf <<EOF
+    # DOMINUS app node (private network)
+    host all dominus 10.0.0.0/16 scram-sha-256
+    EOF
+    fi
+  - sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" /etc/postgresql/17/main/postgresql.conf
+  - systemctl restart postgresql
+  # Canonical backup script from the repo at the pinned deploy tag — no
+  # drift from an embedded copy (immutable supply chain, ADR-0046).
+  - curl -fsSL -o /opt/dominus/base-backup.sh \
+      https://raw.githubusercontent.com/AlessioBrillo/dominus/${image_tag}/deploy/postgres/base-backup.sh
+  - chmod 0700 /opt/dominus/base-backup.sh
+  - |
+    cat > /etc/cron.d/dominus-pitr <<EOF
+    30 4 * * * postgres PG_HOST=127.0.0.1 PG_USER=dominus PG_PASSWORD='${db_password}' /opt/dominus/base-backup.sh >> /var/log/dominus/base-backup.log 2>&1
+    EOF

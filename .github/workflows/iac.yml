@@ -1,0 +1,94 @@
+name: IaC
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/terraform/**'
+  push:
+    branches: [master]
+    paths:
+      - 'deploy/terraform/**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: deploy/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      # tfvars are gitignored and CI has no Hetzner token: fmt + validate
+      # are credential-free and catch syntax/schema drift on every PR.
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate
+
+      # The rendered cloud-init is the actual deliverable; substitute every
+      # template placeholder with dummy values and parse the result as YAML,
+      # so a typo (bad interpolation, broken indentation) fails the PR
+      # before it reaches a node.
+      - name: Smoke-render cloud-init templates
+        run: |
+          python3 - <<'PY'
+          import pathlib, re, sys
+          import yaml
+
+          fixtures = {
+              'project': 'dominus', 'image_tag': 'v0.11.0', 'domain': 'test.example',
+              'db_host': '10.0.0.3', 'db_password': 'dummy', 'b2_enabled': True,
+              'b2_bucket': 'b', 'b2_account_id': 'a', 'b2_app_key': 'k',
+              'b2_endpoint': 'https://s3.example',
+          }
+
+          def subst(m):
+              # ${name} and ${name} inside ${...} template loops
+              key = m.group(1)
+              if key == 'k':
+                  return 'X=1'
+              if key == 'v':
+                  return 'VALUE'
+              if key in fixtures:
+                  return str(fixtures[key])
+              raise SystemExit(f'unknown template variable: {key}')
+
+          ok = True
+          for tpl in pathlib.Path('.').glob('modules/*/files/*.tftpl'):
+              text = tpl.read_text()
+              # Terraform %{ ... } directives: strip conditionals and loops,
+              # keeping the then-branch content.
+              text = re.sub(r'%\{[^}]*\}', '', text)
+              text = re.sub(r'\$\{([^}]+)\}', subst, text)
+              try:
+                  docs = list(yaml.safe_load_all(text))
+              except yaml.YAMLError as e:
+                  print(f'FAIL {tpl}: {e}')
+                  ok = False
+                  continue
+              # cloud-config: a YAML document with top-level keys
+              if not docs or not isinstance(docs[0], dict) or not docs[0]:
+                  print(f'FAIL {tpl}: not a valid YAML mapping')
+                  ok = False
+                  continue
+              print(f'OK   {tpl}')
+          sys.exit(0 if ok else 1)
+          PY
