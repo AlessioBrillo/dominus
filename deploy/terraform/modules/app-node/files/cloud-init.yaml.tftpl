@@ -10,8 +10,10 @@ write_files:
   - path: /opt/dominus/.env
     content: |
       # Rendered by Terraform — do not edit by hand.
+      # App connects as dominus_app (RLS-scoped, ADR-0038) — never the
+      # owner role, which would bypass FORCE ROW LEVEL SECURITY.
       DOMINUS_IMAGE_TAG=${image_tag}
-      DATABASE_URL=postgres://dominus:${db_password}@${db_host}:5432/dominus
+      DATABASE_URL=postgres://dominus_app:${db_app_password}@${db_host}:5432/dominus
       REDIS_URL=redis://redis:6379
       WORKER_ENABLED=true
       SCHEDULER_ENABLED=true

@@ -7,6 +7,8 @@ domain            = "app.dominus.example"
 image_tag         = "v0.11.0"
 
 db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
+# App connection role password (RLS-scoped dominus_app, ADR-0038/0047).
+db_app_password   = "REPLACE_WITH_STRONG_APP_PASSWORD"
 
 app_env = {
   # Public API key(s) for the community/cloud API surface.

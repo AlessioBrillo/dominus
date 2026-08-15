@@ -16,7 +16,7 @@ variable "firewall_id" { type = number }
 variable "domain" { type = string }
 variable "image_tag" { type = string }
 variable "db_host" { type = string }
-variable "db_password" {
+variable "db_app_password" {
   type      = string
   sensitive = true
 }
@@ -33,12 +33,12 @@ resource "hcloud_server" "app" {
   ssh_keys     = [var.ssh_key_id]
   firewall_ids = [var.firewall_id]
   user_data = templatefile("${path.module}/files/cloud-init.yaml.tftpl", {
-    project     = var.project
-    domain      = var.domain
-    image_tag   = var.image_tag
-    db_host     = var.db_host
-    db_password = var.db_password
-    app_env     = var.app_env
+    project         = var.project
+    domain          = var.domain
+    image_tag       = var.image_tag
+    db_host         = var.db_host
+    db_app_password = var.db_app_password
+    app_env         = var.app_env
   })
   network {
     network_id = var.network_id

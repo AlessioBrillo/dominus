@@ -12,6 +12,9 @@ balancer):
 Both nodes sit on a private network (`10.0.0.0/16`). The database listens
 on the private address only; the public firewall admits 80/443 and SSH.
 Caddy terminates TLS (Let's Encrypt) and proxies to the api container.
+The app connects as the `dominus_app` role — never the owner, whose
+superuser-level rights would bypass `FORCE ROW LEVEL SECURITY`
+(ADR-0038/0047).
 
 ## Prerequisites
 

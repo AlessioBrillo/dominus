@@ -64,16 +64,34 @@ runcmd:
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backup') THEN
         CREATE ROLE backup LOGIN REPLICATION PASSWORD '${db_password}';
       END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_app') THEN
+        CREATE ROLE dominus_app LOGIN PASSWORD '${db_app_password}';
+      END IF;
     END \$\$;
     SELECT 'CREATE DATABASE dominus OWNER dominus'
     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'dominus')\gexec
     GRANT ALL PRIVILEGES ON DATABASE dominus TO dominus;
+    -- The app must NOT connect as the owner: owner roles bypass FORCE ROW
+    -- LEVEL SECURITY (migration 0047), so tenant isolation would silently
+    -- rest on application-level filters alone (ADR-0038). Mirror
+    -- deploy/postgres/init-app-role.sh; default privileges make every
+    -- table/sequence created later by migrations app-accessible.
+    GRANT CONNECT ON DATABASE dominus TO dominus_app;
+    GRANT USAGE ON SCHEMA public TO dominus_app;
+    GRANT CREATE ON SCHEMA public TO dominus_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dominus_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dominus_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dominus_app;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT USAGE, SELECT ON SEQUENCES TO dominus_app;
     EOSQL
   - |
     if ! grep -q "10.0.0.0/16" /etc/postgresql/17/main/pg_hba.conf; then
       cat >> /etc/postgresql/17/main/pg_hba.conf <<EOF
     # DOMINUS app node (private network)
     host all dominus 10.0.0.0/16 scram-sha-256
+    host all dominus_app 10.0.0.0/16 scram-sha-256
     host all backup 10.0.0.0/16 scram-sha-256
     EOF
     fi
