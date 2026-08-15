@@ -1,0 +1,109 @@
+#cloud-config
+# DOMINUS Cloud — app-node (api + worker + scheduler + redis + Caddy).
+# Rendered by Terraform from module inputs; no secrets in the repo.
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-plugin
+
+write_files:
+  - path: /opt/dominus/.env
+    content: |
+      # Rendered by Terraform — do not edit by hand.
+      DOMINUS_IMAGE_TAG=${image_tag}
+      DATABASE_URL=postgres://dominus:${db_password}@${db_host}:5432/dominus
+      REDIS_URL=redis://redis:6379
+      WORKER_ENABLED=true
+      SCHEDULER_ENABLED=true
+      HOST=0.0.0.0
+      PORT=3000
+      %{ for k, v in app_env ~}
+      ${k}=${v}
+      %{ endfor ~}
+    permissions: "0600"
+
+  - path: /opt/dominus/docker-compose.yml
+    content: |
+      # DOMINUS Cloud app node (v1.0.0). Rendered by Terraform.
+      name: dominus
+      services:
+        api:
+          image: ghcr.io/alessiobrillo/dominus:${image_tag}
+          restart: unless-stopped
+          env_file: /opt/dominus/.env
+          ports: ["127.0.0.1:3000:3000"]
+          depends_on: [redis]
+          healthcheck:
+            test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)})"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+        worker:
+          image: ghcr.io/alessiobrillo/dominus:${image_tag}-worker
+          restart: unless-stopped
+          env_file: /opt/dominus/.env
+          depends_on: [redis]
+        scheduler:
+          image: ghcr.io/alessiobrillo/dominus:${image_tag}-scheduler
+          restart: unless-stopped
+          env_file: /opt/dominus/.env
+          depends_on: [redis]
+        redis:
+          image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+          restart: unless-stopped
+          command: ["redis-server", "--appendonly", "yes"]
+          volumes: [redis-data:/data]
+        caddy:
+          image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+          restart: unless-stopped
+          ports: ["80:80", "443:443", "443:443/udp"]
+          volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy-data:/data
+            - caddy-config:/config
+          depends_on: [api]
+      volumes:
+        redis-data:
+        caddy-data:
+        caddy-config:
+    permissions: "0644"
+
+  - path: /opt/dominus/Caddyfile
+    content: |
+      # DOMINUS Cloud — reverse proxy (TLS via Let's Encrypt).
+      %{ if domain != "" }
+      ${domain} {
+        reverse_proxy api:3000
+        encode gzip
+      }
+      %{ else }
+      :80 {
+        reverse_proxy api:3000
+      }
+      %{ endif }
+    permissions: "0644"
+
+  - path: /etc/systemd/system/dominus-compose.service
+    content: |
+      [Unit]
+      Description=DOMINUS Cloud compose stack
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory=/opt/dominus
+      ExecStart=/usr/bin/docker compose up -d --pull always
+      ExecStop=/usr/bin/docker compose down
+      TimeoutStartSec=300
+
+      [Install]
+      WantedBy=multi-user.target
+    permissions: "0644"
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now dominus-compose.service
+  - docker compose -f /opt/dominus/docker-compose.yml version

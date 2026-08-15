@@ -1,0 +1,31 @@
+# Copy to terraform.tfvars and fill in real values. Never commit
+# terraform.tfvars — it contains the Hetzner token and DB credentials.
+
+hcloud_token      = "REPLACE_WITH_HETZNER_API_TOKEN"
+ssh_public_key    = "ssh-ed25519 AAAA... operator@host"
+domain            = "app.dominus.example"
+image_tag         = "v0.11.0"
+
+db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
+
+app_env = {
+  # Public API key(s) for the community/cloud API surface.
+  API_KEYS = "REPLACE_WITH_API_KEY"
+  # Production JWT signing secret (cloud auth).
+  JWT_SECRET = "REPLACE_WITH_JWT_SECRET"
+  # Stripe keys (billing).
+  STRIPE_SECRET_KEY      = "sk_live_..."
+  STRIPE_PUBLISHABLE_KEY = "pk_live_..."
+  STRIPE_WEBHOOK_SECRET  = "whsec_..."
+  # Trade API keys as needed; secrets stay out of git.
+}
+
+# PITR WAL archive to Backblaze B2 (ADR-0054). Disabled until credentials
+# are filled; the DB still takes daily local base backups either way.
+b2_backup = {
+  enabled         = true
+  bucket          = "dominus-pitr"
+  account_id      = "REPLACE_WITH_B2_KEY_ID"
+  application_key = "REPLACE_WITH_B2_APPLICATION_KEY"
+  endpoint        = "https://s3.eu-central-003.backblazeb2.com"
+}

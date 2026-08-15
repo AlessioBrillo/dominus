@@ -128,7 +128,8 @@ estimates and subject to change.
 > **Status**: Planned (SEO surface shipped; managed hosting not started)
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
-- [ ] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
+- [x] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
+      — Hetzner IaC in `deploy/terraform/` (app node + PITR DB node + Caddy)
 - [ ] Free tier: rate-limited pipeline runs, single user
 - [ ] Pro tier (€29/mo): 100 runs/day, 3 team seats, email support
 - [ ] Team tier (€79/mo): 500 runs/day, 10 team seats, Slack support
