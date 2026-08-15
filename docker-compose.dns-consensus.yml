@@ -8,9 +8,10 @@
 #   docker compose -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml up -d
 #
 # The recursor is pinned to the deterministic address 172.20.0.10 (Node's
-# resolver.setServers only accepts IPs, not service hostnames). Point the app
-# at it with DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300 and leave
-# DNS_CONSENSUS_STRATEGY at its default ('dot-only' is overridden by the pin).
+# resolver.setServers only accepts IPs, not service hostnames). The app
+# services are pointed at it via DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+# with the consensus gate enabled — the override is turnkey, no manual
+# environment wiring required.
 #
 # The dedicated /24 keeps the recursor on the loopback-isolated compose
 # subnet it is allowed to serve (access-control 172.20.0.0/24 in unbound.conf).
@@ -53,6 +54,9 @@ services:
         compress: "true"
 
   api:
+    environment:
+      - DNS_CONSENSUS_ENABLED=true
+      - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
     networks:
       - default
       - dns-consensus-net
@@ -60,6 +64,9 @@ services:
       - consensus-dns
 
   worker:
+    environment:
+      - DNS_CONSENSUS_ENABLED=true
+      - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
     networks:
       - default
       - dns-consensus-net
@@ -67,6 +74,9 @@ services:
       - consensus-dns
 
   scheduler:
+    environment:
+      - DNS_CONSENSUS_ENABLED=true
+      - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
     networks:
       - default
       - dns-consensus-net

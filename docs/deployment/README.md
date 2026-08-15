@@ -198,6 +198,43 @@ which SQLite supports on a local filesystem — with these limits:
 If you see frequent `SQLITE_BUSY` errors, scale back concurrency (fewer
 parallel runs, `WORKER_CONCURRENCY`) before considering PostgreSQL.
 
+## DNS Resolution in Containers
+
+The DNS pre-filter races multiple resolver legs (`doh-primary` by
+default: Cloudflare/Google/Quad9 DoH, native fallback on error). Inside
+a container the **native leg is the Docker embedded resolver
+(127.0.0.11)** — a stub that forwards to the host's `/etc/resolv.conf`,
+which on many hosts is systemd-resolved (127.0.0.53) with its own
+negative cache and search domains. Consequences to know before choosing
+`native`-inclusive strategies:
+
+- **Stale negative cache.** A cached NXDOMAIN can serve "available" for
+  a domain that just got registered. The app-level cache honours
+  `forceRecheck` (used on closeout imports), but resolver-level caches
+  are outside its control.
+- **Search-domain mangling.** Single-label candidates can be rewritten
+  by search domains into a "resolved" verdict — a false *registered*,
+  which is the conservative direction (missed opportunity, never a
+  wasted buy).
+- **Disjointness is logical, not physical.** The consensus validator
+  cannot see beyond 127.0.0.11; two strategies may share an upstream.
+  The only topologically independent opinion is the pinned private
+  recursor (see below).
+
+For verdict integrity, prefer the co-hosted Unbound recursor
+(ADR-0042) so the 2-of-3 consensus second leg is a real recursive
+resolver on a private subnet, not the Docker stub:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  -f docker-compose.dns-consensus.yml up -d
+```
+
+The override is turnkey: it pins `consensus-dns` to 172.20.0.10 and
+sets `DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300` +
+`DNS_CONSENSUS_ENABLED=true` on api/worker/scheduler automatically.
+Run `docker compose config --quiet` to validate the merged topology.
+
 ## Monitoring (production profile)
 
 The prod compose profile ships a €0 self-hosted monitoring stack:
