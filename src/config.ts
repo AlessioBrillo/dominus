@@ -1765,7 +1765,10 @@ const configSchema = z.object({
   STRIPE_PRICE_ID_PRO_YEARLY: z.string().optional(),
 
   /**
-   * Stripe Price IDs for the team plan (€79/mo, 10 seats, 500 runs/day).
+   * Stripe Price IDs for the team plan (€79/mo, 10 seats, 2,500 candidates
+   * scored/month). A pipeline run meters its candidate count (ADR-0038), so
+   * run throughput is bounded by the monthly candidate budget — enforcement
+   * is per calendar month, not per day.
    * Required to offer team checkout; when unset, team subscriptions are
    * handled outside self-service checkout.
    */
