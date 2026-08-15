@@ -50,10 +50,19 @@ the commented block in `main.tf`) instead of the local default.
 ## Backups and PITR
 
 - Daily base backup at 04:30 (cron on the db node) — `base-backup.sh`
-  fetched from the repo at the pinned `image_tag`
+  fetched from the repo at the pinned `image_tag`, connecting as a
+  dedicated `backup` role (`REPLICATION` only — least privilege, never
+  the app role)
+- The base anchor is copied off-host to `b2:<bucket>/base/` when
+  `b2_backup.enabled = true` (same rclone remote as the WAL archive),
+  pruned with the same 14-day retention as local. A base backup that
+  dies with the node is no PITR anchor at all
 - WAL archiving to `b2:<bucket>/wal` when `b2_backup.enabled = true`
-  (otherwise `archive_mode = off` — an unreachable archive stalls Postgres)
-- Restore drill: `scripts/restore-drill.mjs` + `deploy/postgres/restore-base.sh`
+  (otherwise `archive_mode = off` — an unreachable archive stalls
+  Postgres)
+- Restore: `rclone copy b2:<bucket>/base/<base-...> <dir>` to pull an
+  off-host anchor, then `scripts/restore-drill.mjs` +
+  `deploy/postgres/restore-base.sh`
 
 ## Updating the deployment
 
