@@ -11,12 +11,18 @@ write_files:
     content: |
       PG_HOST=127.0.0.1
       PG_PORT=5432
-      PG_USER=dominus
+      PG_USER=backup
       PG_PASSWORD=${db_password}
       BACKUP_DIR=/var/lib/postgresql/backups
       PG_BASE_RETENTION_DAYS=14
+      B2_BASE_REMOTE=b2:${b2_bucket}/base/
     permissions: "0600"
 
+  # rclone config lives in the postgres user's HOME so both the WAL
+  # archiver (postgres server process) and the backup cron can use it.
+  # Ownership is applied in runcmd: write_files runs before the package
+  # install creates the postgres user, so an owner here would silently
+  # not apply.
   - path: /var/lib/postgresql/.config/rclone/rclone.conf
     content: |
       [b2]
@@ -25,7 +31,6 @@ write_files:
       key = ${b2_app_key}
       endpoint = ${b2_endpoint}
     permissions: "0600"
-    owner: postgres:postgres
 
   # ADR-0054 PITR wiring. With archive_mode=on but no reachable archive the
   # WAL archiver stalls the node — so the archive is only enabled when B2
@@ -46,11 +51,18 @@ write_files:
 runcmd:
   - mkdir -p /var/lib/postgresql/backups/wal
   - chown -R postgres:postgres /var/lib/postgresql/backups
+  # rclone.conf is written root-owned (write_files runs before the
+  # postgres user exists); the WAL archiver and backup cron run as
+  # postgres, so fix ownership after the package install.
+  - chown -R postgres:postgres /var/lib/postgresql/.config
   - |
     sudo -u postgres psql -v ON_ERROR_STOP=1 <<EOSQL
     DO \$\$ BEGIN
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus') THEN
         CREATE ROLE dominus LOGIN PASSWORD '${db_password}';
+      END IF;
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backup') THEN
+        CREATE ROLE backup LOGIN REPLICATION PASSWORD '${db_password}';
       END IF;
     END \$\$;
     SELECT 'CREATE DATABASE dominus OWNER dominus'
@@ -62,6 +74,7 @@ runcmd:
       cat >> /etc/postgresql/17/main/pg_hba.conf <<EOF
     # DOMINUS app node (private network)
     host all dominus 10.0.0.0/16 scram-sha-256
+    host all backup 10.0.0.0/16 scram-sha-256
     EOF
     fi
   - sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" /etc/postgresql/17/main/postgresql.conf
@@ -73,5 +86,5 @@ runcmd:
   - chmod 0700 /opt/dominus/base-backup.sh
   - |
     cat > /etc/cron.d/dominus-pitr <<EOF
-    30 4 * * * postgres PG_HOST=127.0.0.1 PG_USER=dominus PG_PASSWORD='${db_password}' /opt/dominus/base-backup.sh >> /var/log/dominus/base-backup.log 2>&1
+    30 4 * * * postgres PG_HOST=127.0.0.1 PG_USER=backup PG_PASSWORD='${db_password}' B2_BASE_REMOTE='b2:${b2_bucket}/base/' /opt/dominus/base-backup.sh >> /var/log/dominus/base-backup.log 2>&1
     EOF
