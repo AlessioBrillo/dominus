@@ -29,6 +29,13 @@ updates:
       day: "monday"
       time: "08:00"
     open-pull-requests-limit: 3
+    ignore:
+      # typescript ≥ 7.0.0: the frontend toolchain (typescript-eslint,
+      # tsx, vitest) does not yet accept TS 7 — ERESOLVE on install.
+      # Root workspace already migrated via PR #303; unblock here when
+      # the toolchain catches up.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
     groups:
       production:
         dependency-type: "production"
