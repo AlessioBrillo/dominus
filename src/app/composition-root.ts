@@ -547,7 +547,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // subscriptions, API key counts, metered usage and operator
   // suspend/unsuspend/plan-override for the operator panel (Cloud).
   const adminService = new AdminService(repos.adminRepo, repos.usageRepo);
-  const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo);
+  // Same plan-override source as UsageMeterService above: an operator grant
+  // must raise seat limits exactly like usage limits (ADR-0057).
+  const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo, {
+    planOverrideProvider: (tenantId: string): Promise<SubscriptionPlan | null> =>
+      repos.adminRepo.getAdminFlag(tenantId).then((flag) => flag?.planOverride ?? null),
+  });
 
   // Entry-point usage guard shared by the job queue chokepoint, the sync
   // pipeline path, and the portfolio/watchlist add flows (ADR-0038).
