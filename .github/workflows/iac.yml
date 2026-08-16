@@ -234,5 +234,12 @@ jobs:
           db_password       = "dummy"
           db_app_password   = "dummy"
           hetzner_dns_token = ""
+          b2_backup = {
+            enabled         = true
+            bucket          = "dummy"
+            account_id      = "dummy"
+            application_key = "dummy"
+            endpoint        = "https://s3.example"
+          }
           EOF
           terraform plan -input=false -no-color

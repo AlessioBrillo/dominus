@@ -44,8 +44,10 @@ app_env = {
   # Trade API keys as needed; secrets stay out of git.
 }
 
-# PITR WAL archive to Backblaze B2 (ADR-0054). Disabled until credentials
-# are filled; the DB still takes daily local base backups either way.
+# PITR WAL archive to Backblaze B2 (ADR-0054). Enabled by default: an apply
+# without these credentials fails loudly (precondition). Only a deliberate,
+# documented exception disables it — without the off-host archive a db-node
+# loss is total data loss.
 b2_backup = {
   enabled         = true
   bucket          = "dominus-pitr"
