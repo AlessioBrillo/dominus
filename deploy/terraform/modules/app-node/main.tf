@@ -61,17 +61,17 @@ resource "hcloud_server" "app" {
   ssh_keys     = [var.ssh_key_id]
   firewall_ids = [var.firewall_id]
   user_data = templatefile("${path.module}/files/cloud-init.yaml.tftpl", {
-    project          = var.project
-    domain           = var.domain
-    image_tag        = var.image_tag
-    db_host          = var.db_host
-    db_app_password  = var.db_app_password
-    app_env          = var.app_env
-    unbound_conf     = file("${path.module}/../../../unbound/unbound.conf")
-    prometheus_yml   = local.prometheus_yml
-    rules_yml        = file("${path.module}/../../../prometheus/rules.yml")
-    alertmanager_yml = file("${path.module}/../../../prometheus/alertmanager.yml")
-    metrics_token    = local.metrics_token
+    project           = var.project
+    domain            = var.domain
+    image_tag         = var.image_tag
+    db_host           = var.db_host
+    db_app_password   = var.db_app_password
+    app_env           = var.app_env
+    unbound_conf      = file("${path.module}/../../../unbound/unbound.conf")
+    prometheus_yml    = local.prometheus_yml
+    rules_yml         = file("${path.module}/../../../prometheus/rules.yml")
+    alertmanager_yml  = file("${path.module}/../../../prometheus/alertmanager.yml")
+    metrics_token     = local.metrics_token
     metrics_token_set = local.metrics_token != ""
   })
   network {
