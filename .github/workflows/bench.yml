@@ -25,7 +25,10 @@ jobs:
     timeout-minutes: 30
     strategy:
       matrix:
-        node: [20, 22]
+        # Node 22 (LTS) and 24 (current) match the supported runtime
+        # baseline of the CI matrix; Node 20 reached EOL on 2026-04-30 and
+        # the current undici is incompatible with its webidl internals.
+        node: [22, 24]
         workload: [100, 1000]
       fail-fast: false
 
