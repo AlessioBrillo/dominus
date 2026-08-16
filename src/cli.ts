@@ -3,6 +3,7 @@
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
 import { createCli } from './cli/index.js';
+import type { KeyManager } from './providers/auth/auth-provider.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -30,6 +31,8 @@ async function main(): Promise<void> {
     acquisitionService: deps.acquisitionService,
     funnelService: deps.funnelService,
     listingManager: deps.listingManager,
+    keyManager: deps.authProvider.asKeyManager() as KeyManager | undefined,
+    apiKeyRepo: deps.apiKeyRepo,
   });
   cli.parse(process.argv);
 }
