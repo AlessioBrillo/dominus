@@ -812,4 +812,31 @@ describe('DnsPreFilterStage third consensus leg (ADR-0045)', () => {
       degraded: false,
     });
   });
+
+  // ADR-0059 strictness: DNS_CONSENSUS_REQUIRED_AVAILABLE=2 promises "BOTH
+  // verification legs must confirm" (config doc). A tertiary-only rescue
+  // after a failed secondary is a single independent opinion dressed as
+  // two — the exact false confidence the strict gate exists to prevent.
+  // The tertiary is still consulted (its Registered verdict keeps veto
+  // power), but its Available can no longer pass the candidate.
+  it('does not rescue through the tertiary when requiredAvailable=2 and the secondary fails', async () => {
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: makeThrowingProvider('secondary'),
+      tertiaryProvider: makeAvailableProvider('tertiary'),
+      requiredAvailable: 2,
+    });
+    const result = await stage.process(
+      CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })),
+    );
+    expect(result.passed).toHaveLength(0);
+    for (const c of result.filtered) {
+      expect(c.dnsStatus).toBe('unknown');
+    }
+    expect(result.consensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 4,
+      degraded: false,
+    });
+  });
 });

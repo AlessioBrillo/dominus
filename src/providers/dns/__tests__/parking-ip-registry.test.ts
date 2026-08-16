@@ -2,6 +2,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 
@@ -134,6 +135,24 @@ describe('ParkingIpRegistry', () => {
   it('load returns empty registry for undefined path', () => {
     const registry = ParkingIpRegistry.load(undefined);
     expect(registry.checkIp('1.2.3.4')).toBeNull();
+  });
+
+  it('load falls back to the bundled reference list when no path is given (ADR-0059)', () => {
+    const bundled = fileURLToPath(new URL('../parking-ips.json', import.meta.url));
+    const registry = ParkingIpRegistry.load(undefined, bundled);
+    // The bundled list must carry at least the well-known parking ranges so
+    // DNS_PARKING_CHECK_ENABLED=true works out of the box.
+    expect(registry.checkIp('208.109.100.50')).toBe('GoDaddy');
+  });
+
+  it('load prefers an explicit path over the bundled fallback (ADR-0059)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dominus-test-'));
+    const file = join(dir, 'custom.json');
+    writeFileSync(file, JSON.stringify([{ name: 'Custom', cidr: ['203.0.113.0/24'] }]));
+    const bundled = fileURLToPath(new URL('../parking-ips.json', import.meta.url));
+    const registry = ParkingIpRegistry.load(file, bundled);
+    expect(registry.checkIp('203.0.113.42')).toBe('Custom');
+    expect(registry.checkIp('208.109.100.50')).toBeNull();
   });
 
   it('load parses valid JSON file', () => {
