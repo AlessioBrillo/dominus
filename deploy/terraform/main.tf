@@ -24,6 +24,10 @@ terraform {
       source  = "hetznercloud/hcloud"
       version = "~> 1.48"
     }
+    hetznerdns = {
+      source  = "timohirt/hetznerdns"
+      version = "~> 2.2"
+    }
   }
 
   # Remote state: keep it off the developer machine. Backblaze B2 is the
@@ -122,8 +126,25 @@ variable "db_server_type" {
   default = "cx22"
 }
 
+variable "hetzner_dns_token" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "Hetzner DNS API token. When set, the app A record is managed here; leave empty to use an external registrar (ADR-0051 DNS operated via Hetzner DNS)."
+}
+
+variable "dns_zone_name" {
+  type        = string
+  default     = ""
+  description = "Existing Hetzner DNS zone for the A record (required when hetzner_dns_token is set)."
+}
+
 provider "hcloud" {
   token = var.hcloud_token
+}
+
+provider "hetznerdns" {
+  apitoken = var.hetzner_dns_token
 }
 
 resource "hcloud_ssh_key" "operator" {
@@ -215,8 +236,22 @@ module "app_node" {
   db_app_password = var.db_app_password
 }
 
-# DNS: create the A record at your registrar (or Hetzner DNS — separate
-# provider) pointing at module.app_node.public_ip. One-click at apply time.
+# DNS: point the domain at the app node. When a Hetzner DNS token is
+# configured, the A record is created here at apply time; otherwise the
+# operator points the registrar's record at app_public_ip manually.
+data "hetznerdns_zone" "main" {
+  count = var.hetzner_dns_token != "" ? 1 : 0
+  name  = var.dns_zone_name
+}
+
+resource "hetznerdns_record" "app" {
+  count   = var.hetzner_dns_token != "" ? 1 : 0
+  zone_id = data.hetznerdns_zone.main[0].id
+  name    = var.domain != "" ? split(".", var.domain)[0] : "app"
+  type    = "A"
+  value   = module.app_node.public_ip
+  ttl     = 60
+}
 
 output "app_public_ip" {
   value = module.app_node.public_ip
