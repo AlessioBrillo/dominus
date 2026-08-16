@@ -25,6 +25,34 @@ variable "app_env" {
   sensitive = true
 }
 
+locals {
+  # METRICS_TOKEN with a commented Prometheus authorization block is a
+  # silent-alerting trap: every scrape 401s and all rules go quiet. When
+  # the token is set, the bearer block in deploy/prometheus/prometheus.yml
+  # is activated here (marker lines + uncomment) and cloud-init writes the
+  # token file mounted into the prometheus container. Mirrored in
+  # .github/workflows/iac.yml so both branches stay render-verified.
+  metrics_token = lookup(var.app_env, "METRICS_TOKEN", "")
+
+  prometheus_yml = local.metrics_token != "" ? replace(
+    replace(
+      replace(
+        replace(
+          replace(
+            file("${path.module}/../../../prometheus/prometheus.yml"),
+            "    # METRICS_TOKEN_RENDER:START\n", "",
+          ),
+          "    # METRICS_TOKEN_RENDER:END\n", "",
+        ),
+        "# authorization:", "authorization:",
+      ),
+      "#   type: Bearer", "  type: Bearer",
+    ),
+    "#   credentials_file: /etc/prometheus/metrics-token",
+    "  credentials_file: /etc/prometheus/metrics-token",
+  ) : file("${path.module}/../../../prometheus/prometheus.yml")
+}
+
 resource "hcloud_server" "app" {
   name         = "${var.project}-app"
   image        = "ubuntu-24.04"
@@ -40,9 +68,11 @@ resource "hcloud_server" "app" {
     db_app_password  = var.db_app_password
     app_env          = var.app_env
     unbound_conf     = file("${path.module}/../../../unbound/unbound.conf")
-    prometheus_yml   = file("${path.module}/../../../prometheus/prometheus.yml")
+    prometheus_yml   = local.prometheus_yml
     rules_yml        = file("${path.module}/../../../prometheus/rules.yml")
     alertmanager_yml = file("${path.module}/../../../prometheus/alertmanager.yml")
+    metrics_token    = local.metrics_token
+    metrics_token_set = local.metrics_token != ""
   })
   network {
     network_id = var.network_id
