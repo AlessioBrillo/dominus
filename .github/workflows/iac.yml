@@ -127,11 +127,14 @@ jobs:
 
           # Regression: with B2 disabled no PITR cron or rclone config may
           # be rendered (empty credentials previously broke the daily cron).
+          # Precise needles: 'dominus-pitr' alone also matches the
+          # conf.d/dominus-pitr.conf path and 'rclone.conf' matches a
+          # comment, so match the exact file paths.
           db_tpl = pathlib.Path('modules/db-node/files/cloud-init.yaml.tftpl')
           for enabled, should_have in ((False, False), (True, True)):
               text = render_file(db_tpl, {'b2_enabled': enabled})
-              has_cron = 'dominus-pitr' in text
-              has_rclone = 'rclone.conf' in text
+              has_cron = 'cron.d/dominus-pitr' in text
+              has_rclone = 'rclone/rclone.conf' in text
               good = has_cron == should_have and has_rclone == should_have
               print(f"{'OK  ' if good else 'FAIL'} b2_enabled={enabled} "
                     f"(cron={has_cron}, rclone={has_rclone})")
