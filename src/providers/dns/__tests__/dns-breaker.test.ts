@@ -31,9 +31,9 @@ describe('dnsBreakerKey (ADR-0059)', () => {
   });
 
   it('keys native legs by their nameserver set', () => {
-    expect(dnsBreakerKey({ type: 'native', nameservers: ['127.0.0.1', '10.0.0.1'] }, undefined)).toBe(
-      'native:127.0.0.1,10.0.0.1',
-    );
+    expect(
+      dnsBreakerKey({ type: 'native', nameservers: ['127.0.0.1', '10.0.0.1'] }, undefined),
+    ).toBe('native:127.0.0.1,10.0.0.1');
   });
 
   it('keys unconfigured native legs as the system resolver', () => {
@@ -43,7 +43,11 @@ describe('dnsBreakerKey (ADR-0059)', () => {
 
 describe('DnsBreakerRegistry (ADR-0059)', () => {
   it('allows queries while closed', () => {
-    const registry = new DnsBreakerRegistry({ failureThreshold: 2, windowMs: 1000, cooldownMs: 1000 });
+    const registry = new DnsBreakerRegistry({
+      failureThreshold: 2,
+      windowMs: 1000,
+      cooldownMs: 1000,
+    });
     expect(registry.allow('doh:cloudflare-dns.com')).resolves.toBe(true);
   });
 

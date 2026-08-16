@@ -19,7 +19,7 @@ function makeResolved(): never {
   return ['1.2.3.4'] as never;
 }
 
-function makeTimeoutError(): NodeJS.ErrnoException {
+function makeTimeoutError(): Error & { code: string } {
   return Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
 }
 
@@ -69,13 +69,17 @@ describe('NodeDnsProvider circuit breaker integration (ADR-0059)', () => {
     const neverResolves = new Promise<never>(() => {});
     vi.mocked(dnsPromises.resolve).mockReturnValue(neverResolves as never);
 
+    // Entry-level pre-abort checks fail fast (ADR-0044): an already-aborted
+    // caller signal throws before any wire query, so no resolver interaction
+    // is recorded against the circuit. (The shared lookup deliberately does
+    // not observe a mid-flight caller abort on its wire queries, so the
+    // entry check is the cancellation seam that must stay breaker-neutral.)
     for (const domain of ['abort-one.com', 'abort-two.com']) {
       const controller = new AbortController();
-      const pending = provider.checkAvailability(domain, controller.signal);
       controller.abort();
-      const result = await pending;
-      expect(result.status).toBe(DomainStatus.Unknown);
+      await expect(provider.checkAvailability(domain, controller.signal)).rejects.toThrow();
     }
+    expect(dnsPromises.resolve).not.toHaveBeenCalled();
 
     // Threshold is 1: had the aborts been recorded as failures, the very
     // first one would have tripped the circuit. It must still be closed.

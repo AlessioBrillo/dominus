@@ -278,6 +278,38 @@ export function renderPrometheusMetrics(
     );
   }
 
+  const dnsBreakers = snapshot.pipeline.dnsBreakers;
+  if (dnsBreakers !== undefined && dnsBreakers.observed) {
+    g(
+      'DNS circuit-breaker endpoints currently open (ADR-0059).',
+      'dominus_dns_breaker_open',
+      dnsBreakers.open,
+      undefined,
+      'gauge',
+    );
+    g(
+      'DNS circuit-breaker endpoints currently closed.',
+      'dominus_dns_breaker_closed',
+      dnsBreakers.closed,
+      undefined,
+      'gauge',
+    );
+    g(
+      'DNS circuit-breaker endpoints currently half-open (cooldown probe).',
+      'dominus_dns_breaker_half_open',
+      dnsBreakers.halfOpen,
+      undefined,
+      'gauge',
+    );
+    g(
+      'DNS circuit-breaker endpoints tracked in total.',
+      'dominus_dns_breaker_total',
+      dnsBreakers.total,
+      undefined,
+      'gauge',
+    );
+  }
+
   const rdapConsensus = snapshot.pipeline.rdapConsensus;
   if (rdapConsensus !== undefined && rdapConsensus.observed) {
     g(

@@ -477,13 +477,19 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           if (entry.secondaryConfirmed) {
             // requiredAvailable=2: both verification legs confirmed.
             verified++;
-          } else {
+            continue;
+          }
+          if (required < 2) {
             // Rescue path (ADR-0045): the secondary could not answer and the
             // tertiary confirmed the primary's Available verdict.
             verified++;
             tertiaryRescued++;
+            continue;
           }
-          continue;
+          // Strict mode (ADR-0059): a tertiary-only Available after a failed
+          // secondary is a single independent opinion — it cannot satisfy a
+          // two-leg requirement. The tertiary's Registered veto above stays
+          // authoritative; its Available falls through to unverifiable.
         }
         unverifiable++;
         results[index] = {
@@ -492,8 +498,13 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           checkedAt: new Date().toISOString(),
         };
         logger.warn(
-          { domain, tertiary: third?.status ?? 'no-answer' },
-          'DNS: 2-of-3 consensus not confirmed (tertiary could not answer) — downgraded to Unknown',
+          {
+            domain,
+            tertiary: third?.status ?? 'no-answer',
+            requiredAvailable: cfg.requiredAvailable,
+          },
+          'DNS: 2-of-3 consensus not confirmed (tertiary could not answer, or its single ' +
+            'confirmation is insufficient under requiredAvailable=2) — downgraded to Unknown',
         );
       }
     }

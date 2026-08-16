@@ -336,10 +336,11 @@ const configSchema = z.object({
     .default(false),
   /**
    * Path to a JSON file containing known parking IP ranges for registrar
-   * parking page detection. When absent, parking detection is a no-op:
-   * no built-in list is loaded. The bundled reference list lives at
-   * src/providers/dns/parking-ips.json (matching the format the registrar
-   * uses to publish parking ranges).
+   * parking page detection. When absent, the bundled reference list at
+   * src/providers/dns/parking-ips.json is used (ADR-0059): enabling
+   * DNS_PARKING_CHECK_ENABLED works out of the box. An explicit path that
+   * is missing also falls back to the bundled list. Operators with fresher
+   * data point this at their own file.
    * Format: array of { name: string, cidr: string[] } objects.
    */
   DNS_PARKING_IPS_PATH: z.string().optional(),
@@ -590,6 +591,9 @@ const configSchema = z.object({
    * strict 2-of-3 semantics, where one independent confirmation is the
    * minimum bar the ADR-0002 mandate requires. Setting 2 makes the gate
    * stricter (triple agreement) at the cost of extra DNS queries.
+   * Under 2, a tertiary-only Available after a secondary failure is an
+   * unverifiable verdict, never a rescue (ADR-0059): the tertiary is still
+   * consulted, so its Registered verdict keeps veto power.
    * Accepted values: 1-2.
    */
   DNS_CONSENSUS_REQUIRED_AVAILABLE: z.coerce.number().int().min(1).max(2).default(1),
@@ -642,6 +646,32 @@ const configSchema = z.object({
    * run that is already heavy. Default: 20. Range: 1–500.
    */
   DNS_CONSENSUS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(20),
+  /**
+   * Per-endpoint circuit breaker for the DNS layer (ADR-0059). DNS is the
+   * last provider without circuit protection: RDAP and WHOIS trip on
+   * repeated failures (global + per-server), while a dead DNS resolver
+   * burned the full lookup timeout on every query, every run. The breaker
+   * opens per resolver endpoint (DoH host, DoT endpoint, native nameserver
+   * set) after DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD consecutive failures,
+   * skipping further queries for the cooldown. Default: true.
+   */
+  DNS_CIRCUIT_BREAKER_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
+  /**
+   * Consecutive resolver failures within the window that open the circuit.
+   * Mirrors the RDAP per-server breaker default (ADR-0050). Range: 1-100.
+   */
+  DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
+  /**
+   * Rolling window (ms) for the failure count. Default: 60000. Range: 1000-600000.
+   */
+  DNS_CIRCUIT_BREAKER_WINDOW_MS: z.coerce.number().int().min(1000).max(600000).default(60_000),
+  /**
+   * Cooldown (ms) the circuit stays open before a half-open probe is allowed.
+   * Default: 120000 (2 minutes). Range: 1000-600000.
+   */
+  DNS_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600000).default(120_000),
   /**
    * Maximum time (ms) to wait for a WHOIS port-43 response.
    * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
