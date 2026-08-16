@@ -125,14 +125,17 @@ estimates and subject to change.
 
 ## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO
 
-> **Status**: Planned (SEO surface shipped; managed hosting not started)
+> **Status**: Feature-complete (launch-blocker hardening in progress: deploy
+> pipeline roll, off-host backup requirement, RDAP consensus independence)
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
 - [x] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
       — Hetzner IaC in `deploy/terraform/` (app node + PITR DB node + Caddy)
-- [ ] Free tier: rate-limited pipeline runs, single user
-- [ ] Pro tier (€29/mo): 500 candidates scored/month, 3 team seats, email support
-- [ ] Team tier (€79/mo): 2,500 candidates scored/month, 10 team seats, Slack support
+- [x] Free tier: rate-limited pipeline runs, single user
+- [x] Pro tier (€29/mo): 500 candidates scored/month, 3 team seats, email support
+      (support channel is ops, deferred to v1.1.0)
+- [x] Team tier (€79/mo): 2,500 candidates scored/month, 10 team seats, Slack support
+      (support channel is ops, deferred to v1.1.0)
 - [x] Stripe billing integration (subscriptions + customer portal)
       — incl. Team checkout and status-aware enforcement (ADR-0053)
 - [x] Usage metering (pipeline runs, API calls per tenant)
