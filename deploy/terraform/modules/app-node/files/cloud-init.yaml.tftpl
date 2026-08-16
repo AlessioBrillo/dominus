@@ -28,10 +28,15 @@ write_files:
   - path: /opt/dominus/docker-compose.yml
     content: |
       # DOMINUS Cloud app node (v1.0.0). Rendered by Terraform.
+      # The ghcr image tags reference the DOMINUS_IMAGE_TAG env var from
+      # .env at runtime (docker compose interpolation): a release bump is a
+      # single .env edit + pull + roll via the deploy pipeline, never a
+      # Terraform apply (which would recreate the node and lose named
+      # volumes).
       name: dominus
       services:
         api:
-          image: ghcr.io/alessiobrillo/dominus:${image_tag}
+          image: ghcr.io/alessiobrillo/dominus:$${DOMINUS_IMAGE_TAG}
           restart: unless-stopped
           env_file: /opt/dominus/.env
           environment:
@@ -46,7 +51,7 @@ write_files:
             timeout: 5s
             retries: 3
         worker:
-          image: ghcr.io/alessiobrillo/dominus:${image_tag}-worker
+          image: ghcr.io/alessiobrillo/dominus:$${DOMINUS_IMAGE_TAG}-worker
           restart: unless-stopped
           env_file: /opt/dominus/.env
           environment:
@@ -55,7 +60,7 @@ write_files:
           depends_on: [redis, consensus-dns]
           networks: [default, dns-consensus-net]
         scheduler:
-          image: ghcr.io/alessiobrillo/dominus:${image_tag}-scheduler
+          image: ghcr.io/alessiobrillo/dominus:$${DOMINUS_IMAGE_TAG}-scheduler
           restart: unless-stopped
           env_file: /opt/dominus/.env
           environment:
@@ -99,6 +104,9 @@ write_files:
             - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
             - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
             - prometheus-data:/prometheus
+          %{ if metrics_token_set ~}
+            - ./prometheus/metrics-token:/etc/prometheus/metrics-token:ro
+          %{ endif ~}
           depends_on: [api]
         alertmanager:
           image: prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
@@ -141,6 +149,13 @@ ${indent(6, unbound_conf)}
     content: |
 ${indent(6, prometheus_yml)}
     permissions: "0644"
+
+  %{ if metrics_token_set ~}
+  - path: /opt/dominus/prometheus/metrics-token
+    content: |
+${indent(6, metrics_token)}
+    permissions: "0600"
+  %{ endif ~}
 
   - path: /opt/dominus/prometheus/rules.yml
     content: |

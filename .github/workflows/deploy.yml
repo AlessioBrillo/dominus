@@ -94,9 +94,10 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      # The node renders DOMINUS_IMAGE_TAG from Terraform at provision
-      # time; a release bump is a single .env edit + pull + roll, so the
-      # deploy step stays out of Terraform's plan/apply cycle.
+      # The rendered compose references ${DOMINUS_IMAGE_TAG} from .env at
+      # runtime, so a release bump is a single .env edit + pull + roll and
+      # stays out of Terraform's plan/apply cycle (an apply would recreate
+      # the node and lose the named volumes).
       - name: Bump tag, pull and roll the stack
         if: env.DEPLOY_SSH_HOST != ''
         env:
@@ -110,9 +111,22 @@ jobs:
           sed -i "s|^DOMINUS_IMAGE_TAG=.*|DOMINUS_IMAGE_TAG=${TAG}|" .env
           docker compose pull api worker scheduler
           docker compose up -d
+          # Regression guard: the rendered compose used to pin a literal
+          # tag, so a bump re-pulled and re-rolled the OLD image while the
+          # health poll below reported green. Fail loudly unless every
+          # service actually runs the release tag.
+          for svc in api worker scheduler; do
+            expected="ghcr.io/alessiobrillo/dominus:${TAG}"
+            [ "\$svc" != "api" ] && expected="\${expected}-\${svc}"
+            actual=\$(docker inspect --format '{{.Image}}' "dominus-\${svc}-1")
+            if [ "\$actual" != "\$expected" ]; then
+              echo "expected \${svc} to run \${expected}, running \${actual}" >&2
+              exit 1
+            fi
+          done
           for i in \$(seq 1 30); do
             if curl -fsS -o /dev/null http://127.0.0.1:3000/api/health; then
-              echo "api healthy after roll"
+              echo "api healthy on ${TAG} after roll"
               exit 0
             fi
             sleep 5
