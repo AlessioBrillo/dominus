@@ -28,6 +28,7 @@ import { BillingPage } from '@/pages/BillingPage';
 import { UsagePage } from '@/pages/UsagePage';
 import { AdminPage } from '@/pages/AdminPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { SignupPage } from '@/pages/SignupPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import '@/styles/globals.css';
 
@@ -77,6 +78,7 @@ createRoot(document.getElementById('root')!).render(
                     <Route path="settings" element={<SettingsPage />} />
                     <Route path="*" element={<NotFoundPage />} />
                   </Route>
+                  <Route path="signup" element={<SignupPage />} />
                 </Routes>
               </ErrorBoundary>
               <Toaster

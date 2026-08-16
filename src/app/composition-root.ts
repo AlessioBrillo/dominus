@@ -80,7 +80,7 @@ import {
 } from '../providers/redis/index.js';
 import type { LockProvider } from '../types/lock.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
-import { buildAuthProvider, isUsageEnforcementActive } from './auth-factory.js';
+import { buildAuthProvider, isUsageEnforcementActive, isMultiTenantAuth } from './auth-factory.js';
 import {
   CircuitBreaker,
   USPTO_CIRCUIT_BREAKER,
@@ -117,6 +117,7 @@ import { TeamService } from '../services/team-service.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
+import { TenantProvisioningService } from '../services/tenant-provisioning-service.js';
 import type { SubscriptionPlan } from '../types/subscription.js';
 import { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
@@ -212,6 +213,9 @@ export interface DominusDependencies {
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
   publicScoreRepo: PublicScoreRepository;
+  /** Undefined in the community edition (env API keys): self-serve signup
+   *  exists only where tenants are managed (ADR-0032). */
+  provisioningService: TenantProvisioningService | undefined;
   /** Undefined when REDIS_URL is unset (community edition, in-memory fallbacks). */
   redisClient: RedisClient | undefined;
 }
@@ -526,6 +530,15 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Auth Provider ---
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
   const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
+
+  // Self-serve signup (POST /api/v1/auth/register): only in managed
+  // (multi-tenant) identity mode, where tenants and API keys are real
+  // rows. The community edition has no tenant concept and no route.
+  const keyManager = authProvider.asKeyManager();
+  const provisioningService =
+    isMultiTenantAuth(config) && keyManager
+      ? new TenantProvisioningService(repos.subscriptionRepo, repos.teamSeatsRepo, keyManager)
+      : undefined;
 
   const billingService = new BillingService(
     config,
@@ -1087,6 +1100,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     jobQueueService,
     worker,
     authProvider,
+    provisioningService,
     anonScoringService,
     redisClient,
     billingService,

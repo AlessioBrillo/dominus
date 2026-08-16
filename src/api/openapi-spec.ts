@@ -314,6 +314,46 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
           '401': { description: 'Unauthorized' },
         },
       },
+      post: {
+        tags: ['System'],
+        summary: 'Register a new workspace (Cloud edition only)',
+        description:
+          'Provisions a tenant with the free plan and returns the first admin API key (shown exactly once). Not available in the community edition.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string', maxLength: 80 },
+                  email: { type: 'string', format: 'email' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '201': {
+            description: 'Tenant provisioned',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tenantId: { type: 'string' },
+                    key: { type: 'string', description: 'One-time admin API key' },
+                    prefix: { type: 'string' },
+                    message: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
     },
     '/api/v1/alerts': {
       get: {
