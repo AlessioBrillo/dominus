@@ -66,6 +66,8 @@ jobs:
               'prometheus_yml': 'global:\n  scrape_interval: 30s\n',
               'rules_yml': 'groups: []\n',
               'alertmanager_yml': 'route:\n  receiver: test\n',
+              'metrics_token': 'dummy-token',
+              'metrics_token_set': False,
           }
 
           def render(text, ctx):
@@ -110,7 +112,10 @@ jobs:
           def render_file(tpl, overrides=None):
               ctx = {**fixtures, **(overrides or {})}
               text = render(tpl.read_text(), ctx)
-              text = re.sub(r'\$\{([^}]+)\}', subst, text)
+              # Negative lookbehind: $${VAR} is Terraform's escape for a
+              # literal ${VAR} (runtime docker-compose interpolation) — it
+              # must pass through untouched, not be substituted.
+              text = re.sub(r'(?<!\$)\$\{([^}]+)\}', subst, text)
               docs = list(yaml.safe_load_all(text))
               if not docs or not isinstance(docs[0], dict) or not docs[0]:
                   raise AssertionError('not a valid YAML mapping')
@@ -139,6 +144,56 @@ jobs:
               print(f"{'OK  ' if good else 'FAIL'} b2_enabled={enabled} "
                     f"(cron={has_cron}, rclone={has_rclone})")
               ok = ok and good
+
+          # Regression (deploy pipeline): the rendered compose must reference
+          # the image tag through the runtime $${DOMINUS_IMAGE_TAG} .env
+          # variable. A literal tag here means a release bump re-pulls and
+          # re-rolls the OLD image while the deploy health poll reports green.
+          app_tpl = pathlib.Path('modules/app-node/files/cloud-init.yaml.tftpl')
+          app_text = render_file(app_tpl)
+          if '$${DOMINUS_IMAGE_TAG}' not in app_text:
+              print('FAIL app compose does not interpolate DOMINUS_IMAGE_TAG at runtime')
+              ok = False
+          if 'ghcr.io/alessiobrillo/dominus:v1.0.0' in app_text:
+              print('FAIL app compose pins a literal image tag (deploy bumps would be a no-op)')
+              ok = False
+
+          # METRICS_TOKEN trap (silent alerting death): with the token set the
+          # app node must render the metrics-token file and mount it; with it
+          # unset neither may be present.
+          for token_set, expect_file in ((False, False), (True, True)):
+              text = render_file(app_tpl, {'metrics_token_set': token_set})
+              has_token_file = 'prometheus/metrics-token' in text
+              good = has_token_file == expect_file
+              print(f"{'OK  ' if good else 'FAIL'} metrics_token_set={token_set} "
+                    f"(token file={has_token_file})")
+              ok = ok and good
+
+          # The module's prometheus.yml transformation (main.tf): with
+          # METRICS_TOKEN set the bearer block must be active — a configured
+          # token with a commented block would 401 every scrape and kill
+          # alerting silently. Replicates the HCL replace chain so drift in
+          # the marker lines fails CI.
+          prom_yml = pathlib.Path('../prometheus/prometheus.yml').read_text()
+          activated = prom_yml
+          for needle, replacement in (
+              ('    # METRICS_TOKEN_RENDER:START\n', ''),
+              ('    # METRICS_TOKEN_RENDER:END\n', ''),
+              ('# authorization:', 'authorization:'),
+              ('#   type: Bearer', '  type: Bearer'),
+              ('#   credentials_file: /etc/prometheus/metrics-token',
+               '  credentials_file: /etc/prometheus/metrics-token'),
+          ):
+              activated = activated.replace(needle, replacement)
+          scrape = yaml.safe_load(activated)['scrape_configs'][0]
+          if scrape.get('authorization', {}).get('type') != 'Bearer':
+              print('FAIL METRICS_TOKEN auth block not activated by module transform')
+              ok = False
+          else:
+              print('OK   prometheus METRICS_TOKEN block activates on render')
+          if 'METRICS_TOKEN_RENDER:START' not in prom_yml:
+              print('FAIL prometheus.yml lost its render markers')
+              ok = False
 
           sys.exit(0 if ok else 1)
           PY
