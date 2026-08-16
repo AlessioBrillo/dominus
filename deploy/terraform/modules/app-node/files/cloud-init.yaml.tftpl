@@ -1,6 +1,7 @@
 #cloud-config
-# DOMINUS Cloud — app-node (api + worker + scheduler + redis + Caddy).
-# Rendered by Terraform from module inputs; no secrets in the repo.
+# DOMINUS Cloud — app-node (api + worker + scheduler + redis + Caddy,
+# consensus-dns, monitoring). Rendered by Terraform from module inputs;
+# no secrets in the repo.
 package_update: true
 packages:
   - docker.io
@@ -33,8 +34,12 @@ write_files:
           image: ghcr.io/alessiobrillo/dominus:${image_tag}
           restart: unless-stopped
           env_file: /opt/dominus/.env
+          environment:
+            - DNS_CONSENSUS_ENABLED=true
+            - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
           ports: ["127.0.0.1:3000:3000"]
-          depends_on: [redis]
+          depends_on: [redis, consensus-dns]
+          networks: [default, dns-consensus-net]
           healthcheck:
             test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)})"]
             interval: 30s
@@ -44,17 +49,66 @@ write_files:
           image: ghcr.io/alessiobrillo/dominus:${image_tag}-worker
           restart: unless-stopped
           env_file: /opt/dominus/.env
-          depends_on: [redis]
+          environment:
+            - DNS_CONSENSUS_ENABLED=true
+            - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+          depends_on: [redis, consensus-dns]
+          networks: [default, dns-consensus-net]
         scheduler:
           image: ghcr.io/alessiobrillo/dominus:${image_tag}-scheduler
           restart: unless-stopped
           env_file: /opt/dominus/.env
-          depends_on: [redis]
+          environment:
+            - DNS_CONSENSUS_ENABLED=true
+            - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+          depends_on: [redis, consensus-dns]
+          networks: [default, dns-consensus-net]
         redis:
           image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
           restart: unless-stopped
           command: ["redis-server", "--appendonly", "yes"]
           volumes: [redis-data:/data]
+        consensus-dns:
+          image: mvance/unbound@sha256:76906da36d1806f3387338f15dcf8b357c51ce6897fb6450d6ce010460927e90
+          restart: unless-stopped
+          networks:
+            dns-consensus-net:
+              ipv4_address: 172.20.0.10
+          volumes:
+            - ./unbound/unbound.conf:/opt/unbound/unbound.conf:ro
+          command: ["-d", "-c", "/opt/unbound/unbound.conf"]
+          healthcheck:
+            test: ["CMD", "unbound-control", "status"]
+            interval: 15s
+            timeout: 5s
+            retries: 5
+        redis-exporter:
+          image: oliver006/redis_exporter:v1.64.0@sha256:164814f4fb1455eb96a303a7fe4cebe0f6db62ae533c167adc97be6e04e94bc3
+          restart: unless-stopped
+          command: ["--check-keys", "--redis.addr=redis://redis:6379"]
+          depends_on: [redis]
+        prometheus:
+          image: prom/prometheus:v2.53.1@sha256:f20d3127bf2876f4a1df76246fca576b41ddf1125ed1c546fbd8b16ea55117e6
+          restart: unless-stopped
+          command:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=30d
+            - --web.enable-lifecycle
+          volumes:
+            - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+            - prometheus-data:/prometheus
+          depends_on: [api]
+        alertmanager:
+          image: prom/alertmanager:v0.27.0@sha256:e13b6ed5cb929eeaee733479dce55e10eb3bc2e9c4586c705a4e8da41e5eacf5
+          restart: unless-stopped
+          command:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+          volumes:
+            - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+            - alertmanager-data:/alertmanager
         caddy:
           image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
           restart: unless-stopped
@@ -64,10 +118,38 @@ write_files:
             - caddy-data:/data
             - caddy-config:/config
           depends_on: [api]
+      networks:
+        dns-consensus-net:
+          driver: bridge
+          ipam:
+            config:
+              - subnet: 172.20.0.0/24
       volumes:
         redis-data:
         caddy-data:
         caddy-config:
+        prometheus-data:
+        alertmanager-data:
+    permissions: "0644"
+
+  - path: /opt/dominus/unbound/unbound.conf
+    content: |
+${indent(6, unbound_conf)}
+    permissions: "0644"
+
+  - path: /opt/dominus/prometheus/prometheus.yml
+    content: |
+${indent(6, prometheus_yml)}
+    permissions: "0644"
+
+  - path: /opt/dominus/prometheus/rules.yml
+    content: |
+${indent(6, rules_yml)}
+    permissions: "0644"
+
+  - path: /opt/dominus/alertmanager/alertmanager.yml
+    content: |
+${indent(6, alertmanager_yml)}
     permissions: "0644"
 
   - path: /opt/dominus/Caddyfile

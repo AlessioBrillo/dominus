@@ -15,9 +15,12 @@ write_files:
       PG_PASSWORD=${db_password}
       BACKUP_DIR=/var/lib/postgresql/backups
       PG_BASE_RETENTION_DAYS=14
+      %{ if b2_enabled }
       B2_BASE_REMOTE=b2:${b2_bucket}/base/
+      %{ endif }
     permissions: "0600"
 
+  %{ if b2_enabled }
   # rclone config lives in the postgres user's HOME so both the WAL
   # archiver (postgres server process) and the backup cron can use it.
   # Ownership is applied in runcmd: write_files runs before the package
@@ -31,6 +34,7 @@ write_files:
       key = ${b2_app_key}
       endpoint = ${b2_endpoint}
     permissions: "0600"
+  %{ endif }
 
   # ADR-0054 PITR wiring. With archive_mode=on but no reachable archive the
   # WAL archiver stalls the node — so the archive is only enabled when B2
@@ -102,7 +106,9 @@ runcmd:
   - curl -fsSL -o /opt/dominus/base-backup.sh \
       https://raw.githubusercontent.com/AlessioBrillo/dominus/${image_tag}/deploy/postgres/base-backup.sh
   - chmod 0700 /opt/dominus/base-backup.sh
+  %{ if b2_enabled }
   - |
     cat > /etc/cron.d/dominus-pitr <<EOF
     30 4 * * * postgres PG_HOST=127.0.0.1 PG_USER=backup PG_PASSWORD='${db_password}' B2_BASE_REMOTE='b2:${b2_bucket}/base/' /opt/dominus/base-backup.sh >> /var/log/dominus/base-backup.log 2>&1
     EOF
+  %{ endif }

@@ -4,21 +4,43 @@
 hcloud_token      = "REPLACE_WITH_HETZNER_API_TOKEN"
 ssh_public_key    = "ssh-ed25519 AAAA... operator@host"
 domain            = "app.dominus.example"
-image_tag         = "v0.11.0"
+image_tag         = "v1.0.0"
 
 db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
 # App connection role password (RLS-scoped dominus_app, ADR-0038/0047).
 db_app_password   = "REPLACE_WITH_STRONG_APP_PASSWORD"
 
+# Hetzner DNS (optional): when set, the app A record is created at apply
+# time in the given zone (must exist in Hetzner DNS). Leave empty to point
+# an external registrar's A record at app_public_ip manually.
+# hetzner_dns_token = "REPLACE_WITH_HETZNER_DNS_TOKEN"
+# dns_zone_name     = "dominus.example"
+
 app_env = {
+  # Managed identity (DOMINUS Cloud): JWT-issued API keys, tenant auto
+  # provisioning and usage enforcement are forced ON by AUTH_PROVIDER=db.
+  AUTH_PROVIDER            = "db"
+  JWT_SECRET               = "REPLACE_WITH_JWT_SECRET"
+  AUTO_PROVISION_TENANTS   = "true"
+  USAGE_ENFORCEMENT_ENABLED = "true"
   # Public API key(s) for the community/cloud API surface.
   API_KEYS = "REPLACE_WITH_API_KEY"
-  # Production JWT signing secret (cloud auth).
-  JWT_SECRET = "REPLACE_WITH_JWT_SECRET"
   # Stripe keys (billing).
   STRIPE_SECRET_KEY      = "sk_live_..."
   STRIPE_PUBLISHABLE_KEY = "pk_live_..."
   STRIPE_WEBHOOK_SECRET  = "whsec_..."
+  STRIPE_PRICE_ID_PRO_MONTHLY      = "price_xxx"
+  STRIPE_PRICE_ID_PRO_YEARLY       = "price_xxx"
+  STRIPE_PRICE_ID_TEAM_MONTHLY     = "price_xxx"
+  STRIPE_PRICE_ID_TEAM_YEARLY      = "price_xxx"
+  STRIPE_PRICE_ID_ENTERPRISE_MONTHLY = "price_xxx"
+  STRIPE_PRICE_ID_ENTERPRISE_YEARLY  = "price_xxx"
+  # Prometheus scrape token (protects /api/v1/metrics/*; uncomment the
+  # authorization block in deploy/prometheus/prometheus.yml to match).
+  METRICS_TOKEN = "REPLACE_WITH_METRICS_TOKEN"
+  # Alert webhook (dead-letter notifications; alertmanager.yml on the node
+  # routes the same endpoint).
+  NOTIFIER_WEBHOOK_URL = "https://example.com/your-webhook"
   # Trade API keys as needed; secrets stay out of git.
 }
 

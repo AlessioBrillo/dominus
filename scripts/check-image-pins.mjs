@@ -16,6 +16,10 @@
 //                                images and `${VAR}`-driven refs are exempt.
 //   - deploy/*.yaml (k8s)      — image tags must be `vX.Y.Z` / `sha-<hex>` /
 //                                `${VAR}` / `@sha256:`; `:latest` rejected.
+//   - deploy/terraform/**/*.tftpl — the cloud-init docker-compose template:
+//                                same policy as compose files (ADR-0046
+//                                covers the rendered node, not just the
+//                                local overlay).
 //
 // Usage:
 //   node scripts/check-image-pins.mjs [paths...]   (default: '.')
@@ -39,6 +43,10 @@ export function isCompose(name) {
 
 export function isKubernetes(dirName, name) {
   return dirName === 'deploy' && /\.ya?ml$/.test(name);
+}
+
+export function isTerraformTemplate(name) {
+  return /\.tftpl$/.test(name);
 }
 
 export function checkDockerfile(content, file) {
@@ -102,7 +110,7 @@ function collectFiles(root) {
         continue;
       }
       const dirBase = dir.split(/[\\/]/).pop() ?? '';
-      if (isDockerfile(entry) || isCompose(entry) || isKubernetes(dirBase, entry)) {
+      if (isDockerfile(entry) || isCompose(entry) || isKubernetes(dirBase, entry) || isTerraformTemplate(entry)) {
         files.push(full);
       }
     }
@@ -117,6 +125,7 @@ function scanFile(file) {
   const dirName = file.split(/[\\/]/).at(-2) ?? '';
   if (isDockerfile(name)) return checkDockerfile(content, file);
   if (isCompose(name)) return findImagePins(content, file, composePolicy);
+  if (isTerraformTemplate(name)) return findImagePins(content, file, composePolicy);
   if (isKubernetes(dirName, name)) return findImagePins(content, file, k8sPolicy);
   return [];
 }

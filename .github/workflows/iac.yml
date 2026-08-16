@@ -46,7 +46,9 @@ jobs:
       # The rendered cloud-init is the actual deliverable; substitute every
       # template placeholder with dummy values and parse the result as YAML,
       # so a typo (bad interpolation, broken indentation) fails the PR
-      # before it reaches a node.
+      # before it reaches a node. Conditionals and loops are evaluated
+      # (not just stripped) so both branches stay renderable and the
+      # b2-disabled path is regression-checked.
       - name: Smoke-render cloud-init templates
         run: |
           python3 - <<'PY'
@@ -54,42 +56,122 @@ jobs:
           import yaml
 
           fixtures = {
-              'project': 'dominus', 'image_tag': 'v0.11.0', 'domain': 'test.example',
+              'project': 'dominus', 'image_tag': 'v1.0.0', 'domain': 'test.example',
               'db_host': '10.0.0.3', 'db_password': 'dummy', 'db_app_password': 'dummy_app',
               'b2_enabled': True,
               'b2_bucket': 'b', 'b2_account_id': 'a', 'b2_app_key': 'k',
               'b2_endpoint': 'https://s3.example',
+              'app_env': {'K': 'V'},
+              'unbound_conf': 'do-not-query-localhost: yes\nhide-identity: yes\n',
+              'prometheus_yml': 'global:\n  scrape_interval: 30s\n',
+              'rules_yml': 'groups: []\n',
+              'alertmanager_yml': 'route:\n  receiver: test\n',
           }
 
+          def render(text, ctx):
+              # %{ if X } ... %{ else } ... %{ endif } — evaluate, keep branch.
+              def if_repl(m):
+                  body = render(m.group(2), ctx)
+                  if not ctx.get(m.group(1)):
+                      body = render(m.group(3) or '', ctx)
+                  return body
+              text = re.sub(
+                  r'%\{ *if +(\w+) *\~?\}(.*?)(?:%\{ *else *\~?\}(.*?))?%\{ *endif *\~?\}',
+                  if_repl, text, flags=re.S)
+              # %{ for k, v in MAP } ... %{ endfor }
+              def for_repl(m):
+                  k, v, coll, body = m.group(1), m.group(2), m.group(3), m.group(4)
+                  return ''.join(
+                      render(body, {**ctx, k: kk, v: vv})
+                      for kk, vv in (ctx.get(coll) or {}).items())
+              text = re.sub(r'%\{ *for +(\w+), *(\w+) +in +(\w+) *\~?\}(.*?)%\{ *endfor *\~?\}',
+                            for_repl, text, flags=re.S)
+              return text
+
           def subst(m):
-              # ${name} and ${name} inside ${...} template loops
               key = m.group(1)
+              # Loop variables (body of %{ for k, v in app_env }).
               if key == 'k':
-                  return 'X=1'
+                  return 'K'
               if key == 'v':
-                  return 'VALUE'
+                  return 'V'
+              # ${indent(6, name)} — re-indent the fixture to mimic terraform.
+              im = re.fullmatch(r'indent\((\d+), (\w+)\)', key)
+              if im:
+                  n, name = int(im.group(1)), im.group(2)
+                  if name not in fixtures:
+                      raise SystemExit(f'unknown template variable: {name}')
+                  return '\n'.join(
+                      ' ' * n + line if line else '' for line in str(fixtures[name]).split('\n'))
               if key in fixtures:
                   return str(fixtures[key])
               raise SystemExit(f'unknown template variable: {key}')
 
+          def render_file(tpl, overrides=None):
+              ctx = {**fixtures, **(overrides or {})}
+              text = render(tpl.read_text(), ctx)
+              text = re.sub(r'\$\{([^}]+)\}', subst, text)
+              docs = list(yaml.safe_load_all(text))
+              if not docs or not isinstance(docs[0], dict) or not docs[0]:
+                  raise AssertionError('not a valid YAML mapping')
+              return text
+
           ok = True
           for tpl in pathlib.Path('.').glob('modules/*/files/*.tftpl'):
-              text = tpl.read_text()
-              # Terraform %{ ... } directives: strip conditionals and loops,
-              # keeping the then-branch content.
-              text = re.sub(r'%\{[^}]*\}', '', text)
-              text = re.sub(r'\$\{([^}]+)\}', subst, text)
               try:
-                  docs = list(yaml.safe_load_all(text))
-              except yaml.YAMLError as e:
+                  render_file(tpl)
+                  print(f'OK   {tpl}')
+              except (AssertionError, yaml.YAMLError) as e:
                   print(f'FAIL {tpl}: {e}')
                   ok = False
-                  continue
-              # cloud-config: a YAML document with top-level keys
-              if not docs or not isinstance(docs[0], dict) or not docs[0]:
-                  print(f'FAIL {tpl}: not a valid YAML mapping')
-                  ok = False
-                  continue
-              print(f'OK   {tpl}')
+
+          # Regression: with B2 disabled no PITR cron or rclone config may
+          # be rendered (empty credentials previously broke the daily cron).
+          db_tpl = pathlib.Path('modules/db-node/files/cloud-init.yaml.tftpl')
+          for enabled, should_have in ((False, False), (True, True)):
+              text = render_file(db_tpl, {'b2_enabled': enabled})
+              has_cron = 'dominus-pitr' in text
+              has_rclone = 'rclone.conf' in text
+              good = has_cron == should_have and has_rclone == should_have
+              print(f"{'OK  ' if good else 'FAIL'} b2_enabled={enabled} "
+                    f"(cron={has_cron}, rclone={has_rclone})")
+              ok = ok and good
+
           sys.exit(0 if ok else 1)
           PY
+
+  plan:
+    name: Terraform plan (Hetzner creds present)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Runs only when the repo has the Hetzner token configured; otherwise
+    # fmt + validate + smoke-render above are the gate.
+    if: secrets.HCLOUD_TOKEN != ''
+    defaults:
+      run:
+        working-directory: deploy/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.9.8
+
+      - name: Init (no backend)
+        run: terraform init -backend=false
+
+      - name: Plan
+        env:
+          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          cat > terraform.tfvars <<'EOF'
+          hcloud_token      = "unused"
+          ssh_public_key    = "ssh-ed25519 dummy"
+          domain            = "app.example.com"
+          image_tag         = "v1.0.0"
+          db_password       = "dummy"
+          db_app_password   = "dummy"
+          hetzner_dns_token = ""
+          EOF
+          terraform plan -input=false -no-color
