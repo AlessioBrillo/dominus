@@ -2,15 +2,15 @@
 
 ## Metadata
 
-| Field | Value |
-|-------|-------|
-| **Status** | Accepted (retrospective) |
-| **Date** | 2026-06-08 |
-| **Authors** | AlessioBrillo |
-| **Deciders** | AlessioBrillo |
-| **Supersedes** | N/A |
+| Field          | Value                                  |
+| -------------- | -------------------------------------- |
+| **Status**     | Accepted (retrospective)               |
+| **Date**       | 2026-06-08                             |
+| **Authors**    | AlessioBrillo                          |
+| **Deciders**   | AlessioBrillo                          |
+| **Supersedes** | N/A                                    |
 | **Relates to** | ADR-0001, ADR-0007, ADR-0008, ADR-0009 |
-| **Project** | DOMINUS |
+| **Project**    | DOMINUS                                |
 
 ## Context
 
@@ -63,10 +63,12 @@ sum. Weights are loaded from a configurable file; default weights are
 hardcoded in `src/scoring/weights.ts`.
 
 **Advantages:**
+
 - Fully interpretable: every signal contribution can be traced and inspected.
 - Conservative by design: the `suggested_buy_max` is capped at 50% of
-  `expected_value` and further capped by an absolute budget limit (default
-  500 EUR).
+  `expected_value` and further capped by an absolute budget limit
+  (`BUY_MAX_ABSOLUTE_CAP`; redesigned as an evidence-anchored value by
+  ADR-0055).
 - Confidence is computed from the number of non-zero signals, not from a
   black-box model. A domain with no keyword or comps data gets low confidence
   regardless of its intrinsic score.
@@ -77,6 +79,7 @@ hardcoded in `src/scoring/weights.ts`.
   require them.
 
 **Disadvantages:**
+
 - Weight tuning is subjective until the operator has 20+ recorded sale
   outcomes. Early-stage recommendations may be too conservative or too
   generous in unexpected ways.
@@ -100,11 +103,13 @@ Train a regression model on historical NameBio sales data and apply it to
 new candidates.
 
 **Advantages:**
+
 - Can capture non-linear interactions between features.
 - No manual weight tuning required — the model learns from data.
 - Potentially more accurate at scale (thousands of training examples).
 
 **Disadvantages:**
+
 - Requires thousands of labelled sale outcomes to train a useful model.
   DOMINUS will have tens to low hundreds of outcomes — far too few for a
   reliable model.
@@ -134,11 +139,13 @@ A decision tree of manually crafted rules (e.g., "if length > 15, score = 0;
 if TLD is `.com`, bonus +0.2; if hyphens present, penalty -0.3").
 
 **Advantages:**
+
 - Maximum interpretability: every rule is explicit and auditable.
 - No floating-point weights to tune — rules are boolean or categorical.
 - Simple to implement with if/else or a decision-tree library.
 
 **Disadvantages:**
+
 - Brittle: a rule that works for 90% of cases fails catastrophically for the
   remaining 10% (e.g., `best-ai-marketing-cloud.com` would be heavily
   penalised for hyphens despite being a keyword-rich brandable name).
@@ -201,32 +208,37 @@ The rationale is driven by the decision drivers:
 ## Consequences
 
 ### Positive
+
 - The engine is deterministic: two runs with the same inputs produce identical
   scores. This is essential for the backtest engine's point-in-time correctness
   (ADR-0008).
 - Confidence scoring is conservative by design: a domain with keyword volume
   but no comparable sales gets `confidence = 0.5` (one signal beyond
   intrinsic), not a higher value.
-- The `suggested_buy_max` cap (default 500 EUR) acts as a circuit breaker:
-  even if comparable sales suggest a domain is worth 10,000 EUR, the engine
-  will not recommend a purchase beyond the operator's stated budget.
+- The `suggested_buy_max` cap (`BUY_MAX_ABSOLUTE_CAP`) acts as a circuit
+  breaker: even if comparable sales suggest a domain is worth 10,000 EUR, the
+  engine will not recommend a purchase beyond the operator's stated budget.
+  Since ADR-0055 the default is 0 (uncapped); value follows comparables.
 - The backtest engine provides an objective feedback loop. A weight adjustment
   that degrades MAE is immediately visible in the report.
 - Over 300 tests cover the scoring engine, individual signals, weight loader,
   backtest engine, and weight suggester.
 
 ### Negative
+
 - Manual weight tuning is subjective for the first 5-10 sale outcomes. The
   operator may over- or under-correct based on a small sample.
 - The four-signal decomposition is a deliberate simplification. Interactions
   like "`.ai` TLD with trailing-edge keyword" are not captured; each signal
   is computed independently.
 - The `BUY_MAX_ABSOLUTE_CAP` is a blunt instrument. A domain with strong
-  signals (high keyword volume, strong comps) may be capped at 500 EUR even
-  when buying at 500 EUR is a good deal. The operator can raise the cap, but
-  this weakens the conservatism guarantee.
+  signals (high keyword volume, strong comps) may be capped even when buying
+  at the cap is a good deal. The operator can raise the cap, but this weakens
+  the conservatism guarantee. ADR-0055 removes the default ceiling
+  (rollback: `BUY_MAX_ABSOLUTE_CAP=500`).
 
 ### Compliance and Security Implications
+
 - The scoring engine does not make network calls (keyword/comps data is loaded
   at startup from local files). No data exfiltration risk.
 - Weight override files are validated: an invalid JSON or non-1.0 weight sum
@@ -236,6 +248,7 @@ The rationale is driven by the decision drivers:
   requires explicit operator action.
 
 ### Migration and Monitoring Plan
+
 - **Migration**: None. This ADR documents the existing design.
 - **Monitoring**: The `dominus backtest run` command produces a report on
   every call. The operator should inspect the report before and after any
@@ -245,6 +258,7 @@ The rationale is driven by the decision drivers:
   `DEFAULT_WEIGHTS`.
 
 ### Validation
+
 - All 9 scoring-engine tests and 22 signal tests pass (intrinsic: 10,
   commercial: 4, market: 7, expiry: 8).
 - Backtest engine tests (15 tests) validate point-in-time correctness,
@@ -257,7 +271,7 @@ The rationale is driven by the decision drivers:
 
 ---
 
-*This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs
+_This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs
 should be consistent with the product vision previously documented in
 `dominus-product-vision.md` (v0.2), now superseded by this ADR series.
-Template: `docs/adr/template.md`.*
+Template: `docs/adr/template.md`._

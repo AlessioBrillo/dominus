@@ -27,8 +27,6 @@ const configSchema = z.object({
   LOG_PRETTY: z
     .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
     .default(false),
-  SCORING_CONFIDENCE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
-  SCORING_RECOMMEND_THRESHOLD: z.coerce.number().min(0).max(1).default(0.4),
   DROP_SCORE_THRESHOLD: z.coerce.number().min(0).max(100).default(25),
   DROP_RENEWAL_HORIZON_DAYS: z.coerce.number().int().min(1).default(60),
   DEFAULT_RENEWAL_COST_EUR: z.coerce.number().min(0).max(10_000).default(10),
@@ -1492,7 +1490,7 @@ const configSchema = z.object({
   /**
    * Minimum confidence score (0-1) for a candidate to be included in the
    * acquisition funnel. Candidates below this threshold are filtered out
-   * regardless of expected value. Default: 0.3 (matches SCORING_CONFIDENCE_THRESHOLD).
+   * regardless of expected value. Default: 0.3.
    */
   ACQUISITION_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.3),
 
