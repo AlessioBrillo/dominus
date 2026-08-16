@@ -9,6 +9,7 @@ import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-pro
 import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
 import {
   hasAuthoritativeOriginOverlap,
+  hasWinningOriginOverlap,
   rdapUrlOrigin,
 } from '../../providers/rdap/rdap-consensus-validator.js';
 import { getLogger } from '../../logger.js';
@@ -30,6 +31,9 @@ interface AvailabilityResult {
   domainAge?: number | undefined;
   checkedAt: string;
   source: 'rdap' | 'whois' | 'cross-validated';
+  /** Origin of the RDAP server that produced the verdict (consensus
+   *  rubber-stamp detection, ADR-0050). Undefined for WHOIS-only paths. */
+  sourceOrigin?: string | undefined;
 }
 
 function rdapToResult(r: RdapResult): AvailabilityResult {
@@ -41,6 +45,7 @@ function rdapToResult(r: RdapResult): AvailabilityResult {
     expiresAt: r.expiresAt,
     checkedAt: r.checkedAt,
     source: 'rdap',
+    sourceOrigin: r.sourceOrigin,
   };
 }
 
@@ -103,6 +108,11 @@ export interface RdapConsensusConfig {
    * the second leg and counts the verdict as originOverlap whenever the
    * second endpoint's origin is authoritative for the candidate's TLD: the
    * 2-of-2 would be a rubber stamp. Unset disables the runtime guard.
+   *
+   * A second, unconditional rubber-stamp guard runs regardless: when the
+   * origin that served the primary verdict equals the second leg origin
+   * (e.g. rdap.org winning the primary race AND being the second leg), the
+   * second opinion is skipped and counted as originOverlap (ADR-0050).
    */
   tldOriginsResolver?: (tld: string) => Promise<string[]>;
 }
@@ -151,6 +161,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
 
     let passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
+    // Origin that served each primary verdict (RdapResult.sourceOrigin) —
+    // the consensus gate compares it against the second leg endpoint to
+    // catch the same-server rubber stamp (ADR-0050).
+    const winningOrigins = new Map<string, string>();
 
     const batches = this.#toBatches(candidates, this.concurrency);
     for (const batch of batches) {
@@ -175,6 +189,9 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             status: CandidateStatus.RdapFiltered,
           });
           continue;
+        }
+        if (result!.sourceOrigin !== undefined) {
+          winningOrigins.set(candidate.domain, result!.sourceOrigin);
         }
         if (result!.status === DomainStatus.Available && !result!.isPremium) {
           const rdapMeta = buildWhoisMeta(result!);
@@ -220,6 +237,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         signal,
         rdapConsensusStats!,
         degradations,
+        winningOrigins,
       );
       const result: StageResult<DomainCandidate> = {
         passed,
@@ -242,7 +260,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
    * mirroring the DNS secondary veto (ADR-0045): the outcome is never
    * Available. A failure to answer (error/timeout/Unknown) downgrades to
    * Unknown as well: the gate is fail-closed and never lets a single-leg
-   * Available pass. Returns the candidates that survived the gate.
+   * Available pass. The second leg is skipped (counted unverifiable) when
+   * it would be a rubber stamp: its origin is authoritative for the TLD
+   * (ADR-0058) or it is the same origin that served the primary verdict.
+   * Returns the candidates that survived the gate.
    *
    * Runs under its own concurrency ceiling (RDAP_CONSENSUS_BULK_CONCURRENCY)
    * and flags the run degraded when the secondary cannot verify the majority
@@ -255,6 +276,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     signal: AbortSignal | undefined,
     stats: RdapConsensusStats,
     degradations: StageDegradation[],
+    winningOrigins: ReadonlyMap<string, string>,
   ): Promise<DomainCandidate[]> {
     const cfg = this.consensusConfig!;
     const logger = getLogger();
@@ -304,25 +326,39 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         batch.map(async (candidate) => {
           try {
             const authoritativeOrigins = await resolveAuthoritativeOrigins(candidate.tld);
-            const originOverlap =
+            const authoritativeOverlap =
               authoritativeOrigins !== undefined &&
               hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.secondaryOrigin);
-            if (originOverlap) return { candidate, result: undefined, overlap: true };
+            // The winner-origin guard is unconditional (needs no resolver):
+            // when the primary race was won by the same origin as the
+            // second leg, the second opinion would be a rubber stamp.
+            const winnerOverlap = hasWinningOriginOverlap(
+              winningOrigins.get(candidate.domain),
+              cfg.secondaryOrigin,
+            );
+            if (authoritativeOverlap || winnerOverlap) {
+              return { candidate, result: undefined, overlap: true, winnerOverlap };
+            }
             const result = await cfg.secondaryProvider.confirm(candidate.domain, signal);
-            return { candidate, result, overlap: false };
+            return { candidate, result, overlap: false, winnerOverlap: false };
           } catch (error) {
-            return { candidate, result: undefined, error, overlap: false };
+            return { candidate, result: undefined, error, overlap: false, winnerOverlap: false };
           }
         }),
       );
-      for (const { candidate, result, overlap } of results) {
+      for (const { candidate, result, overlap, winnerOverlap } of results) {
         if (overlap === true) {
           stats.unverifiable++;
           stats.originOverlap = (stats.originOverlap ?? 0) + 1;
           logger.warn(
             { domain: candidate.domain, origin: secondaryOrigin },
-            'RDAP: 2-of-2 consensus skipped — the second leg origin is authoritative for the ' +
-              'candidate TLD (rubber-stamp guard, ADR-0058) — downgraded as unverifiable',
+            winnerOverlap === true
+              ? 'RDAP: 2-of-2 consensus skipped — the primary verdict was served by the ' +
+                  'second leg origin (same server, rubber-stamp guard, ADR-0050) — ' +
+                  'downgraded as unverifiable'
+              : 'RDAP: 2-of-2 consensus skipped — the second leg origin is authoritative ' +
+                  'for the candidate TLD (rubber-stamp guard, ADR-0058) — downgraded as ' +
+                  'unverifiable',
           );
           continue;
         }

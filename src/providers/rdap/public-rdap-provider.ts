@@ -7,6 +7,7 @@ import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 import { extractTld } from '../../utils/domain.js';
 import type { RdapAgentPool } from './rdap-agent-pool.js';
 import { rdapAgentPool } from './rdap-agent-pool.js';
+import { rdapUrlOrigin } from './rdap-consensus-validator.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 
@@ -104,7 +105,16 @@ export class PublicRdapProvider implements RdapProvider {
     const combinedSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(remainingMs)])
       : AbortSignal.timeout(remainingMs);
-    return this.#doConfirm(domain, combinedSignal);
+    const result = await this.#doConfirm(domain, combinedSignal);
+    // Stamp the serving origin so the 2-of-2 consensus gate can detect a
+    // rubber stamp: a second opinion from the same origin is no opinion
+    // (ADR-0050). Verified before caching, so the marker survives the
+    // intra-run and provider caches.
+    const origin = rdapUrlOrigin(this.#baseUrl);
+    if (origin !== undefined && result.sourceOrigin === undefined) {
+      result.sourceOrigin = origin;
+    }
+    return result;
   }
 
   async #doConfirm(domain: string, signal: AbortSignal): Promise<RdapResult> {
