@@ -98,33 +98,33 @@ docker run -d -p 3000:3000 -v ./data:/app/data dominus
 
 ## Current Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| **Backend** | Node.js 22+, Express 5 | Zero-cost, universally forkable, massive ecosystem |
-| **Database** | SQLite (community) / PostgreSQL (cloud) | Abstraction layer supports both — choose your deployment |
-| **CLI** | Commander (18 commands) | Full functionality without a browser |
-| **API** | Express REST (18 route modules) | Dashboard-ready, swappable frontend |
-| **Frontend** | React 19 + Vite 6 + Tailwind 4 | Professional SaaS dashboard with Recharts + TanStack Table |
-| **Trademark** | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance |
-| **Infrastructure** | Docker, Docker Compose, GitHub Actions | Deploy anywhere, CI built-in |
+| Layer              | Technology                                      | Why                                                        |
+| ------------------ | ----------------------------------------------- | ---------------------------------------------------------- |
+| **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
+| **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
+| **CLI**            | Commander (18 commands)                         | Full functionality without a browser                       |
+| **API**            | Express REST (18 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **Frontend**       | React 19 + Vite 6 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
+| **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
+| **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |
 
 ## Editions
 
-| Feature | DOMINUS Community | DOMINUS Cloud |
-|---------|------------------|---------------|
-| **License** | AGPL v3 — free forever | AGPL v3 + managed hosting |
-| **Scoring engine** | ✓ Full | ✓ Full |
-| **5-stage pipeline** | ✓ Full | ✓ Full |
-| **Trademark gate** | ✓ Full | ✓ Full |
-| **Portfolio tracker** | ✓ Full | ✓ Full |
-| **CLI (18 commands)** | ✓ Full | ✓ Full |
-| **REST API** | ✓ Full | ✓ Full |
-| **Database** | SQLite (single-file) | PostgreSQL (managed) |
-| **Auth** | Static API key (`.env`) | JWT + Auth0/Clerk, team accounts |
-| **Multi-tenancy** | — | ✓ Managed |
-| **Backups** | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
-| **Support** | GitHub Issues | Email/Slack (4h response) |
-| **Cost** | €0 | Free tier + paid plans |
+| Feature               | DOMINUS Community                     | DOMINUS Cloud                     |
+| --------------------- | ------------------------------------- | --------------------------------- |
+| **License**           | AGPL v3 — free forever                | AGPL v3 + managed hosting         |
+| **Scoring engine**    | ✓ Full                                | ✓ Full                            |
+| **5-stage pipeline**  | ✓ Full                                | ✓ Full                            |
+| **Trademark gate**    | ✓ Full                                | ✓ Full                            |
+| **Portfolio tracker** | ✓ Full                                | ✓ Full                            |
+| **CLI (18 commands)** | ✓ Full                                | ✓ Full                            |
+| **REST API**          | ✓ Full                                | ✓ Full                            |
+| **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
+| **Auth**              | Static API key (`.env`)               | JWT + Auth0/Clerk, team accounts  |
+| **Multi-tenancy**     | —                                     | ✓ Managed                         |
+| **Backups**           | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
+| **Support**           | GitHub Issues                         | Email/Slack (4h response)         |
+| **Cost**              | €0                                    | Free tier + paid plans            |
 
 ## Fork & Customize
 
@@ -137,22 +137,22 @@ Every tunable parameter is exposed via environment variables:
 - **Signal strengths**: weights for intrinsic, commercial, market, expiry signals (`SCORING_WEIGHTS_OVERRIDE`)
 - **Signal calibrations**: ideal length, volume caps, floor values (see `src/config.ts`)
 - **TLD bonuses**: override `.com=1.0, .io=0.85` via JSON file (`TLD_BONUSES_PATH`)
-- **Budget caps**: `BUY_MAX_ABSOLUTE_CAP` (0 = uncapped, evidence-anchored value), `SCORING_RECOMMEND_THRESHOLD`
+- **Budget caps**: `BUY_MAX_ABSOLUTE_CAP` (0 = uncapped, evidence-anchored value, ADR-0055)
 - **Drop logic**: `DROP_SCORE_THRESHOLD`, `DROP_RENEWAL_HORIZON_DAYS`
 
 ### Providers
 
 Every external dependency is behind a TypeScript interface. Swap any provider in **one file** (`src/app/composition-root.ts`):
 
-| Interface | Default | Swap to |
-|-----------|---------|---------|
-| `DnsProvider` | Node DNS (std lib) | Any DNS API |
-| `RdapProvider` | rdap.org (free) | Custom RDAP bootstrap |
-| `TrademarkProvider` | USPTO + EUIPO (free) | Commercial TM API |
-| `KeywordProvider` | Local JSON file | Google Ads API, Ahrefs |
-| `CompsProvider` | Local CSV file | NameBio API, Estibot |
-| `WhoisProvider` | Port-43 (free) | WhoisXML API |
-| `RegistrarProvider` | Manual (no-op) | Namecheap, GoDaddy, Cloudflare API |
+| Interface           | Default              | Swap to                            |
+| ------------------- | -------------------- | ---------------------------------- |
+| `DnsProvider`       | Node DNS (std lib)   | Any DNS API                        |
+| `RdapProvider`      | rdap.org (free)      | Custom RDAP bootstrap              |
+| `TrademarkProvider` | USPTO + EUIPO (free) | Commercial TM API                  |
+| `KeywordProvider`   | Local JSON file      | Google Ads API, Ahrefs             |
+| `CompsProvider`     | Local CSV file       | NameBio API, Estibot               |
+| `WhoisProvider`     | Port-43 (free)       | WhoisXML API                       |
+| `RegistrarProvider` | Manual (no-op)       | Namecheap, GoDaddy, Cloudflare API |
 
 See [Customization Guide](docs/customization/README.md) for step-by-step examples.
 
@@ -160,13 +160,13 @@ See [Customization Guide](docs/customization/README.md) for step-by-step example
 
 DOMINUS scales from a personal CLI tool to a containerized service managing thousands of domains:
 
-| Scenario | Stack | Command |
-|----------|-------|---------|
-| **Personal** (1-50 domains) | CLI only | `npx dominus run --closeout-csv ./candidates.csv` |
-| **Growing** (50-500) | Docker (SQLite) | `docker compose up -d` |
-| **Large** (500+) | Docker + PostgreSQL | `docker compose -f compose.yml -f compose.prod.yml up -d` |
-| **Enterprise** (5000+) | Kubernetes + PostgreSQL | `kubectl apply -f deploy/` |
-| **Managed** | DOMINUS Cloud | Sign up at [dominus.cloud](#) |
+| Scenario                    | Stack                   | Command                                                   |
+| --------------------------- | ----------------------- | --------------------------------------------------------- |
+| **Personal** (1-50 domains) | CLI only                | `npx dominus run --closeout-csv ./candidates.csv`         |
+| **Growing** (50-500)        | Docker (SQLite)         | `docker compose up -d`                                    |
+| **Large** (500+)            | Docker + PostgreSQL     | `docker compose -f compose.yml -f compose.prod.yml up -d` |
+| **Enterprise** (5000+)      | Kubernetes + PostgreSQL | `kubectl apply -f deploy/`                                |
+| **Managed**                 | DOMINUS Cloud           | Sign up at [dominus.cloud](#)                             |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -181,16 +181,16 @@ cp .env.example .env
 
 Key variables:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DATABASE_PATH` | `./data/dominus.db` | SQLite database location |
-| `KEYWORD_DATA_PATH` | (optional) | Google Keyword Planner JSON export |
-| `COMPS_DATA_PATH` | (optional) | NameBio comparable sales CSV |
-| `BUY_MAX_ABSOLUTE_CAP` | `0` | Hard cap on recommended buy price (EUR); `0` = evidence-anchored (ADR-0055) |
-| `SCORING_WEIGHTS_OVERRIDE` | (optional) | Custom scoring weights JSON |
-| `TLD_BONUSES_PATH` | (optional) | Custom TLD multiplier bonuses JSON |
-| `EUIPO_CLIENT_ID` | (optional) | EUIPO trademark search (free registration) |
-| `API_KEYS` | (optional) | REST API authentication |
+| Variable                   | Default             | Purpose                                                                     |
+| -------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| `DATABASE_PATH`            | `./data/dominus.db` | SQLite database location                                                    |
+| `KEYWORD_DATA_PATH`        | (optional)          | Google Keyword Planner JSON export                                          |
+| `COMPS_DATA_PATH`          | (optional)          | NameBio comparable sales CSV                                                |
+| `BUY_MAX_ABSOLUTE_CAP`     | `0`                 | Hard cap on recommended buy price (EUR); `0` = evidence-anchored (ADR-0055) |
+| `SCORING_WEIGHTS_OVERRIDE` | (optional)          | Custom scoring weights JSON                                                 |
+| `TLD_BONUSES_PATH`         | (optional)          | Custom TLD multiplier bonuses JSON                                          |
+| `EUIPO_CLIENT_ID`          | (optional)          | EUIPO trademark search (free registration)                                  |
+| `API_KEYS`                 | (optional)          | REST API authentication                                                     |
 
 See [full reference](docs/customization/configuration.md).
 
@@ -251,7 +251,7 @@ Yes. Import closeout CSVs of expired domains and DOMINUS carries age, backlinks,
 A two-stage gate: a fast DNS pre-filter (bulk, DoH/DoT with 2-of-3 resolver consensus) followed by authoritative RDAP confirmation with opt-in second-opinion consensus. Verdicts are fail-closed — a disagreement downgrades to "unknown" rather than trusting a single resolver.
 
 **How is DOMINUS different from Estibot, GoDaddy Appraisal, or Sedo?**
-Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear *buy/pass* verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
+Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
 
 **Can I self-host DOMINUS?**
 Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to Kubernetes. See the [Deployment Guide](docs/deployment/README.md).

@@ -145,6 +145,13 @@ export class WatchlistService {
       return false;
     }
 
+    if (dnsResult.status === DomainStatus.Available) {
+      // DNS says free on a single resolver path; RDAP is the authoritative
+      // second opinion that follows. Warn instead of debug so a lone DNS
+      // verdict on the drop-side surface stays visible in logs (ADR-0059).
+      logger.warn({ domain }, 'watchlist: DNS suggests available, awaiting RDAP confirmation');
+    }
+
     let rdapResult: RdapResult;
     try {
       rdapResult = await this.rdapProvider.confirm(domain);

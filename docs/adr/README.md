@@ -65,6 +65,7 @@ re-running the original arguments.
 | [0056](0056-anonymous-trademark-budget.md)                       | Anonymous trademark budget isolation — dedicated fail-open budget for public valuations, shared pipeline buckets untouched | 2026-08-13 | Accepted                            |
 | [0057](0057-tenant-lifecycle-management.md)                       | Tenant lifecycle management — admin operations loop (suspend, plan override, usage history)                             | 2026-08-13 | Proposed                            |
 | [0058](0058-rdap-gate-parity.md)                                  | RDAP gate parity — consensus default-on with rdap.org, resilient bootstrap, per-TLD origin-overlap guard                | 2026-08-14 | Accepted                            |
+| [0059](0059-dns-circuit-breaker-and-strictness.md)                  | DNS consensus strictness and per-endpoint circuit breakers — strict requiredAvailable=2, breaker registry, bundled parking list | 2026-08-16 | Accepted                            |
 
 ## Conventions
 

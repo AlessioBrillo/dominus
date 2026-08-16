@@ -98,10 +98,23 @@ export class ParkingIpRegistry {
     }
   }
 
-  static load(path: string | undefined): ParkingIpRegistry {
-    if (path === undefined || !existsSync(path)) {
-      return new ParkingIpRegistry([]);
+  /**
+   * Load ranges from a JSON file, falling back to a bundled reference list
+   * when no path is given or the file is missing (ADR-0059): enabling
+   * DNS_PARKING_CHECK_ENABLED must work out of the box. An explicit,
+   * readable path always wins over the fallback.
+   */
+  static load(path: string | undefined, fallbackPath?: string): ParkingIpRegistry {
+    if (path !== undefined && existsSync(path)) {
+      return ParkingIpRegistry.#loadFile(path);
     }
+    if (fallbackPath !== undefined && existsSync(fallbackPath)) {
+      return ParkingIpRegistry.#loadFile(fallbackPath);
+    }
+    return new ParkingIpRegistry([]);
+  }
+
+  static #loadFile(path: string): ParkingIpRegistry {
     try {
       const raw = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
       const ranges = Array.isArray(raw) ? (raw as ParkingRange[]) : [];

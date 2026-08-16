@@ -15,6 +15,7 @@ import {
   validateDnsResponse,
 } from './dot-pool.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
+import { dnsBreakerKey, type DnsBreakerRegistryLike, type DnsBreakerStats } from './dns-breaker.js';
 import { withRetry } from '../retryable-provider.js';
 import type { RetryPolicy } from '../retry-policy.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
@@ -512,6 +513,7 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #persistentAvailableStaleMs: number;
   readonly #nameservers: string[] | undefined;
   readonly #useDedicatedResolver: boolean;
+  readonly #breakers: DnsBreakerRegistryLike | undefined;
   /** True when maxSize <= 0 — the in-memory cache is fully disabled. */
   readonly #cacheDisabled: boolean;
   readonly #dotPoolMaxQueued: number;
@@ -550,6 +552,14 @@ export class NodeDnsProvider implements DnsProvider {
     dotPoolMaxQueued?: number;
     /** Max keep-alive sockets per DoH endpoint origin (DNS_DOH_MAX_CONNECTIONS). */
     dohMaxConnections?: number;
+    /**
+     * Shared per-endpoint circuit breaker registry (ADR-0059). All DNS
+     * providers in a composition pass the same instance so one failing
+     * endpoint trips a single circuit shared by every leg that uses it.
+     * Bookkeeping errors inside the registry fail open — the breaker is a
+     * resilience optimization, never a DNS outage.
+     */
+    breakers?: DnsBreakerRegistryLike | undefined;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -566,6 +576,7 @@ export class NodeDnsProvider implements DnsProvider {
       options?.persistentAvailableStaleMs ?? STALE_AVAILABLE_DEFAULT_MS;
     this.#nameservers = options?.nameservers;
     this.#useDedicatedResolver = options?.useDedicatedResolver ?? true;
+    this.#breakers = options?.breakers;
     this.#dotPoolMaxQueued = options?.dotPoolMaxQueued ?? 4096;
     this.#dohAgents = new DohAgentPool({
       maxConnections: options?.dohMaxConnections ?? 64,
@@ -840,33 +851,60 @@ export class NodeDnsProvider implements DnsProvider {
 
     const timeout = this.#lookupTimeoutMs;
 
-    const tasks = group.lookups.map((spec) => {
+    // One circuit per resolver endpoint (ADR-0059): legs whose circuit is
+    // open are skipped without a wire query. A skipped leg contributes no
+    // Available vote and no failure — the majority denominator still counts
+    // it, so an endpoint we stopped asking can never manufacture an
+    // Available verdict.
+    const entries: Array<{ key: string; skipped: boolean; task: Promise<boolean | undefined> }> =
+      [];
+    for (const spec of group.lookups) {
+      const key = dnsBreakerKey(spec, this.#nameservers);
+      // No breakers: synchronous fast path. Task creation must stay
+      // synchronous so the request-coalescing contract (ADR-0044) — which
+      // releases the shared lookup independently of any caller — is not
+      // delayed by a microtask suspension.
+      let allowed = true;
+      if (this.#breakers !== undefined) {
+        allowed = await this.#breakerAllows(key);
+      }
+      if (!allowed) {
+        entries.push({ key, skipped: true, task: Promise.resolve(undefined) });
+        continue;
+      }
+      let task: Promise<boolean | undefined>;
       if (spec.type === 'native') {
         const groupResolver =
           spec.nameservers !== undefined
             ? this.#cachedResolver(spec.nameservers)
             : this.#getResolver();
-        return resolvesAnyNative(domain, timeout, combinedSignal, groupResolver);
-      }
-      if (spec.type === 'dot') {
-        return resolvesAnyDot(
+        task = resolvesAnyNative(domain, timeout, combinedSignal, groupResolver);
+      } else if (spec.type === 'dot') {
+        task = resolvesAnyDot(
           domain,
           this.#getDotPool(spec.endpoint ?? this.#dohEndpoint, spec.servername, spec.port),
           timeout,
           combinedSignal,
         );
+      } else {
+        task = resolvesAnyDoh(
+          domain,
+          spec.endpoint ?? this.#dohEndpoint,
+          timeout,
+          combinedSignal,
+          this.#dohAgents.dispatcherFor(spec.endpoint ?? this.#dohEndpoint),
+          spec.format ?? 'json',
+        );
       }
-      return resolvesAnyDoh(
-        domain,
-        spec.endpoint ?? this.#dohEndpoint,
-        timeout,
-        combinedSignal,
-        this.#dohAgents.dispatcherFor(spec.endpoint ?? this.#dohEndpoint),
-        spec.format ?? 'json',
-      );
-    });
+      entries.push({ key, skipped: false, task });
+    }
 
-    const outcomes = await Promise.allSettled(tasks);
+    const outcomes = await Promise.allSettled(entries.map((entry) => entry.task));
+
+    // Capture the caller's abort state BEFORE the internal childAbort fires:
+    // a run cancelled by its caller must never be recorded as a resolver
+    // failure against the circuit (ADR-0058 discipline).
+    const callerAborted = combinedSignal.aborted;
 
     // A definitive resolve (records returned) is the conservative-safe
     // verdict: reporting a domain Registered when it is free only costs an
@@ -875,11 +913,13 @@ export class NodeDnsProvider implements DnsProvider {
     for (const o of outcomes) {
       if (o.status === 'fulfilled' && o.value === true) {
         childAbort.abort();
+        this.#recordBreakerOutcomes(entries, outcomes, callerAborted);
         return true;
       }
     }
 
     childAbort.abort();
+    this.#recordBreakerOutcomes(entries, outcomes, callerAborted);
 
     // Availability is the risky verdict (ADR-0002), so a lone NXDOMAIN must
     // not outvote resolvers that could not answer — but a strict majority
@@ -894,6 +934,61 @@ export class NodeDnsProvider implements DnsProvider {
     if (availableVotes > group.lookups.length / 2) return false;
 
     return undefined;
+  }
+
+  /** Circuit check that can never take DNS down: bookkeeping errors fail open. */
+  async #breakerAllows(key: string): Promise<boolean> {
+    if (this.#breakers === undefined) return true;
+    try {
+      return await this.#breakers.allow(key);
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Record per-leg outcomes against their circuits. Legs skipped because
+   * their circuit was open are not recorded again; legs that returned an
+   * undecided verdict without a caller abort (timeout, SERVFAIL, error) are
+   * failures; a definitive verdict (Available/Registered) closes the circuit.
+   * Cancellations never count (ADR-0058).
+   */
+  #recordBreakerOutcomes(
+    entries: Array<{ key: string; skipped: boolean; task: Promise<boolean | undefined> }>,
+    outcomes: PromiseSettledResult<boolean | undefined>[],
+    callerAborted: boolean,
+  ): void {
+    if (this.#breakers === undefined) return;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry === undefined || entry.skipped) continue;
+      const outcome = outcomes[i];
+      if (outcome === undefined) continue;
+      try {
+        if (outcome.status === 'rejected') {
+          if (!callerAborted) {
+            void Promise.resolve(this.#breakers.onFailure(entry.key)).catch(() => {});
+          }
+        } else if (outcome.value === true || outcome.value === false) {
+          void Promise.resolve(this.#breakers.onSuccess(entry.key)).catch(() => {});
+        } else if (!callerAborted) {
+          void Promise.resolve(this.#breakers.onFailure(entry.key)).catch(() => {});
+        }
+      } catch {
+        // Breaker bookkeeping must never break DNS.
+      }
+    }
+  }
+
+  /**
+   * Current circuit state counts across the shared registry (metrics/tests),
+   * or undefined when no breaker registry is wired.
+   */
+  breakerSnapshot(): DnsBreakerStats | undefined {
+    const registry = this.#breakers;
+    if (registry === undefined) return undefined;
+    const snapshot = (registry as { snapshot?: () => DnsBreakerStats }).snapshot;
+    return snapshot !== undefined ? snapshot.call(registry) : undefined;
   }
 
   async checkBulk(

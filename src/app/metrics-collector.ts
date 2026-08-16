@@ -9,6 +9,7 @@ import type {
   ProviderErrorMetric,
   TrademarkGateVerdict,
 } from '../types/metrics.js';
+import type { DnsBreakerStats } from '../providers/dns/dns-breaker.js';
 
 function readVersion(): string {
   try {
@@ -37,6 +38,11 @@ export class MetricsCollector {
   #dnsConsensusDegradedRuns = 0;
   #dnsConsensusLastDegraded = false;
   #dnsConsensusObserved = false;
+  #dnsBreakerOpen = 0;
+  #dnsBreakerClosed = 0;
+  #dnsBreakerHalfOpen = 0;
+  #dnsBreakerTotal = 0;
+  #dnsBreakersObserved = false;
   #rdapConsensusVerified = 0;
   #rdapConsensusDisagreed = 0;
   #rdapConsensusUnverifiable = 0;
@@ -117,6 +123,17 @@ export class MetricsCollector {
     this.#dnsConsensusObserved = true;
     this.#dnsConsensusLastDegraded = stats.degraded;
     if (stats.degraded) this.#dnsConsensusDegradedRuns++;
+  }
+
+  /** Record the current DNS circuit-breaker state counts (fed by the shared
+   *  registry's onChange hook, wired in the composition root, ADR-0059).
+   *  Snapshot-based, not cumulative: each interaction overwrites the counts. */
+  recordDnsBreakers(stats: DnsBreakerStats): void {
+    this.#dnsBreakerOpen = stats.open;
+    this.#dnsBreakerClosed = stats.closed;
+    this.#dnsBreakerHalfOpen = stats.halfOpen;
+    this.#dnsBreakerTotal = stats.total;
+    this.#dnsBreakersObserved = true;
   }
 
   /** Record per-run 2-of-2 RDAP consensus tallies (fed by the pipeline
@@ -288,6 +305,13 @@ export class MetricsCollector {
           euipoFailuresTotal: this.#tmGateEuipoFailures,
           observed: this.#tmGateObserved,
         },
+        dnsBreakers: {
+          open: this.#dnsBreakerOpen,
+          closed: this.#dnsBreakerClosed,
+          halfOpen: this.#dnsBreakerHalfOpen,
+          total: this.#dnsBreakerTotal,
+          observed: this.#dnsBreakersObserved,
+        },
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -333,6 +357,11 @@ export class MetricsCollector {
     this.#dnsConsensusDegradedRuns = 0;
     this.#dnsConsensusLastDegraded = false;
     this.#dnsConsensusObserved = false;
+    this.#dnsBreakerOpen = 0;
+    this.#dnsBreakerClosed = 0;
+    this.#dnsBreakerHalfOpen = 0;
+    this.#dnsBreakerTotal = 0;
+    this.#dnsBreakersObserved = false;
     this.#rdapConsensusVerified = 0;
     this.#rdapConsensusDisagreed = 0;
     this.#rdapConsensusUnverifiable = 0;

@@ -129,6 +129,11 @@ estimates and subject to change.
 > pipeline roll, off-host backup requirement, RDAP consensus independence)
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
+- [x] DNS consensus strictness and per-endpoint circuit breakers (ADR-0059):
+      strict `DNS_CONSENSUS_REQUIRED_AVAILABLE=2` semantics, breaker registry
+      on every resolver leg with `dominus_dns_breaker_*` metrics, bundled
+      parking-IP reference list, watchlist single-provider labelling
+
 - [x] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
       — Hetzner IaC in `deploy/terraform/` (app node + PITR DB node + Caddy)
 - [x] Free tier: rate-limited pipeline runs, single user

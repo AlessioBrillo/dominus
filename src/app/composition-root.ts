@@ -94,6 +94,7 @@ import {
   buildRdapProviders,
   buildDnsProvider,
   buildDnsConsensusConfig,
+  buildDnsBreakers,
   probeConsensusProvider,
   probeRdapConsensusEndpoint,
   createRdapConsensusConfig,
@@ -102,6 +103,7 @@ import {
   buildAnonBudgetGate,
   buildWaybackProvider,
 } from './provider-factory.js';
+import { DnsBreakerRegistry } from '../providers/dns/dns-breaker.js';
 import { RDAP_ORG_UNIVERSAL } from '../providers/rdap/rdap-bootstrap.js';
 import { rdapUrlOrigin } from '../providers/rdap/rdap-consensus-validator.js';
 import type { DnsProvider } from '../providers/dns/dns-provider.js';
@@ -636,7 +638,16 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     fresh: freshRdapProvider,
     ianaBootstrap,
   } = buildRdapProviders(config, rdapRateLimiter, repos.providerCacheRepo, redisClient);
-  const dnsProvider = buildDnsProvider(config, repos.providerCacheRepo, dnsRateLimiter);
+  // Shared per-endpoint DNS circuit breaker registry (ADR-0059): primary,
+  // secondary, and tertiary consensus providers all consult the same
+  // circuits, so a failing endpoint is skipped for every leg that uses it.
+  const dnsBreakers = buildDnsBreakers(config, redisClient);
+  const dnsProvider = buildDnsProvider(
+    config,
+    repos.providerCacheRepo,
+    dnsRateLimiter,
+    dnsBreakers,
+  );
   const { withRetry: whoisProvider } = buildWhoisProviders(config, redisClient);
 
   // --- Wayback Machine (expiry data enrichment) ---
@@ -645,6 +656,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Metrics (created before the trademark layer so the gate can feed
   //     its telemetry callback; all other consumers read it later) ---
   const metrics = new MetricsCollector();
+
+  // DNS breaker circuits feed the process-lifetime metrics: every transition
+  // (open/half-open/closed) is reflected in the dominus_dns_breaker_* series.
+  if (dnsBreakers instanceof DnsBreakerRegistry) {
+    dnsBreakers.onChange = (stats): void => metrics.recordDnsBreakers(stats);
+  }
 
   // RDAP bootstrap health feeds the process-lifetime metrics (ADR-0058).
   ianaBootstrap.subscribeStatus((status) => {
@@ -727,7 +744,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // bounded while single-resolver availability verdicts are eliminated.
   // The secondary draws from its own rate-limit budget (dnsConsensus,
   // ADR-0044) so it can never be starved by the primary's traffic.
-  const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsConsensusRateLimiter);
+  const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsConsensusRateLimiter, dnsBreakers);
   if (dnsConsensusConfig !== undefined) {
     // Startup probe of the consensus secondary: with strict 2-of-3 semantics
     // a dead secondary downgrades every Available to Unknown, so surface

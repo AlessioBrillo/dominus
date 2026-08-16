@@ -8,6 +8,13 @@ export type { DohAgentPoolOptions } from './doh-agents.js';
 export { ParkingIpRegistry } from './parking-ip-registry.js';
 export type { ParkingRange } from './parking-ip-registry.js';
 export {
+  DnsBreakerRegistry,
+  DNS_BREAKER_POLICY,
+  dnsBreakerKey,
+  type DnsBreakerRegistryLike,
+  type DnsBreakerStats,
+} from './dns-breaker.js';
+export {
   validateResolverGroups,
   validateConsensusEndpointDisjointness,
 } from './resolver-validator.js';

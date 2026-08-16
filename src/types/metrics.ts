@@ -107,6 +107,23 @@ export interface PipelineRunSummary {
   dnsConsensus?: DnsConsensusMetrics;
   rdapConsensus?: RdapConsensusMetrics;
   trademarkGate?: TrademarkGateMetrics;
+  dnsBreakers?: DnsBreakerMetrics;
+}
+
+/** Current DNS circuit-breaker state counts across all tracked endpoints
+ *  (ADR-0059). Snapshot-based: reflects the latest interaction, not a
+ *  monotonically increasing total. */
+export interface DnsBreakerMetrics {
+  /** Endpoints whose circuit is open (queries skipped until cooldown). */
+  open: number;
+  /** Endpoints whose circuit is closed (normal operation). */
+  closed: number;
+  /** Endpoints currently half-open (single probe allowed). */
+  halfOpen: number;
+  /** Total endpoints tracked by the registry. */
+  total: number;
+  /** Whether any breaker interaction was recorded since process start. */
+  observed: boolean;
 }
 
 export interface SystemMetrics {

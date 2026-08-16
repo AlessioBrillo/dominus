@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { fileURLToPath } from 'node:url';
 import type { Config } from '../config.js';
 import type { Dispatcher } from 'undici';
 import type { ProviderCacheRepository } from '../db/index.js';
@@ -13,8 +14,10 @@ import { CachedProvider } from '../providers/cached-provider.js';
 import {
   NodeDnsProvider,
   ParkingIpRegistry,
+  DnsBreakerRegistry,
   collectResolverEndpoints,
   strategyToResolverGroups,
+  type DnsBreakerRegistryLike,
   type DnsLookupStrategy,
   type DnsProvider,
   type DnsResolverGroup,
@@ -230,6 +233,29 @@ export function buildRdapCircuitBreakers(redisClient?: RedisClient): {
   };
 }
 
+/**
+ * Shared per-endpoint DNS circuit breaker registry (ADR-0059): one circuit
+ * per resolver endpoint, shared by the primary, secondary, and tertiary
+ * consensus providers so a failing endpoint is skipped for every leg that
+ * uses it. Distributed (Redis-backed, shared across containers) when a
+ * Redis client is connected, in-memory otherwise. Returns undefined when
+ * DNS_CIRCUIT_BREAKER_ENABLED=false (default on).
+ */
+export function buildDnsBreakers(
+  config: Config,
+  redisClient?: RedisClient,
+): DnsBreakerRegistryLike | undefined {
+  if (!config.DNS_CIRCUIT_BREAKER_ENABLED) return undefined;
+  return new DnsBreakerRegistry(
+    {
+      failureThreshold: config.DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+      windowMs: config.DNS_CIRCUIT_BREAKER_WINDOW_MS,
+      cooldownMs: config.DNS_CIRCUIT_BREAKER_COOLDOWN_MS,
+    },
+    redisClient,
+  );
+}
+
 export function buildRdapProviders(
   config: Config,
   rdapRateLimiter: RateLimiterLike,
@@ -301,10 +327,17 @@ export function buildDnsProvider(
   config: Config,
   providerCacheRepo?: ProviderCacheRepository,
   rateLimiter?: RateLimiterLike,
+  breakers?: DnsBreakerRegistryLike,
 ): DnsProvider {
   const nameservers: string[] | undefined = resolveNameservers(config.DNS_NAMESERVERS);
 
-  const parkingRegistry = ParkingIpRegistry.load(config.DNS_PARKING_IPS_PATH);
+  // An unset or missing DNS_PARKING_IPS_PATH falls back to the bundled
+  // reference list (ADR-0059): DNS_PARKING_CHECK_ENABLED=true must work out
+  // of the box without a data file. An explicit readable file always wins.
+  const parkingRegistry = ParkingIpRegistry.load(
+    config.DNS_PARKING_IPS_PATH,
+    fileURLToPath(new URL('../providers/dns/parking-ips.json', import.meta.url)),
+  );
 
   const resolverGroups = config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined;
 
@@ -330,6 +363,7 @@ export function buildDnsProvider(
     dotPoolMaxQueued: config.DNS_DOT_POOL_MAX_QUEUED,
     ...(nameservers !== undefined ? { nameservers } : {}),
     useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,
+    breakers,
   });
 
   // Startup validation: probe known domains through each resolver group.
@@ -364,6 +398,7 @@ function resolveNameservers(raw: string | undefined): string[] | undefined {
 export function buildSecondaryDnsProvider(
   config: Config,
   rateLimiter?: RateLimiterLike,
+  breakers?: DnsBreakerRegistryLike,
 ): DnsProvider {
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
   return new NodeDnsProvider({
@@ -381,6 +416,7 @@ export function buildSecondaryDnsProvider(
     ...(consensusNameservers !== undefined ? { nameservers: consensusNameservers } : {}),
     rateLimiter,
     retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+    breakers,
   });
 }
 
@@ -398,6 +434,7 @@ export function buildSecondaryDnsProvider(
 export function buildDnsConsensusConfig(
   config: Config,
   consensusRateLimiter?: RateLimiterLike,
+  breakers?: DnsBreakerRegistryLike,
 ): ConsensusDnsConfig | undefined {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
@@ -451,9 +488,10 @@ export function buildDnsConsensusConfig(
     nameservers,
     consensusGroups,
     effectiveConsensusNameservers,
+    breakers,
   );
   return {
-    secondaryProvider: buildSecondaryDnsProvider(config, secondaryRateLimiter),
+    secondaryProvider: buildSecondaryDnsProvider(config, secondaryRateLimiter, breakers),
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
@@ -478,6 +516,7 @@ function buildTertiaryConsensusProvider(
   primaryNameservers: string[] | undefined,
   consensusGroups: DnsResolverGroup[],
   consensusNameservers: string[] | undefined,
+  breakers?: DnsBreakerRegistryLike,
 ): DnsProvider | undefined {
   if (!config.DNS_TERTIARY_ENABLED) return undefined;
 
@@ -528,6 +567,7 @@ function buildTertiaryConsensusProvider(
       : {}),
     rateLimiter,
     retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+    breakers,
   });
 }
 

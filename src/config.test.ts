@@ -368,6 +368,92 @@ describe('DNS consensus tertiary leg config defaults (ADR-0045)', () => {
   });
 });
 
+// Locks the DNS per-endpoint circuit breaker (ADR-0059). DNS is the last
+// provider layer without circuit protection: RDAP and WHOIS trip on repeated
+// failures (global + per-server), while a dead DNS resolver burned the full
+// lookup timeout on every query, every run. The breaker is on by default,
+// mirrors the RDAP per-server policy (5 failures / 60 s window / 120 s
+// cooldown), and can be disabled with an explicit flag.
+describe('DNS circuit breaker config defaults (ADR-0059)', () => {
+  const ENV_KEYS = [
+    'DNS_CIRCUIT_BREAKER_ENABLED',
+    'DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD',
+    'DNS_CIRCUIT_BREAKER_WINDOW_MS',
+    'DNS_CIRCUIT_BREAKER_COOLDOWN_MS',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('DNS_CIRCUIT_BREAKER_ENABLED defaults to true (resilience parity with RDAP/WHOIS)', () => {
+    expect(loadConfig().DNS_CIRCUIT_BREAKER_ENABLED).toBe(true);
+  });
+
+  it('DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD defaults to 5', () => {
+    expect(loadConfig().DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD).toBe(5);
+  });
+
+  it('DNS_CIRCUIT_BREAKER_WINDOW_MS defaults to 60000', () => {
+    expect(loadConfig().DNS_CIRCUIT_BREAKER_WINDOW_MS).toBe(60_000);
+  });
+
+  it('DNS_CIRCUIT_BREAKER_COOLDOWN_MS defaults to 120000', () => {
+    expect(loadConfig().DNS_CIRCUIT_BREAKER_COOLDOWN_MS).toBe(120_000);
+  });
+
+  it('accepts explicit values', () => {
+    process.env.DNS_CIRCUIT_BREAKER_ENABLED = 'false';
+    process.env.DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD = '3';
+    process.env.DNS_CIRCUIT_BREAKER_WINDOW_MS = '30000';
+    process.env.DNS_CIRCUIT_BREAKER_COOLDOWN_MS = '90000';
+    resetConfig();
+    const config = loadConfig();
+    expect(config.DNS_CIRCUIT_BREAKER_ENABLED).toBe(false);
+    expect(config.DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD).toBe(3);
+    expect(config.DNS_CIRCUIT_BREAKER_WINDOW_MS).toBe(30_000);
+    expect(config.DNS_CIRCUIT_BREAKER_COOLDOWN_MS).toBe(90_000);
+  });
+
+  it('rejects a failure threshold below 1', () => {
+    process.env.DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD = '0';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('rejects a failure threshold above 100', () => {
+    process.env.DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD = '101';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('rejects a window below 1000ms', () => {
+    process.env.DNS_CIRCUIT_BREAKER_WINDOW_MS = '500';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('rejects a cooldown below 1000ms', () => {
+    process.env.DNS_CIRCUIT_BREAKER_COOLDOWN_MS = '500';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+});
+
 // Locks the RDAP 2-of-2 consensus gate (ADR-0050) and the shared keep-alive
 // agent pool (ADR-0049). The gate is ON by default (ADR-0058): every Available
 // verdict from the primary failover is confirmed by a dedicated second RDAP
