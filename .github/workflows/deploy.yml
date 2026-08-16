@@ -79,12 +79,18 @@ jobs:
     name: Deploy to Hetzner app node
     runs-on: ubuntu-latest
     needs: docker
-    # Tags only, and only when the repo has the SSH host configured.
-    if: startsWith(github.ref, 'refs/tags/v') && secrets.DEPLOY_SSH_HOST != ''
+    # Tags only. The SSH host secret decides whether the deploy actually
+    # runs (secrets cannot be referenced in job-level if; surfaced via
+    # env, gated per step).
+    if: startsWith(github.ref, 'refs/tags/v')
     timeout-minutes: 20
+    env:
+      DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
 
     steps:
       - uses: webfactory/ssh-agent@v0.9.0
+        if: env.DEPLOY_SSH_HOST != ''
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
@@ -92,8 +98,9 @@ jobs:
       # time; a release bump is a single .env edit + pull + roll, so the
       # deploy step stays out of Terraform's plan/apply cycle.
       - name: Bump tag, pull and roll the stack
+        if: env.DEPLOY_SSH_HOST != ''
         env:
-          HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          HOST: ${{ env.DEPLOY_SSH_HOST }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail

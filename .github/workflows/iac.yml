@@ -145,8 +145,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Runs only when the repo has the Hetzner token configured; otherwise
-    # fmt + validate + smoke-render above are the gate.
-    if: secrets.HCLOUD_TOKEN != ''
+    # fmt + validate + smoke-render above are the gate. (secrets cannot be
+    # referenced in job-level if; surfaced via env, gated per step.)
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
     defaults:
       run:
         working-directory: deploy/terraform
@@ -162,8 +164,9 @@ jobs:
         run: terraform init -backend=false
 
       - name: Plan
+        if: env.HCLOUD_TOKEN != ''
         env:
-          TF_VAR_hcloud_token: ${{ secrets.HCLOUD_TOKEN }}
+          TF_VAR_hcloud_token: ${{ env.HCLOUD_TOKEN }}
         run: |
           cat > terraform.tfvars <<'EOF'
           hcloud_token      = "unused"
