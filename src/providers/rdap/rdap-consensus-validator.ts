@@ -86,3 +86,27 @@ export function hasAuthoritativeOriginOverlap(
   // differences on the authoritative entries cannot mask an overlap.
   return authoritativeOrigins.some((origin) => rdapUrlOrigin(origin) === secondaryOrigin);
 }
+
+/**
+ * Runtime rubber-stamp guard for the 2-of-2 consensus gate (ADR-0050):
+ * when the server that actually WON the primary race shares its origin with
+ * the second opinion endpoint, the second leg would query the same place
+ * that already answered — a "second opinion" that cannot catch a wrong
+ * answer. This is the failure mode the static disjointness checks cannot
+ * see: the primary's race includes the rdap.org universal fallback, which
+ * also doubles as the default second leg, so a slow/unreachable registry
+ * makes both legs hit rdap.org. The primary result carries the serving
+ * origin (`RdapResult.sourceOrigin`); callers skip the second leg (counted
+ * as origin overlap, downgraded unverifiable — fail-closed) when it equals
+ * the secondary endpoint's origin. An unparsable either side never flags
+ * (cannot prove overlap), mirroring rdapUrlOrigin's stance on typos.
+ */
+export function hasWinningOriginOverlap(
+  primaryOrigin: string | undefined,
+  secondaryEndpoint: string,
+): boolean {
+  if (primaryOrigin === undefined) return false;
+  const secondaryOrigin = rdapUrlOrigin(secondaryEndpoint);
+  if (secondaryOrigin === undefined) return false;
+  return rdapUrlOrigin(primaryOrigin) === secondaryOrigin;
+}

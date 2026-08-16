@@ -34,4 +34,11 @@ export interface RdapResult {
   expiresAt?: string;
   checkedAt: string;
   rawResponse?: unknown;
+  /**
+   * Canonical origin (protocol + host) of the RDAP server that produced the
+   * verdict, when known. Used by the 2-of-2 consensus gate to detect a
+   * rubber stamp: when the primary race was won by the same origin as the
+   * second leg, the "second opinion" is no opinion (ADR-0050).
+   */
+  sourceOrigin?: string;
 }

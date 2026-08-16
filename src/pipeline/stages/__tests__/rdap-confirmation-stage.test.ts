@@ -24,6 +24,7 @@ function makeMockRdap(
   domain: string,
   status: DomainStatus = DomainStatus.Available,
   isPremium = false,
+  sourceOrigin?: string,
 ): RdapProvider {
   return {
     name: 'mock-rdap',
@@ -32,6 +33,7 @@ function makeMockRdap(
       status,
       isPremium,
       checkedAt: new Date().toISOString(),
+      sourceOrigin,
     }),
   };
 }
@@ -795,6 +797,73 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(result.rdapConsensusStats!.verified).toBe(2);
     expect(result.rdapConsensusStats!.unverifiable).toBe(1);
     expect(result.rdapConsensusStats!.originOverlap).toBeUndefined();
+  });
+
+  it('skips the second leg when the primary verdict was served by the second leg origin', async () => {
+    // The rubber stamp the static disjointness checks cannot see: the
+    // primary race was won by rdap.org (slow registry), and the default
+    // second leg IS rdap.org — both legs would hit the same origin.
+    const primary = makeMockRdap('x.com', DomainStatus.Available, false, 'https://rdap.org/');
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const stage = new RdapConfirmationStage(primary, undefined, 10, 10_000, 1_000, undefined, {
+      secondaryProvider: secondary,
+      secondaryOrigin: 'https://rdap.org/',
+    });
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Unknown);
+    expect(secondary.confirm).not.toHaveBeenCalled();
+    expect(result.rdapConsensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 1,
+      originOverlap: 1,
+      degraded: false,
+    });
+  });
+
+  it('verifies normally when the winning origin differs from the second leg', async () => {
+    const primary = makeMockRdap(
+      'x.com',
+      DomainStatus.Available,
+      false,
+      'https://rdap.verisign.com/',
+    );
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const stage = new RdapConfirmationStage(primary, undefined, 10, 10_000, 1_000, undefined, {
+      secondaryProvider: secondary,
+      secondaryOrigin: 'https://rdap.org/',
+    });
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(secondary.confirm).toHaveBeenCalledWith('x.com', undefined);
+    expect(result.rdapConsensusStats).toEqual({
+      verified: 1,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+    });
+  });
+
+  it('confirms normally when the primary verdict carries no origin', async () => {
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('x.com', DomainStatus.Available, false, undefined),
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      { secondaryProvider: secondary, secondaryOrigin: 'https://rdap.org/' },
+    );
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    expect(secondary.confirm).toHaveBeenCalled();
+    expect(result.rdapConsensusStats!.verified).toBe(1);
   });
 });
 
