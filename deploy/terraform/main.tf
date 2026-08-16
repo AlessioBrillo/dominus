@@ -106,14 +106,14 @@ variable "b2_backup" {
     endpoint        = string
   })
   default = {
-    enabled         = false
+    enabled         = true
     bucket          = ""
     account_id      = ""
     application_key = ""
     endpoint        = "https://s3.eu-central-003.backblazeb2.com"
   }
   sensitive   = true
-  description = "Backblaze B2 credentials for the PITR WAL archive (ADR-0054)."
+  description = "Backblaze B2 credentials for the PITR WAL archive (ADR-0054). On by default: an apply with enabled but empty credentials fails via precondition — a db-node loss without an off-host archive is total data loss, so the unprotected state must be an explicit, documented opt-out, never a forgotten flag."
 }
 
 variable "app_server_type" {

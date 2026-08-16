@@ -60,6 +60,18 @@ resource "hcloud_server" "db" {
     # The DB node must survive env rotations; rotate via SSH/cloud-init rerun
     # rather than a destructive recreate.
     ignore_changes = [user_data]
+
+    # Off-host backups are the default posture (ADR-0054): enabled with
+    # empty credentials would render archive_command=on against an empty
+    # rclone remote and silently stall WAL archiving. Fail the plan instead.
+    precondition {
+      condition = !var.b2_backup.enabled || (
+        var.b2_backup.bucket != "" &&
+        var.b2_backup.account_id != "" &&
+        var.b2_backup.application_key != ""
+      )
+      error_message = "b2_backup.enabled requires bucket, account_id and application_key (off-host PITR WAL archive, ADR-0054). Disabling off-host backups must be an explicit, documented exception — without them a db-node loss is total data loss."
+    }
   }
 }
 
