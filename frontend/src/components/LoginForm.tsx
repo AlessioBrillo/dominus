@@ -52,6 +52,12 @@ export function LoginForm() {
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? 'Authenticating...' : 'Authenticate'}
             </Button>
+            <a
+              href="/signup"
+              className="block w-full text-center text-xs text-text-muted hover:text-text-primary"
+            >
+              New here? Create a workspace
+            </a>
           </form>
         </CardContent>
       </Card>

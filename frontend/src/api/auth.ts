@@ -13,6 +13,20 @@ export interface LoginResponse {
   error?: string;
 }
 
+export interface RegisterResponse {
+  tenantId: string;
+  key: string;
+  prefix: string;
+  message: string;
+}
+
+export async function registerTenant(input: {
+  name: string;
+  email?: string;
+}): Promise<RegisterResponse> {
+  return api.post<RegisterResponse>('/auth/register', input);
+}
+
 export async function verifyAndStoreKey(apiKey: string): Promise<AuthResult> {
   try {
     const result = await api.post<LoginResponse>('/auth/login', { apiKey });

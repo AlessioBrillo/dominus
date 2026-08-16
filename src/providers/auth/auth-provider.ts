@@ -19,7 +19,7 @@ export interface AuthProvider {
    *  or undefined otherwise. Replaces brittle `instanceof` checks in composite
    *  providers — the contract is explicit on the interface rather than relying
    *  on class identity. */
-  asKeyManager(): AuthProvider | undefined;
+  asKeyManager(): KeyManager | undefined;
 }
 
 export interface GeneratedKeyResult {
