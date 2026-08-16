@@ -23,6 +23,7 @@ import {
   CreditCard,
   ShieldCheck,
   Gauge,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
@@ -45,6 +46,7 @@ const navItems = [
   { to: '/scheduler', label: 'Scheduler', icon: Clock },
   { to: '/providers', label: 'Providers', icon: Server },
   { to: '/billing', label: 'Billing', icon: CreditCard },
+  { to: '/team', label: 'Team', icon: Users },
   { to: '/usage', label: 'Usage', icon: Gauge },
   { to: '/admin', label: 'Admin', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', icon: Settings },

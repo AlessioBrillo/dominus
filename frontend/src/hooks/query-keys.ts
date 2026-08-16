@@ -51,6 +51,10 @@ export const queryKeys = {
     all: ['billing'] as const,
     subscription: () => [...queryKeys.billing.all, 'subscription'] as const,
   },
+  team: {
+    all: ['team'] as const,
+    summary: () => [...queryKeys.team.all, 'summary'] as const,
+  },
   usage: {
     all: ['usage'] as const,
     history: () => [...queryKeys.usage.all, 'history'] as const,
