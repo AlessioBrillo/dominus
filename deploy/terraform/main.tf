@@ -144,7 +144,7 @@ provider "hcloud" {
 }
 
 provider "hetznerdns" {
-  api_token = var.hetzner_dns_token
+  apitoken = var.hetzner_dns_token
 }
 
 resource "hcloud_ssh_key" "operator" {
