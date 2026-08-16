@@ -15,6 +15,12 @@
 #                    job queue gauges (queued jobs with no runner = alert
 #                    fires)
 #
+# METRICS_TOKEN: when set on the API, the app-node Terraform module
+# activates the authorization block below (marker lines) and renders the
+# token file into the prometheus container — otherwise every scrape 401s
+# and all alerting dies silently. Local compose operators do the same by
+# hand: uncomment the block and write the token to ./prometheus/metrics-token.
+#
 # Rules are loaded from rules.yml (mounted read-only).
 
 global:
@@ -38,12 +44,11 @@ scrape_configs:
       - targets: ["api:3000"]
         labels:
           container: api
-    # Uncomment when METRICS_TOKEN is set on the API:
+    # METRICS_TOKEN_RENDER:START
     # authorization:
     #   type: Bearer
     #   credentials_file: /etc/prometheus/metrics-token
-    # The token file must contain exactly the METRICS_TOKEN value with no
-    # trailing newline (e.g. printf '%s' "$METRICS_TOKEN" > metrics-token).
+    # METRICS_TOKEN_RENDER:END
 
   - job_name: redis
     scrape_interval: 15s
