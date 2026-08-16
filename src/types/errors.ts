@@ -117,6 +117,29 @@ export class UsageLimitExceededError extends DominusError {
 }
 
 /**
+ * Raised when a tenant tries to mint an API key beyond its plan's seat
+ * allowance (free = 1, pro = 3, team = 10, enterprise = unlimited).
+ * Mapped to HTTP 403 SEAT_LIMIT_EXCEEDED by the error handler.
+ */
+export class SeatLimitExceededError extends DominusError {
+  readonly plan: string;
+  readonly seats: number;
+  constructor(plan: string, seats: number) {
+    super(
+      `Seat limit reached for the ${plan} plan (${seats} active key${seats === 1 ? '' : 's'})`,
+      'SEAT_LIMIT_EXCEEDED',
+      {
+        plan,
+        seats,
+      },
+    );
+    this.name = 'SeatLimitExceededError';
+    this.plan = plan;
+    this.seats = seats;
+  }
+}
+
+/**
  * Raised when a suspended tenant attempts a metered operation (ADR-0057).
  * Mapped to HTTP 403 TENANT_SUSPENDED by the error handler; the API-level
  * middleware rejects suspended tenants before any work starts, this error

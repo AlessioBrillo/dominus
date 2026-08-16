@@ -59,6 +59,13 @@ export class UsageMeterService {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`;
   }
 
+  /** Effective plan for a tenant, shared by every plan-dependent consumer
+   *  (usage metering, seat limits at key mint). Operator override wins. */
+  async effectivePlan(tenantId: string): Promise<SubscriptionPlan> {
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    return this.#resolvePlan(tenantId, sub);
+  }
+
   async record(
     tenantId: string,
     feature: UsageFeature,

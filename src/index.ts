@@ -340,7 +340,10 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
-  protectedRouter.use('/keys', createKeyManagementRouter(deps.authProvider, deps.apiKeyRepo));
+  protectedRouter.use(
+    '/keys',
+    createKeyManagementRouter(deps.authProvider, deps.apiKeyRepo, deps.usageService),
+  );
   protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/admin', createAdminRouter(deps.adminService));

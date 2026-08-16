@@ -91,6 +91,17 @@ export class ApiKeyRepository {
     return rows.map(rowToStored);
   }
 
+  /** Number of non-expired keys for a tenant — the seat count for
+   *  free/pro/team plan enforcement (ADR-0038). */
+  async countActiveByTenant(tenantId: string): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM api_keys
+       WHERE tenant_id = ? AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`,
+      [tenantId],
+    );
+    return row?.n ?? 0;
+  }
+
   async updateLastUsed(id: number): Promise<void> {
     await this.db.exec(
       `UPDATE api_keys SET last_used_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,

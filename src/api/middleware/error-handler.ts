@@ -7,6 +7,7 @@ import {
   DuplicateDomainError,
   UsageLimitExceededError,
   TenantSuspendedError,
+  SeatLimitExceededError,
 } from '../../types/errors.js';
 import { getLogger } from '../../logger.js';
 
@@ -30,6 +31,7 @@ function statusFromError(err: DominusError): number {
   if (err instanceof ProviderError) return 502;
   if (err instanceof UsageLimitExceededError) return 429;
   if (err instanceof TenantSuspendedError) return 403;
+  if (err instanceof SeatLimitExceededError) return 403;
   return 500;
 }
 
