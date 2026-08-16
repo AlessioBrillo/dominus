@@ -39,10 +39,10 @@ resource "hcloud_server" "app" {
     db_host          = var.db_host
     db_app_password  = var.db_app_password
     app_env          = var.app_env
-    unbound_conf     = file("${path.module}/../../unbound/unbound.conf")
-    prometheus_yml   = file("${path.module}/../../prometheus/prometheus.yml")
-    rules_yml        = file("${path.module}/../../prometheus/rules.yml")
-    alertmanager_yml = file("${path.module}/../../prometheus/alertmanager.yml")
+    unbound_conf     = file("${path.module}/../../../unbound/unbound.conf")
+    prometheus_yml   = file("${path.module}/../../../prometheus/prometheus.yml")
+    rules_yml        = file("${path.module}/../../../prometheus/rules.yml")
+    alertmanager_yml = file("${path.module}/../../../prometheus/alertmanager.yml")
   })
   network {
     network_id = var.network_id
