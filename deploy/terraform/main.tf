@@ -214,17 +214,17 @@ resource "hcloud_firewall" "db_ssh" {
 module "db_node" {
   source = "./modules/db-node"
 
-  project         = var.project
-  location        = var.location
-  server_type     = var.db_server_type
-  ssh_key_id      = hcloud_ssh_key.operator.id
-  network_id      = hcloud_network.private.id
-  firewall_id     = hcloud_firewall.db_ssh.id
-  image_tag           = var.image_tag
-  db_password         = var.db_password
-  db_backup_password  = var.db_backup_password
-  db_app_password     = var.db_app_password
-  b2_backup           = var.b2_backup
+  project            = var.project
+  location           = var.location
+  server_type        = var.db_server_type
+  ssh_key_id         = hcloud_ssh_key.operator.id
+  network_id         = hcloud_network.private.id
+  firewall_id        = hcloud_firewall.db_ssh.id
+  image_tag          = var.image_tag
+  db_password        = var.db_password
+  db_backup_password = var.db_backup_password
+  db_app_password    = var.db_app_password
+  b2_backup          = var.b2_backup
 }
 
 module "app_node" {
