@@ -16,6 +16,7 @@ write_files:
       DOMINUS_IMAGE_TAG=${image_tag}
       DATABASE_URL=postgres://dominus_app:${db_app_password}@${db_host}:5432/dominus
       REDIS_URL=redis://redis:6379
+      BACKUP_DIR=/backups
       WORKER_ENABLED=true
       SCHEDULER_ENABLED=true
       HOST=0.0.0.0
@@ -57,6 +58,8 @@ write_files:
           environment:
             - DNS_CONSENSUS_ENABLED=true
             - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+          volumes:
+            - backups:/backups
           depends_on: [redis, consensus-dns]
           networks: [default, dns-consensus-net]
         scheduler:
@@ -66,6 +69,8 @@ write_files:
           environment:
             - DNS_CONSENSUS_ENABLED=true
             - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+          volumes:
+            - backups:/backups
           depends_on: [redis, consensus-dns]
           networks: [default, dns-consensus-net]
         redis:
@@ -134,6 +139,7 @@ write_files:
               - subnet: 172.20.0.0/24
       volumes:
         redis-data:
+        backups:
         caddy-data:
         caddy-config:
         prometheus-data:

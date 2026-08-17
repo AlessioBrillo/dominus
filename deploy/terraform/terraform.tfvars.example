@@ -10,6 +10,12 @@ db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
 # App connection role password (RLS-scoped dominus_app, ADR-0038/0047).
 db_app_password   = "REPLACE_WITH_STRONG_APP_PASSWORD"
 
+# Alertmanager webhook URL (optional). Replaces the example.com placeholder
+# in the alertmanager.yml rendered onto the app node; keep the same endpoint
+# as NOTIFIER_WEBHOOK_URL below for a single alert inbox. Leave empty to
+# keep the placeholder.
+# alertmanager_webhook_url = "https://hooks.example/dominus"
+
 # Hetzner DNS (optional): when set, the app A record is created at apply
 # time in the given zone (must exist in Hetzner DNS). Leave empty to point
 # an external registrar's A record at app_public_ip manually.
