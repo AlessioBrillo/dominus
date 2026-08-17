@@ -40,12 +40,17 @@ at your existing registrar; the app works either way).
 
 ## Secrets
 
-`terraform.tfvars` holds the Hetzner token, DB password, B2 keys and app
+`terraform.tfvars` holds the Hetzner token, DB passwords, B2 keys and app
 secrets (`API_KEYS`, `STRIPE_*`, `JWT_SECRET`). It is gitignored and never
 committed. Values are rendered into cloud-init `user_data` at apply time;
 Hetzner stores user_data per server (standard practice — the values are
 also visible to anyone with Hetzner console access, so keep the token
 scope tight).
+
+Three DB roles are provisioned with distinct passwords (`db_password`,
+`db_backup_password`, `db_app_password`): the `backup` role (`REPLICATION`
+only, used by the PITR cron via the 0600 `/opt/dominus/backup.env`) never
+shares a credential with the owner role or the app role.
 
 For team operation, move the state to Backblaze B2 (S3-compatible backend,
 the commented block in `main.tf`) instead of the local default.
@@ -55,7 +60,9 @@ the commented block in `main.tf`) instead of the local default.
 - Daily base backup at 04:30 (cron on the db node) — `base-backup.sh`
   fetched from the repo at the pinned `image_tag`, connecting as a
   dedicated `backup` role (`REPLICATION` only — least privilege, never
-  the app role)
+  the app role). The cron line sources `/opt/dominus/backup.env` (0600,
+  postgres-owned) so no secrets appear in `/etc/cron.d`; output appends
+  to `/var/log/dominus/base-backup.log`
 - The base anchor is copied off-host to `b2:<bucket>/base/` when
   `b2_backup.enabled = true` (same rclone remote as the WAL archive),
   pruned with the same 14-day retention as local. A base backup that

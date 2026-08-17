@@ -91,6 +91,12 @@ variable "db_password" {
   description = "Password for the dominus owner role (db administration; never used by the app)."
 }
 
+variable "db_backup_password" {
+  type        = string
+  sensitive   = true
+  description = "Password for the backup role (REPLICATION only, used by the daily PITR cron via /opt/dominus/backup.env, ADR-0054)."
+}
+
 variable "db_app_password" {
   type        = string
   sensitive   = true
@@ -214,10 +220,11 @@ module "db_node" {
   ssh_key_id      = hcloud_ssh_key.operator.id
   network_id      = hcloud_network.private.id
   firewall_id     = hcloud_firewall.db_ssh.id
-  image_tag       = var.image_tag
-  db_password     = var.db_password
-  db_app_password = var.db_app_password
-  b2_backup       = var.b2_backup
+  image_tag           = var.image_tag
+  db_password         = var.db_password
+  db_backup_password  = var.db_backup_password
+  db_app_password     = var.db_app_password
+  b2_backup           = var.b2_backup
 }
 
 module "app_node" {
