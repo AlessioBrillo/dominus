@@ -66,10 +66,10 @@ sqlite3 data/dominus.db ".backup ./backups/dominus-$(date +%Y%m%d).db"
 
 ### Keeping backups off the DB disk
 
-In the production compose profile, the worker and scheduler mount a
-dedicated `backups` volume at `/backups` (`BACKUP_DIR=/backups`). The
-image pre-creates that mount point owned by the non-root `dominus` user,
-so the volume works without extra chown steps.
+In the base and production compose profiles, the worker and scheduler
+mount a dedicated `backups` volume at `/backups` (`BACKUP_DIR=/backups`).
+The image pre-creates that mount point owned by the non-root `dominus`
+user, so the volume works without extra chown steps.
 
 The `backups` volume isolates backups from the `./data` volume that
 holds the database. It still lives on the same host disk, so it protects

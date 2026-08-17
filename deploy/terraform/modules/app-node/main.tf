@@ -25,6 +25,12 @@ variable "app_env" {
   sensitive = true
 }
 
+variable "alertmanager_webhook_url" {
+  type        = string
+  default     = ""
+  description = "Webhook URL for Alertmanager (replaces the example.com placeholder in alertmanager.yml). Leave empty to keep the placeholder — a deployed node must never alert to a dead URL, so CI verifies the substitution mirrors this block."
+}
+
 locals {
   # METRICS_TOKEN with a commented Prometheus authorization block is a
   # silent-alerting trap: every scrape 401s and all rules go quiet. When
@@ -34,6 +40,14 @@ locals {
   # .github/workflows/iac.yml so both branches stay render-verified.
   metrics_token = lookup(var.app_env, "METRICS_TOKEN", "")
 
+  # alertmanager.yml ships with an example.com placeholder webhook; the
+  # operator's real URL comes from the alertmanager_webhook_url variable.
+  # Mirrored in .github/workflows/iac.yml so drift fails CI.
+  alertmanager_yml = var.alertmanager_webhook_url != "" ? replace(
+    file("${path.module}/../../../prometheus/alertmanager.yml"),
+    "https://example.com/your-webhook",
+    var.alertmanager_webhook_url,
+  ) : file("${path.module}/../../../prometheus/alertmanager.yml")
   prometheus_yml = local.metrics_token != "" ? replace(
     replace(
       replace(
@@ -70,7 +84,7 @@ resource "hcloud_server" "app" {
     unbound_conf      = file("${path.module}/../../../unbound/unbound.conf")
     prometheus_yml    = local.prometheus_yml
     rules_yml         = file("${path.module}/../../../prometheus/rules.yml")
-    alertmanager_yml  = file("${path.module}/../../../prometheus/alertmanager.yml")
+    alertmanager_yml  = local.alertmanager_yml
     metrics_token     = local.metrics_token
     metrics_token_set = local.metrics_token != ""
   })

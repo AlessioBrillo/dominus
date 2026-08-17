@@ -196,6 +196,50 @@ jobs:
               print('FAIL prometheus.yml lost its render markers')
               ok = False
 
+          # Alertmanager webhook trap (silent alerting death): the shipped
+          # alertmanager.yml uses an example.com placeholder; the module's
+          # alertmanager_webhook_url variable substitutes the operator's real
+          # URL. A node that keeps the placeholder alerts nowhere. Replicates
+          # the HCL replace (modules/app-node/main.tf) so drift in either the
+          # placeholder or the replace chain fails CI, and verifies the
+          # rendered file parses and routes to the substituted URL.
+          am_yml = pathlib.Path('../prometheus/alertmanager.yml').read_text()
+          am_placeholder = 'https://example.com/your-webhook'
+          if am_placeholder not in am_yml:
+              print('FAIL alertmanager.yml lost its example.com placeholder needle')
+              ok = False
+          test_webhook = 'https://hooks.example/dominus-alerts'
+          am_sub = am_yml.replace(am_placeholder, test_webhook)
+          am_routes = yaml.safe_load(am_sub)
+          webhook_url = (
+              am_routes.get('receivers', [{}])[0]
+              .get('webhook_configs', [{}])[0].get('url'))
+          if webhook_url != test_webhook:
+              print('FAIL alertmanager webhook URL not substituted by module transform')
+              ok = False
+          else:
+              print('OK   alertmanager webhook URL substitutes on render')
+
+          # The rendered app compose must mount the backups volume on the
+          # worker and scheduler: the scheduler enqueues the BACKUP job but
+          # the worker executes pg_dump, and BACKUP_DIR=/backups is only
+          # durable if /backups is a named volume (lost on recreate
+          # otherwise — silent backup death).
+          for svc in ('worker', 'scheduler'):
+              if f'{svc}:\n' not in app_text:
+                  print(f'FAIL app compose missing {svc} service')
+                  ok = False
+          if app_text.count('backups:/backups') < 2:
+              print('FAIL app compose does not mount backups volume on worker+scheduler')
+              ok = False
+          else:
+              print('OK   app compose mounts backups volume on worker+scheduler')
+          if 'BACKUP_DIR=/backups' not in app_text:
+              print('FAIL app compose .env missing BACKUP_DIR=/backups')
+              ok = False
+          else:
+              print('OK   app compose .env sets BACKUP_DIR=/backups')
+
           sys.exit(0 if ok else 1)
           PY
 
@@ -235,6 +279,7 @@ jobs:
           db_password       = "dummy"
           db_backup_password = "dummy"
           db_app_password   = "dummy"
+          alertmanager_webhook_url = ""
           hetzner_dns_token = ""
           b2_backup = {
             enabled         = true

@@ -85,6 +85,12 @@ variable "app_env" {
   sensitive   = true
 }
 
+variable "alertmanager_webhook_url" {
+  type        = string
+  default     = ""
+  description = "Webhook URL for Alertmanager (replaces the example.com placeholder in alertmanager.yml). Optional: leave empty to keep the placeholder."
+}
+
 variable "db_password" {
   type        = string
   sensitive   = true
@@ -230,17 +236,18 @@ module "db_node" {
 module "app_node" {
   source = "./modules/app-node"
 
-  project         = var.project
-  location        = var.location
-  server_type     = var.app_server_type
-  ssh_key_id      = hcloud_ssh_key.operator.id
-  network_id      = hcloud_network.private.id
-  firewall_id     = hcloud_firewall.public.id
-  domain          = var.domain
-  image_tag       = var.image_tag
-  app_env         = var.app_env
-  db_host         = module.db_node.private_ip
-  db_app_password = var.db_app_password
+  project                  = var.project
+  location                 = var.location
+  server_type              = var.app_server_type
+  ssh_key_id               = hcloud_ssh_key.operator.id
+  network_id               = hcloud_network.private.id
+  firewall_id              = hcloud_firewall.public.id
+  domain                   = var.domain
+  image_tag                = var.image_tag
+  app_env                  = var.app_env
+  db_host                  = module.db_node.private_ip
+  db_app_password          = var.db_app_password
+  alertmanager_webhook_url = var.alertmanager_webhook_url
 }
 
 # DNS: point the domain at the app node. When a Hetzner DNS token is

@@ -90,4 +90,9 @@ SSH + `ALTER ROLE` instead.
 
 `.github/workflows/iac.yml` runs `terraform fmt`, `terraform init
 -backend=false`, `terraform validate` and a YAML smoke-render of both
-cloud-init templates on every PR touching `deploy/terraform/`.
+cloud-init templates on every PR touching `deploy/terraform/`. The smoke
+render also verifies the rendered app compose mounts the `backups` volume
+on the worker and scheduler (`BACKUP_DIR=/backups`, see
+`.env.example`) and that the alertmanager webhook placeholder is
+substituted from `alertmanager_webhook_url` (mirror of the module's HCL
+replace chain — a node that keeps the example.com URL alerts nowhere).

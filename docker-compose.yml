@@ -69,6 +69,7 @@ services:
     container_name: dominus-worker
     volumes:
       - ./data:/app/data
+      - backups:/backups
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_PATH=/app/data/dominus.db
@@ -92,6 +93,7 @@ services:
       - SCHEDULER_ENABLED=false
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
       - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
+      - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
 
@@ -104,6 +106,7 @@ services:
     container_name: dominus-scheduler
     volumes:
       - ./data:/app/data
+      - backups:/backups
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_PATH=/app/data/dominus.db
@@ -127,6 +130,14 @@ services:
       - SCHEDULER_ENABLED=true
       - SCHEDULER_BACKUP_CRON=${SCHEDULER_BACKUP_CRON:-0 4 * * *}
       - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 5 * * 0}
-      - BACKUP_DIR=/app/data/backups
+      - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
     restart: unless-stopped
+
+# Dedicated backups volume: keeps VACUUM INTO/pg_dump backups off the
+# disk that holds dominus.db (isolation from DB write amplification and
+# from accidental wipes of ./data). The image pre-creates /backups owned
+# by the non-root dominus user. For off-disk durability, mount an
+# external drive at /backups instead (see docs/deployment/README.md).
+volumes:
+  backups:
