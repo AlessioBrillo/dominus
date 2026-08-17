@@ -348,6 +348,13 @@ export function renderPrometheusMetrics(
       'counter',
     );
     g(
+      'Verdicts downgraded on origin-guard resolver failure (ADR-0060).',
+      'dominus_rdap_consensus_origin_guard_unavailable_total',
+      rdapConsensus.originGuardUnavailableTotal,
+      undefined,
+      'counter',
+    );
+    g(
       'Runs flagged degraded over RDAP consensus.',
       'dominus_rdap_consensus_degraded_runs_total',
       rdapConsensus.degradedRunsTotal,

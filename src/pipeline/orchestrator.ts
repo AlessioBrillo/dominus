@@ -42,6 +42,7 @@ export interface PipelineMetricsDelegate {
     degraded: boolean;
     whoisRescued?: number;
     originOverlap?: number;
+    originGuardUnavailable?: number;
   }): void;
 }
 

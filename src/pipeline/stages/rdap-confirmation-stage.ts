@@ -109,6 +109,10 @@ export interface RdapConsensusConfig {
    * second endpoint's origin is authoritative for the candidate's TLD: the
    * 2-of-2 would be a rubber stamp. Unset disables the runtime guard.
    *
+   * Fail-closed by default (ADR-0060): a resolver rejection downgrades the
+   * verdict as unverifiable (originGuardUnavailable) instead of consulting
+   * a second leg that might overlap the TLD's authoritative origins.
+   *
    * A second, unconditional rubber-stamp guard runs regardless: when the
    * origin that served the primary verdict equals the second leg origin
    * (e.g. rdap.org winning the primary race AND being the second leg), the
@@ -290,6 +294,15 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     // bootstrap, rdap.org excluded upstream) resolved once per TLD per run.
     // In-flight resolutions are deduplicated so a parallel batch cannot
     // hammer the resolver for the same TLD.
+    //
+    // ADR-0060: a resolver failure is fail-closed, not fail-open. When the
+    // guard cannot prove the second leg is disjoint from the TLD's
+    // authoritative origins, the second opinion is never consulted (it could
+    // be a rubber stamp served by an authoritative origin, e.g. rdap.org as
+    // the default second leg) and the verdict is downgraded as unverifiable.
+    // Only an explicitly unconfigured guard (or an unparsable secondary
+    // endpoint — cannot prove overlap) keeps the previous consult-the-second-
+    // leg behaviour.
     const secondaryOrigin = rdapUrlOrigin(cfg.secondaryOrigin);
     const authoritativeOriginsByTld = new Map<string, string[]>();
     const authoritativeOriginsInFlight = new Map<string, Promise<string[] | undefined>>();
@@ -299,18 +312,16 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       if (cached !== undefined) return cached;
       const inFlight = authoritativeOriginsInFlight.get(tld);
       if (inFlight !== undefined) return inFlight;
+      // An unresolved TLD resolves to an empty array (no overlap, second leg
+      // consulted) — the same behaviour as a successful empty lookup. A
+      // rejection is deliberately NOT caught here: it must propagate to the
+      // per-candidate handler below, which downgrades the verdict (fail-
+      // closed, ADR-0060) instead of consulting a possibly-overlapping leg.
       const pending = cfg
         .tldOriginsResolver(tld)
         .then((origins) => {
           authoritativeOriginsByTld.set(tld, origins);
           return origins;
-        })
-        .catch((error) => {
-          logger.warn(
-            { error, tld },
-            'RDAP: authoritative origin lookup failed — origin-overlap check skipped for the TLD',
-          );
-          return undefined;
         })
         .finally(() => {
           authoritativeOriginsInFlight.delete(tld);
@@ -324,8 +335,22 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       if (signal?.aborted) break;
       const results = await Promise.all(
         batch.map(async (candidate) => {
+          let authoritativeOrigins: string[] | undefined;
           try {
-            const authoritativeOrigins = await resolveAuthoritativeOrigins(candidate.tld);
+            authoritativeOrigins = await resolveAuthoritativeOrigins(candidate.tld);
+          } catch (error) {
+            // Fail-closed (ADR-0060): the guard could not rule out that the
+            // second leg is an authoritative origin for the TLD. Consulting
+            // it could rubber-stamp the primary verdict, so the second
+            // opinion is skipped and the verdict downgraded.
+            logger.warn(
+              { error, tld: candidate.tld, domain: candidate.domain },
+              'RDAP: authoritative origin lookup failed — second leg not consulted ' +
+                '(fail-closed, ADR-0060)',
+            );
+            return { candidate, result: undefined, overlap: false, guardUnavailable: true };
+          }
+          try {
             const authoritativeOverlap =
               authoritativeOrigins !== undefined &&
               hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.secondaryOrigin);
@@ -346,7 +371,12 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           }
         }),
       );
-      for (const { candidate, result, overlap, winnerOverlap } of results) {
+      for (const { candidate, result, overlap, winnerOverlap, guardUnavailable } of results) {
+        if (guardUnavailable === true) {
+          stats.unverifiable++;
+          stats.originGuardUnavailable = (stats.originGuardUnavailable ?? 0) + 1;
+          continue;
+        }
         if (overlap === true) {
           stats.unverifiable++;
           stats.originOverlap = (stats.originOverlap ?? 0) + 1;
