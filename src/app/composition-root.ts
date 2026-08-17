@@ -476,7 +476,6 @@ function buildSchedulerIfEnabled(
     provider.dialect === 'postgres'
       ? new PitrHealthService({
           provider,
-          backupDir: config.BACKUP_DIR,
           walLagMaxBytes: config.PITR_WAL_LAG_MAX_BYTES,
           baseBackupMaxAgeHours: config.PITR_BASE_BACKUP_MAX_AGE_HOURS,
           onCheck: (result): void =>
