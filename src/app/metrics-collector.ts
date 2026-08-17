@@ -48,6 +48,7 @@ export class MetricsCollector {
   #rdapConsensusUnverifiable = 0;
   #rdapConsensusWhoisRescued = 0;
   #rdapConsensusOriginOverlap = 0;
+  #rdapConsensusOriginGuardUnavailable = 0;
   #rdapConsensusDegradedRuns = 0;
   #rdapConsensusLastDegraded = false;
   #rdapConsensusObserved = false;
@@ -145,12 +146,14 @@ export class MetricsCollector {
     degraded: boolean;
     whoisRescued?: number;
     originOverlap?: number;
+    originGuardUnavailable?: number;
   }): void {
     this.#rdapConsensusVerified += stats.verified;
     this.#rdapConsensusDisagreed += stats.disagreed;
     this.#rdapConsensusUnverifiable += stats.unverifiable;
     this.#rdapConsensusWhoisRescued += stats.whoisRescued ?? 0;
     this.#rdapConsensusOriginOverlap += stats.originOverlap ?? 0;
+    this.#rdapConsensusOriginGuardUnavailable += stats.originGuardUnavailable ?? 0;
     this.#rdapConsensusObserved = true;
     this.#rdapConsensusLastDegraded = stats.degraded;
     if (stats.degraded) this.#rdapConsensusDegradedRuns++;
@@ -292,6 +295,7 @@ export class MetricsCollector {
           unverifiableTotal: this.#rdapConsensusUnverifiable,
           whoisRescuedTotal: this.#rdapConsensusWhoisRescued,
           originOverlapTotal: this.#rdapConsensusOriginOverlap,
+          originGuardUnavailableTotal: this.#rdapConsensusOriginGuardUnavailable,
           degradedRunsTotal: this.#rdapConsensusDegradedRuns,
           lastRunDegraded: this.#rdapConsensusLastDegraded,
           observed: this.#rdapConsensusObserved,
@@ -367,6 +371,7 @@ export class MetricsCollector {
     this.#rdapConsensusUnverifiable = 0;
     this.#rdapConsensusWhoisRescued = 0;
     this.#rdapConsensusOriginOverlap = 0;
+    this.#rdapConsensusOriginGuardUnavailable = 0;
     this.#rdapConsensusDegradedRuns = 0;
     this.#rdapConsensusLastDegraded = false;
     this.#rdapConsensusObserved = false;

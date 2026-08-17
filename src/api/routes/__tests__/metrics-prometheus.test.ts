@@ -198,6 +198,7 @@ describe('renderPrometheusMetrics', () => {
       unverifiableTotal: 3,
       whoisRescuedTotal: 2,
       originOverlapTotal: 4,
+      originGuardUnavailableTotal: 1,
       degradedRunsTotal: 1,
       lastRunDegraded: true,
       observed: true,
@@ -216,6 +217,7 @@ describe('renderPrometheusMetrics', () => {
     expect(body).toContain('dominus_rdap_consensus_unverifiable_total 3');
     expect(body).toContain('dominus_rdap_consensus_whois_rescued_total 2');
     expect(body).toContain('dominus_rdap_consensus_origin_overlap_total 4');
+    expect(body).toContain('dominus_rdap_consensus_origin_guard_unavailable_total 1');
     expect(body).toContain('dominus_rdap_consensus_degraded_runs_total 1');
     expect(body).toContain('dominus_rdap_consensus_last_run_degraded 1');
     expect(body).toContain('# TYPE dominus_rdap_consensus_verified_total counter');

@@ -54,6 +54,8 @@ export interface RdapConsensusMetrics {
   whoisRescuedTotal: number;
   /** Verdicts skipped on per-TLD origin overlap (ADR-0058). */
   originOverlapTotal: number;
+  /** Verdicts downgraded on origin-guard resolver failure (ADR-0060). */
+  originGuardUnavailableTotal: number;
   /** Number of runs flagged degraded over RDAP consensus. */
   degradedRunsTotal: number;
   /** Whether the most recent consensus-checked run was degraded. */

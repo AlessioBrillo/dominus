@@ -47,6 +47,14 @@ export interface RdapConsensusStats {
    * (ADR-0058). Present only when > 0.
    */
   originOverlap?: number;
+  /**
+   * Verdicts downgraded because the per-TLD authoritative-origin resolver
+   * failed (ADR-0060): the guard could not rule out that the second leg is
+   * an authoritative origin for the TLD, so the second opinion is never
+   * consulted — fail-closed, the verdict stays unverifiable. Present only
+   * when > 0.
+   */
+  originGuardUnavailable?: number;
   /** True when the run was flagged degraded over consensus (ADR-0039 pattern). */
   degraded: boolean;
 }
