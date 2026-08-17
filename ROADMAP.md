@@ -1,7 +1,7 @@
 # Roadmap
 
-DOMINUS v0.11.0 — DNS / RDAP / WHOIS consensus hardening (released).
-Next: v1.0.0 — DOMINUS Cloud MVP (managed hosting).
+DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
+Next: v1.1.0 — GA release.
 
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
@@ -125,8 +125,7 @@ estimates and subject to change.
 
 ## v1.0.0 — DOMINUS Cloud MVP & Programmatic SEO
 
-> **Status**: Feature-complete (launch-blocker hardening in progress: deploy
-> pipeline roll, off-host backup requirement, RDAP consensus independence)
+> **Status**: Released
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
 - [x] DNS consensus strictness and per-endpoint circuit breakers (ADR-0059):
@@ -159,6 +158,14 @@ estimates and subject to change.
 - [x] JSON-LD structured data for rich snippets
 - [x] SSR layer for public pages (server-rendered HTML views — see
       [ADR-0030](docs/adr/0030-public-namespace-architecture.md))
+- [x] Off-host backups made mandatory by default with a dedicated backup
+      volume (ADR-0054: `#341`) and the base-backup manifest recorded in the
+      `pitr_health` table (`#342`)
+- [x] RDAP origin-overlap guard fail-closed: a resolver failure on the
+      authoritative-origin lookup skips the second leg and downgrades the
+      verdict as unverifiable (ADR-0060, `#344`)
+- [x] CI reliability: dead-letter tests pinned to a past `scheduled_at`,
+      fixing the flaky `getDeadLetter respects limit` (`#343`)
 
 ## v1.1.0 — GA Release
 
