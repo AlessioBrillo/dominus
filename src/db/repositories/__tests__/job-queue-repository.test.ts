@@ -362,8 +362,16 @@ describe('JobQueueRepository', () => {
   });
 
   describe('dead letter operations', () => {
+    // The dequeue gate is scheduled_at <= CURRENT_TIMESTAMP at second
+    // precision: enqueuing with the implicit JS clock and dequeuing with
+    // the SQLite clock can straddle a second boundary (or a skewed CI
+    // clock), making dequeue return null and the fail path never reach the
+    // dead-letter table. Pin scheduled_at to the distant past so these
+    // tests are clock-independent.
+    const past = '2000-01-01 00:00:00';
+
     it('getDeadLetter returns dead letters in reverse chronological order', async () => {
-      const id = await repo.enqueue('PIPELINE_RUN', {}, { maxAttempts: 1 });
+      const id = await repo.enqueue('PIPELINE_RUN', {}, { maxAttempts: 1, scheduledAt: past });
       await repo.dequeue();
       await repo.fail(id, 'fail');
       const letters = await repo.getDeadLetter();
@@ -374,7 +382,7 @@ describe('JobQueueRepository', () => {
 
     it('getDeadLetter respects limit', async () => {
       for (let i = 0; i < 3; i++) {
-        const id = await repo.enqueue('PRUNE', {}, { maxAttempts: 1 });
+        const id = await repo.enqueue('PRUNE', {}, { maxAttempts: 1, scheduledAt: past });
         await repo.dequeue();
         await repo.fail(id, `err${i}`);
       }
@@ -382,7 +390,7 @@ describe('JobQueueRepository', () => {
     });
 
     it('retryDeadLetter re-enqueues from dead letter and removes it', async () => {
-      const id = await repo.enqueue('PRUNE', { data: 1 }, { maxAttempts: 1 });
+      const id = await repo.enqueue('PRUNE', { data: 1 }, { maxAttempts: 1, scheduledAt: past });
       await repo.dequeue();
       await repo.fail(id, 'oops');
       const letters = await repo.getDeadLetter();
