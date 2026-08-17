@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.0.0](https://github.com/AlessioBrillo/dominus/compare/v0.11.0...v1.0.0) (2026-08-17)
+
+
+### Features
+
+* **admin:** platform admin overview API + frontend page ([#279](https://github.com/AlessioBrillo/dominus/issues/279)) ([7405e5f](https://github.com/AlessioBrillo/dominus/commit/7405e5f1d3bf6fe9e8ae41668f6b07fb0d6c2999))
+* **admin:** tenant lifecycle management (ADR-0057) ([#292](https://github.com/AlessioBrillo/dominus/issues/292)) ([36ae58e](https://github.com/AlessioBrillo/dominus/commit/36ae58e3097dc3c5adf7fbb272791be9bb4e3ce3))
+* **backup:** point-in-time recovery for the Cloud stack (ADR-0054) ([#282](https://github.com/AlessioBrillo/dominus/issues/282)) ([9162353](https://github.com/AlessioBrillo/dominus/commit/916235347d12613a18bc73c0c758522934610499))
+* **billing:** complete the billing loop — Team checkout, status-aware enforcement, trial-once (ADR-0053) ([#281](https://github.com/AlessioBrillo/dominus/issues/281)) ([271f61a](https://github.com/AlessioBrillo/dominus/commit/271f61a0040e66f531cc7d27821d0e86586652f4)), closes [#280](https://github.com/AlessioBrillo/dominus/issues/280)
+* **cli:** add admin API key bootstrap command ([#322](https://github.com/AlessioBrillo/dominus/issues/322)) ([7fbbad2](https://github.com/AlessioBrillo/dominus/commit/7fbbad2dca507392631ef5f619b029504f82cd80))
+* **cloud:** add self-serve signup with one-time admin key ([#324](https://github.com/AlessioBrillo/dominus/issues/324)) ([68ad109](https://github.com/AlessioBrillo/dominus/commit/68ad10905ac52bb1e6ce8620c23bb9741af49317))
+* **cloud:** add team management page ([#325](https://github.com/AlessioBrillo/dominus/issues/325)) ([4e84fdc](https://github.com/AlessioBrillo/dominus/commit/4e84fdc8b72a1833317344552c59b0643ff93386))
+* **cloud:** enforce plan seat limits at API key mint ([#323](https://github.com/AlessioBrillo/dominus/issues/323)) ([88f053f](https://github.com/AlessioBrillo/dominus/commit/88f053f1c15cb5493d7814ae3e98247719323097))
+* **db:** add composite tenant_id+domain indexes (B2) ([#275](https://github.com/AlessioBrillo/dominus/issues/275)) ([4a385d9](https://github.com/AlessioBrillo/dominus/commit/4a385d99565decc3ced208029007f3b89bc46f02))
+* **dns:** circuit breakers, strict 2-of-3 consensus, bundled parking list (ADR-0059) ([#331](https://github.com/AlessioBrillo/dominus/issues/331)) ([2b7dd51](https://github.com/AlessioBrillo/dominus/commit/2b7dd51fc8f60a2c821ff311c18f39f9e53b4abc))
+* **http:** explicit keep-alive/header/request socket timeouts (B5) ([#278](https://github.com/AlessioBrillo/dominus/issues/278)) ([42c1067](https://github.com/AlessioBrillo/dominus/commit/42c10676985a3cd4cfceab3228d474194da38051))
+* **infra:** compress rotated container logs (B3) ([#276](https://github.com/AlessioBrillo/dominus/issues/276)) ([5677c02](https://github.com/AlessioBrillo/dominus/commit/5677c0232947925829526176b2c4c592a05c85c7))
+* **infra:** hetzner terraform provisioning for the cloud mvp ([#306](https://github.com/AlessioBrillo/dominus/issues/306)) ([ffea2ed](https://github.com/AlessioBrillo/dominus/commit/ffea2ed3e4483fd4ff64a50879960faa64d899ed))
+* **infra:** turnkey DNS consensus recursor override ([#305](https://github.com/AlessioBrillo/dominus/issues/305)) ([98e037e](https://github.com/AlessioBrillo/dominus/commit/98e037ee4ac0ef73fd5b660facbf83a339dbc8c8))
+* isolate anonymous trademark budget for public valuations ([#285](https://github.com/AlessioBrillo/dominus/issues/285)) ([7db9f98](https://github.com/AlessioBrillo/dominus/commit/7db9f98d6977c46f008af6f86f856bb329a88ea8))
+* **rdap:** gate parity — consensus default-on, resilient bootstrap, origin-overlap guard (ADR-0058) ([#293](https://github.com/AlessioBrillo/dominus/issues/293)) ([4f4f41f](https://github.com/AlessioBrillo/dominus/commit/4f4f41f6ff5d6e4b4a0b3468508fced349a83bf6))
+* **redis:** volatile-lru eviction + redis-exporter + eviction alerts (B1) ([#274](https://github.com/AlessioBrillo/dominus/issues/274)) ([d7f9b45](https://github.com/AlessioBrillo/dominus/commit/d7f9b459d7c3447877928922b3a6a9fea7872d06))
+* **scheduler:** dedupe cron fires across replicas via per-slot lock (B4) ([#277](https://github.com/AlessioBrillo/dominus/issues/277)) ([06c6b1f](https://github.com/AlessioBrillo/dominus/commit/06c6b1f69cd7f0850ccdf2a5daa88bbd0266a873))
+* **team:** add Team plan tier and team seats management ([#280](https://github.com/AlessioBrillo/dominus/issues/280)) ([066df82](https://github.com/AlessioBrillo/dominus/commit/066df82cc74a3d41dd441b9ad27f4dc5d59a57ab))
+* trademark gate observability — bounded provider deadline, gate telemetry, lock renewal tracking ([#284](https://github.com/AlessioBrillo/dominus/issues/284)) ([0cfbc09](https://github.com/AlessioBrillo/dominus/commit/0cfbc09a7e3face4d6c448161190be934aaeb4dc))
+* **usage:** usage history API, usage-only prune, Usage page ([#287](https://github.com/AlessioBrillo/dominus/issues/287)) ([26612f9](https://github.com/AlessioBrillo/dominus/commit/26612f93bb9b0ab77ded12e59d6fd49094fe560d))
+
+
+### Bug Fixes
+
+* **backup:** prune archived WAL segments on base-backup run ([#333](https://github.com/AlessioBrillo/dominus/issues/333)) ([02956fb](https://github.com/AlessioBrillo/dominus/commit/02956fba04e7f250dfa3097672dd8aa504e7b083))
+* **backups:** persist pg_dump backups on dedicated volume in base compose and cloud render ([#341](https://github.com/AlessioBrillo/dominus/issues/341)) ([889afe5](https://github.com/AlessioBrillo/dominus/commit/889afe5f08c112925ce30454f1048d22c58b5a2b))
+* **billing:** status-aware team seats, unlimited enterprise, ADR-0026 pricing ([#286](https://github.com/AlessioBrillo/dominus/issues/286)) ([8a62730](https://github.com/AlessioBrillo/dominus/commit/8a627304a041a5a91eaa93625523b62af6545e74))
+* **cloud:** fail-closed usage enforcement in cloud mode ([#318](https://github.com/AlessioBrillo/dominus/issues/318)) ([62929eb](https://github.com/AlessioBrillo/dominus/commit/62929eba2183ee4ae4ad41bdd2ec8917292a98fb))
+* **deps:** revert breaking dependabot major bumps ([#309](https://github.com/AlessioBrillo/dominus/issues/309)) ([8c2ea2b](https://github.com/AlessioBrillo/dominus/commit/8c2ea2b38b8763c7880d2f1a53de88b536a80e6a)), closes [#300](https://github.com/AlessioBrillo/dominus/issues/300) [#301](https://github.com/AlessioBrillo/dominus/issues/301) [#303](https://github.com/AlessioBrillo/dominus/issues/303)
+* **infra:** connect the app as the rls-scoped dominus_app role ([#317](https://github.com/AlessioBrillo/dominus/issues/317)) ([e8d4713](https://github.com/AlessioBrillo/dominus/commit/e8d47139a01bc757c143dca24bd46599e284cf91))
+* **infra:** enable PITR on the cloud db node ([#316](https://github.com/AlessioBrillo/dominus/issues/316)) ([517d933](https://github.com/AlessioBrillo/dominus/commit/517d933abe59ee67798d8abac9d3d5c0eee5f1a1))
+* **infra:** make the cloud deploy pipeline actually deploy ([#327](https://github.com/AlessioBrillo/dominus/issues/327)) ([cd5b153](https://github.com/AlessioBrillo/dominus/commit/cd5b153a1892490815a212402456c34ec2076a92))
+* **infra:** require off-host b2 backups by default ([#328](https://github.com/AlessioBrillo/dominus/issues/328)) ([f8cac6f](https://github.com/AlessioBrillo/dominus/commit/f8cac6f6168bd54433d4ed1368821f5fd6c2b921))
+* **pipeline:** harden checkpoint resume and heartbeat tenant scoping ([#283](https://github.com/AlessioBrillo/dominus/issues/283)) ([459bb88](https://github.com/AlessioBrillo/dominus/commit/459bb88ef14d2c1c8f77a2f11864041b541bcf2c))
+* **pitr:** record base-backup manifest in pitr_health table ([#342](https://github.com/AlessioBrillo/dominus/issues/342)) ([4fe1df5](https://github.com/AlessioBrillo/dominus/commit/4fe1df5b031a380aecde28c17de0468a73d12202))
+* **provider/rdap:** veto same-origin consensus rubber stamp ([#329](https://github.com/AlessioBrillo/dominus/issues/329)) ([5a62ac3](https://github.com/AlessioBrillo/dominus/commit/5a62ac3bd1018e327ea4ea3e5c4465f62a7e7454))
+* **rdap:** fail closed when the origin guard resolver fails (ADR-0060) ([#344](https://github.com/AlessioBrillo/dominus/issues/344)) ([38582f0](https://github.com/AlessioBrillo/dominus/commit/38582f0866f0be7549a6dc7750cf69188055e486))
+* **team:** plan overrides apply to seat limits ([#319](https://github.com/AlessioBrillo/dominus/issues/319)) ([0217c4a](https://github.com/AlessioBrillo/dominus/commit/0217c4a4e240d54644a2d3be9a52caf40c2c4752))
+* **terraform:** separate backup role password, secret-free PITR cron, fix log dir ([#332](https://github.com/AlessioBrillo/dominus/issues/332)) ([b97c814](https://github.com/AlessioBrillo/dominus/commit/b97c814905c9f109fca2f715bde595d00fe8df8b))
+
 ## [0.11.0](https://github.com/AlessioBrillo/dominus/compare/v0.10.1...v0.11.0) (2026-08-11)
 
 
