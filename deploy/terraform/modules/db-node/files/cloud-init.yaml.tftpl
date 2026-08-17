@@ -24,6 +24,16 @@ write_files:
       B2_BASE_REMOTE=b2:${b2_bucket}/base/
       B2_WAL_REMOTE=b2:${b2_bucket}/wal/
       %{ endif }
+      # PITR manifest (migration 0053): base-backup.sh records each
+      # completed base backup in the pitr_health table via the dominus
+      # owner role, so the app's pitr-health job can judge the anchor age
+      # without filesystem access to this node.
+      PITR_MANIFEST_HOST=127.0.0.1
+      PITR_MANIFEST_PORT=5432
+      PITR_MANIFEST_USER=dominus
+      PITR_MANIFEST_PASSWORD=${db_password}
+      PITR_MANIFEST_DATABASE=dominus
+      PITR_MANIFEST_KEEP_ROWS=14
     permissions: "0600"
 
   %{ if b2_enabled }
@@ -61,11 +71,13 @@ write_files:
 runcmd:
   - mkdir -p /var/lib/postgresql/backups/wal
   - chown -R postgres:postgres /var/lib/postgresql/backups
-  # The PITR cron appends to /var/log/dominus/base-backup.log as the
-  # postgres user; the directory must exist and be postgres-owned or the
-  # daily job fails on the very first redirect.
+  # The PITR cron runs as the postgres user and sources backup.env, and
+  # appends to /var/log/dominus/base-backup.log — both must be
+  # postgres-owned or the daily job fails (write_files leaves 0600
+  # root-owned).
   - mkdir -p /var/log/dominus
   - chown postgres:postgres /var/log/dominus
+  - chown postgres:postgres /opt/dominus/backup.env
   # rclone.conf is written root-owned (write_files runs before the
   # postgres user exists); the WAL archiver and backup cron run as
   # postgres, so fix ownership after the package install.
@@ -100,6 +112,9 @@ runcmd:
     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dominus_app;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public
       GRANT USAGE, SELECT ON SEQUENCES TO dominus_app;
+    -- pg_current_wal_lsn() is restricted to the pg_monitor role: the app's
+    -- pitr-health job reads WAL lag (ADR-0054), so the app role needs it.
+    GRANT pg_monitor TO dominus_app;
     EOSQL
   - |
     if ! grep -q "10.0.0.0/16" /etc/postgresql/17/main/pg_hba.conf; then
