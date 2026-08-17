@@ -1,6 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { getLogger } from '../logger.js';
 
@@ -15,8 +13,8 @@ export interface PitrHealthCheck {
   /** False when `pg_last_archived_wal_lsn()` is NULL — archiving never
    *  confirmed a segment, so PITR is silently off. */
   archivingActive: boolean;
-  /** Age in hours of the newest `base-*` backup directory, or null when
-   *  no base backup exists yet (PITR without an anchor). */
+  /** Age in hours of the newest base backup per the PITR manifest, or null
+   *  when no backup ever recorded a row (PITR without an anchor). */
   baseBackupAgeHours: number | null;
   /** Overall health verdict: lag within budget, archiving active and a
    *  fresh base backup present. */
@@ -28,12 +26,6 @@ export interface PitrHealthCheck {
 
 export interface PitrHealthServiceOptions {
   provider: DatabaseProvider;
-  /**
-   * Directory where base backups (and pg_dump files) are stored — the
-   * same BACKUP_DIR the scheduler/worker mount. Base backups are
-   * directories named `base-*` created by deploy/postgres/base-backup.sh.
-   */
-  backupDir: string;
   /** Maximum acceptable WAL archiving lag before PITR risk is declared. */
   walLagMaxBytes: number;
   /** Maximum age of the newest base backup before PITR risk is declared. */
@@ -45,30 +37,35 @@ export interface PitrHealthServiceOptions {
   onCheck?: (result: PitrHealthCheck) => void;
 }
 
-const BASE_BACKUP_PREFIX = 'base-';
+interface PitrManifestRow {
+  finished_at: string | Date;
+  base_name: string;
+  size_bytes: string | number;
+  host: string;
+}
 
 const WAL_LAG_SQL = `
   SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), pg_last_archived_wal_lsn()) AS lag_bytes
 `;
 
+const MANIFEST_SQL = `
+  SELECT finished_at, base_name, size_bytes, host
+  FROM pitr_health
+  ORDER BY finished_at DESC
+  LIMIT 1
+`;
+
 export class PitrHealthService {
   readonly #provider: DatabaseProvider;
-  readonly #backupDir: string;
   readonly #walLagMaxBytes: number;
   readonly #baseBackupMaxAgeHours: number;
   readonly #onCheck: ((result: PitrHealthCheck) => void) | undefined;
 
   constructor(options: PitrHealthServiceOptions) {
     this.#provider = options.provider;
-    this.#backupDir = resolve(options.backupDir);
     this.#walLagMaxBytes = options.walLagMaxBytes;
     this.#baseBackupMaxAgeHours = options.baseBackupMaxAgeHours;
     this.#onCheck = options.onCheck;
-  }
-
-  /** Newest base backup directory name (assists tests and drills). */
-  static baseBackupPrefix(): string {
-    return BASE_BACKUP_PREFIX;
   }
 
   async check(): Promise<PitrHealthCheck> {
@@ -95,9 +92,11 @@ export class PitrHealthService {
       problems.push(`WAL lag ${walLagBytes} bytes exceeds budget ${this.#walLagMaxBytes} bytes`);
     }
 
-    const baseBackupAgeHours = this.#newestBaseBackupAgeHours();
+    const baseBackupAgeHours = await this.#newestBaseBackupAgeHours();
     if (baseBackupAgeHours === null) {
-      problems.push('no base backup found in BACKUP_DIR (run deploy/postgres/base-backup.sh)');
+      problems.push(
+        'no base backup recorded in the PITR manifest (run deploy/postgres/base-backup.sh)',
+      );
     } else if (baseBackupAgeHours > this.#baseBackupMaxAgeHours) {
       problems.push(
         `newest base backup is ${baseBackupAgeHours.toFixed(1)}h old (budget ${this.#baseBackupMaxAgeHours}h)`,
@@ -137,20 +136,33 @@ export class PitrHealthService {
     }
   }
 
-  /** Age in hours of the newest base-* directory, or null when none exists. */
-  #newestBaseBackupAgeHours(): number | null {
-    if (!existsSync(this.#backupDir)) return null;
-    let newestMs = -1;
-    for (const entry of readdirSync(this.#backupDir)) {
-      if (!entry.startsWith(BASE_BACKUP_PREFIX)) continue;
-      try {
-        const mtimeMs = statSync(join(this.#backupDir, entry)).mtimeMs;
-        if (mtimeMs > newestMs) newestMs = mtimeMs;
-      } catch {
-        continue;
-      }
+  /**
+   * Age in hours of the newest base backup recorded in the PITR manifest,
+   * or null when the manifest is empty or unreadable. The manifest is
+   * written by deploy/postgres/base-backup.sh (migration 0053).
+   */
+  async #newestBaseBackupAgeHours(): Promise<number | null> {
+    let row: PitrManifestRow | null;
+    try {
+      row = await this.#provider.queryOne<PitrManifestRow>(MANIFEST_SQL);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err: message }, 'PITR health: manifest query failed');
+      return null;
     }
-    if (newestMs < 0) return null;
-    return Math.max(0, (Date.now() - newestMs) / 3_600_000);
+    if (!row) return null;
+
+    const finishedAt =
+      row.finished_at instanceof Date
+        ? row.finished_at.getTime()
+        : Date.parse(String(row.finished_at));
+    if (Number.isNaN(finishedAt)) {
+      logger.error(
+        { finished_at: row.finished_at },
+        'PITR health: manifest row has an unparseable finished_at',
+      );
+      return null;
+    }
+    return Math.max(0, (Date.now() - finishedAt) / 3_600_000);
   }
 }

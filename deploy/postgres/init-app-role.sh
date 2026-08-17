@@ -32,4 +32,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dominus_app;
   ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO dominus_app;
+
+  -- pg_current_wal_lsn() is restricted to the pg_monitor role: the app's
+  -- pitr-health job reads WAL lag (ADR-0054), so the app role needs it.
+  GRANT pg_monitor TO dominus_app;
 EOSQL
