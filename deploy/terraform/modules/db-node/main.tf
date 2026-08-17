@@ -18,6 +18,14 @@ variable "db_password" {
   type      = string
   sensitive = true
 }
+# Dedicated password for the `backup` role (REPLICATION only, least
+# privilege, ADR-0054). Sharing the owner password with the backup cron
+# widens the blast radius of any single file leak — backup.env (0600)
+# holds this value and nothing else.
+variable "db_backup_password" {
+  type      = string
+  sensitive = true
+}
 variable "db_app_password" {
   type      = string
   sensitive = true
@@ -41,15 +49,16 @@ resource "hcloud_server" "db" {
   ssh_keys     = [var.ssh_key_id]
   firewall_ids = [var.firewall_id]
   user_data = templatefile("${path.module}/files/cloud-init.yaml.tftpl", {
-    project         = var.project
-    image_tag       = var.image_tag
-    db_password     = var.db_password
-    db_app_password = var.db_app_password
-    b2_enabled      = var.b2_backup.enabled
-    b2_bucket       = var.b2_backup.bucket
-    b2_account_id   = var.b2_backup.account_id
-    b2_app_key      = var.b2_backup.application_key
-    b2_endpoint     = var.b2_backup.endpoint
+    project            = var.project
+    image_tag          = var.image_tag
+    db_password        = var.db_password
+    db_backup_password = var.db_backup_password
+    db_app_password    = var.db_app_password
+    b2_enabled         = var.b2_backup.enabled
+    b2_bucket          = var.b2_backup.bucket
+    b2_account_id      = var.b2_backup.account_id
+    b2_app_key         = var.b2_backup.application_key
+    b2_endpoint        = var.b2_backup.endpoint
   })
   network {
     network_id = var.network_id

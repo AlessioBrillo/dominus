@@ -7,12 +7,16 @@ packages:
   - rclone
 
 write_files:
+  # Secrets for the daily PITR cron live here (0600) instead of inline in
+  # the cron file under /etc/cron.d (which cron treats as 0644 and any
+  # local user could read). The cron line sources this file; nothing
+  # sensitive is written to the cron file itself.
   - path: /opt/dominus/backup.env
     content: |
       PG_HOST=127.0.0.1
       PG_PORT=5432
       PG_USER=backup
-      PG_PASSWORD=${db_password}
+      PG_PASSWORD=${db_backup_password}
       BACKUP_DIR=/var/lib/postgresql/backups
       PG_BASE_RETENTION_DAYS=14
       %{ if b2_enabled }
@@ -55,6 +59,11 @@ write_files:
 runcmd:
   - mkdir -p /var/lib/postgresql/backups/wal
   - chown -R postgres:postgres /var/lib/postgresql/backups
+  # The PITR cron appends to /var/log/dominus/base-backup.log as the
+  # postgres user; the directory must exist and be postgres-owned or the
+  # daily job fails on the very first redirect.
+  - mkdir -p /var/log/dominus
+  - chown postgres:postgres /var/log/dominus
   # rclone.conf is written root-owned (write_files runs before the
   # postgres user exists); the WAL archiver and backup cron run as
   # postgres, so fix ownership after the package install.
@@ -66,7 +75,7 @@ runcmd:
         CREATE ROLE dominus LOGIN PASSWORD '${db_password}';
       END IF;
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'backup') THEN
-        CREATE ROLE backup LOGIN REPLICATION PASSWORD '${db_password}';
+        CREATE ROLE backup LOGIN REPLICATION PASSWORD '${db_backup_password}';
       END IF;
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_app') THEN
         CREATE ROLE dominus_app LOGIN PASSWORD '${db_app_password}';
@@ -105,10 +114,14 @@ runcmd:
   # drift from an embedded copy (immutable supply chain, ADR-0046).
   - curl -fsSL -o /opt/dominus/base-backup.sh \
       https://raw.githubusercontent.com/AlessioBrillo/dominus/${image_tag}/deploy/postgres/base-backup.sh
+  # The cron runs the script as the postgres user: it must be
+  # postgres-owned and not world-readable (it carries no secrets itself —
+  # those live in backup.env — but stays 0700 as a hard boundary).
+  - chown postgres:postgres /opt/dominus/base-backup.sh
   - chmod 0700 /opt/dominus/base-backup.sh
   %{ if b2_enabled }
   - |
     cat > /etc/cron.d/dominus-pitr <<EOF
-    30 4 * * * postgres PG_HOST=127.0.0.1 PG_USER=backup PG_PASSWORD='${db_password}' B2_BASE_REMOTE='b2:${b2_bucket}/base/' /opt/dominus/base-backup.sh >> /var/log/dominus/base-backup.log 2>&1
+    30 4 * * * postgres set -a; . /opt/dominus/backup.env; set +a; /opt/dominus/base-backup.sh >> /var/log/dominus/base-backup.log 2>&1
     EOF
   %{ endif }
