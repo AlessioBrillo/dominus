@@ -48,7 +48,7 @@ locals {
     "https://example.com/your-webhook",
     var.alertmanager_webhook_url,
   ) : file("${path.module}/../../../prometheus/alertmanager.yml")
-  prometheus_yml   = local.metrics_token != "" ? replace(
+  prometheus_yml = local.metrics_token != "" ? replace(
     replace(
       replace(
         replace(
