@@ -19,8 +19,10 @@ write_files:
       PG_PASSWORD=${db_backup_password}
       BACKUP_DIR=/var/lib/postgresql/backups
       PG_BASE_RETENTION_DAYS=14
+      WAL_RETENTION_DAYS=7
       %{ if b2_enabled }
       B2_BASE_REMOTE=b2:${b2_bucket}/base/
+      B2_WAL_REMOTE=b2:${b2_bucket}/wal/
       %{ endif }
     permissions: "0600"
 
