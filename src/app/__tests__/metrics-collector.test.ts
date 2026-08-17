@@ -95,6 +95,7 @@ describe('MetricsCollector RDAP consensus + bootstrap (ADR-0058)', () => {
       degraded: false,
       whoisRescued: 2,
       originOverlap: 1,
+      originGuardUnavailable: 2,
     });
 
     const consensus = collector.snapshot().pipeline.rdapConsensus!;
@@ -104,6 +105,7 @@ describe('MetricsCollector RDAP consensus + bootstrap (ADR-0058)', () => {
     expect(consensus.unverifiableTotal).toBe(2);
     expect(consensus.whoisRescuedTotal).toBe(2);
     expect(consensus.originOverlapTotal).toBe(1);
+    expect(consensus.originGuardUnavailableTotal).toBe(2);
     expect(consensus.degradedRunsTotal).toBe(0);
     expect(consensus.lastRunDegraded).toBe(false);
   });
@@ -115,6 +117,7 @@ describe('MetricsCollector RDAP consensus + bootstrap (ADR-0058)', () => {
     expect(consensus.verifiedTotal).toBe(0);
     expect(consensus.whoisRescuedTotal).toBe(0);
     expect(consensus.originOverlapTotal).toBe(0);
+    expect(consensus.originGuardUnavailableTotal).toBe(0);
     expect(consensus.lastRunDegraded).toBe(false);
   });
 

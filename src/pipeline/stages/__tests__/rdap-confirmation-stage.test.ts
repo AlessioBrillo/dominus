@@ -774,7 +774,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(secondary.confirm).toHaveBeenCalled();
   });
 
-  it('resolves each TLD once per run and tolerates resolver failures', async () => {
+  it('resolves each TLD once per run and stays fail-closed on resolver failure', async () => {
     const secondary = makeSecondary({
       'x.com': DomainStatus.Available,
       'y.com': DomainStatus.Available,
@@ -792,11 +792,40 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
 
     // '.com' resolved once (cached for the second candidate), '.fail' once.
     expect(resolver).toHaveBeenCalledTimes(2);
-    // x.com and y.com verified; example.fail's resolver failure skips the
-    // overlap check and its second leg throws → unverifiable.
+    // x.com and y.com verified. example.fail's resolver failure is fail-closed
+    // (ADR-0060): the guard cannot prove the second leg is disjoint from the
+    // TLD's authoritative origins, so the second leg is never consulted and
+    // the verdict is downgraded as unverifiable — never let an unchecked
+    // rubber-stamp second opinion pass.
     expect(result.rdapConsensusStats!.verified).toBe(2);
     expect(result.rdapConsensusStats!.unverifiable).toBe(1);
-    expect(result.rdapConsensusStats!.originOverlap).toBeUndefined();
+    expect(result.rdapConsensusStats!.originGuardUnavailable).toBe(1);
+    expect(secondary.confirm).not.toHaveBeenCalledWith('example.fail', undefined);
+    expect(result.passed.map((c) => c.domain)).toEqual(['x.com', 'y.com']);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Unknown);
+  });
+
+  it('downgrades the candidate when the origin resolver fails even if the second leg would confirm', async () => {
+    // The fail-open hazard (ADR-0060): with a broken resolver the guard
+    // could not rule out that the second leg IS an authoritative origin for
+    // the TLD (e.g. rdap.org as default second leg) — a confirming answer
+    // would be a rubber stamp, not an independent second opinion.
+    const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
+    const resolver = vi.fn().mockRejectedValue(new Error('IANA bootstrap unreachable'));
+    const stage = overlapStage(secondary, 'https://rdap.org/', resolver);
+    const result = await stage.process([makeCandidate('x.com')]);
+
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.rdapStatus).toBe(DomainStatus.Unknown);
+    expect(secondary.confirm).not.toHaveBeenCalled();
+    expect(result.rdapConsensusStats).toEqual({
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 1,
+      originGuardUnavailable: 1,
+      degraded: false,
+    });
   });
 
   it('skips the second leg when the primary verdict was served by the second leg origin', async () => {
