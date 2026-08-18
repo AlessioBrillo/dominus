@@ -244,6 +244,12 @@ jobs:
               ".services.$svc.environment[\"DNS_CONSENSUS_ENABLED\"] == \"true\"" >/dev/null || {
                 echo "FATAL: service '$svc' must enable DNS_CONSENSUS_ENABLED=true"; exit 1
               }
+            # Native leg pin: the primary resolver must also use the private
+            # recursor, never Docker's embedded DNS / host resolv.conf.
+            echo "$MERGED_JSON" | jq -e \
+              ".services.$svc.environment[\"DNS_NAMESERVERS\"] == \"172.20.0.10:5300\"" >/dev/null || {
+                echo "FATAL: service '$svc' must set DNS_NAMESERVERS=172.20.0.10:5300 (native leg pin)"; exit 1
+              }
           done
 
       - name: Validate Prometheus config and rules
