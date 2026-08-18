@@ -221,14 +221,10 @@ export class PublicRdapProvider implements RdapProvider {
    *  manually so each target is validated before the next request. */
   async #fetchRaw(url: string, signal: AbortSignal, domain: string): Promise<Response> {
     try {
-      // dispatcher is typed unknown to bridge undici vs undici-types (same
-      // pattern as node-dns-provider resolveDoh, ADR-0049).
-      const init: { signal: AbortSignal; redirect: 'manual'; dispatcher?: unknown } = {
-        signal,
-        redirect: 'manual',
-      };
-      init.dispatcher = await this.#agentPool.getDispatcher();
-      return await fetch(url, init as Parameters<typeof fetch>[1]);
+      // The pool pairs its own fetch with the pooled dispatcher (both from
+      // the same undici version): Node's global fetch rejects a dispatcher
+      // from a different undici version (ADR-0049).
+      return await this.#agentPool.fetchWithAgent(url, { signal, redirect: 'manual' });
     } catch (err: unknown) {
       throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
     }

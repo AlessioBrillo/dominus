@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Agent, type Dispatcher } from 'undici';
+import { Agent, fetch as undiciFetch, type Dispatcher, type RequestInit } from 'undici';
 
 export interface DohAgentPoolOptions {
   /** Max keep-alive sockets per DoH origin (default: 64). */
@@ -10,6 +10,13 @@ export interface DohAgentPoolOptions {
    * with `connections` max sockets each, queueing excess requests.
    */
   agentFactory?: (options: { connections: number }) => Dispatcher;
+  /**
+   * Injectable wire fetch for tests. Defaults to undici's own `fetch` so the
+   * dispatcher and the fetch implementation always come from the same undici
+   * version: Node's global fetch (bundled undici) rejects a dispatcher from a
+   * different undici version with "invalid onRequestStart method".
+   */
+  fetchFn?: typeof fetch;
 }
 
 /**
@@ -31,12 +38,14 @@ export interface DohAgentPoolOptions {
 export class DohAgentPool {
   readonly #maxConnections: number;
   readonly #agentFactory: (options: { connections: number }) => Dispatcher;
+  readonly #fetchFn: typeof fetch | undefined;
   #agent: Dispatcher | undefined;
   #disposed = false;
 
   constructor(options: DohAgentPoolOptions = {}) {
     this.#maxConnections = options.maxConnections ?? 64;
     this.#agentFactory = options.agentFactory ?? ((opts): Dispatcher => new Agent(opts));
+    this.#fetchFn = options.fetchFn;
   }
 
   /**
@@ -50,6 +59,27 @@ export class DohAgentPool {
       this.#agent = this.#agentFactory({ connections: this.#maxConnections });
     }
     return this.#agent;
+  }
+
+  /**
+   * Fetch through the pooled Agent, using a fetch implementation that matches
+   * the Agent's undici version (the injected fetchFn or undici's own fetch).
+   * Callers must never hand a pooled dispatcher to Node's global fetch: the
+   * two undici versions disagree on request handlers.
+   */
+  async fetchWithAgent(
+    url: string,
+    init?: { headers?: Record<string, string>; signal?: AbortSignal },
+  ): Promise<Response> {
+    // Normalized signature: the injected fetchFn (DOM-style fetch types) and
+    // undici's own fetch disagree on RequestInit — the subset we pass
+    // (headers/signal/dispatcher) is shared, so one concrete signature.
+    const wireFetch: (url: string, init?: RequestInit) => Promise<Response> = (this.#fetchFn ??
+      undiciFetch) as unknown as (url: string, init?: RequestInit) => Promise<Response>;
+    return wireFetch(url, {
+      ...(init ?? {}),
+      dispatcher: this.dispatcherFor(url),
+    } as RequestInit);
   }
 
   /**

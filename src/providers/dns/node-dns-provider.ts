@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
-import type { Dispatcher } from 'undici';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from './dns-provider.js';
@@ -190,7 +189,10 @@ async function resolveDoh(
   recordType: string,
   endpoint: string,
   signal?: AbortSignal,
-  dispatcher?: Dispatcher,
+  fetchWithAgent?: (
+    url: string,
+    init?: { headers?: Record<string, string>; signal?: AbortSignal },
+  ) => Promise<Response>,
 ): Promise<boolean> {
   const url = new URL(endpoint);
   url.searchParams.set('name', domain);
@@ -203,14 +205,19 @@ async function resolveDoh(
   const init: {
     headers: Record<string, string>;
     signal?: AbortSignal;
-    dispatcher?: unknown;
   } = {
     headers: { accept: 'application/dns-json' },
   };
   if (signal !== undefined) init.signal = signal;
-  if (dispatcher !== undefined) init.dispatcher = dispatcher;
 
-  const response = await fetch(url.toString(), init as Parameters<typeof fetch>[1]);
+  // The provider's DoH pool pairs its own fetch with the pooled dispatcher
+  // (same undici version): Node's global fetch rejects a foreign dispatcher
+  // with "invalid onRequestStart method". Without a pool, plain global
+  // fetch is used (single-shot dispatcher).
+  const response =
+    fetchWithAgent !== undefined
+      ? await fetchWithAgent(url.toString(), init)
+      : await fetch(url.toString(), init);
 
   if (!response.ok) {
     throw new Error(`DoH query failed: ${response.status}`);
@@ -258,7 +265,10 @@ async function resolveDohWire(
   recordType: string,
   endpoint: string,
   signal?: AbortSignal,
-  dispatcher?: Dispatcher,
+  fetchWithAgent?: (
+    url: string,
+    init?: { headers?: Record<string, string>; signal?: AbortSignal },
+  ) => Promise<Response>,
 ): Promise<boolean> {
   const query = buildDnsQuery(domain, recordTypeToQtype(recordType));
   const url = new URL(endpoint);
@@ -267,14 +277,16 @@ async function resolveDohWire(
   const init: {
     headers: Record<string, string>;
     signal?: AbortSignal;
-    dispatcher?: unknown;
   } = {
     headers: { accept: 'application/dns-message' },
   };
   if (signal !== undefined) init.signal = signal;
-  if (dispatcher !== undefined) init.dispatcher = dispatcher;
 
-  const response = await fetch(url.toString(), init as Parameters<typeof fetch>[1]);
+  // Same undici fetch/dispatcher pairing discipline as resolveDoh.
+  const response =
+    fetchWithAgent !== undefined
+      ? await fetchWithAgent(url.toString(), init)
+      : await fetch(url.toString(), init);
 
   if (!response.ok) {
     throw new Error(`DoH wire query failed: ${response.status}`);
@@ -377,13 +389,16 @@ async function resolvesAnyDoh(
   endpoint: string,
   timeout: number,
   signal?: AbortSignal,
-  dispatcher?: Dispatcher,
+  fetchWithAgent?: (
+    url: string,
+    init?: { headers?: Record<string, string>; signal?: AbortSignal },
+  ) => Promise<Response>,
   format: 'json' | 'wire' = 'json',
 ): Promise<boolean | undefined> {
   const query = (type: string, merged: AbortSignal): Promise<boolean> =>
     format === 'wire'
-      ? resolveDohWire(domain, type, endpoint, merged, dispatcher)
-      : resolveDoh(domain, type, endpoint, merged, dispatcher);
+      ? resolveDohWire(domain, type, endpoint, merged, fetchWithAgent)
+      : resolveDoh(domain, type, endpoint, merged, fetchWithAgent);
 
   // Phase 1: A record only
   const aTimeoutSignal = AbortSignal.timeout(timeout);
@@ -574,6 +589,12 @@ export class NodeDnsProvider implements DnsProvider {
      * resilience optimization, never a DNS outage.
      */
     breakers?: DnsBreakerRegistryLike | undefined;
+    /**
+     * Injectable DoH agent pool for tests. Defaults to a shared DohAgentPool
+     * that pairs its own fetch with the pooled dispatcher (both from the
+     * same undici version).
+     */
+    dohAgents?: DohAgentPool;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -592,9 +613,11 @@ export class NodeDnsProvider implements DnsProvider {
     this.#useDedicatedResolver = options?.useDedicatedResolver ?? true;
     this.#breakers = options?.breakers;
     this.#dotPoolMaxQueued = options?.dotPoolMaxQueued ?? 4096;
-    this.#dohAgents = new DohAgentPool({
-      maxConnections: options?.dohMaxConnections ?? 64,
-    });
+    this.#dohAgents =
+      options?.dohAgents ??
+      new DohAgentPool({
+        maxConnections: options?.dohMaxConnections ?? 64,
+      });
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -906,7 +929,7 @@ export class NodeDnsProvider implements DnsProvider {
           spec.endpoint ?? this.#dohEndpoint,
           timeout,
           combinedSignal,
-          this.#dohAgents.dispatcherFor(spec.endpoint ?? this.#dohEndpoint),
+          this.#dohAgents.fetchWithAgent.bind(this.#dohAgents),
           spec.format ?? 'json',
         );
       }

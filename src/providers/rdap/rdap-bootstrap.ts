@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { getLogger } from '../../logger.js';
-import type { Dispatcher } from 'undici';
+import { fetch as undiciFetch, type Dispatcher, type RequestInit } from 'undici';
 
 export interface RdapBootstrapServer {
   /** Human-readable server name (hostname). */
@@ -209,8 +209,17 @@ export class IanaRdapBootstrap {
       if (dispatcher !== undefined) {
         init.dispatcher = dispatcher;
       }
-      const fetchFn = this.#fetchFn ?? globalThis.fetch;
-      const response = await fetchFn(this.#url, init as Parameters<typeof fetch>[1]);
+      // When a pooled dispatcher is attached, the wire fetch must come from
+      // the same undici version (undici's own fetch): Node's global fetch
+      // rejects a foreign dispatcher with "invalid onRequestStart method".
+      // An explicit fetchFn (tests) always wins; without a dispatcher the
+      // global fetch is fine.
+      const wireFetch: (url: string, init?: RequestInit) => Promise<Response> = (this.#fetchFn ??
+        (dispatcher !== undefined ? undiciFetch : globalThis.fetch)) as unknown as (
+        url: string,
+        init?: RequestInit,
+      ) => Promise<Response>;
+      const response = await wireFetch(this.#url, init as RequestInit);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }

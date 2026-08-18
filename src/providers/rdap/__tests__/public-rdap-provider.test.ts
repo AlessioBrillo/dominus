@@ -1,17 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicRdapProvider } from '../public-rdap-provider.js';
+import { RdapAgentPool } from '../rdap-agent-pool.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import { ProviderError } from '../../../types/errors.js';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+/** Pool whose wire fetch is the test mock (the default pairs undici's own
+ *  fetch with the pooled dispatcher, which the mock must replace). */
+function mockPool(): RdapAgentPool {
+  return new RdapAgentPool({ fetchFn: mockFetch as unknown as typeof fetch });
+}
+
 describe('PublicRdapProvider', () => {
   let provider: PublicRdapProvider;
 
   beforeEach(() => {
-    provider = new PublicRdapProvider();
+    provider = new PublicRdapProvider(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      mockPool(),
+    );
     vi.clearAllMocks();
   });
 
@@ -30,6 +44,7 @@ describe('PublicRdapProvider', () => {
       undefined,
       undefined,
       ['com'],
+      mockPool(),
     );
     mockFetch.mockResolvedValue({ status: 404, ok: false });
     const result = await comOnly.confirm('free-domain.io');
@@ -43,6 +58,7 @@ describe('PublicRdapProvider', () => {
       undefined,
       undefined,
       ['com'],
+      mockPool(),
     );
     mockFetch.mockResolvedValue({ status: 404, ok: false });
     const result = await comOnly.confirm('free-domain.com');
@@ -194,7 +210,7 @@ describe('PublicRdapProvider HTTP hardening', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      mockPool(),
       undefined,
       publicLookup,
     );
@@ -275,7 +291,7 @@ describe('PublicRdapProvider HTTP hardening', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      mockPool(),
       1024,
       publicLookup,
     );
@@ -301,7 +317,7 @@ describe('PublicRdapProvider HTTP hardening', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      mockPool(),
       1024,
       publicLookup,
     );

@@ -9,6 +9,7 @@ import {
 import { DomainStatus } from '../../../types/domain-status.js';
 import type { RdapBootstrapServer, BootstrapStatus } from '../rdap-bootstrap.js';
 import type { Dispatcher } from 'undici';
+import { RdapAgentPool } from '../rdap-agent-pool.js';
 
 const IANA_SAMPLE = {
   services: [
@@ -263,10 +264,10 @@ describe('IanaRdapBootstrap backoff and status (ADR-0058)', () => {
       status: 200,
       json: async () => IANA_SAMPLE,
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const bootstrap = new IanaRdapBootstrap('https://example.invalid/dns.json', 60_000, {
       getDispatcher: async (): Promise<Dispatcher> => dispatcher,
+      fetchFn: fetchMock as unknown as typeof fetch,
     });
     await bootstrap.refresh();
 
@@ -303,27 +304,32 @@ function makeBootstrap(serversByTld: Record<string, RdapBootstrapServer[]>): Ian
 describe('FailoverRdapProvider per-TLD selection', () => {
   it('queries only the servers authoritative for the domain TLD', async () => {
     // com.example → registered (200); io.example → never queried for .com.
-    globalThis.fetch = vi.fn(async (input: unknown): Promise<Response> => {
+    const fetchMock = vi.fn(async (input: unknown): Promise<Response> => {
       const url = String(input);
       if (url.includes('com.example')) {
         return { ok: true, status: 200, json: async () => ({ handle: 'COM-1' }) } as Response;
       }
       return { ok: false, status: 404, json: async () => ({}) } as Response;
-    }) as unknown as typeof fetch;
+    });
 
     const bootstrap = makeBootstrap({
       com: [{ name: 'com-authority', baseUrl: 'https://com.example/', tlds: ['com'] }],
       io: [{ name: 'io-authority', baseUrl: 'https://io.example/', tlds: ['io'] }],
     });
 
-    const provider = new FailoverRdapProvider([], undefined, undefined, bootstrap);
+    const provider = new FailoverRdapProvider(
+      [],
+      undefined,
+      undefined,
+      bootstrap,
+      undefined,
+      new RdapAgentPool({ fetchFn: fetchMock as unknown as typeof fetch }),
+    );
     const result = await provider.confirm('example.com');
 
     expect(result.status).toBe(DomainStatus.Registered);
     expect(bootstrap.getServers).toHaveBeenCalledWith('com');
-    const queriedUrls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) =>
-      String(c[0]),
-    );
+    const queriedUrls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(queriedUrls.some((u) => u.includes('com.example'))).toBe(true);
     expect(queriedUrls.some((u) => u.includes('io.example'))).toBe(false);
   });
@@ -331,41 +337,53 @@ describe('FailoverRdapProvider per-TLD selection', () => {
   it('uses the rdap.org universal fallback for unknown TLDs', async () => {
     // Unknown TLD: rdap.org is queried (it is not a 404-from-wrong-server
     // case — it serves all TLDs), and a 404 there means Available.
-    globalThis.fetch = vi.fn(
-      async (): Promise<Response> =>
+    const fetchMock = vi.fn(
+      async (_input: unknown): Promise<Response> =>
         ({
           ok: false,
           status: 404,
           json: async () => ({}),
         }) as Response,
-    ) as unknown as typeof fetch;
+    );
 
     const bootstrap = makeBootstrap({});
-    const provider = new FailoverRdapProvider([], undefined, undefined, bootstrap);
+    const provider = new FailoverRdapProvider(
+      [],
+      undefined,
+      undefined,
+      bootstrap,
+      undefined,
+      new RdapAgentPool({ fetchFn: fetchMock as unknown as typeof fetch }),
+    );
     const result = await provider.confirm('example.unknown');
 
     expect(result.status).toBe(DomainStatus.Available);
-    const queriedUrls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) =>
-      String(c[0]),
-    );
+    const queriedUrls = fetchMock.mock.calls.map((c) => String(c[0]));
     expect(queriedUrls.some((u) => u.includes('rdap.org'))).toBe(true);
   });
 
   it('resolves the per-TLD provider list once and reuses it', async () => {
-    globalThis.fetch = vi.fn(
-      async (): Promise<Response> =>
+    const fetchMock = vi.fn(
+      async (_input: unknown): Promise<Response> =>
         ({
           ok: false,
           status: 404,
           json: async () => ({}),
         }) as Response,
-    ) as unknown as typeof fetch;
+    );
 
     const bootstrap = makeBootstrap({
       com: [{ name: 'com-authority', baseUrl: 'https://com.example/', tlds: ['com'] }],
     });
 
-    const provider = new FailoverRdapProvider([], undefined, undefined, bootstrap);
+    const provider = new FailoverRdapProvider(
+      [],
+      undefined,
+      undefined,
+      bootstrap,
+      undefined,
+      new RdapAgentPool({ fetchFn: fetchMock as unknown as typeof fetch }),
+    );
     await provider.confirm('example.com');
     await provider.confirm('other.com');
 
