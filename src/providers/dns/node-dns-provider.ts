@@ -49,12 +49,11 @@ type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
  * into an explicit "not resolved" verdict (see resolvesAnyNative and the
  * DoH/DoT wrappers), so an error carrying ENOTFOUND/ENODATA at this level
  * is NOT a proof of availability — it is an unhandled resolver failure.
- * Reported as Available, which is what the engine has done historically;
- * ADR-0002 requires Unknown here (see the flip in the dedicated test).
+ * ADR-0002 conservatism: a transient failure must never manufacture an
+ * Available verdict (a false Available produces a wasted buy
+ * recommendation), so every escaped error maps to Unknown.
  */
-export function verdictFromLookupError(err: unknown): DomainStatus {
-  const code = (err as { code?: string }).code;
-  if (code === 'ENOTFOUND' || code === 'ENODATA') return DomainStatus.Available;
+export function verdictFromLookupError(_err: unknown): DomainStatus {
   return DomainStatus.Unknown;
 }
 
