@@ -19,6 +19,12 @@
 # the database is NOT rolled back; the operator restores from a PITR backup
 # instead. SKIP_MIGRATION_GATE=1 disables the check.
 #
+# Release flow (migrate-before-roll, ADR-0061): the deploy workflow runs
+# scripts/deploy/migrate.sh BEFORE this script, so the target image's
+# migrations are applied explicitly with their own timeout budget. The
+# gate below then guards the roll and the rollback decision; the boot-time
+# gate (composition root) remains the final line of defense.
+#
 # Regression guard inherited from the original inline script: the rendered
 # compose used to pin a literal tag, so a bump re-pulled and re-rolled the
 # OLD image while the health poll below reported green. The per-service

@@ -176,8 +176,13 @@ estimates and subject to change.
 
 - [x] Schema migration gate: fail-closed manifest prefix check at boot and
       deploy, destructive-DDL scanner in CI, RTO/RPO documentation (#349)
+- [x] Migrate-before-roll: explicit migration step with a dedicated timeout
+      before the roll; the old image keeps serving while migrations apply
+      (ADR-0061)
 - [x] DNS consensus hardening: native resolver leg pinned to the private
       recursor, rigorous DNSSEC (SERVFAIL-on-bogus) (#350)
+- [x] DNS fail-closed parity: escaped resolver errors are never manufactured
+      into Available verdicts (ADR-0002 conservatism)
 - [x] Billing surface E2E coverage (community edition, fail-closed checkout)
 - [ ] Enterprise tier: custom pricing, SSO, SLA, dedicated infra
 - [ ] Security audit (third-party if budget allows)

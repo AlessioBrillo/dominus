@@ -22,7 +22,9 @@ extracts it with `docker run --entrypoint node <image> dist/db/migration-manifes
 
 ## 2. Why this exists
 
-Migrations run at boot (composition-root), before health checks. An
+Migrations run at boot (composition-root), before health checks, and — since
+ADR-0061 — explicitly *before* the roll on the deploy node
+(`scripts/deploy/migrate.sh`), while the previous image is still serving. An
 auto-rollback after a failed release boots the **previous** image against the
 **post-release** schema. Before the gate (v1.1.0) that rollback was blind:
 if the failed release had already migrated the database, the old code started
@@ -91,14 +93,15 @@ enforced.
 
 | Layer | Mechanism |
 |---|---|
-| CI (PR) | `release-gate` job: `node scripts/check-migration-compat.mjs --test` (fixture suite + repo scan) refuses destructive DDL; behavior tests for the deploy gate |
+| CI (PR) | `release-gate` job: `node scripts/check-migration-compat.mjs --test` (fixture suite + repo scan) refuses destructive DDL; behavior tests for the deploy gate and the migrate step |
 | Boot | `composition-root` preflight: `assertSchemaCompatible(applied, manifest)` fails fatal before `runMigrations()` |
 | Deploy | `scripts/deploy/migration-gate.sh` (sourced by `rollout.sh`): forward roll and rollback both gated; `.schema-state` records the applied count after every green deploy |
+| Deploy | `scripts/deploy/migrate.sh` (explicit migrate-before-roll, ADR-0061): runs the target image's `dist/db/migrate-cli.js` against the live database with a dedicated `MIGRATE_TIMEOUT_SECONDS`; nonzero exit aborts the deploy before any roll |
 | Local | `npm run check:migration-compat` |
 
 ## 5. Operational runbook
 
-**Symptom:** deploy output shows `migration gate blocked the deploy of <tag>`
+**Symptom A:** deploy output shows `migration gate blocked the deploy of <tag>`
 or `ROLLBACK BLOCKED BY MIGRATION GATE`.
 
 1. **Do not** start the old image (`DOMINUS_IMAGE_TAG` back-revert is exactly
@@ -113,6 +116,25 @@ or `ROLLBACK BLOCKED BY MIGRATION GATE`.
    release that contains the same migrations instead of restoring.
 4. Only when the schema state is fully understood may an operator set
    `SKIP_MIGRATION_GATE=1` for a single rollout; record it in the deploy log.
+
+**Symptom B:** deploy output shows `schema migrations failed` or
+`migration timed out` from `migrate.sh` (the migrate-before-roll step).
+
+1. The deploy has **already aborted** — no image was rolled, the previous
+   image is still serving, and the database may be partially migrated. Do
+   not re-run the deploy blindly.
+2. Diagnose (same queries as Symptom A): list `schema_migrations` and
+   compare with the target image's manifest. A partial migration is usually
+   visible as a gap at the tail of the applied set.
+3. Migrations are additive-only (§3), so the old image can keep serving
+   against the partially applied schema while the failure is investigated.
+   Preferred fix: deploy the **fixed** release containing the same migration
+   set, letting the migrate step complete the tail.
+4. If the failed migration wrote irreversible data, restore from a PITR
+   backup (newest base + WAL replay, see [operations/RTO-RPO](rto-rpo.md)).
+5. A timeout (`migration timed out after <MIGRATE_TIMEOUT_SECONDS>s`) means
+   the migrate container was killed; inspect the killed container's logs
+   (`docker logs <container>`) before retrying.
 
 ## 6. FAQ
 
