@@ -427,7 +427,8 @@ export function buildSecondaryDnsProvider(
 
 /**
  * Builds the DNS 2-of-3 consensus config for the pipeline's DNS prefilter
- * stage, or undefined when DNS_CONSENSUS_ENABLED is off (the default).
+ * stage, or undefined when DNS_CONSENSUS_ENABLED is false. Consensus is
+ * ENABLED by default (see config.ts) — it runs unless explicitly disabled.
  *
  * `consensusRateLimiter` is the dedicated consensus budget (ADR-0044): the
  * secondary provider must NOT draw from the primary DNS bucket, else a heavy
