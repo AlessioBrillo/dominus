@@ -89,7 +89,7 @@ jobs:
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
 
     steps:
-      - uses: webfactory/ssh-agent@v0.9.0
+      - uses: webfactory/ssh-agent@v0.10.0
         if: env.DEPLOY_SSH_HOST != ''
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
