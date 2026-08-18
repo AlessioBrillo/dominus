@@ -21,9 +21,9 @@ function parseZodError(err: z.ZodError): { code: string; message: string; issues
 export function createWatchlistRouter(watchlistService: WatchlistService): Router {
   const router = Router();
 
-  router.get('/', (_req: Request, res: Response, next: NextFunction): void => {
+  router.get('/', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const entries = watchlistService.list();
+      const entries = await watchlistService.list();
       res.json({ entries });
     } catch (err: unknown) {
       next(err);

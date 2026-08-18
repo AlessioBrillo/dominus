@@ -64,6 +64,18 @@ describe('API: /api/v1/watchlist', () => {
       expect(res.body.entries).toHaveLength(1);
       expect(res.body.entries[0]!.domain).toBe('example.com');
     });
+
+    it('awaits the async list() the way the real service is typed', async () => {
+      const service = makeStubService();
+      (service.list as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { domain: 'example.com', tld: '.com', notified: 0 },
+      ] as unknown as WatchlistEntry[]);
+      const res = await request(buildApp(service)).get('/api/v1/watchlist');
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.entries)).toBe(true);
+      expect(res.body.entries).toHaveLength(1);
+      expect(res.body.entries[0]!.domain).toBe('example.com');
+    });
   });
 
   describe('GET /:domain', () => {
