@@ -13,10 +13,11 @@ export interface RdapBootstrapServer {
 
 export const IANA_RDAP_BOOTSTRAP_URL = 'https://data.iana.org/rdap/dns.json';
 
-/** rdap.org routes any domain to the correct registry — universal fallback. */
+/** rdap.org routes any domain to the correct registry — universal fallback.
+ *  The /domain/ path is required: the bare origin answers 400 on lookups. */
 export const RDAP_ORG_UNIVERSAL: RdapBootstrapServer = {
   name: 'rdap.org',
-  baseUrl: 'https://rdap.org/',
+  baseUrl: 'https://rdap.org/domain/',
   tlds: [],
 };
 
@@ -58,9 +59,9 @@ export interface IanaRdapBootstrapOptions {
   retryMaxMs?: number;
 }
 
-interface IanaService {
-  ldhName?: string[];
-  urls?: string[];
+// The IANA dns.json encodes each service as a tuple [ldhNames, urls].
+interface IanaService extends Array<string[]> {
+  [index: number]: string[];
 }
 
 interface IanaDnsBootstrap {
@@ -226,9 +227,9 @@ export class IanaRdapBootstrap {
       const data = (await response.json()) as IanaDnsBootstrap;
       const byTld = new Map<string, RdapBootstrapServer[]>();
       for (const service of data.services ?? []) {
-        const urls = service.urls ?? [];
-        if (urls.length === 0) continue;
-        for (const rawTld of service.ldhName ?? []) {
+        const [ldhNames, urls] = service;
+        if (urls === undefined || urls.length === 0) continue;
+        for (const rawTld of ldhNames ?? []) {
           const tld = rawTld.replace(/^\./, '').toLowerCase();
           const servers = urls.map((url) => toServer(url, tld));
           byTld.set(tld, [...(byTld.get(tld) ?? []), ...servers]);
