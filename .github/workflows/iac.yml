@@ -240,6 +240,40 @@ jobs:
           else:
               print('OK   app compose .env sets BACKUP_DIR=/backups')
 
+          # Network hardening regression (GA sprint): the rendered nodes
+          # must carry the TLS + fail2ban + keys-only-SSH posture. A drift
+          # (e.g. a re-edit dropping the hostssl rows or the sslmode) fails
+          # the PR before it reaches a node.
+          app_hard = render_file(app_tpl)
+          if 'sslmode=require' not in app_hard:
+              print('FAIL app .env missing sslmode=require on DATABASE_URL')
+              ok = False
+          else:
+              print('OK   app .env enforces sslmode=require')
+          if 'fail2ban' not in app_hard or 'sshd_config.d/99-dominus.conf' not in app_hard:
+              print('FAIL app node missing fail2ban or keys-only sshd drop-in')
+              ok = False
+          else:
+              print('OK   app node has fail2ban + keys-only sshd')
+          db_hard = render_file(db_tpl)
+          if 'hostssl all dominus 10.0.0.0/16' not in db_hard:
+              print('FAIL db node pg_hba missing hostssl rows')
+              ok = False
+          else:
+              print('OK   db node pg_hba enforces hostssl-only')
+          if 'host all dominus 10.0.0.0/16' in db_hard:
+              print('FAIL db node pg_hba still allows plaintext host rows')
+              ok = False
+          for needle in ('ssl = on', 'dominus-ssl.conf', 'openssl req -x509'):
+              if needle not in db_hard:
+                  print(f'FAIL db node missing {needle}')
+                  ok = False
+          if 'hostssl all dominus 10.0.0.0/16' in db_hard and \
+                  'host all dominus 10.0.0.0/16' not in db_hard and \
+                  'ssl = on' in db_hard and 'dominus-ssl.conf' in db_hard and \
+                  'openssl req -x509' in db_hard:
+              print('OK   db node TLS posture complete')
+
           sys.exit(0 if ok else 1)
           PY
 

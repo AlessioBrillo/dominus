@@ -6,6 +6,14 @@ ssh_public_key    = "ssh-ed25519 AAAA... operator@host"
 domain            = "app.dominus.example"
 image_tag         = "v1.0.0"
 
+# SSH ingress allowlist (both nodes). The default admits any source (keys
+# only + fail2ban); restrict to the operator's networks for production.
+# Caveat: the release pipeline (deploy.yml) reaches the app node over SSH
+# from GitHub Actions runners with dynamic egress IPs — a static-egress
+# runner is required before restricting the app node. The db node can be
+# restricted freely.
+# ssh_allowed_cidrs = ["203.0.113.10/32"]
+
 db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
 # Dedicated password for the backup role (REPLICATION only, used by the
 # daily PITR cron via /opt/dominus/backup.env on the db node — never the

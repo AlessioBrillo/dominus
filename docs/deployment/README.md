@@ -243,7 +243,7 @@ The prod compose profile ships a €0 self-hosted monitoring stack:
 |---------|------|
 | `prometheus` | Scrapes `http://api:3000/api/v1/metrics/prometheus` every 30s, 30-day retention |
 | `alertmanager` | Routes alerts to the webhook in `deploy/prometheus/alertmanager.yml` |
-| `grafana` | Provisioned dashboard "DOMINUS Overview" (admin/admin by default — override `GRAFANA_ADMIN_PASSWORD`) |
+| `grafana` | Provisioned dashboard "DOMINUS Overview" (`GRAFANA_ADMIN_PASSWORD` is **required** by the prod overlay — no default `admin/admin` credentials) |
 
 Alert rules live in `deploy/prometheus/rules.yml` and cover: API down,
 provider error rate > 25%, stage errors, stuck job queue (jobs queued with
