@@ -55,6 +55,21 @@ variable "ssh_public_key" {
   description = "Operator SSH public key installed on both nodes."
 }
 
+variable "ssh_allowed_cidrs" {
+  type        = list(string)
+  default     = ["0.0.0.0/0", "::/0"]
+  description = <<-EOT
+    CIDR allowlist for SSH ingress on both nodes. The default admits
+    anything (keys only) to preserve existing deployments; restrict it to
+    the operator's networks before production use. Caveat: the release
+    pipeline (deploy.yml) reaches the app node over SSH from GitHub
+    Actions runners, whose egress IPs are dynamic — restricting the app
+    node SSH ingress requires a static-egress runner or another deploy
+    transport, while the db node (operator-only SSH) can be restricted
+    freely.
+  EOT
+}
+
 variable "project" {
   type        = string
   default     = "dominus"
@@ -74,7 +89,7 @@ variable "domain" {
 
 variable "image_tag" {
   type        = string
-  default     = "v0.11.0"
+  default     = "v1.0.0"
   description = "GHCR image tag to deploy (digest-pinned at apply, ADR-0046). Only consulted at provision time: the rendered compose references DOMINUS_IMAGE_TAG from .env at runtime, so release bumps go through the deploy pipeline (deploy.yml), never a Terraform apply — user_data is ForceNew and an apply would recreate the node and lose the named volumes."
 }
 
@@ -197,14 +212,16 @@ resource "hcloud_firewall" "public" {
     direction   = "in"
     protocol    = "tcp"
     port        = "22"
-    source_ips  = ["0.0.0.0/0", "::/0"]
+    source_ips  = var.ssh_allowed_cidrs
     description = "SSH"
   }
 }
 
 # The database node exposes nothing publicly: SSH for administration only.
 # Postgres stays on the private network; without this firewall the 5432
-# port would be reachable from the internet.
+# port would be reachable from the internet. The operator-only SSH surface
+# is free to be restricted to static CIDRs (unlike the app node, which the
+# GitHub Actions deploy pipeline must reach).
 resource "hcloud_firewall" "db_ssh" {
   name = "${var.project}-db-ssh"
 
@@ -212,7 +229,7 @@ resource "hcloud_firewall" "db_ssh" {
     direction   = "in"
     protocol    = "tcp"
     port        = "22"
-    source_ips  = ["0.0.0.0/0", "::/0"]
+    source_ips  = var.ssh_allowed_cidrs
     description = "SSH (administration)"
   }
 }

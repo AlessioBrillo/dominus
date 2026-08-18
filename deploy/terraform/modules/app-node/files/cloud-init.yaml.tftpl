@@ -6,15 +6,41 @@ package_update: true
 packages:
   - docker.io
   - docker-compose-plugin
+  - fail2ban
 
 write_files:
+  # fail2ban jail for SSH: the public firewall admits ssh from the
+  # operator CIDRs (or anywhere, keys only); brute force is throttled
+  # here rather than in the firewall.
+  - path: /etc/fail2ban/jail.d/dominus-sshd.local
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 3
+      bantime = 1h
+      findtime = 10m
+      backend = systemd
+    permissions: "0644"
+
+  # Keys-only SSH, explicitly. sshd_config.d drop-ins are included before
+  # the rest of the main config, and sshd honours the FIRST obtained
+  # value, so this override wins regardless of the distro default.
+  - path: /etc/ssh/sshd_config.d/99-dominus.conf
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin prohibit-password
+    permissions: "0644"
+
   - path: /opt/dominus/.env
     content: |
       # Rendered by Terraform — do not edit by hand.
       # App connects as dominus_app (RLS-scoped, ADR-0038) — never the
       # owner role, which would bypass FORCE ROW LEVEL SECURITY.
+      # sslmode=require: the db node serves hostssl-only connections
+      # (self-signed cert on the private network), so plaintext is
+      # refused at the server, not just discouraged at the client.
       DOMINUS_IMAGE_TAG=${image_tag}
-      DATABASE_URL=postgres://dominus_app:${db_app_password}@${db_host}:5432/dominus
+      DATABASE_URL=postgres://dominus_app:${db_app_password}@${db_host}:5432/dominus?sslmode=require
       REDIS_URL=redis://redis:6379
       BACKUP_DIR=/backups
       WORKER_ENABLED=true
@@ -212,3 +238,6 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable --now dominus-compose.service
   - docker compose -f /opt/dominus/docker-compose.yml version
+  - systemctl enable --now fail2ban
+  # Apply the keys-only SSH posture written above.
+  - systemctl restart ssh

@@ -5,8 +5,39 @@ package_update: true
 packages:
   - postgresql-17
   - rclone
+  - fail2ban
+  - openssl
 
 write_files:
+  # fail2ban jail for SSH (same posture as the app node).
+  - path: /etc/fail2ban/jail.d/dominus-sshd.local
+    content: |
+      [sshd]
+      enabled = true
+      maxretry = 3
+      bantime = 1h
+      findtime = 10m
+      backend = systemd
+    permissions: "0644"
+
+  # Keys-only SSH, explicitly (sshd honours the first obtained value and
+  # sshd_config.d drop-ins are included first).
+  - path: /etc/ssh/sshd_config.d/99-dominus.conf
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin prohibit-password
+    permissions: "0644"
+
+  # TLS on the private network: a self-signed cert is enough — the
+  # app node pins no CA, it only needs the transport encrypted and the
+  # connection refused when TLS is absent. Combined with the hostssl-only
+  # pg_hba rows below, plaintext connections are impossible.
+  - path: /etc/postgresql/17/main/conf.d/dominus-ssl.conf
+    content: |
+      ssl = on
+      ssl_cert_file = '/etc/postgresql/17/main/server.crt'
+      ssl_key_file = '/etc/postgresql/17/main/server.key'
+    permissions: "0644"
   # Secrets for the daily PITR cron live here (0600) instead of inline in
   # the cron file under /etc/cron.d (which cron treats as 0644 and any
   # local user could read). The cron line sources this file; nothing
@@ -119,14 +150,27 @@ runcmd:
   - |
     if ! grep -q "10.0.0.0/16" /etc/postgresql/17/main/pg_hba.conf; then
       cat >> /etc/postgresql/17/main/pg_hba.conf <<EOF
-    # DOMINUS app node (private network)
-    host all dominus 10.0.0.0/16 scram-sha-256
-    host all dominus_app 10.0.0.0/16 scram-sha-256
-    host all backup 10.0.0.0/16 scram-sha-256
+    # DOMINUS app node (private network) — TLS required (hostssl only)
+    hostssl all dominus 10.0.0.0/16 scram-sha-256
+    hostssl all dominus_app 10.0.0.0/16 scram-sha-256
+    hostssl all backup 10.0.0.0/16 scram-sha-256
     EOF
     fi
   - sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" /etc/postgresql/17/main/postgresql.conf
+  # Self-signed certificate for the private-network TLS above; idempotent
+  # so a re-provision keeps the existing cert (and its 10-year validity).
+  - |
+    if [ ! -f /etc/postgresql/17/main/server.crt ]; then
+      openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+        -subj "/CN=dominus-db" \
+        -keyout /etc/postgresql/17/main/server.key \
+        -out /etc/postgresql/17/main/server.crt
+      chown postgres:postgres /etc/postgresql/17/main/server.key /etc/postgresql/17/main/server.crt
+      chmod 600 /etc/postgresql/17/main/server.key
+    fi
   - systemctl restart postgresql
+  - systemctl enable --now fail2ban
+  - systemctl restart ssh
   # Canonical backup script from the repo at the pinned deploy tag — no
   # drift from an embedded copy (immutable supply chain, ADR-0046).
   - curl -fsSL -o /opt/dominus/base-backup.sh \
