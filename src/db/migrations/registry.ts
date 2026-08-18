@@ -19,6 +19,15 @@ export interface Migration {
    * no more split-brain migration maintenance.
    */
   upPg?: (db: DatabaseProvider) => Promise<void>;
+  /**
+   * Explicit, reviewed override for the release gate
+   * (scripts/check-migration-compat.mjs, docs/releases/migration-policy.md).
+   * Destructive DDL (DROP COLUMN, RENAME, DELETE FROM, ...) is refused by
+   * default because auto-rollback boots the previous image against the
+   * post-release schema. Setting this to true documents that the change is
+   * safe on rollback (e.g. the affected data never shipped).
+   */
+  backwardCompatible?: boolean;
 }
 
 interface MigrationModule {
@@ -26,6 +35,7 @@ interface MigrationModule {
   up: (db: Database.Database) => void;
   down?: (db: Database.Database) => void;
   upPg?: (db: DatabaseProvider) => Promise<void>;
+  backwardCompatible?: boolean;
 }
 
 async function loadAll(): Promise<Migration[]> {
@@ -46,6 +56,7 @@ async function loadAll(): Promise<Migration[]> {
       up: mod.up,
       ...(mod.down !== undefined ? { down: mod.down } : {}),
       ...(mod.upPg !== undefined ? { upPg: mod.upPg } : {}),
+      ...(mod.backwardCompatible === true ? { backwardCompatible: true } : {}),
     });
   }
   return migrations;

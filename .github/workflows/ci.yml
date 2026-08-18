@@ -314,6 +314,62 @@ jobs:
       - name: Behavior-test rollout script (mocked docker/curl)
         run: bash scripts/deploy/test-rollout.sh
 
+  release-gate:
+    name: Release gate (schema migration safety)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # The migration gate is part of the rollout path: syntax errors in
+      # any of the deploy scripts fail the PR, not the release.
+      - name: Syntax-check migration gate and deploy scripts
+        run: |
+          set -euo pipefail
+          bash -n scripts/deploy/migration-gate.sh
+          bash -n scripts/deploy/rollout.sh
+          bash -n scripts/deploy/test-migration-gate.sh
+          bash -n scripts/deploy/test-rollout.sh
+
+      # Destructive DDL is refused on every migration (drop/rename columns,
+      # drop tables without recreate, deletes, SET NOT NULL). The fixture
+      # suite proves the scanner's judgement and scans the real repo.
+      - name: Check migrations are additive (fixture suite + repo scan)
+        run: node scripts/check-migration-compat.mjs --test
+
+      - name: Behavior-test migration gate (mocked docker/psql)
+        run: bash scripts/deploy/test-migration-gate.sh
+
+      - name: Behavior-test rollout with gate wired in
+        run: bash scripts/deploy/test-rollout.sh
+
+      # The built image must expose the manifest CLI the gate invokes via
+      # `docker run --entrypoint node`; assert it builds and lists the same
+      # migrations the registry knows.
+      - name: Build and smoke-test migration manifest CLI
+        run: |
+          set -euo pipefail
+          npm run build
+          list_count=$(node dist/db/migration-manifest-cli.js --list | wc -l)
+          registry_count=$(node --input-type=module -e "
+            import('./dist/db/migrations/registry.js').then(m => {
+              process.stdout.write(String(m.getMigrationNames().length));
+            })
+          ")
+          [ "$list_count" = "$registry_count" ] || {
+            echo "FATAL: manifest CLI lists $list_count migrations, registry knows $registry_count"
+            exit 1
+          }
+          echo "migration manifest CLI OK ($list_count migrations)"
+
   frontend:
     name: Frontend (typecheck, lint, test, build)
     runs-on: ubuntu-latest
