@@ -26,7 +26,12 @@ services:
     image: dominus-api:latest
     container_name: dominus-api
     ports:
-      - "${PORT:-3000}:3000"
+      # Bind to loopback by default: the API is unauthenticated on /
+      # health only, and exposing the app port on the host network
+      # without a reverse proxy is a firewall dependency the operator
+      # must opt into explicitly. Override with 0.0.0.0:${PORT}:3000
+      # when a LAN-exposed deployment is intended.
+      - "127.0.0.1:${PORT:-3000}:3000"
     volumes:
       - ./data:/app/data
       - ./data/weights-override.json:/app/data/weights-override.json:ro

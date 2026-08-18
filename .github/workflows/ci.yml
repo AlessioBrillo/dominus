@@ -172,7 +172,7 @@ jobs:
       # DOMINUS_IMAGE_TAG is required (ADR-0046): a stable release tag is
       # enough for topology validation; the pinned-digest existence check
       # below validates the immutable refs against the registry.
-      DOMINUS_IMAGE_TAG: v0.10.1
+      DOMINUS_IMAGE_TAG: v1.0.0
 
     steps:
       - uses: actions/checkout@v7
