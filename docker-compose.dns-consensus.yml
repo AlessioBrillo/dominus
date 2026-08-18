@@ -13,6 +13,12 @@
 # with the consensus gate enabled — the override is turnkey, no manual
 # environment wiring required.
 #
+# DNS_NAMESERVERS=172.20.0.10:5300 pins the NATIVE resolver leg as well: the
+# primary lookups no longer egress through Docker's embedded DNS (127.0.0.11)
+# into the host's resolv.conf and the ISP resolver. With the override active,
+# every DNS path in the app — native primary leg and consensus secondary —
+# goes through the private, DNSSEC-validating recursor.
+#
 # The dedicated /24 keeps the recursor on the loopback-isolated compose
 # subnet it is allowed to serve (access-control 172.20.0.0/24 in unbound.conf).
 #
@@ -55,6 +61,7 @@ services:
 
   api:
     environment:
+      - DNS_NAMESERVERS=172.20.0.10:5300
       - DNS_CONSENSUS_ENABLED=true
       - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
     networks:
@@ -65,6 +72,7 @@ services:
 
   worker:
     environment:
+      - DNS_NAMESERVERS=172.20.0.10:5300
       - DNS_CONSENSUS_ENABLED=true
       - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
     networks:
@@ -75,6 +83,7 @@ services:
 
   scheduler:
     environment:
+      - DNS_NAMESERVERS=172.20.0.10:5300
       - DNS_CONSENSUS_ENABLED=true
       - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
     networks:
