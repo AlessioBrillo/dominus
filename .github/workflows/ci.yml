@@ -293,6 +293,23 @@ jobs:
       - name: Check every image reference is pinned
         run: npm run check:image-pins
 
+  deploy-script:
+    name: Deploy rollout script check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The rollout script runs on the app node during release deploys; a
+      # syntax error there fails the deploy at the worst moment, so CI
+      # validates it on every PR (same guard as the compose-topology job).
+      - name: Syntax-check rollout script
+        run: bash -n scripts/deploy/rollout.sh
+
+      - name: Behavior-test rollout script (mocked docker/curl)
+        run: bash scripts/deploy/test-rollout.sh
+
   frontend:
     name: Frontend (typecheck, lint, test, build)
     runs-on: ubuntu-latest
