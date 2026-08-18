@@ -651,3 +651,46 @@ describe('WHOIS rate limit config defaults (ADR-0052)', () => {
     expect(() => loadConfig()).toThrow();
   });
 });
+
+// z.coerce.boolean() turns the literal string "false" into true (Boolean("false")
+// is true), so any env key parsed that way can never be switched off from the
+// .env. These four keys must keep the same preprocess pattern as every other
+// boolean in the schema (string === 'true').
+describe('boolean env overrides honour the literal "false" string', () => {
+  const ENV_KEYS = [
+    'ANON_TRADEMARK_BUDGET_ENABLED',
+    'PROVIDER_FAIR_SHARE_ENABLED',
+    'RDAP_CONSENSUS_ENABLED',
+    'RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it.each(ENV_KEYS)('%s=false parses to false', (key) => {
+    process.env[key] = 'false';
+    resetConfig();
+    expect(loadConfig()[key as keyof ReturnType<typeof loadConfig>]).toBe(false);
+  });
+
+  it('RDAP_CONSENSUS_ENABLED=true parses to true', () => {
+    process.env.RDAP_CONSENSUS_ENABLED = 'true';
+    resetConfig();
+    expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(true);
+  });
+});

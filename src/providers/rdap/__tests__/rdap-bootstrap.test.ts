@@ -11,16 +11,12 @@ import type { RdapBootstrapServer, BootstrapStatus } from '../rdap-bootstrap.js'
 import type { Dispatcher } from 'undici';
 import { RdapAgentPool } from '../rdap-agent-pool.js';
 
+// The real IANA dns.json encodes each service as a tuple [ldhNames, urls]
+// (verified against https://data.iana.org/rdap/dns.json).
 const IANA_SAMPLE = {
   services: [
-    {
-      ldhName: ['COM', 'NET'],
-      urls: ['https://rdap.verisign.com/com/v1/'],
-    },
-    {
-      ldhName: ['IO'],
-      urls: ['https://rdap.identitydigital.services/rdap/'],
-    },
+    [['COM', 'NET'], ['https://rdap.verisign.com/com/v1/']],
+    [['IO'], ['https://rdap.identitydigital.services/rdap/']],
   ],
 };
 
@@ -40,6 +36,10 @@ function mockFetchResponse(body: unknown, status = 200): void {
 describe('IanaRdapBootstrap', () => {
   it('uses the IANA registry URL by default', () => {
     expect(IANA_RDAP_BOOTSTRAP_URL).toBe('https://data.iana.org/rdap/dns.json');
+  });
+
+  it('rdap.org fallback routes domain lookups through the /domain/ path (the bare origin answers 400)', () => {
+    expect(RDAP_ORG_UNIVERSAL.baseUrl).toBe('https://rdap.org/domain/');
   });
 
   it('resolves the authoritative server per TLD from the bootstrap', async () => {

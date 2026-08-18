@@ -201,7 +201,9 @@ const configSchema = z.object({
    * gracefully while provider cost stays bounded.
    * Default: false (community edition keeps today's behaviour).
    */
-  ANON_TRADEMARK_BUDGET_ENABLED: z.coerce.boolean().default(false),
+  ANON_TRADEMARK_BUDGET_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
   /** Rate limiting: max burst of anonymous trademark checks per interval. */
   ANON_TRADEMARK_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(2),
   /** Rate limiting: refill interval in ms for the anonymous trademark budget. */
@@ -701,7 +703,9 @@ const configSchema = z.object({
    * SQLite/local limiter is single-user by design and never enforces it.
    * Default: true.
    */
-  PROVIDER_FAIR_SHARE_ENABLED: z.coerce.boolean().default(true),
+  PROVIDER_FAIR_SHARE_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
   /**
    * JSON array of RDAP bootstrap server entries for multi-provider failover.
    * When set, the IANA bootstrap resolution is skipped. Each entry is either
@@ -799,7 +803,9 @@ const configSchema = z.object({
    * consensus gate (DNS_CONSENSUS_ENABLED, ADR-0040). Disable explicitly
    * to trade safety for volume.
    */
-  RDAP_CONSENSUS_ENABLED: z.coerce.boolean().default(true),
+  RDAP_CONSENSUS_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
 
   /**
    * Opt-in WHOIS rescue leg for the RDAP 2-of-2 consensus gate (ADR-0051):
@@ -813,7 +819,9 @@ const configSchema = z.object({
    * false: this is a narrow, explicit override of ADR-0050's fail-closed
    * rule for the unverifiable class only.
    */
-  RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: z.coerce.boolean().default(false),
+  RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
 
   /**
    * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2, ADR-0058).
