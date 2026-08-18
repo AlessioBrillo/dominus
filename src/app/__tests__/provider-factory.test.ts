@@ -27,6 +27,11 @@ import { DomainStatus } from '../../types/domain-status.js';
 import { FailoverRdapProvider } from '../../providers/rdap/failover-rdap-provider.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import { getLogger, resetLogger } from '../../logger.js';
+import { buildKeywordProvider, buildCompsProvider } from '../provider-factory.js';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../../db/migrator.js';
+import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
+import { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -931,5 +936,29 @@ describe('buildAnonBudgetGate (ADR-0056)', () => {
     expect(gate.enabled).toBe(true);
     expect(gate.limiter).toBeInstanceOf(RedisRateLimiter);
     expect((gate.limiter as RedisRateLimiter).metrics().namespace).toBe('anon-trademark');
+  });
+});
+
+describe('buildKeywordProvider / buildCompsProvider cached wrappers', () => {
+  function openRepo(): ProviderCacheRepository {
+    const db = new Database(':memory:');
+    db.pragma('journal_mode = WAL');
+    runMigrations(db);
+    return new ProviderCacheRepository(new SqliteProvider(db));
+  }
+
+  it('exposes pruneCache on the cached wrapper (composition-root calls it per run)', () => {
+    const config = makeConfig();
+    const repo = openRepo();
+    const { cached: keywordCached } = buildKeywordProvider(config, repo);
+    const { cached: compsCached } = buildCompsProvider(config, repo);
+
+    const keywordPrune = (keywordCached as unknown as { pruneCache?: () => void }).pruneCache;
+    const compsPrune = (compsCached as unknown as { pruneCache?: () => void }).pruneCache;
+
+    expect(typeof keywordPrune).toBe('function');
+    expect(typeof compsPrune).toBe('function');
+    expect(() => keywordPrune?.()).not.toThrow();
+    expect(() => compsPrune?.()).not.toThrow();
   });
 });

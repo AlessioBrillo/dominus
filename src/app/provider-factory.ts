@@ -87,9 +87,10 @@ export function buildKeywordProvider(
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
-  const cached: KeywordProvider & { clearCache: () => void } = {
+  const cached: KeywordProvider & { clearCache: () => void; pruneCache: () => void } = {
     getMetrics: (term: string, signal?: AbortSignal) => cache.get(term, signal),
     clearCache: () => cache.clearCache(),
+    pruneCache: () => cache.pruneCache(),
   };
 
   return { raw, cached: cached as KeywordProvider };
@@ -112,9 +113,10 @@ export function buildCompsProvider(
     config.PROVIDER_MEMORY_CACHE_SIZE,
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
-  const cached: CompsProvider & { clearCache: () => void } = {
+  const cached: CompsProvider & { clearCache: () => void; pruneCache: () => void } = {
     getSales: (term: string, signal?: AbortSignal) => cache.get(term, signal),
     clearCache: () => cache.clearCache(),
+    pruneCache: () => cache.pruneCache(),
   };
 
   return { raw, cached: cached as CompsProvider };
