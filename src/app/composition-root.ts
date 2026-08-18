@@ -2,6 +2,11 @@
 import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
+import {
+  assertSchemaCompatible,
+  getMigrationManifest,
+  readAppliedMigrations,
+} from '../db/migration-manifest.js';
 import { getLogger } from '../logger.js';
 import {
   openDatabase,
@@ -510,6 +515,20 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const provider = config.DATABASE_URL
     ? await createDatabaseProvider(config)
     : createSqliteProvider(config);
+
+  // Schema compatibility preflight (migration gate): the applied migration
+  // set must be a strict prefix of this image's manifest. A database ahead
+  // of the image (downgrade deploy, auto-rollback onto a migrated schema)
+  // or with unknown migrations fails closed BEFORE any migration runs, so
+  // old code can never boot against a schema it does not understand.
+  // Restore from a PITR backup instead (docs/releases/migration-policy.md).
+  const appliedMigrations = await readAppliedMigrations(provider);
+  const schemaCompat = assertSchemaCompatible(appliedMigrations, getMigrationManifest());
+  if (!schemaCompat.ok) {
+    throw new Error(
+      `Schema migration gate failed for ${provider.dialect} database: ${schemaCompat.reason}`,
+    );
+  }
 
   // Run schema migrations through the provider (dialect-aware).
   await provider.runMigrations();
