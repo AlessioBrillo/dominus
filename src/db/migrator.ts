@@ -2,6 +2,11 @@
 import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from './provider/interface.js';
 import { getMigrations, getPgMigrations, getMigrationNames } from './migrations/registry.js';
+import {
+  assertSchemaCompatible,
+  getMigrationManifest,
+  readAppliedMigrations,
+} from './migration-manifest.js';
 
 const SCHEMA_MIGRATIONS_DDL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -32,6 +37,31 @@ export function runMigrations(db: Database.Database): void {
       insert.run(migration.name);
     }
   }
+}
+
+/**
+ * Schema compatibility preflight (migration gate) followed by the
+ * migration run, through the dialect-aware provider.
+ *
+ * The applied migration set must be a strict prefix of this image's
+ * manifest. A database ahead of the image (downgrade deploy, auto-rollback
+ * onto a migrated schema) or with unknown migrations fails closed BEFORE
+ * any migration runs, so old code can never boot against a schema it does
+ * not understand. Restore from a PITR backup instead
+ * (docs/releases/migration-policy.md).
+ *
+ * Used by the application boot (composition root) and by the standalone
+ * migrate CLI (migrate-before-roll, ADR-0061).
+ */
+export async function ensureSchemaUpToDate(provider: DatabaseProvider): Promise<void> {
+  const appliedMigrations = await readAppliedMigrations(provider);
+  const schemaCompat = assertSchemaCompatible(appliedMigrations, getMigrationManifest());
+  if (!schemaCompat.ok) {
+    throw new Error(
+      `Schema migration gate failed for ${provider.dialect} database: ${schemaCompat.reason}`,
+    );
+  }
+  await provider.runMigrations();
 }
 
 /**
