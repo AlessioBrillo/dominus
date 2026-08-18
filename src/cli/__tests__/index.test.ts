@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { createCli } from '../index.js';
@@ -103,6 +103,7 @@ function mockConfig(): Config {
     POST_BODY_MAX_BYTES: 1000,
     RDAP_BATCH_CONCURRENCY: 5,
     RDAP_MAX_CONNECTIONS: 32,
+    RDAP_MAX_RESPONSE_BYTES: 1048576,
     RDAP_CONSENSUS_ENABLED: false,
     RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
     RDAP_CONSENSUS_ENDPOINT: '',

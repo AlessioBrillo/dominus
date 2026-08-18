@@ -10,13 +10,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Resolver } from 'node:dns';
 import { resolveWithTimeout, resolveWithAbort } from '../node-dns-provider.js';
 
-vi.mock('node:dns', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:dns')>();
+interface MockResolverLike {
+  cancelled: boolean;
+  resolve: (
+    hostname: string,
+    rrtype: string,
+    callback: (err: Error | null, addresses?: string[]) => void,
+  ) => void;
+  cancel: () => void;
+  setServers: (servers: string[]) => void;
+}
+
+const mockState: { instances: MockResolverLike[] } = { instances: [] };
+
+vi.mock('node:dns', () => {
   class MockResolver {
-    static instances: MockResolver[] = [];
     cancelled = false;
     constructor() {
-      MockResolver.instances.push(this);
+      mockState.instances.push(this);
     }
     resolve(
       _hostname: string,
@@ -30,23 +41,19 @@ vi.mock('node:dns', async (importOriginal) => {
     }
     setServers(_servers: string[]): void {}
   }
-  return { ...actual, Resolver: MockResolver };
+  return { Resolver: MockResolver };
 });
-
-interface MockResolverType extends Resolver {
-  cancelled: boolean;
-}
 
 describe('per-call resolver cancellation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (Resolver as unknown as { instances: MockResolver[] }).instances = [];
+    mockState.instances = [];
   });
 
   it('cancels the owned resolver when the timeout fires', async () => {
     const promise = resolveWithTimeout('hung.test', 'A', 50);
     await expect(promise).rejects.toMatchObject({ code: 'ETIMEOUT' });
-    const owned = (Resolver as unknown as { instances: MockResolver[] }).instances[0];
+    const owned = mockState.instances[0]!;
     expect(owned).toBeDefined();
     expect(owned.cancelled).toBe(true);
   });
@@ -56,9 +63,7 @@ describe('per-call resolver cancellation', () => {
     const promise = resolveWithTimeout('hung.test', 'A', 5000, controller.signal);
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-    expect((Resolver as unknown as { instances: MockResolver[] }).instances[0].cancelled).toBe(
-      true,
-    );
+    expect(mockState.instances[0]!.cancelled).toBe(true);
   });
 
   it('resolveWithAbort cancels the owned resolver on abort', async () => {
@@ -66,19 +71,22 @@ describe('per-call resolver cancellation', () => {
     const promise = resolveWithAbort('hung.test', 'A', controller.signal);
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
-    expect((Resolver as unknown as { instances: MockResolver[] }).instances[0].cancelled).toBe(
-      true,
-    );
+    expect(mockState.instances[0]!.cancelled).toBe(true);
   });
 
   it('never cancels a caller-supplied shared resolver', async () => {
-    const shared = new Resolver() as unknown as MockResolverType;
+    const shared = new Resolver() as unknown as MockResolverLike;
     const controller = new AbortController();
-    const promise = resolveWithAbort('hung.test', 'A', controller.signal, shared);
+    const promise = resolveWithAbort(
+      'hung.test',
+      'A',
+      controller.signal,
+      shared as unknown as Resolver,
+    );
     controller.abort();
     await expect(promise).rejects.toMatchObject({ name: 'AbortError' });
     expect(shared.cancelled).toBe(false);
     // No owned resolver was created for this call.
-    expect((Resolver as unknown as { instances: MockResolver[] }).instances).toHaveLength(1);
+    expect(mockState.instances).toHaveLength(1);
   });
 });

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
@@ -64,7 +64,7 @@ function makeDnsProvider(): DnsProvider {
   };
 }
 
-describe('Dependency Injection Ã¢â‚¬â€ composition-root wiring', () => {
+describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â composition-root wiring', () => {
   it('opens SQLite database and runs migrations', () => {
     const provider = openTestDb();
 
@@ -453,6 +453,7 @@ describe('Dependency Injection Ã¢â‚¬â€ composition-root wiring', () =
       POST_BODY_MAX_BYTES: 1000,
       RDAP_BATCH_CONCURRENCY: 5,
       RDAP_MAX_CONNECTIONS: 32,
+      RDAP_MAX_RESPONSE_BYTES: 1048576,
       RDAP_CONSENSUS_ENABLED: false,
       RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
       RDAP_CONSENSUS_ENDPOINT: '',

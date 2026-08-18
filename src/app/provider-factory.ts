@@ -289,6 +289,8 @@ export function buildRdapProviders(
           undefined,
           breakers.perServer,
           rdapAgentPool,
+          undefined,
+          config.RDAP_MAX_RESPONSE_BYTES,
         )
       : FailoverRdapProvider.withDefaults(
           rdapRateLimiter,
@@ -296,6 +298,7 @@ export function buildRdapProviders(
           ianaBootstrap,
           breakers.perServer,
           rdapAgentPool,
+          config.RDAP_MAX_RESPONSE_BYTES,
         );
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, breakers.global);
@@ -1037,6 +1040,7 @@ export function createRdapConsensusConfig(
     breakers.perServer,
     rdapAgentPool,
     config.RDAP_CONSENSUS_TIMEOUT_MS,
+    config.RDAP_MAX_RESPONSE_BYTES,
   );
 
   logger.info(

@@ -206,7 +206,10 @@ describe('PublicRdapProvider HTTP hardening', () => {
       .mockResolvedValueOnce({
         status: 302,
         ok: false,
-        headers: { get: (name: string): string | null => (name === 'location' ? 'https://registry2.example/domain/example.com' : null) },
+        headers: {
+          get: (name: string): string | null =>
+            name === 'location' ? 'https://registry2.example/domain/example.com' : null,
+        },
         body: redirectBody,
       })
       .mockResolvedValueOnce({
@@ -277,7 +280,7 @@ describe('PublicRdapProvider HTTP hardening', () => {
       publicLookup,
     );
     const body = new ReadableStream({
-      start(controller) {
+      start(controller): void {
         controller.enqueue(new TextEncoder().encode('x'.repeat(2048)));
         controller.close();
       },
@@ -305,7 +308,9 @@ describe('PublicRdapProvider HTTP hardening', () => {
     mockFetch.mockResolvedValue({
       status: 200,
       ok: true,
-      headers: { get: (name: string): string | null => (name === 'content-length' ? '999999' : null) },
+      headers: {
+        get: (name: string): string | null => (name === 'content-length' ? '999999' : null),
+      },
       body: { cancel: vi.fn() },
     });
     await expect(capped.confirm('example.com')).rejects.toBeInstanceOf(ProviderError);

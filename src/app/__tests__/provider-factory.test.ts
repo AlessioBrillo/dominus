@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   buildAnonBudgetGate,
@@ -113,6 +113,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     POST_BODY_MAX_BYTES: 1000,
     RDAP_BATCH_CONCURRENCY: 5,
     RDAP_MAX_CONNECTIONS: 32,
+    RDAP_MAX_RESPONSE_BYTES: 1048576,
     RDAP_CONSENSUS_ENABLED: false,
     RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
     RDAP_CONSENSUS_ENDPOINT: '',
@@ -261,7 +262,7 @@ describe('buildDnsConsensusConfig', () => {
 
   it('returns undefined when the secondary reuses the primary DoH endpoints', () => {
     // 'doh-only' and 'doh-primary' pass the strategy-name check but both race
-    // the same Cloudflare/Google/Quad9 DoH resolvers — no independent opinion.
+    // the same Cloudflare/Google/Quad9 DoH resolvers â€” no independent opinion.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-only',
@@ -376,7 +377,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
 
   it('drops the tertiary leg when it overlaps the secondary resolver set', () => {
     // 'doh-only' (secondary) and 'doh-primary' (tertiary) both race the same
-    // default DoH endpoints — a third opinion on the same servers adds no
+    // default DoH endpoints â€” a third opinion on the same servers adds no
     // information, so the leg is dropped at startup with a warning.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
@@ -468,7 +469,7 @@ describe('validateConsensusStrategyDisjointness', () => {
 
   it('rejects identical strategies when consensus is enabled', () => {
     // A secondary resolver using the same resolvers provides no independent
-    // opinion — the 2-of-3 consensus would be a rubber stamp.
+    // opinion â€” the 2-of-3 consensus would be a rubber stamp.
     expect(validateConsensusStrategyDisjointness(true, 'dot-only', 'dot-only')).toBe(false);
   });
 
@@ -520,7 +521,7 @@ describe('buildRdapCircuitBreakers', () => {
 
 // Regression: the DNS layer refuses to persist Unknown results
 // (node-dns-provider "never persist unknown"), but the RDAP cached layer
-// persisted everything unconditionally — a transient registry failure would
+// persisted everything unconditionally â€” a transient registry failure would
 // freeze a domain's status for the full PROVIDER_CACHE_TTL_DAYS. This locks
 // the predicate decision at the factory boundary: Unknown/Error results must
 // never reach the provider_cache table; only definitive verdicts may be
@@ -672,7 +673,7 @@ describe('buildRateLimiters DNS consensus budget', () => {
 
 // Regression (ADR-0050): the 2-of-2 RDAP consensus gate was implemented and
 // unit-tested at the stage level but composition-root never passed a
-// consensusConfig, so it never ran in production — the same wiring failure
+// consensusConfig, so it never ran in production â€” the same wiring failure
 // the DNS consensus had (see buildDnsConsensusConfig regression above).
 // This locks in the factory boundary: the second leg is a real provider
 // pinned to the independent RDAP_CONSENSUS_ENDPOINT.
@@ -680,7 +681,7 @@ describe('buildRateLimiters DNS consensus budget', () => {
 // rate-limit budget. Every other network channel (rdap/uspto/euipo/wayback/
 // dns/dns-consensus/rdap-consensus) gets a Redis namespace in cloud mode;
 // WHOIS ran on per-process in-memory buckets, so N replicas multiplied the
-// registry-query rate N× and per-tenant fair share (ADR-0041) could not be
+// registry-query rate NÃ— and per-tenant fair share (ADR-0041) could not be
 // enforced. These tests lock the parity boundary before wiring.
 describe('WHOIS distributed rate-limit parity (ADR-0052)', () => {
   it('exposes a whois budget in buildRateLimiters, in-memory when no Redis', () => {
@@ -815,7 +816,8 @@ describe('createRdapConsensusConfig (ADR-0050)', () => {
     createRdapConsensusConfig(config);
 
     const args = fromConfig.mock.calls[0]!;
-    expect(args[args.length - 1]).toBe(7333);
+    expect(args[5]).toBe(7333);
+    expect(args[6]).toBe(1_048_576);
   });
 });
 

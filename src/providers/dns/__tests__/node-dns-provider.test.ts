@@ -8,11 +8,24 @@ import type { ProviderCacheRepository } from '../../../db/repositories/provider-
 
 vi.mock('node:dns', () => {
   const resolveFn = vi.fn();
-  return {
-    promises: {
-      resolve: resolveFn,
-    },
-  };
+  // The lookup helpers now drive a per-call Resolver through the callback
+  // API; route it onto the promise-based resolveFn this suite already
+  // mocks so every call/assertion keeps its exact semantics.
+  class MockResolver {
+    resolve(
+      domain: string,
+      rrtype: string,
+      callback: (err: Error | null, addresses?: string[]) => void,
+    ): void {
+      resolveFn(domain, rrtype).then(
+        (addresses: string[]) => callback(null, addresses),
+        (err: unknown) => callback(err instanceof Error ? err : new Error(String(err))),
+      );
+    }
+    cancel(): void {}
+    setServers(_servers: string[]): void {}
+  }
+  return { promises: { resolve: resolveFn }, Resolver: MockResolver };
 });
 
 import { promises as dnsPromises } from 'node:dns';
