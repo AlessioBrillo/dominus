@@ -782,6 +782,15 @@ const configSchema = z.object({
   RDAP_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(512).default(32),
 
   /**
+   * Maximum acceptable RDAP response body size in bytes. A hostile or
+   * misbehaving registry must not be able to feed the process an unbounded
+   * body: the Content-Length header is pre-checked and the streamed read is
+   * aborted past the cap (GA hardening). Default: 1048576 (1 MiB).
+   * Range: 1024-10485760 (10 MiB).
+   */
+  RDAP_MAX_RESPONSE_BYTES: z.coerce.number().int().min(1024).max(10_485_760).default(1_048_576),
+
+  /**
    * Enable the RDAP 2-of-2 consensus gate (ADR-0050, ADR-0058): every
    * Available verdict from the primary failover must be independently
    * confirmed by a dedicated second RDAP provider (rdap.org by default,

@@ -2,7 +2,7 @@
 import { DomainStatus, type RdapResult } from '../../types/domain-status.js';
 import { ProviderError } from '../../types/errors.js';
 import type { RdapProvider } from './rdap-provider.js';
-import { PublicRdapProvider } from './public-rdap-provider.js';
+import { PublicRdapProvider, DEFAULT_RDAP_MAX_RESPONSE_BYTES } from './public-rdap-provider.js';
 import { type RateLimiterLike, RateLimiter } from '../rate-limiter.js';
 import {
   CircuitBreaker,
@@ -63,6 +63,7 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly #breakerFactory: RdapBreakerFactory | undefined;
   readonly #bootstrap: IanaRdapBootstrap | undefined;
   readonly #agentPool: RdapAgentPool;
+  readonly #maxResponseBytes: number;
   readonly #perTldProviders = new Map<string, RdapProvider[]>();
 
   // Intra-run cache: avoids re-querying RDAP for the same domain within a
@@ -83,6 +84,7 @@ export class FailoverRdapProvider implements RdapProvider {
     bootstrap?: IanaRdapBootstrap,
     breakerFactory?: RdapBreakerFactory,
     agentPool: RdapAgentPool = rdapAgentPool,
+    maxResponseBytes: number = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
   ) {
     this.#providers = providers ?? [];
     this.#sharedRateLimiter = sharedRateLimiter ?? RateLimiter.unlimited();
@@ -90,6 +92,7 @@ export class FailoverRdapProvider implements RdapProvider {
     this.#perServerCircuitBreakerPolicy = perServerCircuitBreakerPolicy;
     this.#breakerFactory = breakerFactory;
     this.#agentPool = agentPool;
+    this.#maxResponseBytes = maxResponseBytes;
     this.name =
       this.#providers.length > 0
         ? `FailoverRdapProvider(${this.#providers.map((s) => s.name).join(',')})`
@@ -136,6 +139,7 @@ export class FailoverRdapProvider implements RdapProvider {
     breakerFactory?: RdapBreakerFactory,
     agentPool: RdapAgentPool = rdapAgentPool,
     timeoutMs: number = DEFAULT_RDAP_TIMEOUT_MS,
+    maxResponseBytes: number = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
   ): FailoverRdapProvider {
     const providers = urls.map((entry, i) => {
       const url = typeof entry === 'string' ? entry : entry.url;
@@ -148,6 +152,7 @@ export class FailoverRdapProvider implements RdapProvider {
         timeoutMs,
         tlds,
         agentPool,
+        maxResponseBytes,
       );
     });
     return new FailoverRdapProvider(
@@ -157,6 +162,7 @@ export class FailoverRdapProvider implements RdapProvider {
       undefined,
       breakerFactory,
       agentPool,
+      maxResponseBytes,
     );
   }
 
@@ -172,6 +178,7 @@ export class FailoverRdapProvider implements RdapProvider {
     bootstrap?: IanaRdapBootstrap,
     breakerFactory?: RdapBreakerFactory,
     agentPool: RdapAgentPool = rdapAgentPool,
+    maxResponseBytes: number = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
   ): FailoverRdapProvider {
     const limiter = rateLimiter ?? RateLimiter.unlimited();
     const universal = new PublicRdapProvider(
@@ -181,6 +188,7 @@ export class FailoverRdapProvider implements RdapProvider {
       DEFAULT_RDAP_TIMEOUT_MS,
       undefined,
       agentPool,
+      maxResponseBytes,
     );
     return new FailoverRdapProvider(
       [universal],
@@ -189,6 +197,7 @@ export class FailoverRdapProvider implements RdapProvider {
       bootstrap,
       breakerFactory,
       agentPool,
+      maxResponseBytes,
     );
   }
 
@@ -330,6 +339,7 @@ export class FailoverRdapProvider implements RdapProvider {
           DEFAULT_RDAP_TIMEOUT_MS,
           server.tlds.length > 0 ? server.tlds : undefined,
           this.#agentPool,
+          this.#maxResponseBytes,
         ),
       );
     }

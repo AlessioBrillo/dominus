@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { promises as dnsPromises, Resolver } from 'node:dns';
+import { Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import type { Dispatcher } from 'undici';
 import { DomainStatus } from '../../types/domain-status.js';
@@ -53,7 +53,7 @@ export type DnsLookupStrategy =
   | 'dot-with-doh-fallback'
   | 'multi-doh-plus-native';
 
-function resolveWithTimeout(
+export function resolveWithTimeout(
   domain: string,
   recordType: DnsRecordType,
   timeoutMs: number,
@@ -61,7 +61,18 @@ function resolveWithTimeout(
   resolver?: Resolver,
 ): Promise<boolean> {
   return new Promise<boolean>((resolve, reject) => {
+    // When no resolver is supplied the lookup owns a per-call Resolver, so
+    // a timed-out or aborted query can cancel the in-flight socket instead
+    // of letting a hung upstream churn. A caller-supplied resolver is
+    // SHARED (cached per nameserver set) and must never be cancelled:
+    // cancel() kills every outstanding query on it.
+    const owned = resolver === undefined ? new Resolver() : undefined;
+    const release = (): void => {
+      owned?.cancel();
+    };
+
     const timer = setTimeout(() => {
+      release();
       const err = new Error(`DNS ${recordType} lookup timed out for ${domain}`);
       (err as { code?: string }).code = 'ETIMEOUT';
       reject(err);
@@ -69,31 +80,31 @@ function resolveWithTimeout(
 
     if (signal?.aborted) {
       clearTimeout(timer);
+      release();
       reject(new DOMException('Aborted', 'AbortError'));
       return;
     }
 
     const abortHandler = (): void => {
       clearTimeout(timer);
+      release();
       reject(new DOMException('Aborted', 'AbortError'));
     };
     signal?.addEventListener('abort', abortHandler, { once: true });
 
     const doLookup = (): Promise<string[]> => {
-      if (resolver !== undefined) {
-        return new Promise<string[]>((resolveLookup, rejectLookup) => {
-          resolver.resolve(domain, recordType, (err, addresses) => {
-            if (err !== null) {
-              rejectLookup(err);
-            } else if (Array.isArray(addresses)) {
-              resolveLookup(addresses as string[]);
-            } else {
-              resolveLookup([]);
-            }
-          });
+      const active = owned ?? resolver;
+      return new Promise<string[]>((resolveLookup, rejectLookup) => {
+        active!.resolve(domain, recordType, (err, addresses) => {
+          if (err !== null) {
+            rejectLookup(err);
+          } else if (Array.isArray(addresses)) {
+            resolveLookup(addresses as string[]);
+          } else {
+            resolveLookup([]);
+          }
         });
-      }
-      return dnsPromises.resolve(domain, recordType) as Promise<string[]>;
+      });
     };
 
     doLookup()
@@ -111,15 +122,24 @@ function resolveWithTimeout(
 }
 
 /** Resolve a single record type with abort support. The Node resolver API
- *  cannot cancel in-flight lookups, so the result races the abort signal. */
-function resolveWithAbort(
+ *  cannot cancel in-flight lookups, so the result races the abort signal.
+ *  On the owned-resolver path the in-flight query is cancelled on abort;
+ *  a caller-supplied shared resolver is left untouched (see above). */
+export function resolveWithAbort(
   domain: string,
   recordType: 'A' | 'AAAA',
   signal: AbortSignal,
   resolver?: Resolver,
 ): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
-    const onAbort = (): void => reject(new DOMException('Aborted', 'AbortError'));
+    const owned = resolver === undefined ? new Resolver() : undefined;
+    const release = (): void => {
+      owned?.cancel();
+    };
+    const onAbort = (): void => {
+      release();
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
     if (signal.aborted) {
       onAbort();
       return;
@@ -135,20 +155,14 @@ function resolveWithAbort(
       }
     };
 
-    if (resolver !== undefined) {
-      resolver.resolve(domain, recordType, (err, addresses) => {
-        if (err !== null) {
-          finish(err);
-        } else {
-          finish(null, addresses as string[]);
-        }
-      });
-    } else {
-      dnsPromises.resolve(domain, recordType).then(
-        (addresses) => finish(null, addresses as string[]),
-        (err: unknown) => finish(err instanceof Error ? err : new Error(String(err))),
-      );
-    }
+    const active = owned ?? resolver;
+    active!.resolve(domain, recordType, (err, addresses) => {
+      if (err !== null) {
+        finish(err);
+      } else {
+        finish(null, addresses as string[]);
+      }
+    });
   });
 }
 

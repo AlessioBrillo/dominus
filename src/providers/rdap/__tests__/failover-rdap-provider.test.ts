@@ -45,6 +45,7 @@ vi.mock('../rdap-bootstrap.js', () => {
 vi.mock('../public-rdap-provider.js', async () => {
   const { DomainStatus } = await import('../../../types/domain-status.js');
   return {
+    DEFAULT_RDAP_MAX_RESPONSE_BYTES: 1_048_576,
     PublicRdapProvider: class {
       readonly name: string;
       constructor(

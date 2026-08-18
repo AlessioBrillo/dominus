@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
@@ -110,6 +110,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     POST_BODY_MAX_BYTES: 1000,
     RDAP_BATCH_CONCURRENCY: 5,
     RDAP_MAX_CONNECTIONS: 32,
+    RDAP_MAX_RESPONSE_BYTES: 1048576,
     RDAP_CONSENSUS_ENABLED: false,
     RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
     RDAP_CONSENSUS_ENDPOINT: '',
@@ -333,7 +334,7 @@ describe('RenewalAlertEngine', () => {
     const first = await engine.checkAll();
     expect(first.alerts[0]?.alertType).toBe('renewal_imminent');
 
-    // Simulate time passing Ã¢â‚¬â€ update renewal date to be closer
+    // Simulate time passing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â update renewal date to be closer
     await portfolioRepo.delete('closer.com');
     await portfolioRepo.insert({
       domain: 'closer.com',

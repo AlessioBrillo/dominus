@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -101,6 +101,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     SCORING_WEIGHTS_OVERRIDE: undefined,
     RDAP_BATCH_CONCURRENCY: 5,
     RDAP_MAX_CONNECTIONS: 32,
+    RDAP_MAX_RESPONSE_BYTES: 1048576,
     RDAP_CONSENSUS_ENABLED: false,
     RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: false,
     RDAP_CONSENSUS_ENDPOINT: '',

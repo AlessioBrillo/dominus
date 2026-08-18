@@ -8,8 +8,17 @@ import { extractTld } from '../../utils/domain.js';
 import type { RdapAgentPool } from './rdap-agent-pool.js';
 import { rdapAgentPool } from './rdap-agent-pool.js';
 import { rdapUrlOrigin } from './rdap-consensus-validator.js';
+import {
+  assertPublicHttpsUrl,
+  dnsLookupWithTimeout,
+  type RedirectLookup,
+} from './rdap-url-guard.js';
 
 const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
+export const DEFAULT_RDAP_MAX_RESPONSE_BYTES = 1_048_576;
+/** Registries may legitimately redirect (RFC 7484 bootstrap hops), but a
+ *  chain longer than this is treated as hostile or broken. */
+const MAX_REDIRECT_HOPS = 2;
 
 /** Sleep for `ms` milliseconds, aborting early when `signal` is triggered. */
 function raceTimeout(ms: number, signal?: AbortSignal): Promise<void> {
@@ -61,7 +70,9 @@ export class PublicRdapProvider implements RdapProvider {
   readonly #baseUrl: string;
   readonly #rateLimiter: RateLimiterLike;
   readonly #timeoutMs: number;
+  readonly #maxResponseBytes: number;
   readonly #agentPool: RdapAgentPool;
+  readonly #redirectLookup: RedirectLookup;
   /** TLDs this server serves authoritatively. Undefined = all TLDs
    *  (universal routing servers such as rdap.org). */
   readonly #servesTlds: Set<string> | undefined;
@@ -73,12 +84,16 @@ export class PublicRdapProvider implements RdapProvider {
     timeoutMs = DEFAULT_RDAP_TIMEOUT_MS,
     tlds?: readonly string[],
     agentPool: RdapAgentPool = rdapAgentPool,
+    maxResponseBytes = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
+    redirectLookup: RedirectLookup = dnsLookupWithTimeout,
   ) {
     this.#baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     this.name = name ?? 'PublicRdapProvider';
     this.#rateLimiter = rateLimiter ?? RateLimiter.unlimited();
     this.#timeoutMs = timeoutMs;
     this.#agentPool = agentPool;
+    this.#maxResponseBytes = maxResponseBytes;
+    this.#redirectLookup = redirectLookup;
     this.#servesTlds =
       tlds !== undefined ? new Set(tlds.map((t) => t.toLowerCase().replace(/^\./, ''))) : undefined;
   }
@@ -118,17 +133,30 @@ export class PublicRdapProvider implements RdapProvider {
   }
 
   async #doConfirm(domain: string, signal: AbortSignal): Promise<RdapResult> {
-    const url = `${this.#baseUrl}${encodeURIComponent(domain)}`;
+    const initialUrl = `${this.#baseUrl}${encodeURIComponent(domain)}`;
+    let url = initialUrl;
     let response: Response;
 
-    try {
-      // dispatcher is typed unknown to bridge undici vs undici-types (same
-      // pattern as node-dns-provider resolveDoh, ADR-0049).
-      const init: { signal: AbortSignal; dispatcher?: unknown } = { signal };
-      init.dispatcher = await this.#agentPool.getDispatcher();
-      response = await fetch(url, init as Parameters<typeof fetch>[1]);
-    } catch (err: unknown) {
-      throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
+    for (let hop = 0; ; hop++) {
+      response = await this.#fetchRaw(url, signal, domain);
+      if (!(response.status >= 300 && response.status < 400)) break;
+      if (hop >= MAX_REDIRECT_HOPS) {
+        await response.body?.cancel();
+        throw new ProviderError(
+          `RDAP response redirect chain exceeded ${MAX_REDIRECT_HOPS} hops for ${domain}`,
+          this.name,
+        );
+      }
+      const location = response.headers.get('location');
+      await response.body?.cancel();
+      if (location === null) break;
+      const nextUrl = new URL(location, url).toString();
+      try {
+        await assertPublicHttpsUrl(nextUrl, this.#redirectLookup);
+      } catch (err: unknown) {
+        throw new ProviderError(`RDAP redirect refused for ${domain}: ${String(err)}`, this.name);
+      }
+      url = nextUrl;
     }
 
     if (response.status === 429) {
@@ -177,7 +205,7 @@ export class PublicRdapProvider implements RdapProvider {
       };
     }
 
-    const data = (await response.json()) as RdapResponse;
+    const data = JSON.parse(await this.#readBody(response)) as RdapResponse;
     const isPremium = PublicRdapProvider.detectPremium(data);
 
     return {
@@ -187,6 +215,71 @@ export class PublicRdapProvider implements RdapProvider {
       checkedAt: new Date().toISOString(),
       rawResponse: data,
     };
+  }
+
+  /** Fetch a single hop with redirects disabled: redirects are followed
+   *  manually so each target is validated before the next request. */
+  async #fetchRaw(url: string, signal: AbortSignal, domain: string): Promise<Response> {
+    try {
+      // dispatcher is typed unknown to bridge undici vs undici-types (same
+      // pattern as node-dns-provider resolveDoh, ADR-0049).
+      const init: { signal: AbortSignal; redirect: 'manual'; dispatcher?: unknown } = {
+        signal,
+        redirect: 'manual',
+      };
+      init.dispatcher = await this.#agentPool.getDispatcher();
+      return await fetch(url, init as Parameters<typeof fetch>[1]);
+    } catch (err: unknown) {
+      throw new ProviderError(`RDAP request failed for ${domain}: ${String(err)}`, this.name);
+    }
+  }
+
+  /** Read the response body bounded by the configured byte cap. The
+   *  Content-Length header is a fast pre-check; the streamed read is the
+   *  hard gate that also protects against a lying or chunked server. */
+  async #readBody(response: Response): Promise<string> {
+    const lengthHeader = response.headers?.get?.('content-length');
+    if (lengthHeader !== undefined && lengthHeader !== null) {
+      const declared = Number(lengthHeader);
+      if (Number.isFinite(declared) && declared > this.#maxResponseBytes) {
+        await response.body?.cancel();
+        throw new ProviderError(
+          `RDAP response declared ${declared} bytes, exceeding the ${this.#maxResponseBytes}-byte cap`,
+          this.name,
+        );
+      }
+    }
+
+    const stream = response.body;
+    if (stream === null || stream === undefined) {
+      // Non-streaming responses (tests, exotic servers): delegate to the
+      // standard body parser. json() may return a parsed object or a
+      // string; round-trip both so the caller's JSON.parse always sees
+      // valid JSON text.
+      const parsed = await response.json().catch(() => null);
+      if (parsed === null || parsed === undefined) return '';
+      return typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+    }
+
+    const reader = stream.getReader();
+    const chunks: Uint8Array[] = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value !== undefined) {
+        received += value.byteLength;
+        if (received > this.#maxResponseBytes) {
+          await reader.cancel();
+          throw new ProviderError(
+            `RDAP response exceeded the ${this.#maxResponseBytes}-byte cap`,
+            this.name,
+          );
+        }
+        chunks.push(value);
+      }
+    }
+    return Buffer.concat(chunks).toString('utf8');
   }
 
   /**
