@@ -462,6 +462,7 @@ describe('DNS circuit breaker config defaults (ADR-0059)', () => {
 describe('RDAP consensus config defaults (ADR-0050)', () => {
   const ENV_KEYS = [
     'RDAP_MAX_CONNECTIONS',
+    'RDAP_MAX_RESPONSE_BYTES',
     'RDAP_CONSENSUS_ENABLED',
     'RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED',
     'RDAP_CONSENSUS_ENDPOINT',
@@ -497,6 +498,22 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
 
   it('RDAP_MAX_CONNECTIONS defaults to 32 (keep-alive agent per origin)', () => {
     expect(loadConfig().RDAP_MAX_CONNECTIONS).toBe(32);
+  });
+
+  it('RDAP_MAX_RESPONSE_BYTES defaults to 1048576 (1 MiB response body cap)', () => {
+    expect(loadConfig().RDAP_MAX_RESPONSE_BYTES).toBe(1_048_576);
+  });
+
+  it('RDAP_MAX_RESPONSE_BYTES accepts an explicit override', () => {
+    process.env.RDAP_MAX_RESPONSE_BYTES = '2097152';
+    resetConfig();
+    expect(loadConfig().RDAP_MAX_RESPONSE_BYTES).toBe(2_097_152);
+  });
+
+  it('RDAP_MAX_RESPONSE_BYTES rejects values below the 1024 floor', () => {
+    process.env.RDAP_MAX_RESPONSE_BYTES = '512';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
   });
 
   it('RDAP_CONSENSUS_ENABLED defaults to true (gate on by default, ADR-0058)', () => {
