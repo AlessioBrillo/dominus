@@ -43,6 +43,20 @@ const STALE_AVAILABLE_DEFAULT_MS = 24 * 60 * 60_000;
 
 type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
 
+/**
+ * Verdict for an error that escaped the resolver legs and reached the
+ * top-level catch of #lookup. The legs already translate NXDOMAIN/NODATA
+ * into an explicit "not resolved" verdict (see resolvesAnyNative and the
+ * DoH/DoT wrappers), so an error carrying ENOTFOUND/ENODATA at this level
+ * is NOT a proof of availability — it is an unhandled resolver failure.
+ * ADR-0002 conservatism: a transient failure must never manufacture an
+ * Available verdict (a false Available produces a wasted buy
+ * recommendation), so every escaped error maps to Unknown.
+ */
+export function verdictFromLookupError(_err: unknown): DomainStatus {
+  return DomainStatus.Unknown;
+}
+
 export type DnsLookupStrategy =
   | 'native'
   | 'native-with-doh-fallback'
@@ -831,15 +845,13 @@ export class NodeDnsProvider implements DnsProvider {
       this.#setCaches(domain, unknown);
       return unknown;
     } catch (err: unknown) {
-      const code = (err as { code?: string }).code;
-      if (code === 'ENOTFOUND' || code === 'ENODATA') {
-        const result: DnsCheckResult = { domain, status: DomainStatus.Available, checkedAt };
-        this.#setCaches(domain, result);
-        return result;
-      }
-      const unknown: DnsCheckResult = { domain, status: DomainStatus.Unknown, checkedAt };
-      this.#setCaches(domain, unknown);
-      return unknown;
+      const result: DnsCheckResult = {
+        domain,
+        status: verdictFromLookupError(err),
+        checkedAt,
+      };
+      this.#setCaches(domain, result);
+      return result;
     }
   }
 

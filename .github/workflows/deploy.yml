@@ -94,12 +94,30 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
 
-      # The rendered compose references ${DOMINUS_IMAGE_TAG} from .env at
-      # runtime, so a release bump is a single .env edit + pull + roll and
-      # stays out of Terraform's plan/apply cycle (an apply would recreate
-      # the node and lose the named volumes). The rollout logic lives in
-      # scripts/deploy/rollout.sh (syntax-checked in CI) and restores the
-      # previous tag automatically when the health poll never goes green.
+      # Migrate-before-roll (ADR-0061): the target image's schema
+      # migrations run explicitly BEFORE the rollout, with their own
+      # timeout budget, so slow DDL can never trip the health poll of the
+      # roll phase. The migrate step always runs the TARGET image
+      # (DOMINUS_IMAGE_TAG forced from the shell, which takes precedence
+      # over .env for interpolation) against the live database. On failure
+      # or timeout no image is rolled and the operator restores from a
+      # PITR backup instead of rolling back blindly.
+      - name: Run schema migrations (migrate-before-roll)
+        if: env.DEPLOY_SSH_HOST != ''
+        env:
+          HOST: ${{ env.DEPLOY_SSH_HOST }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          scp -o StrictHostKeyChecking=accept-new \
+            scripts/deploy/migrate.sh "root@${HOST}:/tmp/dominus-migrate.sh"
+          ssh -o StrictHostKeyChecking=accept-new "root@${HOST}" \
+            "cd /opt/dominus && DOMINUS_TAG=${TAG} bash /tmp/dominus-migrate.sh"
+
+      # Bump tag, pull and roll the stack (auto-rollback). The rollout
+      # re-checks the gate (its rollback path needs the decision) and
+      # restores the previous tag automatically when the health poll never
+      # goes green.
       - name: Bump tag, pull and roll the stack (auto-rollback)
         if: env.DEPLOY_SSH_HOST != ''
         env:

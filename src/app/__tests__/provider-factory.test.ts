@@ -252,7 +252,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 // consensusConfig, so it never ran in production. This locks in the
 // wiring decision at the factory boundary.
 describe('buildDnsConsensusConfig', () => {
-  it('returns undefined when DNS_CONSENSUS_ENABLED is false (default)', () => {
+  it('returns undefined when DNS_CONSENSUS_ENABLED is false (non-default)', () => {
     const config = makeConfig({ DNS_CONSENSUS_ENABLED: false });
     expect(buildDnsConsensusConfig(config)).toBeUndefined();
   });

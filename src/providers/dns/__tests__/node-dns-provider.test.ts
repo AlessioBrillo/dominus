@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NodeDnsProvider, buildDnsQuery, validateDnsResponse } from '../node-dns-provider.js';
+import {
+  NodeDnsProvider,
+  buildDnsQuery,
+  validateDnsResponse,
+  verdictFromLookupError,
+} from '../node-dns-provider.js';
 import { strategyToResolverGroups } from '../dns-provider.js';
 import { ParkingIpRegistry, type ParkingRange } from '../parking-ip-registry.js';
 import { DomainStatus } from '../../../types/domain-status.js';
@@ -1137,5 +1142,28 @@ describe('NodeDnsProvider', () => {
       expect(peerResult.status).toBe(DomainStatus.Registered);
       expect(firstResult.status).toBe(DomainStatus.Registered);
     });
+  });
+});
+
+describe('verdictFromLookupError (ADR-0002 conservatism)', () => {
+  // The resolver legs already translate NXDOMAIN/NODATA into an explicit
+  // "not resolved" verdict (resolvesAnyNative, DoH/DoT wrappers), so an
+  // error carrying ENOTFOUND/ENODATA at the top-level catch of #lookup is
+  // an unhandled resolver failure, NOT proof of availability. The engine
+  // must never manufacture an Available verdict from a transient failure:
+  // a false Available produces a wasted buy recommendation (ADR-0002).
+  it('maps ENOTFOUND to Unknown, never Available', () => {
+    const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
+    expect(verdictFromLookupError(err)).toBe(DomainStatus.Unknown);
+  });
+
+  it('maps ENODATA to Unknown, never Available', () => {
+    const err = Object.assign(new Error('no data'), { code: 'ENODATA' });
+    expect(verdictFromLookupError(err)).toBe(DomainStatus.Unknown);
+  });
+
+  it('maps any other error to Unknown', () => {
+    const err = Object.assign(new Error('network'), { code: 'ETIMEOUT' });
+    expect(verdictFromLookupError(err)).toBe(DomainStatus.Unknown);
   });
 });

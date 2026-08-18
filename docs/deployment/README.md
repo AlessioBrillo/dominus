@@ -50,6 +50,24 @@ Pinning to a `sha-` tag means the deployed artifact is immutable and
 reproducible — you always know exactly which commit is running, and
 rollback is a one-line `.env` change to a previously verified tag.
 
+### Release flow: gate → migrate → roll
+
+Tagged releases (`vX.Y.Z`) deploy through the workflow in three explicit
+phases (see `scripts/deploy/` and [ADR-0061](docs/adr/0061-release-migrate-before-roll.md)):
+
+1. **Migration gate** — `migration-gate.sh` refuses the deploy when the
+   database is ahead of the target image's manifest (downgrade/divergent
+   lineage) and blocks rollbacks against a post-release schema.
+2. **Migrate-before-roll** — `migrate.sh` pulls the target image and runs
+   its migrations against the live database while the previous image keeps
+   serving, under a dedicated timeout (`MIGRATE_TIMEOUT_SECONDS`, default
+   600 s). A failed or timed-out migration aborts the deploy — nothing is
+   rolled. See the [migration-policy runbook](docs/releases/migration-policy.md)
+   for the failure procedures.
+3. **Roll** — `rollout.sh` bumps `DOMINUS_IMAGE_TAG` in `.env`, rolls the
+   stack, verifies the running image and health, and auto-rolls on failure
+   when the migration gate permits.
+
 ## Backups
 
 The SQLite database lives at `DATABASE_PATH` (default: `./data/dominus.db`). **This file is your entire portfolio and configuration — back it up.**

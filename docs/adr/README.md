@@ -67,6 +67,7 @@ re-running the original arguments.
 | [0058](0058-rdap-gate-parity.md)                             | RDAP gate parity — consensus default-on with rdap.org, resilient bootstrap, per-TLD origin-overlap guard                        | 2026-08-14 | Accepted                            |
 | [0059](0059-dns-circuit-breaker-and-strictness.md)           | DNS consensus strictness and per-endpoint circuit breakers — strict requiredAvailable=2, breaker registry, bundled parking list | 2026-08-16 | Accepted                            |
 | [0060](0060-rdap-origin-guard-fail-closed.md)                | RDAP origin-guard fail-closed — a broken resolver never consults the second leg                                                 | 2026-08-17 | Accepted                            |
+| [0061](0061-release-migrate-before-roll.md)                  | Release migrate-before-roll — explicit schema migrations with a dedicated timeout                                               | 2026-08-18 | Accepted                            |
 
 ## Conventions
 

@@ -133,7 +133,31 @@ jobs:
           docker run --rm --entrypoint node dominus-api:test \
             -e "const db = require('better-sqlite3')(':memory:'); db.exec('CREATE TABLE t (a)'); console.log('better-sqlite3 OK')"
 
-          # 2. The API must boot and answer /api/health (unauthenticated).
+          # 2. The migrate CLI (ADR-0061) must be packaged and work inside
+          #    the image: a fresh SQLite database at /tmp must be migrated
+          #    to the full manifest (a bare run applies migrations, exit 0
+          #    — the deploy invocation shape), and unknown arguments must
+          #    be refused with usage (exit 2).
+          docker run --rm --entrypoint node dominus-api:test \
+            dist/db/migrate-cli.js --help >/dev/null
+          migrate_out=$(docker run --rm -e DATABASE_PATH=/tmp/migrate-smoke.db \
+            --entrypoint node dominus-api:test dist/db/migrate-cli.js)
+          echo "$migrate_out"
+          grep -q "migrations applied: 53" <<<"$migrate_out" || {
+            echo "FATAL: migrate CLI must migrate a fresh SQLite database to the full manifest inside the image"
+            exit 1
+          }
+          set +e
+          docker run --rm --entrypoint node dominus-api:test \
+            dist/db/migrate-cli.js --bogus >/dev/null 2>&1
+          usage_rc=$?
+          set -e
+          [ "$usage_rc" -eq 2 ] || {
+            echo "FATAL: migrate CLI unknown arguments must exit 2 inside the image, got $usage_rc"
+            exit 1
+          }
+
+          # 3. The API must boot and answer /api/health (unauthenticated).
           #    DATABASE_PATH points at /tmp so no volume is needed and the
           #    non-root user can write. HOST must be 0.0.0.0 for the
           #    published port to forward, which requires API_KEYS or the
@@ -314,11 +338,18 @@ jobs:
       # The rollout script runs on the app node during release deploys; a
       # syntax error there fails the deploy at the worst moment, so CI
       # validates it on every PR (same guard as the compose-topology job).
-      - name: Syntax-check rollout script
-        run: bash -n scripts/deploy/rollout.sh
+      # The migrate-before-roll step (ADR-0061) is part of the same path.
+      - name: Syntax-check rollout and migrate scripts
+        run: |
+          bash -n scripts/deploy/rollout.sh
+          bash -n scripts/deploy/migrate.sh
+          bash -n scripts/deploy/test-migrate.sh
 
       - name: Behavior-test rollout script (mocked docker/curl)
         run: bash scripts/deploy/test-rollout.sh
+
+      - name: Behavior-test migrate script (mocked docker)
+        run: bash scripts/deploy/test-migrate.sh
 
   release-gate:
     name: Release gate (schema migration safety)
@@ -342,8 +373,10 @@ jobs:
           set -euo pipefail
           bash -n scripts/deploy/migration-gate.sh
           bash -n scripts/deploy/rollout.sh
+          bash -n scripts/deploy/migrate.sh
           bash -n scripts/deploy/test-migration-gate.sh
           bash -n scripts/deploy/test-rollout.sh
+          bash -n scripts/deploy/test-migrate.sh
 
       # Destructive DDL is refused on every migration (drop/rename columns,
       # drop tables without recreate, deletes, SET NOT NULL). The fixture
@@ -359,8 +392,12 @@ jobs:
 
       # The built image must expose the manifest CLI the gate invokes via
       # `docker run --entrypoint node`; assert it builds and lists the same
-      # migrations the registry knows.
-      - name: Build and smoke-test migration manifest CLI
+      # migrations the registry knows. The migrate CLI (migrate-before-roll,
+      # ADR-0061) is smoke-tested end-to-end: a fresh SQLite database must
+      # be migrated to the full manifest (a bare run applies migrations,
+      # exit 0 — the deploy invocation shape) and unknown arguments must be
+      # refused with usage (exit 2).
+      - name: Build and smoke-test migration manifest and migrate CLIs
         run: |
           set -euo pipefail
           npm run build
@@ -375,6 +412,23 @@ jobs:
             exit 1
           }
           echo "migration manifest CLI OK ($list_count migrations)"
+          node dist/db/migrate-cli.js --help >/dev/null
+          smoke_db="$(mktemp -d)/smoke.db"
+          migrate_out=$(DATABASE_PATH="$smoke_db" node dist/db/migrate-cli.js)
+          echo "$migrate_out"
+          grep -q "migrations applied: $list_count" <<<"$migrate_out" || {
+            echo "FATAL: fresh database must migrate to the full manifest ($list_count migrations)"
+            exit 1
+          }
+          set +e
+          node dist/db/migrate-cli.js --bogus >/dev/null 2>&1
+          usage_rc=$?
+          set -e
+          [ "$usage_rc" -eq 2 ] || {
+            echo "FATAL: unknown arguments must exit 2 (usage), got $usage_rc"
+            exit 1
+          }
+          echo "migrate CLI OK (--help exits 0, fresh DB migrates fully, unknown args exit 2)"
 
   frontend:
     name: Frontend (typecheck, lint, test, build)
