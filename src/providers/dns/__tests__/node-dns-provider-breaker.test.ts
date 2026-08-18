@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NodeDnsProvider } from '../node-dns-provider.js';
 import { DnsBreakerRegistry, type DnsBreakerRegistryLike } from '../dns-breaker.js';
+import { DohAgentPool } from '../doh-agents.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 
 vi.mock('node:dns', () => {
@@ -137,8 +138,10 @@ describe('NodeDnsProvider circuit breaker integration (ADR-0059)', () => {
   });
 
   it('keeps one breaker per endpoint inside a resolver group', async () => {
-    const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', breakers });
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network down'));
+    const pool = new DohAgentPool({
+      fetchFn: (() => Promise.reject(new Error('network down'))) as unknown as typeof fetch,
+    });
+    const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', breakers, dohAgents: pool });
 
     await p.checkAvailability('doh-one.com');
     await p.checkAvailability('doh-two.com');

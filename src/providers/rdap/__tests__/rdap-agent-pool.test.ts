@@ -51,4 +51,35 @@ describe('RdapAgentPool (ADR-0049)', () => {
     // The singleton is exported so every RDAP provider shares one Agent.
     expect(globalThis).toBeDefined();
   });
+
+  it('fetchWithAgent never combines Node global fetch with a foreign dispatcher', async () => {
+    // Node's global fetch (bundled undici) throws "invalid onRequestStart
+    // method" when handed a dispatcher from a different undici version. The
+    // pool must dispatch through a fetch that matches its own Agent.
+    const pool = new RdapAgentPool({ maxConnections: 1 });
+    try {
+      const err = await pool.fetchWithAgent('http://127.0.0.1:1/').then(
+        () => null,
+        (e: unknown) => e as Error,
+      );
+      expect(err).not.toBeNull();
+      expect(err?.message).not.toMatch(/onRequestStart/);
+      expect(err?.message).toMatch(/fetch failed|ECONNREFUSED/i);
+    } finally {
+      pool.close();
+    }
+  });
+
+  it('fetchWithAgent uses the injected fetchFn and forwards the pooled dispatcher', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    const pool = new RdapAgentPool({ fetchFn: fetchFn as unknown as typeof fetch });
+    const res = await pool.fetchWithAgent('http://example.invalid/x', {
+      headers: { accept: 'application/json' },
+    });
+    expect(res.status).toBe(200);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const init = fetchFn.mock.calls[0]?.[1] as { dispatcher?: unknown } | undefined;
+    expect(init?.dispatcher).toBeDefined();
+    pool.close();
+  });
 });

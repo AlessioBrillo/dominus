@@ -29,6 +29,20 @@ vi.mock('node:dns', () => {
 });
 
 import { promises as dnsPromises } from 'node:dns';
+import { DohAgentPool } from '../doh-agents.js';
+
+/** Provider whose DoH wire fetch is the given implementation. The default
+ *  pool pairs undici's own fetch with the pooled dispatcher, so tests mock
+ *  the pool's fetchFn instead of Node's global fetch (ADR-0044). */
+type WireFetchImpl = (input: unknown, init?: unknown) => Promise<unknown>;
+
+function makeDohProviderWithFetch(
+  fetchImpl: WireFetchImpl,
+  options?: ConstructorParameters<typeof NodeDnsProvider>[0],
+): NodeDnsProvider {
+  const pool = new DohAgentPool({ fetchFn: fetchImpl as unknown as typeof fetch });
+  return new NodeDnsProvider({ ...options, dohAgents: pool });
+}
 
 function makeResolved(): never {
   return ['1.2.3.4'] as never;
@@ -542,90 +556,98 @@ describe('NodeDnsProvider', () => {
       // Regression: 'doh-primary' was silently identical to 'doh-only',
       // so a DoH outage produced Unknown even when the system resolver
       // could answer — the default install never had a native fallback.
-      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('DoH network error'));
       vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
 
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(() => Promise.reject(new Error('DoH network error')), {
+        lookupStrategy: 'doh-primary',
+        cacheTtlMs: 60_000,
+      });
       const result = await p.checkAvailability('fallback-works.com');
       expect(result.status).toBe(DomainStatus.Registered);
     });
 
     it('does not consult native when DoH is definitive (NXDOMAIN)', async () => {
-      vi.spyOn(global, 'fetch').mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ Status: 3 }),
-      } as Response);
-
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        () => Promise.resolve({ ok: true, json: () => Promise.resolve({ Status: 3 }) } as Response),
+        { lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('definitive-nxdomain.com');
       expect(result.status).toBe(DomainStatus.Available);
       expect(dnsPromises.resolve).not.toHaveBeenCalled();
     });
 
     it('returns Unknown when DoH fails and native cannot confirm', async () => {
-      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('DoH network error'));
       const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
       vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
 
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(() => Promise.reject(new Error('DoH network error')), {
+        lookupStrategy: 'doh-primary',
+        cacheTtlMs: 60_000,
+      });
       const result = await p.checkAvailability('both-fail.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
   });
 
   describe('doh-only strategy', () => {
-    let dohProvider: NodeDnsProvider;
-
-    beforeEach(() => {
-      dohProvider = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
-      vi.clearAllMocks();
-    });
+    function makeDohProvider(): { provider: NodeDnsProvider; spy: ReturnType<typeof vi.fn> } {
+      const spy = vi.fn();
+      const pool = new DohAgentPool({ fetchFn: spy as unknown as typeof fetch });
+      return {
+        provider: new NodeDnsProvider({
+          lookupStrategy: 'doh-only',
+          cacheTtlMs: 60_000,
+          dohAgents: pool,
+        }),
+        spy,
+      };
+    }
 
     function mockFetchResponse(
       status: number,
       answer?: Array<{ type: number; data: string }>,
-    ): void {
-      vi.spyOn(global, 'fetch').mockResolvedValue({
+    ): { provider: NodeDnsProvider; spy: ReturnType<typeof vi.fn> } {
+      const { provider, spy } = makeDohProvider();
+      spy.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ Status: status, Answer: answer }),
       } as Response);
+      return { provider, spy };
     }
 
     it('returns Registered when DoH Phase 1 resolves', async () => {
-      mockFetchResponse(0, [{ type: 1, data: '1.2.3.4' }]);
-      const result = await dohProvider.checkAvailability('taken-doh.com');
+      const { provider } = mockFetchResponse(0, [{ type: 1, data: '1.2.3.4' }]);
+      const result = await provider.checkAvailability('taken-doh.com');
       expect(result.status).toBe(DomainStatus.Registered);
     });
 
     it('returns Available on DoH NXDOMAIN', async () => {
-      mockFetchResponse(3);
-      const result = await dohProvider.checkAvailability('free-doh.com');
+      const { provider } = mockFetchResponse(3);
+      const result = await provider.checkAvailability('free-doh.com');
       expect(result.status).toBe(DomainStatus.Available);
     });
 
     it('returns Unknown when all DoH resolvers fail', async () => {
-      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
-      const result = await dohProvider.checkAvailability('fail-doh.com');
+      const { provider, spy } = makeDohProvider();
+      spy.mockRejectedValue(new Error('Network error'));
+      const result = await provider.checkAvailability('fail-doh.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
 
     it('routes DoH requests through the shared undici dispatcher (ADR-0044)', async () => {
-      mockFetchResponse(0, [{ type: 1, data: '1.2.3.4' }]);
-      const spy = vi.mocked(global.fetch);
+      const { provider, spy } = makeDohProvider();
+      spy.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ Status: 0, Answer: [{ type: 1, data: '1.2.3.4' }] }),
+      } as Response);
       spy.mockClear();
 
-      const p = new NodeDnsProvider({
-        lookupStrategy: 'doh-only',
-        cacheTtlMs: 60_000,
-        dohMaxConnections: 16,
-      });
-
-      await p.checkAvailability('taken-doh.com');
+      await provider.checkAvailability('taken-doh.com');
       const firstInit = spy.mock.calls[0]?.[1];
       const firstDispatcher = (firstInit as { dispatcher?: unknown } | undefined)?.dispatcher;
       expect(firstDispatcher).toBeDefined();
 
-      await p.checkAvailability('another-doh.com');
+      await provider.checkAvailability('another-doh.com');
       const secondDispatcher = (spy.mock.calls[1]?.[1] as { dispatcher?: unknown } | undefined)
         ?.dispatcher;
       // The dispatcher is a pooled keep-alive agent reused across queries —
@@ -635,8 +657,10 @@ describe('NodeDnsProvider', () => {
   });
 
   describe('conservative resolver-group decisions', () => {
-    function makeMixedGroupProvider(): NodeDnsProvider {
-      return new NodeDnsProvider({
+    function makeMixedGroupProvider(
+      fetchImpl: (input: unknown, init?: unknown) => Promise<unknown>,
+    ): NodeDnsProvider {
+      return makeDohProviderWithFetch(fetchImpl, {
         cacheTtlMs: 60_000,
         resolverGroups: [
           {
@@ -657,9 +681,8 @@ describe('NodeDnsProvider', () => {
       // not confirm. Unknown must win over NXDOMAIN (ADR-0002 conservatism).
       const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
       vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
-      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
 
-      const p = makeMixedGroupProvider();
+      const p = makeMixedGroupProvider(() => Promise.reject(new Error('Network error')));
       const result = await p.checkAvailability('mixed-opinion.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
@@ -667,21 +690,18 @@ describe('NodeDnsProvider', () => {
     it('keeps Available when every lookup in the group agrees on NXDOMAIN', async () => {
       const err = Object.assign(new Error('not found'), { code: 'ENOTFOUND' });
       vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
-      vi.spyOn(global, 'fetch').mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ Status: 3 }),
-      } as Response);
 
-      const p = makeMixedGroupProvider();
+      const p = makeMixedGroupProvider(() =>
+        Promise.resolve({ ok: true, json: () => Promise.resolve({ Status: 3 }) } as Response),
+      );
       const result = await p.checkAvailability('all-agree-free.com');
       expect(result.status).toBe(DomainStatus.Available);
     });
 
     it('keeps Registered when one lookup resolves and another fails', async () => {
       vi.mocked(dnsPromises.resolve).mockResolvedValue(makeResolved());
-      vi.spyOn(global, 'fetch').mockRejectedValue(new Error('Network error'));
 
-      const p = makeMixedGroupProvider();
+      const p = makeMixedGroupProvider(() => Promise.reject(new Error('Network error')));
       const result = await p.checkAvailability('some-resolve.com');
       expect(result.status).toBe(DomainStatus.Registered);
     });
@@ -697,8 +717,8 @@ describe('NodeDnsProvider', () => {
         string,
         { Status: number; Answer?: Array<{ type: number; data: string }> } | 'network-error'
       >,
-    ): void {
-      vi.spyOn(global, 'fetch').mockImplementation((input) => {
+    ): (input: unknown, init?: unknown) => Promise<unknown> {
+      return (input) => {
         const host = new URL(String(input)).hostname;
         const outcome = outcomesByHost[host];
         if (outcome === undefined || outcome === 'network-error') {
@@ -708,22 +728,24 @@ describe('NodeDnsProvider', () => {
           ok: true,
           json: () => Promise.resolve(outcome),
         } as Response);
-      });
+      };
     }
 
     it('reports Available on a 2/3 NXDOMAIN majority without consulting the native fallback', async () => {
       // Regression: a single SERVFAIL/error in the group used to make the
       // whole group undecided, pushing the verdict onto the native
       // system-resolver fallback — the least independent node in the path.
-      mockDohOutcomes({
-        [CLOUDFLARE]: { Status: 3 },
-        [GOOGLE]: { Status: 3 },
-        [QUAD9]: 'network-error',
-      });
       const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
       vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
 
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohOutcomes({
+          [CLOUDFLARE]: { Status: 3 },
+          [GOOGLE]: { Status: 3 },
+          [QUAD9]: 'network-error',
+        }),
+        { lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('majority-free.com');
       expect(result.status).toBe(DomainStatus.Available);
       expect(dnsPromises.resolve).not.toHaveBeenCalled();
@@ -733,49 +755,53 @@ describe('NodeDnsProvider', () => {
       // Regression: Status:2 with no Answer used to fall into the NODATA
       // branch and count as a definitive "available" — a false positive
       // from a resolver that could not answer.
-      mockDohOutcomes({
-        [CLOUDFLARE]: { Status: 3 },
-        [GOOGLE]: { Status: 2 },
-        [QUAD9]: { Status: 2 },
-      });
-
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohOutcomes({
+          [CLOUDFLARE]: { Status: 3 },
+          [GOOGLE]: { Status: 2 },
+          [QUAD9]: { Status: 2 },
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('servfail-neutral.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
 
     it('keeps Available when a SERVFAIL minority cannot block a 2/3 NXDOMAIN majority', async () => {
-      mockDohOutcomes({
-        [CLOUDFLARE]: { Status: 3 },
-        [GOOGLE]: { Status: 3 },
-        [QUAD9]: { Status: 2 },
-      });
-
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohOutcomes({
+          [CLOUDFLARE]: { Status: 3 },
+          [GOOGLE]: { Status: 3 },
+          [QUAD9]: { Status: 2 },
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('servfail-minority.com');
       expect(result.status).toBe(DomainStatus.Available);
     });
 
     it('returns Registered when any resolver in the group resolves', async () => {
-      mockDohOutcomes({
-        [CLOUDFLARE]: { Status: 0, Answer: [{ type: 1, data: '1.2.3.4' }] },
-        [GOOGLE]: 'network-error',
-        [QUAD9]: 'network-error',
-      });
-
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohOutcomes({
+          [CLOUDFLARE]: { Status: 0, Answer: [{ type: 1, data: '1.2.3.4' }] },
+          [GOOGLE]: 'network-error',
+          [QUAD9]: 'network-error',
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('any-resolve.com');
       expect(result.status).toBe(DomainStatus.Registered);
     });
 
     it('returns Unknown when no strict majority exists', async () => {
-      mockDohOutcomes({
-        [CLOUDFLARE]: { Status: 3 },
-        [GOOGLE]: 'network-error',
-        [QUAD9]: 'network-error',
-      });
-
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohOutcomes({
+          [CLOUDFLARE]: { Status: 3 },
+          [GOOGLE]: 'network-error',
+          [QUAD9]: 'network-error',
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('no-majority.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
@@ -795,8 +821,10 @@ describe('NodeDnsProvider', () => {
       | { wire: { rcode: number; ancount?: number; echoId?: boolean } }
       | 'network-error';
 
-    function mockDohFetch(outcomesByHost: Record<string, DohOutcome>): void {
-      vi.spyOn(global, 'fetch').mockImplementation((input) => {
+    function mockDohFetch(
+      outcomesByHost: Record<string, DohOutcome>,
+    ): WireFetchImpl & ReturnType<typeof vi.fn> {
+      return vi.fn((input: unknown): Promise<unknown> => {
         const host = new URL(String(input)).hostname;
         const outcome = outcomesByHost[host];
         if (outcome === undefined || outcome === 'network-error') {
@@ -831,17 +859,20 @@ describe('NodeDnsProvider', () => {
       // Regression: dns.google/dns-query returns 400 for JSON GET requests;
       // the Google JSON API lives on /resolve. Without ct= the endpoint
       // rejects the request — the leg could never answer.
-      mockDohFetch({
+      const dohFetch = mockDohFetch({
         [CLOUDFLARE]: { Status: 3 },
         [GOOGLE]: { Status: 3 },
         [QUAD9]: { Status: 3 },
       });
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(dohFetch, {
+        lookupStrategy: 'doh-only',
+        cacheTtlMs: 60_000,
+      });
       await p.checkAvailability('google-url-check.com');
 
-      const googleCall = vi
-        .mocked(global.fetch)
-        .mock.calls.find(([input]) => String(input).includes('dns.google'));
+      const googleCall = dohFetch.mock.calls.find(([input]) =>
+        String(input).includes('dns.google'),
+      );
       expect(googleCall).toBeDefined();
       const url = new URL(String(googleCall![0]));
       expect(url.pathname).toBe('/resolve');
@@ -852,17 +883,20 @@ describe('NodeDnsProvider', () => {
       // Regression: dns.quad9.net/dns-query only implements RFC 8484 (the
       // server answers 505 to HTTP/1.1 JSON GETs). The wire format is the
       // only request shape that leg can ever answer.
-      mockDohFetch({
+      const dohFetch = mockDohFetch({
         [CLOUDFLARE]: { wire: { rcode: 3 } },
         [GOOGLE]: 'network-error',
         [QUAD9]: { wire: { rcode: 3 } },
       });
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(dohFetch, {
+        lookupStrategy: 'doh-only',
+        cacheTtlMs: 60_000,
+      });
       await p.checkAvailability('quad9-wire-check.com');
 
-      const quad9Calls = vi
-        .mocked(global.fetch)
-        .mock.calls.filter(([input]) => String(input).includes('dns.quad9.net'));
+      const quad9Calls = dohFetch.mock.calls.filter(([input]) =>
+        String(input).includes('dns.quad9.net'),
+      );
       expect(quad9Calls.length).toBeGreaterThan(0);
       const url = new URL(String(quad9Calls[0]![0]));
       expect(url.searchParams.has('dns')).toBe(true);
@@ -883,8 +917,11 @@ describe('NodeDnsProvider', () => {
       // ADR-0047: DNS_RESOLVER_GROUPS entries from config carry an optional
       // format per lookup. A custom wire-only endpoint (Quad9) must be called
       // with the RFC 8484 shape — receiving a JSON request answers 505.
-      mockDohFetch({ [QUAD9]: { wire: { rcode: 3 } }, [CLOUDFLARE]: 'network-error' });
-      const p = new NodeDnsProvider({
+      const dohFetch = mockDohFetch({
+        [QUAD9]: { wire: { rcode: 3 } },
+        [CLOUDFLARE]: 'network-error',
+      });
+      const p = makeDohProviderWithFetch(dohFetch, {
         cacheTtlMs: 60_000,
         resolverGroups: [
           {
@@ -895,9 +932,9 @@ describe('NodeDnsProvider', () => {
       });
       await p.checkAvailability('custom-wire-check.com');
 
-      const quad9Call = vi
-        .mocked(global.fetch)
-        .mock.calls.find(([input]) => String(input).includes('dns.quad9.net'));
+      const quad9Call = dohFetch.mock.calls.find(([input]) =>
+        String(input).includes('dns.quad9.net'),
+      );
       expect(quad9Call).toBeDefined();
       const url = new URL(String(quad9Call![0]));
       expect(url.pathname).toBe('/dns-query');
@@ -906,8 +943,8 @@ describe('NodeDnsProvider', () => {
     });
 
     it('honors a custom group with explicit json format via the JSON API path', async () => {
-      mockDohFetch({ [CLOUDFLARE]: { Status: 3 } });
-      const p = new NodeDnsProvider({
+      const dohFetch = mockDohFetch({ [CLOUDFLARE]: { Status: 3 } });
+      const p = makeDohProviderWithFetch(dohFetch, {
         cacheTtlMs: 60_000,
         resolverGroups: [
           {
@@ -920,9 +957,9 @@ describe('NodeDnsProvider', () => {
       });
       await p.checkAvailability('custom-json-check.com');
 
-      const cfCall = vi
-        .mocked(global.fetch)
-        .mock.calls.find(([input]) => String(input).includes('cloudflare-dns.com'));
+      const cfCall = dohFetch.mock.calls.find(([input]) =>
+        String(input).includes('cloudflare-dns.com'),
+      );
       expect(cfCall).toBeDefined();
       const url = new URL(String(cfCall![0]));
       expect(url.searchParams.get('name')).toBe('custom-json-check.com');
@@ -932,46 +969,54 @@ describe('NodeDnsProvider', () => {
     it('reports Available on a 2/3 NXDOMAIN majority when the third leg answers via wire', async () => {
       const err = Object.assign(new Error('timeout'), { code: 'ETIMEOUT' });
       vi.mocked(dnsPromises.resolve).mockRejectedValue(err);
-      mockDohFetch({
-        [CLOUDFLARE]: { Status: 3 },
-        [GOOGLE]: { Status: 3 },
-        [QUAD9]: { wire: { rcode: 3 } },
-      });
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohFetch({
+          [CLOUDFLARE]: { Status: 3 },
+          [GOOGLE]: { Status: 3 },
+          [QUAD9]: { wire: { rcode: 3 } },
+        }),
+        { lookupStrategy: 'doh-primary', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('wire-majority.com');
       expect(result.status).toBe(DomainStatus.Available);
       expect(dnsPromises.resolve).not.toHaveBeenCalled();
     });
 
     it('treats a wire SERVFAIL (rcode 2) as a neutral vote, never as NXDOMAIN', async () => {
-      mockDohFetch({
-        [CLOUDFLARE]: { Status: 3 },
-        [GOOGLE]: { Status: 3 },
-        [QUAD9]: { wire: { rcode: 2 } },
-      });
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohFetch({
+          [CLOUDFLARE]: { Status: 3 },
+          [GOOGLE]: { Status: 3 },
+          [QUAD9]: { wire: { rcode: 2 } },
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('wire-servfail.com');
       expect(result.status).toBe(DomainStatus.Available);
     });
 
     it('does not let a lone wire-format NXDOMAIN outvote two failed legs', async () => {
-      mockDohFetch({
-        [CLOUDFLARE]: 'network-error',
-        [GOOGLE]: 'network-error',
-        [QUAD9]: { wire: { rcode: 3 } },
-      });
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohFetch({
+          [CLOUDFLARE]: 'network-error',
+          [GOOGLE]: 'network-error',
+          [QUAD9]: { wire: { rcode: 3 } },
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('lone-wire.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
 
     it('treats a wire response with a mismatched query ID as a neutral vote', async () => {
-      mockDohFetch({
-        [CLOUDFLARE]: 'network-error',
-        [GOOGLE]: 'network-error',
-        [QUAD9]: { wire: { rcode: 3, echoId: false } },
-      });
-      const p = new NodeDnsProvider({ lookupStrategy: 'doh-only', cacheTtlMs: 60_000 });
+      const p = makeDohProviderWithFetch(
+        mockDohFetch({
+          [CLOUDFLARE]: 'network-error',
+          [GOOGLE]: 'network-error',
+          [QUAD9]: { wire: { rcode: 3, echoId: false } },
+        }),
+        { lookupStrategy: 'doh-only', cacheTtlMs: 60_000 },
+      );
       const result = await p.checkAvailability('wire-id-mismatch.com');
       expect(result.status).toBe(DomainStatus.Unknown);
     });
