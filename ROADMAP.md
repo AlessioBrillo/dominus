@@ -1,7 +1,8 @@
 # Roadmap
 
 DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
-Next: v1.1.0 — GA release.
+v1.1.0 — Release Engineering Safety (in progress).
+Next: v1.2.0 — Post-1.0 features.
 
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
@@ -167,13 +168,18 @@ estimates and subject to change.
 - [x] CI reliability: dead-letter tests pinned to a past `scheduled_at`,
       fixing the flaky `getDeadLetter respects limit` (`#343`)
 
-## v1.1.0 — GA Release
+## v1.1.0 — Release Engineering Safety
 
-> **Status**: Planned
-> **Focus**: Stability, production readiness, community launch
+> **Status**: In Progress
+> **Focus**: Release engineering safety — rollback-safe migrations, hardened
+> DNS consensus, billing E2E coverage
 
+- [x] Schema migration gate: fail-closed manifest prefix check at boot and
+      deploy, destructive-DDL scanner in CI, RTO/RPO documentation (#349)
+- [x] DNS consensus hardening: native resolver leg pinned to the private
+      recursor, rigorous DNSSEC (SERVFAIL-on-bogus) (#350)
+- [x] Billing surface E2E coverage (community edition, fail-closed checkout)
 - [ ] Enterprise tier: custom pricing, SSO, SLA, dedicated infra
-- [ ] End-to-end tests (Playwright/Cypress)
 - [ ] Security audit (third-party if budget allows)
 - [ ] Public launch: Product Hunt, Hacker News, domain investor communities
 - [ ] Case studies and documentation for common workflows
