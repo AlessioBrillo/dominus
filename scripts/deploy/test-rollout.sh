@@ -24,7 +24,50 @@ cat > "$WORK/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 # docker shim: pull/up are no-ops; inspect reports the tag from .env,
 # unless the mismatch flag is set (models a stale image being rolled).
+# `run --entrypoint node IMAGE ... --list` prints the image's migration
+# manifest; `compose exec postgres psql` reports the applied set from the
+# "database" (captured once from the .env tag, or read from APPLIED_FILE).
 set -uo pipefail
+
+manifest_for() {
+  local tag="$1"
+  [ "$tag" = "legacy" ] && return 1
+  local list
+  list="$(find "$MANIFEST_DIR" -maxdepth 1 -name '????_*.ts' -printf '%f\n' | sort)"
+  [ "$tag" = "v1.1.0" ] && list="$list"$'\n'"0054_gate_demo"
+  printf '%s\n' "$list" | sed 's/\.ts$//'
+  return 0
+}
+
+if [ "${1:-}" = "run" ]; then
+  # run --rm --entrypoint node IMAGE dist/db/migration-manifest-cli.js --list
+  manifest_for "${5##*:}"
+  exit $?
+fi
+
+if [ "${1:-}" = "compose" ] && [ "${2:-}" = "exec" ]; then
+  if [ -f "${DB_DOWN_FLAG:-}" ]; then
+    echo "psql: could not connect to server" >&2
+    exit 1
+  fi
+  if [ -n "${APPLIED_FILE:-}" ]; then
+    cat "$APPLIED_FILE"
+    exit 0
+  fi
+  if [ ! -f "$CAPTURED_FILE" ]; then
+    tag="$(sed -n 's/^DOMINUS_IMAGE_TAG=//p' "$APP_DIR/.env" 2>/dev/null || true)"
+    if ! manifest_for "$tag" > "$CAPTURED_FILE" 2>/dev/null; then
+      rm -f "$CAPTURED_FILE"
+    fi
+  fi
+  if [ -f "$CAPTURED_FILE" ]; then
+    cat "$CAPTURED_FILE"
+    exit 0
+  fi
+  echo 'psql: relation "schema_migrations" does not exist' >&2
+  exit 1
+fi
+
 if [ "${1:-}" = "inspect" ]; then
   svc="$(basename "${@: -1}")"        # dominus-api-1 / dominus-worker-1
   svc="${svc#dominus-}"; svc="${svc%-1}"
@@ -55,6 +98,9 @@ run_rollout() {
   local tag="$1"
   local dir="$2"
   local out
+  # Each invocation is a fresh scenario: drop the shim's captured applied
+  # set and the migration-gate state from previous runs.
+  rm -f "$dir/.applied-captured" "$dir/.schema-state"
   set +e
   out="$(
     PATH="$WORK/bin:$PATH" \
@@ -62,6 +108,9 @@ run_rollout() {
     APP_DIR="$dir" \
     HEALTHY_FLAG="$WORK/healthy" \
     MISMATCH_FLAG="$WORK/mismatch" \
+    MANIFEST_DIR="$HERE/../../src/db/migrations" \
+    CAPTURED_FILE="$dir/.applied-captured" \
+    DB_DOWN_FLAG="$WORK/db-down-flag" \
     DOMINUS_TAG="$tag" \
     HEALTH_ATTEMPTS=2 \
     HEALTH_POLL_SECONDS=0 \
