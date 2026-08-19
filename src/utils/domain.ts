@@ -17,7 +17,6 @@
  * ADR-0013 and ADR-0015 record the rationale for this module.
  *
  * This module is the SINGLE source of truth for domain validation.
- * `src/utils/domain-validator.ts` is a deprecated re-export shim.
  */
 
 import psl from 'psl';

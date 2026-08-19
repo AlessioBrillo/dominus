@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
+import { toBatches } from '../../utils/array.js';
 import type { DomainCandidate, WhoisMeta } from '../../types/candidate.js';
 import { CandidateSource } from '../../types/candidate.js';
 import type { RdapResult } from '../../types/domain-status.js';
@@ -170,7 +171,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     // catch the same-server rubber stamp (ADR-0050).
     const winningOrigins = new Map<string, string>();
 
-    const batches = this.#toBatches(candidates, this.concurrency);
+    const batches = toBatches(candidates, this.concurrency);
     for (const batch of batches) {
       if (signal?.aborted) break;
       const results = await Promise.allSettled(
@@ -330,7 +331,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return pending;
     };
 
-    const batches = this.#toBatches(passed, concurrency);
+    const batches = toBatches(passed, concurrency);
     for (const batch of batches) {
       if (signal?.aborted) break;
       const results = await Promise.all(
@@ -517,14 +518,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return this.freshRdapProvider;
     }
     return this.rdapProvider;
-  }
-
-  #toBatches<T>(items: T[], size: number): T[][] {
-    const batches: T[][] = [];
-    for (let i = 0; i < items.length; i += size) {
-      batches.push(items.slice(i, i + size));
-    }
-    return batches;
   }
 
   async #checkAvailability(

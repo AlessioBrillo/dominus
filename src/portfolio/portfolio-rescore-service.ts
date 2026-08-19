@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { randomUUID } from 'node:crypto';
+import { toBatches } from '../utils/array.js';
 import type { PortfolioEntry } from '../types/portfolio.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import { GateVerdict, type TrademarkGate } from '../trademark/trademark-gate.js';
@@ -31,14 +32,6 @@ export const RESCORE_RUN_ID_PREFIX = 'portfolio-rescore-';
 
 /** Default retention: rescore entries older than this are pruned. */
 export const RESCORE_RETENTION_DAYS = 180;
-
-function toBatches<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    batches.push(items.slice(i, i + size));
-  }
-  return batches;
-}
 
 export class PortfolioRescoreService {
   constructor(

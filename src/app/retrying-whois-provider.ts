@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { WhoisProvider, WhoisResult } from '../providers/whois/whois-provider.js';
 import { type RetryPolicy } from '../providers/retry-policy.js';
-import {
-  CircuitBreaker,
-  type CircuitBreakerPolicy,
-  type ICircuitBreaker,
-} from '../providers/circuit-breaker.js';
-import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
+import { type CircuitBreakerPolicy, type ICircuitBreaker } from '../providers/circuit-breaker.js';
+import { RetryingProvider } from '../providers/retry-utils.js';
 
 export const WHOIS_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 2,
@@ -23,34 +19,22 @@ export const WHOIS_CIRCUIT_BREAKER: CircuitBreakerPolicy = {
 };
 
 export class RetryingWhoisProvider implements WhoisProvider {
-  readonly #delegate: WhoisProvider;
-  readonly #policy: RetryPolicy;
-  readonly #circuitBreaker: ICircuitBreaker;
+  readonly #retrying: RetryingProvider<WhoisProvider>;
 
   constructor(
     delegate: WhoisProvider,
     policy: Partial<RetryPolicy> = {},
     circuitBreakerOrPolicy?: ICircuitBreaker | Partial<CircuitBreakerPolicy>,
   ) {
-    this.#delegate = delegate;
-    this.#policy = { ...WHOIS_RETRY_POLICY, ...policy };
-
-    if (circuitBreakerOrPolicy && 'allow' in circuitBreakerOrPolicy) {
-      this.#circuitBreaker = circuitBreakerOrPolicy as ICircuitBreaker;
-    } else {
-      this.#circuitBreaker = new CircuitBreaker({
-        ...WHOIS_CIRCUIT_BREAKER,
-        ...(circuitBreakerOrPolicy as Partial<CircuitBreakerPolicy>),
-      });
-    }
+    this.#retrying = new RetryingProvider(delegate, 'WHOIS', {
+      defaultPolicy: WHOIS_RETRY_POLICY,
+      defaultBreaker: WHOIS_CIRCUIT_BREAKER,
+      policy,
+      circuitBreaker: circuitBreakerOrPolicy,
+    });
   }
 
-  async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
-    return withRetryAndCircuitBreaker(
-      (s) => this.#delegate.checkAvailability(domain, s),
-      'WHOIS',
-      { policy: this.#policy, circuitBreaker: this.#circuitBreaker },
-      signal,
-    );
+  checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
+    return this.#retrying.run((d, s) => d.checkAvailability(domain, s), signal);
   }
 }

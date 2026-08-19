@@ -3,12 +3,11 @@ import type { RdapResult } from '../types/domain-status.js';
 import type { RdapProvider } from '../providers/rdap/rdap-provider.js';
 import { type RetryPolicy } from '../providers/retry-policy.js';
 import {
-  CircuitBreaker,
   DEFAULT_CIRCUIT_BREAKER,
   type CircuitBreakerPolicy,
   type ICircuitBreaker,
 } from '../providers/circuit-breaker.js';
-import { withRetryAndCircuitBreaker } from '../providers/retry-utils.js';
+import { RetryingProvider } from '../providers/retry-utils.js';
 
 const RDAP_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 2,
@@ -20,35 +19,23 @@ const RDAP_RETRY_POLICY: RetryPolicy = {
 
 export class RetryingRdapProvider implements RdapProvider {
   readonly name: string;
-  readonly #delegate: RdapProvider;
-  readonly #policy: RetryPolicy;
-  readonly #circuitBreaker: ICircuitBreaker;
+  readonly #retrying: RetryingProvider<RdapProvider>;
 
   constructor(
     delegate: RdapProvider,
     policy: Partial<RetryPolicy> = {},
     circuitBreakerOrPolicy?: ICircuitBreaker | Partial<CircuitBreakerPolicy>,
   ) {
-    this.#delegate = delegate;
-    this.#policy = { ...RDAP_RETRY_POLICY, ...policy };
-
-    if (circuitBreakerOrPolicy && 'allow' in circuitBreakerOrPolicy) {
-      this.#circuitBreaker = circuitBreakerOrPolicy as ICircuitBreaker;
-    } else {
-      this.#circuitBreaker = new CircuitBreaker({
-        ...DEFAULT_CIRCUIT_BREAKER,
-        ...(circuitBreakerOrPolicy as Partial<CircuitBreakerPolicy>),
-      });
-    }
+    this.#retrying = new RetryingProvider(delegate, 'RDAP', {
+      defaultPolicy: RDAP_RETRY_POLICY,
+      defaultBreaker: DEFAULT_CIRCUIT_BREAKER,
+      policy,
+      circuitBreaker: circuitBreakerOrPolicy,
+    });
     this.name = `RetryingRdapProvider(${delegate.name})`;
   }
 
-  async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
-    return withRetryAndCircuitBreaker(
-      (s) => this.#delegate.confirm(domain, s),
-      'RDAP',
-      { policy: this.#policy, circuitBreaker: this.#circuitBreaker },
-      signal,
-    );
+  confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
+    return this.#retrying.run((d, s) => d.confirm(domain, s), signal);
   }
 }

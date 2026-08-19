@@ -1,17 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { CandidateStatus } from '../../types/candidate.js';
+import { toBatches } from '../../utils/array.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import type { Stage, StageResult } from '../stage.js';
-
-function toBatches<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    batches.push(items.slice(i, i + size));
-  }
-  return batches;
-}
 
 export class TrademarkGateStage<T extends DomainCandidate> implements Stage<T> {
   readonly name = 'TrademarkGateStage';
