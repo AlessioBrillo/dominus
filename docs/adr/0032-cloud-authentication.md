@@ -4,12 +4,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Proposed |
+| **Status** | Superseded (see ADR-0062) |
 | **Date** | 2026-06-26 |
 | **Authors** | AlessioBrillo |
 | **Deciders** | AlessioBrillo |
 | **Supersedes** | ADR-0017 (extends — community edition retains env-var API keys) |
-| **Relates to** | ADR-0027, ADR-0034 |
+| **Relates to** | ADR-0027, ADR-0034, ADR-0062 |
 | **Project** | DOMINUS |
 
 ## Context

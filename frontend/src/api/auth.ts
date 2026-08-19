@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { api, storeApiKey } from './client.js';
+import { api, storeApiKey, ApiError } from './client.js';
 
 export interface AuthResult {
   success: boolean;
@@ -20,6 +20,13 @@ export interface RegisterResponse {
   message: string;
 }
 
+export interface SsoSession {
+  authenticated: boolean;
+  sub?: string | null;
+  tenantId?: string | null;
+  role?: string | null;
+}
+
 export async function registerTenant(input: {
   name: string;
   email?: string;
@@ -38,6 +45,31 @@ export async function verifyAndStoreKey(apiKey: string): Promise<AuthResult> {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Authentication failed';
     return { success: false, error: message };
+  }
+}
+
+/** Whether the backend mounts the SSO flow (ADR-0062) and whether the
+ *  browser already holds a valid session cookie. 404 = SSO not configured;
+ *  401 = configured but signed out. */
+export async function getSsoStatus(): Promise<{ available: boolean; session: SsoSession | null }> {
+  try {
+    const session = await api.get<SsoSession>('/auth/oidc/me');
+    return { available: true, session };
+  } catch (err: unknown) {
+    if (err instanceof ApiError && err.status === 404) return { available: false, session: null };
+    return { available: true, session: null };
+  }
+}
+
+export function startSsoLogin(): void {
+  window.location.assign('/api/v1/auth/oidc/start');
+}
+
+export async function ssoLogout(): Promise<void> {
+  try {
+    await api.post('/auth/oidc/logout');
+  } catch {
+    /* non-fatal — the local key is cleared regardless */
   }
 }
 

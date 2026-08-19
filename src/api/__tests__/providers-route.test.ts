@@ -190,6 +190,7 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     DNS_CIRCUIT_BREAKER_COOLDOWN_MS: 120_000,
     TRUST_PROXY_DEPTH: 1,
     AUTH_PROVIDER: 'env',
+    AUTH0_SESSION_TTL_HOURS: 8,
     DNS_PARKING_IPS_PATH: undefined,
     PUBLIC_SCORES_RETENTION_DAYS: 90,
     EVENTS_RETENTION_DAYS: 180,

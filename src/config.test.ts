@@ -652,6 +652,65 @@ describe('WHOIS rate limit config defaults (ADR-0052)', () => {
   });
 });
 
+describe('OIDC SSO config defaults (ADR-0062)', () => {
+  const ENV_KEYS = [
+    'AUTH0_CLIENT_ID',
+    'AUTH0_CLIENT_SECRET',
+    'AUTH0_CALLBACK_URL',
+    'AUTH0_SESSION_TTL_HOURS',
+  ] as const;
+  const backup = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      backup.set(key, process.env[key]);
+      delete process.env[key];
+    }
+    resetConfig();
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = backup.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+  });
+
+  it('client credentials default to unset (SSO disabled, fail-closed)', () => {
+    const config = loadConfig();
+    expect(config.AUTH0_CLIENT_ID).toBeUndefined();
+    expect(config.AUTH0_CLIENT_SECRET).toBeUndefined();
+    expect(config.AUTH0_CALLBACK_URL).toBeUndefined();
+  });
+
+  it('AUTH0_SESSION_TTL_HOURS defaults to 8', () => {
+    expect(loadConfig().AUTH0_SESSION_TTL_HOURS).toBe(8);
+  });
+
+  it('AUTH0_SESSION_TTL_HOURS honours an explicit override', () => {
+    process.env.AUTH0_SESSION_TTL_HOURS = '2';
+    resetConfig();
+    expect(loadConfig().AUTH0_SESSION_TTL_HOURS).toBe(2);
+  });
+
+  it('AUTH0_SESSION_TTL_HOURS rejects values outside 1..168', () => {
+    process.env.AUTH0_SESSION_TTL_HOURS = '0';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+    process.env.AUTH0_SESSION_TTL_HOURS = '169';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+
+  it('AUTH0_CALLBACK_URL must be a valid URL when set', () => {
+    process.env.AUTH0_CALLBACK_URL = 'not-a-url';
+    resetConfig();
+    expect(() => loadConfig()).toThrow();
+  });
+});
+
 // z.coerce.boolean() turns the literal string "false" into true (Boolean("false")
 // is true), so any env key parsed that way can never be switched off from the
 // .env. These four keys must keep the same preprocess pattern as every other

@@ -14,6 +14,7 @@ export { createOutcomesRouter } from './routes/outcomes.js';
 export { errorHandler } from './middleware/error-handler.js';
 export { createRequestLogger } from './middleware/request-logger.js';
 export { createAuthRouter } from './routes/auth.js';
+export { createOidcRouter } from './routes/oidc.js';
 export { createKeyManagementRouter } from './routes/api-keys.js';
 export { createAlertsRouter } from './routes/alerts.js';
 export { createSchedulerRouter } from './routes/scheduler.js';

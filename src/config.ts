@@ -1588,6 +1588,36 @@ const configSchema = z.object({
    */
   AUTH0_JWKS_URI: z.string().url().optional(),
 
+  /**
+   * Auth0 application (client) ID for the interactive SSO login flow
+   * (OIDC Authorization Code + PKCE, ADR-0062). Required together with
+   * AUTH0_CLIENT_SECRET and AUTH0_CALLBACK_URL to enable the
+   * /api/v1/auth/oidc endpoints. The existing bearer-token validation
+   * (AUTH0_DOMAIN/AUDIENCE) works without these.
+   */
+  AUTH0_CLIENT_ID: z.string().optional(),
+
+  /**
+   * Auth0 application client secret. Used for the authorization-code
+   * exchange and as the HMAC key (HKDF-derived) for the httpOnly session
+   * cookie and the transient PKCE cookie. Never exposed to the frontend.
+   */
+  AUTH0_CLIENT_SECRET: z.string().optional(),
+
+  /**
+   * Absolute callback URL that Auth0 redirects to after the login prompt
+   * (e.g. 'https://dominus.app/api/v1/auth/oidc/callback'). Must be
+   * registered in the Auth0 application allowed callback URLs.
+   */
+  AUTH0_CALLBACK_URL: z.string().url().optional(),
+
+  /**
+   * Lifetime of the httpOnly session cookie minted after a successful SSO
+   * login, in hours. The SPA holds no tokens; the session is revocable by
+   * logout (or by rotating AUTH0_CLIENT_SECRET). Default: 8h.
+   */
+  AUTH0_SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(8),
+
   // ── Listing / Sales Pipeline config ────────────────────────────────
 
   /**

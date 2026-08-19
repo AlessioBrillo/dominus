@@ -32,6 +32,7 @@ import {
   createProvidersRouter,
   createOutcomesRouter,
   createAuthRouter,
+  createOidcRouter,
   createKeyManagementRouter,
   createAlertsRouter,
   createSchedulerRouter,
@@ -105,6 +106,9 @@ async function main(): Promise<void> {
   }
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
+    // Browser sessions via the SSO cookie (ADR-0062): only consulted when
+    // the interactive login flow is configured (auth0 + client credentials).
+    ...(deps.oidcDeps ? { sessionVerifier: deps.sessionJwt } : {}),
   });
 
   if (
@@ -239,6 +243,27 @@ async function main(): Promise<void> {
     );
   }
   app.use('/api/v1/auth', createAuthRouter(deps.authProvider, deps.provisioningService));
+
+  // Interactive SSO login flow (OIDC Authorization Code + PKCE, ADR-0062).
+  // Mounted only when fully configured — otherwise the /oidc endpoints 404
+  // (fail-closed, community edition unaffected). The callback URL is the
+  // API's own /api/v1/auth/oidc/callback, so the SPA origin is derived from
+  // it (path-strip); PUBLIC_APP_URL keeps its canonical/SEO role.
+  if (deps.oidcDeps) {
+    const callbackUrl = new URL(deps.oidcDeps.callbackUrl);
+    app.use(
+      '/api/v1/auth/oidc',
+      createOidcRouter({
+        provider: deps.oidcDeps.provider,
+        clientSecret: deps.oidcDeps.clientSecret,
+        callbackUrl: deps.oidcDeps.callbackUrl,
+        appOrigin: callbackUrl.origin + '/',
+        sessionTtlMs: deps.oidcDeps.sessionTtlMs,
+        sessionVerifier: deps.sessionJwt,
+        mintSession: (sub, tenantId, role) => deps.sessionJwt.mint({ sub, tenantId, role }),
+      }),
+    );
+  }
 
   // Global per-IP rate limit for all remaining API routes (protects against
   // request floods and resource exhaustion). Applied after auth to separate

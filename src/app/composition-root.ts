@@ -81,7 +81,13 @@ import {
 } from '../providers/redis/index.js';
 import type { LockProvider } from '../types/lock.js';
 import type { AuthProvider } from '../providers/auth/auth-provider.js';
-import { buildAuthProvider, isUsageEnforcementActive, isMultiTenantAuth } from './auth-factory.js';
+import {
+  buildAuthProvider,
+  isUsageEnforcementActive,
+  isMultiTenantAuth,
+  buildOidcDeps,
+  buildSessionJwt,
+} from './auth-factory.js';
 import {
   CircuitBreaker,
   USPTO_CIRCUIT_BREAKER,
@@ -219,6 +225,13 @@ export interface DominusDependencies {
   /** Undefined in the community edition (env API keys): self-serve signup
    *  exists only where tenants are managed (ADR-0032). */
   provisioningService: TenantProvisioningService | undefined;
+  /** Interactive SSO login flow (OIDC PKCE, ADR-0062). Undefined when
+   *  AUTH_PROVIDER=auth0 is not fully configured — the /oidc endpoints are
+   *  not mounted in that case (fail-closed). */
+  oidcDeps: ReturnType<typeof buildOidcDeps>;
+  /** Session cookie JWT minter/verifier. Present whenever auth0 mode is
+   *  configured; the middleware only consults it when oidcDeps exists. */
+  sessionJwt: ReturnType<typeof buildSessionJwt>;
   /** Undefined when REDIS_URL is unset (community edition, in-memory fallbacks). */
   redisClient: RedisClient | undefined;
 }
@@ -539,6 +552,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Auth Provider ---
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
   const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
+
+  // Interactive SSO login flow (OIDC PKCE, ADR-0062). Undefined unless auth0
+  // mode is fully configured with client credentials — the /oidc endpoints
+  // are not mounted then (fail-closed).
+  const oidcDeps = buildOidcDeps(config);
+  const sessionJwt = buildSessionJwt(config);
 
   // Self-serve signup (POST /api/v1/auth/register): only in managed
   // (multi-tenant) identity mode, where tenants and API keys are real
@@ -1125,6 +1144,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     worker,
     authProvider,
     provisioningService,
+    oidcDeps,
+    sessionJwt,
     anonScoringService,
     redisClient,
     billingService,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { getStoredApiKey, clearApiKey, setOnUnauthorized } from '@/api/client';
-import { verifyAndStoreKey } from '@/api/auth';
+import { verifyAndStoreKey, getSsoStatus, ssoLogout } from '@/api/auth';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -17,13 +17,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = getStoredApiKey();
-    setIsAuthenticated(stored !== null);
-    setIsLoading(false);
-
     setOnUnauthorized(() => {
       setIsAuthenticated(false);
     });
+
+    const stored = getStoredApiKey();
+    if (stored !== null) {
+      setIsAuthenticated(true);
+      setIsLoading(false);
+      return;
+    }
+
+    // SSO session restore (ADR-0062): the browser may hold a valid
+    // dominus_session cookie without a stored API key (enterprise login).
+    let cancelled = false;
+    getSsoStatus()
+      .then(({ session }) => {
+        if (!cancelled && session?.authenticated) setIsAuthenticated(true);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (key: string) => {
@@ -36,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearApiKey();
+    void ssoLogout();
     setIsAuthenticated(false);
   }, []);
 
