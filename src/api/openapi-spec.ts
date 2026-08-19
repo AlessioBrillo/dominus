@@ -355,6 +355,69 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
+    '/api/v1/auth/oidc/start': {
+      get: {
+        tags: ['System'],
+        summary: 'Start the interactive SSO login (OIDC Authorization Code + PKCE, ADR-0062)',
+        description:
+          'Redirects the browser to the IdP authorization endpoint with a signed transient cookie holding the PKCE verifier. Mounted only when AUTH_PROVIDER=auth0 with client credentials; 404 otherwise.',
+        responses: {
+          '302': { description: 'Redirect to the IdP authorization endpoint' },
+          '404': { description: 'Not mounted (SSO not configured)' },
+        },
+      },
+    },
+    '/api/v1/auth/oidc/callback': {
+      get: {
+        tags: ['System'],
+        summary: 'OIDC callback — exchange the authorization code for a session',
+        description:
+          'Validates the state against the transient cookie, exchanges the code at the IdP, validates the ID token, and sets the httpOnly dominus_session cookie. Redirects to the SPA on success, or to the SPA with ?sso_error on failure.',
+        parameters: [
+          { name: 'code', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'state', in: 'query', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          '302': {
+            description: 'Redirect to the SPA (success or ?sso_error=authentication_failed)',
+          },
+        },
+      },
+    },
+    '/api/v1/auth/oidc/me': {
+      get: {
+        tags: ['System'],
+        summary: 'Return the current SSO session claims',
+        responses: {
+          '200': {
+            description: 'Session claims',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    authenticated: { type: 'boolean' },
+                    sub: { type: 'string' },
+                    tenantId: { type: 'string', nullable: true },
+                    role: { type: 'string', nullable: true },
+                  },
+                },
+              },
+            },
+          },
+          '401': { description: 'No valid session cookie' },
+        },
+      },
+    },
+    '/api/v1/auth/oidc/logout': {
+      post: {
+        tags: ['System'],
+        summary: 'Clear the SSO session cookie',
+        responses: {
+          '204': { description: 'Session cookie cleared' },
+        },
+      },
+    },
     '/api/v1/alerts': {
       get: {
         tags: ['Portfolio'],

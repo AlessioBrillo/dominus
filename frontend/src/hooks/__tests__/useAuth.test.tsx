@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../useAuth.js';
 import * as client from '../../api/client.js';
 import * as auth from '../../api/auth.js';
@@ -13,18 +13,30 @@ function wrapper({ children }: { children: ReactNode }) {
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
+  vi.spyOn(auth, 'getSsoStatus').mockResolvedValue({ available: false, session: null });
 });
 
 describe('useAuth', () => {
-  it('returns unauthenticated when no key is stored', () => {
+  it('returns unauthenticated when no key is stored and no SSO session exists', async () => {
     const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  it('restores an SSO session cookie as authenticated (ADR-0062)', async () => {
+    vi.spyOn(auth, 'getSsoStatus').mockResolvedValue({
+      available: true,
+      session: { authenticated: true, sub: 'user-1', tenantId: 'org-42' },
+    });
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
     expect(result.current.isLoading).toBe(false);
   });
 
-  it('returns authenticated when key is stored in sessionStorage', () => {
+  it('returns authenticated when key is stored in sessionStorage', async () => {
     vi.spyOn(client, 'getStoredApiKey').mockReturnValue('test-key-123');
     const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.isAuthenticated).toBe(true);
   });
 
@@ -54,9 +66,10 @@ describe('useAuth', () => {
     expect(result.current.isAuthenticated).toBe(false);
   });
 
-  it('logout clears key and sets unauthenticated', () => {
+  it('logout clears key, clears the SSO cookie and sets unauthenticated', async () => {
     vi.spyOn(client, 'getStoredApiKey').mockReturnValue('test-key-123');
     const clearSpy = vi.spyOn(client, 'clearApiKey');
+    const ssoLogoutSpy = vi.spyOn(auth, 'ssoLogout').mockResolvedValue(undefined);
     const { result } = renderHook(() => useAuth(), { wrapper });
 
     act(() => {
@@ -64,6 +77,7 @@ describe('useAuth', () => {
     });
 
     expect(clearSpy).toHaveBeenCalled();
+    expect(ssoLogoutSpy).toHaveBeenCalled();
     expect(result.current.isAuthenticated).toBe(false);
   });
 

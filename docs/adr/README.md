@@ -38,7 +38,7 @@ re-running the original arguments.
 | [0029](0029-conversion-driven-features.md)                   | Conversion-driven features for DOMINUS Cloud                                                                                    | 2026-06-21 | Proposed                            |
 | [0030](0030-public-namespace-architecture.md)                | Public namespace architecture                                                                                                   | 2026-06-21 | Proposed                            |
 | [0031](0031-production-hardening.md)                         | Production hardening — CSP, auth DI, rate limiting, retry consolidation                                                         | 2026-06-26 | Accepted                            |
-| [0032](0032-cloud-authentication.md)                         | Cloud authentication — external identity provider (Auth0)                                                                       | 2026-06-26 | Proposed                            |
+| [0032](0032-cloud-authentication.md)                         | Cloud authentication — external identity provider (Auth0)                                                                       | 2026-06-26 | Superseded (see ADR-0062)          |
 | [0033](0033-cloud-redis-infrastructure.md)                   | Cloud Redis infrastructure — distributed rate limiting, job queue, cache                                                        | 2026-06-26 | Proposed                            |
 | [0034](0034-multi-tenant-data-model.md)                      | Multi-tenant data model — tenant ID column + PostgreSQL RLS                                                                     | 2026-06-26 | Proposed                            |
 | [0035](0035-rdap-authoritative-bootstrap.md)                 | RDAP authoritative bootstrap — IANA per-TLD resolution, strict 404 semantics                                                    | 2026-08-02 | Accepted                            |
@@ -68,6 +68,7 @@ re-running the original arguments.
 | [0059](0059-dns-circuit-breaker-and-strictness.md)           | DNS consensus strictness and per-endpoint circuit breakers — strict requiredAvailable=2, breaker registry, bundled parking list | 2026-08-16 | Accepted                            |
 | [0060](0060-rdap-origin-guard-fail-closed.md)                | RDAP origin-guard fail-closed — a broken resolver never consults the second leg                                                 | 2026-08-17 | Accepted                            |
 | [0061](0061-release-migrate-before-roll.md)                  | Release migrate-before-roll — explicit schema migrations with a dedicated timeout                                               | 2026-08-18 | Accepted                            |
+| [0062](0062-enterprise-sso.md)                               | Enterprise SSO — OIDC Authorization Code + PKCE with backend session cookies                                                    | 2026-08-19 | Accepted                            |
 
 ## Conventions
 
@@ -89,7 +90,8 @@ re-running the original arguments.
   on monetisation and user model. ADR-0027 supersedes ADR-0001 on database
   and ADR-0005 on schema strategy. ADR-0028 supersedes ADR-0001 on frontend
   priority. ADR-0029 and ADR-0030 define the public-facing surface and
-  conversion mechanics for DOMINUS Cloud.
+  conversion mechanics for DOMINUS Cloud. ADR-0062 supersedes ADR-0032 on
+  cloud authentication, ratifying the interactive SSO flow.
 
 ## How to write a new ADR
 

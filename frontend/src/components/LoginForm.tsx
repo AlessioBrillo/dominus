@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { getSsoStatus, startSsoLogin } from '@/api/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,6 +11,26 @@ export function LoginForm() {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [ssoAvailable, setSsoAvailable] = useState(false);
+  const [ssoChecking, setSsoChecking] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSsoStatus()
+      .then(({ available }) => {
+        if (!cancelled) setSsoAvailable(available);
+      })
+      .finally(() => {
+        if (!cancelled) setSsoChecking(false);
+      });
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sso_error')) {
+      setError('Single sign-on failed. Try again or use your API key.');
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +73,16 @@ export function LoginForm() {
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? 'Authenticating...' : 'Authenticate'}
             </Button>
+            {!ssoChecking && ssoAvailable && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => startSsoLogin()}
+              >
+                Sign in with SSO
+              </Button>
+            )}
             <a
               href="/signup"
               className="block w-full text-center text-xs text-text-muted hover:text-text-primary"
