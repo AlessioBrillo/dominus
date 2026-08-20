@@ -185,8 +185,9 @@ estimates and subject to change.
 - [x] DNS fail-closed parity: escaped resolver errors are never manufactured
       into Available verdicts (ADR-0002 conservatism)
 - [x] Billing surface E2E coverage (community edition, fail-closed checkout)
-- [ ] Enterprise tier: custom pricing, SSO, SLA, dedicated infra
-- [ ] Security audit (third-party if budget allows)
+- [x] Enterprise SSO via Auth0 OIDC (ADR-0062, interactive PKCE flow + session cookies)
+- [ ] Enterprise tier: custom pricing, SLA, dedicated infra
+- [ ] Security audit (first-party audit shipped in v1.1.0; third-party if budget allows)
 - [ ] Public launch: Product Hunt, Hacker News, domain investor communities
 - [ ] Case studies and documentation for common workflows
 - [ ] Community Discord server
