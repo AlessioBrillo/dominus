@@ -9,26 +9,13 @@ import {
   verifyTransientCookie,
   type SessionJwtVerifier,
 } from '../../providers/auth/session-jwt.js';
+import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
 const OIDC_COOKIE = 'dominus_oidc';
 const OIDC_COOKIE_TTL_MS = 10 * 60 * 1000;
-
-function parseCookies(req: Request): Record<string, string> {
-  const header = req.headers.cookie;
-  if (!header) return {};
-  const out: Record<string, string> = {};
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq === -1) continue;
-    const key = part.slice(0, eq).trim();
-    const value = part.slice(eq + 1).trim();
-    if (key) out[key] = decodeURIComponent(value);
-  }
-  return out;
-}
 
 function cookieOptions(maxAgeMs: number): Record<string, unknown> {
   return {

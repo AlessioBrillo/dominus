@@ -5,6 +5,7 @@ import type { SessionJwtVerifier } from '../../providers/auth/session-jwt.js';
 import { SESSION_COOKIE } from '../../providers/auth/session-jwt.js';
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import { runWithTenant } from '../../utils/tenant-context.js';
+import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -58,20 +59,6 @@ export interface AuthMiddlewareOptions {
    *  alternative to a Bearer token. Browser flows authenticate via the
    *  cookie; API/CLI clients keep using Authorization headers. */
   sessionVerifier?: SessionJwtVerifier;
-}
-
-function parseCookies(req: Request): Record<string, string> {
-  const header = req.headers.cookie;
-  if (!header) return {};
-  const out: Record<string, string> = {};
-  for (const part of header.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq === -1) continue;
-    const key = part.slice(0, eq).trim();
-    const value = part.slice(eq + 1).trim();
-    if (key) out[key] = decodeURIComponent(value);
-  }
-  return out;
 }
 
 /**
