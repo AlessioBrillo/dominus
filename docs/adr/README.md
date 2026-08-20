@@ -70,6 +70,7 @@ re-running the original arguments.
 | [0061](0061-release-migrate-before-roll.md)                  | Release migrate-before-roll — explicit schema migrations with a dedicated timeout                                               | 2026-08-18 | Accepted                            |
 | [0062](0062-enterprise-sso.md)                               | Enterprise SSO — OIDC Authorization Code + PKCE with backend session cookies                                                    | 2026-08-19 | Accepted                            |
 | [0063](0063-dns-consensus-independence-topology.md)          | DNS consensus independence — resolved-IP + operator disjointness, disjoint default strategy, live-only verification              | 2026-08-20 | Accepted                            |
+| [0064](0064-dns-slo-observability.md)                         | DNS SLO observability — per-leg latency histograms, doh-alternate tertiary in the production override                            | 2026-08-20 | Accepted                            |
 
 ## Conventions
 
