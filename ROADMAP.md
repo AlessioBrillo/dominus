@@ -130,9 +130,10 @@ estimates and subject to change.
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
 - [x] DNS consensus strictness and per-endpoint circuit breakers (ADR-0059):
-      strict `DNS_CONSENSUS_REQUIRED_AVAILABLE=2` semantics, breaker registry
-      on every resolver leg with `dominus_dns_breaker_*` metrics, bundled
-      parking-IP reference list, watchlist single-provider labelling
+      `DNS_CONSENSUS_REQUIRED_AVAILABLE` gate (default 1 — one independent
+      confirmation per ADR-0002; knob up to 2 for triple agreement), breaker
+      registry on every resolver leg with `dominus_dns_breaker_*` metrics,
+      bundled parking-IP reference list, watchlist single-provider labelling
 
 - [x] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
       — Hetzner IaC in `deploy/terraform/` (app node + PITR DB node + Caddy)
