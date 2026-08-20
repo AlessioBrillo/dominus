@@ -162,6 +162,20 @@ export interface AnonTrademarkBudgetMetrics {
   observed: boolean;
 }
 
+/** A Prometheus-style histogram sample accumulated since process start
+ *  (SLO observability, ADR-0064): fixed upper bounds with cumulative
+ *  bucket counts, plus the sample sum and count. */
+export interface HistogramSample {
+  name: string;
+  labels: Record<string, string>;
+  /** Cumulative count of observations <= bucketsMs[i]. */
+  bucketCounts: number[];
+  /** Upper bounds in ms (last bucket is +Inf). */
+  bucketsMs: number[];
+  count: number;
+  sum: number;
+}
+
 export interface MetricsSnapshot {
   pipeline: PipelineRunSummary;
   system: SystemMetrics;
@@ -172,4 +186,7 @@ export interface MetricsSnapshot {
   /** IANA RDAP bootstrap health (ADR-0058). Always present; `observed`
    *  distinguishes "never recorded" from a healthy/failed refresh. */
   rdapBootstrap?: RdapBootstrapMetrics;
+  /** Latency histograms (ADR-0064), keyed by `name{label="value",...}`.
+   *  Optional: collectors and fixtures may build snapshots without them. */
+  histograms?: Record<string, HistogramSample>;
 }

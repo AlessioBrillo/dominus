@@ -5,6 +5,7 @@ import type { MetricsRepository } from '../../db/repositories/metrics-repository
 import type { MetricsCollector } from '../../app/metrics-collector.js';
 import type { JobQueueRepository } from '../../db/repositories/job-queue-repository.js';
 import type { MetricsSnapshot } from '../../types/metrics.js';
+import type { HistogramSample } from '../../types/metrics.js';
 import type { JobQueueStats } from '../../types/job-queue.js';
 import { getRouteParam } from '../route-utils.js';
 
@@ -124,6 +125,26 @@ const g = (
   lines.push(`# HELP ${name} ${help}`);
   lines.push(`# TYPE ${name} ${type}`);
   lines.push(`${name}${suffix} ${value}`);
+};
+
+/** Render a histogram sample in the text exposition format: one line per
+ *  fixed bucket (`le`), then +Inf (equal to the sample count), `_sum` and
+ *  `_count` (ADR-0064). */
+const h = (help: string, name: string, sample: HistogramSample): void => {
+  const base = Object.entries(sample.labels)
+    .map(([k, v]) => `${k}="${escapeLabelValue(v)}"`)
+    .join(',');
+  const prefix = base !== '' ? `${base},` : '';
+  lines.push(`# HELP ${name} ${help}`);
+  lines.push(`# TYPE ${name} histogram`);
+  for (let i = 0; i < sample.bucketsMs.length; i++) {
+    lines.push(
+      `${name}_bucket{${prefix}le="${sample.bucketsMs[i] ?? ''}"} ${sample.bucketCounts[i] ?? 0}`,
+    );
+  }
+  lines.push(`${name}_bucket{${prefix}le="+Inf"} ${sample.count}`);
+  lines.push(`${name}_sum{${base}} ${sample.sum}`);
+  lines.push(`${name}_count{${base}} ${sample.count}`);
 };
 
 let lines: string[] = [];
@@ -495,6 +516,23 @@ export function renderPrometheusMetrics(
         'dominus_pitr_archiving_active',
         backup.pitrArchivingActive ? 1 : 0,
       );
+    }
+  }
+
+  // SLO latency histograms (ADR-0064): per-leg DNS resolution times and
+  // per-server RDAP request times, labelled so percentiles can be split by
+  // transport/endpoint/verdict/role and by RDAP server.
+  for (const sample of Object.values(snapshot.histograms ?? {})) {
+    if (sample.name === 'dominus_dns_leg_duration_ms') {
+      h(
+        'Resolver leg duration in ms, labelled by transport/endpoint/verdict/role.',
+        sample.name,
+        sample,
+      );
+    } else if (sample.name === 'dominus_rdap_request_duration_ms') {
+      h('RDAP request duration in ms per server and outcome.', sample.name, sample);
+    } else {
+      h('Latency histogram sample.', sample.name, sample);
     }
   }
 

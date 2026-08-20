@@ -8,8 +8,29 @@ import type {
   ProviderMetrics,
   ProviderErrorMetric,
   TrademarkGateVerdict,
+  HistogramSample,
 } from '../types/metrics.js';
 import type { DnsBreakerStats } from '../providers/dns/dns-breaker.js';
+
+/**
+ * Default latency buckets (ms) for the SLO histograms (ADR-0064): span the
+ * DNS lookup timeout default (1500 ms) and the RDAP timeout default
+ * (10 s), leaving headroom for configured timeouts.
+ */
+export const DEFAULT_HISTOGRAM_BUCKETS_MS = [
+  5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10_000, 30_000,
+];
+
+/** Stable key for a histogram sample: name + sorted, escaped labels. */
+function histogramKey(name: string, labels: Record<string, string>): string {
+  const entries = Object.entries(labels).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const escaped = entries
+    .map(
+      ([k, v]) => `${k}="${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`,
+    )
+    .join(',');
+  return `${name}{${escaped}}`;
+}
 
 function readVersion(): string {
   try {
@@ -72,6 +93,38 @@ export class MetricsCollector {
   #anonTrademarkHits = 0;
   #anonTrademarkBlocked = 0;
   #anonTrademarkObserved = false;
+  #histograms: Map<string, HistogramSample> = new Map();
+
+  /** Record one observation into a latency histogram (SLO observability,
+   *  ADR-0064). Non-finite or negative samples are dropped; labels must be
+   *  low-cardinality (transport/endpoint/verdict/role, server names). */
+  recordHistogram(
+    name: string,
+    valueMs: number,
+    labels: Record<string, string>,
+    bucketsMs: number[] = DEFAULT_HISTOGRAM_BUCKETS_MS,
+  ): void {
+    if (!Number.isFinite(valueMs) || valueMs < 0) return;
+    const key = histogramKey(name, labels);
+    const existing =
+      this.#histograms.get(key) ??
+      ({
+        name,
+        labels: { ...labels },
+        bucketCounts: new Array(bucketsMs.length).fill(0),
+        bucketsMs: [...bucketsMs],
+        count: 0,
+        sum: 0,
+      } as HistogramSample);
+    existing.count++;
+    existing.sum += valueMs;
+    for (let i = 0; i < existing.bucketCounts.length; i++) {
+      if (valueMs <= (existing.bucketsMs[i] ?? Infinity)) {
+        existing.bucketCounts[i] = (existing.bucketCounts[i] ?? 0) + 1;
+      }
+    }
+    this.#histograms.set(key, existing);
+  }
 
   recordStage(
     stageName: string,
@@ -271,6 +324,16 @@ export class MetricsCollector {
     }
     const mem = process.memoryUsage();
 
+    const histograms: Record<string, HistogramSample> = {};
+    for (const [key, sample] of this.#histograms) {
+      histograms[key] = {
+        ...sample,
+        labels: { ...sample.labels },
+        bucketCounts: [...sample.bucketCounts],
+        bucketsMs: [...sample.bucketsMs],
+      };
+    }
+
     return {
       pipeline: {
         totalRuns: this.#totalRuns,
@@ -336,6 +399,7 @@ export class MetricsCollector {
         blockedTotal: this.#anonTrademarkBlocked,
         observed: this.#anonTrademarkObserved,
       },
+      histograms,
       rdapBootstrap: {
         ok: this.#rdapBootstrapOk,
         consecutiveFailures: this.#rdapBootstrapFailures,
@@ -395,5 +459,6 @@ export class MetricsCollector {
     this.#anonTrademarkHits = 0;
     this.#anonTrademarkBlocked = 0;
     this.#anonTrademarkObserved = false;
+    this.#histograms.clear();
   }
 }

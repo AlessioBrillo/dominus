@@ -28,6 +28,7 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'doh:dns.quad9.net': 'quad9',
   'doh:dns.adguard.com': 'adguard',
   'doh:dns.mullvad.net': 'mullvad',
+  'doh:dns.opendns.com': 'opendns',
   'ip:1.1.1.1': 'cloudflare',
   'ip:1.0.0.1': 'cloudflare',
   'ip:162.159.36.1': 'cloudflare',
@@ -42,6 +43,8 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'ip:193.138.218.74': 'mullvad',
   'ip:45.90.28.2': 'nextdns',
   'ip:45.90.30.2': 'nextdns',
+  'ip:208.67.222.222': 'opendns',
+  'ip:208.67.220.220': 'opendns',
 };
 
 export interface ConsensusDisjointnessReport {

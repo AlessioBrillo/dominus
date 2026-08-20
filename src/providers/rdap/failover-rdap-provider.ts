@@ -24,12 +24,24 @@ const DEFAULT_RDAP_TIMEOUT_MS = 10_000;
 export type RdapBootstrapUrlEntry = { url: string; tlds?: readonly string[] };
 
 /** Builds the per-server circuit breaker for a given server name. Allows
- * cloud deployments to supply distributed (Redis-backed) breakers so the
- * circuit state is shared across containers instead of per-process. */
+ *  cloud deployments to supply distributed (Redis-backed) breakers so the
+ *  circuit state is shared across containers instead of per-process. */
 export type RdapBreakerFactory = (
   name: string,
   policy: Partial<CircuitBreakerPolicy>,
 ) => ICircuitBreaker;
+
+/** Per-request outcome fed to the SLO telemetry hook (ADR-0064). `aborted`
+ *  marks requests cancelled because another server won the race — they carry
+ *  no server-health signal and should be excluded from latency percentiles. */
+export interface RdapRequestSample {
+  server: string;
+  durationMs: number;
+  outcome: 'ok' | 'error' | 'aborted';
+}
+
+/** Per-request telemetry hook (SLO observability, ADR-0064). Must never throw. */
+export type RdapRequestTelemetry = (sample: RdapRequestSample) => void;
 
 /**
  * FailoverRdapProvider — parallel RDAP resolution with race-based failover
@@ -65,6 +77,7 @@ export class FailoverRdapProvider implements RdapProvider {
   readonly #agentPool: RdapAgentPool;
   readonly #maxResponseBytes: number;
   readonly #perTldProviders = new Map<string, RdapProvider[]>();
+  readonly #onRequestResult: RdapRequestTelemetry | undefined;
 
   // Intra-run cache: avoids re-querying RDAP for the same domain within a
   // short window (TTL). TTL is intentionally short (60s) — long enough to
@@ -85,6 +98,7 @@ export class FailoverRdapProvider implements RdapProvider {
     breakerFactory?: RdapBreakerFactory,
     agentPool: RdapAgentPool = rdapAgentPool,
     maxResponseBytes: number = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
+    onRequestResult?: RdapRequestTelemetry,
   ) {
     this.#providers = providers ?? [];
     this.#sharedRateLimiter = sharedRateLimiter ?? RateLimiter.unlimited();
@@ -93,6 +107,7 @@ export class FailoverRdapProvider implements RdapProvider {
     this.#breakerFactory = breakerFactory;
     this.#agentPool = agentPool;
     this.#maxResponseBytes = maxResponseBytes;
+    this.#onRequestResult = onRequestResult;
     this.name =
       this.#providers.length > 0
         ? `FailoverRdapProvider(${this.#providers.map((s) => s.name).join(',')})`
@@ -125,6 +140,25 @@ export class FailoverRdapProvider implements RdapProvider {
     this.#intraRunCache.clear();
   }
 
+  /** Best-effort per-request telemetry (ADR-0064): a throwing hook must
+   *  never break RDAP resolution. */
+  #emitRequestTelemetry(
+    server: string,
+    startedAt: number,
+    outcome: RdapRequestSample['outcome'],
+  ): void {
+    if (this.#onRequestResult === undefined) return;
+    try {
+      this.#onRequestResult({
+        server,
+        durationMs: performance.now() - startedAt,
+        outcome,
+      });
+    } catch {
+      // Bookkeeping must never take RDAP down.
+    }
+  }
+
   /**
    * Create from custom URLs, sharing a single rate limiter across all
    * servers. Entries are either plain URL strings (treated as universal —
@@ -140,6 +174,7 @@ export class FailoverRdapProvider implements RdapProvider {
     agentPool: RdapAgentPool = rdapAgentPool,
     timeoutMs: number = DEFAULT_RDAP_TIMEOUT_MS,
     maxResponseBytes: number = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
+    onRequestResult?: RdapRequestTelemetry,
   ): FailoverRdapProvider {
     const providers = urls.map((entry, i) => {
       const url = typeof entry === 'string' ? entry : entry.url;
@@ -163,6 +198,7 @@ export class FailoverRdapProvider implements RdapProvider {
       breakerFactory,
       agentPool,
       maxResponseBytes,
+      onRequestResult,
     );
   }
 
@@ -179,6 +215,7 @@ export class FailoverRdapProvider implements RdapProvider {
     breakerFactory?: RdapBreakerFactory,
     agentPool: RdapAgentPool = rdapAgentPool,
     maxResponseBytes: number = DEFAULT_RDAP_MAX_RESPONSE_BYTES,
+    onRequestResult?: RdapRequestTelemetry,
   ): FailoverRdapProvider {
     const limiter = rateLimiter ?? RateLimiter.unlimited();
     const universal = new PublicRdapProvider(
@@ -198,6 +235,7 @@ export class FailoverRdapProvider implements RdapProvider {
       breakerFactory,
       agentPool,
       maxResponseBytes,
+      onRequestResult,
     );
   }
 
@@ -240,12 +278,16 @@ export class FailoverRdapProvider implements RdapProvider {
 
       const promise = (async (): Promise<{ provider: string; result: RdapResult }> => {
         if (combinedSignal.aborted) throw new DOMException('Aborted', 'AbortError');
+        const startedAt = performance.now();
+        let outcome: RdapRequestSample['outcome'];
         try {
           const result = await provider.confirm(domain, combinedSignal);
           if (result.status !== DomainStatus.Unknown && !winnerAc.signal.aborted) {
             winnerAc.abort();
           }
           void breaker?.onSuccess();
+          outcome = 'ok';
+          this.#emitRequestTelemetry(provider.name, startedAt, outcome);
           return { provider: provider.name, result };
         } catch (err) {
           // Only record circuit breaker failures for real errors, not
@@ -254,6 +296,8 @@ export class FailoverRdapProvider implements RdapProvider {
           if (!isAbort) {
             void breaker?.onFailure();
           }
+          outcome = isAbort ? 'aborted' : 'error';
+          this.#emitRequestTelemetry(provider.name, startedAt, outcome);
           throw err;
         }
       })();

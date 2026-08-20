@@ -3,7 +3,12 @@ import { Resolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from './dns-provider.js';
+import type {
+  DnsProvider,
+  DnsCheckOptions,
+  DnsLookupSpec,
+  DnsResolverGroup,
+} from './dns-provider.js';
 import { strategyToResolverGroups } from './dns-provider.js';
 import { DohAgentPool } from './doh-agents.js';
 import {
@@ -65,7 +70,29 @@ export type DnsLookupStrategy =
   | 'dot-only'
   | 'dot-alternate'
   | 'dot-with-doh-fallback'
-  | 'multi-doh-plus-native';
+  | 'multi-doh-plus-native'
+  | 'doh-alternate';
+
+/** Per-leg verdict as observed by the provider (ADR-0002 mapping). */
+export type DnsLegVerdict = 'registered' | 'available' | 'unknown' | 'error';
+
+/** One resolver-leg outcome, fed to a telemetry hook (SLO observability,
+ *  ADR-0064). `endpoint` is the same breaker key the circuit registry uses
+ *  (`doh:<host>`, `dot:<endpoint|servername|port>`, `native:<nameservers>`),
+ *  so a failing endpoint is traceable across runs. Aborted legs are NOT
+ *  emitted — caller cancellation and winner-child aborts are scheduling
+ *  artifacts, not resolver health signals. */
+export interface DnsLegSample {
+  transport: 'native' | 'doh' | 'dot';
+  endpoint: string;
+  verdict: DnsLegVerdict;
+  durationMs: number;
+  /** Which opinion this leg belongs to: primary / consensus / tertiary. */
+  role: 'primary' | 'consensus' | 'tertiary';
+}
+
+/** Per-leg telemetry hook (SLO observability, ADR-0064). Must never throw. */
+export type DnsLegTelemetry = (sample: DnsLegSample) => void;
 
 export function resolveWithTimeout(
   domain: string,
@@ -558,6 +585,10 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #nameservers: string[] | undefined;
   readonly #useDedicatedResolver: boolean;
   readonly #breakers: DnsBreakerRegistryLike | undefined;
+  /** Optional per-leg telemetry hook (SLO observability, ADR-0064). */
+  readonly #onLegResult: DnsLegTelemetry | undefined;
+  /** Which opinion this provider serves (labels every telemetry sample). */
+  readonly #legRole: DnsLegSample['role'];
   /** True when maxSize <= 0 — the in-memory cache is fully disabled. */
   readonly #cacheDisabled: boolean;
   readonly #dotPoolMaxQueued: number;
@@ -610,6 +641,14 @@ export class NodeDnsProvider implements DnsProvider {
      * same undici version).
      */
     dohAgents?: DohAgentPool;
+    /**
+     * Per-leg telemetry hook (SLO observability, ADR-0064). Invoked once per
+     * non-aborted resolver leg with its verdict and wall time. Must never
+     * throw — bookkeeping must not take DNS down.
+     */
+    onLegResult?: DnsLegTelemetry;
+    /** Role label stamped on every telemetry sample (defaults to 'primary'). */
+    legRole?: DnsLegSample['role'];
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -633,6 +672,8 @@ export class NodeDnsProvider implements DnsProvider {
       new DohAgentPool({
         maxConnections: options?.dohMaxConnections ?? 64,
       });
+    this.#onLegResult = options?.onLegResult;
+    this.#legRole = options?.legRole ?? 'primary';
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -946,6 +987,24 @@ export class NodeDnsProvider implements DnsProvider {
           spec.format ?? 'json',
         );
       }
+      if (this.#onLegResult !== undefined) {
+        // Wrap the task with per-leg timing BEFORE racing: allSettled
+        // discards timing, and the duration of a slow leg is exactly the
+        // SLO signal an alert needs (ADR-0064). Aborted legs are dropped in
+        // #emitLegResult (caller cancellation / winner-child abort).
+        const startedAt = performance.now();
+        const baseTask = task;
+        task = baseTask.then(
+          (value) => {
+            this.#emitLegResult(spec, value, undefined, startedAt, key);
+            return value;
+          },
+          (err: unknown) => {
+            this.#emitLegResult(spec, undefined, err, startedAt, key);
+            throw err;
+          },
+        );
+      }
       entries.push({ key, skipped: false, task });
     }
 
@@ -993,6 +1052,38 @@ export class NodeDnsProvider implements DnsProvider {
       return await this.#breakers.allow(key);
     } catch {
       return true;
+    }
+  }
+
+  /** Emit one leg outcome to the telemetry hook (ADR-0064). Aborts (caller
+   *  cancellation or a sibling leg winning the race) carry no resolver-health
+   *  signal and are dropped; everything else maps to the ADR-0002 verdict
+   *  lattice. Telemetry is best-effort: a throwing hook must never break DNS. */
+  #emitLegResult(
+    spec: DnsLookupSpec,
+    value: boolean | undefined,
+    err: unknown,
+    startedAt: number,
+    key: string,
+  ): void {
+    if (this.#onLegResult === undefined) return;
+    const aborted = err instanceof DOMException && err.name === 'AbortError';
+    if (aborted) return;
+    let verdict: DnsLegVerdict;
+    if (value === true) verdict = 'registered';
+    else if (value === false) verdict = 'available';
+    else if (err === undefined) verdict = 'unknown';
+    else verdict = 'error';
+    try {
+      this.#onLegResult({
+        transport: spec.type,
+        endpoint: key,
+        verdict,
+        durationMs: performance.now() - startedAt,
+        role: this.#legRole,
+      });
+    } catch {
+      // Bookkeeping must never take DNS down.
     }
   }
 

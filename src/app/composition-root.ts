@@ -111,6 +111,8 @@ import {
   buildWaybackProvider,
 } from './provider-factory.js';
 import { DnsBreakerRegistry } from '../providers/dns/dns-breaker.js';
+import type { DnsLegSample, DnsLegTelemetry } from '../providers/dns/index.js';
+import type { RdapRequestSample, RdapRequestTelemetry } from '../providers/rdap/index.js';
 import { RDAP_ORG_UNIVERSAL } from '../providers/rdap/rdap-bootstrap.js';
 import { rdapUrlOrigin } from '../providers/rdap/rdap-consensus-validator.js';
 import type { DnsProvider } from '../providers/dns/dns-provider.js';
@@ -662,6 +664,28 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rdapConsensus: rdapConsensusRateLimiter,
   } = buildRateLimiters(config, redisClient);
 
+  // --- Metrics (created before the providers so DNS/RDAP leg telemetry
+  //     can feed its histograms; all other consumers read it later) ---
+  const metrics = new MetricsCollector();
+
+  // SLO latency telemetry (ADR-0064): per-leg DNS resolution times and
+  // per-server RDAP request times land in Prometheus histograms, split by
+  // transport/endpoint/verdict/role and by server/outcome respectively.
+  const dnsLegTelemetry: DnsLegTelemetry = (leg: DnsLegSample): void => {
+    metrics.recordHistogram('dominus_dns_leg_duration_ms', leg.durationMs, {
+      transport: leg.transport,
+      endpoint: leg.endpoint,
+      verdict: leg.verdict,
+      role: leg.role,
+    });
+  };
+  const rdapRequestTelemetry: RdapRequestTelemetry = (t: RdapRequestSample): void => {
+    metrics.recordHistogram('dominus_rdap_request_duration_ms', t.durationMs, {
+      server: t.server,
+      outcome: t.outcome,
+    });
+  };
+
   // --- Providers ---
   const { cached: cachedKeywordProvider } = buildKeywordProvider(config, repos.providerCacheRepo);
   const { cached: cachedCompsProvider } = buildCompsProvider(config, repos.providerCacheRepo);
@@ -670,7 +694,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     cached: cachedRdapProvider,
     fresh: freshRdapProvider,
     ianaBootstrap,
-  } = buildRdapProviders(config, rdapRateLimiter, repos.providerCacheRepo, redisClient);
+  } = buildRdapProviders(
+    config,
+    rdapRateLimiter,
+    repos.providerCacheRepo,
+    redisClient,
+    rdapRequestTelemetry,
+  );
   // Shared per-endpoint DNS circuit breaker registry (ADR-0059): primary,
   // secondary, and tertiary consensus providers all consult the same
   // circuits, so a failing endpoint is skipped for every leg that uses it.
@@ -680,15 +710,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.providerCacheRepo,
     dnsRateLimiter,
     dnsBreakers,
+    dnsLegTelemetry,
   );
   const { withRetry: whoisProvider } = buildWhoisProviders(config, redisClient);
 
   // --- Wayback Machine (expiry data enrichment) ---
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
-
-  // --- Metrics (created before the trademark layer so the gate can feed
-  //     its telemetry callback; all other consumers read it later) ---
-  const metrics = new MetricsCollector();
 
   // DNS breaker circuits feed the process-lifetime metrics: every transition
   // (open/half-open/closed) is reflected in the dominus_dns_breaker_* series.
@@ -781,6 +808,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
     dnsConsensusRateLimiter,
     dnsBreakers,
+    dnsLegTelemetry,
   );
   if (dnsConsensusConfig !== undefined) {
     // Startup probe of the consensus legs: with strict 2-of-3 semantics

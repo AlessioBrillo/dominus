@@ -71,6 +71,15 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       },
     );
 
+    it.each(APP_SERVICES)(
+      "enables the doh-alternate tertiary on '%s' (ADR-0064, no consensus SPOF)",
+      (service) => {
+        const block = composeServiceBlock(service);
+        expect(block).toContain('- DNS_TERTIARY_ENABLED=true');
+        expect(block).toContain('- DNS_TERTIARY_STRATEGY=doh-alternate');
+      },
+    );
+
     it.each(APP_SERVICES)("attaches '%s' to the recursor network", (service) => {
       const block = composeServiceBlock(service);
       expect(block).toContain('- dns-consensus-net');
@@ -99,6 +108,43 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         const consensus = await buildDnsConsensusConfig(config);
         expect(consensus).toBeDefined();
         expect(typeof consensus?.secondaryProvider.checkAvailability).toBe('function');
+      } finally {
+        for (const [k, v] of saved) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+        resetConfig();
+      }
+    });
+
+    it('boots the doh-alternate tertiary from the override env (gate actually built)', async () => {
+      // ADR-0064: the override turns the tertiary on, and the tertiary leg
+      // must survive the disjointness check against BOTH the primary (DoH)
+      // and the pinned secondary (Unbound) — OpenDNS is operator-disjoint
+      // from both. Boot-equivalent regression: the leg is vetoed at runtime
+      // on any overlap, so assert the 2-of-3 gate still constructs with a
+      // tertiary provider attached.
+      const keys = [
+        'DNS_NAMESERVERS',
+        'DNS_CONSENSUS_ENABLED',
+        'DNS_CONSENSUS_NAMESERVERS',
+        'DNS_TERTIARY_ENABLED',
+        'DNS_TERTIARY_STRATEGY',
+      ] as const;
+      const saved = keys.map((k) => [k, process.env[k]] as const);
+      try {
+        for (const k of keys) delete process.env[k];
+        process.env.DNS_NAMESERVERS = '172.20.0.10:5300';
+        process.env.DNS_CONSENSUS_ENABLED = 'true';
+        process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.10:5300';
+        process.env.DNS_TERTIARY_ENABLED = 'true';
+        process.env.DNS_TERTIARY_STRATEGY = 'doh-alternate';
+        resetConfig();
+        const config = loadConfig();
+        const consensus = await buildDnsConsensusConfig(config);
+        expect(consensus).toBeDefined();
+        expect(typeof consensus?.tertiaryProvider?.checkAvailability).toBe('function');
+        expect(consensus?.requiredAvailable).toBe(config.DNS_CONSENSUS_REQUIRED_AVAILABLE);
       } finally {
         for (const [k, v] of saved) {
           if (v === undefined) delete process.env[k];

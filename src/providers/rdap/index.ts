@@ -8,7 +8,12 @@ export {
   validateRdapConsensusOriginDisjointness,
   type OriginDisjointnessResult,
 } from './rdap-consensus-validator.js';
-export { FailoverRdapProvider, type RdapBootstrapUrlEntry } from './failover-rdap-provider.js';
+export {
+  FailoverRdapProvider,
+  type RdapBootstrapUrlEntry,
+  type RdapRequestSample,
+  type RdapRequestTelemetry,
+} from './failover-rdap-provider.js';
 export {
   IanaRdapBootstrap,
   IANA_RDAP_BOOTSTRAP_URL,

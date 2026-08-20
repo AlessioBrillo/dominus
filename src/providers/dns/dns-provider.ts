@@ -59,6 +59,20 @@ const DEFAULT_DOT_ALTERNATE_PROVIDERS: Array<{ name: string; host: string }> = [
   { name: 'NextDNS', host: '45.90.28.2' },
 ];
 
+/**
+ * Operator-disjoint DoH providers used by the 'doh-alternate' strategy.
+ * Cisco OpenDNS answers RFC 8484 wire-format GETs (live-verified
+ * 2026-08-20); it is the fourth independent operator after the default
+ * primary (Cloudflare/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS)
+ * sets, and disjoint from a pinned private recursor — the turnkey tertiary
+ * opinion of ADR-0064.
+ */
+const DEFAULT_DOH_ALTERNATE_PROVIDERS: Array<{
+  name: string;
+  url: string;
+  format?: 'json' | 'wire';
+}> = [{ name: 'OpenDNS', url: 'https://dns.opendns.com/dns-query', format: 'wire' }];
+
 /** TLS SNI servername for each default provider's DoT endpoint. */
 const DOT_SERVERNAMES: Readonly<Record<string, string>> = {
   Cloudflare: 'cloudflare-dns.com',
@@ -157,6 +171,17 @@ export function strategyToResolverGroups(
           name: 'multi-doh-fallback',
           fallback: true,
           lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
+        },
+      ];
+    case 'doh-alternate':
+      // Operator-disjoint DoH opinion (OpenDNS), used as the turnkey
+      // tertiary leg (ADR-0064) or any strategy slot that must not reuse
+      // the default primary/consensus operators. Carries no fallback — a
+      // tertiary/consensus leg must never fall back into the primary's net.
+      return [
+        {
+          name: 'multi-doh-alternate',
+          lookups: DEFAULT_DOH_ALTERNATE_PROVIDERS.map(dohProviderToSpec),
         },
       ];
     case 'native-with-doh-fallback':
