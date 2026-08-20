@@ -331,6 +331,17 @@ export function renderPrometheusMetrics(
     );
   }
 
+  const dnsDisjointness = snapshot.pipeline.dnsDisjointness;
+  if (dnsDisjointness !== undefined && dnsDisjointness.observed) {
+    g(
+      'Boot-time DNS consensus disjointness checks that ran without full DoH IP resolution (ADR-0065).',
+      'dominus_dns_disjointness_resolution_partial_total',
+      dnsDisjointness.resolutionPartialTotal,
+      undefined,
+      'counter',
+    );
+  }
+
   const rdapConsensus = snapshot.pipeline.rdapConsensus;
   if (rdapConsensus !== undefined && rdapConsensus.observed) {
     g(

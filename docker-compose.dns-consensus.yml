@@ -30,6 +30,13 @@
 # The dedicated /24 keeps the recursor on the loopback-isolated compose
 # subnet it is allowed to serve (access-control 172.20.0.0/24 in unbound.conf).
 #
+# Privacy (ADR-0065): this override still egresses the tertiary opinion to
+# public DoH (OpenDNS + Digital Society) and the consensus/primary public
+# legs when DNS_NAMESERVERS is not pinned. Operators who treat candidate
+# names as commercially confidential can opt into DNS_PRIVACY_MODE=true
+# (forces every leg through the recursor; requires DNS_NAMESERVERS and a
+# second distinct recursor for the consensus to keep running).
+#
 # Image (ADR-0046): NLnet Labs publishes no official Unbound image
 # (nlnetlabs/unbound does not exist on Docker Hub — the original reference
 # could never be pulled). This uses the community-maintained mvance/unbound

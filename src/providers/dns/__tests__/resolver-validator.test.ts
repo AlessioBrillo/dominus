@@ -168,6 +168,44 @@ describe('validateConsensusDisjointness', () => {
     expect(report.resolutionPartial).toBe(true);
   });
 
+  it('fires the onResolutionPartial hook when a host fails to resolve (ADR-0065)', async () => {
+    // The strongest overlap proof (resolved-IP comparison) silently degrades
+    // to hostname/operator hints on a slow boot; the hook lets the metrics
+    // collector surface how often that happens.
+    const primary = [group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '9.9.9.9' }])];
+    const onPartial = vi.fn();
+    await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({}),
+      onResolutionPartial: onPartial,
+    });
+    expect(onPartial).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire onResolutionPartial when every host resolves', async () => {
+    const primary = [group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '9.9.9.9' }])];
+    const onPartial = vi.fn();
+    await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({ 'cloudflare-dns.com': ['1.1.1.1'] }),
+      onResolutionPartial: onPartial,
+    });
+    expect(onPartial).not.toHaveBeenCalled();
+  });
+
+  it('a throwing onResolutionPartial hook never fails the check (fail-open)', async () => {
+    const primary = [group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '9.9.9.9' }])];
+    const report = await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({}),
+      onResolutionPartial: () => {
+        throw new Error('bookkeeping boom');
+      },
+    });
+    expect(report.ok).toBe(true);
+    expect(report.resolutionPartial).toBe(true);
+  });
+
   it('excludes fallback groups from the disjointness comparison', async () => {
     const primary: DnsResolverGroup[] = [
       group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }]),
@@ -193,6 +231,14 @@ describe('validateConsensusStrategyDisjointness', () => {
 
   it('rejects identical strategies when enabled', () => {
     expect(validateConsensusStrategyDisjointness(true, 'dot-only', 'dot-only')).toBe(false);
+  });
+
+  it('accepts native vs native — independence decided by the pinned recursors (ADR-0065)', () => {
+    // Privacy mode forces every leg to 'native': two native legs are
+    // independent only when their nameservers differ, which is exactly what
+    // the endpoint disjointness check decides. A same-strategy veto here
+    // would disable the gate for every privacy-mode install.
+    expect(validateConsensusStrategyDisjointness(true, 'native', 'native')).toBe(true);
   });
 
   it('ignores the check when disabled', () => {

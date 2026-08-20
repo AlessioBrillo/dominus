@@ -62,16 +62,27 @@ const DEFAULT_DOT_ALTERNATE_PROVIDERS: Array<{ name: string; host: string }> = [
 /**
  * Operator-disjoint DoH providers used by the 'doh-alternate' strategy.
  * Cisco OpenDNS answers RFC 8484 wire-format GETs (live-verified
- * 2026-08-20); it is the fourth independent operator after the default
- * primary (Cloudflare/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS)
- * sets, and disjoint from a pinned private recursor — the turnkey tertiary
+ * 2026-08-20); Digital Society (dns.digitale-gesellschaft.ch, live-verified
+ * 2026-08-20 through the real wire path) adds a second keyless operator so
+ * the group keeps a majority vote and two breaker circuits — a single
+ * degraded DoH endpoint can no longer silently remove the tertiary opinion
+ * (ADR-0065). Both are independent of the default primary
+ * (Cloudflare/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS) sets,
+ * and disjoint from a pinned private recursor — the turnkey tertiary
  * opinion of ADR-0064.
  */
 const DEFAULT_DOH_ALTERNATE_PROVIDERS: Array<{
   name: string;
   url: string;
   format?: 'json' | 'wire';
-}> = [{ name: 'OpenDNS', url: 'https://dns.opendns.com/dns-query', format: 'wire' }];
+}> = [
+  { name: 'OpenDNS', url: 'https://dns.opendns.com/dns-query', format: 'wire' },
+  {
+    name: 'DigitalSociety',
+    url: 'https://dns.digitale-gesellschaft.ch/dns-query',
+    format: 'wire',
+  },
+];
 
 /** TLS SNI servername for each default provider's DoT endpoint. */
 const DOT_SERVERNAMES: Readonly<Record<string, string>> = {

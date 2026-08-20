@@ -42,6 +42,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_BULK_CONCURRENCY: 10,
     DNS_LOOKUP_TIMEOUT_MS: 3000,
     DNS_LOOKUP_STRATEGY: 'native',
+    DNS_PRIVACY_MODE: false,
     DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
     DNS_DOH_MAX_CONNECTIONS: 64,
     DNS_CONSENSUS_RATE_LIMIT_TOKENS: 20,

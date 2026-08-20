@@ -110,6 +110,19 @@ export interface PipelineRunSummary {
   rdapConsensus?: RdapConsensusMetrics;
   trademarkGate?: TrademarkGateMetrics;
   dnsBreakers?: DnsBreakerMetrics;
+  /** Boot-time consensus disjointness observability (ADR-0065). */
+  dnsDisjointness?: DnsDisjointnessMetrics;
+}
+
+/** Boot-time DNS consensus disjointness check tallies (ADR-0065).
+ *  The disjointness check may run without full IP resolution when a DoH
+ *  hostname fails to resolve at boot; those runs degrade from resolved-IP
+ *  overlap proofs to hostname/operator-level hints. */
+export interface DnsDisjointnessMetrics {
+  /** Total boot-time checks that ran without full host resolution. */
+  resolutionPartialTotal: number;
+  /** Whether the disjointness check ran at least once since process start. */
+  observed: boolean;
 }
 
 /** Current DNS circuit-breaker state counts across all tracked endpoints

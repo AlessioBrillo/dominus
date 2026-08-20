@@ -713,7 +713,7 @@ describe('OIDC SSO config defaults (ADR-0062)', () => {
 
 // z.coerce.boolean() turns the literal string "false" into true (Boolean("false")
 // is true), so any env key parsed that way can never be switched off from the
-// .env. These four keys must keep the same preprocess pattern as every other
+// .env. These keys must keep the same preprocess pattern as every other
 // boolean in the schema (string === 'true').
 describe('boolean env overrides honour the literal "false" string', () => {
   const ENV_KEYS = [
@@ -721,6 +721,7 @@ describe('boolean env overrides honour the literal "false" string', () => {
     'PROVIDER_FAIR_SHARE_ENABLED',
     'RDAP_CONSENSUS_ENABLED',
     'RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED',
+    'DNS_PRIVACY_MODE',
   ] as const;
   const backup = new Map<string, string | undefined>();
 
@@ -751,5 +752,28 @@ describe('boolean env overrides honour the literal "false" string', () => {
     process.env.RDAP_CONSENSUS_ENABLED = 'true';
     resetConfig();
     expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(true);
+  });
+});
+
+describe('DNS privacy mode config defaults (ADR-0065)', () => {
+  const KEY = 'DNS_PRIVACY_MODE';
+  const backup = process.env[KEY];
+
+  afterEach(() => {
+    if (backup === undefined) delete process.env[KEY];
+    else process.env[KEY] = backup;
+    resetConfig();
+  });
+
+  it('defaults to false', () => {
+    delete process.env[KEY];
+    resetConfig();
+    expect(loadConfig().DNS_PRIVACY_MODE).toBe(false);
+  });
+
+  it('parses true when set', () => {
+    process.env[KEY] = 'true';
+    resetConfig();
+    expect(loadConfig().DNS_PRIVACY_MODE).toBe(true);
   });
 });

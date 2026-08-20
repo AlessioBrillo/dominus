@@ -266,4 +266,21 @@ describe('renderPrometheusMetrics', () => {
       '# HELP dominus_dns_leg_duration_ms Resolver leg duration in ms, labelled by transport/endpoint/verdict/role.',
     );
   });
+
+  it('renders the disjointness resolution-partial counter (ADR-0065)', () => {
+    const withPartial = structuredClone(snapshot);
+    withPartial.pipeline.dnsDisjointness = {
+      resolutionPartialTotal: 3,
+      observed: true,
+    };
+    const body = renderPrometheusMetrics(withPartial, queueStats, 0);
+
+    expect(body).toContain('# TYPE dominus_dns_disjointness_resolution_partial_total counter');
+    expect(body).toContain('dominus_dns_disjointness_resolution_partial_total 3');
+  });
+
+  it('omits the disjointness counter before any boot-time check', () => {
+    const body = renderPrometheusMetrics(snapshot, queueStats, 0);
+    expect(body).not.toContain('dominus_dns_disjointness_resolution_partial_total');
+  });
 });

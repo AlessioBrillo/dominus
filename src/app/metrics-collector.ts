@@ -64,6 +64,11 @@ export class MetricsCollector {
   #dnsBreakerHalfOpen = 0;
   #dnsBreakerTotal = 0;
   #dnsBreakersObserved = false;
+  /** Boot-time disjointness checks that ran without full DoH IP resolution
+   *  (ADR-0065): the strongest overlap check silently degrades to the
+   *  hostname/operator hints when the system resolver is slow at boot. */
+  #dnsDisjointnessResolutionPartial = 0;
+  #dnsDisjointnessObserved = false;
   #rdapConsensusVerified = 0;
   #rdapConsensusDisagreed = 0;
   #rdapConsensusUnverifiable = 0;
@@ -286,6 +291,15 @@ export class MetricsCollector {
     this.#providerMetrics.set(providerName, existing);
   }
 
+  /** Record a boot-time disjointness check that could not resolve every DoH
+   *  hostname (ADR-0065). The check is fail-open by design (ADR-0063), so the
+   *  operator must be able to see how often the resolved-IP overlap proof
+   *  silently degrades to hostname/operator hints. */
+  recordDisjointnessResolutionPartial(): void {
+    this.#dnsDisjointnessResolutionPartial++;
+    this.#dnsDisjointnessObserved = true;
+  }
+
   /** Record a successful database backup (fed by BackupService.onSuccess). */
   recordBackupSuccess(timestampMs: number): void {
     this.#backupLastSuccessAtMs = timestampMs;
@@ -379,6 +393,10 @@ export class MetricsCollector {
           total: this.#dnsBreakerTotal,
           observed: this.#dnsBreakersObserved,
         },
+        dnsDisjointness: {
+          resolutionPartialTotal: this.#dnsDisjointnessResolutionPartial,
+          observed: this.#dnsDisjointnessObserved,
+        },
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -430,6 +448,8 @@ export class MetricsCollector {
     this.#dnsBreakerHalfOpen = 0;
     this.#dnsBreakerTotal = 0;
     this.#dnsBreakersObserved = false;
+    this.#dnsDisjointnessResolutionPartial = 0;
+    this.#dnsDisjointnessObserved = false;
     this.#rdapConsensusVerified = 0;
     this.#rdapConsensusDisagreed = 0;
     this.#rdapConsensusUnverifiable = 0;
