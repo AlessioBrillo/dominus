@@ -85,6 +85,50 @@ groups:
           summary: "Jobs entered the dead-letter queue"
           description: "One or more jobs exhausted their retries in the last hour."
 
+  - name: dominus-dns-slo
+    rules:
+      # SLO latency alerts (ADR-0064). The histograms are fed by the per-leg
+      # DNS and per-request RDAP telemetry; quantiles are computed across
+      # the aggregate (role/transport), not per endpoint, to avoid alert
+      # noise on anycast wobble of a single resolver.
+
+      - alert: DnsLegLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le, role, transport) (
+              rate(dominus_dns_leg_duration_ms_bucket[15m])
+            )
+          ) > 2000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DNS {{ $labels.role }} leg p99 above 2s ({{ $labels.transport }})"
+          description: "The p99 resolution time of the {{ $labels.role }} ({{ $labels.transport }}) opinion exceeded 2s for 10 minutes — verdicts are stalling near the 1.5s lookup timeout."
+
+      - alert: RdapRequestLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (
+              rate(dominus_rdap_request_duration_ms_bucket{outcome="ok"}[15m])
+            )
+          ) > 8000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RDAP request p99 above 8s"
+          description: "The p99 RDAP request duration exceeded 8s for 10 minutes — registries are slow; consensus downgrades may surface as unverifiable verdicts."
+
+      - alert: DnsBreakerOpen
+        expr: dominus_dns_breaker_open > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DNS resolver endpoint circuit open"
+          description: "{{ $value }} resolver endpoint(s) are being skipped by the circuit breaker — verdicts rely on the remaining legs (fail-closed, no fabricated Available)."
+
   - name: dominus-cache
     rules:
       - alert: RedisDown
