@@ -783,10 +783,15 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     dnsBreakers,
   );
   if (dnsConsensusConfig !== undefined) {
-    // Startup probe of the consensus secondary: with strict 2-of-3 semantics
-    // a dead secondary downgrades every Available to Unknown, so surface
-    // egress/strategy problems at boot instead of discovering them in runs.
-    probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider);
+    // Startup probe of the consensus legs: with strict 2-of-3 semantics
+    // a dead secondary (or a dead tertiary under requiredAvailable=2)
+    // downgrades every Available to Unknown, so surface egress/strategy
+    // problems at boot instead of discovering them in runs.
+    probeConsensusProvider(
+      config,
+      dnsConsensusConfig.secondaryProvider,
+      dnsConsensusConfig.tertiaryProvider,
+    );
   }
 
   // 2-of-2 RDAP consensus (ADR-0050): a dedicated second RDAP provider on the

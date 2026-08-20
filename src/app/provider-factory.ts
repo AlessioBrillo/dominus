@@ -626,14 +626,18 @@ async function buildTertiaryConsensusProvider(
 }
 
 /**
- * Startup probe for the DNS consensus secondary provider. With strict
- * 2-of-3 consensus semantics (ADR-0002) any failure of the secondary
- * downgrades every Available to Unknown, so a dead secondary (e.g. egress
- * port 853 filtered, blocking the default 'dot-only' strategy) is a silent
- * outage worth surfacing at boot. Non-fatal: consensus stays enabled, but
- * the operator is told clearly what is happening.
+ * Startup probe for the DNS consensus secondary (and optional tertiary)
+ * provider. With strict 2-of-3 consensus semantics (ADR-0002) any failure
+ * of a verification leg downgrades every Available to Unknown, so a dead
+ * leg (e.g. egress port 853 filtered, blocking the default 'dot-alternate'
+ * strategy) is a silent outage worth surfacing at boot. Non-fatal: consensus
+ * stays enabled, but the operator is told clearly what is happening.
  */
-export function probeConsensusProvider(config: Config, secondaryProvider: DnsProvider): void {
+export function probeConsensusProvider(
+  config: Config,
+  secondaryProvider: DnsProvider,
+  tertiaryProvider?: DnsProvider,
+): void {
   if (!config.DNS_CONSENSUS_ENABLED) return;
   const logger = getLogger();
   logger.warn(
@@ -646,9 +650,24 @@ export function probeConsensusProvider(config: Config, secondaryProvider: DnsPro
       { err: message, strategy: config.DNS_CONSENSUS_STRATEGY },
       'DNS: consensus secondary provider unreachable at startup — strict consensus ' +
         'will downgrade every Available verdict to Unknown. Verify DNS_CONSENSUS_STRATEGY ' +
-        'egress (dot-only uses TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
+        'egress (dot strategies use TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
     );
   });
+  if (tertiaryProvider !== undefined) {
+    logger.warn(
+      { strategy: config.DNS_TERTIARY_STRATEGY },
+      'DNS: probing consensus tertiary provider at startup',
+    );
+    validateResolverGroups(tertiaryProvider).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { err: message, strategy: config.DNS_TERTIARY_STRATEGY },
+        'DNS: consensus tertiary provider unreachable at startup — with ' +
+          'requiredAvailable=2 every Available verdict needs it and will be ' +
+          'downgraded to Unknown. Verify DNS_TERTIARY_STRATEGY/NAMESERVERS.',
+      );
+    });
+  }
 }
 
 /**

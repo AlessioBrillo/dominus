@@ -12,10 +12,12 @@ import {
   isRdapResultCacheable,
   isRdapResultStale,
   parseRdapBootstrapUrls,
+  probeConsensusProvider,
   probeRdapConsensusEndpoint,
 } from '../provider-factory.js';
 import { validateConsensusStrategyDisjointness } from '../../providers/dns/resolver-validator.js';
 import type { Config } from '../../config.js';
+import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 import { CircuitBreaker } from '../../providers/circuit-breaker.js';
 import { RateLimiter } from '../../providers/rate-limiter.js';
 import {
@@ -916,6 +918,41 @@ describe('probeRdapConsensusEndpoint (ADR-0051)', () => {
       ),
     ).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('probeConsensusProvider (tertiary leg, P3)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetLogger();
+  });
+
+  function okLeg(name: string): DnsProvider {
+    return {
+      name,
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'google.com',
+        status: DomainStatus.Registered,
+        checkedAt: new Date().toISOString(),
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+  }
+
+  it('probes the tertiary consensus leg at startup when one is configured', async () => {
+    const secondary = okLeg('secondary');
+    const tertiary = okLeg('tertiary');
+    probeConsensusProvider(makeConfig({ DNS_CONSENSUS_ENABLED: true }), secondary, tertiary);
+    await vi.waitFor(() => expect(tertiary.checkAvailability).toHaveBeenCalled());
+    expect(secondary.checkAvailability).toHaveBeenCalled();
+  });
+
+  it('does not probe a tertiary when none is configured', async () => {
+    const secondary = okLeg('secondary');
+    probeConsensusProvider(makeConfig({ DNS_CONSENSUS_ENABLED: true }), secondary);
+    await vi.waitFor(() => expect(secondary.checkAvailability).toHaveBeenCalled());
   });
 });
 
