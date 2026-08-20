@@ -130,9 +130,10 @@ estimates and subject to change.
 > **Focus**: Managed hosting, billing, paid tiers, SEO
 
 - [x] DNS consensus strictness and per-endpoint circuit breakers (ADR-0059):
-      strict `DNS_CONSENSUS_REQUIRED_AVAILABLE=2` semantics, breaker registry
-      on every resolver leg with `dominus_dns_breaker_*` metrics, bundled
-      parking-IP reference list, watchlist single-provider labelling
+      `DNS_CONSENSUS_REQUIRED_AVAILABLE` gate (default 1 — one independent
+      confirmation per ADR-0002; knob up to 2 for triple agreement), breaker
+      registry on every resolver leg with `dominus_dns_breaker_*` metrics,
+      bundled parking-IP reference list, watchlist single-provider labelling
 
 - [x] DOMINUS Cloud infrastructure (VPS + PostgreSQL + reverse proxy)
       — Hetzner IaC in `deploy/terraform/` (app node + PITR DB node + Caddy)
@@ -184,8 +185,9 @@ estimates and subject to change.
 - [x] DNS fail-closed parity: escaped resolver errors are never manufactured
       into Available verdicts (ADR-0002 conservatism)
 - [x] Billing surface E2E coverage (community edition, fail-closed checkout)
-- [ ] Enterprise tier: custom pricing, SSO, SLA, dedicated infra
-- [ ] Security audit (third-party if budget allows)
+- [x] Enterprise SSO via Auth0 OIDC (ADR-0062, interactive PKCE flow + session cookies)
+- [ ] Enterprise tier: custom pricing, SLA, dedicated infra
+- [ ] Security audit (first-party audit shipped in v1.1.0; third-party if budget allows)
 - [ ] Public launch: Product Hunt, Hacker News, domain investor communities
 - [ ] Case studies and documentation for common workflows
 - [ ] Community Discord server

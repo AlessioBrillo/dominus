@@ -4,7 +4,10 @@
 hcloud_token      = "REPLACE_WITH_HETZNER_API_TOKEN"
 ssh_public_key    = "ssh-ed25519 AAAA... operator@host"
 domain            = "app.dominus.example"
-image_tag         = "v1.0.0"
+# Bump at every release: this tag is written into the app node's
+# DOMINUS_IMAGE_TAG. A stale tag rolls the node back onto an old image,
+# which the migration gate then refuses at boot (schema ahead of image).
+image_tag         = "v1.1.0"
 
 # SSH ingress allowlist (both nodes). The default admits any source (keys
 # only + fail2ban); restrict to the operator's networks for production.

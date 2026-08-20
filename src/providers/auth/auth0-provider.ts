@@ -46,6 +46,11 @@ export class Auth0Provider implements AuthProvider {
       const { payload } = await jwtVerify(token, this.#jwks, {
         issuer: this.#expectedIssuer,
         audience: this.#expectedAudience,
+        // Auth0 signs ID tokens with RS256; pinning the algorithm family
+        // guards against a future key-type confusion even if the JWKS ever
+        // advertises a symmetric key (defense in depth — jose already
+        // derives allowed algs from the key type).
+        algorithms: ['RS256'],
       });
 
       return {
