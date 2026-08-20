@@ -24,7 +24,20 @@ export interface ProviderStatus {
   note: string;
 }
 
-export function reportProviderStatuses(config: Config): ProviderStatus[] {
+/**
+ * @param dnsConsensusActive Actual runtime state of the 2-of-3 DNS consensus
+ *   gate, as built by `buildDnsConsensusConfig`. When omitted, the report
+ *   falls back to the configured intent (DNS_CONSENSUS_ENABLED) — the
+ *   default is only safe for callers that cannot know the runtime veto
+ *   outcome (tests, static config reports). Production entrypoints must
+ *   pass the built-gate state: the gate is silently absent when the
+ *   secondary resolver set overlaps the primary's, and the status report
+ *   must never claim an active gate that is not running.
+ */
+export function reportProviderStatuses(
+  config: Config,
+  dnsConsensusActive?: boolean,
+): ProviderStatus[] {
   const euipoConfigured =
     config.EUIPO_CLIENT_ID !== undefined &&
     config.EUIPO_CLIENT_ID !== '' &&
@@ -40,7 +53,7 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     {
       name: 'DNS',
       configured: true,
-      note: `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.${config.DNS_CONSENSUS_NAMESERVERS ? ` Consensus secondary via private recursor ${config.DNS_CONSENSUS_NAMESERVERS}.` : ''}`,
+      note: buildDnsStatusNote(config, dnsConsensusActive),
     },
     {
       name: 'RDAP',
@@ -106,6 +119,25 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
           : 'REGISTRAR_PROVIDER is unset or set to "manual" — operator handles all registrar interactions.',
     },
   ];
+}
+
+/**
+ * The DNS provider status note. The 2-of-3 consensus gate section reflects
+ * the ACTUAL runtime state (dnsConsensusActive) rather than the configured
+ * intent: the gate is absent when its resolver set overlaps the primary's,
+ * and reporting "active" for a vetoed gate is a silent-opacity hazard.
+ */
+function buildDnsStatusNote(config: Config, dnsConsensusActive?: boolean): string {
+  const consensusActive = dnsConsensusActive ?? config.DNS_CONSENSUS_ENABLED;
+  const consensusNote = consensusActive
+    ? config.DNS_CONSENSUS_NAMESERVERS
+      ? ` 2-of-3 consensus gate active (secondary via private recursor ${config.DNS_CONSENSUS_NAMESERVERS}).`
+      : ` 2-of-3 consensus gate active (secondary strategy ${config.DNS_CONSENSUS_STRATEGY}).`
+    : ' 2-of-3 consensus gate inactive (DNS_CONSENSUS_ENABLED=false, or disabled at startup because the secondary resolver set overlaps the primary — see logs).';
+  return (
+    `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). ` +
+    `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.${consensusNote}`
+  );
 }
 
 /**

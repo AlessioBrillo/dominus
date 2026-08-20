@@ -160,6 +160,13 @@ export interface DominusDependencies {
   db: Database.Database | null;
   provider: DatabaseProvider;
   config: Config;
+  /**
+   * Actual runtime state of the 2-of-3 DNS consensus gate (true when
+   * buildDnsConsensusConfig produced a gate — the gate is silently absent
+   * when the secondary resolver set overlaps the primary's). Feeds the
+   * provider-status report so it never claims an active gate that is off.
+   */
+  dnsConsensusActive: boolean;
 
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
@@ -1112,6 +1119,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   return {
     db,
     config,
+    dnsConsensusActive: dnsConsensusConfig !== undefined,
     ...repos,
     dnsProvider,
     keywordProvider: cachedKeywordProvider,
