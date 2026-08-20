@@ -129,6 +129,15 @@ groups:
           summary: "DNS resolver endpoint circuit open"
           description: "{{ $value }} resolver endpoint(s) are being skipped by the circuit breaker — verdicts rely on the remaining legs (fail-closed, no fabricated Available)."
 
+      - alert: DnsDisjointnessResolutionPartial
+        expr: increase(dominus_dns_disjointness_resolution_partial_total[15m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Boot-time consensus disjointness check ran without full DoH IP resolution"
+          description: "The strongest overlap check (resolved-IP) degraded to hostname/operator hints at boot (ADR-0065) — the consensus gate was decided on partial evidence. A slow system resolver or changed DoH hostnames are the usual causes."
+
   - name: dominus-cache
     rules:
       - alert: RedisDown

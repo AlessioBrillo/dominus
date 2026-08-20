@@ -594,6 +594,23 @@ describe('NodeDnsProvider', () => {
     });
   });
 
+  describe('doh-alternate strategy', () => {
+    it('produces two operator-disjoint wire-format legs (OpenDNS + Digital Society, ADR-0065)', () => {
+      const groups = strategyToResolverGroups(
+        'doh-alternate',
+        'https://cloudflare-dns.com/dns-query',
+      );
+      expect(groups).toHaveLength(1);
+      expect(groups[0]?.name).toBe('multi-doh-alternate');
+      expect(groups[0]?.lookups).toHaveLength(2);
+      expect(groups[0]?.lookups.every((l) => l.type === 'doh' && l.format === 'wire')).toBe(true);
+      expect(groups[0]?.lookups.map((l) => l.endpoint)).toEqual([
+        'https://dns.opendns.com/dns-query',
+        'https://dns.digitale-gesellschaft.ch/dns-query',
+      ]);
+    });
+  });
+
   describe('doh-only strategy', () => {
     function makeDohProvider(): { provider: NodeDnsProvider; spy: ReturnType<typeof vi.fn> } {
       const spy = vi.fn();

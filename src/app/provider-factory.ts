@@ -333,6 +333,21 @@ export function buildRdapProviders(
   return { raw, withRetry: withRetryProvider, cached, fresh, ianaBootstrap };
 }
 
+/**
+ * DNS_PRIVACY_MODE (ADR-0065): the configured strategy is overridden to
+ * 'native' for every leg — primary, consensus secondary and tertiary — so no
+ * DNS query leaves the host except to the pinned recursor(s). The configured
+ * values are ignored in privacy mode; the endpoint disjointness check still
+ * decides whether the consensus is genuinely independent (distinct pinned
+ * recursor) or a rubber stamp (same recursor, gate vetoed).
+ */
+export function effectiveDnsLookupStrategy(
+  config: Config,
+  strategy: DnsLookupStrategy,
+): DnsLookupStrategy {
+  return config.DNS_PRIVACY_MODE ? 'native' : strategy;
+}
+
 export function buildDnsProvider(
   config: Config,
   providerCacheRepo?: ProviderCacheRepository,
@@ -341,6 +356,19 @@ export function buildDnsProvider(
   legTelemetry?: DnsLegTelemetry,
 ): DnsProvider {
   const nameservers: string[] | undefined = resolveNameservers(config.DNS_NAMESERVERS);
+
+  // Privacy mode (ADR-0065) forces every strategy to 'native' so no query
+  // egresses to a public resolver; without an explicit pinned recursor the
+  // "privacy" would be fictional (the system resolver is the ISP's) — fail
+  // loudly at boot instead of silently leaking candidate names.
+  if (config.DNS_PRIVACY_MODE && nameservers === undefined) {
+    throw new Error(
+      'DNS_PRIVACY_MODE=true requires DNS_NAMESERVERS to be set: every DNS leg is ' +
+        'forced to the pinned recursor, and the system resolver would still leak ' +
+        'candidate names to the ISP. Pin your private recursor (e.g. 127.0.0.1:5300) ' +
+        'or disable DNS_PRIVACY_MODE (ADR-0065).',
+    );
+  }
 
   // An unset or missing DNS_PARKING_IPS_PATH falls back to the bundled
   // reference list (ADR-0059): DNS_PARKING_CHECK_ENABLED=true must work out
@@ -356,7 +384,7 @@ export function buildDnsProvider(
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
     maxSize: config.DNS_CACHE_MAX_SIZE,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
-    lookupStrategy: config.DNS_LOOKUP_STRATEGY,
+    lookupStrategy: effectiveDnsLookupStrategy(config, config.DNS_LOOKUP_STRATEGY),
     ...(resolverGroups !== undefined ? { resolverGroups } : {}),
     dohEndpoint: config.DNS_DOH_ENDPOINT,
     dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
@@ -426,7 +454,10 @@ export function buildSecondaryDnsProvider(
     // the secondary queries it with plain native DNS — no dependency on
     // egress TCP/853 that the default 'dot-only' strategy requires. Without
     // the pin the configured DNS_CONSENSUS_STRATEGY is used verbatim.
-    lookupStrategy: consensusNameservers ? 'native' : config.DNS_CONSENSUS_STRATEGY,
+    // DNS_PRIVACY_MODE (ADR-0065) forces the same native path.
+    lookupStrategy: consensusNameservers
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY),
     dohEndpoint: config.DNS_DOH_ENDPOINT,
     dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
@@ -457,16 +488,18 @@ export async function buildDnsConsensusConfig(
   consensusRateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
   legTelemetry?: DnsLegTelemetry,
+  onDisjointnessPartial?: () => void,
 ): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
   // A pinned private recursor (C3) replaces the consensus strategy's resolver
   // set with a native query to the local Unbound — the effective secondary
-  // lookup mode is 'native' regardless of DNS_CONSENSUS_STRATEGY.
+  // lookup mode is 'native' regardless of DNS_CONSENSUS_STRATEGY. Privacy
+  // mode (ADR-0065) forces the same native path for every leg.
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
   const effectiveConsensusStrategy: string = consensusNameservers
     ? 'native'
-    : config.DNS_CONSENSUS_STRATEGY;
+    : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY);
 
   if (
     !validateConsensusStrategyDisjointness(
@@ -492,7 +525,10 @@ export async function buildDnsConsensusConfig(
   const nameservers = resolveNameservers(config.DNS_NAMESERVERS);
   const primaryGroups =
     (config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined) ??
-    strategyToResolverGroups(config.DNS_LOOKUP_STRATEGY, config.DNS_DOH_ENDPOINT);
+    strategyToResolverGroups(
+      effectiveDnsLookupStrategy(config, config.DNS_LOOKUP_STRATEGY),
+      config.DNS_DOH_ENDPOINT,
+    );
   const consensusGroups = strategyToResolverGroups(
     effectiveConsensusStrategy,
     config.DNS_DOH_ENDPOINT,
@@ -505,7 +541,12 @@ export async function buildDnsConsensusConfig(
     nameservers,
     consensusGroups,
     effectiveConsensusNameservers,
-    { excludeFallbacks: true },
+    {
+      excludeFallbacks: true,
+      ...(onDisjointnessPartial !== undefined
+        ? { onResolutionPartial: onDisjointnessPartial }
+        : {}),
+    },
   );
   if (!report.ok) {
     vetoConsensusGate('secondary', effectiveConsensusStrategy, report);
@@ -529,6 +570,7 @@ export async function buildDnsConsensusConfig(
     effectiveConsensusNameservers,
     breakers,
     legTelemetry,
+    onDisjointnessPartial,
   );
   return {
     secondaryProvider: buildSecondaryDnsProvider(
@@ -585,15 +627,17 @@ async function buildTertiaryConsensusProvider(
   consensusNameservers: string[] | undefined,
   breakers?: DnsBreakerRegistryLike,
   legTelemetry?: DnsLegTelemetry,
+  onDisjointnessPartial?: () => void,
 ): Promise<DnsProvider | undefined> {
   if (!config.DNS_TERTIARY_ENABLED) return undefined;
 
   // A pinned private recursor replaces the strategy's resolver set with a
   // native query to the local recursor — mirroring the secondary's C3 rule.
+  // DNS_PRIVACY_MODE (ADR-0065) forces the same native path.
   const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
   const effectiveTertiaryStrategy: DnsLookupStrategy = tertiaryNameservers
     ? 'native'
-    : config.DNS_TERTIARY_STRATEGY;
+    : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY);
   const tertiaryGroups = strategyToResolverGroups(
     effectiveTertiaryStrategy,
     config.DNS_DOH_ENDPOINT,
@@ -610,14 +654,24 @@ async function buildTertiaryConsensusProvider(
     effectiveTertiaryNameservers,
     primaryGroups,
     primaryNameservers,
-    { excludeFallbacks: true },
+    {
+      excludeFallbacks: true,
+      ...(onDisjointnessPartial !== undefined
+        ? { onResolutionPartial: onDisjointnessPartial }
+        : {}),
+    },
   );
   const consensusReport = await validateConsensusDisjointness(
     tertiaryGroups,
     effectiveTertiaryNameservers,
     consensusGroups,
     consensusNameservers,
-    { excludeFallbacks: true },
+    {
+      excludeFallbacks: true,
+      ...(onDisjointnessPartial !== undefined
+        ? { onResolutionPartial: onDisjointnessPartial }
+        : {}),
+    },
   );
   if (!primaryReport.ok || !consensusReport.ok) {
     vetoConsensusGate(

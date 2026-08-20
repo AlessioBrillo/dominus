@@ -29,6 +29,7 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'doh:dns.adguard.com': 'adguard',
   'doh:dns.mullvad.net': 'mullvad',
   'doh:dns.opendns.com': 'opendns',
+  'doh:dns.digitale-gesellschaft.ch': 'digitale-gesellschaft',
   'ip:1.1.1.1': 'cloudflare',
   'ip:1.0.0.1': 'cloudflare',
   'ip:162.159.36.1': 'cloudflare',
@@ -45,6 +46,10 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'ip:45.90.30.2': 'nextdns',
   'ip:208.67.222.222': 'opendns',
   'ip:208.67.220.220': 'opendns',
+  'ip:185.95.218.42': 'digitale-gesellschaft',
+  'ip:185.95.218.43': 'digitale-gesellschaft',
+  'ip:2a05:fc84::42': 'digitale-gesellschaft',
+  'ip:2a05:fc84::43': 'digitale-gesellschaft',
 };
 
 export interface ConsensusDisjointnessReport {
@@ -146,6 +151,13 @@ export async function validateConsensusDisjointness(
   options?: {
     excludeFallbacks?: boolean;
     resolveHost?: (host: string) => Promise<string[]>;
+    /**
+     * Invoked when at least one DoH hostname could not be resolved at boot,
+     * i.e. the check ran without resolved-IP overlap proof (ADR-0065
+     * observability). Must never throw — bookkeeping must not take the gate
+     * down; the check is fail-open by design (ADR-0063).
+     */
+    onResolutionPartial?: () => void;
   },
 ): Promise<ConsensusDisjointnessReport> {
   const collectOpts = options?.excludeFallbacks ? { excludeFallbacks: true } : undefined;
@@ -163,6 +175,15 @@ export async function validateConsensusDisjointness(
   const consensus = new Set(consensusBase);
   let resolutionPartial = false;
 
+  const onPartial = (): void => {
+    resolutionPartial = true;
+    try {
+      options?.onResolutionPartial?.();
+    } catch {
+      // Bookkeeping must never take the gate down (fail-open by design).
+    }
+  };
+
   const resolved = new Map<string, string[]>();
   const resolveFor = async (host: string): Promise<string[]> => {
     let ips = resolved.get(host);
@@ -179,12 +200,12 @@ export async function validateConsensusDisjointness(
     // no addresses — the same outcome for this check). The operator hints
     // on the hostname still apply; record the partial resolution so the
     // caller can log that resolved-IP overlap could not be proven.
-    if (ips.length === 0) resolutionPartial = true;
+    if (ips.length === 0) onPartial();
     for (const ip of ips) primary.add(`ip:${ip}`);
   }
   for (const host of consensusDohHosts) {
     const ips = await resolveFor(host);
-    if (ips.length === 0) resolutionPartial = true;
+    if (ips.length === 0) onPartial();
     for (const ip of ips) consensus.add(`ip:${ip}`);
   }
 
@@ -215,6 +236,13 @@ export async function validateConsensusDisjointness(
  * strategy (and therefore the same resolvers) as the primary — the second
  * opinion would be a rubber stamp, not an independent check. Logs and
  * returns false so the caller can disable consensus.
+ *
+ * `native` is exempt from the equality veto: native is the resolver-agnostic
+ * mode whose actual servers are decided by the pinned nameservers, so two
+ * native legs can be genuinely independent (two distinct private recursors,
+ * e.g. DNS_PRIVACY_MODE with separate DNS_NAMESERVERS and
+ * DNS_CONSENSUS_NAMESERVERS) or a rubber stamp (the same recursor) — that
+ * distinction is exactly what the endpoint-level disjointness check decides.
  */
 export function validateConsensusStrategyDisjointness(
   enabled: boolean,
@@ -222,6 +250,7 @@ export function validateConsensusStrategyDisjointness(
   consensusStrategy: string,
 ): boolean {
   if (!enabled) return true;
+  if (primaryStrategy === 'native' && consensusStrategy === 'native') return true;
   if (primaryStrategy === consensusStrategy) {
     getLogger().error(
       {

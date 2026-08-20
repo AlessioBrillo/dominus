@@ -331,3 +331,27 @@ describe('MetricsCollector latency histograms (ADR-0064)', () => {
     expect(Object.values(collector.snapshot().histograms ?? {})).toHaveLength(0);
   });
 });
+
+describe('MetricsCollector DNS disjointness observability (ADR-0065)', () => {
+  it('records and accumulates resolution-partial occurrences', () => {
+    const collector = new MetricsCollector();
+    expect(collector.snapshot().pipeline.dnsDisjointness?.observed).toBe(false);
+
+    collector.recordDisjointnessResolutionPartial();
+    collector.recordDisjointnessResolutionPartial();
+
+    const d = collector.snapshot().pipeline.dnsDisjointness;
+    expect(d?.observed).toBe(true);
+    expect(d?.resolutionPartialTotal).toBe(2);
+  });
+
+  it('reset clears disjointness tallies', () => {
+    const collector = new MetricsCollector();
+    collector.recordDisjointnessResolutionPartial();
+    collector.reset();
+
+    const d = collector.snapshot().pipeline.dnsDisjointness;
+    expect(d?.observed).toBe(false);
+    expect(d?.resolutionPartialTotal).toBe(0);
+  });
+});

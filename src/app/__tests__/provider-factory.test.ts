@@ -4,11 +4,13 @@ import {
   buildAnonBudgetGate,
   buildConsensusRateLimiter,
   buildDnsConsensusConfig,
+  buildDnsProvider,
   buildRateLimiters,
   buildRdapCircuitBreakers,
   buildWhoisPerTldRateLimiters,
   buildWhoisRateLimiter,
   createRdapConsensusConfig,
+  effectiveDnsLookupStrategy,
   isRdapResultCacheable,
   isRdapResultStale,
   parseRdapBootstrapUrls,
@@ -59,6 +61,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_BULK_CONCURRENCY: 10,
     DNS_LOOKUP_TIMEOUT_MS: 3000,
     DNS_LOOKUP_STRATEGY: 'native',
+    DNS_PRIVACY_MODE: false,
     DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
     DNS_CACHE_TTL_SECONDS: 300,
     DNS_CACHE_MAX_SIZE: 10000,
@@ -277,6 +280,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-only',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-primary',
     });
     await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
@@ -286,6 +290,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_NAMESERVERS: '1.1.1.1',
     });
@@ -310,6 +315,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_CONSENSUS_NAMESERVERS: '1.1.1.1',
     });
@@ -324,6 +330,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'dot-only',
       DNS_CONSENSUS_NAMESERVERS: '127.0.0.1:5300',
     });
@@ -342,6 +349,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'dot-only',
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
@@ -359,6 +367,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'dot-only',
     });
     await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
@@ -370,6 +379,7 @@ describe('buildDnsConsensusConfig', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'dot-only',
     });
     const result = await buildDnsConsensusConfig(config);
@@ -386,6 +396,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'native',
@@ -403,6 +414,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'dot-alternate',
@@ -415,6 +427,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-only',
     });
     const result = await buildDnsConsensusConfig(config);
@@ -428,6 +441,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'doh-primary',
@@ -442,6 +456,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'native',
@@ -455,12 +470,58 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
+      DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'native',
     });
     const result = await buildDnsConsensusConfig(config);
     expect(result?.requiredAvailable).toBe(1);
+  });
+});
+
+describe('DNS privacy mode (ADR-0065)', () => {
+  it('effectiveDnsLookupStrategy forces native in privacy mode', () => {
+    const config = makeConfig({ DNS_PRIVACY_MODE: true });
+    expect(effectiveDnsLookupStrategy(config, 'doh-primary')).toBe('native');
+    expect(effectiveDnsLookupStrategy(config, 'dot-only')).toBe('native');
+  });
+
+  it('effectiveDnsLookupStrategy passes the strategy through outside privacy mode', () => {
+    const config = makeConfig({ DNS_PRIVACY_MODE: false });
+    expect(effectiveDnsLookupStrategy(config, 'doh-primary')).toBe('doh-primary');
+  });
+
+  it('buildDnsProvider fails the boot when privacy mode has no pinned nameservers', () => {
+    const config = makeConfig({ DNS_PRIVACY_MODE: true });
+    expect(() => buildDnsProvider(config)).toThrow('DNS_NAMESERVERS');
+  });
+
+  it('vetoes the gate when privacy mode shares one recursor across both legs', async () => {
+    // Privacy mode forces primary + consensus to 'native'. A single pinned
+    // recursor (172.20.0.10:5300) then lands on both sides of the endpoint
+    // disjointness check — same recursor twice is not an independent opinion.
+    const config = makeConfig({
+      DNS_PRIVACY_MODE: true,
+      DNS_NAMESERVERS: '172.20.0.10:5300',
+      DNS_CONSENSUS_ENABLED: true,
+    });
+    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
+  });
+
+  it('keeps the gate when privacy mode pins two distinct recursors', async () => {
+    // The native-vs-native strategy veto is lifted for privacy mode
+    // (ADR-0065): with two distinct pinned recursors the legs are genuinely
+    // independent and the gate must build.
+    const config = makeConfig({
+      DNS_PRIVACY_MODE: true,
+      DNS_NAMESERVERS: '172.20.0.10:5300',
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_CONSENSUS_NAMESERVERS: '172.20.0.11:5300',
+    });
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 });
 

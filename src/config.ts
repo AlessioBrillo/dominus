@@ -281,6 +281,26 @@ const configSchema = z.object({
     ])
     .default('doh-primary'),
   /**
+   * Privacy mode (ADR-0065): when true, NO DNS query leaves the host except
+   * to the pinned recursor. The default stack sends every candidate domain
+   * name to public resolvers (Cloudflare/Google/Quad9 DoH, AdGuard/Mullvad/
+   * NextDNS DoT, OpenDNS/Digital Society DoH, and the system/ISP resolver on
+   * native legs) — a commercially sensitive investment signal for an
+   * operator watching resolver logs. Privacy mode forces ALL strategies
+   * (primary, consensus secondary, tertiary) to 'native', so every leg
+   * queries only the DNS_NAMESERVERS pins. It therefore REQUIRES
+   * DNS_NAMESERVERS to be set: boot fails loudly otherwise, because "private"
+   * with the system resolver would still leak to the ISP. Consensus keeps
+   * running only when a SECOND distinct recursor is pinned via
+   * DNS_CONSENSUS_NAMESERVERS (native-vs-native independence is decided by
+   * the endpoint disjointness check); with a single recursor the gate is
+   * honestly vetoed at boot — one resolver cannot be its own second opinion.
+   * Default: false.
+   */
+  DNS_PRIVACY_MODE: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+  /**
    * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
    * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
    * Default: Cloudflare DNS over HTTPS (privacy-first, no ECS).
@@ -585,7 +605,7 @@ const configSchema = z.object({
     .default('native'),
   /**
    * Comma-separated private recursor addresses (host or host:port) for the
-   * DNS consensus tertiary (ADR-0043). Allows a second pinned independent
+   * DNS consensus tertiary (ADR-0045, ADR-0064). Allows a second pinned independent
    * recursor (e.g. a separate Unbound instance on the same host) to serve
    * as the third opinion. When set, the tertiary queries these addresses
    * with plain native DNS, overriding DNS_TERTIARY_STRATEGY.
