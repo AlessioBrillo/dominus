@@ -388,7 +388,9 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       const secondaryResults = await Promise.all(
         batch.map(async ({ index, domain }) => {
           try {
-            const secondary = await cfg.secondaryProvider.checkAvailability(domain, signal);
+            const secondary = await cfg.secondaryProvider.checkAvailability(domain, signal, {
+              forceRecheck: true,
+            });
             return { index, domain, secondary };
           } catch {
             return { index, domain, secondary: undefined as DnsCheckResult | undefined };
@@ -449,7 +451,9 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       const tertiaryResults = await Promise.all(
         needsTertiary.map(async ({ index, domain }) => {
           try {
-            const third = await tertiary!.checkAvailability(domain, signal);
+            const third = await tertiary!.checkAvailability(domain, signal, {
+              forceRecheck: true,
+            });
             return { index, domain, third };
           } catch {
             return { index, domain, third: undefined as DnsCheckResult | undefined };

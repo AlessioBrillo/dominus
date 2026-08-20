@@ -397,8 +397,9 @@ function resolveNameservers(raw: string | undefined): string[] | undefined {
 /**
  * Secondary DNS provider for 2-of-3 consensus cross-validation (see
  * DNS_CONSENSUS_ENABLED). Uses a resolver strategy disjoint from the primary
- * provider and skips the persistent cache — this is a verification query,
- * not a candidate for reuse across runs.
+ * provider and skips both the persistent cache and the in-memory cache
+ * (maxSize 0) — this is a live verification query, not a candidate for
+ * reuse across runs.
  */
 export function buildSecondaryDnsProvider(
   config: Config,
@@ -408,7 +409,8 @@ export function buildSecondaryDnsProvider(
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
   return new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
-    maxSize: config.DNS_CACHE_MAX_SIZE,
+    // Verification leg: live queries only, no verdict reuse across runs.
+    maxSize: 0,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
     // When a private recursor is pinned (C3, e.g. Unbound on 127.0.0.1:5300)
     // the secondary queries it with plain native DNS — no dependency on
@@ -607,7 +609,8 @@ async function buildTertiaryConsensusProvider(
 
   return new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
-    maxSize: config.DNS_CACHE_MAX_SIZE,
+    // Verification leg: live queries only, no verdict reuse across runs.
+    maxSize: 0,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
     lookupStrategy: effectiveTertiaryStrategy,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
