@@ -15,7 +15,7 @@ import {
 } from './dot-pool.js';
 import { ParkingIpRegistry } from './parking-ip-registry.js';
 import { dnsBreakerKey, type DnsBreakerRegistryLike, type DnsBreakerStats } from './dns-breaker.js';
-import { withRetry } from '../retryable-provider.js';
+import { withRetry } from '../retry-utils.js';
 import type { RetryPolicy } from '../retry-policy.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { getLogger } from '../../logger.js';

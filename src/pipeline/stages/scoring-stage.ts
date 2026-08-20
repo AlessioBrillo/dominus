@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { CandidateStatus, CandidateSource } from '../../types/candidate.js';
+import { toBatches } from '../../utils/array.js';
 import type { DomainCandidate } from '../../types/candidate.js';
 import type { ScoreResult } from '../../types/score.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
@@ -8,14 +9,6 @@ import type { Stage, StageResult } from '../stage.js';
 
 export interface ScoredCandidate extends DomainCandidate {
   scoreResult: ScoreResult | null;
-}
-
-function toBatches<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    batches.push(items.slice(i, i + size));
-  }
-  return batches;
 }
 
 export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
