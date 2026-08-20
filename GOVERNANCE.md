@@ -79,3 +79,8 @@ includes:
 2. When ready, a `vX.Y.Z` tag is pushed
 3. CI builds, tests, and publishes to npm + GitHub Container Registry
 4. A GitHub Release is created from the tag with auto-generated changelog
+
+Before tagging, bump `image_tag` in `deploy/terraform/terraform.tfvars.example`
+(and the live `terraform.tfvars` on the operator side) to `vX.Y.Z`: the
+migration gate refuses to boot an image older than the live schema, so a
+stale tag surfaces as a deployment failure at the worst moment.
