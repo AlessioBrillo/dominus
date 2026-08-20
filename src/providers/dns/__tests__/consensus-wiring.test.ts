@@ -23,7 +23,7 @@ vi.mock('node:dns', () => {
       mockSetServersCalls.push(servers);
     }
   }
-  return { promises: { resolve: vi.fn() }, Resolver: MockResolver };
+  return { promises: { resolve: vi.fn().mockResolvedValue([]) }, Resolver: MockResolver };
 });
 
 const COMPOSE_PATH = fileURLToPath(
@@ -76,7 +76,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       expect(block).toContain('- dns-consensus-net');
     });
 
-    it('boots the 2-of-3 gate from the override env (gate actually built)', () => {
+    it('boots the 2-of-3 gate from the override env (gate actually built)', async () => {
       // The compose-config CI job asserts the env statically, but the gate
       // is vetoed at RUNTIME when the consensus resolver set overlaps the
       // primary's — and the pinned native fallback used to collide with the
@@ -96,7 +96,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.10:5300';
         resetConfig();
         const config = loadConfig();
-        const consensus = buildDnsConsensusConfig(config);
+        const consensus = await buildDnsConsensusConfig(config);
         expect(consensus).toBeDefined();
         expect(typeof consensus?.secondaryProvider.checkAvailability).toBe('function');
       } finally {

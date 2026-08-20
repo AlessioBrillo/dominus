@@ -777,7 +777,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // bounded while single-resolver availability verdicts are eliminated.
   // The secondary draws from its own rate-limit budget (dnsConsensus,
   // ADR-0044) so it can never be starved by the primary's traffic.
-  const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsConsensusRateLimiter, dnsBreakers);
+  const dnsConsensusConfig = await buildDnsConsensusConfig(
+    config,
+    dnsConsensusRateLimiter,
+    dnsBreakers,
+  );
   if (dnsConsensusConfig !== undefined) {
     // Startup probe of the consensus secondary: with strict 2-of-3 semantics
     // a dead secondary downgrades every Available to Unknown, so surface

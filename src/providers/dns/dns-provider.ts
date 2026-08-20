@@ -45,6 +45,30 @@ const DEFAULT_DOT_PROVIDERS: Array<{ name: string; host: string }> = [
   { name: 'Quad9', host: '9.9.9.9' },
 ];
 
+/**
+ * Operators the default DoH primary never consults. Used by the
+ * 'dot-alternate' consensus strategy: with DNS_CONSENSUS_STRATEGY defaulting
+ * to it, the 2-of-3 gate's second opinion is genuinely operator-disjoint
+ * from the default 'doh-primary' primary (Cloudflare/Google/Quad9) — the
+ * P1 hardening that a same-operator DoH-vs-DoT pairing must not be treated
+ * as an independent opinion.
+ */
+const DEFAULT_DOT_ALTERNATE_PROVIDERS: Array<{ name: string; host: string }> = [
+  { name: 'AdGuard', host: '94.140.14.14' },
+  { name: 'Mullvad', host: '194.242.2.2' },
+  { name: 'NextDNS', host: '45.90.28.2' },
+];
+
+/** TLS SNI servername for each default provider's DoT endpoint. */
+const DOT_SERVERNAMES: Readonly<Record<string, string>> = {
+  Cloudflare: 'cloudflare-dns.com',
+  Google: 'dns.google',
+  Quad9: 'dns.quad9.net',
+  AdGuard: 'dns.adguard.com',
+  Mullvad: 'dns.mullvad.net',
+  NextDNS: 'dns.nextdns.io',
+};
+
 /** Map a default DoH provider entry to a resolver lookup spec, carrying its
  *  request format (RFC 8484 wire for providers without a JSON API). */
 function dohProviderToSpec(p: {
@@ -101,12 +125,21 @@ export function strategyToResolverGroups(
           lookups: DEFAULT_DOT_PROVIDERS.map((p) => ({
             type: 'dot' as const,
             endpoint: p.host,
-            servername:
-              p.name === 'Cloudflare'
-                ? 'cloudflare-dns.com'
-                : p.name === 'Google'
-                  ? 'dns.google'
-                  : 'dns.quad9.net',
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
+          })),
+        },
+      ];
+    case 'dot-alternate':
+      // Consensus-side strategy with operators disjoint from the default DoH
+      // primary: AdGuard/Mullvad/NextDNS only. Carries no fallback group — a
+      // consensus leg must never fall back into the primary's own resolvers.
+      return [
+        {
+          name: 'multi-dot-alternate',
+          lookups: DEFAULT_DOT_ALTERNATE_PROVIDERS.map((p) => ({
+            type: 'dot' as const,
+            endpoint: p.host,
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
           })),
         },
       ];
@@ -117,12 +150,7 @@ export function strategyToResolverGroups(
           lookups: DEFAULT_DOT_PROVIDERS.map((p) => ({
             type: 'dot' as const,
             endpoint: p.host,
-            servername:
-              p.name === 'Cloudflare'
-                ? 'cloudflare-dns.com'
-                : p.name === 'Google'
-                  ? 'dns.google'
-                  : 'dns.quad9.net',
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
           })),
         },
         {

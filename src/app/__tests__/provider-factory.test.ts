@@ -253,53 +253,56 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 // consensusConfig, so it never ran in production. This locks in the
 // wiring decision at the factory boundary.
 describe('buildDnsConsensusConfig', () => {
-  it('returns undefined when DNS_CONSENSUS_ENABLED is false (non-default)', () => {
+  it('returns undefined when DNS_CONSENSUS_ENABLED is false (non-default)', async () => {
     const config = makeConfig({ DNS_CONSENSUS_ENABLED: false });
-    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
   });
 
-  it('returns a secondaryProvider when DNS_CONSENSUS_ENABLED is true', () => {
-    const config = makeConfig({ DNS_CONSENSUS_ENABLED: true, DNS_CONSENSUS_STRATEGY: 'dot-only' });
-    const result = buildDnsConsensusConfig(config);
+  it('returns a secondaryProvider when DNS_CONSENSUS_ENABLED is true', async () => {
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
+    });
+    const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
     expect(result?.secondaryProvider).toBeDefined();
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
-  it('returns undefined when the secondary reuses the primary DoH endpoints', () => {
+  it('returns undefined when the secondary reuses the primary DoH endpoints', async () => {
     // 'doh-only' and 'doh-primary' pass the strategy-name check but both race
-    // the same Cloudflare/Google/Quad9 DoH resolvers â€” no independent opinion.
+    // the same Cloudflare/Google/Quad9 DoH resolvers — no independent opinion.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-only',
       DNS_CONSENSUS_STRATEGY: 'doh-primary',
     });
-    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
   });
 
-  it('returns undefined when a pinned native secondary reuses the DoT IPs', () => {
+  it('returns undefined when a pinned native secondary reuses the DoT IPs', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'dot-only',
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_NAMESERVERS: '1.1.1.1',
     });
-    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
   });
 
-  it('threads the degraded ratio/min tuning knobs into the consensus config', () => {
+  it('threads the degraded ratio/min tuning knobs into the consensus config', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
       DNS_CONSENSUS_DEGRADED_RATIO: 0.3,
       DNS_CONSENSUS_DEGRADED_MIN: 25,
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result?.degradedRatio).toBe(0.3);
     expect(result?.degradedMin).toBe(25);
   });
 
-  it('returns undefined when DNS_CONSENSUS_NAMESERVERS reuses the primary resolvers', () => {
+  it('returns undefined when DNS_CONSENSUS_NAMESERVERS reuses the primary resolvers', async () => {
     // A private-recursor pin (C3) is not an independent opinion when it
     // forwards to the same public resolvers the primary already queries.
     const config = makeConfig({
@@ -308,10 +311,10 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_CONSENSUS_NAMESERVERS: '1.1.1.1',
     });
-    expect(buildDnsConsensusConfig(config)).toBeUndefined();
+    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
   });
 
-  it('uses the private recursor as the secondary when DNS_CONSENSUS_NAMESERVERS is set', () => {
+  it('uses the private recursor as the secondary when DNS_CONSENSUS_NAMESERVERS is set', async () => {
     // C3: 'dot-only' consensus needs egress TCP/853, which is not guaranteed
     // on a single-VM deployment. When the operator pins a private recursor
     // (e.g. Unbound on 127.0.0.1:5300), the secondary must query it via
@@ -322,12 +325,12 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_STRATEGY: 'dot-only',
       DNS_CONSENSUS_NAMESERVERS: '127.0.0.1:5300',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
-  it('keeps the gate enabled when the primary FALLBACK shares the pinned recursor', () => {
+  it('keeps the gate enabled when the primary FALLBACK shares the pinned recursor', async () => {
     // Regression for the documented prod topology (docker-compose
     // dns-consensus.yml): DNS_NAMESERVERS pins the primary's native
     // fallback leg to the same private recursor the consensus queries
@@ -341,104 +344,120 @@ describe('buildDnsConsensusConfig', () => {
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
-  it('keeps the consensus strategy when no private recursor is pinned', () => {
-    // Backward compatible: without DNS_CONSENSUS_NAMESERVERS the secondary
-    // is built exactly as before (dot-only default).
+  it('rejects the gate when the primary MAIN DoH opinion shares operators with the DoT consensus', async () => {
+    // P1: the default doh-primary vs dot-only pass the hostname-level check
+    // but both ride the same three operators (Cloudflare/Google/Quad9) over
+    // different transports. Same operator twice is not an independent
+    // opinion, so the gate must be vetoed.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_CONSENSUS_STRATEGY: 'dot-only',
     });
-    const result = buildDnsConsensusConfig(config);
+    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
+  });
+
+  it('keeps the consensus strategy when no private recursor is pinned', async () => {
+    // Backward compatible path: an operator-disjoint strategy pair with no
+    // pins keeps the gate running.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'native',
+      DNS_CONSENSUS_STRATEGY: 'dot-only',
+    });
+    const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
   });
 });
 
 describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
-  it('builds a tertiary provider from a pinned independent recursor', () => {
+  it('builds a tertiary provider from a pinned independent recursor', async () => {
     // A pinned third recursor (e.g. a second Unbound instance) is the
     // standard way to add a genuinely independent opinion: native DNS to
     // 192.0.2.1:53 shares no endpoint with the DoH primary or the DoT
     // secondary, so the disjointness gate lets it through.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'native',
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'native',
       DNS_TERTIARY_NAMESERVERS: '192.0.2.1:53',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
     expect(typeof result?.tertiaryProvider?.checkAvailability).toBe('function');
   });
 
-  it('uses DNS_TERTIARY_STRATEGY when no tertiary nameservers are pinned', () => {
+  it('uses DNS_TERTIARY_STRATEGY when no tertiary nameservers are pinned', async () => {
+    // A dot-alternate tertiary without a pin needs no egress TCP/853 at
+    // construction and is operator-disjoint from the native primary and the
+    // doh-only consensus — the gate keeps all three legs.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'native',
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
-      DNS_TERTIARY_STRATEGY: 'native',
+      DNS_TERTIARY_STRATEGY: 'dot-alternate',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(typeof result?.tertiaryProvider?.checkAvailability).toBe('function');
   });
 
-  it('does not build a tertiary leg when DNS_TERTIARY_ENABLED is off', () => {
+  it('does not build a tertiary leg when DNS_TERTIARY_ENABLED is off', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'native',
       DNS_CONSENSUS_STRATEGY: 'doh-only',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result?.tertiaryProvider).toBeUndefined();
   });
 
-  it('drops the tertiary leg when it overlaps the secondary resolver set', () => {
+  it('drops the tertiary leg when it overlaps the secondary resolver set', async () => {
     // 'doh-only' (secondary) and 'doh-primary' (tertiary) both race the same
-    // default DoH endpoints â€” a third opinion on the same servers adds no
+    // default DoH endpoints — a third opinion on the same servers adds no
     // information, so the leg is dropped at startup with a warning.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'native',
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'doh-primary',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
     expect(result?.secondaryProvider).toBeDefined();
     expect(result?.tertiaryProvider).toBeUndefined();
   });
 
-  it('threads DNS_CONSENSUS_REQUIRED_AVAILABLE into the consensus config', () => {
+  it('threads DNS_CONSENSUS_REQUIRED_AVAILABLE into the consensus config', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'native',
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'native',
       DNS_CONSENSUS_REQUIRED_AVAILABLE: 2,
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result?.requiredAvailable).toBe(2);
   });
 
-  it('defaults requiredAvailable to 1', () => {
+  it('defaults requiredAvailable to 1', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'native',
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'native',
     });
-    const result = buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(config);
     expect(result?.requiredAvailable).toBe(1);
   });
 });
