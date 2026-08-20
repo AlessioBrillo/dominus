@@ -1145,6 +1145,88 @@ describe('NodeDnsProvider', () => {
   });
 });
 
+describe('per-leg telemetry (ADR-0064)', () => {
+  function makeSingleDohProvider(
+    fetchImpl: WireFetchImpl,
+    onLegResult?: (s: {
+      transport: string;
+      endpoint: string;
+      verdict: string;
+      durationMs: number;
+      role: string;
+    }) => void,
+  ): NodeDnsProvider {
+    const pool = new DohAgentPool({ fetchFn: fetchImpl as unknown as typeof fetch });
+    return new NodeDnsProvider({
+      resolverGroups: [
+        {
+          name: 'single-doh',
+          lookups: [
+            { type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query', format: 'json' },
+          ],
+        },
+      ],
+      cacheTtlMs: 60_000,
+      dohAgents: pool,
+      legRole: 'tertiary',
+      ...(onLegResult !== undefined ? { onLegResult } : {}),
+    });
+  }
+
+  it('emits one sample per completed leg with verdict, endpoint and role', async () => {
+    const samples: Array<{
+      verdict: string;
+      endpoint: string;
+      transport: string;
+      role: string;
+      durationMs: number;
+    }> = [];
+    const provider = makeSingleDohProvider(
+      () => Promise.resolve({ ok: true, json: () => Promise.resolve({ Status: 3 }) } as Response),
+      (s) => samples.push(s),
+    );
+
+    const result = await provider.checkAvailability('telemetry-doh.com');
+    expect(result.status).toBe(DomainStatus.Available);
+    expect(samples).toHaveLength(1);
+    expect(samples[0]).toMatchObject({
+      transport: 'doh',
+      role: 'tertiary',
+      verdict: 'available',
+      endpoint: 'doh:cloudflare-dns.com',
+    });
+    expect(samples[0]?.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('maps an unanswerable leg to unknown (wrapper swallows errors, ADR-0002)', async () => {
+    const samples: Array<{ verdict: string }> = [];
+    const provider = makeSingleDohProvider(
+      () => Promise.reject(new Error('network down')),
+      (s) => samples.push(s),
+    );
+
+    const result = await provider.checkAvailability('error-telemetry.com');
+    expect(result.status).toBe(DomainStatus.Unknown);
+    expect(samples).toHaveLength(1);
+    expect(samples[0]?.verdict).toBe('unknown');
+  });
+
+  it('emits nothing when the caller aborts before the race starts', async () => {
+    const samples: unknown[] = [];
+    const provider = makeSingleDohProvider(
+      () => Promise.reject(new DOMException('Aborted', 'AbortError')),
+      (s) => samples.push(s),
+    );
+
+    const ac = new AbortController();
+    ac.abort();
+    await expect(provider.checkAvailability('abort-telemetry.com', ac.signal)).rejects.toThrow(
+      'Aborted',
+    );
+    expect(samples).toHaveLength(0);
+  });
+});
+
 describe('verdictFromLookupError (ADR-0002 conservatism)', () => {
   // The resolver legs already translate NXDOMAIN/NODATA into an explicit
   // "not resolved" verdict (resolvesAnyNative, DoH/DoT wrappers), so an

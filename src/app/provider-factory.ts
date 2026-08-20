@@ -17,6 +17,7 @@ import {
   DnsBreakerRegistry,
   strategyToResolverGroups,
   type DnsBreakerRegistryLike,
+  type DnsLegTelemetry,
   type DnsLookupStrategy,
   type DnsProvider,
   type DnsResolverGroup,
@@ -38,6 +39,7 @@ import {
   FailoverRdapProvider,
   RdapAgentPool,
   type RdapBootstrapUrlEntry,
+  type RdapRequestTelemetry,
 } from '../providers/rdap/index.js';
 import { IanaRdapBootstrap, IANA_RDAP_BOOTSTRAP_URL } from '../providers/rdap/rdap-bootstrap.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
@@ -263,6 +265,7 @@ export function buildRdapProviders(
   rdapRateLimiter: RateLimiterLike,
   providerCacheRepo: ProviderCacheRepository,
   redisClient?: RedisClient,
+  onRequestResult?: RdapRequestTelemetry,
 ): BuiltRdapProviders {
   const rdapBootstrapUrls = parseRdapBootstrapUrls(config.RDAP_BOOTSTRAP_URLS);
   const breakers = buildRdapCircuitBreakers(redisClient);
@@ -293,6 +296,7 @@ export function buildRdapProviders(
           rdapAgentPool,
           undefined,
           config.RDAP_MAX_RESPONSE_BYTES,
+          onRequestResult,
         )
       : FailoverRdapProvider.withDefaults(
           rdapRateLimiter,
@@ -301,6 +305,7 @@ export function buildRdapProviders(
           breakers.perServer,
           rdapAgentPool,
           config.RDAP_MAX_RESPONSE_BYTES,
+          onRequestResult,
         );
 
   const withRetryProvider = new RetryingRdapProvider(raw, {}, breakers.global);
@@ -333,6 +338,7 @@ export function buildDnsProvider(
   providerCacheRepo?: ProviderCacheRepository,
   rateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
+  legTelemetry?: DnsLegTelemetry,
 ): DnsProvider {
   const nameservers: string[] | undefined = resolveNameservers(config.DNS_NAMESERVERS);
 
@@ -369,6 +375,9 @@ export function buildDnsProvider(
     ...(nameservers !== undefined ? { nameservers } : {}),
     useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,
     breakers,
+    ...(legTelemetry !== undefined
+      ? { onLegResult: legTelemetry, legRole: 'primary' as const }
+      : {}),
   });
 
   // Startup validation: probe known domains through each resolver group.
@@ -405,6 +414,7 @@ export function buildSecondaryDnsProvider(
   config: Config,
   rateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
+  legTelemetry?: DnsLegTelemetry,
 ): DnsProvider {
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
   return new NodeDnsProvider({
@@ -424,6 +434,9 @@ export function buildSecondaryDnsProvider(
     rateLimiter,
     retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
     breakers,
+    ...(legTelemetry !== undefined
+      ? { onLegResult: legTelemetry, legRole: 'consensus' as const }
+      : {}),
   });
 }
 
@@ -443,6 +456,7 @@ export async function buildDnsConsensusConfig(
   config: Config,
   consensusRateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
+  legTelemetry?: DnsLegTelemetry,
 ): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
@@ -514,9 +528,15 @@ export async function buildDnsConsensusConfig(
     consensusGroups,
     effectiveConsensusNameservers,
     breakers,
+    legTelemetry,
   );
   return {
-    secondaryProvider: buildSecondaryDnsProvider(config, secondaryRateLimiter, breakers),
+    secondaryProvider: buildSecondaryDnsProvider(
+      config,
+      secondaryRateLimiter,
+      breakers,
+      legTelemetry,
+    ),
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
@@ -564,6 +584,7 @@ async function buildTertiaryConsensusProvider(
   consensusGroups: DnsResolverGroup[],
   consensusNameservers: string[] | undefined,
   breakers?: DnsBreakerRegistryLike,
+  legTelemetry?: DnsLegTelemetry,
 ): Promise<DnsProvider | undefined> {
   if (!config.DNS_TERTIARY_ENABLED) return undefined;
 
@@ -622,6 +643,9 @@ async function buildTertiaryConsensusProvider(
     rateLimiter,
     retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
     breakers,
+    ...(legTelemetry !== undefined
+      ? { onLegResult: legTelemetry, legRole: 'tertiary' as const }
+      : {}),
   });
 }
 

@@ -228,4 +228,42 @@ describe('renderPrometheusMetrics', () => {
     expect(body).toContain('# TYPE dominus_rdap_bootstrap_ok gauge');
     expect(body).toContain('# TYPE dominus_rdap_bootstrap_failures_total counter');
   });
+
+  it('renders SLO latency histograms with bucket, sum and count lines (ADR-0064)', () => {
+    const withHist = structuredClone(snapshot);
+    withHist.histograms = {
+      'dominus_dns_leg_duration_ms{endpoint="doh:cloudflare-dns.com",role="primary",transport="doh",verdict="available"}':
+        {
+          name: 'dominus_dns_leg_duration_ms',
+          labels: {
+            transport: 'doh',
+            endpoint: 'doh:cloudflare-dns.com',
+            verdict: 'available',
+            role: 'primary',
+          },
+          bucketCounts: [2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1],
+          bucketsMs: [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000],
+          count: 2,
+          sum: 5010,
+        },
+    };
+    const body = renderPrometheusMetrics(withHist, queueStats, 0);
+
+    expect(body).toContain('# TYPE dominus_dns_leg_duration_ms histogram');
+    expect(body).toContain(
+      'dominus_dns_leg_duration_ms_bucket{transport="doh",endpoint="doh:cloudflare-dns.com",verdict="available",role="primary",le="100"} 2',
+    );
+    expect(body).toContain(
+      'dominus_dns_leg_duration_ms_bucket{transport="doh",endpoint="doh:cloudflare-dns.com",verdict="available",role="primary",le="+Inf"} 2',
+    );
+    expect(body).toContain(
+      'dominus_dns_leg_duration_ms_sum{transport="doh",endpoint="doh:cloudflare-dns.com",verdict="available",role="primary"} 5010',
+    );
+    expect(body).toContain(
+      'dominus_dns_leg_duration_ms_count{transport="doh",endpoint="doh:cloudflare-dns.com",verdict="available",role="primary"} 2',
+    );
+    expect(body).toContain(
+      '# HELP dominus_dns_leg_duration_ms Resolver leg duration in ms, labelled by transport/endpoint/verdict/role.',
+    );
+  });
 });

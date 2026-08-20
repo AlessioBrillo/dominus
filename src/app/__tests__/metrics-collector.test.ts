@@ -270,3 +270,64 @@ describe('MetricsCollector anonymous trademark budget (ADR-0056)', () => {
     expect(anon.hitsTotal).toBe(0);
   });
 });
+
+describe('MetricsCollector latency histograms (ADR-0064)', () => {
+  it('records observations into cumulative buckets and sums', () => {
+    const collector = new MetricsCollector();
+    collector.recordHistogram('dominus_dns_leg_duration_ms', 10, {
+      transport: 'doh',
+      endpoint: 'doh:cloudflare-dns.com',
+      verdict: 'available',
+      role: 'primary',
+    });
+    collector.recordHistogram('dominus_dns_leg_duration_ms', 5000, {
+      transport: 'doh',
+      endpoint: 'doh:cloudflare-dns.com',
+      verdict: 'available',
+      role: 'primary',
+    });
+
+    const hist = Object.values(collector.snapshot().histograms ?? {})[0]!;
+    expect(hist.name).toBe('dominus_dns_leg_duration_ms');
+    expect(hist.count).toBe(2);
+    expect(hist.sum).toBe(5010);
+    // 10ms falls in the first bucket and every later one; 5000ms stops at the
+    // 5000 bucket. 30000 is the largest fixed bucket.
+    const idx5000 = hist.bucketsMs.indexOf(5000);
+    const idx30000 = hist.bucketsMs.indexOf(30000);
+    expect(hist.bucketCounts[idx5000]).toBe(2);
+    expect(hist.bucketCounts[idx30000]).toBe(2);
+    const idx2500 = hist.bucketsMs.indexOf(2500);
+    expect(hist.bucketCounts[idx2500]).toBe(1);
+  });
+
+  it('drops negative and non-finite samples', () => {
+    const collector = new MetricsCollector();
+    collector.recordHistogram('h', -1, {});
+    collector.recordHistogram('h', Number.NaN, {});
+    collector.recordHistogram('h', Infinity, {});
+
+    expect(Object.values(collector.snapshot().histograms ?? {})).toHaveLength(0);
+  });
+
+  it('keeps label sets apart and preserves the labels in the snapshot', () => {
+    const collector = new MetricsCollector();
+    collector.recordHistogram('h', 10, { role: 'consensus', transport: 'dot' });
+    collector.recordHistogram('h', 10, { role: 'primary', transport: 'doh' });
+
+    const histograms = collector.snapshot().histograms ?? {};
+    const samples = Object.values(histograms);
+    expect(samples).toHaveLength(2);
+    expect(samples.every((s) => s.bucketsMs.length > 0)).toBe(true);
+    expect(samples.some((s) => s.labels.role === 'consensus')).toBe(true);
+    expect(samples.some((s) => s.labels.role === 'primary')).toBe(true);
+  });
+
+  it('reset clears histograms', () => {
+    const collector = new MetricsCollector();
+    collector.recordHistogram('h', 10, { role: 'primary' });
+    collector.reset();
+
+    expect(Object.values(collector.snapshot().histograms ?? {})).toHaveLength(0);
+  });
+});

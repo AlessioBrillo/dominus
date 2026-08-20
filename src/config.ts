@@ -277,6 +277,7 @@ const configSchema = z.object({
       'dot-alternate',
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
+      'doh-alternate',
     ])
     .default('doh-primary'),
   /**
@@ -532,6 +533,7 @@ const configSchema = z.object({
       'dot-alternate',
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
+      'doh-alternate',
     ])
     .default('dot-alternate'),
   /**
@@ -578,6 +580,7 @@ const configSchema = z.object({
       'dot-alternate',
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
+      'doh-alternate',
     ])
     .default('native'),
   /**
