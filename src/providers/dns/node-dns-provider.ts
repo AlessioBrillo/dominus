@@ -63,6 +63,7 @@ export type DnsLookupStrategy =
   | 'doh-only'
   | 'doh-primary'
   | 'dot-only'
+  | 'dot-alternate'
   | 'dot-with-doh-fallback'
   | 'multi-doh-plus-native';
 

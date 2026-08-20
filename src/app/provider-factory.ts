@@ -15,7 +15,6 @@ import {
   NodeDnsProvider,
   ParkingIpRegistry,
   DnsBreakerRegistry,
-  collectResolverEndpoints,
   strategyToResolverGroups,
   type DnsBreakerRegistryLike,
   type DnsLookupStrategy,
@@ -23,9 +22,10 @@ import {
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
 import {
-  validateConsensusEndpointDisjointness,
+  validateConsensusDisjointness,
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
+  type ConsensusDisjointnessReport,
 } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
@@ -397,8 +397,9 @@ function resolveNameservers(raw: string | undefined): string[] | undefined {
 /**
  * Secondary DNS provider for 2-of-3 consensus cross-validation (see
  * DNS_CONSENSUS_ENABLED). Uses a resolver strategy disjoint from the primary
- * provider and skips the persistent cache — this is a verification query,
- * not a candidate for reuse across runs.
+ * provider and skips both the persistent cache and the in-memory cache
+ * (maxSize 0) — this is a live verification query, not a candidate for
+ * reuse across runs.
  */
 export function buildSecondaryDnsProvider(
   config: Config,
@@ -408,7 +409,8 @@ export function buildSecondaryDnsProvider(
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
   return new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
-    maxSize: config.DNS_CACHE_MAX_SIZE,
+    // Verification leg: live queries only, no verdict reuse across runs.
+    maxSize: 0,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
     // When a private recursor is pinned (C3, e.g. Unbound on 127.0.0.1:5300)
     // the secondary queries it with plain native DNS — no dependency on
@@ -437,11 +439,11 @@ export function buildSecondaryDnsProvider(
  * DNS_CONSENSUS_RATE_LIMIT_* config so the isolation holds even for callers
  * that never build the shared budget.
  */
-export function buildDnsConsensusConfig(
+export async function buildDnsConsensusConfig(
   config: Config,
   consensusRateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
-): ConsensusDnsConfig | undefined {
+): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
   // A pinned private recursor (C3) replaces the consensus strategy's resolver
@@ -462,11 +464,17 @@ export function buildDnsConsensusConfig(
     return undefined;
   }
 
-  // Endpoint-level check: two strategies can pass the name check yet still
-  // resolve through the same servers (e.g. 'doh-only' vs 'doh-primary' both
-  // race the same default DoH endpoints, or a pinned 'native' reusing the
-  // DoT IPs). Overlap means the secondary adds no independent opinion, so
-  // consensus is disabled at startup with an explanatory log (ADR-0002).
+  // Independence check (ADR-0002): the secondary must be a genuinely
+  // different opinion. Hostname-level endpoint overlap, resolved-IP overlap
+  // across transports (DoH hostname resolving to a DoT resolver's anycast
+  // IP) and same-operator overlap (Cloudflare behind both DoH and DoT) all
+  // veto the gate — otherwise the second opinion is a rubber stamp.
+  // The primary's EMERGENCY FALLBACK legs are excluded: the gate must be
+  // disjoint from the primary's main opinion, not from its last-resort net.
+  // A shared fallback can never manufacture an Available verdict, and this
+  // exclusion is what keeps the documented prod override (native fallback
+  // and consensus both pinned to the private recursor) from silently
+  // disabling the gate at runtime.
   const nameservers = resolveNameservers(config.DNS_NAMESERVERS);
   const primaryGroups =
     (config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined) ??
@@ -478,16 +486,27 @@ export function buildDnsConsensusConfig(
   // The consensus resolver set: a pinned private recursor overrides; otherwise
   // the shared DNS_NAMESERVERS apply (a native consensus reuses them).
   const effectiveConsensusNameservers = consensusNameservers ?? nameservers;
-  if (
-    !validateConsensusEndpointDisjointness(
-      collectResolverEndpoints(primaryGroups, nameservers),
-      collectResolverEndpoints(consensusGroups, effectiveConsensusNameservers),
-    )
-  ) {
+  const report = await validateConsensusDisjointness(
+    primaryGroups,
+    nameservers,
+    consensusGroups,
+    effectiveConsensusNameservers,
+    { excludeFallbacks: true },
+  );
+  if (!report.ok) {
+    vetoConsensusGate('secondary', effectiveConsensusStrategy, report);
     return undefined;
   }
+  if (report.resolutionPartial) {
+    getLogger().warn(
+      { primary: config.DNS_LOOKUP_STRATEGY, consensus: effectiveConsensusStrategy },
+      'DNS: consensus disjointness check ran without full DoH IP resolution ' +
+        '(some hostnames did not resolve at boot) — operator and hostname-level ' +
+        'disjointness still apply, resolved-IP overlap could not be proven',
+    );
+  }
   const secondaryRateLimiter = consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
-  const tertiaryProvider = buildTertiaryConsensusProvider(
+  const tertiaryProvider = await buildTertiaryConsensusProvider(
     config,
     secondaryRateLimiter,
     primaryGroups,
@@ -506,6 +525,28 @@ export function buildDnsConsensusConfig(
   };
 }
 
+/** Log the consensus gate veto with the overlap details that caused it. */
+function vetoConsensusGate(
+  leg: string,
+  strategy: string,
+  report: ConsensusDisjointnessReport,
+): void {
+  const details: string[] = [];
+  if (report.overlapEndpoints.length > 0) {
+    details.push(`endpoints ${report.overlapEndpoints.join(', ')}`);
+  }
+  if (report.overlapOperators.length > 0) {
+    details.push(`operators ${report.overlapOperators.join(', ')}`);
+  }
+  getLogger().error(
+    { strategy, overlap: report.overlapEndpoints, operators: report.overlapOperators },
+    `DNS: ${leg} consensus leg disabled — its resolver set is not an independent ` +
+      `opinion (${details.join('; ') || 'overlap'}). The 2-of-3 gate cannot run; ` +
+      'Available verdicts rest on a single resolver (ADR-0002). Pin an independent ' +
+      'recursor or switch strategies.',
+  );
+}
+
 /**
  * Builds the optional THIRD DNS consensus opinion (ADR-0045), when
  * DNS_TERTIARY_ENABLED is on. Returns undefined when the leg is disabled or
@@ -515,7 +556,7 @@ export function buildDnsConsensusConfig(
  * dedicated consensus rate-limit budget (ADR-0044): the whole verification
  * gate counts against its own bucket, never against the primary's.
  */
-function buildTertiaryConsensusProvider(
+async function buildTertiaryConsensusProvider(
   config: Config,
   rateLimiter: RateLimiterLike,
   primaryGroups: DnsResolverGroup[],
@@ -523,10 +564,9 @@ function buildTertiaryConsensusProvider(
   consensusGroups: DnsResolverGroup[],
   consensusNameservers: string[] | undefined,
   breakers?: DnsBreakerRegistryLike,
-): DnsProvider | undefined {
+): Promise<DnsProvider | undefined> {
   if (!config.DNS_TERTIARY_ENABLED) return undefined;
 
-  const logger = getLogger();
   // A pinned private recursor replaces the strategy's resolver set with a
   // native query to the local recursor — mirroring the secondary's C3 rule.
   const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
@@ -539,30 +579,38 @@ function buildTertiaryConsensusProvider(
   );
   const effectiveTertiaryNameservers = tertiaryNameservers ?? primaryNameservers;
 
-  // Endpoint-level disjointness against BOTH existing legs: the tertiary
-  // through the primary's or the secondary's own servers adds no opinion.
-  const tertiaryEndpoints = collectResolverEndpoints(tertiaryGroups, effectiveTertiaryNameservers);
-  const primaryEndpoints = collectResolverEndpoints(primaryGroups, primaryNameservers);
-  const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers);
-  if (
-    !validateConsensusEndpointDisjointness(primaryEndpoints, tertiaryEndpoints) ||
-    !validateConsensusEndpointDisjointness(consensusEndpoints, tertiaryEndpoints)
-  ) {
-    logger.warn(
-      {
-        strategy: effectiveTertiaryStrategy,
-        nameservers: effectiveTertiaryNameservers,
-      },
-      'DNS: tertiary consensus leg disabled — its resolver set overlaps the primary ' +
-        'or the secondary. A third opinion through the same servers adds no information ' +
-        '(ADR-0045). Pin DNS_TERTIARY_NAMESERVERS to an independent recursor.',
+  // Independence check against BOTH existing legs: the tertiary through the
+  // primary's or the secondary's own servers adds no opinion. Emergency
+  // fallback legs are excluded from all three sets (same rule as the
+  // secondary-vs-primary check): the tertiary must be independent of each
+  // leg's MAIN opinion.
+  const primaryReport = await validateConsensusDisjointness(
+    tertiaryGroups,
+    effectiveTertiaryNameservers,
+    primaryGroups,
+    primaryNameservers,
+    { excludeFallbacks: true },
+  );
+  const consensusReport = await validateConsensusDisjointness(
+    tertiaryGroups,
+    effectiveTertiaryNameservers,
+    consensusGroups,
+    consensusNameservers,
+    { excludeFallbacks: true },
+  );
+  if (!primaryReport.ok || !consensusReport.ok) {
+    vetoConsensusGate(
+      'tertiary',
+      effectiveTertiaryStrategy,
+      !primaryReport.ok ? primaryReport : consensusReport,
     );
     return undefined;
   }
 
   return new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
-    maxSize: config.DNS_CACHE_MAX_SIZE,
+    // Verification leg: live queries only, no verdict reuse across runs.
+    maxSize: 0,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
     lookupStrategy: effectiveTertiaryStrategy,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
@@ -578,14 +626,18 @@ function buildTertiaryConsensusProvider(
 }
 
 /**
- * Startup probe for the DNS consensus secondary provider. With strict
- * 2-of-3 consensus semantics (ADR-0002) any failure of the secondary
- * downgrades every Available to Unknown, so a dead secondary (e.g. egress
- * port 853 filtered, blocking the default 'dot-only' strategy) is a silent
- * outage worth surfacing at boot. Non-fatal: consensus stays enabled, but
- * the operator is told clearly what is happening.
+ * Startup probe for the DNS consensus secondary (and optional tertiary)
+ * provider. With strict 2-of-3 consensus semantics (ADR-0002) any failure
+ * of a verification leg downgrades every Available to Unknown, so a dead
+ * leg (e.g. egress port 853 filtered, blocking the default 'dot-alternate'
+ * strategy) is a silent outage worth surfacing at boot. Non-fatal: consensus
+ * stays enabled, but the operator is told clearly what is happening.
  */
-export function probeConsensusProvider(config: Config, secondaryProvider: DnsProvider): void {
+export function probeConsensusProvider(
+  config: Config,
+  secondaryProvider: DnsProvider,
+  tertiaryProvider?: DnsProvider,
+): void {
   if (!config.DNS_CONSENSUS_ENABLED) return;
   const logger = getLogger();
   logger.warn(
@@ -598,9 +650,24 @@ export function probeConsensusProvider(config: Config, secondaryProvider: DnsPro
       { err: message, strategy: config.DNS_CONSENSUS_STRATEGY },
       'DNS: consensus secondary provider unreachable at startup — strict consensus ' +
         'will downgrade every Available verdict to Unknown. Verify DNS_CONSENSUS_STRATEGY ' +
-        'egress (dot-only uses TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
+        'egress (dot strategies use TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
     );
   });
+  if (tertiaryProvider !== undefined) {
+    logger.warn(
+      { strategy: config.DNS_TERTIARY_STRATEGY },
+      'DNS: probing consensus tertiary provider at startup',
+    );
+    validateResolverGroups(tertiaryProvider).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(
+        { err: message, strategy: config.DNS_TERTIARY_STRATEGY },
+        'DNS: consensus tertiary provider unreachable at startup — with ' +
+          'requiredAvailable=2 every Available verdict needs it and will be ' +
+          'downgraded to Unknown. Verify DNS_TERTIARY_STRATEGY/NAMESERVERS.',
+      );
+    });
+  }
 }
 
 /**

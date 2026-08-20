@@ -5,6 +5,7 @@ import { reportProviderStatuses, type ProviderStatus } from '../../app/provider-
 
 export interface ProvidersCommandDeps {
   config: Config;
+  dnsConsensusActive?: boolean;
 }
 
 export function registerProvidersCommand(program: Command, deps: ProvidersCommandDeps): void {
@@ -17,7 +18,7 @@ export function registerProvidersCommand(program: Command, deps: ProvidersComman
     .description('Show whether each provider is configured and how missing config is handled')
     .option('--json', 'Emit JSON instead of a human-readable table', false)
     .action((options: { json: boolean }) => {
-      const rows = reportProviderStatuses(deps.config);
+      const rows = reportProviderStatuses(deps.config, deps.dnsConsensusActive);
       if (options.json) {
         process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
         return;

@@ -301,6 +301,34 @@ describe('reportProviderStatuses', () => {
     expect(uspto?.configured).toBe(true);
   });
 
+  it('reports the 2-of-3 DNS consensus gate as active when it actually runs', () => {
+    // Act — the gate is built at runtime; the status must reflect that
+    const rows = reportProviderStatuses(buildConfig(), true);
+
+    // Assert
+    const dns = rows.find((r) => r.name === 'DNS');
+    expect(dns?.note).toContain('2-of-3 consensus gate active');
+  });
+
+  it('reports the 2-of-3 DNS consensus gate as inactive when it was vetoed at startup', () => {
+    // The consensus is silently absent when the secondary resolver set
+    // overlaps the primary's — the status must never claim it is running.
+    const rows = reportProviderStatuses(buildConfig(), false);
+
+    // Assert
+    const dns = rows.find((r) => r.name === 'DNS');
+    expect(dns?.note).toContain('2-of-3 consensus gate inactive');
+    expect(dns?.note).toContain('disabled at startup');
+  });
+
+  it('falls back to configured intent when no runtime gate state is supplied', () => {
+    const rows = reportProviderStatuses(buildConfig({ DNS_CONSENSUS_ENABLED: true }));
+
+    // Assert
+    const dns = rows.find((r) => r.name === 'DNS');
+    expect(dns?.note).toContain('2-of-3 consensus gate active');
+  });
+
   it('reports Registrar as configured when REGISTRAR_PROVIDER is set to a non-manual provider', () => {
     const rows = reportProviderStatuses(
       buildConfig({

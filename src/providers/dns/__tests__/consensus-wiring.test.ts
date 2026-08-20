@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { NodeDnsProvider } from '../node-dns-provider.js';
 import { DomainStatus } from '../../../types/domain-status.js';
+import { buildDnsConsensusConfig } from '../../../app/provider-factory.js';
+import { loadConfig, resetConfig } from '../../../config.js';
 
 const mockSetServersCalls = vi.hoisted(() => [] as string[][]);
 
@@ -21,7 +23,7 @@ vi.mock('node:dns', () => {
       mockSetServersCalls.push(servers);
     }
   }
-  return { promises: { resolve: vi.fn() }, Resolver: MockResolver };
+  return { promises: { resolve: vi.fn().mockResolvedValue([]) }, Resolver: MockResolver };
 });
 
 const COMPOSE_PATH = fileURLToPath(
@@ -72,6 +74,38 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
     it.each(APP_SERVICES)("attaches '%s' to the recursor network", (service) => {
       const block = composeServiceBlock(service);
       expect(block).toContain('- dns-consensus-net');
+    });
+
+    it('boots the 2-of-3 gate from the override env (gate actually built)', async () => {
+      // The compose-config CI job asserts the env statically, but the gate
+      // is vetoed at RUNTIME when the consensus resolver set overlaps the
+      // primary's — and the pinned native fallback used to collide with the
+      // consensus pin, silently disabling consensus in the turnkey topology.
+      // Boot-equivalent regression: feed the override env through the real
+      // config loader and assert the gate is actually constructed.
+      const keys = [
+        'DNS_NAMESERVERS',
+        'DNS_CONSENSUS_ENABLED',
+        'DNS_CONSENSUS_NAMESERVERS',
+      ] as const;
+      const saved = keys.map((k) => [k, process.env[k]] as const);
+      try {
+        for (const k of keys) delete process.env[k];
+        process.env.DNS_NAMESERVERS = '172.20.0.10:5300';
+        process.env.DNS_CONSENSUS_ENABLED = 'true';
+        process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.10:5300';
+        resetConfig();
+        const config = loadConfig();
+        const consensus = await buildDnsConsensusConfig(config);
+        expect(consensus).toBeDefined();
+        expect(typeof consensus?.secondaryProvider.checkAvailability).toBe('function');
+      } finally {
+        for (const [k, v] of saved) {
+          if (v === undefined) delete process.env[k];
+          else process.env[k] = v;
+        }
+        resetConfig();
+      }
     });
   });
 

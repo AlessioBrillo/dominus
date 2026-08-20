@@ -73,7 +73,7 @@ describe('buildDnsBreakers (ADR-0059)', () => {
     provider.dispose();
   });
 
-  it('wires the registry into the consensus secondary and tertiary legs', () => {
+  it('wires the registry into the consensus secondary and tertiary legs', async () => {
     process.env.DNS_CONSENSUS_ENABLED = 'true';
     process.env.DNS_TERTIARY_ENABLED = 'true';
     // A doh-based tertiary would overlap the primary's default doh-primary
@@ -85,7 +85,7 @@ describe('buildDnsBreakers (ADR-0059)', () => {
       const config = loadConfig();
       const breakers = buildDnsBreakers(config, undefined);
 
-      const consensus = buildDnsConsensusConfig(config, undefined, breakers);
+      const consensus = await buildDnsConsensusConfig(config, undefined, breakers);
       expect(consensus).toBeDefined();
       expect((consensus!.secondaryProvider as NodeDnsProvider).breakerSnapshot()).toBeDefined();
       expect(consensus!.tertiaryProvider).toBeDefined();

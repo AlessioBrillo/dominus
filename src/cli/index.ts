@@ -92,6 +92,12 @@ export interface CreateCliOptions {
   listingManager?: ListingManager;
   keyManager?: KeyManager | undefined;
   apiKeyRepo?: ApiKeyRepository | undefined;
+  /**
+   * Actual runtime state of the 2-of-3 DNS consensus gate (see
+   * DominusDependencies.dnsConsensusActive). Optional: when omitted the
+   * provider status falls back to the configured intent.
+   */
+  dnsConsensusActive?: boolean;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -152,8 +158,19 @@ export function createCli(options: CreateCliOptions): Command {
     usageRepo: backupProvider ? new UsageRepository(backupProvider) : undefined,
     backupService,
   });
-  registerProvidersCommand(program, { config });
-  registerHealthCommand(program, { db, config });
+  registerProvidersCommand(program, {
+    config,
+    ...(options.dnsConsensusActive !== undefined
+      ? { dnsConsensusActive: options.dnsConsensusActive }
+      : {}),
+  });
+  registerHealthCommand(program, {
+    db,
+    config,
+    ...(options.dnsConsensusActive !== undefined
+      ? { dnsConsensusActive: options.dnsConsensusActive }
+      : {}),
+  });
   if (scheduler) {
     registerSchedulerCommand(program, { scheduler });
   }

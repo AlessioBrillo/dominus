@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectResolverEndpoints, strategyToResolverGroups } from '../dns-provider.js';
 import {
+  validateConsensusDisjointness,
   validateConsensusEndpointDisjointness,
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
@@ -108,6 +109,80 @@ describe('validateConsensusEndpointDisjointness', () => {
       strategyToResolverGroups('native-with-doh-fallback', 'https://cloudflare-dns.com/dns-query'),
     );
     expect(validateConsensusEndpointDisjointness(primary, consensus)).toBe(false);
+  });
+});
+
+describe('validateConsensusDisjointness', () => {
+  const resolveAs =
+    (map: Record<string, string[]>): ((host: string) => Promise<string[]>) =>
+    (host: string) =>
+      Promise.resolve(map[host] ?? []);
+
+  const group = <const T extends DnsResolverGroup['lookups']>(lookups: T): DnsResolverGroup => ({
+    name: 'g',
+    lookups,
+  });
+
+  it('accepts two legs with no endpoint, IP, or operator overlap', async () => {
+    const primary = [group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '9.9.9.9' }])];
+    const report = await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({ 'cloudflare-dns.com': ['1.1.1.1'] }),
+    });
+    expect(report.ok).toBe(true);
+    expect(report.overlapEndpoints).toEqual([]);
+    expect(report.overlapOperators).toEqual([]);
+    expect(report.resolutionPartial).toBe(false);
+  });
+
+  it('catches the same operator over different transports (Cloudflare DoH vs DoT)', async () => {
+    // P1: doh:cloudflare-dns.com vs dot:1.1.1.1 share no string endpoint but
+    // are the same anycast operator — not an independent second opinion.
+    const primary = [group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '1.1.1.1' }])];
+    const report = await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({ 'cloudflare-dns.com': ['1.2.3.4'] }),
+    });
+    expect(report.ok).toBe(false);
+    expect(report.overlapOperators).toContain('cloudflare');
+    expect(report.overlapEndpoints).toEqual([]);
+  });
+
+  it('catches the same anycast IP behind two transports even for unknown operators', async () => {
+    const primary = [group([{ type: 'doh', endpoint: 'https://resolver.example.net/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '203.0.113.7' }])];
+    const report = await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({ 'resolver.example.net': ['203.0.113.7'] }),
+    });
+    expect(report.ok).toBe(false);
+    expect(report.overlapEndpoints).toContain('ip:203.0.113.7');
+  });
+
+  it('keeps the gate decided when a host fails to resolve — records partial resolution', async () => {
+    const primary = [group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }])];
+    const consensus = [group([{ type: 'dot', endpoint: '9.9.9.9' }])];
+    const report = await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      resolveHost: resolveAs({}),
+    });
+    expect(report.ok).toBe(true);
+    expect(report.resolutionPartial).toBe(true);
+  });
+
+  it('excludes fallback groups from the disjointness comparison', async () => {
+    const primary: DnsResolverGroup[] = [
+      group([{ type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query' }]),
+      {
+        name: 'fallback',
+        fallback: true,
+        lookups: [{ type: 'native', nameservers: ['192.0.2.53'] }],
+      },
+    ];
+    const consensus = [group([{ type: 'native', nameservers: ['192.0.2.53'] }])];
+    const report = await validateConsensusDisjointness(primary, undefined, consensus, undefined, {
+      excludeFallbacks: true,
+    });
+    expect(report.ok).toBe(true);
+    expect(report.overlapEndpoints).toEqual([]);
   });
 });
 

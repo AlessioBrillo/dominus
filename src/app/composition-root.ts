@@ -160,6 +160,13 @@ export interface DominusDependencies {
   db: Database.Database | null;
   provider: DatabaseProvider;
   config: Config;
+  /**
+   * Actual runtime state of the 2-of-3 DNS consensus gate (true when
+   * buildDnsConsensusConfig produced a gate — the gate is silently absent
+   * when the secondary resolver set overlaps the primary's). Feeds the
+   * provider-status report so it never claims an active gate that is off.
+   */
+  dnsConsensusActive: boolean;
 
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
@@ -770,12 +777,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // bounded while single-resolver availability verdicts are eliminated.
   // The secondary draws from its own rate-limit budget (dnsConsensus,
   // ADR-0044) so it can never be starved by the primary's traffic.
-  const dnsConsensusConfig = buildDnsConsensusConfig(config, dnsConsensusRateLimiter, dnsBreakers);
+  const dnsConsensusConfig = await buildDnsConsensusConfig(
+    config,
+    dnsConsensusRateLimiter,
+    dnsBreakers,
+  );
   if (dnsConsensusConfig !== undefined) {
-    // Startup probe of the consensus secondary: with strict 2-of-3 semantics
-    // a dead secondary downgrades every Available to Unknown, so surface
-    // egress/strategy problems at boot instead of discovering them in runs.
-    probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider);
+    // Startup probe of the consensus legs: with strict 2-of-3 semantics
+    // a dead secondary (or a dead tertiary under requiredAvailable=2)
+    // downgrades every Available to Unknown, so surface egress/strategy
+    // problems at boot instead of discovering them in runs.
+    probeConsensusProvider(
+      config,
+      dnsConsensusConfig.secondaryProvider,
+      dnsConsensusConfig.tertiaryProvider,
+    );
   }
 
   // 2-of-2 RDAP consensus (ADR-0050): a dedicated second RDAP provider on the
@@ -1112,6 +1128,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   return {
     db,
     config,
+    dnsConsensusActive: dnsConsensusConfig !== undefined,
     ...repos,
     dnsProvider,
     keywordProvider: cachedKeywordProvider,

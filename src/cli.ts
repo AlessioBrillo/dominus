@@ -15,6 +15,7 @@ async function main(): Promise<void> {
     engine: deps.engine,
     outcomeRepo: deps.outcomeRepo,
     config: deps.config,
+    dnsConsensusActive: deps.dnsConsensusActive,
     candidateRepo: deps.candidateRepo,
     scoringRepo: deps.scoringRepo,
     trademarkRepo: deps.trademarkRepo,

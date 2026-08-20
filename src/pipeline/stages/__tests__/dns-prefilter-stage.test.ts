@@ -226,6 +226,45 @@ function consensusStage(secondary: DnsProvider): DnsPreFilterStage {
 const CONSENSUS_DOMAINS = ['free.io', 'maybe.io', 'confirm.io', 'reject.io'];
 
 describe('DnsPreFilterStage consensus (strict)', () => {
+  it('queries the consensus legs live with forceRecheck (P2)', async () => {
+    // The 2-of-3 gate must never confirm an Available verdict against a
+    // cached snapshot — every consensus leg is a live verification query.
+    const secondary: DnsProvider = {
+      name: 'secondary',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const tertiary: DnsProvider = {
+      name: 'tertiary',
+      checkAvailability: vi.fn().mockResolvedValue({
+        domain: 'x.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+      }),
+      checkBulk: vi.fn(),
+      clearCache: vi.fn(),
+      pruneCache: vi.fn().mockReturnValue(0),
+    };
+    const stage = new DnsPreFilterStage(consensusPrimary(), 10, [], {
+      secondaryProvider: secondary,
+      tertiaryProvider: tertiary,
+      requiredAvailable: 2,
+    });
+    await stage.process(CONSENSUS_DOMAINS.map((domain) => createMockCandidate({ domain })));
+    for (const call of vi.mocked(secondary.checkAvailability).mock.calls) {
+      expect(call[2]).toEqual({ forceRecheck: true });
+    }
+    for (const call of vi.mocked(tertiary.checkAvailability).mock.calls) {
+      expect(call[2]).toEqual({ forceRecheck: true });
+    }
+  });
+
   it('passes Available when the secondary confirms Available', async () => {
     const secondary: DnsProvider = {
       name: 'secondary',

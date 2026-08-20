@@ -274,6 +274,7 @@ const configSchema = z.object({
       'doh-only',
       'doh-primary',
       'dot-only',
+      'dot-alternate',
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
     ])
@@ -515,8 +516,11 @@ const configSchema = z.object({
   /**
    * Lookup strategy for the secondary DNS consensus provider (see
    * DNS_CONSENSUS_ENABLED). Should differ from DNS_LOOKUP_STRATEGY so the two
-   * opinions use disjoint resolvers/transports. Default: 'dot-only' (DNS-over-TLS),
-   * disjoint from the primary default 'doh-primary' (DNS-over-HTTPS).
+   * opinions use disjoint resolvers/transports. Default: 'dot-alternate'
+   * (AdGuard/Mullvad/NextDNS over DNS-over-TLS) — genuinely operator-disjoint
+   * from the primary default 'doh-primary' (Cloudflare/Google/Quad9), which
+   * the 2-of-3 independence check enforces at runtime (a same-operator
+   * DoH-vs-DoT pairing is not an independent opinion and is vetoed).
    */
   DNS_CONSENSUS_STRATEGY: z
     .enum([
@@ -525,10 +529,11 @@ const configSchema = z.object({
       'doh-only',
       'doh-primary',
       'dot-only',
+      'dot-alternate',
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
     ])
-    .default('dot-only'),
+    .default('dot-alternate'),
   /**
    * Comma-separated private recursor addresses (host or host:port) for the
    * DNS consensus secondary (ADR-0042, C3 of the cloud hardening review).
@@ -570,6 +575,7 @@ const configSchema = z.object({
       'doh-only',
       'doh-primary',
       'dot-only',
+      'dot-alternate',
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
     ])

@@ -18,6 +18,15 @@ export interface DnsLookupSpec {
 export interface DnsResolverGroup {
   name: string;
   lookups: DnsLookupSpec[];
+  /**
+   * Emergency fallback group: only consulted when the main group cannot
+   * answer. Fallback legs are excluded from consensus disjointness checks —
+   * the 2-of-3 gate must be disjoint from the primary's MAIN opinion, not
+   * from its last-resort safety net. A shared fallback is harmless: if the
+   * shared resolver is down the fallback returns undefined, which can never
+   * manufacture an Available verdict (ADR-0002).
+   */
+  fallback?: boolean;
 }
 
 const DEFAULT_DOH_PROVIDERS: Array<{ name: string; url: string; format?: 'json' | 'wire' }> = [
@@ -35,6 +44,30 @@ const DEFAULT_DOT_PROVIDERS: Array<{ name: string; host: string }> = [
   { name: 'Google', host: '8.8.8.8' },
   { name: 'Quad9', host: '9.9.9.9' },
 ];
+
+/**
+ * Operators the default DoH primary never consults. Used by the
+ * 'dot-alternate' consensus strategy: with DNS_CONSENSUS_STRATEGY defaulting
+ * to it, the 2-of-3 gate's second opinion is genuinely operator-disjoint
+ * from the default 'doh-primary' primary (Cloudflare/Google/Quad9) — the
+ * P1 hardening that a same-operator DoH-vs-DoT pairing must not be treated
+ * as an independent opinion.
+ */
+const DEFAULT_DOT_ALTERNATE_PROVIDERS: Array<{ name: string; host: string }> = [
+  { name: 'AdGuard', host: '94.140.14.14' },
+  { name: 'Mullvad', host: '194.242.2.2' },
+  { name: 'NextDNS', host: '45.90.28.2' },
+];
+
+/** TLS SNI servername for each default provider's DoT endpoint. */
+const DOT_SERVERNAMES: Readonly<Record<string, string>> = {
+  Cloudflare: 'cloudflare-dns.com',
+  Google: 'dns.google',
+  Quad9: 'dns.quad9.net',
+  AdGuard: 'dns.adguard.com',
+  Mullvad: 'dns.mullvad.net',
+  NextDNS: 'dns.nextdns.io',
+};
 
 /** Map a default DoH provider entry to a resolver lookup spec, carrying its
  *  request format (RFC 8484 wire for providers without a JSON API). */
@@ -74,6 +107,7 @@ export function strategyToResolverGroups(
         },
         {
           name: 'multi-doh-native-fallback',
+          fallback: true,
           lookups: [{ type: 'native' as const }],
         },
       ];
@@ -91,12 +125,21 @@ export function strategyToResolverGroups(
           lookups: DEFAULT_DOT_PROVIDERS.map((p) => ({
             type: 'dot' as const,
             endpoint: p.host,
-            servername:
-              p.name === 'Cloudflare'
-                ? 'cloudflare-dns.com'
-                : p.name === 'Google'
-                  ? 'dns.google'
-                  : 'dns.quad9.net',
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
+          })),
+        },
+      ];
+    case 'dot-alternate':
+      // Consensus-side strategy with operators disjoint from the default DoH
+      // primary: AdGuard/Mullvad/NextDNS only. Carries no fallback group — a
+      // consensus leg must never fall back into the primary's own resolvers.
+      return [
+        {
+          name: 'multi-dot-alternate',
+          lookups: DEFAULT_DOT_ALTERNATE_PROVIDERS.map((p) => ({
+            type: 'dot' as const,
+            endpoint: p.host,
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
           })),
         },
       ];
@@ -107,16 +150,12 @@ export function strategyToResolverGroups(
           lookups: DEFAULT_DOT_PROVIDERS.map((p) => ({
             type: 'dot' as const,
             endpoint: p.host,
-            servername:
-              p.name === 'Cloudflare'
-                ? 'cloudflare-dns.com'
-                : p.name === 'Google'
-                  ? 'dns.google'
-                  : 'dns.quad9.net',
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
           })),
         },
         {
           name: 'multi-doh-fallback',
+          fallback: true,
           lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
@@ -125,6 +164,7 @@ export function strategyToResolverGroups(
         { name: 'primary', lookups: [{ type: 'native' }] },
         {
           name: 'multi-doh-fallback',
+          fallback: true,
           lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
@@ -149,9 +189,23 @@ export function strategyToResolverGroups(
  *   (DoT IPs, pinned nameservers, IP-form DoH endpoints), exposing overlap across
  *   transports: the same IP over TLS, UDP and HTTPS is the same resolver.
  */
+export interface CollectResolverEndpointsOptions {
+  /**
+   * Skip groups marked `fallback: true` (emergency fallback legs of a
+   * strategy). Used by the consensus disjointness checks: the 2-of-3 gate
+   * must be independent of the primary's MAIN opinion only — a shared
+   * emergency fallback can never manufacture an Available verdict, and
+   * excluding it fixes the documented prod override where the primary's
+   * native fallback and the consensus both point at the same private
+   * recursor, which used to disable the gate at runtime.
+   */
+  excludeFallbacks?: boolean;
+}
+
 export function collectResolverEndpoints(
   groups: DnsResolverGroup[],
   defaultNameservers?: string[],
+  options?: CollectResolverEndpointsOptions,
 ): string[] {
   const endpoints = new Set<string>();
 
@@ -161,6 +215,7 @@ export function collectResolverEndpoints(
   };
 
   for (const group of groups) {
+    if (options?.excludeFallbacks && group.fallback === true) continue;
     for (const lookup of group.lookups) {
       if (lookup.type === 'doh') {
         const host = new URL(lookup.endpoint ?? '').hostname;
