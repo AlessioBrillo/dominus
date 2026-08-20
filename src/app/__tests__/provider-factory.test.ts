@@ -327,6 +327,25 @@ describe('buildDnsConsensusConfig', () => {
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
+  it('keeps the gate enabled when the primary FALLBACK shares the pinned recursor', () => {
+    // Regression for the documented prod topology (docker-compose
+    // dns-consensus.yml): DNS_NAMESERVERS pins the primary's native
+    // fallback leg to the same private recursor the consensus queries
+    // (172.20.0.10:5300). The fallback is an emergency net, not the
+    // primary's main opinion — sharing it must not veto the gate, which
+    // used to disable 2-of-3 consensus at runtime on the turnkey override.
+    const config = makeConfig({
+      DNS_CONSENSUS_ENABLED: true,
+      DNS_LOOKUP_STRATEGY: 'doh-primary',
+      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_NAMESERVERS: '172.20.0.10:5300',
+      DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
+    });
+    const result = buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+  });
+
   it('keeps the consensus strategy when no private recursor is pinned', () => {
     // Backward compatible: without DNS_CONSENSUS_NAMESERVERS the secondary
     // is built exactly as before (dot-only default).

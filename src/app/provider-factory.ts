@@ -467,6 +467,12 @@ export function buildDnsConsensusConfig(
   // race the same default DoH endpoints, or a pinned 'native' reusing the
   // DoT IPs). Overlap means the secondary adds no independent opinion, so
   // consensus is disabled at startup with an explanatory log (ADR-0002).
+  // The primary's EMERGENCY FALLBACK legs are excluded: the gate must be
+  // disjoint from the primary's main opinion, not from its last-resort net.
+  // A shared fallback can never manufacture an Available verdict, and this
+  // exclusion is what keeps the documented prod override (native fallback
+  // and consensus both pinned to the private recursor) from silently
+  // disabling the gate at runtime.
   const nameservers = resolveNameservers(config.DNS_NAMESERVERS);
   const primaryGroups =
     (config.DNS_RESOLVER_GROUPS as DnsResolverGroup[] | undefined) ??
@@ -480,8 +486,10 @@ export function buildDnsConsensusConfig(
   const effectiveConsensusNameservers = consensusNameservers ?? nameservers;
   if (
     !validateConsensusEndpointDisjointness(
-      collectResolverEndpoints(primaryGroups, nameservers),
-      collectResolverEndpoints(consensusGroups, effectiveConsensusNameservers),
+      collectResolverEndpoints(primaryGroups, nameservers, { excludeFallbacks: true }),
+      collectResolverEndpoints(consensusGroups, effectiveConsensusNameservers, {
+        excludeFallbacks: true,
+      }),
     )
   ) {
     return undefined;
@@ -541,9 +549,18 @@ function buildTertiaryConsensusProvider(
 
   // Endpoint-level disjointness against BOTH existing legs: the tertiary
   // through the primary's or the secondary's own servers adds no opinion.
-  const tertiaryEndpoints = collectResolverEndpoints(tertiaryGroups, effectiveTertiaryNameservers);
-  const primaryEndpoints = collectResolverEndpoints(primaryGroups, primaryNameservers);
-  const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers);
+  // Emergency fallback legs are excluded from all three sets (same rule as
+  // the secondary-vs-primary check): the tertiary must be independent of
+  // each leg's MAIN opinion.
+  const tertiaryEndpoints = collectResolverEndpoints(tertiaryGroups, effectiveTertiaryNameservers, {
+    excludeFallbacks: true,
+  });
+  const primaryEndpoints = collectResolverEndpoints(primaryGroups, primaryNameservers, {
+    excludeFallbacks: true,
+  });
+  const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers, {
+    excludeFallbacks: true,
+  });
   if (
     !validateConsensusEndpointDisjointness(primaryEndpoints, tertiaryEndpoints) ||
     !validateConsensusEndpointDisjointness(consensusEndpoints, tertiaryEndpoints)

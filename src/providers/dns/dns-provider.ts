@@ -18,6 +18,15 @@ export interface DnsLookupSpec {
 export interface DnsResolverGroup {
   name: string;
   lookups: DnsLookupSpec[];
+  /**
+   * Emergency fallback group: only consulted when the main group cannot
+   * answer. Fallback legs are excluded from consensus disjointness checks —
+   * the 2-of-3 gate must be disjoint from the primary's MAIN opinion, not
+   * from its last-resort safety net. A shared fallback is harmless: if the
+   * shared resolver is down the fallback returns undefined, which can never
+   * manufacture an Available verdict (ADR-0002).
+   */
+  fallback?: boolean;
 }
 
 const DEFAULT_DOH_PROVIDERS: Array<{ name: string; url: string; format?: 'json' | 'wire' }> = [
@@ -74,6 +83,7 @@ export function strategyToResolverGroups(
         },
         {
           name: 'multi-doh-native-fallback',
+          fallback: true,
           lookups: [{ type: 'native' as const }],
         },
       ];
@@ -117,6 +127,7 @@ export function strategyToResolverGroups(
         },
         {
           name: 'multi-doh-fallback',
+          fallback: true,
           lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
@@ -125,6 +136,7 @@ export function strategyToResolverGroups(
         { name: 'primary', lookups: [{ type: 'native' }] },
         {
           name: 'multi-doh-fallback',
+          fallback: true,
           lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
         },
       ];
@@ -149,9 +161,23 @@ export function strategyToResolverGroups(
  *   (DoT IPs, pinned nameservers, IP-form DoH endpoints), exposing overlap across
  *   transports: the same IP over TLS, UDP and HTTPS is the same resolver.
  */
+export interface CollectResolverEndpointsOptions {
+  /**
+   * Skip groups marked `fallback: true` (emergency fallback legs of a
+   * strategy). Used by the consensus disjointness checks: the 2-of-3 gate
+   * must be independent of the primary's MAIN opinion only — a shared
+   * emergency fallback can never manufacture an Available verdict, and
+   * excluding it fixes the documented prod override where the primary's
+   * native fallback and the consensus both point at the same private
+   * recursor, which used to disable the gate at runtime.
+   */
+  excludeFallbacks?: boolean;
+}
+
 export function collectResolverEndpoints(
   groups: DnsResolverGroup[],
   defaultNameservers?: string[],
+  options?: CollectResolverEndpointsOptions,
 ): string[] {
   const endpoints = new Set<string>();
 
@@ -161,6 +187,7 @@ export function collectResolverEndpoints(
   };
 
   for (const group of groups) {
+    if (options?.excludeFallbacks && group.fallback === true) continue;
     for (const lookup of group.lookups) {
       if (lookup.type === 'doh') {
         const host = new URL(lookup.endpoint ?? '').hostname;
