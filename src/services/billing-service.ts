@@ -2,6 +2,7 @@
 import type { Config } from '../config.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
+import type { CustomPriceRepository } from '../db/repositories/custom-price-repository.js';
 import type {
   Subscription,
   BillingPortalResponse,
@@ -70,6 +71,7 @@ export class BillingService {
   readonly #config: Config;
   readonly #subRepo: SubscriptionRepository;
   readonly #webhookRepo: WebhookEventsRepository | null;
+  readonly #customPriceRepo: CustomPriceRepository | null;
   #stripe: StripeSdk['Stripe']['prototype'] | null = null;
   /** In-memory fast path for webhook dedup (bounded LRU-style set). */
   readonly #processedEventIds = new Map<string, number>();
@@ -78,10 +80,12 @@ export class BillingService {
     config: Config,
     subRepo: SubscriptionRepository,
     webhookRepo?: WebhookEventsRepository,
+    customPriceRepo?: CustomPriceRepository,
   ) {
     this.#config = config;
     this.#subRepo = subRepo;
     this.#webhookRepo = webhookRepo ?? null;
+    this.#customPriceRepo = customPriceRepo ?? null;
   }
 
   get isConfigured(): boolean {
@@ -130,8 +134,42 @@ export class BillingService {
    * Reverse lookup: map a Stripe Price ID back to the plan it belongs to.
    * Used by webhook handlers to derive the subscription plan from the
    * price attached to the subscription line item.
+   * Checks per-tenant custom prices first, then falls back to config.
    */
-  resolvePlanForPriceId(priceId: string | null | undefined): SubscriptionPlan | undefined {
+  async resolvePlanForPriceId(
+    priceId: string | null | undefined,
+    tenantId?: string,
+  ): Promise<SubscriptionPlan | undefined> {
+    if (!priceId) return undefined;
+
+    // First check custom prices (per-tenant negotiated prices)
+    if (this.#customPriceRepo && tenantId) {
+      const custom = await this.#customPriceRepo.findByPriceId(priceId);
+      if (custom) return custom.plan;
+    }
+
+    // Then check configured price IDs
+    const configured: Array<[string | undefined, SubscriptionPlan]> = [
+      [this.#config.STRIPE_PRICE_ID_MONTHLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_YEARLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_PRO_MONTHLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_PRO_YEARLY, 'pro'],
+      [this.#config.STRIPE_PRICE_ID_TEAM_MONTHLY, 'team'],
+      [this.#config.STRIPE_PRICE_ID_TEAM_YEARLY, 'team'],
+      [this.#config.STRIPE_PRICE_ID_ENTERPRISE_MONTHLY, 'enterprise'],
+      [this.#config.STRIPE_PRICE_ID_ENTERPRISE_YEARLY, 'enterprise'],
+    ];
+    for (const [configuredId, plan] of configured) {
+      if (configuredId && configuredId === priceId) return plan;
+    }
+    return undefined;
+  }
+
+  /**
+   * Synchronous version for cases where we only have config-based prices.
+   * Kept for backward compatibility in webhook paths without tenant context.
+   */
+  resolvePlanForPriceIdSync(priceId: string | null | undefined): SubscriptionPlan | undefined {
     if (!priceId) return undefined;
     const configured: Array<[string | undefined, SubscriptionPlan]> = [
       [this.#config.STRIPE_PRICE_ID_MONTHLY, 'pro'],
@@ -158,6 +196,7 @@ export class BillingService {
    * The idempotency key is derived from (tenantId, plan, interval, day) so
    * retries of the same upgrade request reuse the same session instead of
    * creating duplicates; a new day (or a different plan) starts a new key.
+   * If customPriceId is provided, it overrides the plan/interval price lookup.
    */
   async createCheckoutSession(
     tenantId: string,
@@ -166,17 +205,35 @@ export class BillingService {
     successUrl: string,
     cancelUrl: string,
     customerEmail?: string,
+    customPriceId?: string,
   ): Promise<{ url: string; plan: SubscriptionPlan } | null> {
     const stripe = await this.#getStripe();
     if (!stripe) return null;
 
-    const priceId = this.resolvePriceId(plan, interval);
-    if (!priceId) {
-      logger.warn(
-        { plan, interval },
-        'Attempted checkout with no configured priceId for plan/interval',
-      );
-      return null;
+    let priceId: string | undefined;
+    if (customPriceId) {
+      // Custom price provided — verify it belongs to this tenant
+      if (!this.#customPriceRepo) {
+        logger.warn({ tenantId, customPriceId }, 'Custom price repo not available');
+        return null;
+      }
+      const custom = await this.#customPriceRepo.findByPriceId(customPriceId);
+      if (!custom || custom.tenantId !== tenantId) {
+        logger.warn({ tenantId, customPriceId }, 'Custom price not found for tenant');
+        return null;
+      }
+      priceId = customPriceId;
+      // Plan is derived from the custom price for metadata
+      plan = custom.plan;
+    } else {
+      priceId = this.resolvePriceId(plan, interval);
+      if (!priceId) {
+        logger.warn(
+          { plan, interval },
+          'Attempted checkout with no configured priceId for plan/interval',
+        );
+        return null;
+      }
     }
 
     const sub = await this.#subRepo.findByTenantId(tenantId);
@@ -291,16 +348,56 @@ export class BillingService {
           customer?: string;
           subscription?: string;
           mode?: string;
+          amount_total?: number;
+          line_items?: { data?: { price?: { id?: string } }[] };
         };
         if (session.mode !== 'subscription') return;
 
-        const tenantId = session.metadata?.tenantId;
+        const tenantId = session.metadata?.tenantId ?? '';
         if (!tenantId) {
           logger.warn({ eventId: event.id }, 'Checkout session missing tenantId metadata');
           return;
         }
 
-        const plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
+        // Cross-check: if this is a custom price, verify the amount paid matches expected
+        let plan: SubscriptionPlan;
+        const lineItems = session.line_items?.data ?? [];
+        const priceId = lineItems[0]?.price?.id;
+
+        if (priceId && this.#customPriceRepo) {
+          const customPrice = await this.#customPriceRepo.findByPriceId(priceId);
+          if (customPrice) {
+            // Custom price found — verify tenant matches and amount is correct
+            if (customPrice.tenantId !== tenantId) {
+              logger.warn(
+                { eventId: event.id, tenantId, expectedTenant: customPrice.tenantId, priceId },
+                'Custom price tenant mismatch — rejecting grant',
+              );
+              return;
+            }
+            const amountPaidEur = Math.round((session.amount_total ?? 0) / 100);
+            if (amountPaidEur !== customPrice.expectedAmountEur) {
+              logger.warn(
+                {
+                  eventId: event.id,
+                  tenantId,
+                  priceId,
+                  amountPaidEur,
+                  expectedAmountEur: customPrice.expectedAmountEur,
+                },
+                'Custom price amount mismatch — rejecting grant',
+              );
+              return;
+            }
+            plan = customPrice.plan;
+          } else {
+            // No custom price, fall back to config-based resolution
+            plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
+          }
+        } else {
+          plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
+        }
+
         await this.#subRepo.upsert({
           tenantId,
           plan,
@@ -324,10 +421,11 @@ export class BillingService {
           items?: { data?: { price?: { id?: string } }[] };
         };
 
-        const planFromPrice = this.resolvePlanForPriceId(sub.items?.data?.[0]?.price?.id ?? null);
+        const priceId = sub.items?.data?.[0]?.price?.id ?? null;
+        const tenantId = sub.metadata?.tenantId;
+        const planFromPrice = await this.resolvePlanForPriceId(priceId, tenantId ?? undefined);
         const plan = planFromPrice ?? (sub.metadata?.plan as SubscriptionPlan | undefined);
 
-        const tenantId = sub.metadata?.tenantId;
         if (tenantId) {
           await this.#subRepo.updateStripeSubscription(
             tenantId,

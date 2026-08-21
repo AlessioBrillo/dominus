@@ -11,6 +11,8 @@ const checkoutSchema = z.object({
   interval: z.enum(['month', 'year']),
   successUrl: z.string().url(),
   cancelUrl: z.string().url(),
+  // Optional: custom price ID for enterprise custom pricing (admin use)
+  customPriceId: z.string().optional(),
 });
 
 export function createBillingRouter(config: Config, billingService: BillingService): Router {
@@ -81,6 +83,7 @@ export function createBillingRouter(config: Config, billingService: BillingServi
         parsed.data.successUrl,
         parsed.data.cancelUrl,
         req.auth?.userId,
+        parsed.data.customPriceId,
       );
 
       if (!session) {

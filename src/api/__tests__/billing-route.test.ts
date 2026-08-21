@@ -53,6 +53,7 @@ describe('billing router', () => {
       'https://dominus.app/billing?ok=1',
       'https://dominus.app/billing?cancel=1',
       undefined,
+      undefined,
     );
   });
 
