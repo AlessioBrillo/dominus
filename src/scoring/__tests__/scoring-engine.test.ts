@@ -195,6 +195,49 @@ describe('ScoringEngine', () => {
     expect(result.suggestedBuyMax).toBeLessThanOrEqual(250 + 0.01);
   });
 
+  it('modulates market anchor by dataDensity — sparse sales do not pull anchor to median (ADR-0002)', async () => {
+    // 2 old sales → low dataDensity (~0.1), median = 50,000
+    // Before fix: anchor = 50,000 → expectedValue ~ 25,000
+    // After fix: anchor ≈ 500 + (50,000 - 500) * 0.3 ≈ 15,350, but market weight is also ~10%
+    // so expectedValue stays close to base
+    const oldDate = '2020-01-01';
+    const { keyword, comps } = makeProviders(100_000, 10, [50_000, 50_000], oldDate);
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'sparse-sales.com',
+      tld: '.com',
+      sld: 'sparse-sales',
+      isCloseout: false,
+    });
+    // With 2 old sales, dataDensity is low (~0.1) → anchorWeight = min(1, 0.1*3) = 0.3
+    // anchor ≈ 500 + 49500 * 0.3 ≈ 15,350
+    // market weight is scaled to ~10% (0.25 * 0.1 = 0.025)
+    // weightedScore dominated by intrinsic + commercial
+    // ExpectedValue must be well below the old median of 50,000
+    expect(result.expectedValue).toBeLessThan(10_000);
+    expect(result.signalStatus.find((s) => s.name === 'market')?.dataDensity).toBeLessThan(0.2);
+  });
+
+  it('applies full market anchor with dense recent sales (ADR-0055)', async () => {
+    // 50 recent sales → dataDensity ≈ 1.0 → full anchor
+    const recent = new Date();
+    recent.setMonth(recent.getMonth() - 3);
+    const prices = Array.from({ length: 50 }, () => 50_000);
+    const { keyword, comps } = makeProviders(100_000, 10, prices, recent.toISOString());
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'dense-sales.com',
+      tld: '.com',
+      sld: 'dense-sales',
+      isCloseout: true,
+      domainAge: 5,
+    });
+    // With full density, anchor = median = 50,000
+    // expectedValue should be close to 50,000 * weightedScore (≈ 0.6-0.8)
+    expect(result.expectedValue).toBeGreaterThan(20_000);
+    expect(result.expectedValue).toBeLessThanOrEqual(50_000 + 0.01);
+  });
+
   it('renewal cost penalty reduces suggestedBuyMax', async () => {
     const { keyword, comps } = makeProviders(50_000, 5, [2000, 3000]);
     const engine = new ScoringEngine(keyword, comps);
