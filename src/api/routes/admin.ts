@@ -14,6 +14,12 @@ const suspendBody = z.object({
 const planOverrideBody = z.object({
   plan: z.enum(['free', 'pro', 'team', 'enterprise']).nullable(),
 });
+const customPriceBody = z.object({
+  priceId: z.string().min(1).max(128),
+  plan: z.enum(['pro', 'team', 'enterprise']),
+  expectedAmountEur: z.number().int().min(1).max(1000000),
+  seats: z.number().int().min(1).max(1000).default(1),
+});
 const daysParam = z.coerce.number().int().min(1).max(365).default(30);
 
 /**
@@ -176,6 +182,113 @@ export function createAdminRouter(adminService: AdminService): Router {
         const plan: SubscriptionPlan | null = body.data.plan;
         const flag = await adminService.setPlanOverride(tenantId, plan);
         res.json(flag);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  // --- Custom Price Management (Enterprise) ---
+
+  router.get(
+    '/tenants/:tenantId/custom-prices',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tenantId = parseTenant(req, res);
+        if (tenantId === null) return;
+
+        const prices = await adminService.listCustomPrices(tenantId);
+        res.json(prices);
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.get('/custom-prices/:priceId', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = tenantParam.safeParse(req.params.priceId);
+      if (!parsed.success) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid price identifier',
+            issues: parsed.error.issues,
+          },
+        });
+        return;
+      }
+
+      const price = await adminService.getCustomPrice(parsed.data);
+      if (!price) {
+        res.status(404).json({
+          error: { code: 'NOT_FOUND', message: `Custom price '${parsed.data}' not found` },
+        });
+        return;
+      }
+      res.json(price);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post(
+    '/tenants/:tenantId/custom-prices',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tenantId = parseTenant(req, res);
+        if (tenantId === null) return;
+
+        const body = customPriceBody.safeParse(req.body ?? {});
+        if (!body.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid custom price request',
+              issues: body.error.issues,
+            },
+          });
+          return;
+        }
+
+        await adminService.upsertCustomPrice({
+          tenantId,
+          priceId: body.data.priceId,
+          plan: body.data.plan,
+          expectedAmountEur: body.data.expectedAmountEur,
+          seats: body.data.seats,
+        });
+        res.status(201).json({ success: true });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete(
+    '/custom-prices/:priceId',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const parsed = tenantParam.safeParse(req.params.priceId);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid price identifier',
+              issues: parsed.error.issues,
+            },
+          });
+          return;
+        }
+
+        const deleted = await adminService.deleteCustomPrice(parsed.data);
+        if (!deleted) {
+          res.status(404).json({
+            error: { code: 'NOT_FOUND', message: `Custom price '${parsed.data}' not found` },
+          });
+          return;
+        }
+        res.json({ success: true });
       } catch (err) {
         next(err);
       }

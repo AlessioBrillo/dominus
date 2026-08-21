@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { AdminRepository } from '../../db/repositories/admin-repository.js';
 import { UsageRepository } from '../../db/repositories/usage-repository.js';
+import { CustomPriceRepository } from '../../db/repositories/custom-price-repository.js';
 import { AdminService } from '../admin-service.js';
 
 describe('AdminService', () => {
@@ -12,7 +13,11 @@ describe('AdminService', () => {
   beforeEach(async () => {
     db = SqliteProvider.openInMemory();
     await db.runMigrations();
-    service = new AdminService(new AdminRepository(db), new UsageRepository(db));
+    service = new AdminService(
+      new AdminRepository(db),
+      new UsageRepository(db),
+      new CustomPriceRepository(db),
+    );
   });
 
   afterEach(async () => {

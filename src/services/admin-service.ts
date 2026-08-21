@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { AdminRepository } from '../db/repositories/admin-repository.js';
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
+import type { CustomPriceRepository } from '../db/repositories/custom-price-repository.js';
 import type {
   AdminOverview,
   AdminTenantSummary,
@@ -10,7 +11,12 @@ import type {
   TenantAdminFlag,
 } from '../types/admin.js';
 import type { UsageFeature } from '../types/usage.js';
-import type { Subscription, SubscriptionPlan, SubscriptionStatus } from '../types/subscription.js';
+import type {
+  Subscription,
+  SubscriptionPlan,
+  SubscriptionStatus,
+  TenantCustomPrice,
+} from '../types/subscription.js';
 import { getLogger } from '../logger.js';
 
 const FEATURES: UsageFeature[] = ['candidates_scored', 'api_calls', 'domains_tracked'];
@@ -35,10 +41,16 @@ export function periodEnd(periodStart: string): string {
 export class AdminService {
   readonly #adminRepo: AdminRepository;
   readonly #usageRepo: UsageRepository;
+  readonly #customPriceRepo: CustomPriceRepository;
 
-  constructor(adminRepo: AdminRepository, usageRepo: UsageRepository) {
+  constructor(
+    adminRepo: AdminRepository,
+    usageRepo: UsageRepository,
+    customPriceRepo: CustomPriceRepository,
+  ) {
     this.#adminRepo = adminRepo;
     this.#usageRepo = usageRepo;
+    this.#customPriceRepo = customPriceRepo;
   }
 
   async overview(periodStart: string): Promise<AdminOverview> {
@@ -165,5 +177,51 @@ export class AdminService {
     const flag = await this.#adminRepo.setPlanOverride(tenantId, plan, new Date().toISOString());
     logger.info({ tenantId, plan }, `Tenant plan override set by platform operator (ADR-0057)`);
     return flag;
+  }
+
+  // --- Custom Price Management (Enterprise) ---
+
+  /** List all custom prices for a tenant. */
+  async listCustomPrices(tenantId: string): Promise<TenantCustomPrice[]> {
+    return this.#customPriceRepo.findByTenantId(tenantId);
+  }
+
+  /** Get a custom price by price ID. */
+  async getCustomPrice(priceId: string): Promise<TenantCustomPrice | undefined> {
+    return this.#customPriceRepo.findByPriceId(priceId);
+  }
+
+  /** Create or update a custom price for a tenant. */
+  async upsertCustomPrice(price: {
+    tenantId: string;
+    priceId: string;
+    plan: SubscriptionPlan;
+    expectedAmountEur: number;
+    seats: number;
+  }): Promise<void> {
+    await this.#customPriceRepo.upsert(price);
+    logger.info(
+      {
+        tenantId: price.tenantId,
+        priceId: price.priceId,
+        plan: price.plan,
+        amount: price.expectedAmountEur,
+      },
+      'Tenant custom price upserted by platform operator',
+    );
+  }
+
+  /** Delete a custom price by price ID. */
+  async deleteCustomPrice(priceId: string): Promise<boolean> {
+    const deleted = await this.#customPriceRepo.delete(priceId);
+    if (deleted) {
+      logger.info({ priceId }, 'Tenant custom price deleted by platform operator');
+    }
+    return deleted;
+  }
+
+  /** Delete all custom prices for a tenant (used when tenant is deleted). */
+  async deleteCustomPricesByTenant(tenantId: string): Promise<number> {
+    return this.#customPriceRepo.deleteByTenant(tenantId);
   }
 }
