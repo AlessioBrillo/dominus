@@ -178,9 +178,13 @@ export class ScoringEngine {
     // a domain whose comparables trade at €50k must not be valued on the
     // same €500 base as one with no sales history. Without market data
     // the anchor stays at baseMarketValueEur (fail-conservative).
-    // See ADR-0055.
+    // With sparse market data the anchor is modulated by dataDensity so
+    // a single comparable sale cannot pull the valuation to its price level.
+    // See ADR-0002 (conservatism) and ADR-0055.
     const valueAnchorEur = hasMarketData
-      ? Math.max(baseMarketValueEur, market.medianSalePrice)
+      ? baseMarketValueEur +
+        (Math.max(baseMarketValueEur, market.medianSalePrice) - baseMarketValueEur) *
+          Math.min(1, marketDensity * 3)
       : baseMarketValueEur;
     const expectedValue = weightedScore * valueAnchorEur;
 
