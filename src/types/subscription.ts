@@ -2,6 +2,35 @@
 export type SubscriptionPlan = 'free' | 'pro' | 'team' | 'enterprise';
 export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'incomplete' | 'trialing';
 
+export interface TenantCustomPrice {
+  tenantId: string;
+  priceId: string;
+  plan: SubscriptionPlan;
+  expectedAmountEur: number;
+  seats: number;
+  createdAt: string;
+}
+
+export interface TenantCustomPriceRow {
+  tenant_id: string;
+  price_id: string;
+  plan: string;
+  expected_amount_eur: number;
+  seats: number;
+  created_at: string;
+}
+
+export function customPriceFromRow(row: TenantCustomPriceRow): TenantCustomPrice {
+  return {
+    tenantId: row.tenant_id,
+    priceId: row.price_id,
+    plan: row.plan as SubscriptionPlan,
+    expectedAmountEur: row.expected_amount_eur,
+    seats: row.seats,
+    createdAt: row.created_at,
+  };
+}
+
 export interface Subscription {
   id: number;
   tenantId: string;
