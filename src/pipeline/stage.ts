@@ -61,6 +61,28 @@ export interface RdapConsensusStats {
    * when > 0.
    */
   originGuardUnavailable?: number;
+  /**
+   * Available verdicts the tertiary leg rescued: the secondary could not
+   * answer and the tertiary confirmed Available. Present only when > 0.
+   */
+  tertiaryRescued?: number;
+  /**
+   * Definitive disagreements from the tertiary leg (tertiary says Registered)
+   * — valid answers that veto the domain. Present only when > 0.
+   */
+  tertiaryDisagreed?: number;
+  /**
+   * Verdicts skipped because the tertiary leg's origin was authoritative for
+   * the candidate's TLD or matched the winning primary/secondary origin —
+   * the tertiary would have been a rubber stamp. Present only when > 0.
+   */
+  tertiaryOriginOverlap?: number;
+  /**
+   * Verdicts downgraded because the per-TLD authoritative-origin resolver
+   * failed for the tertiary leg — the guard could not rule out that the
+   * tertiary leg is an authoritative origin for the TLD. Present only when > 0.
+   */
+  tertiaryOriginGuardUnavailable?: number;
   /** True when the run was flagged degraded over consensus (ADR-0039 pattern). */
   degraded: boolean;
 }

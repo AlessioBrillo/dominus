@@ -945,6 +945,72 @@ const configSchema = z.object({
    * Default: 10000. Range: 1000-30000.
    */
   RDAP_CONSENSUS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+
+  /**
+   * Enable an optional THIRD RDAP consensus opinion (tertiary leg).
+   * When true, domains the second RDAP leg cannot answer (error/timeout/Unknown)
+   * are re-queried against a third independent provider built from
+   * RDAP_TERTIARY_ENDPOINT. A tertiary Available confirmation rescues the domain;
+   * a tertiary Registered answer vetoes it. Default: false — the strict 2-of-2
+   * gate already fails closed, so the third leg is only worth its extra query
+   * when a genuinely independent resolver is available (e.g. a registry-authoritative
+   * endpoint like rdap.verisign.com for .com/.net). The leg is dropped at
+   * startup (with a warning) when its endpoint origin overlaps the primary's
+   * authoritative origins or the secondary's origin, exactly like the
+   * secondary-vs-primary disjointness rule.
+   */
+  RDAP_CONSENSUS_TERTIARY_ENABLED: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(false),
+  /**
+   * Endpoint of the dedicated third RDAP opinion (tertiary leg).
+   * Should be an authoritative registry RDAP endpoint (e.g.
+   * https://rdap.verisign.com/com/domain/ for .com/.net) to guarantee
+   * operator independence from the primary (IANA bootstrap) and secondary
+   * (rdap.org). Must be an https URL when set. When empty, the tertiary
+   * leg is not configured even if RDAP_CONSENSUS_TERTIARY_ENABLED=true.
+   */
+  RDAP_TERTIARY_ENDPOINT: z
+    .string()
+    .refine((v) => v === '' || v.startsWith('https://'), {
+      message: 'RDAP_TERTIARY_ENDPOINT must be an https URL or empty (empty = not configured)',
+    })
+    .default(''),
+  /**
+   * Rate limiting: token bucket for the third RDAP consensus leg.
+   * Dedicated budget in its own Redis namespace ('rdap-consensus-tertiary') —
+   * a heavy primary/secondary run must never starve the tertiary leg.
+   * Default: 3 req/sec (lower than secondary 5 req/sec).
+   */
+  RDAP_TERTIARY_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).default(3),
+  /** Rate limiting: refill interval in ms for RDAP tertiary requests (default: 1000). */
+  RDAP_TERTIARY_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).default(1000),
+  /**
+   * Per-tenant fair share (Cloud only, ADR-0041): max RDAP tertiary tokens
+   * per tenant per interval, on top of the shared rdap-consensus-tertiary bucket.
+   * Default: 1 req/sec per tenant.
+   */
+  RDAP_TERTIARY_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).default(1),
+  /** Per-tenant fair share: refill interval in ms for the RDAP tertiary tenant window (default: 1000). */
+  RDAP_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(100)
+    .max(60000)
+    .default(1000),
+  /**
+   * Concurrency ceiling for the RDAP tertiary verification phase.
+   * Bounded independently of RDAP_CONSENSUS_BULK_CONCURRENCY so a
+   * verification stampede cannot multiply registry traffic. Default: 5.
+   * Range: 1-50.
+   */
+  RDAP_TERTIARY_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+  /**
+   * Timeout for a single RDAP tertiary query (ms).
+   * Default: 10000. Range: 1000-30000.
+   */
+  RDAP_TERTIARY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+
   /**
    * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
    * WHOIS servers are generally more restrictive than RDAP.

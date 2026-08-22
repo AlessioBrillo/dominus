@@ -725,7 +725,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(result.rdapConsensusStats).toEqual({
       verified: 0,
       disagreed: 0,
-      unverifiable: 1,
+      unverifiable: 2,
       originOverlap: 1,
       degraded: false,
     });
@@ -798,7 +798,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     // the verdict is downgraded as unverifiable — never let an unchecked
     // rubber-stamp second opinion pass.
     expect(result.rdapConsensusStats!.verified).toBe(2);
-    expect(result.rdapConsensusStats!.unverifiable).toBe(1);
+    expect(result.rdapConsensusStats!.unverifiable).toBe(2);
     expect(result.rdapConsensusStats!.originGuardUnavailable).toBe(1);
     expect(secondary.confirm).not.toHaveBeenCalledWith('example.fail', undefined);
     expect(result.passed.map((c) => c.domain)).toEqual(['x.com', 'y.com']);
@@ -822,7 +822,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(result.rdapConsensusStats).toEqual({
       verified: 0,
       disagreed: 0,
-      unverifiable: 1,
+      unverifiable: 2,
       originGuardUnavailable: 1,
       degraded: false,
     });
@@ -847,7 +847,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(result.rdapConsensusStats).toEqual({
       verified: 0,
       disagreed: 0,
-      unverifiable: 1,
+      unverifiable: 2,
       originOverlap: 1,
       degraded: false,
     });

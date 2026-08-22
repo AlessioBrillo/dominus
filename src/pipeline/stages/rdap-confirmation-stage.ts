@@ -11,6 +11,7 @@ import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '.
 import {
   hasAuthoritativeOriginOverlap,
   hasWinningOriginOverlap,
+  hasTertiaryWinningOriginOverlap,
   rdapUrlOrigin,
 } from '../../providers/rdap/rdap-consensus-validator.js';
 import { getLogger } from '../../logger.js';
@@ -126,6 +127,26 @@ export interface RdapConsensusConfig {
    * second opinion is skipped and counted as originOverlap (ADR-0050).
    */
   tldOriginsResolver?: (tld: string) => Promise<string[]>;
+  /**
+   * Optional third RDAP provider for tertiary consensus (ADR-0050/0064 parallel).
+   * When configured, domains the secondary cannot answer (error/timeout/Unknown)
+   * are re-queried against this third independent provider. A tertiary Available
+   * confirmation rescues the domain; a tertiary Registered answer vetoes it.
+   * The tertiary leg is subject to the same origin-disjointness guards as the
+   * secondary: it must not overlap the primary's authoritative origins nor the
+   * secondary's endpoint origin.
+   */
+  tertiaryProvider?: RdapProvider;
+  /** Endpoint origin of the tertiary leg, for diagnostics. */
+  tertiaryOrigin?: string;
+  /**
+   * How many verification legs must confirm an Available verdict (1 or 2, default 1):
+   * 1 = the secondary alone suffices (tertiary consulted only when the secondary
+   * cannot answer), 2 = BOTH the secondary and the tertiary must confirm.
+   * Clamped to 1 when no tertiaryProvider is configured — a requirement no leg
+   * can satisfy must never silently downgrade every domain.
+   */
+  requiredConfirmations?: number;
 }
 
 /** Default fraction of unverifiable Available domains that flags a run degraded. */
@@ -266,20 +287,20 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
 
   /**
    * Re-confirms every primary-Available verdict on the dedicated second leg
-   * (ADR-0050). A definitive Registered (or premium) answer from the second
-   * provider vetoes the domain — "registered wins", ADR-0002 conservatism,
-   * mirroring the DNS secondary veto (ADR-0045): the outcome is never
-   * Available. A failure to answer (error/timeout/Unknown) downgrades to
-   * Unknown as well: the gate is fail-closed and never lets a single-leg
-   * Available pass. The second leg is skipped (counted unverifiable) when
-   * it would be a rubber stamp: its origin is authoritative for the TLD
-   * (ADR-0058) or it is the same origin that served the primary verdict.
-   * Returns the candidates that survived the gate.
+   * (ADR-0050) and optional tertiary leg. A definitive Registered (or premium)
+   * answer from either verification leg vetoes the domain — "registered wins",
+   * ADR-0002 conservatism. A failure to answer (error/timeout/Unknown) from
+   * the secondary triggers the tertiary leg (when configured): a tertiary
+   * Available confirmation rescues the domain; a tertiary Registered answer
+   * vetoes it. Both legs are skipped (counted unverifiable) when they would be
+   * a rubber stamp: their origin is authoritative for the TLD (ADR-0058) or
+   * matches the winning primary/secondary origin (ADR-0050). Returns the
+   * candidates that survived the gate.
    *
-   * Runs under its own concurrency ceiling (RDAP_CONSENSUS_BULK_CONCURRENCY)
-   * and flags the run degraded when the secondary cannot verify the majority
-   * of a minimum sample, mirroring the DNS consensus-degradation policy
-   * (ADR-0039).
+   * Runs under its own concurrency ceiling (RDAP_CONSENSUS_BULK_CONCURRENCY
+   * for secondary, RDAP_TERTIARY_BULK_CONCURRENCY for tertiary) and flags
+   * the run degraded when the secondary cannot verify the majority of a
+   * minimum sample, mirroring the DNS consensus-degradation policy (ADR-0039).
    */
   async #verifyConsensus(
     passed: DomainCandidate[],
@@ -303,27 +324,24 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     // hammer the resolver for the same TLD.
     //
     // ADR-0060: a resolver failure is fail-closed, not fail-open. When the
-    // guard cannot prove the second leg is disjoint from the TLD's
-    // authoritative origins, the second opinion is never consulted (it could
-    // be a rubber stamp served by an authoritative origin, e.g. rdap.org as
-    // the default second leg) and the verdict is downgraded as unverifiable.
-    // Only an explicitly unconfigured guard (or an unparsable secondary
-    // endpoint — cannot prove overlap) keeps the previous consult-the-second-
-    // leg behaviour.
+    // guard cannot prove the verification leg is disjoint from the TLD's
+    // authoritative origins, the opinion is never consulted (it could be a
+    // rubber stamp) and the verdict is downgraded as unverifiable.
     const secondaryOrigin = rdapUrlOrigin(cfg.secondaryOrigin);
+    const tertiaryOrigin = cfg.tertiaryOrigin ? rdapUrlOrigin(cfg.tertiaryOrigin) : undefined;
     const authoritativeOriginsByTld = new Map<string, string[]>();
     const authoritativeOriginsInFlight = new Map<string, Promise<string[] | undefined>>();
     const resolveAuthoritativeOrigins = async (tld: string): Promise<string[] | undefined> => {
-      if (cfg.tldOriginsResolver === undefined || secondaryOrigin === undefined) return undefined;
+      if (cfg.tldOriginsResolver === undefined) return undefined;
       const cached = authoritativeOriginsByTld.get(tld);
       if (cached !== undefined) return cached;
       const inFlight = authoritativeOriginsInFlight.get(tld);
       if (inFlight !== undefined) return inFlight;
-      // An unresolved TLD resolves to an empty array (no overlap, second leg
-      // consulted) — the same behaviour as a successful empty lookup. A
-      // rejection is deliberately NOT caught here: it must propagate to the
-      // per-candidate handler below, which downgrades the verdict (fail-
-      // closed, ADR-0060) instead of consulting a possibly-overlapping leg.
+      // An unresolved TLD resolves to an empty array (no overlap, leg consulted)
+      // — the same behaviour as a successful empty lookup. A rejection is
+      // deliberately NOT caught here: it must propagate to the per-candidate
+      // handler below, which downgrades the verdict (fail-closed, ADR-0060)
+      // instead of consulting a possibly-overlapping leg.
       const pending = cfg
         .tldOriginsResolver(tld)
         .then((origins) => {
@@ -337,6 +355,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return pending;
     };
 
+    const hasTertiary = cfg.tertiaryProvider !== undefined;
+    const requiredConfirmations = hasTertiary ? (cfg.requiredConfirmations ?? 1) : 1;
+    const effectiveRequired = Math.min(requiredConfirmations, hasTertiary ? 2 : 1);
+
     const batches = toBatches(passed, concurrency);
     for (const batch of batches) {
       if (signal?.aborted) break;
@@ -346,50 +368,130 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           try {
             authoritativeOrigins = await resolveAuthoritativeOrigins(candidate.tld);
           } catch (error) {
-            // Fail-closed (ADR-0060): the guard could not rule out that the
-            // second leg is an authoritative origin for the TLD. Consulting
-            // it could rubber-stamp the primary verdict, so the second
-            // opinion is skipped and the verdict downgraded.
+            // Fail-closed (ADR-0060): the guard could not rule out that a
+            // verification leg is an authoritative origin for the TLD.
             logger.warn(
               { error, tld: candidate.tld, domain: candidate.domain },
-              'RDAP: authoritative origin lookup failed — second leg not consulted ' +
+              'RDAP: authoritative origin lookup failed — verification legs not consulted ' +
                 '(fail-closed, ADR-0060)',
             );
-            return { candidate, result: undefined, overlap: false, guardUnavailable: true };
+            return {
+              candidate,
+              secondaryResult: undefined,
+              tertiaryResult: undefined,
+              secondaryOverlap: false,
+              tertiaryOverlap: false,
+              secondaryGuardUnavailable: true,
+              tertiaryGuardUnavailable: true,
+            };
           }
+
+          // ---- Secondary leg (2-of-2) ----
+          let secondaryResult: RdapResult | undefined;
+          let secondaryOverlap = false;
+          let secondaryGuardUnavailable = false;
+          let secondaryWinnerOverlap = false;
+
           try {
             const authoritativeOverlap =
               authoritativeOrigins !== undefined &&
               hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.secondaryOrigin);
-            // The winner-origin guard is unconditional (needs no resolver):
-            // when the primary race was won by the same origin as the
-            // second leg, the second opinion would be a rubber stamp.
             const winnerOverlap = hasWinningOriginOverlap(
               winningOrigins.get(candidate.domain),
               cfg.secondaryOrigin,
             );
             if (authoritativeOverlap || winnerOverlap) {
-              return { candidate, result: undefined, overlap: true, winnerOverlap };
+              secondaryOverlap = true;
+              secondaryWinnerOverlap = winnerOverlap;
+            } else {
+              secondaryResult = await cfg.secondaryProvider.confirm(candidate.domain, signal);
             }
-            const result = await cfg.secondaryProvider.confirm(candidate.domain, signal);
-            return { candidate, result, overlap: false, winnerOverlap: false };
-          } catch (error) {
-            return { candidate, result: undefined, error, overlap: false, winnerOverlap: false };
+          } catch {
+            // Error from secondary provider — will trigger tertiary if available
           }
+
+          // ---- Tertiary leg (optional) ----
+          let tertiaryResult: RdapResult | undefined;
+          let tertiaryOverlap = false;
+          let tertiaryGuardUnavailable = false;
+
+          if (hasTertiary && tertiaryOrigin !== undefined) {
+            try {
+              const authoritativeOverlap =
+                authoritativeOrigins !== undefined &&
+                hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.tertiaryOrigin!);
+              const winnerOverlap = hasTertiaryWinningOriginOverlap(
+                winningOrigins.get(candidate.domain),
+                secondaryOrigin,
+                cfg.tertiaryOrigin!,
+              );
+              if (authoritativeOverlap || winnerOverlap) {
+                tertiaryOverlap = true;
+              } else {
+                // Only query tertiary when secondary could not confirm
+                const secondaryConfirmed =
+                  secondaryResult !== undefined &&
+                  secondaryResult.status === DomainStatus.Available &&
+                  !secondaryResult.isPremium;
+                const secondaryVetoed =
+                  secondaryResult !== undefined &&
+                  (secondaryResult.status === DomainStatus.Registered || secondaryResult.isPremium);
+
+                // If secondary vetoed, we don't query tertiary (registered wins)
+                // If secondary confirmed and requiredConfirmations=1, we don't need tertiary
+                // If secondary confirmed and requiredConfirmations=2, we need tertiary too
+                // If secondary failed/unknown and we need at least 1 confirmation, try tertiary
+                const needTertiary =
+                  !secondaryConfirmed || (effectiveRequired === 2 && secondaryConfirmed);
+
+                if (needTertiary && !secondaryVetoed) {
+                  tertiaryResult = await cfg.tertiaryProvider!.confirm(candidate.domain, signal);
+                }
+              }
+            } catch {
+              // Error from tertiary provider
+            }
+          }
+
+          return {
+            candidate,
+            secondaryResult,
+            tertiaryResult,
+            secondaryOverlap,
+            tertiaryOverlap,
+            secondaryGuardUnavailable,
+            tertiaryGuardUnavailable,
+            secondaryWinnerOverlap,
+            secondaryConfirmed:
+              secondaryResult !== undefined &&
+              secondaryResult.status === DomainStatus.Available &&
+              !secondaryResult.isPremium,
+          };
         }),
       );
-      for (const { candidate, result, overlap, winnerOverlap, guardUnavailable } of results) {
-        if (guardUnavailable === true) {
+
+      for (const {
+        candidate,
+        secondaryResult,
+        tertiaryResult,
+        secondaryOverlap,
+        tertiaryOverlap,
+        secondaryGuardUnavailable,
+        tertiaryGuardUnavailable,
+        secondaryWinnerOverlap,
+        secondaryConfirmed,
+      } of results) {
+        // ---- Secondary leg outcome ----
+        if (secondaryGuardUnavailable) {
           stats.unverifiable++;
           stats.originGuardUnavailable = (stats.originGuardUnavailable ?? 0) + 1;
-          continue;
-        }
-        if (overlap === true) {
+          // Still try tertiary if available
+        } else if (secondaryOverlap) {
           stats.unverifiable++;
           stats.originOverlap = (stats.originOverlap ?? 0) + 1;
           logger.warn(
             { domain: candidate.domain, origin: secondaryOrigin },
-            winnerOverlap === true
+            secondaryWinnerOverlap === true
               ? 'RDAP: 2-of-2 consensus skipped — the primary verdict was served by the ' +
                   'second leg origin (same server, rubber-stamp guard, ADR-0050) — ' +
                   'downgraded as unverifiable'
@@ -397,63 +499,126 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
                   'for the candidate TLD (rubber-stamp guard, ADR-0058) — downgraded as ' +
                   'unverifiable',
           );
-          continue;
-        }
-        if (result === undefined) {
-          // WHOIS rescue leg (ADR-0051): the opt-in re-check runs when
-          // the second RDAP leg could not answer. A definitive Registered is
-          // never re-litigated — "registered wins" (ADR-0002). WHOIS
-          // "available" confirms the verdict, WHOIS "registered" vetoes it,
-          // and a WHOIS failure stays unverifiable (fail-closed, unchanged).
-          // Per-TLD forced rescue (ADR-0051 extension): for TLDs in rescueWhoisTlds,
-          // rescue is attempted even when rescueWhoisEnabled is false.
-          const forceRescue = cfg.rescueWhoisTlds?.has(candidate.tld.toLowerCase()) === true;
-          if (
-            (cfg.rescueWhoisEnabled === true || forceRescue) &&
-            this.whoisProvider !== undefined
-          ) {
-            const rescued = await this.#tryWhoisRescue(candidate);
-            if (rescued === true) {
+        } else if (secondaryResult !== undefined) {
+          if (secondaryResult.status === DomainStatus.Available && !secondaryResult.isPremium) {
+            if (effectiveRequired === 1 || !hasTertiary) {
+              // Secondary alone confirms (1-confirmation mode or no tertiary)
               survivor.add(candidate.domain);
               stats.verified++;
-              if (forceRescue) {
-                stats.perTldRescued = (stats.perTldRescued ?? 0) + 1;
-              } else {
-                stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
-              }
               continue;
             }
-            if (rescued === false) {
+            // requiredConfirmations=2: need tertiary too, fall through
+          } else if (
+            secondaryResult.status === DomainStatus.Registered ||
+            secondaryResult.isPremium
+          ) {
+            // Secondary vetoes — registered wins, never query tertiary
+            stats.disagreed++;
+            logger.warn(
+              {
+                domain: candidate.domain,
+                secondStatus: secondaryResult.status,
+                isPremium: secondaryResult.isPremium,
+              },
+              'RDAP: 2-of-2 consensus vetoed (second leg says registered) — downgraded',
+            );
+            continue;
+          }
+        }
+
+        // ---- Tertiary leg (when secondary didn't confirm) ----
+        if (hasTertiary) {
+          if (tertiaryGuardUnavailable) {
+            stats.unverifiable++;
+            stats.tertiaryOriginGuardUnavailable = (stats.tertiaryOriginGuardUnavailable ?? 0) + 1;
+            continue;
+          }
+          if (tertiaryOverlap) {
+            stats.unverifiable++;
+            stats.tertiaryOriginOverlap = (stats.tertiaryOriginOverlap ?? 0) + 1;
+            logger.warn(
+              { domain: candidate.domain, origin: tertiaryOrigin },
+              'RDAP: tertiary consensus skipped — the tertiary leg origin is authoritative ' +
+                'for the candidate TLD or matches winning origin (rubber-stamp guard) — ' +
+                'downgraded as unverifiable',
+            );
+            continue;
+          }
+
+          if (tertiaryResult !== undefined) {
+            if (tertiaryResult.status === DomainStatus.Available && !tertiaryResult.isPremium) {
+              // Tertiary confirms
+              if (secondaryConfirmed) {
+                // Both secondary and tertiary confirmed (requiredConfirmations=2)
+                stats.verified++;
+              } else {
+                // Secondary failed, tertiary rescued
+                stats.verified++;
+                stats.tertiaryRescued = (stats.tertiaryRescued ?? 0) + 1;
+              }
+              survivor.add(candidate.domain);
+              continue;
+            }
+            if (tertiaryResult.status === DomainStatus.Registered || tertiaryResult.isPremium) {
+              // Tertiary vetoes
+              stats.tertiaryDisagreed = (stats.tertiaryDisagreed ?? 0) + 1;
               stats.disagreed++;
               logger.warn(
-                { domain: candidate.domain, forced: forceRescue },
-                forceRescue
-                  ? 'RDAP: 2-of-2 consensus vetoed by per-TLD WHOIS rescue leg (registered) — downgraded'
-                  : 'RDAP: 2-of-2 consensus vetoed by WHOIS rescue leg (registered) — downgraded',
+                {
+                  domain: candidate.domain,
+                  tertiaryStatus: tertiaryResult.status,
+                  isPremium: tertiaryResult.isPremium,
+                },
+                'RDAP: tertiary consensus vetoed (tertiary leg says registered) — downgraded',
               );
               continue;
             }
           }
-          stats.unverifiable++;
-          continue;
+
+          // Tertiary could not answer or gave Unknown
+          // If secondary also couldn't confirm, this is unverifiable
+          if (!secondaryConfirmed) {
+            stats.unverifiable++;
+            continue;
+          }
         }
-        if (result.status === DomainStatus.Available && !result.isPremium) {
-          survivor.add(candidate.domain);
-          stats.verified++;
-          continue;
+
+        // ---- WHOIS rescue (ADR-0051) for secondary leg ----
+        // Only attempted when secondary couldn't answer AND no tertiary rescue happened
+        const forceRescue = cfg.rescueWhoisTlds?.has(candidate.tld.toLowerCase()) === true;
+        if (
+          (cfg.rescueWhoisEnabled === true || forceRescue) &&
+          this.whoisProvider !== undefined &&
+          !secondaryConfirmed &&
+          !(
+            hasTertiary &&
+            tertiaryResult !== undefined &&
+            tertiaryResult.status === DomainStatus.Available
+          )
+        ) {
+          const rescued = await this.#tryWhoisRescue(candidate);
+          if (rescued === true) {
+            survivor.add(candidate.domain);
+            stats.verified++;
+            if (forceRescue) {
+              stats.perTldRescued = (stats.perTldRescued ?? 0) + 1;
+            } else {
+              stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
+            }
+            continue;
+          }
+          if (rescued === false) {
+            stats.disagreed++;
+            logger.warn(
+              { domain: candidate.domain, forced: forceRescue },
+              forceRescue
+                ? 'RDAP: 2-of-2 consensus vetoed by per-TLD WHOIS rescue leg (registered) — downgraded'
+                : 'RDAP: 2-of-2 consensus vetoed by WHOIS rescue leg (registered) — downgraded',
+            );
+            continue;
+          }
         }
-        if (result.status === DomainStatus.Registered || result.isPremium) {
-          stats.disagreed++;
-          logger.warn(
-            {
-              domain: candidate.domain,
-              secondStatus: result.status,
-              isPremium: result.isPremium,
-            },
-            'RDAP: 2-of-2 consensus vetoed (second leg says registered) — downgraded',
-          );
-          continue;
-        }
+
         stats.unverifiable++;
       }
     }
