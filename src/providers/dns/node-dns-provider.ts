@@ -315,7 +315,7 @@ async function resolveDohWire(
     init?: { headers?: Record<string, string>; signal?: AbortSignal },
   ) => Promise<Response>,
 ): Promise<boolean> {
-  const query = buildDnsQuery(domain, recordTypeToQtype(recordType));
+  const query = buildDnsQuery(domain, recordTypeToQtype(recordType), undefined, { dnssec: true });
   const url = new URL(endpoint);
   url.searchParams.set('dns', query.toString('base64url'));
 
@@ -342,7 +342,14 @@ async function resolveDohWire(
     throw Object.assign(new Error('DoH wire response ID mismatch'), { code: 'ESERVFAIL' });
   }
 
-  const outcome = classifyResponse(body);
+  const { outcome, dnssec } = classifyResponse(body);
+
+  // DNSSEC fail-closed (ADR-0002, ADR-0061)
+  if (dnssec.status === 'bogus') {
+    // Treat bogus as resolved (Registered) — conservative
+    return true;
+  }
+
   if (outcome.kind === 'error') {
     throw Object.assign(new Error(outcome.message), { code: outcome.code });
   }

@@ -2,6 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from 'node:tls';
 import { getLogger } from '../../logger.js';
+import { classifyDnssecResponse, type DnssecValidationResult } from './dnssec-validator.js';
 
 const logger = getLogger();
 
@@ -18,11 +19,13 @@ const DEFAULT_MAX_QUEUED = 4096;
  * confusion when multiple queries are multiplexed on one connection.
  * The RNG is injectable for tests and for collision-avoidance
  * regeneration (see DotPool).
+ * Now includes EDNS0 OPT record with DO=1 for DNSSEC (ADR-0061).
  */
 export function buildDnsQuery(
   domain: string,
   qtype: number,
   rng: (size: number) => Buffer = randomBytes,
+  options?: { dnssec?: boolean },
 ): Buffer {
   const header = Buffer.alloc(12);
   // ID: random 16-bit — prevents response-spoofing by on-path attackers
@@ -31,10 +34,10 @@ export function buildDnsQuery(
   header.writeUInt16BE(0x0100, 2);
   // QDCOUNT: 1 question
   header.writeUInt16BE(1, 4);
-  // ANCOUNT, NSCOUNT, ARCOUNT: 0
+  // ANCOUNT, NSCOUNT: 0, ARCOUNT: 1 (for OPT)
   header.writeUInt16BE(0, 6);
   header.writeUInt16BE(0, 8);
-  header.writeUInt16BE(0, 10);
+  header.writeUInt16BE(1, 10);
 
   const qname = encodeDnsName(domain);
   const question = Buffer.alloc(qname.length + 4);
@@ -43,7 +46,19 @@ export function buildDnsQuery(
   // QCLASS: IN (1)
   question.writeUInt16BE(1, qname.length + 2);
 
-  return Buffer.concat([header, question]);
+  // OPT record (RFC 6891) in additional section for DNSSEC
+  const opt = Buffer.alloc(11);
+  opt[0] = 0x00; // NAME: root
+  opt.writeUInt16BE(41, 1); // TYPE: OPT
+  opt.writeUInt16BE(4096, 3); // CLASS: UDP payload size
+  // TTL (4 bytes): [extended RCODE=0][version=0][flags=DO=1][reserved=0]
+  opt[7] = 0x00; // extended RCODE
+  opt[8] = 0x00; // version
+  opt[9] = options?.dnssec ? 0x80 : 0x00; // flags: DO=1 (bit 15) when dnssec=true
+  opt[10] = 0x00; // reserved
+  opt.writeUInt16BE(0, 9); // RDLEN: 0
+
+  return Buffer.concat([header, question, opt]);
 }
 
 function encodeDnsName(name: string): Buffer {
@@ -139,24 +154,13 @@ type QueryOutcome = { kind: 'resolved' } | { kind: 'error'; code: string; messag
 
 /** Classify a complete DNS response (RFC 1035 header, no length prefix).
  *  Shared by the DoT pool and the RFC 8484 DoH wire leg so both transports
- *  apply the same conservative RCODE semantics (ADR-0002). */
-export function classifyResponse(msg: Buffer): QueryOutcome {
-  const flags = msg.readUInt16BE(2);
-  const rcode = flags & 0x000f;
-  const truncated = (flags & 0x0200) !== 0;
-  const ancount = msg.readUInt16BE(6);
-
-  if (rcode === 3) return { kind: 'error', code: 'ENOTFOUND', message: 'DoT NXDOMAIN' };
-  if (rcode !== 0) return { kind: 'error', code: 'ESERVFAIL', message: `DoT RCODE ${rcode}` };
-  // A truncated response with no answers is not a definitive NODATA — the
-  // answer may have been cut off. Conservative: treat as unknown, never as
-  // available. A truncated response WITH answers still proves the domain
-  // resolves, so it is accepted below.
-  if (truncated && ancount === 0) {
-    return { kind: 'error', code: 'ETRUNCATED', message: 'DoT truncated response' };
-  }
-  if (ancount === 0) return { kind: 'error', code: 'ENODATA', message: 'DoT NODATA' };
-  return { kind: 'resolved' };
+ *  apply the same conservative RCODE semantics (ADR-0002).
+ *  Now includes DNSSEC validation status (ADR-0061). */
+export function classifyResponse(msg: Buffer): {
+  outcome: QueryOutcome;
+  dnssec: DnssecValidationResult;
+} {
+  return classifyDnssecResponse(msg);
 }
 
 function timeoutError(label: string): Error {
@@ -247,14 +251,20 @@ export class DotPool {
 
   /**
    * Build the framed payload for a query, reserving a collision-free ID.
+   * Includes EDNS0 OPT record with DO=1 for DNSSEC validation (ADR-0061).
    */
   #makePayload(domain: string, qtype: string): { id: number; payload: Buffer } {
     const id = this.#drawId();
-    const wire = buildDnsQuery(domain, recordTypeToQtype(qtype), () => {
-      const buf = Buffer.alloc(2);
-      buf.writeUInt16BE(id, 0);
-      return buf;
-    });
+    const wire = buildDnsQuery(
+      domain,
+      recordTypeToQtype(qtype),
+      () => {
+        const buf = Buffer.alloc(2);
+        buf.writeUInt16BE(id, 0);
+        return buf;
+      },
+      { dnssec: true },
+    );
     const payload = Buffer.alloc(2 + wire.length);
     payload.writeUInt16BE(wire.length, 0);
     wire.copy(payload, 2);
@@ -548,7 +558,21 @@ class DotPoolConnection {
     if (pending === undefined) return;
     this.#outstanding.delete(id);
     this.#strikes = 0;
-    const outcome = classifyResponse(msg);
+    const { outcome, dnssec } = classifyResponse(msg);
+
+    // DNSSEC fail-closed (ADR-0002, ADR-0061): a bogus response proves
+    // the domain is under attack (signature validation failed). We treat
+    // it as Registered (resolved) to be conservative — never Available.
+    if (dnssec.status === 'bogus') {
+      logger.warn(
+        { domain: pending.label, reason: dnssec.reason },
+        'DNSSEC: bogus response — treating as Registered (fail-closed)',
+      );
+      this.#pool.settle(pending, { ok: true, value: true });
+      this.#armIdleTimer();
+      return;
+    }
+
     if (outcome.kind === 'error') {
       const err = Object.assign(new Error(outcome.message), { code: outcome.code });
       this.#pool.settle(pending, { ok: false, err });
