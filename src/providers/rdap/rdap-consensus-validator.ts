@@ -110,3 +110,53 @@ export function hasWinningOriginOverlap(
   if (secondaryOrigin === undefined) return false;
   return rdapUrlOrigin(primaryOrigin) === secondaryOrigin;
 }
+
+/**
+ * Tertiary leg endpoint disjointness for the RDAP 2-of-2+1 consensus gate.
+ * The tertiary opinion must not route through an origin already used by
+ * the primary's authoritative servers OR the secondary endpoint. Otherwise
+ * it would be a rubber stamp and cannot catch a wrong answer served by
+ * that shared origin. Unparsable URLs yield false — caller treats as
+ * "cannot prove overlap" rather than failing closed on a typo.
+ */
+export function validateRdapTertiaryOriginDisjointness(
+  primaryOrigins: readonly string[],
+  secondaryEndpoint: string,
+  tertiaryEndpoint: string,
+): OriginDisjointnessResult {
+  const tertiaryOrigin = rdapUrlOrigin(tertiaryEndpoint);
+  if (tertiaryOrigin === undefined) {
+    return { ok: false, overlap: tertiaryEndpoint };
+  }
+  // Check overlap with primary authoritative origins
+  const primaryOverlap = primaryOrigins.find((origin) => rdapUrlOrigin(origin) === tertiaryOrigin);
+  if (primaryOverlap !== undefined) {
+    return { ok: false, overlap: tertiaryOrigin };
+  }
+  // Check overlap with secondary endpoint
+  const secondaryOrigin = rdapUrlOrigin(secondaryEndpoint);
+  if (secondaryOrigin !== undefined && rdapUrlOrigin(secondaryOrigin) === tertiaryOrigin) {
+    return { ok: false, overlap: tertiaryOrigin };
+  }
+  return { ok: true };
+}
+
+/**
+ * Runtime rubber-stamp guard for the RDAP tertiary leg:
+ * when the server that actually WON the primary race (or the secondary
+ * confirmation) shares its origin with the tertiary endpoint, the tertiary
+ * would query the same place — a "third opinion" that cannot catch a wrong
+ * answer. This mirrors hasWinningOriginOverlap for the tertiary leg.
+ */
+export function hasTertiaryWinningOriginOverlap(
+  primaryOrigin: string | undefined,
+  secondaryOrigin: string | undefined,
+  tertiaryEndpoint: string,
+): boolean {
+  const tertiaryOrigin = rdapUrlOrigin(tertiaryEndpoint);
+  if (tertiaryOrigin === undefined) return false;
+  if (primaryOrigin !== undefined && rdapUrlOrigin(primaryOrigin) === tertiaryOrigin) return true;
+  if (secondaryOrigin !== undefined && rdapUrlOrigin(secondaryOrigin) === tertiaryOrigin)
+    return true;
+  return false;
+}
