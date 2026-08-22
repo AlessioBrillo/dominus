@@ -90,6 +90,12 @@ export class MetricsCollector {
   #tmGateUsptoFailures = 0;
   #tmGateEuipoFailures = 0;
   #tmGateObserved = false;
+  /** USPTO WAF block rate (exposed as gauge for alerting). */
+  #usptoWafBlockRate = 0;
+  /** USPTO total request count. */
+  #usptoRequestCount = 0;
+  /** USPTO WAF block count. */
+  #usptoWafBlockCount = 0;
   #backupLastSuccessAtMs: number | null = null;
   #pitrWalLagBytes: number | null = null;
   #pitrBaseBackupAgeHours: number | null = null;
@@ -327,6 +333,18 @@ export class MetricsCollector {
     else this.#anonTrademarkBlocked++;
   }
 
+  /** Record USPTO WAF stats for alerting (gauge). Called periodically to
+   *  expose current block rate to Prometheus. */
+  recordUsptoWafStats(stats: {
+    wafBlockCount: number;
+    requestCount: number;
+    wafBlockRate: number;
+  }): void {
+    this.#usptoWafBlockCount = stats.wafBlockCount;
+    this.#usptoRequestCount = stats.requestCount;
+    this.#usptoWafBlockRate = Number.isFinite(stats.wafBlockRate) ? stats.wafBlockRate : 0;
+  }
+
   snapshot(): MetricsSnapshot {
     const stageMetrics: Record<string, StageMetrics> = {};
     for (const [key, value] of this.#stageMetrics) {
@@ -384,6 +402,9 @@ export class MetricsCollector {
           partialTotal: this.#tmGatePartial,
           usptoFailuresTotal: this.#tmGateUsptoFailures,
           euipoFailuresTotal: this.#tmGateEuipoFailures,
+          usptoWafBlockRate: this.#usptoWafBlockRate,
+          usptoWafBlockCount: this.#usptoWafBlockCount,
+          usptoRequestCount: this.#usptoRequestCount,
           observed: this.#tmGateObserved,
         },
         dnsBreakers: {

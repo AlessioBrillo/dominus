@@ -94,6 +94,12 @@ export interface TrademarkGateMetrics {
   usptoFailuresTotal: number;
   /** Checks where the EUIPO source failed. */
   euipoFailuresTotal: number;
+  /** USPTO WAF block rate (0-1), for Prometheus alerting. */
+  usptoWafBlockRate: number;
+  /** USPTO WAF block count since process start. */
+  usptoWafBlockCount: number;
+  /** USPTO total request count since process start. */
+  usptoRequestCount: number;
   /** Whether the gate ran at least once since process start. */
   observed: boolean;
 }
