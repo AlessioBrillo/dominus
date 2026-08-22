@@ -57,6 +57,10 @@ export interface DomainCandidate extends RawCandidate {
   normalizedDomain?: NormalizedDomain | undefined;
   closeoutMeta?: CloseoutMeta | undefined;
   whoisMeta?: WhoisMeta | undefined;
+  /** When true, downstream stages (RDAP/WHOIS) should bypass cache for this
+   *  candidate. Set by DNS prefilter for closeout/expiring domains where a
+   *  stale WHOIS "Available" would incorrectly gate the verdict. */
+  forceWhoisRecheck?: boolean;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }

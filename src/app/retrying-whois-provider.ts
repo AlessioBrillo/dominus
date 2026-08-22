@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { WhoisProvider, WhoisResult } from '../providers/whois/whois-provider.js';
+import type {
+  WhoisProvider,
+  WhoisResult,
+  WhoisCheckOptions,
+} from '../providers/whois/whois-provider.js';
 import { type RetryPolicy } from '../providers/retry-policy.js';
 import { type CircuitBreakerPolicy, type ICircuitBreaker } from '../providers/circuit-breaker.js';
 import { RetryingProvider } from '../providers/retry-utils.js';
@@ -34,7 +38,11 @@ export class RetryingWhoisProvider implements WhoisProvider {
     });
   }
 
-  checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
-    return this.#retrying.run((d, s) => d.checkAvailability(domain, s), signal);
+  checkAvailability(
+    domain: string,
+    signal?: AbortSignal,
+    options?: WhoisCheckOptions,
+  ): Promise<WhoisResult> {
+    return this.#retrying.run((d, s) => d.checkAvailability(domain, s, options), signal);
   }
 }

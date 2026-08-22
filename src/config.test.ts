@@ -773,6 +773,8 @@ describe('DNS privacy mode config defaults (ADR-0065)', () => {
 
   it('parses true when set', () => {
     process.env[KEY] = 'true';
+    process.env.DNS_NAMESERVERS = '127.0.0.1:5300';
+    process.env.DNS_CONSENSUS_NAMESERVERS = '127.0.0.1:5301';
     resetConfig();
     expect(loadConfig().DNS_PRIVACY_MODE).toBe(true);
   });

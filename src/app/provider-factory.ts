@@ -1385,11 +1385,11 @@ export async function createRdapTertiaryConfig(
 
   const endpoint = config.RDAP_TERTIARY_ENDPOINT.trim();
   if (!endpoint) {
-    logger.error(
-      'RDAP: tertiary consensus enabled but RDAP_TERTIARY_ENDPOINT is empty — tertiary leg disabled. ' +
-        'Set the independent third-leg origin to add redundancy (ADR-0050/0064 parallel).',
+    throw new Error(
+      'RDAP_CONSENSUS_TERTIARY_ENABLED=true requires RDAP_TERTIARY_ENDPOINT to be set. ' +
+        'Configure an independent registry-authoritative endpoint (e.g. https://rdap.verisign.com/com/domain/) ' +
+        'or disable the tertiary leg (ADR-0050/0064 parity with DNS_PRIVACY_MODE).',
     );
-    return undefined;
   }
 
   const rateLimiter = rdapTertiaryRateLimiter ?? buildRdapTertiaryRateLimiter(config, redisClient);

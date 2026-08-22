@@ -753,6 +753,34 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
   );
 
+  // --- File watcher for SCORING_WEIGHTS_OVERRIDE hot-reload ---
+  // When the operator updates weights via `dominus backtest suggest-weights --apply`,
+  // the file is rewritten. We watch for changes and hot-reload the engine without
+  // requiring a process restart (critical for worker/scheduler/API running in
+  // separate containers in cloud mode).
+  if (config.SCORING_WEIGHTS_OVERRIDE !== undefined) {
+    const weightsPath = config.SCORING_WEIGHTS_OVERRIDE;
+    try {
+      const { watchFile } = await import('node:fs');
+      const { reloadWeights } = await import('../scoring/weights-loader.js');
+      watchFile(weightsPath, { persistent: true, interval: 5000 }, () => {
+        try {
+          const newWeights = reloadWeights(weightsPath);
+          engine.updateWeights(newWeights);
+          logger.info({ path: weightsPath }, 'Scoring weights hot-reloaded from file');
+        } catch (err) {
+          logger.error({ err, path: weightsPath }, 'Failed to hot-reload scoring weights');
+        }
+      });
+      logger.info({ path: weightsPath }, 'Watching scoring weights override file for hot-reload');
+    } catch (err) {
+      logger.warn(
+        { err, path: weightsPath },
+        'Could not set up file watcher for weights override (platform limitation)',
+      );
+    }
+  }
+
   // --- Anonymous Scoring Service ---
   // The public namespace draws trademark-gate budget from its own dedicated
   // allowance (ADR-0056): an anonymous valuation spike can never starve

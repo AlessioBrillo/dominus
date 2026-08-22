@@ -726,7 +726,11 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         AbortSignal.timeout(this.whoisBudgetMs),
       ]);
       whois = await Promise.race([
-        this.whoisProvider.checkAvailability(domain, whoisBudgetSignal).catch(() => undefined),
+        this.whoisProvider
+          .checkAvailability(domain, whoisBudgetSignal, {
+            forceRecheck: candidate.forceWhoisRecheck === true,
+          })
+          .catch(() => undefined),
         new Promise<undefined>((resolve) =>
           setTimeout(() => resolve(undefined), this.whoisBudgetMs).unref(),
         ),

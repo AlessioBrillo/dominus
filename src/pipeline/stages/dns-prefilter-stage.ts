@@ -106,7 +106,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     // persistent DNS cache and always get a live result, since they are
     // in a transitional state (aftermarket/expiring) where a stale
     // "Registered" cache entry from 7 days ago would incorrectly filter
-    // them out.
+    // them out. Also propagate forceWhoisRecheck to downstream RDAP stage.
     const closeoutIndices: number[] = [];
     const otherIndices: number[] = [];
     for (let i = 0; i < toFilter.length; i++) {
@@ -173,10 +173,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
       if (result.status === DomainStatus.Available || result.isParked === true) {
         const dnsStatus = result.isParked ? 'parked' : result.status;
+        const isCloseout = candidate.source === CandidateSource.CloseoutCsv;
         passed.push({
           ...candidate,
           dnsStatus,
           status: CandidateStatus.Pending,
+          ...(isCloseout ? { forceWhoisRecheck: true } : {}),
           ...(result.parkingRegistrar !== undefined
             ? { whoisMeta: { ...candidate.whoisMeta, registrar: result.parkingRegistrar } }
             : {}),
