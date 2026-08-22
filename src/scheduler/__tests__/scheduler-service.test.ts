@@ -221,6 +221,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     STAGE_TIMEOUT_PER_CANDIDATE_MS: 200,
     STAGE_TIMEOUT_CAP_MS: 3_600_000,
     STAGE_TIMEOUT_GRACE_MS: 5_000,
+    RDAP_CONSENSUS_RESCUE_WHOIS_TLDS: [],
     ...overrides,
   };
 }

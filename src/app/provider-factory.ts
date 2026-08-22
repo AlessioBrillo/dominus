@@ -1202,6 +1202,15 @@ export function createRdapConsensusConfig(
         'are no longer strictly fail-closed for the rescue-enabled class.',
     );
   }
+  if (config.RDAP_CONSENSUS_RESCUE_WHOIS_TLDS.length > 0) {
+    logger.info(
+      { tlds: config.RDAP_CONSENSUS_RESCUE_WHOIS_TLDS },
+      'RDAP: Per-TLD WHOIS rescue forced for listed TLDs (ADR-0051 extension)',
+    );
+  }
+  const rescueWhoisTlds = new Set<string>(
+    config.RDAP_CONSENSUS_RESCUE_WHOIS_TLDS.map((t) => t.toLowerCase()),
+  );
   return {
     secondaryProvider,
     secondaryOrigin: endpoint,
@@ -1209,6 +1218,7 @@ export function createRdapConsensusConfig(
     degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
     rescueWhoisEnabled: config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED,
+    rescueWhoisTlds,
     ...(tldOriginsResolver !== undefined ? { tldOriginsResolver } : {}),
   };
 }

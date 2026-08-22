@@ -103,6 +103,12 @@ export interface RdapConsensusConfig {
    */
   rescueWhoisEnabled?: boolean;
   /**
+   * Per-TLD forced WHOIS rescue (ADR-0051 extension): for TLDs in this set,
+   * WHOIS rescue is attempted even when rescueWhoisEnabled is false.
+   * Targets ccTLDs with historically unstable RDAP (e.g., .it, .de, .jp, .br).
+   */
+  rescueWhoisTlds?: Set<string>;
+  /**
    * Per-TLD authoritative origin resolver (ADR-0058): returns the origins
    * that are authoritative for a TLD (IANA bootstrap, rdap.org excluded —
    * it doubles as the default second leg). When configured, the stage skips
@@ -394,24 +400,36 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           continue;
         }
         if (result === undefined) {
-          // WHOIS rescue leg (ADR-0051): the opt-in re-check runs ONLY when
+          // WHOIS rescue leg (ADR-0051): the opt-in re-check runs when
           // the second RDAP leg could not answer. A definitive Registered is
           // never re-litigated — "registered wins" (ADR-0002). WHOIS
           // "available" confirms the verdict, WHOIS "registered" vetoes it,
           // and a WHOIS failure stays unverifiable (fail-closed, unchanged).
-          if (cfg.rescueWhoisEnabled === true && this.whoisProvider !== undefined) {
+          // Per-TLD forced rescue (ADR-0051 extension): for TLDs in rescueWhoisTlds,
+          // rescue is attempted even when rescueWhoisEnabled is false.
+          const forceRescue = cfg.rescueWhoisTlds?.has(candidate.tld.toLowerCase()) === true;
+          if (
+            (cfg.rescueWhoisEnabled === true || forceRescue) &&
+            this.whoisProvider !== undefined
+          ) {
             const rescued = await this.#tryWhoisRescue(candidate);
             if (rescued === true) {
               survivor.add(candidate.domain);
               stats.verified++;
-              stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
+              if (forceRescue) {
+                stats.perTldRescued = (stats.perTldRescued ?? 0) + 1;
+              } else {
+                stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
+              }
               continue;
             }
             if (rescued === false) {
               stats.disagreed++;
               logger.warn(
-                { domain: candidate.domain },
-                'RDAP: 2-of-2 consensus vetoed by WHOIS rescue leg (registered) — downgraded',
+                { domain: candidate.domain, forced: forceRescue },
+                forceRescue
+                  ? 'RDAP: 2-of-2 consensus vetoed by per-TLD WHOIS rescue leg (registered) — downgraded'
+                  : 'RDAP: 2-of-2 consensus vetoed by WHOIS rescue leg (registered) — downgraded',
               );
               continue;
             }
