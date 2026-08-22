@@ -24,6 +24,14 @@ export interface DnsCheckResult {
    * Only set when `isParked === true`.
    */
   parkingRegistrar?: string | undefined;
+  /**
+   * DNSSEC validation status (ADR-0061).
+   * - 'valid': response has valid DNSSEC chain (AD=1, signatures verify)
+   * - 'bogus': response has invalid signatures (treated as Registered, fail-closed)
+   * - 'insecure': zone is not DNSSEC-signed
+   * - 'unchecked': validation not performed (DO=0 or disabled)
+   */
+  dnssec?: 'valid' | 'bogus' | 'insecure' | 'unchecked';
 }
 
 export interface RdapResult {

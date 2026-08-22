@@ -63,6 +63,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_LOOKUP_STRATEGY: 'native',
     DNS_PRIVACY_MODE: false,
     DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
+    DNS_DNSSEC_VALIDATION_ENABLED: true,
     DNS_CACHE_TTL_SECONDS: 300,
     DNS_CACHE_MAX_SIZE: 10000,
     DNS_RATE_LIMIT_TOKENS: 20,
