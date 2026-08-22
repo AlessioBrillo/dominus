@@ -8,6 +8,17 @@ export interface WhoisResult {
   checkedAt: string;
 }
 
+export interface WhoisCheckOptions {
+  /** When true, skip any persistent/in-memory cache and force a live lookup.
+   *  Use for domains that may have recently changed status, such as
+   *  closeout/expiring domains in the aftermarket. */
+  forceRecheck?: boolean;
+}
+
 export interface WhoisProvider {
-  checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult>;
+  checkAvailability(
+    domain: string,
+    signal?: AbortSignal,
+    options?: WhoisCheckOptions,
+  ): Promise<WhoisResult>;
 }

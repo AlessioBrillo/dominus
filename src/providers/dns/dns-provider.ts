@@ -364,6 +364,11 @@ export interface DnsCheckOptions {
    *  Use for domains that may have recently changed status, such as
    *  closeout/expiring domains in the aftermarket. */
   forceRecheck?: boolean;
+  /** When true, signal to the downstream RDAP confirmation stage that
+   *  WHOIS enrichment should also bypass its cache for this domain.
+   *  Mirrors the DNS forceRecheck for closeout/expiring domains where
+   *  a stale WHOIS "Available" would incorrectly gate the verdict. */
+  forceWhoisRecheck?: boolean;
 }
 
 export interface DnsProvider {

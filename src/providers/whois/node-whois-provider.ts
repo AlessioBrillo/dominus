@@ -4,7 +4,7 @@ import type { Socket } from 'node:net';
 import { connect as tlsConnectFn } from 'node:tls';
 import { extractTld } from '../../utils/domain.js';
 import { ProviderError } from '../../types/errors.js';
-import type { WhoisProvider, WhoisResult } from './whois-provider.js';
+import type { WhoisProvider, WhoisResult, WhoisCheckOptions } from './whois-provider.js';
 import { resolveWhoisServer } from './iana-server-lookup.js';
 import { RateLimiter } from '../rate-limiter.js';
 import type { RateLimiterConfig, RateLimiterLike } from '../rate-limiter.js';
@@ -296,7 +296,11 @@ export class NodeWhoisProvider implements WhoisProvider {
     return this.#perTldRateLimiters[cleanTld] ?? this.#defaultRateLimiter;
   }
 
-  async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
+  async checkAvailability(
+    domain: string,
+    signal?: AbortSignal,
+    _options?: WhoisCheckOptions,
+  ): Promise<WhoisResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const tld = extractTld(domain);
     const limiter = this.#rateLimiterFor(tld);
@@ -419,7 +423,11 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
     this.#tlsEnabled = config.tlsEnabled ?? true;
   }
 
-  async checkAvailability(domain: string, signal?: AbortSignal): Promise<WhoisResult> {
+  async checkAvailability(
+    domain: string,
+    signal?: AbortSignal,
+    _options?: WhoisCheckOptions,
+  ): Promise<WhoisResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const tld = domain.includes('.') ? domain.slice(domain.lastIndexOf('.')) : '';
     const cleanTld = tld.startsWith('.') ? tld.slice(1) : tld;
