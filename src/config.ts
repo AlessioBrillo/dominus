@@ -716,6 +716,16 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
+     * Enable DNSSEC validation on all resolver legs (ADR-0061).
+     * When true, queries include EDNS0 DO=1 bit and responses are checked for
+     * AD flag and bogus status. Bogus responses are treated as Registered
+     * (fail-closed, ADR-0002). When false, DNSSEC validation is skipped.
+     * Default: true.
+     */
+    DNS_DNSSEC_VALIDATION_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
      * Consecutive resolver failures within the window that open the circuit.
      * Mirrors the RDAP per-server breaker default (ADR-0050). Range: 1-100.
      */
