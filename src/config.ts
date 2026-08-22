@@ -585,10 +585,11 @@ const configSchema = z.object({
     .default(false),
   /**
    * Lookup strategy for the DNS consensus tertiary provider (see
-   * DNS_TERTIARY_ENABLED). Default: 'native' — the system recursor, the
-   * most common independent opinion on a host that also runs DoH/DoT
-   * egress. Should differ from DNS_CONSENSUS_STRATEGY and
-   * DNS_LOOKUP_STRATEGY; overlapping setups disable the leg with a warning.
+   * DNS_TERTIARY_ENABLED). Default: 'doh-tertiary' — multi-operator DoH
+   * group (OpenDNS + Digital Society) providing a genuinely independent
+   * third opinion disjoint from primary (CF/Google/Quad9) and consensus
+   * (AdGuard/Mullvad/NextDNS). Two operators = majority vote + 2 breakers.
+   * Overlapping setups disable the leg with a warning (ADR-0064, ADR-0065).
    */
   DNS_TERTIARY_STRATEGY: z
     .enum([
@@ -601,8 +602,11 @@ const configSchema = z.object({
       'dot-with-doh-fallback',
       'multi-doh-plus-native',
       'doh-alternate',
+      'doh-primary-no-fallback',
+      'dot-consensus',
+      'doh-tertiary',
     ])
-    .default('native'),
+    .default('doh-tertiary'),
   /**
    * Comma-separated private recursor addresses (host or host:port) for the
    * DNS consensus tertiary (ADR-0045, ADR-0064). Allows a second pinned independent

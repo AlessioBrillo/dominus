@@ -84,6 +84,57 @@ const DEFAULT_DOH_ALTERNATE_PROVIDERS: Array<{
   },
 ];
 
+/**
+ * Multi-operator DoH primary group — explicit separation from the legacy
+ * 'doh-primary' (which carries a native fallback). This group is the
+ * primary's MAIN opinion for the 2-of-3 consensus gate: three independent
+ * operators (Cloudflare, Google, Quad9) over DoH wire/JSON, no fallback.
+ * The fallback is a separate group, so the disjointness check can exclude
+ * it and the consensus gate stays independent of the primary's safety net.
+ * (ADR-0063, ADR-0064, ADR-0065)
+ */
+const DEFAULT_DOH_PRIMARY_PROVIDERS: Array<{
+  name: string;
+  url: string;
+  format?: 'json' | 'wire';
+}> = [
+  { name: 'Cloudflare', url: 'https://cloudflare-dns.com/dns-query' },
+  { name: 'Google', url: 'https://dns.google/resolve' },
+  { name: 'Quad9', url: 'https://dns.quad9.net/dns-query', format: 'wire' },
+];
+
+/**
+ * Multi-operator DoT consensus group — operators disjoint from the default
+ * DoH primary. AdGuard, Mullvad, NextDNS over DoT. No fallback group —
+ * a consensus leg must never fall back into the primary's own resolvers,
+ * which would make its opinion a rubber stamp. (ADR-0063)
+ */
+const DEFAULT_DOT_CONSENSUS_PROVIDERS: Array<{ name: string; host: string }> = [
+  { name: 'AdGuard', host: '94.140.14.14' },
+  { name: 'Mullvad', host: '194.242.2.2' },
+  { name: 'NextDNS', host: '45.90.28.2' },
+];
+
+/**
+ * Multi-operator DoH tertiary group — operators disjoint from both primary
+ * (Cloudflare/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS).
+ * OpenDNS + Digital Society over DoH wire. Two operators give majority
+ * vote resilience and two breaker circuits — a single degraded endpoint
+ * can no longer silently remove the tertiary opinion. (ADR-0064, ADR-0065)
+ */
+const DEFAULT_DOH_TERTIARY_PROVIDERS: Array<{
+  name: string;
+  url: string;
+  format?: 'json' | 'wire';
+}> = [
+  { name: 'OpenDNS', url: 'https://dns.opendns.com/dns-query', format: 'wire' },
+  {
+    name: 'DigitalSociety',
+    url: 'https://dns.digitale-gesellschaft.ch/dns-query',
+    format: 'wire',
+  },
+];
+
 /** TLS SNI servername for each default provider's DoT endpoint. */
 const DOT_SERVERNAMES: Readonly<Record<string, string>> = {
   Cloudflare: 'cloudflare-dns.com',
@@ -202,6 +253,39 @@ export function strategyToResolverGroups(
           name: 'multi-doh-fallback',
           fallback: true,
           lookups: DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec),
+        },
+      ];
+    // === NEW STRATEGIES (ADR-0066): Multi-operator groups with explicit separation ===
+    case 'doh-primary-no-fallback':
+      // Primary's MAIN opinion: three independent operators (CF/Google/Quad9)
+      // over DoH wire/JSON, NO fallback. The fallback is a separate group
+      // so disjointness checks can exclude it (ADR-0063, ADR-0064, ADR-0065).
+      return [
+        {
+          name: 'multi-doh-primary',
+          lookups: DEFAULT_DOH_PRIMARY_PROVIDERS.map(dohProviderToSpec),
+        },
+      ];
+    case 'dot-consensus':
+      // Consensus leg: operators disjoint from primary (AdGuard/Mullvad/NextDNS)
+      // over DoT. No fallback — consensus must never fall back into primary's net.
+      return [
+        {
+          name: 'multi-dot-consensus',
+          lookups: DEFAULT_DOT_CONSENSUS_PROVIDERS.map((p) => ({
+            type: 'dot' as const,
+            endpoint: p.host,
+            servername: DOT_SERVERNAMES[p.name] ?? p.host,
+          })),
+        },
+      ];
+    case 'doh-tertiary':
+      // Tertiary leg: operators disjoint from both primary and consensus
+      // (OpenDNS + Digital Society). Two operators = majority vote + 2 breakers.
+      return [
+        {
+          name: 'multi-doh-tertiary',
+          lookups: DEFAULT_DOH_TERTIARY_PROVIDERS.map(dohProviderToSpec),
         },
       ];
     case 'native':

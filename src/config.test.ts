@@ -341,8 +341,8 @@ describe('DNS consensus tertiary leg config defaults (ADR-0045)', () => {
     expect(loadConfig().DNS_TERTIARY_ENABLED).toBe(false);
   });
 
-  it('DNS_TERTIARY_STRATEGY defaults to native (system recursor)', () => {
-    expect(loadConfig().DNS_TERTIARY_STRATEGY).toBe('native');
+  it('DNS_TERTIARY_STRATEGY defaults to doh-tertiary (dual-operator DoH group)', () => {
+    expect(loadConfig().DNS_TERTIARY_STRATEGY).toBe('doh-tertiary');
   });
 
   it('DNS_CONSENSUS_REQUIRED_AVAILABLE defaults to 1 (a single confirmation beyond the primary)', () => {

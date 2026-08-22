@@ -72,11 +72,11 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
     );
 
     it.each(APP_SERVICES)(
-      "enables the doh-alternate tertiary on '%s' (ADR-0064, no consensus SPOF)",
+      "enables the doh-tertiary (dual-operator) tertiary on '%s' (ADR-0064/0065, no consensus SPOF)",
       (service) => {
         const block = composeServiceBlock(service);
         expect(block).toContain('- DNS_TERTIARY_ENABLED=true');
-        expect(block).toContain('- DNS_TERTIARY_STRATEGY=doh-alternate');
+        expect(block).toContain('- DNS_TERTIARY_STRATEGY=doh-tertiary');
       },
     );
 
@@ -117,13 +117,14 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       }
     });
 
-    it('boots the doh-alternate tertiary from the override env (gate actually built)', async () => {
-      // ADR-0064: the override turns the tertiary on, and the tertiary leg
-      // must survive the disjointness check against BOTH the primary (DoH)
-      // and the pinned secondary (Unbound) — OpenDNS is operator-disjoint
-      // from both. Boot-equivalent regression: the leg is vetoed at runtime
-      // on any overlap, so assert the 2-of-3 gate still constructs with a
-      // tertiary provider attached.
+    it('boots the doh-tertiary (dual-operator) tertiary from the override env (gate actually built)', async () => {
+      // ADR-0064/0065: the override turns the tertiary on with a multi-operator
+      // group (OpenDNS + Digital Society), operator-disjoint from both the
+      // primary (DoH) and the pinned secondary (Unbound). Two operators =
+      // majority vote + 2 breakers — a single degraded endpoint can no longer
+      // silently remove the tertiary opinion (ADR-0065). Boot-equivalent
+      // regression: the leg is vetoed at runtime on any overlap, so assert the
+      // 2-of-3 gate still constructs with a tertiary provider attached.
       const keys = [
         'DNS_NAMESERVERS',
         'DNS_CONSENSUS_ENABLED',
@@ -138,7 +139,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         process.env.DNS_CONSENSUS_ENABLED = 'true';
         process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.10:5300';
         process.env.DNS_TERTIARY_ENABLED = 'true';
-        process.env.DNS_TERTIARY_STRATEGY = 'doh-alternate';
+        process.env.DNS_TERTIARY_STRATEGY = 'doh-tertiary';
         resetConfig();
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);

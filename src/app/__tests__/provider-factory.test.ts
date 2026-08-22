@@ -506,16 +506,19 @@ describe('DNS privacy mode (ADR-0065)', () => {
     expect(() => buildDnsProvider(config)).toThrow('DNS_NAMESERVERS');
   });
 
-  it('vetoes the gate when privacy mode shares one recursor across both legs', async () => {
+  it('fails the boot when privacy mode shares one recursor across both legs', async () => {
     // Privacy mode forces primary + consensus to 'native'. A single pinned
     // recursor (172.20.0.10:5300) then lands on both sides of the endpoint
     // disjointness check — same recursor twice is not an independent opinion.
+    // ADR-0065: fail loudly instead of silently vetoing the gate.
     const config = makeConfig({
       DNS_PRIVACY_MODE: true,
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_ENABLED: true,
     });
-    await expect(buildDnsConsensusConfig(config)).resolves.toBeUndefined();
+    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
+      'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS',
+    );
   });
 
   it('keeps the gate when privacy mode pins two distinct recursors', async () => {

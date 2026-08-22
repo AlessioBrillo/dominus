@@ -492,6 +492,24 @@ export async function buildDnsConsensusConfig(
 ): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
+  // Privacy mode (ADR-0065): when DNS_PRIVACY_MODE=true, all legs are forced to
+  // 'native' against pinned recursors. The consensus gate requires a SECOND
+  // distinct recursor (DNS_CONSENSUS_NAMESERVERS) to be an independent opinion.
+  // With a single recursor the gate would be a rubber stamp — fail loudly at
+  // boot instead of silently disabling consensus.
+  if (config.DNS_PRIVACY_MODE) {
+    const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+    if (consensusNameservers === undefined) {
+      throw new Error(
+        'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS for the 2-of-3 ' +
+          'consensus gate. In privacy mode every leg is forced to the pinned ' +
+          'recursor(s); a single recursor cannot be its own second opinion. ' +
+          'Pin a SECOND independent recursor (e.g. a separate Unbound instance) ' +
+          'via DNS_CONSENSUS_NAMESERVERS, or disable DNS_PRIVACY_MODE (ADR-0065).',
+      );
+    }
+  }
+
   // A pinned private recursor (C3) replaces the consensus strategy's resolver
   // set with a native query to the local Unbound — the effective secondary
   // lookup mode is 'native' regardless of DNS_CONSENSUS_STRATEGY. Privacy

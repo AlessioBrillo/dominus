@@ -71,7 +71,10 @@ export type DnsLookupStrategy =
   | 'dot-alternate'
   | 'dot-with-doh-fallback'
   | 'multi-doh-plus-native'
-  | 'doh-alternate';
+  | 'doh-alternate'
+  | 'doh-primary-no-fallback'
+  | 'dot-consensus'
+  | 'doh-tertiary';
 
 /** Per-leg verdict as observed by the provider (ADR-0002 mapping). */
 export type DnsLegVerdict = 'registered' | 'available' | 'unknown' | 'error';

@@ -129,6 +129,29 @@ groups:
           summary: "DNS resolver endpoint circuit open"
           description: "{{ $value }} resolver endpoint(s) are being skipped by the circuit breaker — verdicts rely on the remaining legs (fail-closed, no fabricated Available)."
 
+      - alert: DnsTertiaryBreakerOpen
+        expr: dominus_dns_breaker_open{endpoint=~"opendns|digitale-gesellschaft"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DNS tertiary leg circuit open (OpenDNS or Digital Society)"
+          description: "One of the two tertiary operators is being skipped by the circuit breaker — the 2-of-3 gate's third opinion is degraded to a single operator. If both open, the tertiary leg is effectively disabled (ADR-0065)."
+
+      - alert: DnsTertiaryLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le, endpoint) (
+              rate(dominus_dns_leg_duration_ms_bucket{role="tertiary"}[15m])
+            )
+          ) > 2000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DNS tertiary leg p99 above 2s ({{ $labels.endpoint }})"
+          description: "The p99 resolution time of the tertiary opinion ({{ $labels.endpoint }}) exceeded 2s for 10 minutes — the rescue leg is stalling near the 1.5s lookup timeout and may fail to confirm Available verdicts."
+
       - alert: DnsDisjointnessResolutionPartial
         expr: increase(dominus_dns_disjointness_resolution_partial_total[15m]) > 0
         for: 10m
