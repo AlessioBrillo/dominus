@@ -784,6 +784,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     },
   );
 
+  // Periodic USPTO WAF stats recording for Prometheus alerting
+  // (ADR-0065: USPTO WAF block rate should be observable for SLO alerting).
+  void setInterval(() => {
+    metrics.recordUsptoWafStats(usptoWafStats());
+  }, 30_000).unref();
+
   // --- Metrics & Pipeline ---
   // When Redis is available, use CompositeLockProvider with Redis primary
   // and database-based advisory lock as fallback. This handles the case

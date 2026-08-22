@@ -171,6 +171,9 @@ describe('renderPrometheusMetrics', () => {
       partialTotal: 5,
       usptoFailuresTotal: 4,
       euipoFailuresTotal: 1,
+      usptoWafBlockRate: 0.1,
+      usptoWafBlockCount: 2,
+      usptoRequestCount: 20,
       observed: true,
     };
     const body = renderPrometheusMetrics(withGate, queueStats, 0);
