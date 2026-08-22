@@ -6,6 +6,7 @@ import {
   validateConsensusEndpointDisjointness,
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
+  validateRuntimeConsensusDisjointness,
 } from '../resolver-validator.js';
 import { DomainStatus, type DnsCheckResult } from '../../../types/domain-status.js';
 import type { DnsProvider, DnsResolverGroup } from '../dns-provider.js';
@@ -306,5 +307,123 @@ describe('validateResolverGroups', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('validateRuntimeConsensusDisjointness', () => {
+  const providerStub = {
+    name: 'FakeDnsProvider',
+    checkBulk: (): Promise<DnsCheckResult[]> => Promise.resolve([]),
+    clearCache: (): void => undefined,
+    pruneCache: (): number => 0,
+  };
+
+  interface MockDnsCheckResult extends DnsCheckResult {
+    nameservers?: string[];
+  }
+
+  function fakeProvider(nameservers: string[] = []): DnsProvider {
+    return {
+      ...providerStub,
+      async checkAvailability(_domain: string, _signal?: AbortSignal): Promise<DnsCheckResult> {
+        const result: MockDnsCheckResult = {
+          domain: 'example.com',
+          status: DomainStatus.Available,
+          checkedAt: new Date().toISOString(),
+        };
+        if (nameservers.length > 0) {
+          result.nameservers = nameservers;
+        }
+        return result;
+      },
+    };
+  }
+
+  it('accepts three legs with no IP or operator overlap', async () => {
+    const primary = fakeProvider(['1.1.1.1']);
+    const consensus = fakeProvider(['9.9.9.9']);
+    const tertiary = fakeProvider(['8.8.8.8']);
+
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary);
+
+    expect(report.ok).toBe(true);
+    expect(report.overlapIPs).toEqual([]);
+    expect(report.overlapOperators).toEqual([]);
+    expect(report.partial).toBe(false);
+  });
+
+  it('rejects when primary and consensus share an IP (same anycast)', async () => {
+    const primary = fakeProvider(['1.1.1.1']);
+    const consensus = fakeProvider(['1.1.1.1']); // Same IP = Cloudflare anycast
+
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus);
+
+    expect(report.ok).toBe(false);
+    expect(report.overlapIPs).toContain('1.1.1.1');
+    expect(report.overlapOperators).toContain('cloudflare');
+  });
+
+  it('rejects when consensus and tertiary share an operator', async () => {
+    const primary = fakeProvider(['1.1.1.1']); // Cloudflare
+    const consensus = fakeProvider(['9.9.9.9']); // Quad9
+    const tertiary = fakeProvider(['9.9.9.9']); // Also Quad9
+
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary);
+
+    expect(report.ok).toBe(false);
+    expect(report.overlapIPs).toContain('9.9.9.9');
+    expect(report.overlapOperators).toContain('quad9');
+  });
+
+  it('marks partial=true when a leg returns no nameservers', async () => {
+    const primary = fakeProvider(['1.1.1.1']);
+    const consensus = fakeProvider([]); // No nameservers returned
+    const tertiary = fakeProvider(['8.8.8.8']);
+
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary);
+
+    expect(report.partial).toBe(true);
+    // Gate stays enabled on partial, just logged
+  });
+
+  it('marks partial=true when a leg throws (transient failure)', async () => {
+    const primary = fakeProvider(['1.1.1.1']);
+    const consensus = {
+      ...providerStub,
+      name: 'FailingProvider',
+      async checkAvailability(): Promise<DnsCheckResult> {
+        throw new Error('Network timeout');
+      },
+    };
+    const tertiary = fakeProvider(['8.8.8.8']);
+
+    const report = await validateRuntimeConsensusDisjointness(
+      primary,
+      consensus as DnsProvider,
+      tertiary,
+    );
+
+    expect(report.partial).toBe(true);
+  });
+
+  it('works with only primary and consensus (no tertiary)', async () => {
+    const primary = fakeProvider(['1.1.1.1']);
+    const consensus = fakeProvider(['9.9.9.9']);
+
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus);
+
+    expect(report.ok).toBe(true);
+    expect(report.overlapIPs).toEqual([]);
+  });
+
+  it('detects operator overlap via OPERATOR_HINTS for known resolvers', async () => {
+    // Cloudflare DoH (1.1.1.1) vs Cloudflare DoT (1.1.1.1) — same operator, different transport
+    const primary = fakeProvider(['1.1.1.1']);
+    const consensus = fakeProvider(['1.1.1.1']);
+
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus);
+
+    expect(report.ok).toBe(false);
+    expect(report.overlapOperators).toContain('cloudflare');
   });
 });

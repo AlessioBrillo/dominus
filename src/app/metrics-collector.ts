@@ -69,6 +69,12 @@ export class MetricsCollector {
    *  hostname/operator hints when the system resolver is slow at boot. */
   #dnsDisjointnessResolutionPartial = 0;
   #dnsDisjointnessObserved = false;
+  /** Runtime consensus disjointness checks (ADR-0066): live DNS queries
+   *  at startup to detect anycast/IP overlap that bootstrap checks miss. */
+  #dnsRuntimeConsensusOverlapTotal = 0;
+  #dnsRuntimeConsensusDisabled = 0;
+  #dnsRuntimeConsensusPartial = 0;
+  #dnsRuntimeConsensusObserved = false;
   #rdapConsensusVerified = 0;
   #rdapConsensusDisagreed = 0;
   #rdapConsensusUnverifiable = 0;
@@ -306,6 +312,25 @@ export class MetricsCollector {
     this.#dnsDisjointnessObserved = true;
   }
 
+  /** Record runtime consensus disjointness validation outcome (ADR-0066).
+   *  Called at startup after live DNS queries through each consensus leg.
+   *  overlapDetected=true means the gate was disabled due to shared IPs/operators. */
+  recordRuntimeConsensusValidation(stats: {
+    overlapDetected: boolean;
+    partial: boolean;
+    overlapIPs: string[];
+    overlapOperators: string[];
+  }): void {
+    this.#dnsRuntimeConsensusObserved = true;
+    if (stats.overlapDetected) {
+      this.#dnsRuntimeConsensusOverlapTotal++;
+      this.#dnsRuntimeConsensusDisabled++;
+    }
+    if (stats.partial) {
+      this.#dnsRuntimeConsensusPartial++;
+    }
+  }
+
   /** Record a successful database backup (fed by BackupService.onSuccess). */
   recordBackupSuccess(timestampMs: number): void {
     this.#backupLastSuccessAtMs = timestampMs;
@@ -418,6 +443,12 @@ export class MetricsCollector {
           resolutionPartialTotal: this.#dnsDisjointnessResolutionPartial,
           observed: this.#dnsDisjointnessObserved,
         },
+        dnsRuntimeConsensus: {
+          overlapTotal: this.#dnsRuntimeConsensusOverlapTotal,
+          disabledTotal: this.#dnsRuntimeConsensusDisabled,
+          partialTotal: this.#dnsRuntimeConsensusPartial,
+          observed: this.#dnsRuntimeConsensusObserved,
+        },
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -471,6 +502,10 @@ export class MetricsCollector {
     this.#dnsBreakersObserved = false;
     this.#dnsDisjointnessResolutionPartial = 0;
     this.#dnsDisjointnessObserved = false;
+    this.#dnsRuntimeConsensusOverlapTotal = 0;
+    this.#dnsRuntimeConsensusDisabled = 0;
+    this.#dnsRuntimeConsensusPartial = 0;
+    this.#dnsRuntimeConsensusObserved = false;
     this.#rdapConsensusVerified = 0;
     this.#rdapConsensusDisagreed = 0;
     this.#rdapConsensusUnverifiable = 0;

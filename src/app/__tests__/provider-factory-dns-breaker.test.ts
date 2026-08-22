@@ -76,6 +76,7 @@ describe('buildDnsBreakers (ADR-0059)', () => {
   it('wires the registry into the consensus secondary and tertiary legs', async () => {
     process.env.DNS_CONSENSUS_ENABLED = 'true';
     process.env.DNS_TERTIARY_ENABLED = 'true';
+    process.env.DNS_CONSENSUS_RUNTIME_VALIDATION = 'false';
     // A doh-based tertiary would overlap the primary's default doh-primary
     // endpoints; pin a TEST-NET recursor instead (disjoint from both legs).
     process.env.DNS_TERTIARY_STRATEGY = 'native';
@@ -93,6 +94,7 @@ describe('buildDnsBreakers (ADR-0059)', () => {
     } finally {
       delete process.env.DNS_CONSENSUS_ENABLED;
       delete process.env.DNS_TERTIARY_ENABLED;
+      delete process.env.DNS_CONSENSUS_RUNTIME_VALIDATION;
       delete process.env.DNS_TERTIARY_STRATEGY;
       delete process.env.DNS_TERTIARY_NAMESERVERS;
     }

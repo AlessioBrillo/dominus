@@ -51,6 +51,16 @@ export interface ConsensusDnsConfig {
    * downgrade every domain (ADR-0045).
    */
   requiredAvailable?: number;
+  /**
+   * When true, the consensus gate was disabled at startup due to runtime
+   * disjointness failure (shared IPs/operators across legs). The stage will
+   * skip consensus validation and emit a degraded-run flag.
+   */
+  disabled?: boolean;
+  /**
+   * Human-readable reason for disablement (e.g., "shared IPs: 1.1.1.1; shared operators: cloudflare").
+   */
+  disableReason?: string;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -313,6 +323,26 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     consensusStats?: DnsConsensusStats,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (this.consensusConfig === undefined) return results;
+    // Runtime disjointness guard disabled the gate — skip consensus, emit degradation
+    if (this.consensusConfig.disabled) {
+      if (degradations !== undefined) {
+        degradations.push({
+          stageName: this.name,
+          reason: 'consensus-disabled-runtime',
+          processedCount: 0,
+          expectedCount: results.filter((r) => r?.status === DomainStatus.Available).length,
+          message: `Consensus gate disabled at startup: ${this.consensusConfig.disableReason ?? 'runtime disjointness failure'}`,
+        });
+      }
+      if (consensusStats !== undefined) {
+        consensusStats.degraded = true;
+      }
+      logger.warn(
+        { reason: this.consensusConfig.disableReason },
+        'DNS: consensus gate disabled at startup — skipping 2-of-3 validation, Available verdicts rest on single resolver',
+      );
+      return results;
+    }
     return this.#applyConsensusCheck(results, domains, signal, degradations, consensusStats);
   }
 

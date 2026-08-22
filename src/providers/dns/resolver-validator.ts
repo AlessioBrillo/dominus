@@ -12,6 +12,12 @@ const VALIDATION_TIMEOUT_MS = 5000;
 /** Per-hostname DoH resolution budget for the boot-time independence check. */
 const HOST_RESOLUTION_TIMEOUT_MS = 2000;
 
+/** Runtime consensus validation budget — short, must not slow startup. */
+const RUNTIME_VALIDATION_TIMEOUT_MS = 3000;
+
+/** Number of probe domains to query per leg for runtime validation. */
+const RUNTIME_PROBE_DOMAINS = ['example.com', 'google.com'];
+
 /**
  * Known resolver operators, keyed by the endpoint keys produced by
  * collectResolverEndpoints() plus resolved DoH IPs. Two legs from the same
@@ -326,4 +332,186 @@ export async function validateResolverGroups(provider: DnsProvider): Promise<voi
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Runtime disjointness validation for the 2-of-3 consensus gate.
+ *
+ * Unlike the bootstrap check (validateConsensusDisjointness), this performs
+ * LIVE DNS queries through each leg's actual provider and resolves the
+ * returned nameserver IPs to detect anycast/IP overlap that hostname-level
+ * checks cannot catch (e.g., doh:cloudflare-dns.com vs dot:1.1.1.1 both
+ * resolving to 1.1.1.1).
+ *
+ * Returns a report with overlap details. If overlap is detected, the caller
+ * should disable the consensus gate and emit a degraded-run flag.
+ *
+ * Fail-open on errors: transient boot-time failures must not disable the gate.
+ * The check is best-effort observability — the bootstrap check remains the
+ * authoritative gate.
+ */
+export interface RuntimeConsensusReport {
+  /** False when the two resolver sets are not independent opinions at runtime. */
+  ok: boolean;
+  /** Shared resolved IP addresses across legs. */
+  overlapIPs: string[];
+  /** Resolver operators present on BOTH sides (same org over two transports). */
+  overlapOperators: string[];
+  /** True when at least one leg failed to answer probe queries. */
+  partial: boolean;
+  /** Human-readable reason if not ok. */
+  reason: string | undefined;
+}
+
+/**
+ * Probe a DNS provider with a domain and extract the nameserver IPs from the result.
+ * NodeDnsProvider returns the resolved IPs in the result metadata when available.
+ */
+async function probeProviderForNameservers(
+  provider: DnsProvider,
+  domain: string,
+): Promise<string[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RUNTIME_VALIDATION_TIMEOUT_MS);
+
+  try {
+    const result = await provider.checkAvailability(domain, controller.signal);
+    // Extract nameserver IPs from result if available (NodeDnsProvider populates this)
+    const nameservers = (result as unknown as { nameservers?: string[] }).nameservers ?? [];
+    return nameservers;
+  } catch {
+    // Transient failure — return empty, caller tracks partial
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Runtime independence check for consensus legs.
+ * Queries each provider with probe domains, collects resolved nameserver IPs,
+ * and checks for overlap.
+ */
+export async function validateRuntimeConsensusDisjointness(
+  primaryProvider: DnsProvider,
+  consensusProvider: DnsProvider,
+  tertiaryProvider?: DnsProvider,
+): Promise<RuntimeConsensusReport> {
+  const logger = getLogger();
+  const allIPs = new Map<string, Set<string>>(); // legName -> Set of IPs
+  const allOperators = new Map<string, Set<string>>(); // legName -> Set of operators
+  let partial = false;
+
+  const legs = [
+    { name: 'primary', provider: primaryProvider },
+    { name: 'consensus', provider: consensusProvider },
+    ...(tertiaryProvider ? [{ name: 'tertiary', provider: tertiaryProvider }] : []),
+  ];
+
+  for (const leg of legs) {
+    const ips = new Set<string>();
+    const operators = new Set<string>();
+
+    for (const domain of RUNTIME_PROBE_DOMAINS) {
+      const nameservers = await probeProviderForNameservers(leg.provider, domain);
+      if (nameservers.length === 0) {
+        partial = true;
+        continue;
+      }
+      for (const ip of nameservers) {
+        ips.add(ip);
+        // Check operator hints
+        const opKey = `ip:${ip}`;
+        const op = OPERATOR_HINTS[opKey];
+        if (op !== undefined) operators.add(op);
+      }
+    }
+
+    if (ips.size === 0) {
+      partial = true;
+      logger.warn(
+        { leg: leg.name },
+        'DNS runtime consensus: leg returned no nameserver IPs for probe domains',
+      );
+    }
+
+    allIPs.set(leg.name, ips);
+    allOperators.set(leg.name, operators);
+  }
+
+  // Check pairwise overlap
+  const overlapIPs: string[] = [];
+  const overlapOperators: string[] = [];
+
+  const primaryIPs = allIPs.get('primary') ?? new Set();
+  const consensusIPs = allIPs.get('consensus') ?? new Set();
+  const tertiaryIPs = allIPs.get('tertiary') ?? new Set();
+
+  // Primary vs Consensus
+  for (const ip of consensusIPs) {
+    if (primaryIPs.has(ip)) overlapIPs.push(ip);
+  }
+  // Primary vs Tertiary
+  if (tertiaryProvider) {
+    for (const ip of tertiaryIPs) {
+      if (primaryIPs.has(ip)) overlapIPs.push(ip);
+    }
+  }
+  // Consensus vs Tertiary
+  if (tertiaryProvider) {
+    for (const ip of tertiaryIPs) {
+      if (consensusIPs.has(ip)) overlapIPs.push(ip);
+    }
+  }
+
+  // Operator overlap
+  const primaryOps = allOperators.get('primary') ?? new Set();
+  const consensusOps = allOperators.get('consensus') ?? new Set();
+  const tertiaryOps = allOperators.get('tertiary') ?? new Set();
+
+  for (const op of consensusOps) {
+    if (primaryOps.has(op)) overlapOperators.push(op);
+  }
+  if (tertiaryProvider) {
+    for (const op of tertiaryOps) {
+      if (primaryOps.has(op)) overlapOperators.push(op);
+      if (consensusOps.has(op)) overlapOperators.push(op);
+    }
+  }
+
+  const uniqueOverlapIPs = [...new Set(overlapIPs)];
+  const uniqueOverlapOperators = [...new Set(overlapOperators)];
+
+  const ok = uniqueOverlapIPs.length === 0 && uniqueOverlapOperators.length === 0;
+
+  let reason: string | undefined;
+  if (!ok) {
+    const details: string[] = [];
+    if (uniqueOverlapIPs.length > 0) details.push(`shared IPs: ${uniqueOverlapIPs.join(', ')}`);
+    if (uniqueOverlapOperators.length > 0)
+      details.push(`shared operators: ${uniqueOverlapOperators.join(', ')}`);
+    reason = `Runtime consensus overlap detected — ${details.join('; ')}`;
+    logger.error(
+      { overlapIPs: uniqueOverlapIPs, overlapOperators: uniqueOverlapOperators, partial },
+      reason,
+    );
+  } else {
+    logger.info(
+      {
+        primaryIPs: primaryIPs.size,
+        consensusIPs: consensusIPs.size,
+        tertiaryIPs: tertiaryIPs?.size ?? 0,
+        partial,
+      },
+      'DNS runtime consensus: all legs independent',
+    );
+  }
+
+  return {
+    ok,
+    overlapIPs: uniqueOverlapIPs,
+    overlapOperators: uniqueOverlapOperators,
+    partial,
+    reason,
+  };
 }

@@ -818,6 +818,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     dnsBreakers,
     dnsLegTelemetry,
     () => metrics.recordDisjointnessResolutionPartial(),
+    metrics,
   );
   if (dnsConsensusConfig !== undefined) {
     // Startup probe of the consensus legs: with strict 2-of-3 semantics

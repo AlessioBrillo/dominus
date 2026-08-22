@@ -26,7 +26,9 @@ import {
   validateConsensusDisjointness,
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
+  validateRuntimeConsensusDisjointness,
   type ConsensusDisjointnessReport,
+  type RuntimeConsensusReport,
 } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
@@ -489,6 +491,14 @@ export async function buildDnsConsensusConfig(
   breakers?: DnsBreakerRegistryLike,
   legTelemetry?: DnsLegTelemetry,
   onDisjointnessPartial?: () => void,
+  metricsCollector?: {
+    recordRuntimeConsensusValidation(stats: {
+      overlapDetected: boolean;
+      partial: boolean;
+      overlapIPs: string[];
+      overlapOperators: string[];
+    }): void;
+  },
 ): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
@@ -578,7 +588,16 @@ export async function buildDnsConsensusConfig(
         'disjointness still apply, resolved-IP overlap could not be proven',
     );
   }
+
   const secondaryRateLimiter = consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
+
+  // Build consensus providers (always needed for the return config)
+  const secondaryProvider = buildSecondaryDnsProvider(
+    config,
+    secondaryRateLimiter,
+    breakers,
+    legTelemetry,
+  );
   const tertiaryProvider = await buildTertiaryConsensusProvider(
     config,
     secondaryRateLimiter,
@@ -590,19 +609,119 @@ export async function buildDnsConsensusConfig(
     legTelemetry,
     onDisjointnessPartial,
   );
-  return {
-    secondaryProvider: buildSecondaryDnsProvider(
+
+  // RUNTIME DISJOINTNESS VALIDATION (ADR-0066)
+  // Perform live DNS queries through each leg to detect anycast/IP overlap
+  // that hostname-level checks cannot catch. This is best-effort observability:
+  // fail-open on errors (transient boot-time failures must not disable the gate).
+  // Can be disabled via DNS_CONSENSUS_RUNTIME_VALIDATION=false (e.g., in tests
+  // or environments where egress DNS is restricted).
+  let runtimeReport: RuntimeConsensusReport = {
+    ok: true,
+    overlapIPs: [],
+    overlapOperators: [],
+    partial: false,
+    reason: undefined,
+  };
+
+  if (config.DNS_CONSENSUS_RUNTIME_VALIDATION) {
+    // Build primary provider for runtime validation
+    const primaryProvider = buildDnsProvider(
       config,
-      secondaryRateLimiter,
+      undefined, // no cache repo for validation provider
+      undefined, // no rate limiter for validation
       breakers,
       legTelemetry,
-    ),
+    );
+
+    runtimeReport = await validateRuntimeConsensusDisjointness(
+      primaryProvider,
+      secondaryProvider,
+      tertiaryProvider,
+    ).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      getLogger().warn(
+        { err: message },
+        'DNS: runtime consensus validation failed — continuing with bootstrap-only disjointness (fail-open)',
+      );
+      return {
+        ok: true,
+        overlapIPs: [],
+        overlapOperators: [],
+        partial: true,
+        reason: 'runtime validation error',
+      } as RuntimeConsensusReport;
+    });
+  } else {
+    getLogger().info(
+      'DNS: runtime consensus validation skipped (DNS_CONSENSUS_RUNTIME_VALIDATION=false)',
+    );
+  }
+
+  if (!runtimeReport.ok) {
+    const reason =
+      runtimeReport.reason ??
+      `Runtime consensus overlap: IPs=${runtimeReport.overlapIPs.join(', ')}, operators=${runtimeReport.overlapOperators.join(', ')}`;
+    getLogger().error(
+      {
+        overlapIPs: runtimeReport.overlapIPs,
+        overlapOperators: runtimeReport.overlapOperators,
+        partial: runtimeReport.partial,
+      },
+      `DNS: runtime consensus disjointness FAILED — gate disabled. ${reason}`,
+    );
+    metricsCollector?.recordRuntimeConsensusValidation({
+      overlapDetected: true,
+      partial: runtimeReport.partial,
+      overlapIPs: runtimeReport.overlapIPs,
+      overlapOperators: runtimeReport.overlapOperators,
+    });
+    // Return a DISABLED config — the stage will skip consensus and emit degraded flag
+    const disabledConfig: ConsensusDnsConfig = {
+      secondaryProvider,
+      degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
+      degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
+      consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
+      requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
+      disabled: true,
+      disableReason: reason,
+    };
+    if (tertiaryProvider !== undefined) {
+      disabledConfig.tertiaryProvider = tertiaryProvider;
+    }
+    return disabledConfig;
+  }
+
+  metricsCollector?.recordRuntimeConsensusValidation({
+    overlapDetected: false,
+    partial: runtimeReport.partial,
+    overlapIPs: runtimeReport.overlapIPs,
+    overlapOperators: runtimeReport.overlapOperators,
+  });
+
+  if (runtimeReport.partial) {
+    getLogger().warn(
+      { overlapIPs: runtimeReport.overlapIPs, overlapOperators: runtimeReport.overlapOperators },
+      'DNS: runtime consensus validation completed with partial results (some legs did not answer) — gate remains enabled',
+    );
+  } else {
+    getLogger().info(
+      { overlapIPs: runtimeReport.overlapIPs, overlapOperators: runtimeReport.overlapOperators },
+      'DNS: runtime consensus validation PASSED — all legs independent',
+    );
+  }
+
+  const enabledConfig: ConsensusDnsConfig = {
+    secondaryProvider,
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
-    ...(tertiaryProvider !== undefined ? { tertiaryProvider } : {}),
     requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
   };
+  if (tertiaryProvider !== undefined) {
+    enabledConfig.tertiaryProvider = tertiaryProvider;
+  }
+  return enabledConfig;
 }
 
 /** Log the consensus gate veto with the overlap details that caused it. */

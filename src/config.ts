@@ -680,6 +680,17 @@ const configSchema = z.object({
    */
   DNS_CONSENSUS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(20),
   /**
+   * Enable runtime disjointness validation for the 2-of-3 consensus gate (ADR-0066).
+   * When true (default), live DNS queries are issued through each consensus leg
+   * at startup to detect anycast/IP overlap that bootstrap checks cannot catch.
+   * Set to false to skip runtime validation (e.g., in tests or environments
+   * where egress DNS is restricted). The bootstrap-time disjointness checks
+   * (hostname/operator-level) still run.
+   */
+  DNS_CONSENSUS_RUNTIME_VALIDATION: z
+    .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+    .default(true),
+  /**
    * Per-endpoint circuit breaker for the DNS layer (ADR-0059). DNS is the
    * last provider without circuit protection: RDAP and WHOIS trip on
    * repeated failures (global + per-server), while a dead DNS resolver

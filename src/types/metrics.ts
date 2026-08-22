@@ -118,6 +118,8 @@ export interface PipelineRunSummary {
   dnsBreakers?: DnsBreakerMetrics;
   /** Boot-time consensus disjointness observability (ADR-0065). */
   dnsDisjointness?: DnsDisjointnessMetrics;
+  /** Runtime DNS consensus disjointness validation (ADR-0066). */
+  dnsRuntimeConsensus?: DnsRuntimeConsensusMetrics;
 }
 
 /** Boot-time DNS consensus disjointness check tallies (ADR-0065).
@@ -128,6 +130,20 @@ export interface DnsDisjointnessMetrics {
   /** Total boot-time checks that ran without full host resolution. */
   resolutionPartialTotal: number;
   /** Whether the disjointness check ran at least once since process start. */
+  observed: boolean;
+}
+
+/** Runtime DNS consensus disjointness validation tallies (ADR-0066).
+ *  Live DNS queries at startup to detect anycast/IP overlap that bootstrap
+ *  checks cannot catch. */
+export interface DnsRuntimeConsensusMetrics {
+  /** Total runtime checks that detected IP/operator overlap (gate disabled). */
+  overlapTotal: number;
+  /** Total runtime checks where the gate was disabled due to overlap. */
+  disabledTotal: number;
+  /** Total runtime checks that completed with partial results (legs silent). */
+  partialTotal: number;
+  /** Whether the runtime check ran at least once since process start. */
   observed: boolean;
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-export type StageDegradationReason = 'timeout' | 'error' | 'consensus-unverified';
+export type StageDegradationReason =
+  'timeout' | 'error' | 'consensus-unverified' | 'consensus-disabled-runtime';
 
 export interface StageDegradation {
   stageName: string;
