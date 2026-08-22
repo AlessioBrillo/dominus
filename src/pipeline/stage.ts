@@ -42,6 +42,12 @@ export interface RdapConsensusStats {
    */
   whoisRescued?: number;
   /**
+   * Domains rescued via per-TLD forced WHOIS rescue (ADR-0051 extension):
+   * the second RDAP leg could not answer and WHOIS confirmed Available for
+   * a TLD in the forced-rescue list. Present only when > 0.
+   */
+  perTldRescued?: number;
+  /**
    * Verdicts skipped because the second leg's origin was authoritative for
    * the candidate's TLD — the 2-of-2 would have been a rubber stamp
    * (ADR-0058). Present only when > 0.

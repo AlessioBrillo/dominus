@@ -1026,4 +1026,40 @@ describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
     expect(result.filtered).toHaveLength(1);
     expect(result.rdapConsensusStats!.unverifiable).toBe(1);
   });
+
+  it('rescues per-TLD even when global rescue flag is off (ADR-0051 extension)', async () => {
+    const secondary = makeSecondary({});
+    const whois = makeMockWhois(true);
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('primary.com'),
+      whois,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      {
+        secondaryProvider: secondary,
+        secondaryOrigin: 'https://secondary.example.com/',
+        rescueWhoisEnabled: false, // global OFF
+        rescueWhoisTlds: new Set(['.it', '.de']), // but force for .it and .de
+      },
+    );
+    // .it domain → should be rescued
+    const resultIt = await stage.process([makeCandidate('test.it')]);
+    expect(resultIt.passed).toHaveLength(1);
+    expect(whois.checkAvailability).toHaveBeenCalledWith('test.it', expect.anything());
+    expect(resultIt.rdapConsensusStats!.whoisRescued).toBeUndefined();
+    expect(resultIt.rdapConsensusStats!.perTldRescued).toBe(1);
+
+    // .de domain → should be rescued
+    const resultDe = await stage.process([makeCandidate('test.de')]);
+    expect(resultDe.passed).toHaveLength(1);
+    expect(resultDe.rdapConsensusStats!.perTldRescued).toBe(1);
+
+    // .com domain → should NOT be rescued (global flag is off, not in per-TLD list)
+    const resultCom = await stage.process([makeCandidate('test.com')]);
+    expect(resultCom.passed).toHaveLength(0);
+    expect(resultCom.filtered).toHaveLength(1);
+    expect(resultCom.rdapConsensusStats!.unverifiable).toBe(1);
+  });
 });

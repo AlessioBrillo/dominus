@@ -853,6 +853,31 @@ const configSchema = z.object({
     .default(false),
 
   /**
+   * Per-TLD override for WHOIS rescue leg (ADR-0051 extension).
+   * For TLDs listed here, WHOIS rescue is FORCE-ENABLED regardless of
+   * RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED. This targets ccTLDs with historically
+   * unstable RDAP (e.g., .it, .de, .jp, .br) where fail-closed RDAP consensus
+   * would produce excessive false negatives.
+   * Format: JSON array of TLD strings with leading dot, e.g. '[".it",".de",".jp",".br"]'.
+   * Default: empty array (no forced rescue).
+   */
+  RDAP_CONSENSUS_RESCUE_WHOIS_TLDS: z
+    .string()
+    .transform((val) => {
+      if (!val || val.trim() === '') return [];
+      try {
+        const parsed = JSON.parse(val);
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+          .filter((t): t is string => typeof t === 'string' && t.startsWith('.'))
+          .map((t) => t.toLowerCase());
+      } catch {
+        return [];
+      }
+    })
+    .default([]),
+
+  /**
    * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2, ADR-0058).
    * Defaults to the rdap.org universal router: the primary's per-TLD
    * authoritative servers are resolved from the IANA bootstrap, so the
