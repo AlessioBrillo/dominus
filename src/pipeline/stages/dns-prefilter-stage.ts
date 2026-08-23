@@ -325,25 +325,16 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     consensusStats?: DnsConsensusStats,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (this.consensusConfig === undefined) return results;
-    // Runtime disjointness guard disabled the gate — skip consensus, emit degradation
+    // Runtime disjointness guard disabled the gate — HARD FAIL (fail-closed)
+    // A disabled consensus gate means Available verdicts rest on a single resolver,
+    // violating ADR-0002 conservatism. The pipeline must not run without independent confirmation.
     if (this.consensusConfig.disabled) {
-      if (degradations !== undefined) {
-        degradations.push({
-          stageName: this.name,
-          reason: 'consensus-disabled-runtime',
-          processedCount: 0,
-          expectedCount: results.filter((r) => r?.status === DomainStatus.Available).length,
-          message: `Consensus gate disabled at startup: ${this.consensusConfig.disableReason ?? 'runtime disjointness failure'}`,
-        });
-      }
-      if (consensusStats !== undefined) {
-        consensusStats.degraded = true;
-      }
-      logger.warn(
-        { reason: this.consensusConfig.disableReason },
-        'DNS: consensus gate disabled at startup — skipping 2-of-3 validation, Available verdicts rest on single resolver',
-      );
-      return results;
+      const reason = this.consensusConfig.disableReason ?? 'runtime disjointness failure';
+      const msg = `DNS consensus gate disabled at startup: ${reason}. ` +
+        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+        `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`;
+      logger.fatal({ reason }, msg);
+      throw new Error(msg);
     }
     return this.#applyConsensusCheck(results, domains, signal, degradations, consensusStats);
   }
