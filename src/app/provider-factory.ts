@@ -27,7 +27,6 @@ import {
   validateConsensusStrategyDisjointness,
   validateResolverGroups,
   validateRuntimeConsensusDisjointness,
-  type ConsensusDisjointnessReport,
   type RuntimeConsensusReport,
 } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
@@ -577,8 +576,20 @@ export async function buildDnsConsensusConfig(
     },
   );
   if (!report.ok) {
-    vetoConsensusGate('secondary', effectiveConsensusStrategy, report);
-    return undefined;
+    // HARD FAIL: static bootstrap validation detected resolver overlap
+    const reason =
+      report.overlapEndpoints.length > 0
+        ? `Static overlap: ${report.overlapEndpoints.join(', ')}`
+        : `Operator overlap: ${report.overlapOperators.join(', ')}`;
+    getLogger().error(
+      { overlapEndpoints: report.overlapEndpoints, overlapOperators: report.overlapOperators },
+      `DNS: consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
+    );
+    throw new Error(
+      `DNS consensus gate invalid at bootstrap: ${reason}. ` +
+      `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+      `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`
+    );
   }
   if (report.resolutionPartial) {
     getLogger().warn(
@@ -612,8 +623,8 @@ export async function buildDnsConsensusConfig(
 
   // RUNTIME DISJOINTNESS VALIDATION (ADR-0066)
   // Perform live DNS queries through each leg to detect anycast/IP overlap
-  // that hostname-level checks cannot catch. This is best-effort observability:
-  // fail-open on errors (transient boot-time failures must not disable the gate).
+  // that hostname-level checks cannot catch. This validation is MANDATORY:
+  // if overlap is detected, the application refuses to start (fail-closed).
   // Can be disabled via DNS_CONSENSUS_RUNTIME_VALIDATION=false (e.g., in tests
   // or environments where egress DNS is restricted).
   let runtimeReport: RuntimeConsensusReport = {
@@ -668,7 +679,7 @@ export async function buildDnsConsensusConfig(
         overlapOperators: runtimeReport.overlapOperators,
         partial: runtimeReport.partial,
       },
-      `DNS: runtime consensus disjointness FAILED — gate disabled. ${reason}`,
+      `DNS: runtime consensus disjointness FAILED — refusing to start. ${reason}`,
     );
     metricsCollector?.recordRuntimeConsensusValidation({
       overlapDetected: true,
@@ -676,20 +687,14 @@ export async function buildDnsConsensusConfig(
       overlapIPs: runtimeReport.overlapIPs,
       overlapOperators: runtimeReport.overlapOperators,
     });
-    // Return a DISABLED config — the stage will skip consensus and emit degraded flag
-    const disabledConfig: ConsensusDnsConfig = {
-      secondaryProvider,
-      degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
-      degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
-      consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
-      requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
-      disabled: true,
-      disableReason: reason,
-    };
-    if (tertiaryProvider !== undefined) {
-      disabledConfig.tertiaryProvider = tertiaryProvider;
-    }
-    return disabledConfig;
+    // HARD FAIL: do not return disabled config — consensus gate must be
+    // genuinely independent or the pipeline must not run (ADR-0002 conservatism).
+    // Operator must fix resolver topology or explicitly disable consensus.
+    throw new Error(
+      `DNS consensus gate invalid at bootstrap: ${reason}. ` +
+      `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+      `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`
+    );
   }
 
   metricsCollector?.recordRuntimeConsensusValidation({
@@ -722,28 +727,6 @@ export async function buildDnsConsensusConfig(
     enabledConfig.tertiaryProvider = tertiaryProvider;
   }
   return enabledConfig;
-}
-
-/** Log the consensus gate veto with the overlap details that caused it. */
-function vetoConsensusGate(
-  leg: string,
-  strategy: string,
-  report: ConsensusDisjointnessReport,
-): void {
-  const details: string[] = [];
-  if (report.overlapEndpoints.length > 0) {
-    details.push(`endpoints ${report.overlapEndpoints.join(', ')}`);
-  }
-  if (report.overlapOperators.length > 0) {
-    details.push(`operators ${report.overlapOperators.join(', ')}`);
-  }
-  getLogger().error(
-    { strategy, overlap: report.overlapEndpoints, operators: report.overlapOperators },
-    `DNS: ${leg} consensus leg disabled — its resolver set is not an independent ` +
-      `opinion (${details.join('; ') || 'overlap'}). The 2-of-3 gate cannot run; ` +
-      'Available verdicts rest on a single resolver (ADR-0002). Pin an independent ' +
-      'recursor or switch strategies.',
-  );
 }
 
 /**
@@ -811,12 +794,20 @@ async function buildTertiaryConsensusProvider(
     },
   );
   if (!primaryReport.ok || !consensusReport.ok) {
-    vetoConsensusGate(
-      'tertiary',
-      effectiveTertiaryStrategy,
-      !primaryReport.ok ? primaryReport : consensusReport,
+    const report = !primaryReport.ok ? primaryReport : consensusReport;
+    const reason =
+      report.overlapEndpoints.length > 0
+        ? `Static overlap: ${report.overlapEndpoints.join(', ')}`
+        : `Operator overlap: ${report.overlapOperators.join(', ')}`;
+    getLogger().error(
+      { overlapEndpoints: report.overlapEndpoints, overlapOperators: report.overlapOperators },
+      `DNS: tertiary consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
     );
-    return undefined;
+    throw new Error(
+      `DNS tertiary consensus gate invalid at bootstrap: ${reason}. ` +
+      `Configure disjoint resolver sets (DNS_TERTIARY_NAMESERVERS) ` +
+      `or disable tertiary consensus (DNS_TERTIARY_ENABLED=false).`
+    );
   }
 
   return new NodeDnsProvider({
