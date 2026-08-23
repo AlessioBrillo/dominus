@@ -704,6 +704,19 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
+     * Test domain used for DNS consensus bootstrap validation (ADR-0066).
+     * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
+     * The validation queries this domain through each consensus leg to detect
+     * anycast/IP overlap. Default: example.com.
+     */
+    DNS_CONSENSUS_TEST_DOMAIN: z.string().min(1).optional().default('example.com'),
+    /**
+     * Timeout per DNS query during consensus bootstrap validation (ms).
+     * Must be shorter than DNS_LOOKUP_TIMEOUT_MS to avoid slowing boot.
+     * Default: 2000.
+     */
+    DNS_CONSENSUS_VALIDATION_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).optional().default(2000),
+    /**
      * Per-endpoint circuit breaker for the DNS layer (ADR-0059). DNS is the
      * last provider without circuit protection: RDAP and WHOIS trip on
      * repeated failures (global + per-server), while a dead DNS resolver
