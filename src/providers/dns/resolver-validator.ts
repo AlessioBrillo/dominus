@@ -36,6 +36,7 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'doh:dns.mullvad.net': 'mullvad',
   'doh:dns.opendns.com': 'opendns',
   'doh:dns.digitale-gesellschaft.ch': 'digitale-gesellschaft',
+  'doh:doh.libredns.gr': 'libredns',
   'ip:1.1.1.1': 'cloudflare',
   'ip:1.0.0.1': 'cloudflare',
   'ip:162.159.36.1': 'cloudflare',
@@ -56,6 +57,10 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'ip:185.95.218.43': 'digitale-gesellschaft',
   'ip:2a05:fc84::42': 'digitale-gesellschaft',
   'ip:2a05:fc84::43': 'digitale-gesellschaft',
+  'ip:116.202.176.26': 'libredns',
+  'ip:116.202.176.27': 'libredns',
+  'ip:2a01:4f8:1c0c:4c5f::2': 'libredns',
+  'ip:2a01:4f8:1c0c:4c5f::3': 'libredns',
 };
 
 export interface ConsensusDisjointnessReport {

@@ -630,6 +630,37 @@ const configSchema = z
      */
     DNS_TERTIARY_NAMESERVERS: z.string().optional(),
     /**
+     * Rate limiting (ADR-0044/0066): max tokens (burst capacity) for the DNS
+     * consensus TERTIARY provider only. The tertiary leg must have its own
+     * isolated budget so it cannot be starved by primary or secondary traffic.
+     * Default: 10 req/sec (lower than secondary 20, primary 20).
+     */
+    DNS_TERTIARY_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).optional().default(10),
+    /** Rate limiting: refill interval in ms for tertiary DNS requests (default: 1000). */
+    DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).optional().default(1000),
+    /**
+     * Per-tenant fair share (Cloud only, ADR-0041): max tertiary DNS tokens
+     * per tenant per DNS_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS, enforced
+     * on top of the shared platform tertiary bucket when Redis is the rate
+     * limiter and PROVIDER_FAIR_SHARE_ENABLED is on.
+     */
+    DNS_TERTIARY_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).optional().default(3),
+    /** Per-tenant fair share: refill interval in ms for the tertiary tenant window (default: 1000). */
+    DNS_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .default(1000),
+    /**
+     * Concurrency ceiling for the tertiary DNS consensus verification phase
+     * (ADR-0044/0066). The gate is fail-closed, so its own burst must be bounded
+     * independently of the Primary's DNS_BULK_CONCURRENCY and secondary's
+     * DNS_CONSENSUS_BULK_CONCURRENCY. Default: 10. Range: 1–500.
+     */
+    DNS_TERTIARY_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).optional().default(10),
+    /**
      * How many verification legs must confirm an Available verdict before it
      * passes the consensus gate: 1 = a single confirmation beyond the primary
      * (secondary, or tertiary when the secondary cannot answer), 2 = BOTH the

@@ -536,6 +536,10 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
+    // Track tertiary-specific stats (populated during tertiary loop above)
+    // tertiaryDisagreed and tertiaryUnverifiable are counted inline
+    // in the tertiaryResults loop (lines 487-536)
+
     if (consensusStats !== undefined) {
       consensusStats.verified += verified;
       consensusStats.disagreed += disagreed;
@@ -543,6 +547,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       if (tertiaryRescued > 0) {
         consensusStats.tertiaryRescued = (consensusStats.tertiaryRescued ?? 0) + tertiaryRescued;
       }
+      // tertiaryDisagreed and tertiaryUnverifiable are populated
+      // directly in the tertiary loop when tertiary vetoes or fails
     }
 
     if (disagreed > 0 || unverifiable > 0) {

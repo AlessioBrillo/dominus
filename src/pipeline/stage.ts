@@ -25,8 +25,20 @@ export interface DnsConsensusStats {
    * when > 0.
    */
   tertiaryRescued?: number;
+  /**
+   * Domains the tertiary leg could not answer at all (errors, timeouts).
+   * Present only when > 0. (ADR-0066)
+   */
+  tertiaryUnverifiable?: number;
+  /**
+   * Definitive disagreements from the tertiary leg (tertiary says Registered)
+   * — valid answers that veto the domain. Present only when > 0. (ADR-0066)
+   */
+  tertiaryDisagreed?: number;
   /** True when the run was flagged degraded over consensus (ADR-0039). */
   degraded: boolean;
+  /** True when the tertiary leg was flagged degraded (ADR-0066). */
+  tertiaryDegraded?: boolean;
 }
 
 export interface RdapConsensusStats {

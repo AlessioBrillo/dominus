@@ -118,9 +118,10 @@ const DEFAULT_DOT_CONSENSUS_PROVIDERS: Array<{ name: string; host: string }> = [
 /**
  * Multi-operator DoH tertiary group — operators disjoint from both primary
  * (Cloudflare/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS).
- * OpenDNS + Digital Society over DoH wire. Two operators give majority
- * vote resilience and two breaker circuits — a single degraded endpoint
- * can no longer silently remove the tertiary opinion. (ADR-0064, ADR-0065)
+ * OpenDNS + Digital Society + LibreDNS over DoH wire. Three operators give
+ * majority vote resilience (2-of-3) and three breaker circuits — a single
+ * degraded endpoint can no longer silently remove the tertiary opinion.
+ * (ADR-0064, ADR-0065, ADR-0066)
  */
 const DEFAULT_DOH_TERTIARY_PROVIDERS: Array<{
   name: string;
@@ -131,6 +132,11 @@ const DEFAULT_DOH_TERTIARY_PROVIDERS: Array<{
   {
     name: 'DigitalSociety',
     url: 'https://dns.digitale-gesellschaft.ch/dns-query',
+    format: 'wire',
+  },
+  {
+    name: 'LibreDNS',
+    url: 'https://doh.libredns.gr/dns-query',
     format: 'wire',
   },
 ];
