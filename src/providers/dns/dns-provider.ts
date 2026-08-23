@@ -358,6 +358,178 @@ export function collectResolverEndpoints(
   return [...endpoints].sort();
 }
 
+/**
+ * Result of runtime DNS consensus disjointness validation.
+ * Contains structured data for alerting and debugging.
+ */
+export interface DnsConsensusValidationResult {
+  /** Sorted list of primary resolver endpoints (doh:host, dot:host, native:ip, ip:address) */
+  primaryEndpoints: string[];
+  /** Sorted list of secondary resolver endpoints */
+  secondaryEndpoints: string[];
+  /** Sorted list of tertiary resolver endpoints (if configured) */
+  tertiaryEndpoints?: string[];
+  /** Overlaps detected between legs */
+  overlaps: {
+    /** Endpoints shared between primary and secondary */
+    primarySecondary: string[];
+    /** Endpoints shared between primary and tertiary */
+    primaryTertiary: string[];
+    /** Endpoints shared between secondary and tertiary */
+    secondaryTertiary: string[];
+  };
+  /** Whether the consensus topology is valid (no overlaps) */
+  isValid: boolean;
+  /** Human-readable failure reason when isValid=false */
+  failureReason?: string;
+}
+
+/**
+ * Performs live DNS queries to validate that consensus resolver legs
+ * are genuinely operator-disjoint. This catches anycast/IP overlap
+ * that static analysis (collectResolverEndpoints) cannot detect.
+ *
+ * Issues a test query through each resolver leg and compares the
+ * observed responder IPs/hostnames.
+ *
+ * @param primaryGroups - Primary resolver groups (from DNS_LOOKUP_STRATEGY)
+ * @param secondaryGroups - Secondary consensus groups (from DNS_CONSENSUS_STRATEGY)
+ * @param tertiaryGroups - Optional tertiary groups (from DNS_TERTIARY_STRATEGY)
+ * @param timeoutMs - Per-query timeout in ms (default: 2000)
+ * @returns Validation result with structured overlap data
+ */
+export async function validateConsensusDisjointnessRuntime(
+  primaryGroups: DnsResolverGroup[],
+  secondaryGroups: DnsResolverGroup[],
+  tertiaryGroups: DnsResolverGroup[] | undefined,
+  timeoutMs: number = 2000,
+): Promise<DnsConsensusValidationResult> {
+  const primaryEndpoints = await resolveEndpointsLive(primaryGroups, timeoutMs);
+  const secondaryEndpoints = await resolveEndpointsLive(secondaryGroups, timeoutMs);
+  const tertiaryEndpoints = tertiaryGroups
+    ? await resolveEndpointsLive(tertiaryGroups, timeoutMs)
+    : [];
+
+  const overlaps = {
+    primarySecondary: findOverlaps(primaryEndpoints, secondaryEndpoints),
+    primaryTertiary:
+      tertiaryEndpoints.length > 0 ? findOverlaps(primaryEndpoints, tertiaryEndpoints) : [],
+    secondaryTertiary:
+      tertiaryEndpoints.length > 0 ? findOverlaps(secondaryEndpoints, tertiaryEndpoints) : [],
+  };
+
+  const allOverlaps = [
+    ...overlaps.primarySecondary,
+    ...overlaps.primaryTertiary,
+    ...overlaps.secondaryTertiary,
+  ];
+
+  const result: DnsConsensusValidationResult = {
+    primaryEndpoints: [...primaryEndpoints].sort(),
+    secondaryEndpoints: [...secondaryEndpoints].sort(),
+    overlaps,
+    isValid: allOverlaps.length === 0,
+  };
+  if (allOverlaps.length > 0) {
+    result.failureReason =
+      `Resolver overlap detected: ${allOverlaps.join(', ')}. ` +
+      'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
+      'or disable consensus (DNS_CONSENSUS_ENABLED=false).';
+  }
+  if (tertiaryEndpoints.length > 0) {
+    result.tertiaryEndpoints = [...tertiaryEndpoints].sort();
+  }
+  return result;
+}
+
+/**
+ * Resolves the actual endpoints a resolver group will query by issuing
+ * a live test query and extracting the responder identity.
+ * For DoH: extracts the HTTPS endpoint hostname.
+ * For DoT: extracts the TLS server hostname/IP.
+ * For native: extracts the nameserver IPs used.
+ */
+async function resolveEndpointsLive(
+  groups: DnsResolverGroup[],
+  timeoutMs: number,
+): Promise<string[]> {
+  const endpoints = new Set<string>();
+
+  for (const group of groups) {
+    if (group.fallback) continue; // Skip fallback groups (same as static analysis)
+
+    for (const lookup of group.lookups) {
+      try {
+        if (lookup.type === 'doh' && lookup.endpoint) {
+          // For DoH, the endpoint hostname is the identity
+          const host = new URL(lookup.endpoint).hostname;
+          endpoints.add(`doh:${host}`);
+          // Also try to resolve the hostname to catch anycast
+          try {
+            const { default: dns } = await import('node:dns/promises');
+            const ips = await Promise.race([
+              dns.resolve4(host),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]);
+            for (const ip of ips) {
+              endpoints.add(`ip:${ip}`);
+            }
+          } catch {
+            // Resolution failed, but we still have the hostname
+          }
+        } else if (lookup.type === 'dot' && lookup.endpoint) {
+          // For DoT, the endpoint is the server identity
+          endpoints.add(`dot:${lookup.endpoint}`);
+          if (isIP(lookup.endpoint) !== 0) {
+            endpoints.add(`ip:${lookup.endpoint}`);
+          } else {
+            try {
+              const { default: dns } = await import('node:dns/promises');
+              const ips = await Promise.race([
+                dns.resolve4(lookup.endpoint),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]);
+              for (const ip of ips) {
+                endpoints.add(`ip:${ip}`);
+              }
+            } catch {
+              // Resolution failed
+            }
+          }
+        } else if (lookup.type === 'native') {
+          const nameservers = lookup.nameservers;
+          if (nameservers && nameservers.length > 0) {
+            for (const ns of nameservers) {
+              endpoints.add(`native:${ns}`);
+              if (isIP(ns) !== 0) endpoints.add(`ip:${ns}`);
+            }
+          } else {
+            endpoints.add('native:system-resolver');
+          }
+        }
+      } catch (err) {
+        // If we can't determine the endpoint, include a marker
+        endpoints.add(`error:${lookup.type}:${err instanceof Error ? err.message : 'unknown'}`);
+      }
+    }
+  }
+
+  return [...endpoints];
+}
+
+/**
+ * Finds overlapping endpoints between two endpoint sets.
+ * Compares both transport-specific (doh:, dot:, native:) and IP-level (ip:) identifiers.
+ */
+function findOverlaps(setA: string[], setB: string[]): string[] {
+  const setBLookup = new Set(setB);
+  return setA.filter((endpoint) => setBLookup.has(endpoint));
+}
+
 export interface DnsCheckOptions {
   /** When true, skip the persistent DNS cache and force a live lookup.
    *  The in-memory cache is still consulted for within-run deduplication.

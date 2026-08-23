@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-export type { DnsProvider, DnsLookupSpec, DnsResolverGroup } from './dns-provider.js';
-export { strategyToResolverGroups, collectResolverEndpoints } from './dns-provider.js';
+export type {
+  DnsProvider,
+  DnsLookupSpec,
+  DnsResolverGroup,
+  DnsConsensusValidationResult,
+} from './dns-provider.js';
+export {
+  strategyToResolverGroups,
+  collectResolverEndpoints,
+  validateConsensusDisjointnessRuntime,
+} from './dns-provider.js';
 export { NodeDnsProvider } from './node-dns-provider.js';
 export type {
   DnsLookupStrategy,
