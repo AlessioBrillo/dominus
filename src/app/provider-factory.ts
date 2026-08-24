@@ -28,6 +28,7 @@ import {
   validateResolverGroups,
   validateRuntimeConsensusDisjointness,
   type RuntimeConsensusReport,
+  type RuntimeValidationMode,
 } from '../providers/dns/resolver-validator.js';
 import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
@@ -632,8 +633,11 @@ export async function buildDnsConsensusConfig(
     overlapIPs: [],
     overlapOperators: [],
     partial: false,
+    runtimeDegraded: false,
     reason: undefined,
   };
+
+  const runtimeValidationMode: RuntimeValidationMode = config.DNS_CONSENSUS_RUNTIME_VALIDATION_MODE;
 
   if (config.DNS_CONSENSUS_RUNTIME_VALIDATION) {
     // Build primary provider for runtime validation
@@ -649,6 +653,7 @@ export async function buildDnsConsensusConfig(
       primaryProvider,
       secondaryProvider,
       tertiaryProvider,
+      runtimeValidationMode,
     ).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       getLogger().warn(
@@ -660,6 +665,7 @@ export async function buildDnsConsensusConfig(
         overlapIPs: [],
         overlapOperators: [],
         partial: true,
+        runtimeDegraded: false,
         reason: 'runtime validation error',
       } as RuntimeConsensusReport;
     });
@@ -678,6 +684,7 @@ export async function buildDnsConsensusConfig(
         overlapIPs: runtimeReport.overlapIPs,
         overlapOperators: runtimeReport.overlapOperators,
         partial: runtimeReport.partial,
+        runtimeDegraded: runtimeReport.runtimeDegraded,
       },
       `DNS: runtime consensus disjointness FAILED — refusing to start. ${reason}`,
     );
@@ -697,6 +704,24 @@ export async function buildDnsConsensusConfig(
     );
   }
 
+  // In strict mode, runtimeDegraded=true means the gate is vetoed even without overlap
+  if (runtimeReport.runtimeDegraded) {
+    getLogger().error(
+      {
+        overlapIPs: runtimeReport.overlapIPs,
+        overlapOperators: runtimeReport.overlapOperators,
+        partial: runtimeReport.partial,
+      },
+      'DNS: runtime consensus validation incomplete in strict mode — gate vetoed. ' +
+        'Configure disjoint resolver sets or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive.',
+    );
+    throw new Error(
+      'DNS consensus gate invalid at bootstrap: runtime validation incomplete in strict mode. ' +
+      'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
+      'or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive to allow degraded validation.'
+    );
+  }
+
   metricsCollector?.recordRuntimeConsensusValidation({
     overlapDetected: false,
     partial: runtimeReport.partial,
@@ -704,10 +729,10 @@ export async function buildDnsConsensusConfig(
     overlapOperators: runtimeReport.overlapOperators,
   });
 
-  if (runtimeReport.partial) {
+  if (runtimeReport.partial && runtimeValidationMode === 'permissive') {
     getLogger().warn(
       { overlapIPs: runtimeReport.overlapIPs, overlapOperators: runtimeReport.overlapOperators },
-      'DNS: runtime consensus validation completed with partial results (some legs did not answer) — gate remains enabled',
+      'DNS: runtime consensus validation completed with partial results (some legs did not answer) — gate remains enabled (permissive mode)',
     );
   } else {
     getLogger().info(
@@ -722,6 +747,7 @@ export async function buildDnsConsensusConfig(
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
     requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
+    runtimeDegraded: runtimeReport.runtimeDegraded,
   };
   if (tertiaryProvider !== undefined) {
     enabledConfig.tertiaryProvider = tertiaryProvider;

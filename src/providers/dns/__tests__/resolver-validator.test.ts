@@ -426,4 +426,126 @@ describe('validateRuntimeConsensusDisjointness', () => {
     expect(report.ok).toBe(false);
     expect(report.overlapOperators).toContain('cloudflare');
   });
+
+  describe('validateRuntimeConsensusDisjointness - strict vs permissive mode', () => {
+    const providerStub = {
+      name: 'FakeDnsProvider',
+      checkBulk: (): Promise<DnsCheckResult[]> => Promise.resolve([]),
+      clearCache: (): void => undefined,
+      pruneCache: (): number => 0,
+    };
+
+    interface MockDnsCheckResult extends DnsCheckResult {
+      nameservers?: string[];
+    }
+
+    function fakeProvider(nameservers: string[] = []): DnsProvider {
+      return {
+        ...providerStub,
+        async checkAvailability(_domain: string, _signal?: AbortSignal): Promise<DnsCheckResult> {
+          const result: MockDnsCheckResult = {
+            domain: 'example.com',
+            status: DomainStatus.Available,
+            checkedAt: new Date().toISOString(),
+          };
+          if (nameservers.length > 0) {
+            result.nameservers = nameservers;
+          }
+          return result;
+        },
+      };
+    }
+
+    function failingProvider(): DnsProvider {
+      return {
+        ...providerStub,
+        name: 'FailingProvider',
+        async checkAvailability(): Promise<DnsCheckResult> {
+          throw new Error('Network timeout');
+        },
+      };
+    }
+
+    it('permissive mode (default): passes with partial=true when a leg returns no nameservers', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = fakeProvider([]); // No nameservers returned
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined, 'permissive');
+
+      expect(report.partial).toBe(true);
+      expect(report.ok).toBe(true); // Gate stays enabled in permissive mode
+      expect(report.runtimeDegraded).toBe(false);
+    });
+
+    it('strict mode: vetoes gate (ok=false, runtimeDegraded=true) when a leg returns no nameservers', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = fakeProvider([]); // No nameservers returned
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined, 'strict');
+
+      expect(report.partial).toBe(true);
+      expect(report.ok).toBe(false); // Gate vetoed in strict mode
+      expect(report.runtimeDegraded).toBe(true);
+      expect(report.reason).toContain('incomplete');
+    });
+
+    it('permissive mode: passes with partial=true when a leg throws (transient failure)', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = failingProvider();
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus as DnsProvider, undefined, 'permissive');
+
+      expect(report.partial).toBe(true);
+      expect(report.ok).toBe(true); // Gate stays enabled in permissive mode
+      expect(report.runtimeDegraded).toBe(false);
+    });
+
+    it('strict mode: vetoes gate when a leg throws (transient failure)', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = failingProvider();
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus as DnsProvider, undefined, 'strict');
+
+      expect(report.partial).toBe(true);
+      expect(report.ok).toBe(false);
+      expect(report.runtimeDegraded).toBe(true);
+      expect(report.reason).toContain('incomplete');
+    });
+
+    it('strict mode with tertiary: vetoes if any leg is partial', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = fakeProvider(['9.9.9.9']);
+      const tertiary = fakeProvider([]); // Partial
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary, 'strict');
+
+      expect(report.partial).toBe(true);
+      expect(report.ok).toBe(false);
+      expect(report.runtimeDegraded).toBe(true);
+    });
+
+    it('permissive mode with tertiary: passes even if tertiary is partial', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = fakeProvider(['9.9.9.9']);
+      const tertiary = fakeProvider([]); // Partial
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary, 'permissive');
+
+      expect(report.partial).toBe(true);
+      expect(report.ok).toBe(true); // No overlap, gate enabled
+      expect(report.runtimeDegraded).toBe(false);
+    });
+
+    it('strict mode: still detects actual overlap and vetoes (ok=false, runtimeDegraded=false)', async () => {
+      const primary = fakeProvider(['1.1.1.1']);
+      const consensus = fakeProvider(['1.1.1.1']); // Actual overlap
+
+      const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined, 'strict');
+
+      expect(report.ok).toBe(false);
+      expect(report.overlapIPs).toContain('1.1.1.1');
+      expect(report.runtimeDegraded).toBe(false); // This is overlap, not partial
+      expect(report.reason).toContain('overlap detected');
+    });
+  });
 });

@@ -735,6 +735,19 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
+     * Runtime validation mode for the 2-of-3 DNS consensus gate (ADR-0066).
+     * - 'strict' (cloud default): any partial resolution or transient failure
+     *   vetoes the consensus gate (ok=false, runtimeDegraded=true). The operator
+     *   MUST fix resolver topology or explicitly disable consensus.
+     * - 'permissive' (community default): fail-open on transient failures,
+     *   logs warning but keeps gate enabled. The bootstrap check remains
+     *   authoritative.
+     * Default: 'strict' when DATABASE_URL is set (cloud), 'permissive' otherwise.
+     */
+    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z
+      .enum(['strict', 'permissive'])
+      .default(() => process.env.DATABASE_URL ? 'strict' : 'permissive'),
+    /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
      * The validation queries this domain through each consensus leg to detect

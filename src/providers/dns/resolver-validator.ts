@@ -355,6 +355,9 @@ export async function validateResolverGroups(provider: DnsProvider): Promise<voi
  * The check is best-effort observability — the bootstrap check remains the
  * authoritative gate.
  */
+/** Runtime validation mode for the 2-of-3 DNS consensus gate. */
+export type RuntimeValidationMode = 'strict' | 'permissive';
+
 export interface RuntimeConsensusReport {
   /** False when the two resolver sets are not independent opinions at runtime. */
   ok: boolean;
@@ -364,6 +367,8 @@ export interface RuntimeConsensusReport {
   overlapOperators: string[];
   /** True when at least one leg failed to answer probe queries. */
   partial: boolean;
+  /** True when validation was run in strict mode and partial/errors caused veto. */
+  runtimeDegraded: boolean;
   /** Human-readable reason if not ok. */
   reason: string | undefined;
 }
@@ -396,11 +401,15 @@ async function probeProviderForNameservers(
  * Runtime independence check for consensus legs.
  * Queries each provider with probe domains, collects resolved nameserver IPs,
  * and checks for overlap.
+ *
+ * @param mode - 'strict' vetoes the gate on any partial resolution or transient failure;
+ *               'permissive' (default) fails open and logs warning only.
  */
 export async function validateRuntimeConsensusDisjointness(
   primaryProvider: DnsProvider,
   consensusProvider: DnsProvider,
   tertiaryProvider?: DnsProvider,
+  mode: RuntimeValidationMode = 'permissive',
 ): Promise<RuntimeConsensusReport> {
   const logger = getLogger();
   const allIPs = new Map<string, Set<string>>(); // legName -> Set of IPs
@@ -489,6 +498,11 @@ export async function validateRuntimeConsensusDisjointness(
 
   const ok = uniqueOverlapIPs.length === 0 && uniqueOverlapOperators.length === 0;
 
+  // In strict mode, any partial resolution or transient failure degrades the gate
+  // because we cannot prove independence at runtime. In permissive mode, we fail
+  // open and just log the degradation.
+  const runtimeDegraded = mode === 'strict' && partial && ok;
+
   let reason: string | undefined;
   if (!ok) {
     const details: string[] = [];
@@ -497,6 +511,12 @@ export async function validateRuntimeConsensusDisjointness(
       details.push(`shared operators: ${uniqueOverlapOperators.join(', ')}`);
     reason = `Runtime consensus overlap detected — ${details.join('; ')}`;
     logger.error(
+      { overlapIPs: uniqueOverlapIPs, overlapOperators: uniqueOverlapOperators, partial },
+      reason,
+    );
+  } else if (runtimeDegraded) {
+    reason = 'Runtime consensus validation incomplete — some legs did not answer probe queries (strict mode)';
+    logger.warn(
       { overlapIPs: uniqueOverlapIPs, overlapOperators: uniqueOverlapOperators, partial },
       reason,
     );
@@ -513,10 +533,11 @@ export async function validateRuntimeConsensusDisjointness(
   }
 
   return {
-    ok,
+    ok: ok && !runtimeDegraded,
     overlapIPs: uniqueOverlapIPs,
     overlapOperators: uniqueOverlapOperators,
     partial,
+    runtimeDegraded,
     reason,
   };
 }

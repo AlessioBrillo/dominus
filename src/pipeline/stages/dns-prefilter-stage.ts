@@ -61,6 +61,12 @@ export interface ConsensusDnsConfig {
    * Human-readable reason for disablement (e.g., "shared IPs: 1.1.1.1; shared operators: cloudflare").
    */
   disableReason?: string;
+  /**
+   * When true, the consensus gate was degraded at startup due to incomplete
+   * runtime validation (strict mode). The stage will run but mark the run
+   * as degraded because the independence proof is incomplete.
+   */
+  runtimeDegraded?: boolean;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -335,6 +341,21 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`;
       logger.fatal({ reason }, msg);
       throw new Error(msg);
+    }
+    // Runtime validation degraded (strict mode with partial results) — run consensus
+    // but mark the run as degraded because independence proof is incomplete.
+    if (this.consensusConfig.runtimeDegraded && degradations !== undefined) {
+      degradations.push({
+        stageName: this.name,
+        reason: 'consensus-runtime-degraded',
+        processedCount: 0,
+        expectedCount: 0,
+        message: 'DNS consensus gate running with incomplete runtime validation (strict mode) — independence proof incomplete',
+      });
+      if (consensusStats !== undefined) consensusStats.degraded = true;
+      logger.warn(
+        'DNS: consensus gate running in degraded mode — runtime validation incomplete (strict mode)',
+      );
     }
     return this.#applyConsensusCheck(results, domains, signal, degradations, consensusStats);
   }

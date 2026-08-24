@@ -589,6 +589,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_CONSENSUS_DEGRADED_RATIO: 0.5,
       DNS_CONSENSUS_DEGRADED_MIN: 10,
       DNS_CONSENSUS_RUNTIME_VALIDATION: false,
+      DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: 'permissive',
       DNS_CONSENSUS_TEST_DOMAIN: 'example.com',
       DNS_CONSENSUS_VALIDATION_TIMEOUT_MS: 2000,
       DNS_USE_DEDICATED_RESOLVER: true,
