@@ -952,6 +952,10 @@ const configSchema = z
      * consulted on a definitive Registered from the second RDAP leg. Default
      * false: this is a narrow, explicit override of ADR-0050's fail-closed
      * rule for the unverifiable class only.
+     *
+     * NOTE: Per-TLD rescue (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS) is enabled by
+     * default for known problematic ccTLDs (.it, .de, .jp, .br, .cn, .ru,
+     * .fr, .uk) regardless of this flag. Set RDAP_CONSENSUS_RESCUE_WHOIS_TLDS=[] to disable.
      */
     RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
@@ -964,7 +968,7 @@ const configSchema = z
      * unstable RDAP (e.g., .it, .de, .jp, .br) where fail-closed RDAP consensus
      * would produce excessive false negatives.
      * Format: JSON array of TLD strings with leading dot, e.g. '[".it",".de",".jp",".br"]'.
-     * Default: empty array (no forced rescue).
+     * Default: known problematic ccTLDs with unstable RDAP.
      */
     RDAP_CONSENSUS_RESCUE_WHOIS_TLDS: z
       .string()
@@ -980,7 +984,7 @@ const configSchema = z
           return [];
         }
       })
-      .default([]),
+      .default(['.it', '.de', '.jp', '.br', '.cn', '.ru', '.fr', '.uk']),
 
     /**
      * Endpoint of the dedicated second RDAP opinion (ADR-0050 §2, ADR-0058).
