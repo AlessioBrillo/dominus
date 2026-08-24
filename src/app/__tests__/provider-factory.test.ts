@@ -302,7 +302,9 @@ describe('buildDnsConsensusConfig', () => {
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'doh-primary',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow('DNS consensus gate invalid at bootstrap');
+    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
+      'DNS consensus gate invalid at bootstrap',
+    );
   });
 
   it('throws when a pinned native secondary reuses the DoT IPs', async () => {
@@ -313,7 +315,9 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_NAMESERVERS: '1.1.1.1',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow('DNS consensus gate invalid at bootstrap');
+    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
+      'DNS consensus gate invalid at bootstrap',
+    );
   });
 
   it('threads the degraded ratio/min tuning knobs into the consensus config', async () => {
@@ -338,7 +342,9 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_CONSENSUS_NAMESERVERS: '1.1.1.1',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow('DNS consensus gate invalid at bootstrap');
+    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
+      'DNS consensus gate invalid at bootstrap',
+    );
   });
 
   it('uses the private recursor as the secondary when DNS_CONSENSUS_NAMESERVERS is set', async () => {
@@ -389,7 +395,9 @@ describe('buildDnsConsensusConfig', () => {
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'dot-only',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow('DNS consensus gate invalid at bootstrap');
+    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
+      'DNS consensus gate invalid at bootstrap',
+    );
   });
 
   it('keeps the consensus strategy when no private recursor is pinned', async () => {
@@ -465,7 +473,9 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'doh-primary',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow('DNS tertiary consensus gate invalid at bootstrap');
+    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
+      'DNS tertiary consensus gate invalid at bootstrap',
+    );
   });
 
   it('threads DNS_CONSENSUS_REQUIRED_AVAILABLE into the consensus config', async () => {
@@ -517,7 +527,10 @@ describe('DNS privacy mode (ADR-0065)', () => {
   });
 
   it('buildDnsProvider throws in cloud edition when privacy mode has no pinned nameservers', () => {
-    const config = makeConfig({ DNS_PRIVACY_MODE: true, DATABASE_URL: 'postgresql://user:pass@localhost/db' });
+    const config = makeConfig({
+      DNS_PRIVACY_MODE: true,
+      DATABASE_URL: 'postgresql://user:pass@localhost/db',
+    });
     // Cloud edition (DATABASE_URL set): throws to enforce privacy
     expect(() => buildDnsProvider(config)).toThrow('DNS_NAMESERVERS');
   });

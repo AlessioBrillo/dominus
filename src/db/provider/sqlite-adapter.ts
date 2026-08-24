@@ -225,7 +225,7 @@ export class SqliteProvider implements DatabaseProvider {
   async tryLockWithFence(
     lockName: string,
     ttlMs: number,
-  ): Promise<{ acquired: boolean; fenceToken?: string }> {
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
     const expiresAt = Date.now() + ttlMs;
     const workerId = this.#workerId(lockName);
     const fenceToken = randomUUID();
@@ -248,7 +248,7 @@ export class SqliteProvider implements DatabaseProvider {
       // Check if we already hold this lock (same worker, same fence token)
       const existing = this.#db
         .prepare(
-          'SELECT fence_token FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND expires_at >= datetime(\'now\')',
+          "SELECT fence_token FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND expires_at >= datetime('now')",
         )
         .get(lockName, workerId) as { fence_token: string } | undefined;
       if (existing?.fence_token) {
@@ -280,7 +280,9 @@ export class SqliteProvider implements DatabaseProvider {
     try {
       const workerId = this.#workerId(lockName);
       this.#db
-        .prepare('DELETE FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND fence_token = ?')
+        .prepare(
+          'DELETE FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND fence_token = ?',
+        )
         .run(lockName, workerId, fenceToken);
     } catch {
       // Non-fatal

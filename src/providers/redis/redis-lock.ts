@@ -131,26 +131,26 @@ export class RedisLock {
     );
   }
 
-async tryLockWithFence(
+  async tryLockWithFence(
     lockName: string,
     ttlMs: number,
-  ): Promise<{ acquired: boolean; fenceToken?: string }> {
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
     const key = this.#redisClient.prefixed(`lock:${lockName}`);
     const fenceToken = randomUUID();
 
     return this.#redisClient.withRedis(
       async (redis: Redis) => {
-        const result = await redis.eval(
+        const result = (await redis.eval(
           FENCED_LOCK_SCRIPT,
           1,
           key,
           String(ttlMs),
           this.#workerId,
           fenceToken,
-        ) as [number, string | null];
+        )) as [number, string | null];
         return {
           acquired: result[0] === 1,
-          fenceToken: result[0] === 1 ? result[1] ?? fenceToken : undefined,
+          fenceToken: result[0] === 1 ? (result[1] ?? fenceToken) : undefined,
         };
       },
       async () => ({ acquired: false, fenceToken: undefined }),

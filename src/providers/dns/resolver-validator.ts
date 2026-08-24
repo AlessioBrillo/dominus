@@ -515,7 +515,8 @@ export async function validateRuntimeConsensusDisjointness(
       reason,
     );
   } else if (runtimeDegraded) {
-    reason = 'Runtime consensus validation incomplete — some legs did not answer probe queries (strict mode)';
+    reason =
+      'Runtime consensus validation incomplete — some legs did not answer probe queries (strict mode)';
     logger.warn(
       { overlapIPs: uniqueOverlapIPs, overlapOperators: uniqueOverlapOperators, partial },
       reason,

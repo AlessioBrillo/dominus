@@ -87,7 +87,11 @@ export class MockDatabaseProvider implements DatabaseProvider {
     return { acquired: true, fenceToken: 'mock-fence-token' };
   }
 
-  async renewLockWithFence(_lockName: string, _ttlMs: number, _fenceToken: string): Promise<boolean> {
+  async renewLockWithFence(
+    _lockName: string,
+    _ttlMs: number,
+    _fenceToken: string,
+  ): Promise<boolean> {
     this.#recordCall('renewLockWithFence', _lockName, [_ttlMs, _fenceToken]);
     return true;
   }

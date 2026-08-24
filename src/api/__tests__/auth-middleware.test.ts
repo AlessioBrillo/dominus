@@ -27,6 +27,9 @@ function makeMockDb(): DatabaseProvider {
     tryLock: vi.fn().mockResolvedValue(true),
     renewLock: vi.fn().mockResolvedValue(true),
     unlock: vi.fn().mockResolvedValue(undefined),
+    tryLockWithFence: vi.fn().mockResolvedValue({ acquired: true, fenceToken: 'mock-fence-token' }),
+    renewLockWithFence: vi.fn().mockResolvedValue(true),
+    unlockWithFence: vi.fn().mockResolvedValue(undefined),
   };
 }
 

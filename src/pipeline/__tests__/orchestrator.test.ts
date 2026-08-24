@@ -387,7 +387,9 @@ describe('PipelineOrchestrator', () => {
     const result = await orchestrator.run({ brandableNames: ['nova.com'] });
 
     expect(result.recommended).toHaveLength(1);
-    const lockCalls = db.calls.filter((c) => ['tryLockWithFence', 'renewLockWithFence', 'unlockWithFence'].includes(c.method));
+    const lockCalls = db.calls.filter((c) =>
+      ['tryLockWithFence', 'renewLockWithFence', 'unlockWithFence'].includes(c.method),
+    );
     expect(lockCalls.length).toBeGreaterThanOrEqual(2);
     expect(lockCalls[0]!.method).toBe('tryLockWithFence');
     expect(lockCalls[lockCalls.length - 1]!.method).toBe('unlockWithFence');

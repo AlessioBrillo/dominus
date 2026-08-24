@@ -606,8 +606,8 @@ export async function buildDnsConsensusConfig(
     );
     throw new Error(
       `DNS consensus gate invalid at bootstrap: ${reason}. ` +
-      `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
-      `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`
+        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+        `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`,
     );
   }
   if (report.resolutionPartial) {
@@ -717,8 +717,8 @@ export async function buildDnsConsensusConfig(
     // Operator must fix resolver topology or explicitly disable consensus.
     throw new Error(
       `DNS consensus gate invalid at bootstrap: ${reason}. ` +
-      `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
-      `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`
+        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+        `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`,
     );
   }
 
@@ -735,8 +735,8 @@ export async function buildDnsConsensusConfig(
     );
     throw new Error(
       'DNS consensus gate invalid at bootstrap: runtime validation incomplete in strict mode. ' +
-      'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
-      'or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive to allow degraded validation.'
+        'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
+        'or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive to allow degraded validation.',
     );
   }
 
@@ -849,8 +849,8 @@ async function buildTertiaryConsensusProvider(
     );
     throw new Error(
       `DNS tertiary consensus gate invalid at bootstrap: ${reason}. ` +
-      `Configure disjoint resolver sets (DNS_TERTIARY_NAMESERVERS) ` +
-      `or disable tertiary consensus (DNS_TERTIARY_ENABLED=false).`
+        `Configure disjoint resolver sets (DNS_TERTIARY_NAMESERVERS) ` +
+        `or disable tertiary consensus (DNS_TERTIARY_ENABLED=false).`,
     );
   }
 

@@ -2,6 +2,7 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   type DatabaseProvider,
   type ExecResult,
@@ -291,6 +292,79 @@ export class PooledSqliteProvider implements DatabaseProvider {
     }
   }
 
+  async tryLockWithFence(
+    lockName: string,
+    ttlMs: number,
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
+    const conn = this.#pool.acquire('write');
+    try {
+      const expiresAt = Date.now() + ttlMs;
+      const workerId = `pooled:${process.pid}`;
+      const fenceToken = randomUUID();
+      conn
+        .prepare(
+          "DELETE FROM pipeline_locks WHERE lock_name = ? AND expires_at < datetime(?, 'unixepoch')",
+        )
+        .run(lockName, Date.now() / 1000);
+      const result = conn
+        .prepare(
+          "INSERT OR IGNORE INTO pipeline_locks (lock_name, locked_at, expires_at, worker_id, fence_token) VALUES (?, datetime('now'), datetime(? / 1000, 'unixepoch'), ?, ?)",
+        )
+        .run(lockName, expiresAt, workerId, fenceToken);
+      if (result.changes > 0) {
+        return { acquired: true, fenceToken };
+      }
+      // Check if we already hold this lock
+      const existing = conn
+        .prepare(
+          "SELECT fence_token FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND expires_at >= datetime('now')",
+        )
+        .get(lockName, workerId) as { fence_token: string } | undefined;
+      if (existing?.fence_token) {
+        return { acquired: true, fenceToken: existing.fence_token };
+      }
+      return { acquired: false, fenceToken: undefined };
+    } catch {
+      return { acquired: false, fenceToken: undefined };
+    } finally {
+      this.#pool.release(conn);
+    }
+  }
+
+  async renewLockWithFence(lockName: string, ttlMs: number, fenceToken: string): Promise<boolean> {
+    const conn = this.#pool.acquire('write');
+    try {
+      const expiresAt = Date.now() + ttlMs;
+      const workerId = `pooled:${process.pid}`;
+      const result = conn
+        .prepare(
+          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch'), renewed_count = renewed_count + 1, last_renewed_at = datetime('now') WHERE lock_name = ? AND expires_at >= datetime('now') AND worker_id = ? AND fence_token = ?",
+        )
+        .run(expiresAt, lockName, workerId, fenceToken);
+      return result.changes > 0;
+    } catch {
+      return false;
+    } finally {
+      this.#pool.release(conn);
+    }
+  }
+
+  async unlockWithFence(lockName: string, fenceToken: string): Promise<void> {
+    const conn = this.#pool.acquire('write');
+    try {
+      const workerId = `pooled:${process.pid}`;
+      conn
+        .prepare(
+          'DELETE FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND fence_token = ?',
+        )
+        .run(lockName, workerId, fenceToken);
+    } catch {
+      // Non-fatal
+    } finally {
+      this.#pool.release(conn);
+    }
+  }
+
   #wrapError(err: unknown): DatabaseError {
     const message = err instanceof Error ? err.message : String(err);
     const errCode =
@@ -385,6 +459,25 @@ class ExecuteOnlyProvider implements DatabaseProvider {
   }
 
   async unlock(_lockName: string): Promise<void> {
+    throw new Error('lock not available on ExecuteOnlyProvider');
+  }
+
+  async tryLockWithFence(
+    _lockName: string,
+    _ttlMs: number,
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
+    throw new Error('lock not available on ExecuteOnlyProvider');
+  }
+
+  async renewLockWithFence(
+    _lockName: string,
+    _ttlMs: number,
+    _fenceToken: string,
+  ): Promise<boolean> {
+    throw new Error('lock not available on ExecuteOnlyProvider');
+  }
+
+  async unlockWithFence(_lockName: string, _fenceToken: string): Promise<void> {
     throw new Error('lock not available on ExecuteOnlyProvider');
   }
 }

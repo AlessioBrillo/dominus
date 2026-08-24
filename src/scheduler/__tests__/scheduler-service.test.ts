@@ -255,6 +255,9 @@ function makeLock(acquired: boolean): LockProvider {
     tryLock: vi.fn().mockResolvedValue(acquired),
     renewLock: vi.fn().mockResolvedValue(true),
     unlock: vi.fn().mockResolvedValue(undefined),
+    tryLockWithFence: vi.fn().mockResolvedValue({ acquired: true, fenceToken: 'mock-fence-token' }),
+    renewLockWithFence: vi.fn().mockResolvedValue(true),
+    unlockWithFence: vi.fn().mockResolvedValue(undefined),
   } as unknown as LockProvider;
 }
 

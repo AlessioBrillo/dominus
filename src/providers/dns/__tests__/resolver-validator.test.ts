@@ -470,7 +470,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const primary = fakeProvider(['1.1.1.1']);
       const consensus = fakeProvider([]); // No nameservers returned
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined, 'permissive');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus,
+        undefined,
+        'permissive',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(true); // Gate stays enabled in permissive mode
@@ -481,7 +486,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const primary = fakeProvider(['1.1.1.1']);
       const consensus = fakeProvider([]); // No nameservers returned
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined, 'strict');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus,
+        undefined,
+        'strict',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(false); // Gate vetoed in strict mode
@@ -493,7 +503,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const primary = fakeProvider(['1.1.1.1']);
       const consensus = failingProvider();
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus as DnsProvider, undefined, 'permissive');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus as DnsProvider,
+        undefined,
+        'permissive',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(true); // Gate stays enabled in permissive mode
@@ -504,7 +519,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const primary = fakeProvider(['1.1.1.1']);
       const consensus = failingProvider();
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus as DnsProvider, undefined, 'strict');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus as DnsProvider,
+        undefined,
+        'strict',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(false);
@@ -517,7 +537,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const consensus = fakeProvider(['9.9.9.9']);
       const tertiary = fakeProvider([]); // Partial
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary, 'strict');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus,
+        tertiary,
+        'strict',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(false);
@@ -529,7 +554,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const consensus = fakeProvider(['9.9.9.9']);
       const tertiary = fakeProvider([]); // Partial
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary, 'permissive');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus,
+        tertiary,
+        'permissive',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(true); // No overlap, gate enabled
@@ -540,7 +570,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const primary = fakeProvider(['1.1.1.1']);
       const consensus = fakeProvider(['1.1.1.1']); // Actual overlap
 
-      const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined, 'strict');
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus,
+        undefined,
+        'strict',
+      );
 
       expect(report.ok).toBe(false);
       expect(report.overlapIPs).toContain('1.1.1.1');

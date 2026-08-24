@@ -32,16 +32,28 @@ describe('DNS Tertiary Leg Hardening (ADR-0064/0065)', () => {
 
   describe('doh-tertiary strategy — three operators for fault tolerance', () => {
     it('returns THREE resolver groups (not two) for majority vote resilience', () => {
-      const groups = strategyToResolverGroups('doh-tertiary', 'https://cloudflare-dns.com/dns-query');
+      const groups = strategyToResolverGroups(
+        'doh-tertiary',
+        'https://cloudflare-dns.com/dns-query',
+      );
       expect(groups).toHaveLength(1);
       expect(groups[0]!.name).toBe('multi-doh-tertiary');
       expect(groups[0]!.lookups).toHaveLength(3); // Was 2, now 3 for fault tolerance
     });
 
     it('operators are genuinely disjoint from primary (CF/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS)', () => {
-      const primaryGroups = strategyToResolverGroups('doh-primary', 'https://cloudflare-dns.com/dns-query');
-      const consensusGroups = strategyToResolverGroups('dot-consensus', 'https://cloudflare-dns.com/dns-query');
-      const tertiaryGroups = strategyToResolverGroups('doh-tertiary', 'https://cloudflare-dns.com/dns-query');
+      const primaryGroups = strategyToResolverGroups(
+        'doh-primary',
+        'https://cloudflare-dns.com/dns-query',
+      );
+      const consensusGroups = strategyToResolverGroups(
+        'dot-consensus',
+        'https://cloudflare-dns.com/dns-query',
+      );
+      const tertiaryGroups = strategyToResolverGroups(
+        'doh-tertiary',
+        'https://cloudflare-dns.com/dns-query',
+      );
 
       const primaryEndpoints = collectResolverEndpoints(primaryGroups);
       const consensusEndpoints = collectResolverEndpoints(consensusGroups);
@@ -58,7 +70,10 @@ describe('DNS Tertiary Leg Hardening (ADR-0064/0065)', () => {
     });
 
     it('three operators = majority vote (2/3) + 2 breaker circuits', () => {
-      const groups = strategyToResolverGroups('doh-tertiary', 'https://cloudflare-dns.com/dns-query');
+      const groups = strategyToResolverGroups(
+        'doh-tertiary',
+        'https://cloudflare-dns.com/dns-query',
+      );
       const lookups = groups[0]!.lookups;
 
       // Must have exactly 3 lookups from 3 different operators
@@ -121,10 +136,7 @@ describe('DNS Tertiary Leg Hardening (ADR-0064/0065)', () => {
   describe('Tertiary provider construction — isolated budget', () => {
     it('DNS_TERTIARY_RATE_LIMIT_TOKENS and DNS_TERTIARY_BULK_CONCURRENCY env vars exist in config', async () => {
       const { loadConfig, resetConfig } = await import('../../../config.js');
-      const saved = [
-        'DNS_TERTIARY_RATE_LIMIT_TOKENS',
-        'DNS_TERTIARY_BULK_CONCURRENCY',
-      ] as const;
+      const saved = ['DNS_TERTIARY_RATE_LIMIT_TOKENS', 'DNS_TERTIARY_BULK_CONCURRENCY'] as const;
       try {
         for (const k of saved) delete process.env[k];
         process.env.DNS_TERTIARY_RATE_LIMIT_TOKENS = '10';
@@ -155,7 +167,11 @@ describe('DNS Tertiary Leg Hardening (ADR-0064/0065)', () => {
           return { domain, status: DomainStatus.Available, checkedAt: new Date().toISOString() };
         }),
         checkBulk: vi.fn().mockImplementation(async (domains: string[]) => {
-          return domains.map((d) => ({ domain: d, status: DomainStatus.Available, checkedAt: new Date().toISOString() }));
+          return domains.map((d) => ({
+            domain: d,
+            status: DomainStatus.Available,
+            checkedAt: new Date().toISOString(),
+          }));
         }),
         clearCache: vi.fn(),
         pruneCache: vi.fn().mockReturnValue(0),
@@ -177,8 +193,14 @@ describe('DNS Tertiary Leg Hardening (ADR-0064/0065)', () => {
   describe('Boot-time disjointness validation includes tertiary', () => {
     it('validateConsensusDisjointness checks tertiary against primary AND consensus', async () => {
       const { validateConsensusDisjointness } = await import('../resolver-validator.js');
-      const primaryGroups = strategyToResolverGroups('doh-primary', 'https://cloudflare-dns.com/dns-query');
-      const consensusGroups = strategyToResolverGroups('dot-consensus', 'https://cloudflare-dns.com/dns-query');
+      const primaryGroups = strategyToResolverGroups(
+        'doh-primary',
+        'https://cloudflare-dns.com/dns-query',
+      );
+      const consensusGroups = strategyToResolverGroups(
+        'dot-consensus',
+        'https://cloudflare-dns.com/dns-query',
+      );
       // tertiaryGroups would be used when the function supports tertiary validation
       // const tertiaryGroups = strategyToResolverGroups('doh-tertiary', 'https://cloudflare-dns.com/dns-query');
 

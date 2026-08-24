@@ -638,14 +638,26 @@ const configSchema = z
      */
     DNS_TERTIARY_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(1000).optional().default(10),
     /** Rate limiting: refill interval in ms for tertiary DNS requests (default: 1000). */
-    DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS: z.coerce.number().int().min(100).max(60000).optional().default(1000),
+    DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .default(1000),
     /**
      * Per-tenant fair share (Cloud only, ADR-0041): max tertiary DNS tokens
      * per tenant per DNS_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS, enforced
      * on top of the shared platform tertiary bucket when Redis is the rate
      * limiter and PROVIDER_FAIR_SHARE_ENABLED is on.
      */
-    DNS_TERTIARY_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce.number().int().min(1).max(1000).optional().default(3),
+    DNS_TERTIARY_RATE_LIMIT_PER_TENANT_TOKENS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .default(3),
     /** Per-tenant fair share: refill interval in ms for the tertiary tenant window (default: 1000). */
     DNS_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS: z.coerce
       .number()
@@ -747,7 +759,7 @@ const configSchema = z
      */
     DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z
       .enum(['strict', 'permissive'])
-      .default(() => process.env.DATABASE_URL ? 'strict' : 'permissive'),
+      .default(() => (process.env.DATABASE_URL ? 'strict' : 'permissive')),
     /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
@@ -760,7 +772,13 @@ const configSchema = z
      * Must be shorter than DNS_LOOKUP_TIMEOUT_MS to avoid slowing boot.
      * Default: 2000.
      */
-    DNS_CONSENSUS_VALIDATION_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).optional().default(2000),
+    DNS_CONSENSUS_VALIDATION_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(500)
+      .max(10000)
+      .optional()
+      .default(2000),
     /**
      * Per-endpoint circuit breaker for the DNS layer (ADR-0059). DNS is the
      * last provider without circuit protection: RDAP and WHOIS trip on
@@ -1475,7 +1493,13 @@ const configSchema = z
      * faster recovery after a crash but more frequent renewals.
      * Default: 120_000 (2 minutes).
      */
-    PIPELINE_LOCK_TTL_MS: z.coerce.number().int().min(10_000).max(600_000).default(120_000),
+    PIPELINE_LOCK_TTL_MS: z.coerce
+      .number()
+      .int()
+      .min(10_000)
+      .max(600_000)
+      .default(120_000)
+      .optional(),
 
     /**
      * Heartbeat interval for pipeline lock renewal in milliseconds.
@@ -1483,7 +1507,13 @@ const configSchema = z
      * the lock is renewed before expiry.
      * Default: 30_000 (30 seconds).
      */
-    PIPELINE_LOCK_HEARTBEAT_MS: z.coerce.number().int().min(5_000).max(300_000).default(30_000),
+    PIPELINE_LOCK_HEARTBEAT_MS: z.coerce
+      .number()
+      .int()
+      .min(5_000)
+      .max(300_000)
+      .default(30_000)
+      .optional(),
 
     /**
      * Persist per-stage pipeline checkpoints to the database so interrupted

@@ -336,7 +336,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     // violating ADR-0002 conservatism. The pipeline must not run without independent confirmation.
     if (this.consensusConfig.disabled) {
       const reason = this.consensusConfig.disableReason ?? 'runtime disjointness failure';
-      const msg = `DNS consensus gate disabled at startup: ${reason}. ` +
+      const msg =
+        `DNS consensus gate disabled at startup: ${reason}. ` +
         `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
         `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`;
       logger.fatal({ reason }, msg);
@@ -350,7 +351,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         reason: 'consensus-runtime-degraded',
         processedCount: 0,
         expectedCount: 0,
-        message: 'DNS consensus gate running with incomplete runtime validation (strict mode) — independence proof incomplete',
+        message:
+          'DNS consensus gate running with incomplete runtime validation (strict mode) — independence proof incomplete',
       });
       if (consensusStats !== undefined) consensusStats.degraded = true;
       logger.warn(

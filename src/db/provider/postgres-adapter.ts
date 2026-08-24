@@ -128,7 +128,7 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
   async function tryLockWithFence(
     lockName: string,
     ttlMs: number,
-  ): Promise<{ acquired: boolean; fenceToken?: string }> {
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
     try {
       await queryFn(`DELETE FROM pipeline_locks WHERE lock_name = $1 AND expires_at < NOW()`, [
         lockName,
@@ -141,23 +141,39 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
         [lockName, ttlMs, workerId(lockName), fenceToken],
       );
       if ((result.rowCount ?? 0) > 0) {
-        return { acquired: true, fenceToken } as { acquired: boolean; fenceToken: string | undefined };
+        return { acquired: true, fenceToken } as {
+          acquired: boolean;
+          fenceToken: string | undefined;
+        };
       }
       // Check if we already hold this lock
       const existing = await queryFn(
         'SELECT fence_token FROM pipeline_locks WHERE lock_name = $1 AND worker_id = $2 AND expires_at >= NOW()',
         [lockName, workerId(lockName)],
       );
-      if (existing.length > 0 && existing[0].fence_token) {
-        return { acquired: true, fenceToken: existing[0].fence_token } as { acquired: boolean; fenceToken: string | undefined };
+      if (existing.rows.length > 0 && existing.rows[0].fence_token) {
+        return { acquired: true, fenceToken: existing.rows[0].fence_token } as {
+          acquired: boolean;
+          fenceToken: string | undefined;
+        };
       }
-      return { acquired: false, fenceToken: undefined } as { acquired: boolean; fenceToken: string | undefined };
+      return { acquired: false, fenceToken: undefined } as {
+        acquired: boolean;
+        fenceToken: string | undefined;
+      };
     } catch {
-      return { acquired: false, fenceToken: undefined } as { acquired: boolean; fenceToken: string | undefined };
+      return { acquired: false, fenceToken: undefined } as {
+        acquired: boolean;
+        fenceToken: string | undefined;
+      };
     }
   }
 
-  async function renewLockWithFence(lockName: string, ttlMs: number, fenceToken: string): Promise<boolean> {
+  async function renewLockWithFence(
+    lockName: string,
+    ttlMs: number,
+    fenceToken: string,
+  ): Promise<boolean> {
     try {
       const result = await queryFn(
         `UPDATE pipeline_locks SET expires_at = NOW() + $2::integer * INTERVAL '1 millisecond', renewed_count = renewed_count + 1, last_renewed_at = NOW() WHERE lock_name = $1 AND expires_at >= NOW() AND worker_id = $3 AND fence_token = $4`,
@@ -171,17 +187,26 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
 
   async function unlockWithFence(lockName: string, fenceToken: string): Promise<void> {
     try {
-      await queryFn('DELETE FROM pipeline_locks WHERE lock_name = $1 AND worker_id = $2 AND fence_token = $3', [
-        lockName,
-        workerId(lockName),
-        fenceToken,
-      ]);
+      await queryFn(
+        'DELETE FROM pipeline_locks WHERE lock_name = $1 AND worker_id = $2 AND fence_token = $3',
+        [lockName, workerId(lockName), fenceToken],
+      );
     } catch {
       // Non-fatal
     }
   }
 
-  return { exec, query, queryOne, tryLock, renewLock, unlock, tryLockWithFence, renewLockWithFence, unlockWithFence };
+  return {
+    exec,
+    query,
+    queryOne,
+    tryLock,
+    renewLock,
+    unlock,
+    tryLockWithFence,
+    renewLockWithFence,
+    unlockWithFence,
+  };
 }
 
 function wrapError(err: unknown): DatabaseError {
@@ -405,11 +430,14 @@ export class PostgresAdapter implements DatabaseProvider {
   async tryLockWithFence(
     lockName: string,
     ttlMs: number,
-  ): Promise<{ acquired: boolean; fenceToken?: string }> {
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
     try {
       return await this.#withConnection((e) => e.tryLockWithFence(lockName, ttlMs));
     } catch {
-      return { acquired: false, fenceToken: undefined } as { acquired: boolean; fenceToken: string | undefined };
+      return { acquired: false, fenceToken: undefined } as {
+        acquired: boolean;
+        fenceToken: string | undefined;
+      };
     }
   }
 
@@ -540,12 +568,15 @@ class PostgresTransactionAdapter implements DatabaseProvider {
   async tryLockWithFence(
     lockName: string,
     ttlMs: number,
-  ): Promise<{ acquired: boolean; fenceToken?: string }> {
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
     try {
       await this.#ensureTenantConfig();
       return await this.#executor.tryLockWithFence(lockName, ttlMs);
     } catch {
-      return { acquired: false, fenceToken: undefined } as { acquired: boolean; fenceToken: string | undefined };
+      return { acquired: false, fenceToken: undefined } as {
+        acquired: boolean;
+        fenceToken: string | undefined;
+      };
     }
   }
 

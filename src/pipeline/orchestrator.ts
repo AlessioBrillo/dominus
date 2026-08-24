@@ -174,7 +174,7 @@ export class PipelineOrchestrator {
    *  every tenant's run would be a cross-tenant bug. */
   #heartbeatTenant: string | null = null;
   /** Fence token for the current pipeline lock (split-brain prevention). */
-  #heartbeatFenceToken: string | null = null;
+  #heartbeatFenceToken: string | undefined = undefined;
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -291,7 +291,9 @@ export class PipelineOrchestrator {
       // Lock held exclusively — double-check that no local run is active
       // (defensive: should never trigger inside the lock).
       if (this.#activeTenants.has(tenantId)) {
-        await this.#lock.unlockWithFence(pipelineLockName(), lockResult.fenceToken!).catch(() => {});
+        await this.#lock
+          .unlockWithFence(pipelineLockName(), lockResult.fenceToken!)
+          .catch(() => {});
         throw new Error(
           `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
         );
@@ -312,7 +314,9 @@ export class PipelineOrchestrator {
     } finally {
       this.#stopHeartbeat();
       if (this.#lock && this.#heartbeatFenceToken) {
-        await this.#lock.unlockWithFence(pipelineLockName(), this.#heartbeatFenceToken).catch(() => {});
+        await this.#lock
+          .unlockWithFence(pipelineLockName(), this.#heartbeatFenceToken)
+          .catch(() => {});
         logger.info({ workerId: process.pid }, 'Pipeline advisory lock released');
       }
       if (this.#checkpointStore && externalRunId) {
@@ -320,7 +324,7 @@ export class PipelineOrchestrator {
       }
       this.#runControllers.delete(tenantId);
       this.#activeTenants.delete(tenantId);
-      this.#heartbeatFenceToken = null;
+      this.#heartbeatFenceToken = undefined;
     }
   }
 
@@ -358,7 +362,9 @@ export class PipelineOrchestrator {
       // so the lock key must come from the captured tenant, not from
       // resolveTenantId() (which would renew 'pipeline_run:default').
       const lockKey = pipelineLockName(this.#heartbeatTenant ?? tenantId);
-      const renewed = await this.#lock.renewLockWithFence(lockKey, this.lockTtlMs, this.#heartbeatFenceToken).catch(() => false);
+      const renewed = await this.#lock
+        .renewLockWithFence(lockKey, this.lockTtlMs, this.#heartbeatFenceToken)
+        .catch(() => false);
       if (renewed) {
         this.#heartbeatFailures = 0;
       } else {
