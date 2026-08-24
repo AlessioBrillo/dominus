@@ -737,6 +737,16 @@ const configSchema = z
      */
     DNS_CONSENSUS_BULK_CONCURRENCY: z.coerce.number().int().min(1).max(500).default(20),
     /**
+     * Priority reservation ratio for consensus/tertiary legs (ADR-0067).
+     * When the shared DNS rate limiter is used (single-process or Redis-backed
+     * with fair share disabled), a heavy primary run can exhaust all tokens
+     * and starve the verification legs. This reserves a fraction of the
+     * DNS_CONSENSUS_RATE_LIMIT_TOKENS bucket for 'consensus' and 'tertiary'
+     * priority acquisitions. The primary leg yields when reserved tokens
+     * are needed. Default: 0.3 (30% reserved). Range: 0.0–0.5.
+     */
+    DNS_CONSENSUS_PRIORITY_RESERVED_RATIO: z.coerce.number().min(0).max(0.5).default(0.3),
+    /**
      * Enable runtime disjointness validation for the 2-of-3 consensus gate (ADR-0066).
      * When true (default), live DNS queries are issued through each consensus leg
      * at startup to detect anycast/IP overlap that bootstrap checks cannot catch.

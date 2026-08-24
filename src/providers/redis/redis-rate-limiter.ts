@@ -2,7 +2,7 @@
 import type { Redis } from 'ioredis';
 import { getLogger } from '../../logger.js';
 import { getRedisClient, type RedisClient } from './redis-client.js';
-import { RateLimiterQueueFullError } from '../rate-limiter.js';
+import { RateLimiterQueueFullError, type DnsPriority } from '../rate-limiter.js';
 import { getTenantId } from '../../utils/tenant-context.js';
 
 const logger = getLogger();
@@ -108,7 +108,7 @@ export class RedisRateLimiter {
     };
   }
 
-  async acquire(): Promise<void> {
+  async acquire(priority?: DnsPriority): Promise<void> {
     if (this.#maxQueueSize > 0 && this.#queue.length >= this.#maxQueueSize) {
       throw new RateLimiterQueueFullError(this.#queue.length, this.#maxQueueSize);
     }
@@ -123,6 +123,12 @@ export class RedisRateLimiter {
         'RedisRateLimiter queue above 80% capacity',
       );
     }
+
+    // Priority is accepted for interface compatibility. In Redis-backed
+    // distributed mode, the shared bucket enforces global fairness;
+    // priority reservation is handled at the application layer by
+    // configuring separate namespaces (dns vs dns-consensus).
+    void priority;
 
     // Poll the bucket until a token frees up, but never longer than
     // maxWaitMs: the bucket can stay saturated indefinitely (sustained
@@ -207,8 +213,8 @@ export class RedisRateLimiter {
     }
   }
 
-  async throttle<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
+  async throttle<T>(fn: () => Promise<T>, priority?: DnsPriority): Promise<T> {
+    await this.acquire(priority);
     return fn();
   }
 

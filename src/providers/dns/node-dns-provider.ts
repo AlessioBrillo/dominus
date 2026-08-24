@@ -857,10 +857,10 @@ export class NodeDnsProvider implements DnsProvider {
       let dnssecStatus: DnsCheckResult['dnssec'] = 'unchecked';
 
       if (this.#rateLimiter && this.#retryPolicy) {
-        await this.#rateLimiter.acquire();
+        await this.#rateLimiter.acquire(this.#legRole);
         resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, undefined);
       } else if (this.#rateLimiter) {
-        await this.#rateLimiter.acquire();
+        await this.#rateLimiter.acquire(this.#legRole);
         resolved = await resolveFn(undefined);
       } else if (this.#retryPolicy) {
         resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, undefined);
@@ -889,7 +889,7 @@ export class NodeDnsProvider implements DnsProvider {
 
         if (resolved && this.#parkingEnabled) {
           try {
-            if (this.#rateLimiter) await this.#rateLimiter.acquire();
+            if (this.#rateLimiter) await this.#rateLimiter.acquire(this.#legRole);
             const addresses = await resolveAddressRecords(
               domain,
               this.#lookupTimeoutMs,
