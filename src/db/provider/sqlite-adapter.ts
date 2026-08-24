@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { getLogger } from '../../logger.js';
 import type { DatabaseProvider, ExecResult, BackupResult } from './interface.js';
 import { DatabaseError } from './interface.js';
@@ -216,6 +217,71 @@ export class SqliteProvider implements DatabaseProvider {
       this.#db
         .prepare('DELETE FROM pipeline_locks WHERE lock_name = ? AND worker_id = ?')
         .run(lockName, workerId);
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  async tryLockWithFence(
+    lockName: string,
+    ttlMs: number,
+  ): Promise<{ acquired: boolean; fenceToken?: string }> {
+    const expiresAt = Date.now() + ttlMs;
+    const workerId = this.#workerId(lockName);
+    const fenceToken = randomUUID();
+    try {
+      // Clear expired locks first (best-effort, non-blocking cleanup)
+      this.#db
+        .prepare(
+          "DELETE FROM pipeline_locks WHERE lock_name = ? AND expires_at < datetime(?, 'unixepoch')",
+        )
+        .run(lockName, Date.now() / 1000);
+      // Attempt to acquire the lock with worker_id and fence_token
+      const result = this.#db
+        .prepare(
+          "INSERT OR IGNORE INTO pipeline_locks (lock_name, locked_at, expires_at, worker_id, fence_token) VALUES (?, datetime('now'), datetime(? / 1000, 'unixepoch'), ?, ?)",
+        )
+        .run(lockName, expiresAt, workerId, fenceToken);
+      if (result.changes > 0) {
+        return { acquired: true, fenceToken };
+      }
+      // Check if we already hold this lock (same worker, same fence token)
+      const existing = this.#db
+        .prepare(
+          'SELECT fence_token FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND expires_at >= datetime(\'now\')',
+        )
+        .get(lockName, workerId) as { fence_token: string } | undefined;
+      if (existing?.fence_token) {
+        // We already hold the lock, return the existing fence token
+        return { acquired: true, fenceToken: existing.fence_token };
+      }
+      return { acquired: false, fenceToken: undefined };
+    } catch {
+      return { acquired: false, fenceToken: undefined };
+    }
+  }
+
+  async renewLockWithFence(lockName: string, ttlMs: number, fenceToken: string): Promise<boolean> {
+    try {
+      const expiresAt = Date.now() + ttlMs;
+      const workerId = this.#workerId(lockName);
+      const result = this.#db
+        .prepare(
+          "UPDATE pipeline_locks SET expires_at = datetime(? / 1000, 'unixepoch'), renewed_count = renewed_count + 1, last_renewed_at = datetime('now') WHERE lock_name = ? AND expires_at >= datetime('now') AND worker_id = ? AND fence_token = ?",
+        )
+        .run(expiresAt, lockName, workerId, fenceToken);
+      return result.changes > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async unlockWithFence(lockName: string, fenceToken: string): Promise<void> {
+    try {
+      const workerId = this.#workerId(lockName);
+      this.#db
+        .prepare('DELETE FROM pipeline_locks WHERE lock_name = ? AND worker_id = ? AND fence_token = ?')
+        .run(lockName, workerId, fenceToken);
     } catch {
       // Non-fatal
     }

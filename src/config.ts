@@ -1470,6 +1470,22 @@ const configSchema = z
     PIPELINE_TIMEOUT_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
 
     /**
+     * TTL for the pipeline advisory lock in milliseconds.
+     * The lock is renewed periodically via heartbeat. A shorter TTL means
+     * faster recovery after a crash but more frequent renewals.
+     * Default: 120_000 (2 minutes).
+     */
+    PIPELINE_LOCK_TTL_MS: z.coerce.number().int().min(10_000).max(600_000).default(120_000),
+
+    /**
+     * Heartbeat interval for pipeline lock renewal in milliseconds.
+     * Must be significantly shorter than PIPELINE_LOCK_TTL_MS to ensure
+     * the lock is renewed before expiry.
+     * Default: 30_000 (30 seconds).
+     */
+    PIPELINE_LOCK_HEARTBEAT_MS: z.coerce.number().int().min(5_000).max(300_000).default(30_000),
+
+    /**
      * Persist per-stage pipeline checkpoints to the database so interrupted
      * runs resume from the last completed stage instead of restarting.
      * Uses the pipeline_checkpoints table (SQLite and PostgreSQL).

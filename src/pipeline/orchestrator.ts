@@ -137,16 +137,6 @@ function pipelineLockName(tenantId: string = resolveTenantId()): string {
 }
 
 /**
- * TTL for the pipeline advisory lock, in milliseconds.
- * Kept intentionally short (2 min) — a heartbeat loop renews it every 60s
- * so the lock only lives ~2 min after the process crashes.
- */
-const PIPELINE_LOCK_TTL_MS = 120_000;
-
-/** Heartbeat interval for lock renewal (every 30s, well within the 120s TTL). */
-const PIPELINE_LOCK_HEARTBEAT_MS = 30_000;
-
-/**
  * Maximum number of retry attempts for transient stage failures.
  */
 const STAGE_RETRY_MAX = 3;
@@ -183,6 +173,8 @@ export class PipelineOrchestrator {
    *  key (e.g. the ambient 'default' outside runWithTenant) or aborting
    *  every tenant's run would be a cross-tenant bug. */
   #heartbeatTenant: string | null = null;
+  /** Fence token for the current pipeline lock (split-brain prevention). */
+  #heartbeatFenceToken: string | null = null;
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -232,6 +224,10 @@ export class PipelineOrchestrator {
      *  partial results, otherwise the stage degrades with empty results and
      *  the run is marked {@link StageDegradationReason timeout}. */
     private readonly stageBudget: StageBudgetOptions = {},
+    /** Pipeline lock TTL in milliseconds (configurable via PIPELINE_LOCK_TTL_MS). */
+    private readonly lockTtlMs: number = 120_000,
+    /** Pipeline lock heartbeat interval in milliseconds (configurable via PIPELINE_LOCK_HEARTBEAT_MS). */
+    private readonly lockHeartbeatMs: number = 30_000,
   ) {
     this.#lock = lockProvider ?? db ?? null;
     this.#checkpointStore = checkpointStore ?? null;
@@ -284,8 +280,8 @@ export class PipelineOrchestrator {
     // ---- Tenant admission: serialised via advisory lock or in-process mutex ----
     if (this.#lock) {
       // Distributed lock — serialises across all instances.
-      const acquired = await this.#lock.tryLock(pipelineLockName(), PIPELINE_LOCK_TTL_MS);
-      if (!acquired) {
+      const lockResult = await this.#lock.tryLockWithFence(pipelineLockName(), this.lockTtlMs);
+      if (!lockResult.acquired) {
         throw new Error(
           'Pipeline run already in progress on another instance — ' +
             `advisory lock '${pipelineLockName()}' could not be acquired. ` +
@@ -295,13 +291,14 @@ export class PipelineOrchestrator {
       // Lock held exclusively — double-check that no local run is active
       // (defensive: should never trigger inside the lock).
       if (this.#activeTenants.has(tenantId)) {
-        await this.#lock.unlock(pipelineLockName()).catch(() => {});
+        await this.#lock.unlockWithFence(pipelineLockName(), lockResult.fenceToken!).catch(() => {});
         throw new Error(
           `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
         );
       }
       this.#activeTenants.add(tenantId);
       this.#runControllers.set(tenantId, controller);
+      this.#heartbeatFenceToken = lockResult.fenceToken;
       logger.info({ workerId: process.pid }, 'Pipeline advisory lock acquired');
       this.#startHeartbeat(tenantId);
     } else {
@@ -314,8 +311,8 @@ export class PipelineOrchestrator {
       return await this.#runInternal(input, controller, tenantId, externalRunId);
     } finally {
       this.#stopHeartbeat();
-      if (this.#lock) {
-        await this.#lock.unlock(pipelineLockName()).catch(() => {});
+      if (this.#lock && this.#heartbeatFenceToken) {
+        await this.#lock.unlockWithFence(pipelineLockName(), this.#heartbeatFenceToken).catch(() => {});
         logger.info({ workerId: process.pid }, 'Pipeline advisory lock released');
       }
       if (this.#checkpointStore && externalRunId) {
@@ -323,6 +320,7 @@ export class PipelineOrchestrator {
       }
       this.#runControllers.delete(tenantId);
       this.#activeTenants.delete(tenantId);
+      this.#heartbeatFenceToken = null;
     }
   }
 
@@ -355,12 +353,12 @@ export class PipelineOrchestrator {
     this.#heartbeatFailures = 0;
     this.#heartbeatTenant = tenantId;
     this.#heartbeatTimer = setInterval(async () => {
-      if (!this.#lock) return;
+      if (!this.#lock || !this.#heartbeatFenceToken) return;
       // The interval callback runs outside the caller's runWithTenant scope,
       // so the lock key must come from the captured tenant, not from
       // resolveTenantId() (which would renew 'pipeline_run:default').
       const lockKey = pipelineLockName(this.#heartbeatTenant ?? tenantId);
-      const renewed = await this.#lock.renewLock(lockKey, PIPELINE_LOCK_TTL_MS).catch(() => false);
+      const renewed = await this.#lock.renewLockWithFence(lockKey, this.lockTtlMs, this.#heartbeatFenceToken).catch(() => false);
       if (renewed) {
         this.#heartbeatFailures = 0;
       } else {
@@ -382,13 +380,13 @@ export class PipelineOrchestrator {
           );
         }
       }
-    }, PIPELINE_LOCK_HEARTBEAT_MS).unref();
+    }, this.lockHeartbeatMs).unref();
   }
 
   async #ensureLockHeld(key: string): Promise<void> {
-    if (!this.#lock) return;
+    if (!this.#lock || !this.#heartbeatFenceToken) return;
     const renewed = await this.#lock
-      .renewLock(pipelineLockName(key), PIPELINE_LOCK_TTL_MS)
+      .renewLockWithFence(pipelineLockName(key), this.lockTtlMs, this.#heartbeatFenceToken)
       .catch(() => false);
     if (!renewed) {
       this.#runControllers.get(key)?.abort();

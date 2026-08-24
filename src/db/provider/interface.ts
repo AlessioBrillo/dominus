@@ -55,4 +55,28 @@ export interface DatabaseProvider {
 
   /** Release a previously acquired advisory lock. */
   unlock(lockName: string): Promise<void>;
+
+  /**
+   * Acquire a named advisory lock with a fencing token.
+   * Returns { acquired: true, fenceToken } on success,
+   * { acquired: false, fenceToken: undefined } on failure.
+   * The fenceToken must be presented to renewLockWithFence and unlockWithFence
+   * to prevent split-brain scenarios.
+   */
+  tryLockWithFence(
+    lockName: string,
+    ttlMs: number,
+  ): Promise<{ acquired: boolean; fenceToken: string | undefined }>;
+
+  /**
+   * Renew an already-held advisory lock using the fence token.
+   * Returns true if renewal succeeded (token matches current holder), false otherwise.
+   */
+  renewLockWithFence(lockName: string, ttlMs: number, fenceToken: string): Promise<boolean>;
+
+  /**
+   * Release a previously acquired advisory lock using the fence token.
+   * Only succeeds if the fenceToken matches the current lock holder.
+   */
+  unlockWithFence(lockName: string, fenceToken: string): Promise<void>;
 }
