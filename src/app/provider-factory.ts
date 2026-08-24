@@ -30,7 +30,11 @@ import {
   type RuntimeConsensusReport,
   type RuntimeValidationMode,
 } from '../providers/dns/resolver-validator.js';
-import { RateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
+import {
+  RateLimiter,
+  PriorityRateLimiter,
+  type RateLimiterLike,
+} from '../providers/rate-limiter.js';
 import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
 import {
   RedisRateLimiter,
@@ -1140,13 +1144,18 @@ export interface BuiltRateLimiters {
  * the two providers' budgets would count against each other. Uses the
  * DNS_CONSENSUS_RATE_LIMIT_* tuning, a `dns-consensus` Redis namespace in
  * cloud mode, and the same per-tenant fair share as the primary (ADR-0041).
+ * In-memory mode uses PriorityRateLimiter (ADR-0067) to reserve tokens for
+ * consensus/tertiary legs.
  */
 export function buildConsensusRateLimiter(
   config: Config,
   redisClient?: RedisClient,
 ): RateLimiterLike {
   const fairShare = config.PROVIDER_FAIR_SHARE_ENABLED;
+  const reservedRatio = config.DNS_CONSENSUS_PRIORITY_RESERVED_RATIO;
   if (redisClient?.isConnected) {
+    // Redis-backed: priority is handled by separate namespace isolation
+    // (dns vs dns-consensus). The reservedRatio config applies to in-memory only.
     return new RedisRateLimiter(
       {
         tokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
@@ -1163,11 +1172,14 @@ export function buildConsensusRateLimiter(
       redisClient,
     );
   }
-  return new RateLimiter({
-    maxTokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
-    tokensPerInterval: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
-    intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
-  });
+  return new PriorityRateLimiter(
+    {
+      maxTokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
+      tokensPerInterval: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS,
+      intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
+    },
+    reservedRatio,
+  );
 }
 
 export function buildRateLimiters(config: Config, redisClient?: RedisClient): BuiltRateLimiters {
