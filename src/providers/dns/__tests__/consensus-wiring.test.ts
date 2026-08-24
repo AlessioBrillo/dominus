@@ -92,6 +92,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       // consensus pin, silently disabling consensus in the turnkey topology.
       // Boot-equivalent regression: feed the override env through the real
       // config loader and assert the gate is actually constructed.
+      // Use distinct recursors for primary and consensus to avoid static overlap.
       const keys = [
         'DNS_NAMESERVERS',
         'DNS_CONSENSUS_ENABLED',
@@ -102,7 +103,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         for (const k of keys) delete process.env[k];
         process.env.DNS_NAMESERVERS = '172.20.0.10:5300';
         process.env.DNS_CONSENSUS_ENABLED = 'true';
-        process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.10:5300';
+        process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.11:5300'; // Distinct recursor
         resetConfig();
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);
@@ -125,21 +126,24 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       // silently remove the tertiary opinion (ADR-0065). Boot-equivalent
       // regression: the leg is vetoed at runtime on any overlap, so assert the
       // 2-of-3 gate still constructs with a tertiary provider attached.
+      // Use distinct recursors for primary, consensus, and tertiary to avoid static overlap.
       const keys = [
         'DNS_NAMESERVERS',
         'DNS_CONSENSUS_ENABLED',
         'DNS_CONSENSUS_NAMESERVERS',
         'DNS_TERTIARY_ENABLED',
         'DNS_TERTIARY_STRATEGY',
+        'DNS_TERTIARY_NAMESERVERS',
       ] as const;
       const saved = keys.map((k) => [k, process.env[k]] as const);
       try {
         for (const k of keys) delete process.env[k];
         process.env.DNS_NAMESERVERS = '172.20.0.10:5300';
         process.env.DNS_CONSENSUS_ENABLED = 'true';
-        process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.10:5300';
+        process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.11:5300'; // Distinct recursor
         process.env.DNS_TERTIARY_ENABLED = 'true';
         process.env.DNS_TERTIARY_STRATEGY = 'doh-tertiary';
+        process.env.DNS_TERTIARY_NAMESERVERS = '172.20.0.12:5300'; // Distinct recursor for tertiary
         resetConfig();
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);

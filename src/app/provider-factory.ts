@@ -361,15 +361,24 @@ export function buildDnsProvider(
 
   // Privacy mode (ADR-0065) forces every strategy to 'native' so no query
   // egresses to a public resolver; without an explicit pinned recursor the
-  // "privacy" would be fictional (the system resolver is the ISP's) — fail
-  // loudly at boot instead of silently leaking candidate names.
+  // "privacy" would be fictional (the system resolver is the ISP's).
+  // Cloud edition (DATABASE_URL set): fail loudly — operator must configure recursors.
+  // Community edition: warn but allow fallback to system resolver for backward compat.
   if (config.DNS_PRIVACY_MODE && nameservers === undefined) {
-    throw new Error(
+    const isCloud = !!config.DATABASE_URL;
+    const msg =
       'DNS_PRIVACY_MODE=true requires DNS_NAMESERVERS to be set: every DNS leg is ' +
-        'forced to the pinned recursor, and the system resolver would still leak ' +
-        'candidate names to the ISP. Pin your private recursor (e.g. 127.0.0.1:5300) ' +
-        'or disable DNS_PRIVACY_MODE (ADR-0065).',
-    );
+      'forced to the pinned recursor, and the system resolver would still leak ' +
+      'candidate names to the ISP. Pin your private recursor (e.g. 127.0.0.1:5300) ' +
+      'or disable DNS_PRIVACY_MODE (ADR-0065).';
+    if (isCloud) {
+      throw new Error(msg);
+    } else {
+      getLogger().warn(
+        { msg },
+        'DNS_PRIVACY_MODE enabled without DNS_NAMESERVERS — falling back to system resolver (community edition). Set DNS_NAMESERVERS for true privacy.',
+      );
+    }
   }
 
   // An unset or missing DNS_PARKING_IPS_PATH falls back to the bundled
@@ -510,13 +519,22 @@ export async function buildDnsConsensusConfig(
   if (config.DNS_PRIVACY_MODE) {
     const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
     if (consensusNameservers === undefined) {
-      throw new Error(
+      const isCloud = !!config.DATABASE_URL;
+      const msg =
         'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS for the 2-of-3 ' +
-          'consensus gate. In privacy mode every leg is forced to the pinned ' +
-          'recursor(s); a single recursor cannot be its own second opinion. ' +
-          'Pin a SECOND independent recursor (e.g. a separate Unbound instance) ' +
-          'via DNS_CONSENSUS_NAMESERVERS, or disable DNS_PRIVACY_MODE (ADR-0065).',
-      );
+        'consensus gate. In privacy mode every leg is forced to the pinned ' +
+        'recursor(s); a single recursor cannot be its own second opinion. ' +
+        'Pin a SECOND independent recursor (e.g. a separate Unbound instance) ' +
+        'via DNS_CONSENSUS_NAMESERVERS, or disable DNS_PRIVACY_MODE (ADR-0065).';
+      if (isCloud) {
+        throw new Error(msg);
+      } else {
+        getLogger().warn(
+          { msg },
+          'DNS_PRIVACY_MODE enabled without DNS_CONSENSUS_NAMESERVERS — consensus gate disabled (community edition). Set DNS_CONSENSUS_NAMESERVERS for full privacy with consensus.',
+        );
+        return undefined;
+      }
     }
   }
 

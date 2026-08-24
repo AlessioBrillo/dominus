@@ -510,12 +510,19 @@ describe('DNS privacy mode (ADR-0065)', () => {
     expect(effectiveDnsLookupStrategy(config, 'doh-primary')).toBe('doh-primary');
   });
 
-  it('buildDnsProvider fails the boot when privacy mode has no pinned nameservers', () => {
+  it('buildDnsProvider warns (not throws) in community edition when privacy mode has no pinned nameservers', () => {
     const config = makeConfig({ DNS_PRIVACY_MODE: true });
+    // Community edition (no DATABASE_URL): warns but allows fallback
+    expect(() => buildDnsProvider(config)).not.toThrow();
+  });
+
+  it('buildDnsProvider throws in cloud edition when privacy mode has no pinned nameservers', () => {
+    const config = makeConfig({ DNS_PRIVACY_MODE: true, DATABASE_URL: 'postgresql://user:pass@localhost/db' });
+    // Cloud edition (DATABASE_URL set): throws to enforce privacy
     expect(() => buildDnsProvider(config)).toThrow('DNS_NAMESERVERS');
   });
 
-  it('fails the boot when privacy mode shares one recursor across both legs', async () => {
+  it('fails the boot when privacy mode shares one recursor across both legs (cloud edition)', async () => {
     // Privacy mode forces primary + consensus to 'native'. A single pinned
     // recursor (172.20.0.10:5300) then lands on both sides of the endpoint
     // disjointness check — same recursor twice is not an independent opinion.
@@ -524,10 +531,23 @@ describe('DNS privacy mode (ADR-0065)', () => {
       DNS_PRIVACY_MODE: true,
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_ENABLED: true,
+      DATABASE_URL: 'postgresql://user:pass@localhost/db', // Cloud edition
     });
     await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
       'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS',
     );
+  });
+
+  it('returns undefined with warning in community edition when privacy mode shares one recursor', async () => {
+    // Community edition: warns and returns undefined instead of throwing
+    const config = makeConfig({
+      DNS_PRIVACY_MODE: true,
+      DNS_NAMESERVERS: '172.20.0.10:5300',
+      DNS_CONSENSUS_ENABLED: true,
+      // No DATABASE_URL = community edition
+    });
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeUndefined();
   });
 
   it('keeps the gate when privacy mode pins two distinct recursors', async () => {

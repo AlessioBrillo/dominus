@@ -303,11 +303,12 @@ const configSchema = z
      * DNS_CONSENSUS_NAMESERVERS (native-vs-native independence is decided by
      * the endpoint disjointness check); with a single recursor the gate is
      * honestly vetoed at boot — one resolver cannot be its own second opinion.
-     * Default: false.
+     * Default: true for community edition (DATABASE_URL not set), false for
+     * cloud edition (DATABASE_URL set) where operator configures dedicated recursors.
      */
     DNS_PRIVACY_MODE: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
+      .default(() => !process.env.DATABASE_URL),
     /**
      * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
      * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
@@ -2116,7 +2117,10 @@ const configSchema = z
   })
   .refine(
     (data) => {
-      if (data.DNS_PRIVACY_MODE === true) {
+      // Only enforce DNS_NAMESERVERS and DNS_CONSENSUS_NAMESERVERS for cloud edition (DATABASE_URL set).
+      // Community edition allows fallback to system resolver with warning (backward compat).
+      const isCloud = !!data.DATABASE_URL;
+      if (data.DNS_PRIVACY_MODE === true && isCloud) {
         return (
           data.DNS_NAMESERVERS !== undefined &&
           data.DNS_NAMESERVERS.trim() !== '' &&
@@ -2128,7 +2132,7 @@ const configSchema = z
     },
     {
       message:
-        'DNS_PRIVACY_MODE=true requires both DNS_NAMESERVERS and DNS_CONSENSUS_NAMESERVERS to be set (two distinct pinned recursors for primary and consensus legs).',
+        'DNS_PRIVACY_MODE=true requires both DNS_NAMESERVERS and DNS_CONSENSUS_NAMESERVERS to be set (two distinct pinned recursors for primary and consensus legs) in cloud edition (DATABASE_URL set).',
       path: ['DNS_PRIVACY_MODE'],
     },
   )

@@ -77,6 +77,7 @@ describe('buildDnsBreakers (ADR-0059)', () => {
     process.env.DNS_CONSENSUS_ENABLED = 'true';
     process.env.DNS_TERTIARY_ENABLED = 'true';
     process.env.DNS_CONSENSUS_RUNTIME_VALIDATION = 'false';
+    process.env.DNS_CONSENSUS_NAMESERVERS = '192.0.2.1:5300'; // Second distinct recursor for privacy mode
     // A doh-based tertiary would overlap the primary's default doh-primary
     // endpoints; pin a TEST-NET recursor instead (disjoint from both legs).
     process.env.DNS_TERTIARY_STRATEGY = 'native';
@@ -95,6 +96,7 @@ describe('buildDnsBreakers (ADR-0059)', () => {
       delete process.env.DNS_CONSENSUS_ENABLED;
       delete process.env.DNS_TERTIARY_ENABLED;
       delete process.env.DNS_CONSENSUS_RUNTIME_VALIDATION;
+      delete process.env.DNS_CONSENSUS_NAMESERVERS;
       delete process.env.DNS_TERTIARY_STRATEGY;
       delete process.env.DNS_TERTIARY_NAMESERVERS;
     }

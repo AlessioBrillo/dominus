@@ -765,8 +765,16 @@ describe('DNS privacy mode config defaults (ADR-0065)', () => {
     resetConfig();
   });
 
-  it('defaults to false', () => {
+  it('defaults to true when DATABASE_URL not set (community edition)', () => {
     delete process.env[KEY];
+    delete process.env.DATABASE_URL;
+    resetConfig();
+    expect(loadConfig().DNS_PRIVACY_MODE).toBe(true);
+  });
+
+  it('defaults to false when DATABASE_URL is set (cloud edition)', () => {
+    delete process.env[KEY];
+    process.env.DATABASE_URL = 'postgresql://user:pass@localhost/db';
     resetConfig();
     expect(loadConfig().DNS_PRIVACY_MODE).toBe(false);
   });
