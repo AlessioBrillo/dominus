@@ -542,3 +542,91 @@ export async function validateRuntimeConsensusDisjointness(
     reason,
   };
 }
+
+/**
+ * Fallback Isolation Validation (ADR-0063 P0).
+ *
+ * The 2-of-3 consensus gate must be independent of the primary's MAIN opinion.
+ * Emergency fallback legs are excluded from the main disjointness check because
+ * a shared fallback can never manufacture an Available verdict (it only answers
+ * when the main opinion fails). HOWEVER, if the consensus/tertiary resolver set
+ * overlaps with the PRIMARY'S FALLBACK recursor, the consensus is effectively
+ * querying the same resolver the primary falls back to — the second opinion is
+ * a rubber stamp of the primary's last resort, not an independent check.
+ *
+ * This validation explicitly detects when the consensus/tertiary endpoint set
+ * overlaps with the primary's fallback endpoints (after DNS resolution for
+ * DoH hostnames). If overlap is detected, the consensus gate MUST be vetoed.
+ */
+export interface FallbackIsolationReport {
+  /** True when the consensus/tertiary is isolated from the primary's fallback. */
+  isolated: boolean;
+  /** Shared endpoints between primary fallback and consensus/tertiary. */
+  fallbackOverlap: string[];
+  /** Primary fallback endpoints that were checked. */
+  primaryFallbackEndpoints: string[];
+  /** Consensus/tertiary endpoints that were checked. */
+  consensusEndpoints: string[];
+}
+
+export async function validateFallbackIsolation(
+  primaryGroups: DnsResolverGroup[],
+  consensusGroups: DnsResolverGroup[],
+  consensusNameservers?: string[],
+  primaryNameservers?: string[],
+  resolveHost?: (host: string) => Promise<string[]>,
+): Promise<FallbackIsolationReport> {
+  // Extract primary fallback endpoints (groups marked fallback: true)
+  const primaryFallbackGroups = primaryGroups.filter((g) => g.fallback === true);
+
+  if (primaryFallbackGroups.length === 0) {
+    // No fallback to check against — trivially isolated
+    const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers, {
+      excludeFallbacks: true,
+    });
+    return {
+      isolated: true,
+      fallbackOverlap: [],
+      primaryFallbackEndpoints: [],
+      consensusEndpoints,
+    };
+  }
+
+  // Collect primary fallback endpoints WITH DNS resolution for DoH hostnames
+  // We need resolved IPs to catch cross-transport overlap (DoH hostname -> IP vs DoT IP)
+  const primaryFallbackEndpoints = new Set<string>();
+  const primaryFallbackDohHosts = collectDohHosts(primaryFallbackGroups, {
+    excludeFallbacks: false,
+  });
+
+  // Add hostname-level endpoints from fallback groups
+  const fallbackCollectOpts = { excludeFallbacks: false };
+  const fallbackBase = collectResolverEndpoints(
+    primaryFallbackGroups,
+    primaryNameservers,
+    fallbackCollectOpts,
+  );
+  for (const ep of fallbackBase) primaryFallbackEndpoints.add(ep);
+
+  // Resolve DoH hostnames from fallback groups to catch anycast/IP overlap
+  for (const host of primaryFallbackDohHosts) {
+    const ips = await resolveHostAddresses(host, resolveHost);
+    for (const ip of ips) primaryFallbackEndpoints.add(`ip:${ip}`);
+  }
+
+  // Collect consensus/tertiary endpoints (excluding their own fallbacks if any)
+  const consensusCollectOpts = { excludeFallbacks: true };
+  const consensusEndpointsSet = new Set(
+    collectResolverEndpoints(consensusGroups, consensusNameservers, consensusCollectOpts),
+  );
+
+  // Check overlap
+  const overlap = [...consensusEndpointsSet].filter((ep) => primaryFallbackEndpoints.has(ep));
+
+  return {
+    isolated: overlap.length === 0,
+    fallbackOverlap: overlap,
+    primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
+    consensusEndpoints: [...consensusEndpointsSet].sort(),
+  };
+}
