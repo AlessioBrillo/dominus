@@ -765,24 +765,47 @@ describe('DNS privacy mode config defaults (ADR-0065)', () => {
     resetConfig();
   });
 
-  it('defaults to true when DATABASE_URL not set (community edition)', () => {
+  it('defaults to false for both editions (explicit opt-in required)', () => {
     delete process.env[KEY];
     delete process.env.DATABASE_URL;
     resetConfig();
-    expect(loadConfig().DNS_PRIVACY_MODE).toBe(true);
-  });
+    expect(loadConfig().DNS_PRIVACY_MODE).toBe(false);
 
-  it('defaults to false when DATABASE_URL is set (cloud edition)', () => {
-    delete process.env[KEY];
     process.env.DATABASE_URL = 'postgresql://user:pass@localhost/db';
     resetConfig();
     expect(loadConfig().DNS_PRIVACY_MODE).toBe(false);
   });
 
-  it('parses true when set', () => {
+  it('parses true when set with required nameservers', () => {
     process.env[KEY] = 'true';
     process.env.DNS_NAMESERVERS = '127.0.0.1:5300';
     process.env.DNS_CONSENSUS_NAMESERVERS = '127.0.0.1:5301';
+    resetConfig();
+    expect(loadConfig().DNS_PRIVACY_MODE).toBe(true);
+  });
+
+  it('throws when DNS_PRIVACY_MODE=true but DNS_NAMESERVERS not set', () => {
+    process.env[KEY] = 'true';
+    delete process.env.DNS_NAMESERVERS;
+    delete process.env.DNS_CONSENSUS_NAMESERVERS;
+    resetConfig();
+    expect(() => loadConfig()).toThrow('DNS_PRIVACY_MODE=true requires DNS_NAMESERVERS');
+  });
+
+  it('throws when DNS_PRIVACY_MODE=true + DNS_CONSENSUS_ENABLED=true but DNS_CONSENSUS_NAMESERVERS not set', () => {
+    process.env[KEY] = 'true';
+    process.env.DNS_NAMESERVERS = '127.0.0.1:5300';
+    process.env.DNS_CONSENSUS_ENABLED = 'true';
+    delete process.env.DNS_CONSENSUS_NAMESERVERS;
+    resetConfig();
+    expect(() => loadConfig()).toThrow('DNS_CONSENSUS_NAMESERVERS');
+  });
+
+  it('allows DNS_PRIVACY_MODE=true without DNS_CONSENSUS_NAMESERVERS when DNS_CONSENSUS_ENABLED=false', () => {
+    process.env[KEY] = 'true';
+    process.env.DNS_NAMESERVERS = '127.0.0.1:5300';
+    process.env.DNS_CONSENSUS_ENABLED = 'false';
+    delete process.env.DNS_CONSENSUS_NAMESERVERS;
     resetConfig();
     expect(loadConfig().DNS_PRIVACY_MODE).toBe(true);
   });

@@ -303,12 +303,12 @@ const configSchema = z
      * DNS_CONSENSUS_NAMESERVERS (native-vs-native independence is decided by
      * the endpoint disjointness check); with a single recursor the gate is
      * honestly vetoed at boot — one resolver cannot be its own second opinion.
-     * Default: true for community edition (DATABASE_URL not set), false for
-     * cloud edition (DATABASE_URL set) where operator configures dedicated recursors.
+     * Default: false for both editions. When enabled, DNS_NAMESERVERS is required
+     * and DNS_CONSENSUS_NAMESERVERS is required if DNS_CONSENSUS_ENABLED=true.
      */
     DNS_PRIVACY_MODE: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(() => !process.env.DATABASE_URL),
+      .default(false),
     /**
      * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
      * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
@@ -2173,22 +2173,26 @@ const configSchema = z
   })
   .refine(
     (data) => {
-      // Only enforce DNS_NAMESERVERS and DNS_CONSENSUS_NAMESERVERS for cloud edition (DATABASE_URL set).
-      // Community edition allows fallback to system resolver with warning (backward compat).
-      const isCloud = !!data.DATABASE_URL;
-      if (data.DNS_PRIVACY_MODE === true && isCloud) {
-        return (
-          data.DNS_NAMESERVERS !== undefined &&
-          data.DNS_NAMESERVERS.trim() !== '' &&
-          data.DNS_CONSENSUS_NAMESERVERS !== undefined &&
-          data.DNS_CONSENSUS_NAMESERVERS.trim() !== ''
-        );
+      // Enforce DNS_NAMESERVERS when DNS_PRIVACY_MODE=true in ALL editions.
+      // DNS_CONSENSUS_NAMESERVERS is required when BOTH privacy mode and consensus are enabled.
+      if (data.DNS_PRIVACY_MODE === true) {
+        if (data.DNS_NAMESERVERS === undefined || data.DNS_NAMESERVERS.trim() === '') {
+          return false;
+        }
+        // If consensus is also enabled, we need a SECOND distinct recursor
+        if (data.DNS_CONSENSUS_ENABLED === true) {
+          return (
+            data.DNS_CONSENSUS_NAMESERVERS !== undefined &&
+            data.DNS_CONSENSUS_NAMESERVERS.trim() !== ''
+          );
+        }
       }
       return true;
     },
     {
       message:
-        'DNS_PRIVACY_MODE=true requires both DNS_NAMESERVERS and DNS_CONSENSUS_NAMESERVERS to be set (two distinct pinned recursors for primary and consensus legs) in cloud edition (DATABASE_URL set).',
+        'DNS_PRIVACY_MODE=true requires DNS_NAMESERVERS to be set (pinned recursor for primary). ' +
+        'If DNS_CONSENSUS_ENABLED=true, DNS_CONSENSUS_NAMESERVERS must also be set (second distinct recursor for consensus).',
       path: ['DNS_PRIVACY_MODE'],
     },
   )
