@@ -31,4 +31,8 @@ export {
 export {
   validateResolverGroups,
   validateConsensusEndpointDisjointness,
+  validateConsensusDisjointness,
+  validateFallbackIsolation,
+  type ConsensusDisjointnessReport,
+  type FallbackIsolationReport,
 } from './resolver-validator.js';

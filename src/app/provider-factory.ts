@@ -23,10 +23,11 @@ import {
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
 import {
-  validateConsensusDisjointness,
-  validateConsensusStrategyDisjointness,
   validateResolverGroups,
+  validateConsensusStrategyDisjointness,
+  validateConsensusDisjointness,
   validateRuntimeConsensusDisjointness,
+  validateFallbackIsolation,
   type RuntimeConsensusReport,
   type RuntimeValidationMode,
 } from '../providers/dns/resolver-validator.js';
@@ -609,6 +610,102 @@ export async function buildDnsConsensusConfig(
         '(some hostnames did not resolve at boot) — operator and hostname-level ' +
         'disjointness still apply, resolved-IP overlap could not be proven',
     );
+  }
+
+  // FALLBACK ISOLATION VALIDATION (ADR-0063 P0)
+  // The 2-of-3 consensus gate must be independent of the primary's MAIN opinion.
+  // If the consensus/tertiary resolver set overlaps with the PRIMARY'S FALLBACK
+  // recursor, the consensus is effectively querying the same resolver the primary
+  // falls back to — the second opinion is a rubber stamp of the primary's last
+  // resort, not an independent check. This is the documented P0 bug in the
+  // turnkey docker-compose topology where both primary fallback and consensus
+  // point at the same private recursor.
+  const fallbackReport = await validateFallbackIsolation(
+    primaryGroups,
+    consensusGroups,
+    effectiveConsensusNameservers,
+    nameservers,
+  ).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    getLogger().warn(
+      { err: message },
+      'DNS: fallback isolation check failed — continuing with bootstrap-only validation (fail-open)',
+    );
+    return {
+      isolated: true,
+      fallbackOverlap: [],
+      primaryFallbackEndpoints: [],
+      consensusEndpoints: [],
+    };
+  });
+
+  if (!fallbackReport.isolated) {
+    const reason = `Fallback overlap: ${fallbackReport.fallbackOverlap.join(', ')}`;
+    getLogger().error(
+      {
+        fallbackOverlap: fallbackReport.fallbackOverlap,
+        primaryFallbackEndpoints: fallbackReport.primaryFallbackEndpoints,
+        consensusEndpoints: fallbackReport.consensusEndpoints,
+      },
+      `DNS: consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
+    );
+    throw new Error(
+      `DNS consensus gate invalid at bootstrap: ${reason}. ` +
+        `The consensus resolver overlaps with the primary's emergency fallback recursor. ` +
+        `Configure a DIFFERENT recursor for consensus (DNS_CONSENSUS_NAMESERVERS) ` +
+        `or disable consensus (DNS_CONSENSUS_ENABLED=false). ` +
+        `A shared fallback cannot be an independent second opinion (ADR-0063).`,
+    );
+  }
+
+  // Also check tertiary fallback isolation if tertiary is enabled
+  if (config.DNS_TERTIARY_ENABLED) {
+    const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+    const effectiveTertiaryStrategy: string = tertiaryNameservers
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY);
+    const tertiaryGroups = strategyToResolverGroups(
+      effectiveTertiaryStrategy,
+      config.DNS_DOH_ENDPOINT,
+    );
+    const effectiveTertiaryNameservers = tertiaryNameservers ?? nameservers;
+
+    const tertiaryFallbackReport = await validateFallbackIsolation(
+      primaryGroups,
+      tertiaryGroups,
+      effectiveTertiaryNameservers,
+      nameservers,
+    ).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      getLogger().warn(
+        { err: message },
+        'DNS: tertiary fallback isolation check failed — continuing (fail-open)',
+      );
+      return {
+        isolated: true,
+        fallbackOverlap: [],
+        primaryFallbackEndpoints: [],
+        consensusEndpoints: [],
+      };
+    });
+
+    if (!tertiaryFallbackReport.isolated) {
+      const reason = `Tertiary fallback overlap: ${tertiaryFallbackReport.fallbackOverlap.join(', ')}`;
+      getLogger().error(
+        {
+          fallbackOverlap: tertiaryFallbackReport.fallbackOverlap,
+          primaryFallbackEndpoints: tertiaryFallbackReport.primaryFallbackEndpoints,
+          tertiaryEndpoints: tertiaryFallbackReport.consensusEndpoints,
+        },
+        `DNS: tertiary consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
+      );
+      throw new Error(
+        `DNS tertiary consensus gate invalid at bootstrap: ${reason}. ` +
+          `The tertiary resolver overlaps with the primary's emergency fallback recursor. ` +
+          `Configure a DIFFERENT recursor for tertiary (DNS_TERTIARY_NAMESERVERS) ` +
+          `or disable tertiary (DNS_TERTIARY_ENABLED=false).`,
+      );
+    }
   }
 
   const secondaryRateLimiter = consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
