@@ -1103,6 +1103,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     notifiers,
     config,
     usageEnforcer,
+    dnsConsensusConfig,
   );
 
   // --- Portfolio RDAP Healthcheck --- (verifies renewal dates against live RDAP/WHOIS)

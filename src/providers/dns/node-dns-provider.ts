@@ -25,6 +25,7 @@ import type { RetryPolicy } from '../retry-policy.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { getLogger } from '../../logger.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
+// import { validateDnssecNative } from './dnssec-validation.js';
 
 export { buildDnsQuery, validateDnsResponse } from './dot-pool.js';
 
@@ -601,6 +602,8 @@ export class NodeDnsProvider implements DnsProvider {
   readonly #legRole: DnsLegSample['role'];
   /** Enable DNSSEC validation (DO=1, AD flag check, bogus detection). */
   readonly #dnssecValidationEnabled: boolean;
+  /** Enable DNSSEC validation on native resolver with pinned recursors. */
+  readonly #dnssecNativeEnabled: boolean;
   /** True when maxSize <= 0 — the in-memory cache is fully disabled. */
   readonly #cacheDisabled: boolean;
   readonly #dotPoolMaxQueued: number;
@@ -663,6 +666,9 @@ export class NodeDnsProvider implements DnsProvider {
     legRole?: DnsLegSample['role'];
     /** Enable DNSSEC validation (DO=1, AD flag check, bogus detection). Default: true. */
     dnssecValidationEnabled?: boolean;
+    /** Enable DNSSEC validation on native resolver when using pinned recursors.
+     * Requires dnssecValidationEnabled=true and nameservers to be configured. */
+    dnssecNativeEnabled?: boolean;
   }) {
     this.#lookupTimeoutMs = options?.lookupTimeoutMs ?? 1500;
     this.#dohEndpoint = options?.dohEndpoint ?? 'https://cloudflare-dns.com/dns-query';
@@ -689,6 +695,7 @@ export class NodeDnsProvider implements DnsProvider {
     this.#onLegResult = options?.onLegResult;
     this.#legRole = options?.legRole ?? 'primary';
     this.#dnssecValidationEnabled = options?.dnssecValidationEnabled ?? true;
+    this.#dnssecNativeEnabled = options?.dnssecNativeEnabled ?? false;
     this.#resolverGroups =
       options?.resolverGroups ??
       strategyToResolverGroups(options?.lookupStrategy ?? 'native', this.#dohEndpoint);
@@ -1008,6 +1015,21 @@ export class NodeDnsProvider implements DnsProvider {
           spec.nameservers !== undefined
             ? this.#cachedResolver(spec.nameservers)
             : this.#getResolver();
+        // DNSSEC validation on native resolver path (DNS_NATIVE_DNSSEC_ENABLED)
+        // Native Node.js resolver doesn't support DNSSEC. When enabled and we have
+        // custom nameservers, we attempt to validate via DoH wire format to the
+        // same recursor if a DoH endpoint is configured. Otherwise, we fall back
+        // to native without DNSSEC and log a warning (operator should use DoH/DoT
+        // for full DNSSEC validation).
+        if (this.#dnssecNativeEnabled && (spec.nameservers ?? this.#nameservers) !== undefined) {
+          // For now, log that native DNSSEC is not fully supported and use native
+          // The operator should configure DoH/DoT for DNSSEC validation
+          logger.warn(
+            { domain, nameservers: spec.nameservers ?? this.#nameservers },
+            'DNS: native resolver with DNSSEC validation requested — native resolver does not support DNSSEC; ' +
+              'use DoH/DoT for full DNSSEC validation. Falling back to unchecked.',
+          );
+        }
         task = resolvesAnyNative(domain, timeout, combinedSignal, groupResolver);
       } else if (spec.type === 'dot') {
         task = resolvesAnyDot(

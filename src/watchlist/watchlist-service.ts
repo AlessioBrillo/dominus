@@ -6,6 +6,7 @@ import type { Notifier } from '../notifiers/notifier.js';
 import type { Config } from '../config.js';
 import type { WatchlistEntry, WatchlistPollResult } from '../types/watchlist.js';
 import type { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
+import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
 import { AlertType, AlertSeverity } from '../types/alert.js';
 import { DomainStatus } from '../types/domain-status.js';
 import type { RdapResult } from '../types/domain-status.js';
@@ -37,6 +38,13 @@ export class WatchlistService {
      * domain unit against the tenant plan (ADR-0038).
      */
     private readonly usageEnforcer?: PipelineUsageEnforcer,
+    /**
+     * Optional DNS consensus config for 2-of-3 verification of Available verdicts.
+     * When provided, DNS Available results are cross-validated against the
+     * consensus secondary provider before proceeding to RDAP. Fail-closed:
+     * disagreement or failure to verify downgrades to Unknown (ADR-0059).
+     */
+    private readonly consensusConfig?: ConsensusDnsConfig,
   ) {}
 
   async add(
@@ -150,6 +158,42 @@ export class WatchlistService {
       // second opinion that follows. Warn instead of debug so a lone DNS
       // verdict on the drop-side surface stays visible in logs (ADR-0059).
       logger.warn({ domain }, 'watchlist: DNS suggests available, awaiting RDAP confirmation');
+
+      // Apply DNS 2-of-3 consensus gate if configured (ADR-0059): the primary
+      // Available verdict must be confirmed by an independent second provider.
+      // Fail-closed: disagreement or failure to verify downgrades to Unknown.
+      if (this.consensusConfig !== undefined) {
+        try {
+          const consensusResult = await this.consensusConfig.secondaryProvider.checkAvailability(
+            domain,
+            undefined,
+            { forceRecheck: true },
+          );
+          if (consensusResult.status !== DomainStatus.Available) {
+            logger.warn(
+              { domain, consensusStatus: consensusResult.status },
+              'watchlist: DNS consensus gate vetoed (secondary not Available) — downgraded to Unknown',
+            );
+            await this.repo.updateStatus(domain, {
+              lastCheckedAt: new Date().toISOString(),
+              lastStatus: DomainStatus.Unknown,
+              lastStatusChange: null,
+            });
+            return false;
+          }
+        } catch (err) {
+          logger.warn(
+            { err, domain },
+            'watchlist: DNS consensus gate verification failed — downgraded to Unknown',
+          );
+          await this.repo.updateStatus(domain, {
+            lastCheckedAt: new Date().toISOString(),
+            lastStatus: DomainStatus.Unknown,
+            lastStatusChange: null,
+          });
+          return false;
+        }
+      }
     }
 
     let rdapResult: RdapResult;

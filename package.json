@@ -106,6 +106,7 @@
     "agpl"
   ],
   "dependencies": {
+    "@relaycorp/dnssec": "^1.12.1",
     "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
     "cors": "^2.8.6",

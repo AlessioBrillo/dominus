@@ -759,17 +759,17 @@ const configSchema = z
       .default(true),
     /**
      * Runtime validation mode for the 2-of-3 DNS consensus gate (ADR-0066).
-     * - 'strict' (cloud default): any partial resolution or transient failure
-     *   vetoes the consensus gate (ok=false, runtimeDegraded=true). The operator
-     *   MUST fix resolver topology or explicitly disable consensus.
-     * - 'permissive' (community default): fail-open on transient failures,
-     *   logs warning but keeps gate enabled. The bootstrap check remains
-     *   authoritative.
-     * Default: 'strict' when DATABASE_URL is set (cloud), 'permissive' otherwise.
+     * - 'strict': any partial resolution or transient failure vetoes the
+     *   consensus gate (ok=false, runtimeDegraded=true). The operator MUST fix
+     *   resolver topology or explicitly disable consensus.
+     * - 'permissive': fail-open on transient failures, logs warning but keeps
+     *   gate enabled. The bootstrap check remains authoritative.
+     * Default: 'strict' for all editions. 'permissive' is retained only as an
+     * explicit opt-out for environments without DNS egress (e.g. air-gapped CI).
+     * The community edition previously defaulted to 'permissive'; this change
+     * enforces runtime validation parity with cloud (ADR-0002 conservatism).
      */
-    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z
-      .enum(['strict', 'permissive'])
-      .default(() => (process.env.DATABASE_URL ? 'strict' : 'permissive')),
+    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z.enum(['strict', 'permissive']).default('strict'),
     /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
@@ -809,6 +809,20 @@ const configSchema = z
      * Default: true.
      */
     DNS_DNSSEC_VALIDATION_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
+     * Enable DNSSEC validation on native resolver when using pinned recursors
+     * (DNS_NAMESERVERS). In privacy mode (DNS_PRIVACY_MODE=true) or when a
+     * private recursor is pinned via DNS_CONSENSUS_NAMESERVERS/
+     * DNS_TERTIARY_NAMESERVERS, the native resolver path would otherwise skip
+     * DNSSEC validation (Node.js built-in resolver does not validate). This
+     * setting enables validation via @relaycorp/dnssec for those paths.
+     * Requires DNS_DNSSEC_VALIDATION_ENABLED=true and DNS_NAMESERVERS (or
+     * consensus/tertiary nameservers) to be configured.
+     * Default: true when DNSSEC validation is enabled and nameservers are pinned.
+     */
+    DNS_NATIVE_DNSSEC_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**

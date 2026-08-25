@@ -37,6 +37,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
     DNS_DOH_MAX_CONNECTIONS: 64,
     DNS_DNSSEC_VALIDATION_ENABLED: true,
+    DNS_NATIVE_DNSSEC_ENABLED: true,
     DNS_CONSENSUS_RATE_LIMIT_TOKENS: 20,
     DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS: 1000,
     DNS_CONSENSUS_RATE_LIMIT_PER_TENANT_TOKENS: 5,

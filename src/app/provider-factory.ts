@@ -412,6 +412,8 @@ export function buildDnsProvider(
     ...(legTelemetry !== undefined
       ? { onLegResult: legTelemetry, legRole: 'primary' as const }
       : {}),
+    dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+    dnssecNativeEnabled: config.DNS_NATIVE_DNSSEC_ENABLED && nameservers !== undefined,
   });
 
   // Startup validation: probe known domains through each resolver group.
@@ -474,6 +476,8 @@ export function buildSecondaryDnsProvider(
     ...(legTelemetry !== undefined
       ? { onLegResult: legTelemetry, legRole: 'consensus' as const }
       : {}),
+    dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+    dnssecNativeEnabled: config.DNS_NATIVE_DNSSEC_ENABLED && consensusNameservers !== undefined,
   });
 }
 
@@ -634,6 +638,8 @@ export async function buildDnsConsensusConfig(
   // if overlap is detected, the application refuses to start (fail-closed).
   // Can be disabled via DNS_CONSENSUS_RUNTIME_VALIDATION=false (e.g., in tests
   // or environments where egress DNS is restricted).
+  // Default mode is 'strict' for all editions (ADR-0002 conservatism).
+  // 'permissive' is an explicit opt-out for environments without DNS egress.
   let runtimeReport: RuntimeConsensusReport = {
     ok: true,
     overlapIPs: [],
@@ -860,6 +866,9 @@ async function buildTertiaryConsensusProvider(
     ...(legTelemetry !== undefined
       ? { onLegResult: legTelemetry, legRole: 'tertiary' as const }
       : {}),
+    dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+    dnssecNativeEnabled:
+      config.DNS_NATIVE_DNSSEC_ENABLED && effectiveTertiaryNameservers !== undefined,
   });
 }
 
@@ -1024,8 +1033,20 @@ export function buildWhoisPerTldRateLimiters(
   return limiters;
 }
 
+/**
+ * Build WHOIS circuit breaker: distributed (Redis-backed) when Redis is connected,
+ * in-memory otherwise. Keyed as 'cb:whois' for cross-process coordination.
+ */
+function buildWhoisCircuitBreaker(redisClient?: RedisClient): ICircuitBreaker {
+  if (redisClient?.isConnected) {
+    return new DistributedCircuitBreaker('whois', WHOIS_CIRCUIT_BREAKER, redisClient);
+  }
+  return new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
+}
+
 export function buildWhoisProviders(config: Config, redisClient?: RedisClient): BuiltWhoisProvider {
   const whoisDefaultLimiter = buildWhoisRateLimiter(config, redisClient);
+  const whoisCircuitBreaker = buildWhoisCircuitBreaker(redisClient);
 
   const whoisPerTldLimiters = buildWhoisPerTldRateLimiters(config, redisClient);
 
@@ -1033,9 +1054,10 @@ export function buildWhoisProviders(config: Config, redisClient?: RedisClient): 
     timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
     defaultRateLimiter: whoisDefaultLimiter,
     perTldRateLimiters: whoisPerTldLimiters,
+    circuitBreaker: whoisCircuitBreaker,
   });
 
-  const withRetry = new RetryingWhoisProvider(raw, {}, WHOIS_CIRCUIT_BREAKER);
+  const withRetry = new RetryingWhoisProvider(raw, {}, whoisCircuitBreaker);
 
   return { raw, withRetry };
 }

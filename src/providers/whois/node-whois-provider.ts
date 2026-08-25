@@ -99,12 +99,17 @@ interface TlsConfig {
   tlsConnect: WhoisConnectFn;
 }
 
+import type { ICircuitBreaker } from '../circuit-breaker.js';
+
 export interface NodeWhoisProviderConfig {
   timeoutMs?: number;
   serverOverrides?: Record<string, string>;
   connect?: WhoisConnectFn | undefined;
   defaultRateLimiter?: RateLimiterLike | undefined;
   perTldRateLimiters?: Record<string, RateLimiterLike> | undefined;
+  /** External circuit breaker (in-memory or distributed). When provided,
+   *  it replaces the internal in-memory circuit breaker. */
+  circuitBreaker?: ICircuitBreaker;
   /** When true, use TLS connections for WHOIS servers that support it.
    *  Servers in WHOIS_TLS_SERVERS are tried with TLS first; plaintext
    *  fallback on connection timeout. Default: true. */
@@ -270,7 +275,7 @@ export class NodeWhoisProvider implements WhoisProvider {
   readonly #tlsConnectFn: WhoisConnectFn;
   readonly #defaultRateLimiter: RateLimiterLike;
   readonly #perTldRateLimiters: Record<string, RateLimiterLike>;
-  readonly #circuitBreaker: CircuitBreaker;
+  readonly #circuitBreaker: ICircuitBreaker;
   readonly #tlsEnabled: boolean;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
@@ -287,7 +292,7 @@ export class NodeWhoisProvider implements WhoisProvider {
     }
     this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
     this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
-    this.#circuitBreaker = new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
+    this.#circuitBreaker = config.circuitBreaker ?? new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
     this.#tlsEnabled = config.tlsEnabled ?? true;
   }
 
@@ -320,7 +325,7 @@ export class NodeWhoisProvider implements WhoisProvider {
 
     const tld = extractTld(domain);
     if (tld === '') {
-      this.#circuitBreaker.onFailure();
+      await this.#circuitBreaker.onFailure();
       throw new ProviderError(
         `Cannot determine TLD for domain: ${domain}`,
         'NodeWhoisProvider',
@@ -351,7 +356,7 @@ export class NodeWhoisProvider implements WhoisProvider {
         tlsConfig,
         signal,
       );
-      this.#circuitBreaker.onSuccess();
+      await this.#circuitBreaker.onSuccess();
       return parseWhoisResponse(domain, raw);
     } catch (err: unknown) {
       // A caller-initiated abort is not a server failure: it must not burn
@@ -372,14 +377,14 @@ export class NodeWhoisProvider implements WhoisProvider {
             undefined,
             signal,
           );
-          this.#circuitBreaker.onSuccess();
+          await this.#circuitBreaker.onSuccess();
           return parseWhoisResponse(domain, raw);
         } catch (fallbackErr: unknown) {
           if (isAbortError(fallbackErr)) throw fallbackErr;
           // fall through to the original error below
         }
       }
-      this.#circuitBreaker.onFailure();
+      await this.#circuitBreaker.onFailure();
       const message = err instanceof Error ? err.message : String(err);
       throw new ProviderError(
         `WHOIS lookup failed for ${domain} on ${server}: ${message}`,
@@ -414,6 +419,7 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
   readonly #defaultRateLimiter: RateLimiterLike;
   readonly #perTldRateLimiters: Record<string, RateLimiterLike>;
   readonly #tlsEnabled: boolean;
+  readonly #circuitBreaker: ICircuitBreaker;
 
   constructor(config: NodeWhoisProviderConfig = {}) {
     this.#delegate = new NodeWhoisProvider(config);
@@ -421,6 +427,7 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
     this.#defaultRateLimiter = config.defaultRateLimiter ?? RateLimiter.unlimited();
     this.#perTldRateLimiters = config.perTldRateLimiters ?? {};
     this.#tlsEnabled = config.tlsEnabled ?? true;
+    this.#circuitBreaker = config.circuitBreaker ?? new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
   }
 
   async checkAvailability(
@@ -438,14 +445,14 @@ export class NodeWhoisProviderWithIanaFallback implements WhoisProvider {
       if (err instanceof ProviderError && err.code === 'WHOIS_NO_SERVER') {
         const ianaServer = await resolveWhoisServer(cleanTld, this.#connectFn);
         if (ianaServer !== null) {
-          // Pass rate limiters to the fallback provider too — the original
-          // bug was that IANA-fallback lookups bypassed all rate limiting.
+          // Pass rate limiters AND circuit breaker to the fallback provider too.
           const providerWithIana = new NodeWhoisProvider({
             connect: this.#connectFn,
             serverOverrides: { [`.${cleanTld}`]: ianaServer },
             defaultRateLimiter: this.#defaultRateLimiter,
             perTldRateLimiters: this.#perTldRateLimiters,
             tlsEnabled: this.#tlsEnabled,
+            circuitBreaker: this.#circuitBreaker,
           });
           return providerWithIana.checkAvailability(domain, signal);
         }

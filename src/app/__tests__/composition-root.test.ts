@@ -593,6 +593,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: 'permissive',
       DNS_CONSENSUS_TEST_DOMAIN: 'example.com',
       DNS_CONSENSUS_VALIDATION_TIMEOUT_MS: 2000,
+      DNS_NATIVE_DNSSEC_ENABLED: true,
       DNS_USE_DEDICATED_RESOLVER: true,
       DNS_DOT_POOL_MAX_QUEUED: 4096,
       RDAP_WHOIS_BUDGET_MS: 1000,
