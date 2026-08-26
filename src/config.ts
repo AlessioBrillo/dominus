@@ -551,11 +551,12 @@ const configSchema = z
     /**
      * Lookup strategy for the secondary DNS consensus provider (see
      * DNS_CONSENSUS_ENABLED). Should differ from DNS_LOOKUP_STRATEGY so the two
-     * opinions use disjoint resolvers/transports. Default: 'dot-alternate'
-     * (AdGuard/Mullvad/NextDNS over DNS-over-TLS) — genuinely operator-disjoint
-     * from the primary default 'doh-primary' (Cloudflare/Google/Quad9), which
-     * the 2-of-3 independence check enforces at runtime (a same-operator
-     * DoH-vs-DoT pairing is not an independent opinion and is vetoed).
+     * opinions use disjoint resolvers/transports. Default: 'doh-alternate'
+     * (OpenDNS + Digital Society over DNS-over-HTTPS wire format) — genuinely
+     * operator-disjoint from the primary default 'doh-primary'
+     * (Cloudflare/Google/Quad9). DoH on port 443 is universally allowed in
+     * cloud/VPS environments where DoT/853 is often blocked by egress filtering.
+     * The 2-of-3 independence check enforces operator-disjointness at runtime.
      */
     DNS_CONSENSUS_STRATEGY: z
       .enum([
@@ -569,7 +570,7 @@ const configSchema = z
         'multi-doh-plus-native',
         'doh-alternate',
       ])
-      .default('dot-alternate'),
+      .default('doh-alternate'),
     /**
      * Comma-separated private recursor addresses (host or host:port) for the
      * DNS consensus secondary (ADR-0042, C3 of the cloud hardening review).
@@ -587,16 +588,17 @@ const configSchema = z
      * domains the secondary cannot answer (error/timeout) are re-queried
      * against a third independent provider built from DNS_TERTIARY_STRATEGY.
      * A tertiary Available confirmation rescues the domain; a tertiary
-     * Registered answer vetoes it. Default: false — the strict 2-of-3 gate
-     * already fails closed, so the third leg is only worth its extra query
-     * when a genuinely independent resolver is available (e.g. a pinned
-     * second recursor via DNS_TERTIARY_NAMESERVERS). The leg is dropped at
-     * startup (with a warning) when its resolver set overlaps the primary or
-     * the secondary, exactly like the secondary-vs-primary disjointness rule.
+     * Registered answer vetoes it. Default: true — the tertiary leg provides
+     * critical resilience when the secondary (or a pinned recursor) is
+     * unreachable. The leg is dropped at startup (with a warning) when its
+     * resolver set overlaps the primary or the secondary, exactly like the
+     * secondary-vs-primary disjointness rule. The default 'doh-tertiary'
+     * strategy (OpenDNS + Digital Society + LibreDNS) provides three operators
+     * for 2-of-3 majority vote and three independent breaker circuits.
      */
     DNS_TERTIARY_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
+      .default(true),
     /**
      * Lookup strategy for the DNS consensus tertiary provider (see
      * DNS_TERTIARY_ENABLED). Default: 'doh-tertiary' — multi-operator DoH
@@ -764,12 +766,19 @@ const configSchema = z
      *   resolver topology or explicitly disable consensus.
      * - 'permissive': fail-open on transient failures, logs warning but keeps
      *   gate enabled. The bootstrap check remains authoritative.
-     * Default: 'strict' for all editions. 'permissive' is retained only as an
-     * explicit opt-out for environments without DNS egress (e.g. air-gapped CI).
-     * The community edition previously defaulted to 'permissive'; this change
-     * enforces runtime validation parity with cloud (ADR-0002 conservatism).
+     * Default: 'permissive' for community edition (self-hosted, often behind
+     * CGNAT/VPN with restricted egress DNS), 'strict' for cloud edition
+     * (managed infrastructure with controlled egress). The default is derived
+     * from DATABASE_URL and AUTH_PROVIDER: if DATABASE_URL is set or
+     * AUTH_PROVIDER !== 'env', it's cloud mode → 'strict'; otherwise 'permissive'.
+     * Operators can always override explicitly via the env var.
      */
-    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z.enum(['strict', 'permissive']).default('strict'),
+    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z.enum(['strict', 'permissive']).default(() => {
+      const isCloud =
+        !!process.env.DATABASE_URL ||
+        (process.env.AUTH_PROVIDER && process.env.AUTH_PROVIDER !== 'env');
+      return isCloud ? 'strict' : 'permissive';
+    }),
     /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
@@ -841,9 +850,11 @@ const configSchema = z
     DNS_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600000).default(120_000),
     /**
      * Maximum time (ms) to wait for a WHOIS port-43 response.
-     * Increase for slow ccTLD WHOIS servers, decrease to fail fast.
+     * Reduced from 10s to 5s to fail fast on truly dead servers while still
+     * allowing legitimate slow ccTLD responses. The WHOIS rescue budget
+     * (RDAP_WHOIS_BUDGET_MS) controls how long we wait for rescue specifically.
      */
-    WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(10_000),
+    WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(5_000),
     /**
      * Rate limiting: max tokens (burst capacity) for RDAP requests.
      * Token bucket refills at RDAP_RATE_LIMIT_TOKENS per RDAP_RATE_LIMIT_INTERVAL_MS.
@@ -992,17 +1003,16 @@ const configSchema = z
      * "available" confirms the verdict; WHOIS "registered" vetoes it ("registered
      * wins", ADR-0002); a WHOIS timeout/error stays unverifiable and the
      * candidate is downgraded exactly as without the rescue. Rescue is NEVER
-     * consulted on a definitive Registered from the second RDAP leg. Default
-     * false: this is a narrow, explicit override of ADR-0050's fail-closed
-     * rule for the unverifiable class only.
-     *
-     * NOTE: Per-TLD rescue (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS) is enabled by
-     * default for known problematic ccTLDs (.it, .de, .jp, .br, .cn, .ru,
-     * .fr, .uk) regardless of this flag. Set RDAP_CONSENSUS_RESCUE_WHOIS_TLDS=[] to disable.
+     * consulted on a definitive Registered from the second RDAP leg. Default:
+     * true — the rescue leg is now enabled by default because the budget
+     * (RDAP_WHOIS_BUDGET_MS=3000) is sufficient for it to work on problematic
+     * ccTLDs. The per-TLD override (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS) forces
+     * rescue for known unstable ccTLDs (.it, .de, .jp, .br, .cn, .ru, .fr, .uk)
+     * regardless of this flag. Set RDAP_CONSENSUS_RESCUE_WHOIS_TLDS=[] to disable.
      */
     RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
+      .default(true),
 
     /**
      * Per-TLD override for WHOIS rescue leg (ADR-0051 extension).
@@ -1575,9 +1585,12 @@ const configSchema = z
      * discarded. RDAP is authoritative (ADR-0035): a WHOIS disagreement within
      * this budget still blocks conservatively, beyond the budget RDAP decides.
      * This keeps large batches moving even when WHOIS servers are slow.
-     * Default: 1000 (1 second).
+     * Default: 3000 (3 seconds) — increased from 1s to allow WHOIS rescue to
+     * actually work for slow ccTLDs (.it, .de, .jp, .br) which commonly
+     * respond in 2-4s. The per-TLD rescue list (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS)
+     * is enabled by default for these TLDs.
      */
-    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(5000).default(1000),
+    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(5000).default(3000),
 
     /**
      * Staleness window in hours after which a persisted RDAP "Available" row

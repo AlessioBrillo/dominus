@@ -337,8 +337,8 @@ describe('DNS consensus tertiary leg config defaults (ADR-0045)', () => {
     resetConfig();
   });
 
-  it('DNS_TERTIARY_ENABLED defaults to false (third opinion is opt-in)', () => {
-    expect(loadConfig().DNS_TERTIARY_ENABLED).toBe(false);
+  it('DNS_TERTIARY_ENABLED defaults to true (third opinion on by default for resilience, ADR-0045/0064)', () => {
+    expect(loadConfig().DNS_TERTIARY_ENABLED).toBe(true);
   });
 
   it('DNS_TERTIARY_STRATEGY defaults to doh-tertiary (dual-operator DoH group)', () => {
@@ -520,8 +520,8 @@ describe('RDAP consensus config defaults (ADR-0050)', () => {
     expect(loadConfig().RDAP_CONSENSUS_ENABLED).toBe(true);
   });
 
-  it('RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED defaults to false (rescue is opt-in, ADR-0051)', () => {
-    expect(loadConfig().RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED).toBe(false);
+  it('RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED defaults to true (rescue on by default with sufficient budget, ADR-0051)', () => {
+    expect(loadConfig().RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED).toBe(true);
   });
 
   it('RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED accepts an explicit true', () => {
