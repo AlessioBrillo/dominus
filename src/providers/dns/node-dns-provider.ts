@@ -25,7 +25,6 @@ import type { RetryPolicy } from '../retry-policy.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import { getLogger } from '../../logger.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
-// import { validateDnssecNative } from './dnssec-validation.js';
 
 export { buildDnsQuery, validateDnsResponse } from './dot-pool.js';
 
@@ -864,10 +863,10 @@ export class NodeDnsProvider implements DnsProvider {
       let dnssecStatus: DnsCheckResult['dnssec'] = 'unchecked';
 
       if (this.#rateLimiter && this.#retryPolicy) {
-        await this.#rateLimiter.acquire(this.#legRole);
+        await this.#rateLimiter.acquire();
         resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, undefined);
       } else if (this.#rateLimiter) {
-        await this.#rateLimiter.acquire(this.#legRole);
+        await this.#rateLimiter.acquire();
         resolved = await resolveFn(undefined);
       } else if (this.#retryPolicy) {
         resolved = await withRetry(resolveFn, `dns:${domain}`, this.#retryPolicy, undefined);
@@ -896,7 +895,7 @@ export class NodeDnsProvider implements DnsProvider {
 
         if (resolved && this.#parkingEnabled) {
           try {
-            if (this.#rateLimiter) await this.#rateLimiter.acquire(this.#legRole);
+            if (this.#rateLimiter) await this.#rateLimiter.acquire();
             const addresses = await resolveAddressRecords(
               domain,
               this.#lookupTimeoutMs,
@@ -1015,15 +1014,7 @@ export class NodeDnsProvider implements DnsProvider {
           spec.nameservers !== undefined
             ? this.#cachedResolver(spec.nameservers)
             : this.#getResolver();
-        // DNSSEC validation on native resolver path (DNS_NATIVE_DNSSEC_ENABLED)
-        // Native Node.js resolver doesn't support DNSSEC. When enabled and we have
-        // custom nameservers, we attempt to validate via DoH wire format to the
-        // same recursor if a DoH endpoint is configured. Otherwise, we fall back
-        // to native without DNSSEC and log a warning (operator should use DoH/DoT
-        // for full DNSSEC validation).
         if (this.#dnssecNativeEnabled && (spec.nameservers ?? this.#nameservers) !== undefined) {
-          // For now, log that native DNSSEC is not fully supported and use native
-          // The operator should configure DoH/DoT for DNSSEC validation
           logger.warn(
             { domain, nameservers: spec.nameservers ?? this.#nameservers },
             'DNS: native resolver with DNSSEC validation requested — native resolver does not support DNSSEC; ' +
