@@ -114,7 +114,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
     "ioredis": "^6.0.0",
-    "jose": "^6.2.8",
+    "jose": "^6.2.9",
     "lru-cache": "^11.5.2",
     "node-cron": "^4.6.0",
     "node-notifier": "^10.0.1",
