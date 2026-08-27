@@ -331,6 +331,17 @@ export class MetricsCollector {
     }
   }
 
+  /** Record the DNS consensus gate status at startup (ADR-0066).
+   *  status: 'active' | 'disabled' | 'degraded'
+   *  Called once per process start after buildDnsConsensusConfig completes. */
+  recordDnsConsensusGateStatus(status: 'active' | 'disabled' | 'degraded', _reason?: string): void {
+    this.#dnsRuntimeConsensusObserved = true;
+    if (status === 'disabled') {
+      this.#dnsRuntimeConsensusDisabled++;
+    }
+    // Could extend with gauges for active/degraded if needed
+  }
+
   /** Record a successful database backup (fed by BackupService.onSuccess). */
   recordBackupSuccess(timestampMs: number): void {
     this.#backupLastSuccessAtMs = timestampMs;

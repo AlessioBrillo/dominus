@@ -513,6 +513,16 @@ export function buildSecondaryDnsProvider(
  * DNS_CONSENSUS_RATE_LIMIT_* config so the isolation holds even for callers
  * that never build the shared budget.
  */
+type ConsensusOnFailureMode = 'fail' | 'degrade' | 'disable';
+
+function buildDisabledConsensusConfig(reason: string): ConsensusDnsConfig {
+  return {
+    secondaryProvider: null as unknown as DnsProvider,
+    disabled: true,
+    disableReason: reason,
+  };
+}
+
 export async function buildDnsConsensusConfig(
   config: Config,
   consensusRateLimiter?: RateLimiterLike,
@@ -527,6 +537,7 @@ export async function buildDnsConsensusConfig(
       overlapOperators: string[];
     }): void;
   },
+  consensusOnFailure: ConsensusOnFailureMode = 'fail',
 ): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
@@ -650,11 +661,18 @@ export async function buildDnsConsensusConfig(
       { overlapEndpoints: report.overlapEndpoints, overlapOperators: report.overlapOperators },
       `DNS: consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
     );
-    throw new Error(
-      `DNS consensus gate invalid at bootstrap: ${reason}. ` +
-        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
-        `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`,
+    if (consensusOnFailure === 'fail') {
+      throw new Error(
+        `DNS consensus gate invalid at bootstrap: ${reason}. ` +
+          `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+          `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`,
+      );
+    }
+    getLogger().warn(
+      { mode: consensusOnFailure, reason },
+      `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
     );
+    return buildDisabledConsensusConfig(reason);
   }
   if (report.resolutionPartial) {
     getLogger().warn(
@@ -712,13 +730,20 @@ export async function buildDnsConsensusConfig(
       },
       `DNS: consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
     );
-    throw new Error(
-      `DNS consensus gate invalid at bootstrap: ${reason}. ` +
-        `The consensus resolver overlaps with the primary's emergency fallback recursor. ` +
-        `Configure a DIFFERENT recursor for consensus (DNS_CONSENSUS_NAMESERVERS) ` +
-        `or disable consensus (DNS_CONSENSUS_ENABLED=false). ` +
-        `A shared fallback cannot be an independent second opinion (ADR-0063).`,
+    if (consensusOnFailure === 'fail') {
+      throw new Error(
+        `DNS consensus gate invalid at bootstrap: ${reason}. ` +
+          `The consensus resolver overlaps with the primary's emergency fallback recursor. ` +
+          `Configure a DIFFERENT recursor for consensus (DNS_CONSENSUS_NAMESERVERS) ` +
+          `or disable consensus (DNS_CONSENSUS_ENABLED=false). ` +
+          `A shared fallback cannot be an independent second opinion (ADR-0063).`,
+      );
+    }
+    getLogger().warn(
+      { mode: consensusOnFailure, reason },
+      `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
     );
+    return buildDisabledConsensusConfig(reason);
   }
 
   // Single-recursor mode detected: allow consensus but mark as degraded
@@ -773,12 +798,19 @@ export async function buildDnsConsensusConfig(
         },
         `DNS: tertiary consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
       );
-      throw new Error(
-        `DNS tertiary consensus gate invalid at bootstrap: ${reason}. ` +
-          `The tertiary resolver overlaps with the primary's emergency fallback recursor. ` +
-          `Configure a DIFFERENT recursor for tertiary (DNS_TERTIARY_NAMESERVERS) ` +
-          `or disable tertiary (DNS_TERTIARY_ENABLED=false).`,
+      if (consensusOnFailure === 'fail') {
+        throw new Error(
+          `DNS tertiary consensus gate invalid at bootstrap: ${reason}. ` +
+            `The tertiary resolver overlaps with the primary's emergency fallback recursor. ` +
+            `Configure a DIFFERENT recursor for tertiary (DNS_TERTIARY_NAMESERVERS) ` +
+            `or disable tertiary (DNS_TERTIARY_ENABLED=false).`,
+        );
+      }
+      getLogger().warn(
+        { mode: consensusOnFailure, reason },
+        `DNS: tertiary consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without tertiary cross-validation`,
       );
+      return buildDisabledConsensusConfig(reason);
     }
 
     if (tertiaryFallbackReport.singleRecursorMode) {
@@ -889,11 +921,18 @@ export async function buildDnsConsensusConfig(
     // HARD FAIL: do not return disabled config — consensus gate must be
     // genuinely independent or the pipeline must not run (ADR-0002 conservatism).
     // Operator must fix resolver topology or explicitly disable consensus.
-    throw new Error(
-      `DNS consensus gate invalid at bootstrap: ${reason}. ` +
-        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
-        `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`,
+    if (consensusOnFailure === 'fail') {
+      throw new Error(
+        `DNS consensus gate invalid at bootstrap: ${reason}. ` +
+          `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+          `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`,
+      );
+    }
+    getLogger().warn(
+      { mode: consensusOnFailure, reason },
+      `DNS: consensus gate disabled at runtime (${consensusOnFailure} mode) — continuing without cross-validation`,
     );
+    return buildDisabledConsensusConfig(reason);
   }
 
   // In strict mode, runtimeDegraded=true means the gate is vetoed even without overlap
@@ -907,11 +946,18 @@ export async function buildDnsConsensusConfig(
       'DNS: runtime consensus validation incomplete in strict mode — gate vetoed. ' +
         'Configure disjoint resolver sets or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive.',
     );
-    throw new Error(
-      'DNS consensus gate invalid at bootstrap: runtime validation incomplete in strict mode. ' +
-        'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
-        'or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive to allow degraded validation.',
+    if (consensusOnFailure === 'fail') {
+      throw new Error(
+        'DNS consensus gate invalid at bootstrap: runtime validation incomplete in strict mode. ' +
+          'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
+          'or set DNS_CONSENSUS_RUNTIME_VALIDATION_MODE=permissive to allow degraded validation.',
+      );
+    }
+    getLogger().warn(
+      { mode: consensusOnFailure },
+      `DNS: consensus gate disabled at runtime (${consensusOnFailure} mode) — continuing without cross-validation (runtime degraded in strict mode)`,
     );
+    return buildDisabledConsensusConfig('Runtime validation incomplete in strict mode');
   }
 
   metricsCollector?.recordRuntimeConsensusValidation({

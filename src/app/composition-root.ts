@@ -851,8 +851,22 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     dnsLegTelemetry,
     () => metrics.recordDisjointnessResolutionPartial(),
     metrics,
+    config.DNS_CONSENSUS_ON_FAILURE,
   );
-  if (dnsConsensusConfig !== undefined) {
+  // Record consensus gate status for observability (ADR-0066)
+  if (dnsConsensusConfig === undefined) {
+    metrics.recordDnsConsensusGateStatus('disabled', 'DNS_CONSENSUS_ENABLED=false');
+  } else if (dnsConsensusConfig.disabled) {
+    metrics.recordDnsConsensusGateStatus('disabled', dnsConsensusConfig.disableReason);
+  } else if (dnsConsensusConfig.runtimeDegraded) {
+    metrics.recordDnsConsensusGateStatus(
+      'degraded',
+      'runtime validation incomplete or fallback isolation overlap',
+    );
+  } else {
+    metrics.recordDnsConsensusGateStatus('active');
+  }
+  if (dnsConsensusConfig !== undefined && !dnsConsensusConfig.disabled) {
     // Startup probe of the consensus legs: with strict 2-of-3 semantics
     // a dead secondary (or a dead tertiary under requiredAvailable=2)
     // downgrades every Available to Unknown, so surface egress/strategy

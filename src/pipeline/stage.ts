@@ -3,6 +3,7 @@ export type StageDegradationReason =
   | 'timeout'
   | 'error'
   | 'consensus-unverified'
+  | 'consensus-disabled'
   | 'consensus-disabled-runtime'
   | 'consensus-runtime-degraded';
 

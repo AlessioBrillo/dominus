@@ -806,6 +806,21 @@ const configSchema = z
       return isCloud ? 'strict' : 'permissive';
     }),
     /**
+     * Behavior when the DNS consensus gate fails runtime disjointness validation
+     * (ADR-0066). This occurs when the primary and secondary resolver sets share
+     * IPs/operators, making the second opinion a rubber stamp.
+     * - 'fail': throw at startup, preventing the pipeline from running (strict, default for cloud).
+     * - 'degrade': log warning, disable consensus for this run, continue with single-resolver verdicts (default for community).
+     * - 'disable': silently disable consensus, continue without cross-validation (legacy escape hatch).
+     * Default: derived from cloud mode — 'fail' when DATABASE_URL set or AUTH_PROVIDER !== 'env', otherwise 'degrade'.
+     */
+    DNS_CONSENSUS_ON_FAILURE: z.enum(['fail', 'degrade', 'disable']).default(() => {
+      const isCloud =
+        !!process.env.DATABASE_URL ||
+        (process.env.AUTH_PROVIDER && process.env.AUTH_PROVIDER !== 'env');
+      return isCloud ? 'fail' : 'degrade';
+    }),
+    /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
      * The validation queries this domain through each consensus leg to detect

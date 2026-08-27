@@ -77,6 +77,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     PROVIDER_FAIR_SHARE_ENABLED: false,
     DNS_RATE_LIMIT_PER_TENANT_TOKENS: 5,
     DNS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: 1000,
+    DNS_CONSENSUS_ON_FAILURE: 'degrade',
     USPTO_TSDR_SEARCH_URL: 'https://tsdr.uspto.gov/tsdr/tmsearch/data',
     USPTO_RATE_LIMIT_TOKENS: 5,
     USPTO_RATE_LIMIT_INTERVAL_MS: 1000,

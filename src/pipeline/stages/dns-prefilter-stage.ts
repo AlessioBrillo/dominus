@@ -331,17 +331,28 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     consensusStats?: DnsConsensusStats,
   ): Promise<(DnsCheckResult | undefined)[]> {
     if (this.consensusConfig === undefined) return results;
-    // Runtime disjointness guard disabled the gate — HARD FAIL (fail-closed)
-    // A disabled consensus gate means Available verdicts rest on a single resolver,
-    // violating ADR-0002 conservatism. The pipeline must not run without independent confirmation.
+    // Consensus gate disabled at startup (disjointness failure) — degrade gracefully
+    // instead of hard-failing. The run continues with single-resolver verdicts but
+    // is marked degraded so the operator knows the output lacks independent confirmation.
     if (this.consensusConfig.disabled) {
       const reason = this.consensusConfig.disableReason ?? 'runtime disjointness failure';
-      const msg =
-        `DNS consensus gate disabled at startup: ${reason}. ` +
-        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
-        `or explicitly disable consensus (DNS_CONSENSUS_ENABLED=false).`;
-      logger.fatal({ reason }, msg);
-      throw new Error(msg);
+      logger.warn(
+        { reason, disabled: true },
+        `DNS: consensus gate disabled at startup — ${reason}. Continuing with single-resolver verdicts (degraded run).`,
+      );
+      if (degradations !== undefined) {
+        degradations.push({
+          stageName: this.name,
+          reason: 'consensus-disabled',
+          processedCount: 0,
+          expectedCount: 0,
+          message: `DNS consensus gate disabled: ${reason}. Run degraded to single-resolver mode.`,
+        });
+      }
+      if (consensusStats !== undefined) {
+        consensusStats.degraded = true;
+      }
+      return results;
     }
     // Runtime validation degraded (strict mode with partial results) — run consensus
     // but mark the run as degraded because independence proof is incomplete.
