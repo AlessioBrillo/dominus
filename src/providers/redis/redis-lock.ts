@@ -2,6 +2,7 @@
 import type { Redis } from 'ioredis';
 import { getRedisClient, type RedisClient } from './redis-client.js';
 import { randomUUID } from 'node:crypto';
+import type { LockMetadata } from '../../types/lock.js';
 
 const LOCK_SCRIPT = `
   local key = KEYS[1]
@@ -42,31 +43,33 @@ const UNLOCK_SCRIPT = `
 `;
 
 /**
- * Lua script for fenced lock acquisition.
+ * Lua script for fenced lock acquisition with metadata.
  * Returns: acquired (0/1), fenceToken (string or nil)
  * The fence token is a UUID generated client-side and stored with the lock.
+ * Lock value format: worker:fenceToken:metadataJson
  */
 const FENCED_LOCK_SCRIPT = `
   local key = KEYS[1]
   local ttl = tonumber(ARGV[1])
   local worker = ARGV[2]
   local fenceToken = ARGV[3]
+  local metadata = ARGV[4] or '{}'
   local val = redis.call('get', key)
   if val == false then
-    redis.call('set', key, worker .. ':' .. fenceToken, 'PX', ttl, 'NX')
+    redis.call('set', key, worker .. ':' .. fenceToken .. ':' .. metadata, 'PX', ttl, 'NX')
     return {1, fenceToken}
-  elseif string.find(val, ':' .. worker .. ':') == 1 then
+  elseif string.find(val, '^' .. worker .. ':') == 1 then
     -- Same worker already holds the lock, refresh TTL
     redis.call('pexpire', key, ttl)
     -- Extract existing fence token
-    local _, _, existingToken = string.find(val, ':(.+)$')
+    local _, _, existingToken = string.find(val, '^[^:]+:([^:]+):')
     return {1, existingToken}
   end
   return {0, nil}
 `;
 
 /**
- * Lua script for fenced lock renewal.
+ * Lua script for fenced lock renewal with metadata.
  * Only renews if the fenceToken matches the current holder.
  */
 const FENCED_RENEW_SCRIPT = `
@@ -74,20 +77,21 @@ const FENCED_RENEW_SCRIPT = `
   local ttl = tonumber(ARGV[1])
   local worker = ARGV[2]
   local fenceToken = ARGV[3]
+  local metadata = ARGV[4] or '{}'
   local val = redis.call('get', key)
   if val == false then
     return 0
   end
-  local expectedVal = worker .. ':' .. fenceToken
-  if val == expectedVal then
-    redis.call('pexpire', key, ttl)
+  local expectedPrefix = worker .. ':' .. fenceToken .. ':'
+  if string.find(val, '^' .. expectedPrefix) == 1 then
+    redis.call('set', key, worker .. ':' .. fenceToken .. ':' .. metadata, 'PX', ttl)
     return 1
   end
   return 0
 `;
 
 /**
- * Lua script for fenced unlock.
+ * Lua script for fenced unlock with metadata.
  * Only deletes if the fenceToken matches the current holder.
  */
 const FENCED_UNLOCK_SCRIPT = `
@@ -98,8 +102,8 @@ const FENCED_UNLOCK_SCRIPT = `
   if val == false then
     return 0
   end
-  local expectedVal = worker .. ':' .. fenceToken
-  if val == expectedVal then
+  local expectedPrefix = worker .. ':' .. fenceToken .. ':'
+  if string.find(val, '^' .. expectedPrefix) == 1 then
     redis.call('del', key)
     return 1
   end
@@ -119,6 +123,17 @@ export class RedisLock {
     return this.#workerId;
   }
 
+  #encodeMetadata(metadata?: LockMetadata): string {
+    if (!metadata) return '{}';
+    return JSON.stringify({
+      runId: metadata.runId,
+      stage: metadata.stage,
+      priority: metadata.priority,
+      tenantId: metadata.tenantId,
+      acquiredAt: metadata.acquiredAt ?? new Date().toISOString(),
+    });
+  }
+
   async tryLock(lockName: string, ttlMs: number): Promise<boolean> {
     const key = this.#redisClient.prefixed(`lock:${lockName}`);
 
@@ -134,9 +149,11 @@ export class RedisLock {
   async tryLockWithFence(
     lockName: string,
     ttlMs: number,
+    metadata?: LockMetadata,
   ): Promise<{ acquired: boolean; fenceToken: string | undefined }> {
     const key = this.#redisClient.prefixed(`lock:${lockName}`);
     const fenceToken = randomUUID();
+    const metadataJson = this.#encodeMetadata(metadata);
 
     return this.#redisClient.withRedis(
       async (redis: Redis) => {
@@ -147,6 +164,7 @@ export class RedisLock {
           String(ttlMs),
           this.#workerId,
           fenceToken,
+          metadataJson,
         )) as [number, string | null];
         return {
           acquired: result[0] === 1,
@@ -169,8 +187,14 @@ export class RedisLock {
     );
   }
 
-  async renewLockWithFence(lockName: string, ttlMs: number, fenceToken: string): Promise<boolean> {
+  async renewLockWithFence(
+    lockName: string,
+    ttlMs: number,
+    fenceToken: string,
+    metadata?: LockMetadata,
+  ): Promise<boolean> {
     const key = this.#redisClient.prefixed(`lock:${lockName}`);
+    const metadataJson = this.#encodeMetadata(metadata);
 
     return this.#redisClient.withRedis(
       async (redis: Redis) => {
@@ -181,6 +205,7 @@ export class RedisLock {
           String(ttlMs),
           this.#workerId,
           fenceToken,
+          metadataJson,
         );
         return result === 1;
       },
@@ -199,7 +224,11 @@ export class RedisLock {
     );
   }
 
-  async unlockWithFence(lockName: string, fenceToken: string): Promise<void> {
+  async unlockWithFence(
+    lockName: string,
+    fenceToken: string,
+    _metadata?: LockMetadata,
+  ): Promise<void> {
     const key = this.#redisClient.prefixed(`lock:${lockName}`);
 
     await this.#redisClient.withRedis(

@@ -247,10 +247,10 @@ describe('PipelineOrchestrator', () => {
     expect(Date.now() - start).toBeLessThan(500);
   });
 
-  it('rejects concurrent runs for the same tenant', async () => {
-    // Slow stage (1s delay) + short timeout (50ms) ensures the first run
-    // sets #activeTenants synchronously, then quickly times out. The
-    // second call is dispatched before the first run's timeout fires.
+  it('allows concurrent runs for the same tenant with per-stage locking', async () => {
+    // With per-stage locking, concurrent runs for the same tenant are allowed.
+    // Each run acquires locks per stage, so they can progress through different
+    // stages simultaneously.
     const slowStage: CandidateGenerationStage = {
       name: 'slow-gen',
       process: vi.fn().mockImplementation(() => new Promise((r) => setTimeout(r, 1_000))),
@@ -264,10 +264,36 @@ describe('PipelineOrchestrator', () => {
       50,
     );
 
-    void orchestrator.run({ brandableNames: ['nova.com'] });
-    await expect(orchestrator.run({ brandableNames: ['second.com'] })).rejects.toThrow(
-      'concurrent per-tenant runs are not supported',
-    );
+    // Start first run (fire and forget)
+    const firstRun = orchestrator.run({ brandableNames: ['nova.com'] });
+    // Start second run immediately
+    const secondRun = orchestrator.run({ brandableNames: ['second.com'] });
+
+    // Both runs should be able to start (no global pipeline lock rejection)
+    // They will complete (potentially degraded due to timeout) but should not
+    // be rejected with "concurrent per-tenant runs are not supported"
+    const [firstResult, secondResult] = await Promise.allSettled([firstRun, secondRun]);
+
+    // Both should complete (not be rejected with lock error)
+    // They may be degraded due to timeout, but that's expected
+    expect(firstResult.status).toBe('fulfilled');
+    expect(secondResult.status).toBe('fulfilled');
+
+    if (firstResult.status === 'fulfilled') {
+      expect(firstResult.value.runId).toBeDefined();
+      // Should not have lock rejection error
+      const hasLockRejection = firstResult.value.stageErrors.some((e) =>
+        e.message.includes('concurrent per-tenant runs are not supported'),
+      );
+      expect(hasLockRejection).toBe(false);
+    }
+    if (secondResult.status === 'fulfilled') {
+      expect(secondResult.value.runId).toBeDefined();
+      const hasLockRejection = secondResult.value.stageErrors.some((e) =>
+        e.message.includes('concurrent per-tenant runs are not supported'),
+      );
+      expect(hasLockRejection).toBe(false);
+    }
   });
 
   it('allows concurrent runs for different tenants', async () => {

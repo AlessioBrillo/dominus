@@ -132,8 +132,9 @@ export class PipelineTimeoutError extends Error {
   }
 }
 
-function pipelineLockName(tenantId: string = resolveTenantId()): string {
-  return `pipeline_run:${tenantId}`;
+/** Lock key format: pipeline:{tenantId}:{stage}:{runId} */
+function pipelineStageLockKey(tenantId: string, stageName: string, runId: string): string {
+  return `pipeline:${tenantId}:${stageName}:${runId}`;
 }
 
 /**
@@ -164,17 +165,9 @@ const TRANSIENT_ERROR_PATTERNS = [
 ];
 
 export class PipelineOrchestrator {
-  #activeTenants: Set<string> = new Set();
-  #runControllers: Map<string, AbortController> = new Map();
-  #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  #heartbeatFailures = 0;
-  /** Tenant whose run owns the heartbeat loop. The lock key and the abort
-   *  on heartbeat loss are scoped to this tenant — renewing a different
-   *  key (e.g. the ambient 'default' outside runWithTenant) or aborting
-   *  every tenant's run would be a cross-tenant bug. */
-  #heartbeatTenant: string | null = null;
-  /** Fence token for the current pipeline lock (split-brain prevention). */
-  #heartbeatFenceToken: string | undefined = undefined;
+  #stageLocks: Map<string, { controller: AbortController; fenceToken: string }> = new Map();
+  #heartbeatTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
+  #heartbeatFailures: Map<string, number> = new Map();
   #onStageProgress?: (
     stageName: string,
     passed: number,
@@ -187,13 +180,6 @@ export class PipelineOrchestrator {
 
   #lock: LockProvider | null = null;
   #checkpointStore: CheckpointStore | null = null;
-
-  /** Promise-chain mutex that serialises tenant-slot acquisition.
-   *  Used only when no distributed lock is configured. */
-  #tenantMutex: { promise: Promise<void>; resolve: () => void } = {
-    promise: Promise.resolve(),
-    resolve: () => undefined,
-  };
 
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -259,6 +245,7 @@ export class PipelineOrchestrator {
   ): Promise<PipelineResult> {
     const tenantId = resolveTenantId();
     const controller = new AbortController();
+    const runId = externalRunId ?? `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Merge external signal (e.g. from worker shutdown) with internal controller:
     // when either fires, both fire.
@@ -277,151 +264,178 @@ export class PipelineOrchestrator {
       }
     }
 
-    // ---- Tenant admission: serialised via advisory lock or in-process mutex ----
-    if (this.#lock) {
-      // Distributed lock — serialises across all instances.
-      const lockResult = await this.#lock.tryLockWithFence(pipelineLockName(), this.lockTtlMs);
-      if (!lockResult.acquired) {
-        throw new Error(
-          'Pipeline run already in progress on another instance — ' +
-            `advisory lock '${pipelineLockName()}' could not be acquired. ` +
-            'Retry when the current run completes or expires.',
-        );
-      }
-      // Lock held exclusively — double-check that no local run is active
-      // (defensive: should never trigger inside the lock).
-      if (this.#activeTenants.has(tenantId)) {
-        await this.#lock
-          .unlockWithFence(pipelineLockName(), lockResult.fenceToken!)
-          .catch(() => {});
-        throw new Error(
-          `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
-        );
-      }
-      this.#activeTenants.add(tenantId);
-      this.#runControllers.set(tenantId, controller);
-      this.#heartbeatFenceToken = lockResult.fenceToken;
-      logger.info({ workerId: process.pid }, 'Pipeline advisory lock acquired');
-      this.#startHeartbeat(tenantId);
-    } else {
-      // No distributed lock — serialise via in-process tenant slot.
-      await this.#acquireTenantSlot(tenantId, controller);
-    }
-    // ---- End tenant admission ----
+    // No global lock acquisition — we acquire per-stage locks inside #runInternal
+    // This allows concurrent stages across different tenants/runs.
 
     try {
-      return await this.#runInternal(input, controller, tenantId, externalRunId);
+      return await this.#runInternal(input, controller, tenantId, runId);
     } finally {
-      this.#stopHeartbeat();
-      if (this.#lock && this.#heartbeatFenceToken) {
-        await this.#lock
-          .unlockWithFence(pipelineLockName(), this.#heartbeatFenceToken)
-          .catch(() => {});
-        logger.info({ workerId: process.pid }, 'Pipeline advisory lock released');
+      // Cleanup all stage heartbeats and locks
+      await this.#cleanupAllStageLocks(runId);
+      if (this.#checkpointStore && runId) {
+        await this.#checkpointStore.clear(runId).catch(() => {});
       }
-      if (this.#checkpointStore && externalRunId) {
-        await this.#checkpointStore.clear(externalRunId).catch(() => {});
-      }
-      this.#runControllers.delete(tenantId);
-      this.#activeTenants.delete(tenantId);
-      this.#heartbeatFenceToken = undefined;
     }
   }
 
-  /** Serialised tenant-slot acquisition for the no-lock (in-process) path.
-   *  Uses a promise-chain mutex so the {@link #activeTenants} check-then-add
-   *  is atomic w.r.t. concurrent {@link run()} calls on the same instance. */
-  async #acquireTenantSlot(tenantId: string, controller: AbortController): Promise<void> {
-    const prev = this.#tenantMutex.promise;
-    let nextResolve!: () => void;
-    this.#tenantMutex.promise = new Promise<void>((resolve) => {
-      nextResolve = resolve;
-    });
-    await prev;
+  #startStageHeartbeat(
+    runId: string,
+    stageName: string,
+    tenantId: string,
+    fenceToken: string,
+  ): void {
+    const heartbeatKey = `${runId}:${stageName}`;
+    if (this.#heartbeatTimers.has(heartbeatKey)) return;
 
-    try {
-      if (this.#activeTenants.has(tenantId)) {
-        throw new Error(
-          `Pipeline run already in progress for tenant '${tenantId}' — concurrent per-tenant runs are not supported on this instance`,
-        );
-      }
-      this.#activeTenants.add(tenantId);
-      this.#runControllers.set(tenantId, controller);
-    } finally {
-      nextResolve();
-    }
-  }
+    this.#heartbeatFailures.set(heartbeatKey, 0);
+    this.#heartbeatTimers.set(
+      heartbeatKey,
+      setInterval(async () => {
+        if (!this.#lock) return;
 
-  #startHeartbeat(tenantId: string): void {
-    if (this.#heartbeatTimer) return;
-    this.#heartbeatFailures = 0;
-    this.#heartbeatTenant = tenantId;
-    this.#heartbeatTimer = setInterval(async () => {
-      if (!this.#lock || !this.#heartbeatFenceToken) return;
-      // The interval callback runs outside the caller's runWithTenant scope,
-      // so the lock key must come from the captured tenant, not from
-      // resolveTenantId() (which would renew 'pipeline_run:default').
-      const lockKey = pipelineLockName(this.#heartbeatTenant ?? tenantId);
-      const renewed = await this.#lock
-        .renewLockWithFence(lockKey, this.lockTtlMs, this.#heartbeatFenceToken)
-        .catch(() => false);
-      if (renewed) {
-        this.#heartbeatFailures = 0;
-      } else {
-        this.#heartbeatFailures++;
-        if (this.#heartbeatFailures >= 3) {
-          logger.error(
-            { failures: this.#heartbeatFailures, tenantId: this.#heartbeatTenant },
-            'Pipeline lock heartbeat failed 3 consecutive times — lock may have been lost. Aborting run.',
-          );
-          // Abort only the run that owns this heartbeat. Aborting every
-          // tenant's controller turns one tenant's Redis outage into a
-          // platform-wide pipeline outage.
-          const ac = this.#runControllers.get(this.#heartbeatTenant ?? tenantId);
-          ac?.abort();
+        const lockKey = pipelineStageLockKey(tenantId, stageName, runId);
+        const failures = this.#heartbeatFailures.get(heartbeatKey) ?? 0;
+        const renewed = await this.#lock
+          .renewLockWithFence(lockKey, this.lockTtlMs, fenceToken, {
+            runId,
+            stage: stageName,
+            tenantId,
+          })
+          .catch(() => false);
+
+        if (renewed) {
+          this.#heartbeatFailures.set(heartbeatKey, 0);
         } else {
-          logger.warn(
-            { failures: this.#heartbeatFailures },
-            'Pipeline lock heartbeat transient failure — retrying',
-          );
+          const newFailures = failures + 1;
+          this.#heartbeatFailures.set(heartbeatKey, newFailures);
+
+          if (newFailures >= 3) {
+            logger.error(
+              { failures: newFailures, runId, stage: stageName, tenantId },
+              'Stage lock heartbeat failed 3 consecutive times — lock may have been lost. Aborting run.',
+            );
+            // Abort the run via the stored controller
+            const lockInfo = this.#stageLocks.get(heartbeatKey);
+            lockInfo?.controller.abort();
+          } else {
+            logger.warn(
+              { failures: newFailures, runId, stage: stageName },
+              'Stage lock heartbeat transient failure — retrying',
+            );
+          }
         }
-      }
-    }, this.lockHeartbeatMs).unref();
+      }, this.lockHeartbeatMs).unref(),
+    );
   }
 
-  async #ensureLockHeld(key: string): Promise<void> {
-    if (!this.#lock || !this.#heartbeatFenceToken) return;
-    const renewed = await this.#lock
-      .renewLockWithFence(pipelineLockName(key), this.lockTtlMs, this.#heartbeatFenceToken)
-      .catch(() => false);
-    if (!renewed) {
-      this.#runControllers.get(key)?.abort();
+  #stopStageHeartbeat(runId: string, stageName: string): void {
+    const heartbeatKey = `${runId}:${stageName}`;
+    const timer = this.#heartbeatTimers.get(heartbeatKey);
+    if (timer) {
+      clearInterval(timer);
+      this.#heartbeatTimers.delete(heartbeatKey);
+    }
+    this.#heartbeatFailures.delete(heartbeatKey);
+  }
+
+  #stopAllHeartbeats(): void {
+    for (const [_key, timer] of this.#heartbeatTimers) {
+      clearInterval(timer);
+    }
+    this.#heartbeatTimers.clear();
+    this.#heartbeatFailures.clear();
+  }
+
+  /** Acquire a per-stage lock with heartbeat. Returns the fence token. */
+  async #acquireStageLock(
+    runId: string,
+    stageName: string,
+    tenantId: string,
+    controller: AbortController,
+  ): Promise<string> {
+    if (!this.#lock) return '';
+
+    const lockKey = pipelineStageLockKey(tenantId, stageName, runId);
+    const lockResult = await this.#lock.tryLockWithFence(lockKey, this.lockTtlMs, {
+      runId,
+      stage: stageName,
+      tenantId,
+      acquiredAt: new Date().toISOString(),
+    });
+
+    if (!lockResult.acquired) {
       throw new Error(
-        'Pipeline lock lost — another worker may have acquired it. ' +
-          'Aborting to prevent split-brain writes.',
+        `Stage '${stageName}' lock could not be acquired for run '${runId}' — ` +
+          `another instance may be processing this stage. Retry later.`,
       );
     }
+
+    this.#stageLocks.set(`${runId}:${stageName}`, {
+      controller,
+      fenceToken: lockResult.fenceToken!,
+    });
+
+    this.#startStageHeartbeat(runId, stageName, tenantId, lockResult.fenceToken!);
+
+    logger.info({ workerId: process.pid, runId, stage: stageName }, 'Stage lock acquired');
+
+    return lockResult.fenceToken!;
   }
 
-  #stopHeartbeat(): void {
-    if (this.#heartbeatTimer) {
-      clearInterval(this.#heartbeatTimer);
-      this.#heartbeatTimer = null;
+  /** Release a per-stage lock. */
+  async #releaseStageLock(runId: string, stageName: string, tenantId: string): Promise<void> {
+    if (!this.#lock) return;
+
+    const lockKey = `${runId}:${stageName}`;
+    const lockInfo = this.#stageLocks.get(lockKey);
+    if (!lockInfo) return;
+
+    this.#stopStageHeartbeat(runId, stageName);
+
+    const pipelineKey = pipelineStageLockKey(tenantId, stageName, runId);
+    await this.#lock
+      .unlockWithFence(pipelineKey, lockInfo.fenceToken, {
+        runId,
+        stage: stageName,
+        tenantId,
+      })
+      .catch(() => {});
+
+    this.#stageLocks.delete(lockKey);
+
+    logger.info({ workerId: process.pid, runId, stage: stageName }, 'Stage lock released');
+  }
+
+  /** Cleanup all stage locks and heartbeats for a run. */
+  async #cleanupAllStageLocks(runId: string): Promise<void> {
+    this.#stopAllHeartbeats();
+
+    if (!this.#lock) return;
+
+    for (const [lockKey, lockInfo] of this.#stageLocks) {
+      const parts = lockKey.split(':');
+      const stageName = parts[1] ?? 'unknown';
+      const tenantId = resolveTenantId();
+      const pipelineKey = pipelineStageLockKey(tenantId, stageName, runId);
+      await this.#lock
+        .unlockWithFence(pipelineKey, lockInfo.fenceToken, {
+          runId,
+          stage: stageName,
+          tenantId,
+        })
+        .catch(() => {});
     }
-    this.#heartbeatTenant = null;
-    this.#heartbeatFailures = 0;
+    this.#stageLocks.clear();
   }
 
   async #runInternal(
     input: CandidateGenerationInput,
     controller: AbortController,
-    key: string,
-    externalRunId?: string,
+    tenantId: string,
+    runId: string,
   ): Promise<PipelineResult> {
     const signal = controller.signal;
     const start = Date.now();
-
-    const runId = externalRunId ?? key;
 
     this.#onRunStart?.();
     const stageSummary: PipelineResult['stageSummary'] = {};
@@ -491,18 +505,20 @@ export class PipelineOrchestrator {
         false,
       );
     } else {
+      await this.#acquireStageLock(runId, 'CandidateGeneration', tenantId, controller);
       try {
         gen = await this.#withTimeout(
           'CandidateGeneration',
-          (s) => this.generationStage.process([input], s, externalRunId),
+          (s) => this.generationStage.process([input], s, runId),
           start,
           controller,
         );
       } catch (err) {
         logger.error({ err }, 'Pipeline: CandidateGeneration stage fatally failed');
         const errDuration = Date.now() - start;
+        await this.#releaseStageLock(runId, 'CandidateGeneration', tenantId);
         return {
-          runId: externalRunId ?? key,
+          runId,
           recommended: [],
           scored: [],
           allCandidates: [],
@@ -520,6 +536,8 @@ export class PipelineOrchestrator {
           degraded: true,
           degradedReasons: [],
         };
+      } finally {
+        await this.#releaseStageLock(runId, 'CandidateGeneration', tenantId);
       }
       stageSummary[gen.stageName] = {
         passed: gen.passed.length,
@@ -548,7 +566,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 2: DnsPreFilter ---
-    await this.#ensureLockHeld(key);
+    await this.#acquireStageLock(runId, 'DnsPreFilter', tenantId, controller);
     const dns = await this.#runStageWithCheckpoint(
       1,
       'DnsPreFilter',
@@ -562,8 +580,8 @@ export class PipelineOrchestrator {
       degradations,
       gen.passed.length,
       controller,
-      key,
     );
+    await this.#releaseStageLock(runId, 'DnsPreFilter', tenantId);
     if (dns === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (isAborted()) {
       controller.abort();
@@ -571,7 +589,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 3: RdapConfirmation ---
-    await this.#ensureLockHeld(key);
+    await this.#acquireStageLock(runId, 'RdapConfirmation', tenantId, controller);
     const rdap = await this.#runStageWithCheckpoint(
       2,
       'RdapConfirmation',
@@ -585,8 +603,8 @@ export class PipelineOrchestrator {
       degradations,
       dns.passed.length,
       controller,
-      key,
     );
+    await this.#releaseStageLock(runId, 'RdapConfirmation', tenantId);
     if (rdap === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (isAborted()) {
       controller.abort();
@@ -594,7 +612,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 4: Scoring ---
-    await this.#ensureLockHeld(key);
+    await this.#acquireStageLock(runId, 'Scoring', tenantId, controller);
     const scoring = await this.#runStageWithCheckpoint(
       3,
       'Scoring',
@@ -608,8 +626,8 @@ export class PipelineOrchestrator {
       degradations,
       rdap.passed.length,
       controller,
-      key,
     );
+    await this.#releaseStageLock(runId, 'Scoring', tenantId);
     if (scoring === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
     if (isAborted()) {
       controller.abort();
@@ -617,7 +635,7 @@ export class PipelineOrchestrator {
     }
 
     // --- Stage 5: TrademarkGate ---
-    await this.#ensureLockHeld(key);
+    await this.#acquireStageLock(runId, 'TrademarkGate', tenantId, controller);
     const trademark = await this.#runStageWithCheckpoint(
       4,
       'TrademarkGate',
@@ -631,8 +649,8 @@ export class PipelineOrchestrator {
       degradations,
       scoring.passed.length,
       controller,
-      key,
     );
+    await this.#releaseStageLock(runId, 'TrademarkGate', tenantId);
     if (trademark === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
 
     // --- Assemble final result ---
@@ -669,7 +687,6 @@ export class PipelineOrchestrator {
       degradedReasons: degradations,
     };
   }
-
   async #runStageSafe<T>(
     label: string,
     fn: (
@@ -681,12 +698,10 @@ export class PipelineOrchestrator {
     degradations: StageDegradation[],
     inputCount: number,
     controller: AbortController,
-    key: string,
   ): Promise<{ passed: T[]; filtered: T[]; stageName: string; durationMs: number } | null> {
     const signal = controller.signal;
     for (let attempt = 1; attempt <= STAGE_RETRY_MAX; attempt++) {
       try {
-        await this.#ensureLockHeld(key);
         const { result, timedOut } = await this.#runStageTimed(
           label,
           fn,
@@ -843,7 +858,6 @@ export class PipelineOrchestrator {
     degradations: StageDegradation[],
     inputCount: number,
     controller: AbortController,
-    key: string,
   ): Promise<StageResult<T> | null> {
     if (resumeIndex > index) {
       const saved = cpResults[label];
@@ -879,7 +893,6 @@ export class PipelineOrchestrator {
       degradations,
       inputCount,
       controller,
-      key,
     );
     if (result === null) return null;
 
