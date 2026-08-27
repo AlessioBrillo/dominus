@@ -3,12 +3,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { runMigrations } from '../../db/migrator.js';
-import {
-  CHECKPOINT_FORMAT_VERSION,
-  CHECKPOINT_MAX_AGE_MS,
-  DbCheckpointStore,
-  getResumeIndex,
-} from '../db-checkpoint-store.js';
+import { CHECKPOINT_FORMAT_VERSION, CHECKPOINT_MAX_AGE_MS } from '../checkpoint-store.js';
+import { DbCheckpointStore, getResumeIndex } from '../db-checkpoint-store.js';
 import { CandidateSource, CandidateStatus, type DomainCandidate } from '../../types/candidate.js';
 
 function cand(domain: string): DomainCandidate {

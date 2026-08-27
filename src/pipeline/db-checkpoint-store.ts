@@ -3,6 +3,11 @@ import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { DomainCandidate } from '../types/candidate.js';
 import { getLogger } from '../logger.js';
 import type { CheckpointData, CheckpointStore, StageCheckpoint } from './checkpoint-store.js';
+import {
+  CHECKPOINT_FORMAT_VERSION,
+  CHECKPOINT_MAX_AGE_MS,
+  validateCandidate,
+} from './checkpoint-store.js';
 
 const logger = getLogger();
 
@@ -13,19 +18,6 @@ const STAGES: string[] = [
   'ScoringStage',
   'TrademarkGateStage',
 ];
-
-/**
- * Version of the persisted checkpoint payload. Bump when the stored
- * candidate/verdict shape changes so older rows are ignored on resume.
- */
-export const CHECKPOINT_FORMAT_VERSION = 1;
-
-/**
- * Hard ceiling on checkpoint age. A run resumed beyond this is a different
- * world: deploy changes, DNS verdicts go stale, provider configs shift.
- * Resume is skipped for older checkpoints (ADR-0037 hardening).
- */
-export const CHECKPOINT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 interface CheckpointRow {
   run_id: string;
@@ -130,9 +122,18 @@ export class DbCheckpointStore implements CheckpointStore {
     let lastCompletedStage = '';
 
     for (const row of rows) {
-      const passed = parseCandidates(row.passed_ids);
-      const filtered = parseCandidates(row.filtered_ids);
-      allStageResults[row.stage_name] = { passed, filtered, durationMs: 0 };
+      const passed = parseCandidates(row.passed_ids).filter((c) =>
+        validateCandidate(c, CHECKPOINT_FORMAT_VERSION),
+      );
+      const filtered = parseCandidates(row.filtered_ids).filter((c) =>
+        validateCandidate(c, CHECKPOINT_FORMAT_VERSION),
+      );
+      allStageResults[row.stage_name] = {
+        passed,
+        filtered,
+        durationMs: 0,
+        formatVersion: row.format_version,
+      };
       lastCompletedStage = row.stage_name;
     }
 
@@ -148,6 +149,7 @@ export class DbCheckpointStore implements CheckpointStore {
       passed: lastResult.passed,
       filtered: cumulativeFiltered,
       allStageResults,
+      formatVersion: CHECKPOINT_FORMAT_VERSION,
     };
   }
 
