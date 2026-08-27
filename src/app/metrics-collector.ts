@@ -56,6 +56,7 @@ export class MetricsCollector {
   #dnsConsensusDisagreed = 0;
   #dnsConsensusUnverifiable = 0;
   #dnsConsensusTertiaryRescued = 0;
+  #dnsConsensusOriginOverlap = 0;
   #dnsConsensusDegradedRuns = 0;
   #dnsConsensusLastDegraded = false;
   #dnsConsensusObserved = false;
@@ -186,11 +187,13 @@ export class MetricsCollector {
     unverifiable: number;
     degraded: boolean;
     tertiaryRescued?: number;
+    originOverlap?: number;
   }): void {
     this.#dnsConsensusVerified += stats.verified;
     this.#dnsConsensusDisagreed += stats.disagreed;
     this.#dnsConsensusUnverifiable += stats.unverifiable;
     this.#dnsConsensusTertiaryRescued += stats.tertiaryRescued ?? 0;
+    this.#dnsConsensusOriginOverlap += stats.originOverlap ?? 0;
     this.#dnsConsensusObserved = true;
     this.#dnsConsensusLastDegraded = stats.degraded;
     if (stats.degraded) this.#dnsConsensusDegradedRuns++;
@@ -416,6 +419,7 @@ export class MetricsCollector {
           disagreedTotal: this.#dnsConsensusDisagreed,
           unverifiableTotal: this.#dnsConsensusUnverifiable,
           tertiaryRescuedTotal: this.#dnsConsensusTertiaryRescued,
+          originOverlapTotal: this.#dnsConsensusOriginOverlap,
           degradedRunsTotal: this.#dnsConsensusDegradedRuns,
           lastRunDegraded: this.#dnsConsensusLastDegraded,
           observed: this.#dnsConsensusObserved,

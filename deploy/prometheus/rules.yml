@@ -161,6 +161,34 @@ groups:
           summary: "Boot-time consensus disjointness check ran without full DoH IP resolution"
           description: "The strongest overlap check (resolved-IP) degraded to hostname/operator hints at boot (ADR-0065) — the consensus gate was decided on partial evidence. A slow system resolver or changed DoH hostnames are the usual causes."
 
+      # DNS Consensus Theater prevention (authoritative zone overlap detection)
+      # These alerts fire when the consensus gate's verification legs share
+      # authoritative nameservers with the primary — their "independent" opinion
+      # is a rubber stamp of the same registry infrastructure (e.g., Verisign
+      # for .com/.net). The gate silently accepts the primary verdict for
+      # affected TLDs but records the overlap for observability.
+
+      - alert: DnsConsensusOriginOverlapHigh
+        expr: |
+          sum(rate(dominus_dns_consensus_origin_overlap_total[15m]))
+            / clamp_min(sum(rate(dominus_dns_consensus_verified_total[15m])), 1)
+            > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DNS consensus origin overlap exceeds 50% of verified domains"
+          description: "More than half of consensus-verified Available domains share authoritative zones with the primary leg — the 2-of-3 gate is ineffective for affected TLDs. Configure DNS_CONSENSUS_NAMESERVERS with a genuinely independent recursor."
+
+      - alert: DnsConsensusOriginOverlapAny
+        expr: increase(dominus_dns_consensus_origin_overlap_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DNS consensus detected authoritative zone overlap"
+          description: "At least one Available verdict had its consensus skipped because the verification leg shares authoritative nameservers with the primary. The gate silently accepted the primary verdict (fail-open) but the consensus is a rubber stamp for affected TLDs. Immediate topology review required."
+
   - name: dominus-cache
     rules:
       - alert: RedisDown

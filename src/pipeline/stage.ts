@@ -44,6 +44,14 @@ export interface DnsConsensusStats {
   degraded: boolean;
   /** True when the tertiary leg was flagged degraded (ADR-0066). */
   tertiaryDegraded?: boolean;
+  /**
+   * Domains where consensus was skipped because the verification leg's
+   * resolver endpoints share authoritative nameservers with the primary
+   * for the candidate's TLD — the "independent" opinion would be a rubber
+   * stamp of the same registry infrastructure (Consensus Theater prevention).
+   * Present only when > 0.
+   */
+  originOverlap?: number;
 }
 
 export interface RdapConsensusStats {

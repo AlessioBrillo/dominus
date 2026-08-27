@@ -129,6 +129,7 @@ describe('renderPrometheusMetrics', () => {
       lastRunDegraded: true,
       observed: true,
       tertiaryRescuedTotal: 4,
+      originOverlapTotal: 0,
     };
     const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
 
@@ -153,6 +154,7 @@ describe('renderPrometheusMetrics', () => {
       lastRunDegraded: false,
       observed: true,
       tertiaryRescuedTotal: 0,
+      originOverlapTotal: 0,
     };
     const body = renderPrometheusMetrics(withConsensus, queueStats, 0);
     expect(body).toContain('dominus_dns_consensus_last_run_degraded 0');

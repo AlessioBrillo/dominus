@@ -71,6 +71,7 @@ import type { WaybackProvider, WaybackResult } from '../providers/wayback/waybac
 import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
 import type { RdapConsensusConfig } from '../pipeline/stages/rdap-confirmation-stage.js';
 import { getLogger } from '../logger.js';
+import { createAuthoritativeZoneResolver } from '../providers/dns/authoritative-zone-resolver.js';
 
 export function buildKeywordProvider(
   config: Config,
@@ -755,17 +756,20 @@ export async function buildDnsConsensusConfig(
     );
   }
 
-  // Also check tertiary fallback isolation if tertiary is enabled
+  // Tertiary consensus configuration (computed early for endpoint collection)
+  let effectiveTertiaryStrategy: DnsLookupStrategy | undefined;
+  let effectiveTertiaryNameservers: string[] | undefined;
   if (config.DNS_TERTIARY_ENABLED) {
     const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
-    const effectiveTertiaryStrategy: string = tertiaryNameservers
+    effectiveTertiaryStrategy = tertiaryNameservers
       ? 'native'
       : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY);
+    effectiveTertiaryNameservers = tertiaryNameservers ?? nameservers;
+
     const tertiaryGroups = strategyToResolverGroups(
       effectiveTertiaryStrategy,
       config.DNS_DOH_ENDPOINT,
     );
-    const effectiveTertiaryNameservers = tertiaryNameservers ?? nameservers;
 
     const tertiaryFallbackReport = await validateFallbackIsolation(
       primaryGroups,
@@ -979,6 +983,30 @@ export async function buildDnsConsensusConfig(
     );
   }
 
+  // Collect consensus resolver endpoints for authoritative zone overlap detection
+  const secondaryEndpoints = collectResolverEndpoints(
+    consensusGroups,
+    effectiveConsensusNameservers,
+    {
+      excludeFallbacks: true,
+    },
+  );
+  const tertiaryEndpoints = tertiaryProvider
+    ? collectResolverEndpoints(
+        strategyToResolverGroups(
+          effectiveTertiaryStrategy ?? 'doh-tertiary',
+          config.DNS_DOH_ENDPOINT,
+        ),
+        effectiveTertiaryNameservers,
+        { excludeFallbacks: true },
+      )
+    : [];
+
+  // Create AuthoritativeZoneResolver for zone-aware disjointness validation
+  const authoritativeZoneResolver = await createAuthoritativeZoneResolver(
+    config.DNS_CONSENSUS_ENABLED,
+  );
+
   const enabledConfig: ConsensusDnsConfig = {
     secondaryProvider,
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
@@ -986,6 +1014,9 @@ export async function buildDnsConsensusConfig(
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
     requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
     runtimeDegraded: runtimeReport.runtimeDegraded || fallbackIsolationDegraded,
+    ...(authoritativeZoneResolver !== undefined ? { authoritativeZoneResolver } : {}),
+    secondaryEndpoints,
+    tertiaryEndpoints,
   };
   if (tertiaryProvider !== undefined) {
     enabledConfig.tertiaryProvider = tertiaryProvider;

@@ -36,3 +36,8 @@ export {
   type ConsensusDisjointnessReport,
   type FallbackIsolationReport,
 } from './resolver-validator.js';
+export {
+  AuthoritativeZoneResolver,
+  createAuthoritativeZoneResolver,
+  checkAuthoritativeZoneOverlap,
+} from './authoritative-zone-resolver.js';
