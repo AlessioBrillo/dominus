@@ -128,6 +128,7 @@ import { AdminRepository } from '../db/repositories/admin-repository.js';
 import { TeamSeatsRepository } from '../db/repositories/team-seats-repository.js';
 import { TeamService } from '../services/team-service.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
+import { CustomPriceRepository } from '../db/repositories/custom-price-repository.js';
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
 import { TenantProvisioningService } from '../services/tenant-provisioning-service.js';
@@ -269,6 +270,7 @@ interface BuiltRepositories {
   adminRepo: AdminRepository;
   publicScoreRepo: PublicScoreRepository;
   webhookEventsRepo: WebhookEventsRepository;
+  customPriceRepo: CustomPriceRepository;
 }
 
 function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
@@ -294,6 +296,7 @@ function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
     adminRepo: new AdminRepository(provider),
     publicScoreRepo: new PublicScoreRepository(provider),
     webhookEventsRepo: new WebhookEventsRepository(provider),
+    customPriceRepo: new CustomPriceRepository(provider),
   };
 }
 
@@ -583,6 +586,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
     repos.subscriptionRepo,
     repos.webhookEventsRepo,
+    repos.customPriceRepo,
   );
   const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo, {
     // Auto-provision a free plan on first request for managed (Cloud) setups:
@@ -598,7 +602,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // Platform admin read model + tenant lifecycle (ADR-0057): cross-tenant
   // subscriptions, API key counts, metered usage and operator
   // suspend/unsuspend/plan-override for the operator panel (Cloud).
-  const adminService = new AdminService(repos.adminRepo, repos.usageRepo);
+  const adminService = new AdminService(repos.adminRepo, repos.usageRepo, repos.customPriceRepo);
   // Same plan-override source as UsageMeterService above: an operator grant
   // must raise seat limits exactly like usage limits (ADR-0057).
   const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo, {

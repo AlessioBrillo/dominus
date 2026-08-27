@@ -74,8 +74,8 @@ describe('BillingService price resolution', () => {
     const service = new BillingService(baseConfig, {} as SubscriptionRepository);
     expect(service.resolvePriceId('team', 'month')).toBe('price_team_monthly');
     expect(service.resolvePriceId('team', 'year')).toBe('price_team_yearly');
-    expect(service.resolvePlanForPriceId('price_team_monthly')).toBe('team');
-    expect(service.resolvePlanForPriceId('price_team_yearly')).toBe('team');
+    expect(service.resolvePlanForPriceIdSync('price_team_monthly')).toBe('team');
+    expect(service.resolvePlanForPriceIdSync('price_team_yearly')).toBe('team');
   });
 
   it('returns undefined for the free plan', () => {
@@ -84,13 +84,13 @@ describe('BillingService price resolution', () => {
     expect(service.resolvePriceId('free', 'year')).toBeUndefined();
   });
 
-  it('maps price IDs back to plans', () => {
+  it('maps price IDs back to plans (sync config-based)', () => {
     const service = new BillingService(baseConfig, {} as SubscriptionRepository);
-    expect(service.resolvePlanForPriceId('price_pro_monthly')).toBe('pro');
-    expect(service.resolvePlanForPriceId('price_legacy_yearly')).toBe('pro');
-    expect(service.resolvePlanForPriceId('price_ent_monthly')).toBe('enterprise');
-    expect(service.resolvePlanForPriceId('price_unknown')).toBeUndefined();
-    expect(service.resolvePlanForPriceId(null)).toBeUndefined();
+    expect(service.resolvePlanForPriceIdSync('price_pro_monthly')).toBe('pro');
+    expect(service.resolvePlanForPriceIdSync('price_legacy_yearly')).toBe('pro');
+    expect(service.resolvePlanForPriceIdSync('price_ent_monthly')).toBe('enterprise');
+    expect(service.resolvePlanForPriceIdSync('price_unknown')).toBeUndefined();
+    expect(service.resolvePlanForPriceIdSync(null)).toBeUndefined();
   });
 });
 

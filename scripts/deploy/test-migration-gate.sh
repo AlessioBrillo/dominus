@@ -68,6 +68,10 @@ REPO_MANIFEST="$(
 )"
 V110_MANIFEST="$REPO_MANIFEST"$'\n'"0054_gate_demo"
 
+# Count migrations in REPO_MANIFEST (excludes the gate demo)
+REPO_COUNT=$(printf '%s\n' "$REPO_MANIFEST" | grep -c '^')
+V110_COUNT=$((REPO_COUNT + 1))
+
 write_applied() { printf '%s\n' "$@" > "$WORK/applied"; }
 
 run_gate() {
@@ -134,13 +138,13 @@ APPLIED_FILE="$WORK/applied"
 write_applied $REPO_MANIFEST
 run_gate "ghcr.io/alessiobrillo/dominus:v1.1.0"
 assert_eq "B exit code" 0 "$GATE_RC"
-assert_contains "B prefix verified" "schema compatible (54 applied" "$GATE_OUT"
+assert_contains "B prefix verified" "schema compatible ($REPO_COUNT applied" "$GATE_OUT"
 
 # â”€â”€ Case C: applied set equals the target manifest — allowed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 write_applied $V110_MANIFEST
 run_gate "ghcr.io/alessiobrillo/dominus:v1.1.0"
 assert_eq "C exit code" 0 "$GATE_RC"
-assert_contains "C equal manifest accepted" "schema compatible (55 applied" "$GATE_OUT"
+assert_contains "C equal manifest accepted" "schema compatible ($V110_COUNT applied" "$GATE_OUT"
 
 # â”€â”€ Case D: downgrade — database ahead of the image — refused â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 write_applied $V110_MANIFEST
@@ -161,18 +165,18 @@ assert_eq "F exit code" 1 "$GATE_RC"
 assert_contains "F out-of-order refused" "is not a prefix" "$GATE_OUT"
 
 # â”€â”€ Case G: legacy image (no CLI), state matches — allowed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-printf 'SCHEMA_APPLIED_COUNT=55\n' > "$WORK/app/.schema-state"
+printf 'SCHEMA_APPLIED_COUNT=%d\n' "$V110_COUNT" > "$WORK/app/.schema-state"
 write_applied $V110_MANIFEST
 run_gate "ghcr.io/alessiobrillo/dominus:legacy"
 assert_eq "G exit code" 0 "$GATE_RC"
 assert_contains "G legacy state match allowed" "unchanged since last green" "$GATE_OUT"
 
 # â”€â”€ Case H: legacy image, state mismatch — refused â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-printf 'SCHEMA_APPLIED_COUNT=54\n' > "$WORK/app/.schema-state"
+printf 'SCHEMA_APPLIED_COUNT=%d\n' $((V110_COUNT - 1)) > "$WORK/app/.schema-state"
 write_applied $V110_MANIFEST
 run_gate "ghcr.io/alessiobrillo/dominus:legacy"
 assert_eq "H exit code" 1 "$GATE_RC"
-assert_contains "H legacy state mismatch refused" "last green deploy recorded 54" "$GATE_OUT"
+assert_contains "H legacy state mismatch refused" "last green deploy recorded $((V110_COUNT - 1))" "$GATE_OUT"
 
 # â”€â”€ Case I: legacy image, no state file — refused â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 rm -f "$WORK/app/.schema-state"
