@@ -567,6 +567,12 @@ export interface FallbackIsolationReport {
   primaryFallbackEndpoints: string[];
   /** Consensus/tertiary endpoints that were checked. */
   consensusEndpoints: string[];
+  /** True when the overlap is caused by a single private recursor used for both
+   *  primary fallback and consensus (common in DNS_PRIVACY_MODE with one recursor).
+   *  In this case the gate is not truly independent but we allow it in degraded mode. */
+  singleRecursorMode: boolean;
+  /** Human-readable reason for the degraded state when singleRecursorMode is true. */
+  degradedReason?: string;
 }
 
 export async function validateFallbackIsolation(
@@ -589,8 +595,19 @@ export async function validateFallbackIsolation(
       fallbackOverlap: [],
       primaryFallbackEndpoints: [],
       consensusEndpoints,
+      singleRecursorMode: false,
     };
   }
+
+  // Detect single-recursor mode: primary and consensus use the same nameservers
+  // AND primary has a fallback group. This is common in DNS_PRIVACY_MODE where
+  // a single private recursor serves both primary fallback and consensus.
+  const sameNameservers =
+    primaryNameservers !== undefined &&
+    consensusNameservers !== undefined &&
+    primaryNameservers.length > 0 &&
+    consensusNameservers.length > 0 &&
+    primaryNameservers.join(',') === consensusNameservers.join(',');
 
   // Collect primary fallback endpoints WITH DNS resolution for DoH hostnames
   // We need resolved IPs to catch cross-transport overlap (DoH hostname -> IP vs DoT IP)
@@ -623,10 +640,34 @@ export async function validateFallbackIsolation(
   // Check overlap
   const overlap = [...consensusEndpointsSet].filter((ep) => primaryFallbackEndpoints.has(ep));
 
+  if (overlap.length === 0) {
+    return {
+      isolated: true,
+      fallbackOverlap: [],
+      primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
+      consensusEndpoints: [...consensusEndpointsSet].sort(),
+      singleRecursorMode: false,
+    };
+  }
+
+  // If overlap exists but it's due to single-recursor mode, allow in degraded mode
+  if (sameNameservers) {
+    return {
+      isolated: true, // Allow the gate to run, but mark as degraded
+      fallbackOverlap: overlap,
+      primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
+      consensusEndpoints: [...consensusEndpointsSet].sort(),
+      singleRecursorMode: true,
+      degradedReason: `Single private recursor used for both primary fallback and consensus (${primaryNameservers.join(',')}). Consensus gate runs in degraded mode — not an independent second opinion. Configure a second recursor via DNS_CONSENSUS_NAMESERVERS for full independence.`,
+    };
+  }
+
+  // Genuine overlap with different resolvers — this is a real independence violation
   return {
-    isolated: overlap.length === 0,
+    isolated: false,
     fallbackOverlap: overlap,
     primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
     consensusEndpoints: [...consensusEndpointsSet].sort(),
+    singleRecursorMode: false,
   };
 }
