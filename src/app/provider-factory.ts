@@ -16,6 +16,7 @@ import {
   ParkingIpRegistry,
   DnsBreakerRegistry,
   strategyToResolverGroups,
+  collectResolverEndpoints,
   type DnsBreakerRegistryLike,
   type DnsLegTelemetry,
   type DnsLookupStrategy,
@@ -355,6 +356,25 @@ export function effectiveDnsLookupStrategy(
   return config.DNS_PRIVACY_MODE ? 'native' : strategy;
 }
 
+/**
+ * Checks if a set of resolver groups has at least one non-fallback lookup.
+ * Used to detect when a consensus strategy yields zero usable endpoints
+ * (e.g., DoT/853 blocked by egress filtering) so we can fall back to
+ * an alternative strategy (ADR-0063/0065).
+ */
+function hasUsableLookups(groups: DnsResolverGroup[]): boolean {
+  for (const group of groups) {
+    if (group.fallback === true) continue;
+    for (const lookup of group.lookups) {
+      // A lookup is usable if it has a valid endpoint (for doh/dot) or is native
+      if (lookup.type === 'native') return true;
+      if (lookup.type === 'doh' && lookup.endpoint && lookup.endpoint.trim() !== '') return true;
+      if (lookup.type === 'dot' && lookup.endpoint && lookup.endpoint.trim() !== '') return true;
+    }
+  }
+  return false;
+}
+
 export function buildDnsProvider(
   config: Config,
   providerCacheRepo?: ProviderCacheRepository,
@@ -452,21 +472,20 @@ export function buildSecondaryDnsProvider(
   rateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
   legTelemetry?: DnsLegTelemetry,
+  overrideStrategy?: DnsLookupStrategy, // Optional strategy override (e.g., fallback strategy)
 ): DnsProvider {
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+  // If consensusNameservers is set, use 'native' (C3 pinned recursor).
+  // Otherwise, use the override strategy if provided, else the config strategy.
+  const lookupStrategy = consensusNameservers
+    ? 'native'
+    : (overrideStrategy ?? effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY));
   return new NodeDnsProvider({
     cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
     // Verification leg: live queries only, no verdict reuse across runs.
     maxSize: 0,
     lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
-    // When a private recursor is pinned (C3, e.g. Unbound on 127.0.0.1:5300)
-    // the secondary queries it with plain native DNS — no dependency on
-    // egress TCP/853 that the default 'dot-only' strategy requires. Without
-    // the pin the configured DNS_CONSENSUS_STRATEGY is used verbatim.
-    // DNS_PRIVACY_MODE (ADR-0065) forces the same native path.
-    lookupStrategy: consensusNameservers
-      ? 'native'
-      : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY),
+    lookupStrategy,
     dohEndpoint: config.DNS_DOH_ENDPOINT,
     dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
     bulkConcurrency: config.DNS_BULK_CONCURRENCY,
@@ -536,7 +555,7 @@ export async function buildDnsConsensusConfig(
   // lookup mode is 'native' regardless of DNS_CONSENSUS_STRATEGY. Privacy
   // mode (ADR-0065) forces the same native path for every leg.
   const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
-  const effectiveConsensusStrategy: string = consensusNameservers
+  const effectiveConsensusStrategy: DnsLookupStrategy = consensusNameservers
     ? 'native'
     : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY);
 
@@ -568,10 +587,44 @@ export async function buildDnsConsensusConfig(
       effectiveDnsLookupStrategy(config, config.DNS_LOOKUP_STRATEGY),
       config.DNS_DOH_ENDPOINT,
     );
-  const consensusGroups = strategyToResolverGroups(
+
+  // FALLBACK STRATEGY FOR CONSENSUS (ADR-0063/0065): If the primary consensus
+  // strategy resolves to zero usable endpoints (e.g., DoT/853 blocked by egress
+  // filtering), automatically try the configured fallback strategy. This prevents
+  // silent gate disablement in environments where DoT egress is restricted.
+  let consensusGroups = strategyToResolverGroups(
     effectiveConsensusStrategy,
     config.DNS_DOH_ENDPOINT,
   );
+  let effectiveConsensusStrategyFinal: DnsLookupStrategy | undefined = effectiveConsensusStrategy;
+
+  if (!hasUsableLookups(consensusGroups)) {
+    const fallbackStrategyRaw = config.DNS_CONSENSUS_FALLBACK_STRATEGY;
+    // Empty string means "disable fallback" — don't try to use it as a strategy
+    const fallbackStrategyStr = String(fallbackStrategyRaw ?? '');
+    if (fallbackStrategyStr && fallbackStrategyStr !== '' && fallbackStrategyStr !== 'native') {
+      const fallbackStrategy = fallbackStrategyStr as DnsLookupStrategy;
+      const fallbackGroups = strategyToResolverGroups(fallbackStrategy, config.DNS_DOH_ENDPOINT);
+      if (hasUsableLookups(fallbackGroups)) {
+        getLogger().warn(
+          {
+            primaryStrategy: effectiveConsensusStrategy,
+            fallbackStrategy,
+            primaryEndpoints: collectResolverEndpoints(consensusGroups, undefined, {
+              excludeFallbacks: true,
+            }).length,
+            fallbackEndpoints: collectResolverEndpoints(fallbackGroups, undefined, {
+              excludeFallbacks: true,
+            }).length,
+          },
+          'DNS: consensus strategy yielded no usable endpoints — auto-switching to fallback strategy',
+        );
+        consensusGroups = fallbackGroups;
+        effectiveConsensusStrategyFinal = fallbackStrategy;
+      }
+    }
+  }
+
   // The consensus resolver set: a pinned private recursor overrides; otherwise
   // the shared DNS_NAMESERVERS apply (a native consensus reuses them).
   const effectiveConsensusNameservers = consensusNameservers ?? nameservers;
@@ -605,7 +658,7 @@ export async function buildDnsConsensusConfig(
   }
   if (report.resolutionPartial) {
     getLogger().warn(
-      { primary: config.DNS_LOOKUP_STRATEGY, consensus: effectiveConsensusStrategy },
+      { primary: config.DNS_LOOKUP_STRATEGY, consensus: effectiveConsensusStrategyFinal },
       'DNS: consensus disjointness check ran without full DoH IP resolution ' +
         '(some hostnames did not resolve at boot) — operator and hostname-level ' +
         'disjointness still apply, resolved-IP overlap could not be proven',
@@ -745,6 +798,7 @@ export async function buildDnsConsensusConfig(
     secondaryRateLimiter,
     breakers,
     legTelemetry,
+    effectiveConsensusStrategyFinal, // Use fallback strategy if primary yielded no endpoints
   );
   const tertiaryProvider = await buildTertiaryConsensusProvider(
     config,
