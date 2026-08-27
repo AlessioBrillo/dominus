@@ -61,9 +61,10 @@ export function dnsBreakerKey(spec: DnsLookupSpec, nameservers?: string[]): stri
     case 'doh': {
       try {
         const hostname = new URL(spec.endpoint ?? 'https://x.invalid').hostname;
-        return `doh:${hostname}`;
+        const format = spec.format ?? 'json';
+        return `doh:${hostname}:${format}`;
       } catch {
-        return `doh:${spec.endpoint ?? 'unknown'}`;
+        return `doh:${spec.endpoint ?? 'unknown'}:json`;
       }
     }
     case 'dot':

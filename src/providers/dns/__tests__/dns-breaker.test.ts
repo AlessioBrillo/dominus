@@ -3,22 +3,22 @@ import { describe, it, expect } from 'vitest';
 import { DnsBreakerRegistry, dnsBreakerKey } from '../dns-breaker.js';
 
 describe('dnsBreakerKey (ADR-0059)', () => {
-  it('keys DoH legs by endpoint hostname', () => {
+  it('keys DoH legs by endpoint hostname and format', () => {
     expect(
       dnsBreakerKey(
         { type: 'doh', endpoint: 'https://cloudflare-dns.com/dns-query', format: 'json' },
         undefined,
       ),
-    ).toBe('doh:cloudflare-dns.com');
+    ).toBe('doh:cloudflare-dns.com:json');
   });
 
-  it('keys DoH wire legs by endpoint hostname', () => {
+  it('keys DoH wire legs by endpoint hostname and format', () => {
     expect(
       dnsBreakerKey(
         { type: 'doh', endpoint: 'https://dns.quad9.net/dns-query', format: 'wire' },
         undefined,
       ),
-    ).toBe('doh:dns.quad9.net');
+    ).toBe('doh:dns.quad9.net:wire');
   });
 
   it('keys DoT legs by endpoint|servername|port', () => {

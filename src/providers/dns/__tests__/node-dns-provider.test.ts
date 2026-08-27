@@ -1210,7 +1210,7 @@ describe('per-leg telemetry (ADR-0064)', () => {
       transport: 'doh',
       role: 'tertiary',
       verdict: 'available',
-      endpoint: 'doh:cloudflare-dns.com',
+      endpoint: 'doh:cloudflare-dns.com:json',
     });
     expect(samples[0]?.durationMs).toBeGreaterThanOrEqual(0);
   });
