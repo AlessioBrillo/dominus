@@ -569,6 +569,9 @@ const configSchema = z
         'dot-with-doh-fallback',
         'multi-doh-plus-native',
         'doh-alternate',
+        'doh-primary-no-fallback',
+        'dot-consensus',
+        'doh-tertiary',
       ])
       .default('doh-alternate'),
     /**
