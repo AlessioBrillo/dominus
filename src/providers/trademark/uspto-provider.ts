@@ -15,11 +15,11 @@ import { getLogger } from '../../logger.js';
  * The endpoint is protected by AWS WAF on the browser-facing path; server-side
  * requests may be blocked depending on the WAF configuration. This provider
  * implements:
- *   - User-Agent rotation across realistic browser values to reduce WAF
+ *   - Random User-Agent selection across realistic browser values to reduce WAF
  *     challenge probability
- *   - Automatic retry with exponential backoff on WAF block (non-JSON
- *     response, 403/503)
+ *   - Automatic retry with exponential backoff + jitter on WAF block
  *   - WAF block counter exposed via `wafBlockCount` for operator visibility
+ *   - Prometheus counter metric for WAF blocks (ADR-0065)
  *
  * Any network or HTTP failure after retries is wrapped in a ProviderError
  * and allows the trademark gate to degrade gracefully (Principle 1 / §6).
@@ -58,6 +58,12 @@ const USER_AGENTS: readonly string[] = [
 
 const MAX_WAF_RETRIES = 3;
 
+/** Maximum backoff delay in ms (increased from 8s to 30s for WAF resilience). */
+const MAX_WAF_BACKOFF_MS = 30_000;
+
+/** Jitter factor for retry backoff (±30%). */
+const WAF_RETRY_JITTER_FACTOR = 0.3;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -72,6 +78,13 @@ function isWafBlock(response: Response): boolean {
   if (status === 403 || status === 503) return true;
   if (status === 200) return true;
   return false;
+}
+
+/** Calculate exponential backoff with jitter for WAF retries. */
+function calculateWafBackoff(attempt: number): number {
+  const baseDelay = Math.min(1_000 * 2 ** attempt, MAX_WAF_BACKOFF_MS);
+  const jitter = baseDelay * WAF_RETRY_JITTER_FACTOR * (Math.random() * 2 - 1); // ±30%
+  return Math.round(baseDelay + jitter);
 }
 
 export interface UsptoProviderConfig {
@@ -136,7 +149,8 @@ export class UsptoCasesProvider implements TrademarkProvider {
       size: 50,
     });
 
-    const userAgent = USER_AGENTS[(attempt + this.#requestCount) % USER_AGENTS.length]!;
+    // Random User-Agent selection instead of round-robin to avoid WAF fingerprinting
+    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]!;
 
     let response: Response;
     try {
@@ -157,7 +171,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
     } catch (err: unknown) {
       this.#requestCount++;
       if (attempt < MAX_WAF_RETRIES) {
-        const delay = Math.min(1_000 * 2 ** attempt, 8_000);
+        const delay = calculateWafBackoff(attempt);
         await this.#sleepFn(delay);
         return this.#searchWithRetry(term, attempt + 1, signal);
       }
@@ -185,7 +199,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
         `USPTO WAF block on attempt ${attempt + 1}`,
       );
       if (attempt < MAX_WAF_RETRIES) {
-        const delay = Math.min(1_000 * 2 ** attempt, 8_000);
+        const delay = calculateWafBackoff(attempt);
         await this.#sleepFn(delay);
         return this.#searchWithRetry(term, attempt + 1, signal);
       }
@@ -219,7 +233,7 @@ export class UsptoCasesProvider implements TrademarkProvider {
         `USPTO returned non-JSON response (attempt ${attempt + 1}) — likely WAF blocking.`,
       );
       if (attempt < MAX_WAF_RETRIES) {
-        const delay = Math.min(1_000 * 2 ** attempt, 8_000);
+        const delay = calculateWafBackoff(attempt);
         await this.#sleepFn(delay);
         return this.#searchWithRetry(term, attempt + 1, signal);
       }
