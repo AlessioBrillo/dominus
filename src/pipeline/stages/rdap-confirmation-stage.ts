@@ -79,6 +79,20 @@ function buildWhoisMeta(result: AvailabilityResult): WhoisMeta | undefined {
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
+/**
+ * Consensus mode for the 2-of-2+1 RDAP gate.
+ * - SECONDARY_ONLY: secondary alone confirms; tertiary never queried.
+ * - SECONDARY_THEN_TERTIARY_RESCUE: secondary first; if it cannot answer,
+ *   tertiary is consulted as a rescue (Available rescues, Registered vetoes).
+ * - BOTH_REQUIRED: both secondary AND tertiary must independently confirm Available.
+ *   If either fails or returns Registered, the domain is downgraded.
+ */
+export enum RdapConsensusMode {
+  SecondaryOnly = 'secondary-only',
+  SecondaryThenTertiaryRescue = 'secondary-then-tertiary-rescue',
+  BothRequired = 'both-required',
+}
+
 export interface RdapConsensusConfig {
   /** Dedicated second RDAP provider on an independent origin (ADR-0050). */
   secondaryProvider: RdapProvider;
@@ -140,13 +154,17 @@ export interface RdapConsensusConfig {
   /** Endpoint origin of the tertiary leg, for diagnostics. */
   tertiaryOrigin?: string;
   /**
-   * How many verification legs must confirm an Available verdict (1 or 2, default 1):
-   * 1 = the secondary alone suffices (tertiary consulted only when the secondary
-   * cannot answer), 2 = BOTH the secondary and the tertiary must confirm.
-   * Clamped to 1 when no tertiaryProvider is configured — a requirement no leg
-   * can satisfy must never silently downgrade every domain.
+   * Consensus mode (replaces deprecated requiredConfirmations):
+   * - SECONDARY_ONLY: secondary alone suffices, tertiary never queried.
+   * - SECONDARY_THEN_TERTIARY_RESCUE: secondary first; tertiary rescues on failure.
+   * - BOTH_REQUIRED: both secondary and tertiary must confirm.
+   * Default: SECONDARY_THEN_TERTIARY_RESCUE when tertiaryProvider is configured,
+   *   SECONDARY_ONLY otherwise.
+   * @deprecated Use mode instead. Kept for backward compatibility.
    */
   requiredConfirmations?: number;
+  /** Explicit consensus mode (preferred over requiredConfirmations). */
+  mode?: RdapConsensusMode;
 }
 
 /** Default fraction of unverifiable Available domains that flags a run degraded. */
@@ -356,8 +374,18 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     };
 
     const hasTertiary = cfg.tertiaryProvider !== undefined;
-    const requiredConfirmations = hasTertiary ? (cfg.requiredConfirmations ?? 1) : 1;
-    const effectiveRequired = Math.min(requiredConfirmations, hasTertiary ? 2 : 1);
+    // Determine consensus mode: explicit mode > deprecated requiredConfirmations > default
+    const mode: RdapConsensusMode =
+      cfg.mode ??
+      ((): RdapConsensusMode => {
+        if (hasTertiary) {
+          // With tertiary: default to rescue mode (secondary first, tertiary rescues)
+          return RdapConsensusMode.SecondaryThenTertiaryRescue;
+        }
+        return RdapConsensusMode.SecondaryOnly;
+      })();
+    // Backward compatibility: if requiredConfirmations explicitly set to 2, use BothRequired
+    const effectiveMode = cfg.requiredConfirmations === 2 ? RdapConsensusMode.BothRequired : mode;
 
     const batches = toBatches(passed, concurrency);
     for (const batch of batches) {
@@ -438,11 +466,11 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
                   (secondaryResult.status === DomainStatus.Registered || secondaryResult.isPremium);
 
                 // If secondary vetoed, we don't query tertiary (registered wins)
-                // If secondary confirmed and requiredConfirmations=1, we don't need tertiary
-                // If secondary confirmed and requiredConfirmations=2, we need tertiary too
-                // If secondary failed/unknown and we need at least 1 confirmation, try tertiary
+                // If secondary confirmed and mode=SECONDARY_ONLY, we don't need tertiary
+                // If secondary confirmed and mode=BOTH_REQUIRED, we need tertiary too
+                // If secondary failed/unknown and mode!=SECONDARY_ONLY, try tertiary
                 const needTertiary =
-                  !secondaryConfirmed || (effectiveRequired === 2 && secondaryConfirmed);
+                  !secondaryConfirmed || effectiveMode === RdapConsensusMode.BothRequired;
 
                 if (needTertiary && !secondaryVetoed) {
                   tertiaryResult = await cfg.tertiaryProvider!.confirm(candidate.domain, signal);
@@ -501,13 +529,13 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           );
         } else if (secondaryResult !== undefined) {
           if (secondaryResult.status === DomainStatus.Available && !secondaryResult.isPremium) {
-            if (effectiveRequired === 1 || !hasTertiary) {
-              // Secondary alone confirms (1-confirmation mode or no tertiary)
+            if (effectiveMode === RdapConsensusMode.SecondaryOnly || !hasTertiary) {
+              // Secondary alone confirms (SecondaryOnly mode or no tertiary)
               survivor.add(candidate.domain);
               stats.verified++;
               continue;
             }
-            // requiredConfirmations=2: need tertiary too, fall through
+            // BOTH_REQUIRED mode: need tertiary too, fall through
           } else if (
             secondaryResult.status === DomainStatus.Registered ||
             secondaryResult.isPremium
@@ -549,7 +577,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             if (tertiaryResult.status === DomainStatus.Available && !tertiaryResult.isPremium) {
               // Tertiary confirms
               if (secondaryConfirmed) {
-                // Both secondary and tertiary confirmed (requiredConfirmations=2)
+                // Both secondary and tertiary confirmed (BOTH_REQUIRED mode)
                 stats.verified++;
               } else {
                 // Secondary failed, tertiary rescued
