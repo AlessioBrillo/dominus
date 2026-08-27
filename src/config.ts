@@ -572,6 +572,32 @@ const configSchema = z
       ])
       .default('doh-alternate'),
     /**
+     * Fallback lookup strategy for the DNS consensus secondary when the primary
+     * strategy resolves to zero endpoints (e.g., DoT/853 blocked by egress
+     * filtering). When set and the primary strategy yields no usable resolvers,
+     * the consensus provider automatically switches to this fallback strategy
+     * and logs a structured warning. Default: 'doh-alternate' — DoH on port 443
+     * is universally allowed where DoT/853 may be blocked.
+     * Set to empty string to disable fallback (gate will disable if primary fails).
+     */
+    DNS_CONSENSUS_FALLBACK_STRATEGY: z
+      .enum([
+        'native',
+        'native-with-doh-fallback',
+        'doh-only',
+        'doh-primary',
+        'dot-only',
+        'dot-alternate',
+        'dot-with-doh-fallback',
+        'multi-doh-plus-native',
+        'doh-alternate',
+        'doh-primary-no-fallback',
+        'dot-consensus',
+        'doh-tertiary',
+        '',
+      ])
+      .default('doh-alternate'),
+    /**
      * Comma-separated private recursor addresses (host or host:port) for the
      * DNS consensus secondary (ADR-0042, C3 of the cloud hardening review).
      * Default DHCP-provided DoT relies on egress TCP/853 to public resolvers,
@@ -853,6 +879,8 @@ const configSchema = z
      * Reduced from 10s to 5s to fail fast on truly dead servers while still
      * allowing legitimate slow ccTLD responses. The WHOIS rescue budget
      * (RDAP_WHOIS_BUDGET_MS) controls how long we wait for rescue specifically.
+     * Must be <= RDAP_WHOIS_BUDGET_MS to avoid race where rescue times out
+     * before the WHOIS query completes.
      */
     WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(5_000),
     /**
@@ -1589,8 +1617,10 @@ const configSchema = z
      * actually work for slow ccTLDs (.it, .de, .jp, .br) which commonly
      * respond in 2-4s. The per-TLD rescue list (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS)
      * is enabled by default for these TLDs.
+     * Must be >= WHOIS_LOOKUP_TIMEOUT to avoid race where rescue times out
+     * before the WHOIS query completes.
      */
-    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(5000).default(3000),
+    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(10000).default(5000),
 
     /**
      * Staleness window in hours after which a persisted RDAP "Available" row
@@ -2238,6 +2268,18 @@ const configSchema = z
       message:
         'RDAP_CONSENSUS_TERTIARY_ENABLED=true requires RDAP_TERTIARY_ENDPOINT to be a valid https URL.',
       path: ['RDAP_CONSENSUS_TERTIARY_ENABLED'],
+    },
+  )
+  .refine(
+    (data) => {
+      // WHOIS lookup timeout must not exceed the WHOIS rescue budget, otherwise
+      // the rescue timeout fires before the WHOIS query can complete.
+      return data.WHOIS_LOOKUP_TIMEOUT <= data.RDAP_WHOIS_BUDGET_MS;
+    },
+    {
+      message:
+        'WHOIS_LOOKUP_TIMEOUT must be <= RDAP_WHOIS_BUDGET_MS to avoid race condition where rescue timeout fires before WHOIS query completes.',
+      path: ['WHOIS_LOOKUP_TIMEOUT'],
     },
   );
 
