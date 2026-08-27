@@ -366,14 +366,13 @@ describe('buildDnsConsensusConfig', () => {
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
-  it('correctly DISABLES the gate when the primary FALLBACK shares the pinned recursor (ADR-0063 P0 fix)', async () => {
-    // P0 FIX: The documented prod topology (docker-compose dns-consensus.yml)
-    // had DNS_NAMESERVERS pinning the primary's native fallback leg to the
-    // SAME private recursor the consensus queries (172.20.0.10:5300).
-    // The fallback is an emergency net, not the primary's main opinion — but
-    // if the CONSENSUS queries that same recursor, it's a rubber stamp of
-    // the primary's last resort, not an independent second opinion.
-    // The gate MUST be vetoed at bootstrap.
+  it('allows the gate in DEGRADED mode when primary FALLBACK shares the pinned recursor (single-recursor mode)', async () => {
+    // Single-recursor mode (common in DNS_PRIVACY_MODE or self-hosted with
+    // one private recursor): the primary's native fallback and the consensus
+    // both query the same private recursor. Previously this was a hard fail
+    // (ADR-0063 P0), but now we allow the gate to run in degraded mode
+    // (runtimeDegraded=true) so self-hosted operators with one recursor
+    // still benefit from consensus validation, albeit with a visible flag.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
@@ -382,9 +381,10 @@ describe('buildDnsConsensusConfig', () => {
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
-      'DNS consensus gate invalid at bootstrap',
-    );
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.runtimeDegraded).toBe(true);
+    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
   it('throws when the primary MAIN DoH opinion shares operators with the DoT consensus', async () => {
