@@ -7,6 +7,7 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
+import type { AuthoritativeZoneResolver } from '../../providers/dns/authoritative-zone-resolver.js';
 
 const logger = getLogger();
 
@@ -67,6 +68,25 @@ export interface ConsensusDnsConfig {
    * as degraded because the independence proof is incomplete.
    */
   runtimeDegraded?: boolean;
+  /**
+   * Optional authoritative zone resolver for zone-aware disjointness validation.
+   * When provided, the consensus gate will skip TLDs where the secondary/tertiary
+   * resolver legs share authoritative nameservers with the primary — preventing
+   * "Consensus Theater" where independent opinions are actually rubber stamps
+   * of the same registry infrastructure (e.g., Verisign for .com/.net).
+   * Fail-open: if authoritative data is unavailable, the gate proceeds normally.
+   */
+  authoritativeZoneResolver?: AuthoritativeZoneResolver;
+  /**
+   * Resolver endpoints for the secondary provider (e.g., ['dot:94.140.14.14', 'dot:194.242.2.2']).
+   * Used for authoritative zone overlap detection. Populated by the provider factory.
+   */
+  secondaryEndpoints?: string[];
+  /**
+   * Resolver endpoints for the tertiary provider.
+   * Used for authoritative zone overlap detection. Populated by the provider factory.
+   */
+  tertiaryEndpoints?: string[];
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -414,6 +434,58 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
 
     if (toVerify.length === 0) return results;
 
+    // --- Authoritative Zone Overlap Check (Consensus Theater prevention) ---
+    // If the secondary/tertiary resolver legs share authoritative nameservers
+    // with the primary for a TLD, their "independent" opinion is a rubber stamp.
+    // We skip consensus for those TLDs (fail-open: primary verdict stands)
+    // and track the overlap for observability.
+    let verified = 0;
+    let disagreed = 0;
+    let unverifiable = 0;
+    let tertiaryRescued = 0;
+    let originOverlapCount = 0;
+    if (cfg.authoritativeZoneResolver !== undefined) {
+      const secondaryEndpoints = cfg.secondaryEndpoints ?? [];
+      const tertiaryEndpoints = cfg.tertiaryEndpoints ?? [];
+      const allVerificationEndpoints = [...secondaryEndpoints, ...tertiaryEndpoints];
+
+      if (allVerificationEndpoints.length > 0) {
+        const filteredToVerify: Array<{ index: number; domain: string }> = [];
+        for (const { index, domain } of toVerify) {
+          const candidate = domains[index];
+          const tld = candidate?.tld;
+          if (tld !== undefined) {
+            const hasOverlap = !cfg.authoritativeZoneResolver.areZonesDisjoint(
+              tld,
+              [], // primary origins not needed for this check
+              allVerificationEndpoints,
+            );
+            if (hasOverlap) {
+              originOverlapCount++;
+              logger.warn(
+                { domain, tld, endpoints: allVerificationEndpoints },
+                'DNS: consensus skipped — verification leg shares authoritative zone with primary (Consensus Theater prevention) — primary verdict stands',
+              );
+              // Skip consensus for this domain; primary Available verdict stands
+              verified++; // Count as verified since we're accepting the primary verdict
+              continue;
+            }
+          }
+          filteredToVerify.push({ index, domain });
+        }
+        // Replace toVerify with filtered list
+        toVerify.length = 0;
+        toVerify.push(...filteredToVerify);
+      }
+    }
+
+    if (toVerify.length === 0) {
+      if (consensusStats !== undefined && originOverlapCount > 0) {
+        consensusStats.originOverlap = (consensusStats.originOverlap ?? 0) + originOverlapCount;
+      }
+      return results;
+    }
+
     const tertiary = cfg.tertiaryProvider;
     const required = cfg.requiredAvailable === 2 && tertiary !== undefined ? 2 : 1;
     if (cfg.requiredAvailable === 2 && tertiary === undefined && !this.#tertiaryClampWarned) {
@@ -434,10 +506,6 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     // ceiling (consensusConcurrency) instead of borrowing the primary's bulk
     // concurrency, so a verification stampede cannot multiply DNS traffic.
     const consensusConcurrency = cfg.consensusConcurrency ?? this.fallbackConcurrency;
-    let verified = 0;
-    let disagreed = 0;
-    let unverifiable = 0;
-    let tertiaryRescued = 0;
     for (let i = 0; i < toVerify.length; i += consensusConcurrency) {
       if (signal?.aborted) return results;
       const batch = toVerify.slice(i, i + consensusConcurrency);

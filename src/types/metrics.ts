@@ -35,6 +35,10 @@ export interface DnsConsensusMetrics {
   unverifiableTotal: number;
   /** Domains rescued by the tertiary leg (ADR-0045) across all runs. */
   tertiaryRescuedTotal: number;
+  /** Domains where consensus was skipped due to authoritative zone overlap
+   *  with the primary — the verification leg's opinion would be a rubber
+   *  stamp of the same registry infrastructure (Consensus Theater prevention). */
+  originOverlapTotal: number;
   /** Number of runs flagged degraded over consensus (ADR-0039). */
   degradedRunsTotal: number;
   /** Whether the most recent consensus-checked run was degraded. */
