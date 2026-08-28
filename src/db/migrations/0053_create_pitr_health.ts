@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0053_create_pitr_health';
+export const backwardCompatible = true;
 
 /**
  * PITR manifest (ADR-0054): one row per completed base backup, written by

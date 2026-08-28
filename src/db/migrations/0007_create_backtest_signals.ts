@@ -37,6 +37,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_backtest_outcome_run
 `;
 
 export const name = '0007_create_backtest_signals';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(BACKTEST_SIGNALS_DDL);

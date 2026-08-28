@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0047_force_row_level_security';
+export const backwardCompatible = true;
 
 // Tables that carry a tenant_id column (ADR-0034) and are protected by the
 // tenant_isolation_* policy created in 0030_enable_rls.

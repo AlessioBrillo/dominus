@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0021_create_bids';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(`

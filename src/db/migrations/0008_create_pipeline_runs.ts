@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_runs_retained_until
 `;
 
 export const name = '0008_create_pipeline_runs';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(PIPELINE_RUNS_DDL);

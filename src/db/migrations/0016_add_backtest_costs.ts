@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0016_add_backtest_costs';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   const columns = db.prepare("SELECT name FROM pragma_table_info('backtest_signals')").all() as {

@@ -22,6 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_trademark_candidate ON trademark_results(candidat
 `;
 
 export const name = '0004_create_trademark';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(TRADEMARK_RESULTS_DDL);

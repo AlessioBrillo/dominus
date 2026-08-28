@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0050_checkpoint_format_version';
+export const backwardCompatible = true;
 
 /**
  * Adds format_version to pipeline_checkpoints so a resumed run can detect

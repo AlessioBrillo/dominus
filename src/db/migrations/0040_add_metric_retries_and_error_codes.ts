@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0040_add_metric_retries_and_error_codes';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(`

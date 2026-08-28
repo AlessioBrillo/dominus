@@ -36,6 +36,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_renewal_alerts_domain_type
 `;
 
 export const name = '0009_create_renewal_alerts';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(RENEWAL_ALERTS_DDL);

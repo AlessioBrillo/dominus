@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0038_add_portfolio_verification_timestamps';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   // last_rdap_verified_at tracks the most recent RDAP check on this domain.

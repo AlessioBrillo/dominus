@@ -28,6 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_scoring_runs_candidate ON scoring_runs(candidate_
 `;
 
 export const name = '0002_create_scoring_runs';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(SCORING_RUNS_DDL);

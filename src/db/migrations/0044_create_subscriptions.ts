@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0044_create_subscriptions';
+export const backwardCompatible = true;
 
 const TENANT_SUBSCRIPTIONS_DDL = `
 CREATE TABLE IF NOT EXISTS tenant_subscriptions (

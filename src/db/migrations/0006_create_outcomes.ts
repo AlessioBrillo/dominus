@@ -30,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_outcomes_type ON outcomes(type, occurred_at)
 `;
 
 export const name = '0006_create_outcomes';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(OUTCOMES_DDL);

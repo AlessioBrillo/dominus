@@ -24,6 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_domain ON candidates(domain)
 `;
 
 export const name = '0001_create_candidates';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(CANDIDATES_DDL);

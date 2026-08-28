@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0019_add_scoring_run_recommended';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   const cols = (db.pragma('table_info(scoring_runs)') as Array<{ name: string }>).map(

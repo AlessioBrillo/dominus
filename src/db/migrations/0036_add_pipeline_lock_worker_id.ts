@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0036_add_pipeline_lock_worker_id';
+export const backwardCompatible = true;
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
   const colExists = await db.queryOne<{ exists: number }>(

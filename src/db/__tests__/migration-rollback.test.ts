@@ -77,13 +77,11 @@ describe('Migration Rollback', () => {
     expect(result.wouldCommit).toBe(false);
   });
 
-  it('validateMigrationSync warns for migrations missing down() without backwardCompatible', () => {
+  it('validateMigrationSync passes with all migrations having down() or backwardCompatible', () => {
     const errors = validateMigrationSync();
-    // Should return array of warnings/errors
+    // Should return empty array when all migrations have down() or backwardCompatible: true
     expect(Array.isArray(errors)).toBe(true);
-    // At minimum, existing migrations without down() should be flagged
-    // but not cause a hard failure (backward compatibility)
-    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.length).toBe(0);
   });
 
   it('prevents rollback of non-last migration (must rollback in reverse order)', async () => {

@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0030_enable_rls';
+export const backwardCompatible = true;
 
 export function up(_db: Database.Database): void {
   // SQLite does not support Row-Level Security.

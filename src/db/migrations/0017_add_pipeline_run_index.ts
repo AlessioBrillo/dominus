@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0017_add_pipeline_run_index';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   const indexes = db

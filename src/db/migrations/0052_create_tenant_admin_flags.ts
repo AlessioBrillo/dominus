@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0052_create_tenant_admin_flags';
+export const backwardCompatible = true;
 
 /**
  * Operator-managed tenant state (ADR-0057): suspension and plan override.

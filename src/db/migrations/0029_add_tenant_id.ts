@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0029_add_tenant_id';
+export const backwardCompatible = true;
 
 const ENTITY_TABLES = [
   'candidates',

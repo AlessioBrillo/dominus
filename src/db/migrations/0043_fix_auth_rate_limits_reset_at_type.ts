@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0043_fix_auth_rate_limits_reset_at_type';
+export const backwardCompatible = true;
 
 /**
  * Migration 0031 declared `reset_at INTEGER` but src/api/middleware/auth.ts

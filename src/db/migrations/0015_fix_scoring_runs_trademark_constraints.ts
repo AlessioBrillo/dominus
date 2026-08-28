@@ -23,6 +23,7 @@ interface ForeignKeyInfo {
 }
 
 export const name = '0015_fix_scoring_runs_trademark_constraints';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   const scoringRunsTableInfo = db.pragma('table_info(scoring_runs)') as ColumnInfo[];

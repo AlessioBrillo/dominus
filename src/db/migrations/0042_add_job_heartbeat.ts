@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0042_add_job_heartbeat';
+export const backwardCompatible = true;
 
 /**
  * Adds worker ownership + heartbeat tracking to job_queue so the reaper

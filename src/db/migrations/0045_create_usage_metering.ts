@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0045_create_usage_metering';
+export const backwardCompatible = true;
 
 const USAGE_RECORDS_DDL = `
 CREATE TABLE IF NOT EXISTS usage_records (

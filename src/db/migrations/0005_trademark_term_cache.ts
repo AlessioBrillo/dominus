@@ -24,6 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_trademark_term ON trademark_results(search_term, 
  */
 
 export const name = '0005_trademark_term_cache';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   // SQLite does not support ALTER COLUMN, so we recreate the table.

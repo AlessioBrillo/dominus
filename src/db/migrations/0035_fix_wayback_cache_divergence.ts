@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0035_fix_wayback_cache_divergence';
+export const backwardCompatible = true;
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
   const wbExist = await db.queryOne<{ exists: number }>(

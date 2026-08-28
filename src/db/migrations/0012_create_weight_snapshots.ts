@@ -30,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_weight_snapshots_source
 `;
 
 export const name = '0012_create_weight_snapshots';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(WEIGHT_SNAPSHOTS_DDL);

@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0046_create_webhook_events';
+export const backwardCompatible = true;
 
 const WEBHOOK_EVENTS_DDL = `
 CREATE TABLE IF NOT EXISTS webhook_events (

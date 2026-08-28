@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS portfolio_entries (
 `;
 
 export const name = '0003_create_portfolio';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(PORTFOLIO_ENTRIES_DDL);

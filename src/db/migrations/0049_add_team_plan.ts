@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0049_add_team_plan';
+export const backwardCompatible = true;
 
 const TEAM_LIMITS_DDL = `
   INSERT OR IGNORE INTO plan_limits (plan, feature, limit_value) VALUES

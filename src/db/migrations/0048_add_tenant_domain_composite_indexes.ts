@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0048_add_tenant_domain_composite_indexes';
+export const backwardCompatible = true;
 
 // Tables queried with `WHERE domain = ? AND tenant_id = ?` where `domain` is
 // not UNIQUE (multiple rows per domain). The single-column domain and tenant

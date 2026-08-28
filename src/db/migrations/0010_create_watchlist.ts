@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_notified
 `;
 
 export const name = '0010_create_watchlist';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(WATCHLIST_ENTRIES_DDL);

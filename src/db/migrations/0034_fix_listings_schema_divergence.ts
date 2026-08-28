@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0034_fix_listings_schema_divergence';
+export const backwardCompatible = true;
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
   const listingsExist = await db.queryOne<{ exists: number }>(

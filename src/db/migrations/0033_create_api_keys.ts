@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0033_create_api_keys';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   db.exec(`

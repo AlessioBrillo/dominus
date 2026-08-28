@@ -4,6 +4,7 @@ import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0054_create_tenant_custom_prices';
+export const backwardCompatible = true;
 
 const TENANT_CUSTOM_PRICES_DDL = `
 CREATE TABLE IF NOT EXISTS tenant_custom_prices (

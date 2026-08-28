@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { DatabaseProvider } from '../provider/interface.js';
 
 export const name = '0011_rename_weights_snapshot';
+export const backwardCompatible = true;
 
 export function up(db: Database.Database): void {
   const columns = db.prepare(`PRAGMA table_info('scoring_runs')`).all() as { name: string }[];
