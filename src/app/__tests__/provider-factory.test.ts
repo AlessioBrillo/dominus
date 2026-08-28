@@ -368,13 +368,12 @@ describe('buildDnsConsensusConfig', () => {
     expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
   });
 
-  it('allows the gate in DEGRADED mode when primary FALLBACK shares the pinned recursor (single-recursor mode)', async () => {
-    // Single-recursor mode (common in DNS_PRIVACY_MODE or self-hosted with
-    // one private recursor): the primary's native fallback and the consensus
-    // both query the same private recursor. Previously this was a hard fail
-    // (ADR-0063 P0), but now we allow the gate to run in degraded mode
-    // (runtimeDegraded=true) so self-hosted operators with one recursor
-    // still benefit from consensus validation, albeit with a visible flag.
+  it('VETOES the gate when primary FALLBACK shares the pinned recursor (single-recursor mode)', async () => {
+    // Single-recursor mode: the primary's native fallback and the consensus
+    // both query the same private recursor. This is NOT an independent
+    // opinion — it's a rubber stamp of the primary's last resort.
+    // ADR-0002 conservatism: fail-closed, the gate MUST be vetoed.
+    // Configure a distinct recursor via DNS_CONSENSUS_NAMESERVERS to enable consensus.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
@@ -382,11 +381,21 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_STRATEGY: 'dot-only',
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
+      DNS_CONSENSUS_ON_FAILURE: 'degrade', // should still veto, not degrade
     });
-    const result = await buildDnsConsensusConfig(config);
+    const result = await buildDnsConsensusConfig(
+      config,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'degrade',
+    );
+    // Consensus gate is vetoed — returns disabled config
     expect(result).toBeDefined();
-    expect(result?.runtimeDegraded).toBe(true);
-    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+    expect(result?.disabled).toBe(true);
+    expect(result?.disableReason).toContain('Fallback overlap');
   });
 
   it('throws when the primary MAIN DoH opinion shares operators with the DoT consensus', async () => {
