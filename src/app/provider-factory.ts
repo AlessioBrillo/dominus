@@ -537,6 +537,7 @@ export async function buildDnsConsensusConfig(
       overlapIPs: string[];
       overlapOperators: string[];
     }): void;
+    recordDnsConsensusDegradedReason(reason: string): void;
   },
   consensusOnFailure: ConsensusOnFailureMode = 'fail',
 ): Promise<ConsensusDnsConfig | undefined> {
@@ -560,6 +561,59 @@ export async function buildDnsConsensusConfig(
     }
     // If consensus is disabled, we still need primary nameservers (validated at config level)
     // but consensus config can be undefined (no second opinion needed).
+  }
+
+  // Distinct recursor requirement (ADR-0065, ADR-0066): when enabled (default),
+  // the consensus and tertiary resolver sets must be disjoint from the primary.
+  // In privacy mode with DNS_NAMESERVERS pinned, this enforces that
+  // DNS_CONSENSUS_NAMESERVERS (and DNS_TERTIARY_NAMESERVERS if tertiary enabled)
+  // are configured AND distinct from DNS_NAMESERVERS.
+  // This check runs early but respects the consensusOnFailure mode.
+  if (config.DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS && config.DNS_NAMESERVERS !== undefined) {
+    const primaryNameservers = resolveNameservers(config.DNS_NAMESERVERS);
+    if (primaryNameservers === undefined) {
+      // DNS_NAMESERVERS is set but resolves to empty — this shouldn't happen but handle gracefully
+      return buildDisabledConsensusConfig(
+        'DNS_NAMESERVERS configured but resolves to empty nameserver list',
+      );
+    }
+    const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+    const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+
+    const primarySet = new Set(primaryNameservers);
+    const overlaps: string[] = [];
+    const checkDistinct = (label: string, nameservers: string[] | undefined): void => {
+      if (nameservers === undefined) return; // Not configured — disjointness check will catch later
+      for (const ns of nameservers) {
+        if (primarySet.has(ns)) {
+          overlaps.push(`${label}:${ns}`);
+        }
+      }
+    };
+
+    checkDistinct('consensus', consensusNameservers);
+    if (config.DNS_TERTIARY_ENABLED) {
+      checkDistinct('tertiary', tertiaryNameservers);
+    }
+
+    if (overlaps.length > 0) {
+      const msg =
+        `DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS=true: consensus/tertiary recursor overlaps with primary. ` +
+        `Primary: ${primaryNameservers.join(', ')}. Overlaps: ${overlaps.join(', ')}. ` +
+        `In privacy mode (or when DNS_NAMESERVERS is pinned), consensus/tertiary must use ` +
+        `a DIFFERENT recursor. Configure DNS_CONSENSUS_NAMESERVERS/DNS_TERTIARY_NAMESERVERS ` +
+        `with a distinct IP/host, or set DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS=false ` +
+        `(not recommended — reduces 2-of-3 gate to a rubber stamp).`;
+      getLogger().error({ overlaps }, `DNS: consensus gate DISABLED at bootstrap — ${msg}`);
+      if (consensusOnFailure === 'fail') {
+        throw new Error(msg);
+      }
+      getLogger().warn(
+        { mode: consensusOnFailure, reason: msg },
+        `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
+      );
+      return buildDisabledConsensusConfig(msg);
+    }
   }
 
   // A pinned private recursor (C3) replaces the consensus strategy's resolver
@@ -662,6 +716,7 @@ export async function buildDnsConsensusConfig(
       { overlapEndpoints: report.overlapEndpoints, overlapOperators: report.overlapOperators },
       `DNS: consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
     );
+    metricsCollector?.recordDnsConsensusDegradedReason(reason);
     if (consensusOnFailure === 'fail') {
       throw new Error(
         `DNS consensus gate invalid at bootstrap: ${reason}. ` +
@@ -729,6 +784,7 @@ export async function buildDnsConsensusConfig(
       },
       `DNS: consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
     );
+    metricsCollector?.recordDnsConsensusDegradedReason(reason);
     if (consensusOnFailure === 'fail') {
       throw new Error(
         `DNS consensus gate invalid at bootstrap: ${reason}. ` +
@@ -791,6 +847,7 @@ export async function buildDnsConsensusConfig(
         },
         `DNS: tertiary consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
       );
+      metricsCollector?.recordDnsConsensusDegradedReason(reason);
       if (consensusOnFailure === 'fail') {
         throw new Error(
           `DNS tertiary consensus gate invalid at bootstrap: ${reason}. ` +

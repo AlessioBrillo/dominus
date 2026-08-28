@@ -76,6 +76,8 @@ export class MetricsCollector {
   #dnsRuntimeConsensusDisabled = 0;
   #dnsRuntimeConsensusPartial = 0;
   #dnsRuntimeConsensusObserved = false;
+  /** Consensus gate degradation reason counters (ADR-0065/0066). */
+  #dnsConsensusDegradedReason: Map<string, number> = new Map();
   #rdapConsensusVerified = 0;
   #rdapConsensusDisagreed = 0;
   #rdapConsensusUnverifiable = 0;
@@ -337,12 +339,23 @@ export class MetricsCollector {
   /** Record the DNS consensus gate status at startup (ADR-0066).
    *  status: 'active' | 'disabled' | 'degraded'
    *  Called once per process start after buildDnsConsensusConfig completes. */
-  recordDnsConsensusGateStatus(status: 'active' | 'disabled' | 'degraded', _reason?: string): void {
+  recordDnsConsensusGateStatus(status: 'active' | 'disabled' | 'degraded', reason?: string): void {
     this.#dnsRuntimeConsensusObserved = true;
     if (status === 'disabled') {
       this.#dnsRuntimeConsensusDisabled++;
+      if (reason) {
+        const count = this.#dnsConsensusDegradedReason.get(reason) ?? 0;
+        this.#dnsConsensusDegradedReason.set(reason, count + 1);
+      }
     }
     // Could extend with gauges for active/degraded if needed
+  }
+
+  /** Record a DNS consensus degradation reason (ADR-0065/0066).
+   *  Called when the consensus gate is vetoed/disabled at bootstrap. */
+  recordDnsConsensusDegradedReason(reason: string): void {
+    const count = this.#dnsConsensusDegradedReason.get(reason) ?? 0;
+    this.#dnsConsensusDegradedReason.set(reason, count + 1);
   }
 
   /** Record a successful database backup (fed by BackupService.onSuccess). */
@@ -463,6 +476,7 @@ export class MetricsCollector {
           disabledTotal: this.#dnsRuntimeConsensusDisabled,
           partialTotal: this.#dnsRuntimeConsensusPartial,
           observed: this.#dnsRuntimeConsensusObserved,
+          degradedReasonTotal: Object.fromEntries(this.#dnsConsensusDegradedReason),
         },
       },
       system: {
@@ -521,6 +535,7 @@ export class MetricsCollector {
     this.#dnsRuntimeConsensusDisabled = 0;
     this.#dnsRuntimeConsensusPartial = 0;
     this.#dnsRuntimeConsensusObserved = false;
+    this.#dnsConsensusDegradedReason.clear();
     this.#rdapConsensusVerified = 0;
     this.#rdapConsensusDisagreed = 0;
     this.#rdapConsensusUnverifiable = 0;

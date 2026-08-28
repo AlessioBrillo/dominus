@@ -149,6 +149,8 @@ export interface DnsRuntimeConsensusMetrics {
   partialTotal: number;
   /** Whether the runtime check ran at least once since process start. */
   observed: boolean;
+  /** Degradation reasons and their counts (ADR-0065/0066). */
+  degradedReasonTotal: Record<string, number>;
 }
 
 /** Current DNS circuit-breaker state counts across all tracked endpoints
