@@ -14,7 +14,32 @@
 // Both cases fail closed: refuse to boot, refuse to roll back, restore
 // from a backup instead (see docs/releases/migration-policy.md).
 import type { DatabaseProvider } from './provider/interface.js';
-import { getMigrationNames } from './migrations/registry.js';
+import { getMigrationNames, getMigrations } from './migrations/registry.js';
+import { createHash } from 'node:crypto';
+
+/** Manifest version — increment when the manifest structure changes. */
+export const MANIFEST_VERSION = 2;
+
+/** Content hash of a migration's up/down functions for drift detection. */
+export function hashMigrationSource(migration: {
+  name: string;
+  up: Function;
+  down?: Function;
+  upPg?: Function;
+}): string {
+  const source = [
+    migration.name,
+    migration.up.toString(),
+    migration.down?.toString() ?? '',
+    migration.upPg?.toString() ?? '',
+  ].join('|');
+  return createHash('sha256').update(source).digest('hex').slice(0, 16);
+}
+
+export interface MigrationManifestEntry {
+  name: string;
+  hash: string;
+}
 
 export interface SchemaCompatibility {
   ok: boolean;
@@ -24,9 +49,26 @@ export interface SchemaCompatibility {
   reason?: string;
 }
 
-/** The ordered migration names this build knows. */
+/** The ordered migration names this build knows (v1 compat). */
 export function getMigrationManifest(): string[] {
   return getMigrationNames();
+}
+
+/** The full manifest with version and content hashes (v2). */
+export function getMigrationManifestV2(): MigrationManifestEntry[] {
+  const migrations = getMigrations();
+  return migrations.map((m) => ({
+    name: m.name,
+    hash: hashMigrationSource(m),
+  }));
+}
+
+/** Get the manifest as a versioned object for serialization. */
+export function getVersionedManifest(): { version: number; migrations: MigrationManifestEntry[] } {
+  return {
+    version: MANIFEST_VERSION,
+    migrations: getMigrationManifestV2(),
+  };
 }
 
 /**

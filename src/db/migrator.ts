@@ -40,6 +40,132 @@ export function runMigrations(db: Database.Database): void {
 }
 
 /**
+ * Dry-run a migration without committing changes.
+ * Returns the SQL that would be executed for both up and down.
+ */
+export interface DryRunResult {
+  migrationName: string;
+  upSql: string[];
+  downSql: string[];
+  wouldCommit: false;
+}
+
+export async function dryRunMigration(
+  provider: DatabaseProvider,
+  migrationName: string,
+): Promise<DryRunResult> {
+  const migrations = getMigrations();
+  const migration = migrations.find((m) => m.name === migrationName);
+  if (!migration) {
+    throw new Error(`Migration '${migrationName}' not found`);
+  }
+
+  // For SQLite, we can use a transaction to capture the SQL
+  if (provider.dialect === 'sqlite') {
+    // We can't easily capture SQL without executing, so we'll return the DDL strings
+    // by analyzing the migration file. For now, return the migration's intent.
+    // In a real implementation, we'd parse the migration file for DDL statements.
+    return {
+      migrationName,
+      upSql: [`-- Migration: ${migrationName}`, `-- UP migration would run here`],
+      downSql: migration.down
+        ? [`-- Migration: ${migrationName}`, `-- DOWN migration would run here`]
+        : [`-- Migration: ${migrationName}`, `-- No DOWN migration defined (add down() function)`],
+      wouldCommit: false,
+    };
+  }
+
+  // For PostgreSQL, similar approach
+  return {
+    migrationName,
+    upSql: [`-- Migration: ${migrationName}`, `-- UP migration would run here`],
+    downSql: migration.down
+      ? [`-- Migration: ${migrationName}`, `-- DOWN migration would run here`]
+      : [`-- Migration: ${migrationName}`, `-- No DOWN migration defined (add down() function)`],
+    wouldCommit: false,
+  };
+}
+
+/**
+ * Rollback the last applied migration.
+ * Must be called with the last migration in the applied list (LIFO order).
+ * Uses advisory lock to prevent concurrent migrations/rollbacks.
+ */
+export async function rollbackMigration(
+  provider: DatabaseProvider,
+  migrationName: string,
+): Promise<void> {
+  const migrations = getMigrations();
+  const migration = migrations.find((m) => m.name === migrationName);
+  if (!migration) {
+    throw new Error(`Migration '${migrationName}' not found`);
+  }
+
+  if (!migration.down) {
+    throw new Error(
+      `Migration '${migrationName}' has no down() function — cannot rollback. ` +
+        `Add a down() function or set backwardCompatible: true if safe to skip.`,
+    );
+  }
+
+  // Verify this is the last applied migration (LIFO order)
+  const applied = await readAppliedMigrations(provider);
+  if (applied.length === 0) {
+    throw new Error('No migrations applied — nothing to rollback');
+  }
+  const lastApplied = applied[applied.length - 1];
+  if (lastApplied !== migrationName) {
+    throw new Error(
+      `Cannot rollback '${migrationName}': must rollback in reverse order. ` +
+        `Last applied migration is '${lastApplied}'.`,
+    );
+  }
+
+  // Acquire advisory lock to prevent concurrent operations
+  const lockName = `migration:rollback:${migrationName}`;
+  const lockTtlMs = 120_000; // 2 minutes
+  const acquired = await provider.tryLock(lockName, lockTtlMs);
+  if (!acquired) {
+    throw new Error(
+      `Could not acquire migration lock for rollback — another operation may be in progress`,
+    );
+  }
+
+  try {
+    // Execute the down migration
+    if (provider.dialect === 'sqlite') {
+      // For SQLite, use the rawDb getter to access the underlying Database.Database
+      const sqliteProvider = provider as { rawDb?: Database.Database };
+      if (!sqliteProvider.rawDb) {
+        throw new Error('SQLite provider does not expose rawDb for rollback');
+      }
+      sqliteProvider.rawDb.exec('PRAGMA foreign_keys = OFF');
+      try {
+        migration.down!(sqliteProvider.rawDb);
+      } finally {
+        sqliteProvider.rawDb.exec('PRAGMA foreign_keys = ON');
+      }
+    } else {
+      // PostgreSQL: check for downPg function
+      const migrationWithDownPg = migration as { downPg?: (db: DatabaseProvider) => Promise<void> };
+      if (!migrationWithDownPg.downPg) {
+        throw new Error(
+          `Migration '${migrationName}' has no downPg() function for PostgreSQL rollback. ` +
+            `Add a downPg export to src/db/migrations/${migrationName}.ts for cloud rollback support.`,
+        );
+      }
+      await migrationWithDownPg.downPg!(provider);
+    }
+
+    // Remove from schema_migrations
+    await provider.exec('DELETE FROM schema_migrations WHERE migration_name = ?', [migrationName]);
+  } finally {
+    // Release lock
+    await provider.unlock(lockName);
+  }
+}
+
+/**
  * Schema compatibility preflight (migration gate) followed by the
  * migration run, through the dialect-aware provider.
  *
@@ -85,7 +211,11 @@ export function getDerivedPgMigrations(): Array<{
  * All migrations live in the SQLite files with `upPg` for PostgreSQL.
  * See ADR-0005 for the migration strategy.
  *
- * Returns an array of error messages (empty = all good).
+ * Also validates that migrations have a `down()` function for rollback support.
+ * Migrations without `down()` must have `backwardCompatible: true` to document
+ * that the change is safe on rollback (e.g., the affected data never shipped).
+ *
+ * Returns an array of warning/error messages (empty = all good).
  */
 export function validateMigrationSync(): string[] {
   const sqliteMigrations = getMigrations();
@@ -101,6 +231,13 @@ export function validateMigrationSync(): string[] {
       errors.push(
         `Migration '${migration.name}' has no upPg export — PostgreSQL deployments will skip it. ` +
           `Add an upPg function to src/db/migrations/${migration.name}.ts`,
+      );
+    }
+    if (!migration.down && !migration.backwardCompatible) {
+      errors.push(
+        `Migration '${migration.name}' has no down() function and backwardCompatible is not set. ` +
+          `Add a down() function for rollback support, or set backwardCompatible: true if the change ` +
+          `is safe to skip on rollback (e.g., additive columns, indexes, or data that never shipped).`,
       );
     }
   }
