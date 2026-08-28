@@ -75,6 +75,35 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Migration roundtrip verification (SQLite -> PG -> SQLite)
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dominus
+        run: |
+          set -euo pipefail
+          # Start PostgreSQL for roundtrip test
+          docker run -d --name dominus-pg-roundtrip \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=dominus \
+            -p 5432:5432 postgres:16-alpine
+          # Wait for PG to be ready
+          for i in $(seq 1 30); do
+            if docker exec dominus-pg-roundtrip pg_isready -U postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          # Run migrations on PG
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
+          # Create a test SQLite DB with some data
+          sqlite_db="$(mktemp -d)/roundtrip.db"
+          DATABASE_PATH="$sqlite_db" npx tsx dist/db/migrate-cli.js
+          # Run roundtrip verification
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus \
+            npx tsx scripts/migrate-sqlite-to-pg.ts verify-roundtrip "$sqlite_db"
+          # Cleanup
+          docker rm -f dominus-pg-roundtrip >/dev/null
+
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
         uses: codecov/codecov-action@v7
