@@ -613,6 +613,20 @@ const configSchema = z
      */
     DNS_CONSENSUS_NAMESERVERS: z.string().optional(),
     /**
+     * Require that the consensus secondary and tertiary resolver sets are
+     * disjoint from the primary resolver set (ADR-0065, ADR-0066). When true
+     * (default), the bootstrap disjointness check vetoes the consensus gate if
+     * the primary and secondary/tertiary share any resolver endpoint or operator.
+     * In privacy mode (DNS_PRIVACY_MODE=true) with DNS_NAMESERVERS set, this also
+     * requires DNS_CONSENSUS_NAMESERVERS to be configured and distinct from
+     * DNS_NAMESERVERS — a single recursor cannot be its own second opinion.
+     * Set to false to disable the distinct-recursor requirement (not recommended;
+     * reduces the 2-of-3 gate to a rubber stamp when recursors overlap).
+     */
+    DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
      * Enable an optional THIRD DNS consensus opinion (ADR-0045): when true,
      * domains the secondary cannot answer (error/timeout) are re-queried
      * against a third independent provider built from DNS_TERTIARY_STRATEGY.

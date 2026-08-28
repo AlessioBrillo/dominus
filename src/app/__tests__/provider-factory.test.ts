@@ -240,6 +240,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     RDAP_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     DNS_CONSENSUS_ENABLED: false,
+    DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS: true,
     DNS_CONSENSUS_STRATEGY: 'dot-only',
     DNS_CONSENSUS_DEGRADED_RATIO: 0.5,
     DNS_CONSENSUS_DEGRADED_MIN: 10,
@@ -374,6 +375,7 @@ describe('buildDnsConsensusConfig', () => {
     // opinion — it's a rubber stamp of the primary's last resort.
     // ADR-0002 conservatism: fail-closed, the gate MUST be vetoed.
     // Configure a distinct recursor via DNS_CONSENSUS_NAMESERVERS to enable consensus.
+    // Now also caught by the distinct-recursor check (ADR-0065/0066) which runs first.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
@@ -393,9 +395,15 @@ describe('buildDnsConsensusConfig', () => {
       'degrade',
     );
     // Consensus gate is vetoed — returns disabled config
+    // Can be caught by either the distinct-recursor check or the fallback isolation check
     expect(result).toBeDefined();
     expect(result?.disabled).toBe(true);
-    expect(result?.disableReason).toContain('Fallback overlap');
+    // Accept either message since both checks are valid and catch the same misconfiguration
+    const reason = result?.disableReason ?? '';
+    expect(
+      reason.includes('Fallback overlap') ||
+        reason.includes('DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS'),
+    ).toBe(true);
   });
 
   it('throws when the primary MAIN DoH opinion shares operators with the DoT consensus', async () => {
