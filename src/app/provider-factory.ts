@@ -693,12 +693,10 @@ export async function buildDnsConsensusConfig(
   // turnkey docker-compose topology where both primary fallback and consensus
   // point at the same private recursor.
   //
-  // Single-recursor mode (common in DNS_PRIVACY_MODE): when primary and consensus
-  // use the same private recursor, the fallback isolation check detects overlap
-  // but allows the gate to run in degraded mode (runtimeDegraded=true) instead of
-  // hard-failing. This enables self-hosted operators with one recursor to still
-  // benefit from consensus validation, albeit with a visible degraded flag.
-  let fallbackIsolationDegraded = false;
+  // The fallback isolation check now fails closed for single-recursor mode.
+  // A consensus leg using the same recursor as the primary's fallback is NOT
+  // an independent opinion (ADR-0002). The validator returns isolated=false,
+  // which is handled by the general !fallbackReport.isolated check below.
 
   const fallbackReport = await validateFallbackIsolation(
     primaryGroups,
@@ -745,15 +743,6 @@ export async function buildDnsConsensusConfig(
       `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
     );
     return buildDisabledConsensusConfig(reason);
-  }
-
-  // Single-recursor mode detected: allow consensus but mark as degraded
-  if (fallbackReport.singleRecursorMode) {
-    fallbackIsolationDegraded = true;
-    getLogger().warn(
-      { overlap: fallbackReport.fallbackOverlap },
-      'DNS: fallback isolation overlap detected in single-recursor mode — consensus gate enabled in degraded mode',
-    );
   }
 
   // Tertiary consensus configuration (computed early for endpoint collection)
@@ -815,14 +804,6 @@ export async function buildDnsConsensusConfig(
         `DNS: tertiary consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without tertiary cross-validation`,
       );
       return buildDisabledConsensusConfig(reason);
-    }
-
-    if (tertiaryFallbackReport.singleRecursorMode) {
-      fallbackIsolationDegraded = true;
-      getLogger().warn(
-        { overlap: tertiaryFallbackReport.fallbackOverlap },
-        'DNS: tertiary fallback isolation overlap detected in single-recursor mode — consensus gate enabled in degraded mode',
-      );
     }
   }
 
@@ -1013,7 +994,7 @@ export async function buildDnsConsensusConfig(
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
     requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
-    runtimeDegraded: runtimeReport.runtimeDegraded || fallbackIsolationDegraded,
+    runtimeDegraded: runtimeReport.runtimeDegraded,
     ...(authoritativeZoneResolver !== undefined ? { authoritativeZoneResolver } : {}),
     secondaryEndpoints,
     tertiaryEndpoints,

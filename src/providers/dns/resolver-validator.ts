@@ -650,15 +650,18 @@ export async function validateFallbackIsolation(
     };
   }
 
-  // If overlap exists but it's due to single-recursor mode, allow in degraded mode
+  // If overlap exists and it's due to single-recursor mode, VETO the consensus gate.
+  // A consensus leg using the same recursor as the primary's fallback is NOT an
+  // independent opinion — it's a rubber stamp of the primary's last resort.
+  // ADR-0002 conservatism: fail-closed, never degrade to a fake consensus.
   if (sameNameservers) {
     return {
-      isolated: true, // Allow the gate to run, but mark as degraded
+      isolated: false,
       fallbackOverlap: overlap,
       primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
       consensusEndpoints: [...consensusEndpointsSet].sort(),
       singleRecursorMode: true,
-      degradedReason: `Single private recursor used for both primary fallback and consensus (${primaryNameservers.join(',')}). Consensus gate runs in degraded mode — not an independent second opinion. Configure a second recursor via DNS_CONSENSUS_NAMESERVERS for full independence.`,
+      degradedReason: `Single private recursor used for both primary fallback and consensus (${primaryNameservers.join(',')}). Consensus gate VETOED — not an independent second opinion. Configure a distinct recursor via DNS_CONSENSUS_NAMESERVERS to enable consensus.`,
     };
   }
 
