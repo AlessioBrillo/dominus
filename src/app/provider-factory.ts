@@ -1089,6 +1089,7 @@ export async function buildDnsConsensusConfig(
 
   const enabledConfig: ConsensusDnsConfig = {
     secondaryProvider,
+    disabled: false,
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
