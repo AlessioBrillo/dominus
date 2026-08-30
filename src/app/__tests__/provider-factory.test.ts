@@ -315,7 +315,7 @@ describe('buildDnsConsensusConfig', () => {
   it('throws when a pinned native secondary reuses the DoT IPs', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-alternate',
+      DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_NAMESERVERS: '1.1.1.1',
@@ -342,7 +342,7 @@ describe('buildDnsConsensusConfig', () => {
     // forwards to the same public resolvers the primary already queries.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-alternate',
+      DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_CONSENSUS_NAMESERVERS: '1.1.1.1',
