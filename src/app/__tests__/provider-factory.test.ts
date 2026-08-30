@@ -406,20 +406,19 @@ describe('buildDnsConsensusConfig', () => {
     ).toBe(true);
   });
 
-  it('throws when the primary MAIN DoH opinion shares operators with the DoT consensus', async () => {
-    // P1: the default doh-primary vs dot-only pass the hostname-level check
-    // but both ride the same three operators (Cloudflare/Google/Quad9) over
-    // different transports. Same operator twice is not an independent
-    // opinion, so the gate must be vetoed.
+  it('allows the default doh-primary + dot-alternate pair (operator-disjoint)', async () => {
+    // The new default dot-alternate uses AdGuard/Mullvad/NextDNS — operator-disjoint
+    // from the doh-primary (Cloudflare/Google/Quad9). This is the intended
+    // default topology: the consensus gate should pass and stay enabled.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'dot-alternate',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
-      'DNS consensus gate invalid at bootstrap',
-    );
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.disabled).toBe(false);
   });
 
   it('keeps the consensus strategy when no private recursor is pinned', async () => {
