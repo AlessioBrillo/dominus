@@ -589,7 +589,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_DNSSEC_VALIDATION_ENABLED: true,
       DNS_CONSENSUS_ENABLED: false,
       DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS: true,
-      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
       DNS_CONSENSUS_DEGRADED_RATIO: 0.5,
       DNS_CONSENSUS_DEGRADED_MIN: 10,
       DNS_CONSENSUS_RUNTIME_VALIDATION: false,

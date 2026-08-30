@@ -241,7 +241,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     RDAP_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     DNS_CONSENSUS_ENABLED: false,
     DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS: true,
-    DNS_CONSENSUS_STRATEGY: 'dot-only',
+    DNS_CONSENSUS_STRATEGY: 'dot-alternate',
     DNS_CONSENSUS_DEGRADED_RATIO: 0.5,
     DNS_CONSENSUS_DEGRADED_MIN: 10,
     DNS_CONSENSUS_RATE_LIMIT_TOKENS: 20,
@@ -315,7 +315,7 @@ describe('buildDnsConsensusConfig', () => {
   it('throws when a pinned native secondary reuses the DoT IPs', async () => {
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'dot-alternate',
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_NAMESERVERS: '1.1.1.1',
@@ -342,7 +342,7 @@ describe('buildDnsConsensusConfig', () => {
     // forwards to the same public resolvers the primary already queries.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
-      DNS_LOOKUP_STRATEGY: 'dot-only',
+      DNS_LOOKUP_STRATEGY: 'dot-alternate',
       DNS_PRIVACY_MODE: false,
       DNS_CONSENSUS_STRATEGY: 'native',
       DNS_CONSENSUS_NAMESERVERS: '1.1.1.1',
@@ -361,7 +361,7 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_PRIVACY_MODE: false,
-      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
       DNS_CONSENSUS_NAMESERVERS: '127.0.0.1:5300',
     });
     const result = await buildDnsConsensusConfig(config);
@@ -380,7 +380,7 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_PRIVACY_MODE: false,
-      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_ON_FAILURE: 'degrade', // should still veto, not degrade
@@ -415,7 +415,7 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'doh-primary',
       DNS_PRIVACY_MODE: false,
-      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
     });
     await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
       'DNS consensus gate invalid at bootstrap',
@@ -429,7 +429,7 @@ describe('buildDnsConsensusConfig', () => {
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
       DNS_PRIVACY_MODE: false,
-      DNS_CONSENSUS_STRATEGY: 'dot-only',
+      DNS_CONSENSUS_STRATEGY: 'dot-alternate',
     });
     const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
@@ -534,7 +534,7 @@ describe('DNS privacy mode (ADR-0065)', () => {
   it('effectiveDnsLookupStrategy forces native in privacy mode', () => {
     const config = makeConfig({ DNS_PRIVACY_MODE: true });
     expect(effectiveDnsLookupStrategy(config, 'doh-primary')).toBe('native');
-    expect(effectiveDnsLookupStrategy(config, 'dot-only')).toBe('native');
+    expect(effectiveDnsLookupStrategy(config, 'dot-alternate')).toBe('native');
   });
 
   it('effectiveDnsLookupStrategy passes the strategy through outside privacy mode', () => {

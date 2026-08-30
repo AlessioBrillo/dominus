@@ -76,7 +76,7 @@ describe('validateConsensusEndpointDisjointness', () => {
       strategyToResolverGroups('doh-primary', 'https://cloudflare-dns.com/dns-query'),
     );
     const consensus = collectResolverEndpoints(
-      strategyToResolverGroups('dot-only', 'https://cloudflare-dns.com/dns-query'),
+      strategyToResolverGroups('dot-alternate', 'https://cloudflare-dns.com/dns-query'),
     );
     expect(validateConsensusEndpointDisjointness(primary, consensus)).toBe(true);
   });
@@ -93,11 +93,11 @@ describe('validateConsensusEndpointDisjointness', () => {
 
   it('rejects a pinned native consensus reusing the DoT resolver IPs', () => {
     const primary = collectResolverEndpoints(
-      strategyToResolverGroups('dot-only', 'https://cloudflare-dns.com/dns-query'),
+      strategyToResolverGroups('dot-consensus', 'https://cloudflare-dns.com/dns-query'),
     );
     const consensus = collectResolverEndpoints(
       strategyToResolverGroups('native', 'https://cloudflare-dns.com/dns-query'),
-      ['1.1.1.1'],
+      ['94.140.14.14'],
     );
     expect(validateConsensusEndpointDisjointness(primary, consensus)).toBe(false);
   });
@@ -227,11 +227,13 @@ describe('validateConsensusDisjointness', () => {
 
 describe('validateConsensusStrategyDisjointness', () => {
   it('accepts disjoint strategies when enabled', () => {
-    expect(validateConsensusStrategyDisjointness(true, 'doh-primary', 'dot-only')).toBe(true);
+    expect(validateConsensusStrategyDisjointness(true, 'doh-primary', 'dot-alternate')).toBe(true);
   });
 
   it('rejects identical strategies when enabled', () => {
-    expect(validateConsensusStrategyDisjointness(true, 'dot-only', 'dot-only')).toBe(false);
+    expect(validateConsensusStrategyDisjointness(true, 'dot-alternate', 'dot-alternate')).toBe(
+      false,
+    );
   });
 
   it('accepts native vs native — independence decided by the pinned recursors (ADR-0065)', () => {
@@ -243,7 +245,9 @@ describe('validateConsensusStrategyDisjointness', () => {
   });
 
   it('ignores the check when disabled', () => {
-    expect(validateConsensusStrategyDisjointness(false, 'dot-only', 'dot-only')).toBe(true);
+    expect(validateConsensusStrategyDisjointness(false, 'dot-alternate', 'dot-alternate')).toBe(
+      true,
+    );
   });
 });
 

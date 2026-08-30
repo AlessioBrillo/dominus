@@ -303,7 +303,16 @@ export function validateConsensusEndpointDisjointness(
   return false;
 }
 
-export async function validateResolverGroups(provider: DnsProvider): Promise<void> {
+export interface ValidateResolverGroupsOptions {
+  /** Force a live lookup bypassing any cache. Used for startup probes to detect
+   *  genuinely dead resolver legs instead of cached success. */
+  forceRecheck?: boolean;
+}
+
+export async function validateResolverGroups(
+  provider: DnsProvider,
+  options?: ValidateResolverGroupsOptions,
+): Promise<void> {
   const logger = getLogger();
   const probe = PROBE_DOMAINS[Math.floor(Math.random() * PROBE_DOMAINS.length)]!;
 
@@ -311,7 +320,9 @@ export async function validateResolverGroups(provider: DnsProvider): Promise<voi
   const timer = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
 
   try {
-    const result = await provider.checkAvailability(probe, controller.signal);
+    const result = await provider.checkAvailability(probe, controller.signal, {
+      forceRecheck: options?.forceRecheck ?? false,
+    });
     if (
       result.status === 'available' ||
       result.status === 'registered' ||

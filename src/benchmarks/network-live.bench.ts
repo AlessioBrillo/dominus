@@ -43,7 +43,7 @@ const FIXTURE: string[] = [
 ];
 
 describe.runIf(LIVE)('DNS live (real resolvers)', () => {
-  for (const strategy of ['dot-only', 'doh-primary', 'native'] as const) {
+  for (const strategy of ['dot-alternate', 'doh-primary', 'native'] as const) {
     const provider = new NodeDnsProvider({
       lookupStrategy: strategy,
       bulkConcurrency: 50,

@@ -1174,6 +1174,9 @@ async function buildTertiaryConsensusProvider(
  * leg (e.g. egress port 853 filtered, blocking the default 'dot-alternate'
  * strategy) is a silent outage worth surfacing at boot. Non-fatal: consensus
  * stays enabled, but the operator is told clearly what is happening.
+ *
+ * Probes with `forceRecheck: true` to bypass any cache and verify live
+ * resolver reachability (ADR-0063 P2 fix: consensus must query live resolvers).
  */
 export function probeConsensusProvider(
   config: Config,
@@ -1182,11 +1185,12 @@ export function probeConsensusProvider(
 ): void {
   if (!config.DNS_CONSENSUS_ENABLED) return;
   const logger = getLogger();
+  const probeOpts = { forceRecheck: true as const };
   logger.warn(
     { strategy: config.DNS_CONSENSUS_STRATEGY },
     'DNS: probing consensus secondary provider at startup',
   );
-  validateResolverGroups(secondaryProvider).catch((err: unknown) => {
+  validateResolverGroups(secondaryProvider, probeOpts).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(
       { err: message, strategy: config.DNS_CONSENSUS_STRATEGY },
@@ -1200,7 +1204,7 @@ export function probeConsensusProvider(
       { strategy: config.DNS_TERTIARY_STRATEGY },
       'DNS: probing consensus tertiary provider at startup',
     );
-    validateResolverGroups(tertiaryProvider).catch((err: unknown) => {
+    validateResolverGroups(tertiaryProvider, probeOpts).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(
         { err: message, strategy: config.DNS_TERTIARY_STRATEGY },

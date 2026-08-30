@@ -200,17 +200,6 @@ export function strategyToResolverGroups(
           lookups: [...DEFAULT_DOH_PROVIDERS.map(dohProviderToSpec), { type: 'native' as const }],
         },
       ];
-    case 'dot-only':
-      return [
-        {
-          name: 'multi-dot',
-          lookups: DEFAULT_DOT_PROVIDERS.map((p) => ({
-            type: 'dot' as const,
-            endpoint: p.host,
-            servername: DOT_SERVERNAMES[p.name] ?? p.host,
-          })),
-        },
-      ];
     case 'dot-alternate':
       // Consensus-side strategy with operators disjoint from the default DoH
       // primary: AdGuard/Mullvad/NextDNS only. Carries no fallback group — a
