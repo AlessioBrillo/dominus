@@ -102,6 +102,7 @@ import {
   buildRdapProviders,
   buildDnsProvider,
   buildDnsConsensusConfig,
+  buildConsensusDnsProvider,
   buildDnsBreakers,
   probeConsensusProvider,
   probeRdapConsensusEndpoint,
@@ -878,6 +879,27 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     );
   }
 
+  // Build the ConsensusDnsProvider that wraps primary, secondary, and tertiary
+  // into a single DnsProvider. This replaces the need for DnsPreFilterStage
+  // to handle consensus logic internally.
+  const consensusDnsProvider =
+    dnsConsensusConfig !== undefined && !dnsConsensusConfig.disabled
+      ? buildConsensusDnsProvider(
+          dnsProvider,
+          dnsConsensusConfig.secondaryProvider,
+          dnsConsensusConfig.tertiaryProvider,
+          {
+            isDisjoint: () => true, // Disjointness already validated at bootstrap
+          },
+          dnsLegTelemetry,
+          {
+            requiredConfirmations: dnsConsensusConfig.requiredAvailable as 1 | 2,
+            degradedRatio: dnsConsensusConfig.degradedRatio ?? config.DNS_CONSENSUS_DEGRADED_RATIO,
+            degradedMin: dnsConsensusConfig.degradedMin ?? config.DNS_CONSENSUS_DEGRADED_MIN,
+          },
+        )
+      : dnsProvider;
+
   // 2-of-2 RDAP consensus (ADR-0050): a dedicated second RDAP provider on the
   // independent RDAP_CONSENSUS_ENDPOINT re-confirms every Available verdict
   // from the primary leg. Fail-closed — the gate downgrades any candidate the
@@ -952,10 +974,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(
-      dnsProvider,
+      consensusDnsProvider,
       config.DNS_BULK_CONCURRENCY,
       [], // No sources skipped — closeout CSV candidates now go through DNS with forceRecheck
-      dnsConsensusConfig,
+      undefined, // Consensus logic now handled by ConsensusDnsProvider
     ),
     new RdapConfirmationStage(
       cachedRdapProvider,
@@ -1116,12 +1138,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Watchlist ---
   const watchlistService = new WatchlistService(
     repos.watchlistRepo,
-    dnsProvider,
+    consensusDnsProvider,
     rawRdapProvider,
     notifiers,
     config,
     usageEnforcer,
-    dnsConsensusConfig,
+    undefined, // Consensus logic now handled by ConsensusDnsProvider
   );
 
   // --- Portfolio RDAP Healthcheck --- (verifies renewal dates against live RDAP/WHOIS)

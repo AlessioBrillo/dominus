@@ -23,6 +23,8 @@ import {
   type DnsProvider,
   type DnsResolverGroup,
 } from '../providers/dns/index.js';
+import type { ConsensusDnsProviderOptions } from '../providers/dns/consensus-dns-provider.js';
+import { ConsensusDnsProvider } from '../providers/dns/consensus-dns-provider.js';
 import {
   validateResolverGroups,
   validateConsensusStrategyDisjointness,
@@ -500,6 +502,46 @@ export function buildSecondaryDnsProvider(
     dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
     dnssecNativeEnabled: config.DNS_NATIVE_DNSSEC_ENABLED && consensusNameservers !== undefined,
   });
+}
+
+/**
+ * Builds the ConsensusDnsProvider that wraps primary, secondary, and tertiary
+ * providers into a single DnsProvider implementing the 2-of-3 / 2-of-2+1 consensus logic.
+ * This abstraction allows the pipeline stage to simply call checkAvailability/checkBulk
+ * without knowing about the consensus internals.
+ */
+export function buildConsensusDnsProvider(
+  primaryProvider: DnsProvider,
+  secondaryProvider: DnsProvider,
+  tertiaryProvider: DnsProvider | undefined,
+  disjointnessValidator: {
+    isDisjoint(primaryEndpoints: string[], secondaryEndpoints: string[]): boolean;
+  },
+  legTelemetry?: DnsLegTelemetry,
+  config?: {
+    requiredConfirmations?: 1 | 2;
+    degradedRatio?: number;
+    degradedMin?: number;
+  },
+): DnsProvider {
+  const opts: ConsensusDnsProviderOptions = {
+    primary: primaryProvider,
+    secondary: secondaryProvider,
+    disjointnessValidator,
+    breakers: undefined,
+    config: {
+      requiredConfirmations: config?.requiredConfirmations ?? 1,
+      degradedRatio: config?.degradedRatio ?? 0.5,
+      degradedMin: config?.degradedMin ?? 10,
+    },
+  };
+  if (tertiaryProvider !== undefined) {
+    opts.tertiary = tertiaryProvider;
+  }
+  if (legTelemetry !== undefined) {
+    opts.telemetry = legTelemetry;
+  }
+  return new ConsensusDnsProvider(opts);
 }
 
 /**

@@ -2,6 +2,8 @@
 import { isIP } from 'node:net';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 
+export type { DnsCheckResult } from '../../types/domain-status.js';
+
 export interface DnsLookupSpec {
   type: 'native' | 'doh' | 'dot';
   endpoint?: string;
