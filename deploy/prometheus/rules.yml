@@ -129,6 +129,20 @@ groups:
           summary: "DNS resolver endpoint circuit open"
           description: "{{ $value }} resolver endpoint(s) are being skipped by the circuit breaker — verdicts rely on the remaining legs (fail-closed, no fabricated Available)."
 
+      # Tertiary leg degraded (ADR-0068): one of two dual-redundant operators down
+      # In dual-redundant mode, the tertiary leg has two independent providers.
+      # If exactly one has an open breaker, the leg is degraded but still functional.
+      # If both have open breakers, the tertiary leg is effectively disabled.
+      - alert: DnsTertiaryLegDegraded
+        expr: |
+          count(dominus_dns_breaker_open{endpoint=~"opendns|digitale-gesellschaft"} > 0) == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DNS tertiary consensus leg degraded - only 1 of 2 operators healthy"
+          description: "One of the two dual-redundant tertiary operators (OpenDNS or Digital Society) has its circuit breaker open. The 2-of-3 gate's third opinion is running on a single operator. If both open, the tertiary leg is effectively disabled (ADR-0068)."
+
       - alert: DnsTertiaryBreakerOpen
         expr: dominus_dns_breaker_open{endpoint=~"opendns|digitale-gesellschaft"} > 0
         for: 5m
