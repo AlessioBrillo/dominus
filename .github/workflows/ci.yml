@@ -94,8 +94,8 @@ jobs:
             sleep 1
           done
           # Run migrations on PG (RLS migration skipped via SKIP_RLS_MIGRATION)
-          export SKIP_RLS_MIGRATION=true
-          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
+          # Use bash -c to ensure environment variable is passed to Node.js process
+          bash -c 'export SKIP_RLS_MIGRATION=true; DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js'
           # Create a test SQLite DB with some data
           sqlite_db="$(mktemp -d)/roundtrip.db"
           DATABASE_PATH="$sqlite_db" npx tsx dist/db/migrate-cli.js
