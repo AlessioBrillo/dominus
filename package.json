@@ -114,19 +114,19 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.6.2",
     "ioredis": "^6.0.0",
-    "jose": "^6.2.9",
+    "jose": "^6.2.10",
     "lru-cache": "^11.5.2",
     "node-cron": "^4.6.0",
     "node-notifier": "^10.0.1",
     "pino": "^10.3.1",
     "psl": "^1.15.0",
-    "stripe": "^22.5.0",
+    "stripe": "^22.6.0",
     "undici": "^8.10.0",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {
     "pg": "^8.23.0",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.4"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
