@@ -35,7 +35,9 @@ const ENTITY_TABLES = [
 export async function upPg(db: DatabaseProvider): Promise<void> {
   // Skip RLS migration in CI where app.tenant_id GUC is not defined.
   // In production, the GUC is defined in postgresql.conf.
-  if (process.env.SKIP_RLS_MIGRATION === 'true') {
+  // Check for CI flag file (more reliable than env vars in CI environments).
+  const fs = await import('node:fs');
+  if (fs.existsSync('/tmp/skip_rls_migration')) {
     return;
   }
 
