@@ -419,7 +419,7 @@ async function probeProviderForNameservers(
 export async function validateRuntimeConsensusDisjointness(
   primaryProvider: DnsProvider,
   consensusProvider: DnsProvider,
-  tertiaryProvider?: DnsProvider,
+  tertiaryProviders?: DnsProvider[],
   mode: RuntimeValidationMode = 'permissive',
 ): Promise<RuntimeConsensusReport> {
   const logger = getLogger();
@@ -427,10 +427,10 @@ export async function validateRuntimeConsensusDisjointness(
   const allOperators = new Map<string, Set<string>>(); // legName -> Set of operators
   let partial = false;
 
-  const legs = [
+  const legs: Array<{ name: string; provider: DnsProvider }> = [
     { name: 'primary', provider: primaryProvider },
     { name: 'consensus', provider: consensusProvider },
-    ...(tertiaryProvider ? [{ name: 'tertiary', provider: tertiaryProvider }] : []),
+    ...(tertiaryProviders?.map((p, i) => ({ name: `tertiary${i + 1}`, provider: p })) ?? []),
   ];
 
   for (const leg of legs) {
@@ -470,37 +470,63 @@ export async function validateRuntimeConsensusDisjointness(
 
   const primaryIPs = allIPs.get('primary') ?? new Set();
   const consensusIPs = allIPs.get('consensus') ?? new Set();
-  const tertiaryIPs = allIPs.get('tertiary') ?? new Set();
 
   // Primary vs Consensus
   for (const ip of consensusIPs) {
     if (primaryIPs.has(ip)) overlapIPs.push(ip);
   }
-  // Primary vs Tertiary
-  if (tertiaryProvider) {
-    for (const ip of tertiaryIPs) {
-      if (primaryIPs.has(ip)) overlapIPs.push(ip);
-    }
-  }
-  // Consensus vs Tertiary
-  if (tertiaryProvider) {
-    for (const ip of tertiaryIPs) {
-      if (consensusIPs.has(ip)) overlapIPs.push(ip);
-    }
-  }
 
-  // Operator overlap
-  const primaryOps = allOperators.get('primary') ?? new Set();
-  const consensusOps = allOperators.get('consensus') ?? new Set();
-  const tertiaryOps = allOperators.get('tertiary') ?? new Set();
+  // Primary vs Tertiary(s) and Consensus vs Tertiary(s)
+  if (tertiaryProviders && tertiaryProviders.length > 0) {
+    for (let i = 0; i < tertiaryProviders.length; i++) {
+      const tertiaryIPs = allIPs.get(`tertiary${i + 1}`) ?? new Set();
+      const tertiaryOps = allOperators.get(`tertiary${i + 1}`) ?? new Set();
 
-  for (const op of consensusOps) {
-    if (primaryOps.has(op)) overlapOperators.push(op);
-  }
-  if (tertiaryProvider) {
-    for (const op of tertiaryOps) {
+      // Primary vs Tertiary
+      for (const ip of tertiaryIPs) {
+        if (primaryIPs.has(ip)) overlapIPs.push(ip);
+      }
+      // Consensus vs Tertiary
+      for (const ip of tertiaryIPs) {
+        if (consensusIPs.has(ip)) overlapIPs.push(ip);
+      }
+
+      // Operator overlap
+      const primaryOps = allOperators.get('primary') ?? new Set();
+      const consensusOps = allOperators.get('consensus') ?? new Set();
+
+      for (const op of tertiaryOps) {
+        if (primaryOps.has(op)) overlapOperators.push(op);
+        if (consensusOps.has(op)) overlapOperators.push(op);
+      }
+    }
+  } else {
+    // Legacy single tertiary
+    const tertiaryIPs = allIPs.get('tertiary') ?? new Set();
+    const tertiaryOps = allOperators.get('tertiary') ?? new Set();
+
+    // Primary vs Tertiary
+    if (tertiaryIPs.size > 0) {
+      for (const ip of tertiaryIPs) {
+        if (primaryIPs.has(ip)) overlapIPs.push(ip);
+      }
+      for (const ip of tertiaryIPs) {
+        if (consensusIPs.has(ip)) overlapIPs.push(ip);
+      }
+    }
+
+    // Operator overlap
+    const primaryOps = allOperators.get('primary') ?? new Set();
+    const consensusOps = allOperators.get('consensus') ?? new Set();
+
+    for (const op of consensusOps) {
       if (primaryOps.has(op)) overlapOperators.push(op);
-      if (consensusOps.has(op)) overlapOperators.push(op);
+    }
+    if (tertiaryOps.size > 0) {
+      for (const op of tertiaryOps) {
+        if (primaryOps.has(op)) overlapOperators.push(op);
+        if (consensusOps.has(op)) overlapOperators.push(op);
+      }
     }
   }
 
@@ -537,7 +563,7 @@ export async function validateRuntimeConsensusDisjointness(
       {
         primaryIPs: primaryIPs.size,
         consensusIPs: consensusIPs.size,
-        tertiaryIPs: tertiaryIPs?.size ?? 0,
+        tertiaryIPs: allIPs.get('tertiary1')?.size ?? 0,
         partial,
       },
       'DNS runtime consensus: all legs independent',

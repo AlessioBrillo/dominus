@@ -872,11 +872,14 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     // a dead secondary (or a dead tertiary under requiredAvailable=2)
     // downgrades every Available to Unknown, so surface egress/strategy
     // problems at boot instead of discovering them in runs.
-    probeConsensusProvider(
-      config,
-      dnsConsensusConfig.secondaryProvider,
-      dnsConsensusConfig.tertiaryProvider,
-    );
+    // Support dual-redundant tertiary (ADR-0068): pass all tertiary providers
+    const tertiaryProviders =
+      dnsConsensusConfig.tertiaryConfig?.strategy === 'dual-redundant'
+        ? [dnsConsensusConfig.tertiaryConfig.primary, dnsConsensusConfig.tertiaryConfig.secondary]
+        : dnsConsensusConfig.tertiaryProvider
+          ? [dnsConsensusConfig.tertiaryProvider]
+          : undefined;
+    probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider, tertiaryProviders);
   }
 
   // Build the ConsensusDnsProvider that wraps primary, secondary, and tertiary

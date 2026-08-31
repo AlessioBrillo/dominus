@@ -45,6 +45,7 @@ import {
   DistributedCircuitBreaker,
   type RedisClient,
 } from '../providers/redis/index.js';
+import type { RedisRateLimiterConfig } from '../providers/redis/redis-rate-limiter.js';
 import {
   FailoverRdapProvider,
   RdapAgentPool,
@@ -916,7 +917,7 @@ export async function buildDnsConsensusConfig(
     legTelemetry,
     effectiveConsensusStrategyFinal, // Use fallback strategy if primary yielded no endpoints
   );
-  const tertiaryProvider = await buildTertiaryConsensusProvider(
+  const tertiaryProviders = await buildTertiaryConsensusProviders(
     config,
     secondaryRateLimiter,
     primaryGroups,
@@ -927,6 +928,7 @@ export async function buildDnsConsensusConfig(
     legTelemetry,
     onDisjointnessPartial,
   );
+  const tertiaryProvider = tertiaryProviders[0]; // First provider for backward compatibility with runtime validation
 
   // RUNTIME DISJOINTNESS VALIDATION (ADR-0066)
   // Perform live DNS queries through each leg to detect anycast/IP overlap
@@ -960,7 +962,7 @@ export async function buildDnsConsensusConfig(
     runtimeReport = await validateRuntimeConsensusDisjointness(
       primaryProvider,
       secondaryProvider,
-      tertiaryProvider,
+      tertiaryProviders,
       runtimeValidationMode,
     ).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -1099,22 +1101,34 @@ export async function buildDnsConsensusConfig(
     secondaryEndpoints,
     tertiaryEndpoints,
   };
-  if (tertiaryProvider !== undefined) {
-    enabledConfig.tertiaryProvider = tertiaryProvider;
+  if (tertiaryProviders.length > 0) {
+    // Use first tertiary for backward compatibility
+    const firstTertiary = tertiaryProviders[0]!;
+    enabledConfig.tertiaryProvider = firstTertiary;
+    // Add dual-redundant config if we have multiple providers
+    if (tertiaryProviders.length > 1) {
+      const secondTertiary = tertiaryProviders[1]!;
+      enabledConfig.tertiaryConfig = {
+        primary: firstTertiary,
+        secondary: secondTertiary,
+        strategy: 'dual-redundant',
+      };
+    }
   }
   return enabledConfig;
 }
 
 /**
- * Builds the optional THIRD DNS consensus opinion (ADR-0045), when
- * DNS_TERTIARY_ENABLED is on. Returns undefined when the leg is disabled or
- * when its resolver set overlaps either the primary or the secondary —
- * a third opinion through the same endpoints is no opinion at all, and the
- * gate must never silently degrade by thinning redundancy. Shares the
- * dedicated consensus rate-limit budget (ADR-0044): the whole verification
+ * Builds the optional THIRD DNS consensus opinion (ADR-0045/0068), when
+ * DNS_TERTIARY_ENABLED is on. Returns an array of providers when dual-redundant
+ * mode is enabled (two independent operators), otherwise a single provider.
+ * Returns empty array when the leg is disabled or when its resolver set overlaps
+ * either the primary or the secondary — a third opinion through the same endpoints
+ * is no opinion at all, and the gate must never silently degrade by thinning redundancy.
+ * Shares the dedicated consensus rate-limit budget (ADR-0044): the whole verification
  * gate counts against its own bucket, never against the primary's.
  */
-async function buildTertiaryConsensusProvider(
+async function buildTertiaryConsensusProviders(
   config: Config,
   rateLimiter: RateLimiterLike,
   primaryGroups: DnsResolverGroup[],
@@ -1124,12 +1138,202 @@ async function buildTertiaryConsensusProvider(
   breakers?: DnsBreakerRegistryLike,
   legTelemetry?: DnsLegTelemetry,
   onDisjointnessPartial?: () => void,
-): Promise<DnsProvider | undefined> {
-  if (!config.DNS_TERTIARY_ENABLED) return undefined;
+): Promise<DnsProvider[]> {
+  if (!config.DNS_TERTIARY_ENABLED) return [];
 
-  // A pinned private recursor replaces the strategy's resolver set with a
-  // native query to the local recursor — mirroring the secondary's C3 rule.
-  // DNS_PRIVACY_MODE (ADR-0065) forces the same native path.
+  // Dual-redundant mode (ADR-0068): create two independent tertiary providers
+  if (config.DNS_TERTIARY_DUAL_REDUNDANT) {
+    const providers: DnsProvider[] = [];
+
+    // Provider 1: DNS_TERTIARY_STRATEGY_1
+    const tertiary1Nameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+    const effectiveTertiary1Strategy: DnsLookupStrategy = tertiary1Nameservers
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY_1);
+    const tertiary1Groups = strategyToResolverGroups(
+      effectiveTertiary1Strategy,
+      config.DNS_DOH_ENDPOINT,
+    );
+    const effectiveTertiary1Nameservers = tertiary1Nameservers ?? primaryNameservers;
+
+    // Rate limiter for tertiary provider 1 (split budget)
+    const tertiary1RateLimiter = config.REDIS_URL
+      ? new RedisRateLimiter({
+          tokens: config.DNS_TERTIARY_RATE_LIMIT_TOKENS_1 ?? 5,
+          intervalMs: config.DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1 ?? 1000,
+          namespace: 'dns:tertiary1:',
+        } as RedisRateLimiterConfig)
+      : new PriorityRateLimiter(
+          {
+            maxTokens: config.DNS_TERTIARY_RATE_LIMIT_TOKENS_1 ?? 5,
+            tokensPerInterval: config.DNS_TERTIARY_RATE_LIMIT_TOKENS_1 ?? 5,
+            intervalMs: config.DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1 ?? 1000,
+          },
+          0,
+        );
+
+    // Independence check against BOTH existing legs for provider 1
+    const primaryReport1 = await validateConsensusDisjointness(
+      tertiary1Groups,
+      effectiveTertiary1Nameservers,
+      primaryGroups,
+      primaryNameservers,
+      {
+        excludeFallbacks: true,
+        ...(onDisjointnessPartial !== undefined
+          ? { onResolutionPartial: onDisjointnessPartial }
+          : {}),
+      },
+    );
+    const consensusReport1 = await validateConsensusDisjointness(
+      tertiary1Groups,
+      effectiveTertiary1Nameservers,
+      consensusGroups,
+      consensusNameservers,
+      {
+        excludeFallbacks: true,
+        ...(onDisjointnessPartial !== undefined
+          ? { onResolutionPartial: onDisjointnessPartial }
+          : {}),
+      },
+    );
+
+    if (primaryReport1.ok && consensusReport1.ok) {
+      providers.push(
+        new NodeDnsProvider({
+          cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+          maxSize: 0,
+          lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+          lookupStrategy: effectiveTertiary1Strategy,
+          dohEndpoint: config.DNS_DOH_ENDPOINT,
+          dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+          bulkConcurrency: config.DNS_TERTIARY_BULK_CONCURRENCY ?? 10,
+          ...(effectiveTertiary1Nameservers !== undefined
+            ? { nameservers: effectiveTertiary1Nameservers }
+            : {}),
+          rateLimiter: tertiary1RateLimiter,
+          retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+          breakers,
+          ...(legTelemetry !== undefined
+            ? { onLegResult: legTelemetry, legRole: 'tertiary' as const }
+            : {}),
+          dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+          dnssecNativeEnabled:
+            config.DNS_NATIVE_DNSSEC_ENABLED && effectiveTertiary1Nameservers !== undefined,
+        }),
+      );
+    } else {
+      const report = !primaryReport1.ok ? primaryReport1 : consensusReport1;
+      const reason =
+        report.overlapEndpoints.length > 0
+          ? `Static overlap: ${report.overlapEndpoints.join(', ')}`
+          : `Operator overlap: ${report.overlapOperators.join(', ')}`;
+      getLogger().warn(
+        { overlapEndpoints: report.overlapEndpoints, overlapOperators: report.overlapOperators },
+        `DNS: tertiary provider 1 (${config.DNS_TERTIARY_STRATEGY_1}) DISABLED at bootstrap — ${reason}.`,
+      );
+    }
+
+    // Provider 2: DNS_TERTIARY_STRATEGY_2
+    const tertiary2Nameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+    const effectiveTertiary2Strategy: DnsLookupStrategy = tertiary2Nameservers
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY_2);
+    const tertiary2Groups = strategyToResolverGroups(
+      effectiveTertiary2Strategy,
+      config.DNS_DOH_ENDPOINT,
+    );
+    const effectiveTertiary2Nameservers = tertiary2Nameservers ?? primaryNameservers;
+
+    // Rate limiter for tertiary provider 2 (split budget)
+    const tertiary2RateLimiter = config.REDIS_URL
+      ? new RedisRateLimiter({
+          tokens: config.DNS_TERTIARY_RATE_LIMIT_TOKENS_2 ?? 5,
+          intervalMs: config.DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2 ?? 1000,
+          namespace: 'dns:tertiary2:',
+        } as RedisRateLimiterConfig)
+      : new PriorityRateLimiter(
+          {
+            maxTokens: config.DNS_TERTIARY_RATE_LIMIT_TOKENS_2 ?? 5,
+            tokensPerInterval: config.DNS_TERTIARY_RATE_LIMIT_TOKENS_2 ?? 5,
+            intervalMs: config.DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2 ?? 1000,
+          },
+          0,
+        );
+
+    // Independence check against BOTH existing legs for provider 2
+    const primaryReport2 = await validateConsensusDisjointness(
+      tertiary2Groups,
+      effectiveTertiary2Nameservers,
+      primaryGroups,
+      primaryNameservers,
+      {
+        excludeFallbacks: true,
+        ...(onDisjointnessPartial !== undefined
+          ? { onResolutionPartial: onDisjointnessPartial }
+          : {}),
+      },
+    );
+    const consensusReport2 = await validateConsensusDisjointness(
+      tertiary2Groups,
+      effectiveTertiary2Nameservers,
+      consensusGroups,
+      consensusNameservers,
+      {
+        excludeFallbacks: true,
+        ...(onDisjointnessPartial !== undefined
+          ? { onResolutionPartial: onDisjointnessPartial }
+          : {}),
+      },
+    );
+
+    if (primaryReport2.ok && consensusReport2.ok) {
+      providers.push(
+        new NodeDnsProvider({
+          cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+          maxSize: 0,
+          lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+          lookupStrategy: effectiveTertiary2Strategy,
+          dohEndpoint: config.DNS_DOH_ENDPOINT,
+          dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+          bulkConcurrency: config.DNS_TERTIARY_BULK_CONCURRENCY ?? 10,
+          ...(effectiveTertiary2Nameservers !== undefined
+            ? { nameservers: effectiveTertiary2Nameservers }
+            : {}),
+          rateLimiter: tertiary2RateLimiter,
+          retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+          breakers,
+          ...(legTelemetry !== undefined
+            ? { onLegResult: legTelemetry, legRole: 'tertiary' as const }
+            : {}),
+          dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+          dnssecNativeEnabled:
+            config.DNS_NATIVE_DNSSEC_ENABLED && effectiveTertiary2Nameservers !== undefined,
+        }),
+      );
+    } else {
+      const report = !primaryReport2.ok ? primaryReport2 : consensusReport2;
+      const reason =
+        report.overlapEndpoints.length > 0
+          ? `Static overlap: ${report.overlapEndpoints.join(', ')}`
+          : `Operator overlap: ${report.overlapOperators.join(', ')}`;
+      getLogger().warn(
+        { overlapEndpoints: report.overlapEndpoints, overlapOperators: report.overlapOperators },
+        `DNS: tertiary provider 2 (${config.DNS_TERTIARY_STRATEGY_2}) DISABLED at bootstrap — ${reason}.`,
+      );
+    }
+
+    if (providers.length === 0) {
+      throw new Error(
+        'DNS tertiary consensus gate invalid at bootstrap: both tertiary providers overlap with primary or secondary. ' +
+          `Configure disjoint resolver sets (DNS_TERTIARY_NAMESERVERS) or disable tertiary consensus (DNS_TERTIARY_ENABLED=false).`,
+      );
+    }
+
+    return providers;
+  }
+
+  // Legacy single tertiary provider mode
   const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
   const effectiveTertiaryStrategy: DnsLookupStrategy = tertiaryNameservers
     ? 'native'
@@ -1140,11 +1344,7 @@ async function buildTertiaryConsensusProvider(
   );
   const effectiveTertiaryNameservers = tertiaryNameservers ?? primaryNameservers;
 
-  // Independence check against BOTH existing legs: the tertiary through the
-  // primary's or the secondary's own servers adds no opinion. Emergency
-  // fallback legs are excluded from all three sets (same rule as the
-  // secondary-vs-primary check): the tertiary must be independent of each
-  // leg's MAIN opinion.
+  // Independence check against BOTH existing legs
   const primaryReport = await validateConsensusDisjointness(
     tertiaryGroups,
     effectiveTertiaryNameservers,
@@ -1186,28 +1386,29 @@ async function buildTertiaryConsensusProvider(
     );
   }
 
-  return new NodeDnsProvider({
-    cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
-    // Verification leg: live queries only, no verdict reuse across runs.
-    maxSize: 0,
-    lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
-    lookupStrategy: effectiveTertiaryStrategy,
-    dohEndpoint: config.DNS_DOH_ENDPOINT,
-    dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
-    bulkConcurrency: config.DNS_BULK_CONCURRENCY,
-    ...(effectiveTertiaryNameservers !== undefined
-      ? { nameservers: effectiveTertiaryNameservers }
-      : {}),
-    rateLimiter,
-    retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
-    breakers,
-    ...(legTelemetry !== undefined
-      ? { onLegResult: legTelemetry, legRole: 'tertiary' as const }
-      : {}),
-    dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
-    dnssecNativeEnabled:
-      config.DNS_NATIVE_DNSSEC_ENABLED && effectiveTertiaryNameservers !== undefined,
-  });
+  return [
+    new NodeDnsProvider({
+      cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+      maxSize: 0,
+      lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+      lookupStrategy: effectiveTertiaryStrategy,
+      dohEndpoint: config.DNS_DOH_ENDPOINT,
+      dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+      bulkConcurrency: config.DNS_TERTIARY_BULK_CONCURRENCY ?? 10,
+      ...(effectiveTertiaryNameservers !== undefined
+        ? { nameservers: effectiveTertiaryNameservers }
+        : {}),
+      rateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      breakers,
+      ...(legTelemetry !== undefined
+        ? { onLegResult: legTelemetry, legRole: 'tertiary' as const }
+        : {}),
+      dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+      dnssecNativeEnabled:
+        config.DNS_NATIVE_DNSSEC_ENABLED && effectiveTertiaryNameservers !== undefined,
+    }),
+  ];
 }
 
 /**
@@ -1224,7 +1425,7 @@ async function buildTertiaryConsensusProvider(
 export function probeConsensusProvider(
   config: Config,
   secondaryProvider: DnsProvider,
-  tertiaryProvider?: DnsProvider,
+  tertiaryProviders?: DnsProvider[],
 ): void {
   if (!config.DNS_CONSENSUS_ENABLED) return;
   const logger = getLogger();
@@ -1242,20 +1443,23 @@ export function probeConsensusProvider(
         'egress (dot strategies use TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
     );
   });
-  if (tertiaryProvider !== undefined) {
-    logger.warn(
-      { strategy: config.DNS_TERTIARY_STRATEGY },
-      'DNS: probing consensus tertiary provider at startup',
-    );
-    validateResolverGroups(tertiaryProvider, probeOpts).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error(
-        { err: message, strategy: config.DNS_TERTIARY_STRATEGY },
-        'DNS: consensus tertiary provider unreachable at startup — with ' +
-          'requiredAvailable=2 every Available verdict needs it and will be ' +
-          'downgraded to Unknown. Verify DNS_TERTIARY_STRATEGY/NAMESERVERS.',
+  if (tertiaryProviders && tertiaryProviders.length > 0) {
+    for (let i = 0; i < tertiaryProviders.length; i++) {
+      const strategy = i === 0 ? config.DNS_TERTIARY_STRATEGY_1 : config.DNS_TERTIARY_STRATEGY_2;
+      logger.warn(
+        { strategy, index: i + 1 },
+        `DNS: probing consensus tertiary provider ${i + 1} at startup`,
       );
-    });
+      validateResolverGroups(tertiaryProviders[i]!, probeOpts).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { err: message, strategy },
+          `DNS: consensus tertiary provider ${i + 1} unreachable at startup — with ` +
+            'requiredAvailable=2 every Available verdict needs it and will be ' +
+            'downgraded to Unknown. Verify DNS_TERTIARY_STRATEGY/NAMESERVERS.',
+        );
+      });
+    }
   }
 }
 

@@ -493,6 +493,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     // 'doh-only' (secondary) and 'doh-primary' (tertiary) both race the same
     // default DoH endpoints — a third opinion on the same servers adds no
     // information, so the leg is dropped at startup with an error.
+    // Disable dual-redundant to test legacy single-tertiary behavior.
     const config = makeConfig({
       DNS_CONSENSUS_ENABLED: true,
       DNS_LOOKUP_STRATEGY: 'native',
@@ -500,6 +501,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
       DNS_CONSENSUS_STRATEGY: 'doh-only',
       DNS_TERTIARY_ENABLED: true,
       DNS_TERTIARY_STRATEGY: 'doh-primary',
+      DNS_TERTIARY_DUAL_REDUNDANT: false,
     });
     await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
       'DNS tertiary consensus gate invalid at bootstrap',
@@ -1100,14 +1102,28 @@ describe('probeConsensusProvider (tertiary leg, P3)', () => {
   it('probes the tertiary consensus leg at startup when one is configured', async () => {
     const secondary = okLeg('secondary');
     const tertiary = okLeg('tertiary');
-    probeConsensusProvider(makeConfig({ DNS_CONSENSUS_ENABLED: true }), secondary, tertiary);
+    probeConsensusProvider(makeConfig({ DNS_CONSENSUS_ENABLED: true }), secondary, [tertiary]);
     await vi.waitFor(() => expect(tertiary.checkAvailability).toHaveBeenCalled());
+    expect(secondary.checkAvailability).toHaveBeenCalled();
+  });
+
+  it('probes multiple tertiary consensus legs at startup when dual-redundant is configured', async () => {
+    const secondary = okLeg('secondary');
+    const tertiary1 = okLeg('tertiary1');
+    const tertiary2 = okLeg('tertiary2');
+    probeConsensusProvider(
+      makeConfig({ DNS_CONSENSUS_ENABLED: true, DNS_TERTIARY_DUAL_REDUNDANT: true }),
+      secondary,
+      [tertiary1, tertiary2],
+    );
+    await vi.waitFor(() => expect(tertiary1.checkAvailability).toHaveBeenCalled());
+    await vi.waitFor(() => expect(tertiary2.checkAvailability).toHaveBeenCalled());
     expect(secondary.checkAvailability).toHaveBeenCalled();
   });
 
   it('does not probe a tertiary when none is configured', async () => {
     const secondary = okLeg('secondary');
-    probeConsensusProvider(makeConfig({ DNS_CONSENSUS_ENABLED: true }), secondary);
+    probeConsensusProvider(makeConfig({ DNS_CONSENSUS_ENABLED: true }), secondary, undefined);
     await vi.waitFor(() => expect(secondary.checkAvailability).toHaveBeenCalled());
   });
 });

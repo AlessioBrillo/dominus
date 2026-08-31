@@ -87,6 +87,17 @@ export interface ConsensusDnsConfig {
    * Used for authoritative zone overlap detection. Populated by the provider factory.
    */
   tertiaryEndpoints?: string[];
+  /**
+   * Dual-redundant tertiary configuration (ADR-0068): when dual-redundant mode
+   * is enabled, this contains the two independent tertiary providers that are
+   * raced for rescue/veto. A single tertiary provider failure no longer degrades
+   * the entire tertiary leg.
+   */
+  tertiaryConfig?: {
+    primary: DnsProvider;
+    secondary: DnsProvider;
+    strategy: 'dual-redundant' | 'single';
+  };
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
