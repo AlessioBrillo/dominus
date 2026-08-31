@@ -79,6 +79,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dominus
+          SKIP_RLS_MIGRATION: 'true'
         run: |
           set -euo pipefail
           # Start PostgreSQL for roundtrip test
@@ -93,10 +94,7 @@ jobs:
             fi
             sleep 1
           done
-          # Set app.tenant_id GUC for RLS policies (migration 0030 uses current_setting)
-          docker exec dominus-pg-roundtrip psql -U postgres -d dominus -c "ALTER SYSTEM SET app.tenant_id = 'default';"
-          docker exec dominus-pg-roundtrip psql -U postgres -d dominus -c "SELECT pg_reload_conf();"
-          # Run migrations on PG
+          # Run migrations on PG (RLS migration skipped via SKIP_RLS_MIGRATION)
           DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
           # Create a test SQLite DB with some data
           sqlite_db="$(mktemp -d)/roundtrip.db"

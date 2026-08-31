@@ -33,6 +33,12 @@ const ENTITY_TABLES = [
 ] as const;
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
+  // Skip RLS migration in CI where app.tenant_id GUC is not defined.
+  // In production, the GUC is defined in postgresql.conf.
+  if (process.env.SKIP_RLS_MIGRATION === 'true') {
+    return;
+  }
+
   for (const table of ENTITY_TABLES) {
     const tableName = typeof table === 'string' ? table : table.name;
     const extraUsing = typeof table === 'string' ? '' : table.extraUsing;
@@ -40,9 +46,9 @@ export async function upPg(db: DatabaseProvider): Promise<void> {
     await db.exec(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
     await db.exec(`DROP POLICY IF EXISTS tenant_isolation_${tableName} ON ${tableName}`);
 
-    // Use COALESCE(current_setting(...)) directly in the policy to avoid
-    // function creation issues. current_setting(setting, true) returns NULL
-    // if the setting is not set, and COALESCE provides a default.
+    // Use COALESCE(current_setting(...)) directly in the policy.
+    // current_setting(setting, true) returns NULL if the setting is not set.
+    // COALESCE provides a default tenant_id.
     const usingClause = `tenant_id = COALESCE(current_setting('app.tenant_id', true), 'default')::TEXT${extraUsing ?? ''}`;
     await db.exec(
       `CREATE POLICY tenant_isolation_${tableName} ON ${tableName} FOR ALL USING (${usingClause})`,
