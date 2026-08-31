@@ -183,7 +183,8 @@ export class ConsensusDnsProvider implements DnsProvider {
     // If secondary failed/unknown and we have tertiary, try tertiary
     // If secondary failed/unknown and no tertiary (or requiredConfirmations=1), return Unknown
     if (!secondaryConfirmed) {
-      if (this.#tertiary === undefined) {
+      const hasAnyTertiary = this.#tertiary !== undefined || this.#tertiaryConfig !== undefined;
+      if (!hasAnyTertiary) {
         logger.warn(
           { domain },
           'Consensus not confirmed by secondary, no tertiary — downgraded to Unknown',
@@ -207,7 +208,6 @@ export class ConsensusDnsProvider implements DnsProvider {
 
       if (needTertiary) {
         const tertiaryStartedAt = performance.now();
-        let tertiaryResults: Array<{ result: DnsCheckResult | undefined; error: unknown; provider: DnsProvider }> = [];
 
         // Race all tertiary providers: first Available rescues, any Registered vetoes
         const tertiaryPromises = tertiaryProviders.map(async (provider) => {
@@ -224,7 +224,7 @@ export class ConsensusDnsProvider implements DnsProvider {
           return { result, error, provider };
         });
 
-        tertiaryResults = await Promise.all(tertiaryPromises);
+        const tertiaryResults = await Promise.all(tertiaryPromises);
 
         // Emit telemetry for all tertiary providers
         for (const { result, error, provider } of tertiaryResults) {

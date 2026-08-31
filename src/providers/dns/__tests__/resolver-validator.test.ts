@@ -348,7 +348,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const consensus = fakeProvider(['9.9.9.9']);
     const tertiary = fakeProvider(['8.8.8.8']);
 
-    const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary);
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, [tertiary]);
 
     expect(report.ok).toBe(true);
     expect(report.overlapIPs).toEqual([]);
@@ -360,7 +360,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const primary = fakeProvider(['1.1.1.1']);
     const consensus = fakeProvider(['1.1.1.1']); // Same IP = Cloudflare anycast
 
-    const report = await validateRuntimeConsensusDisjointness(primary, consensus);
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined);
 
     expect(report.ok).toBe(false);
     expect(report.overlapIPs).toContain('1.1.1.1');
@@ -372,7 +372,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const consensus = fakeProvider(['9.9.9.9']); // Quad9
     const tertiary = fakeProvider(['9.9.9.9']); // Also Quad9
 
-    const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary);
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, [tertiary]);
 
     expect(report.ok).toBe(false);
     expect(report.overlapIPs).toContain('9.9.9.9');
@@ -384,7 +384,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const consensus = fakeProvider([]); // No nameservers returned
     const tertiary = fakeProvider(['8.8.8.8']);
 
-    const report = await validateRuntimeConsensusDisjointness(primary, consensus, tertiary);
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, [tertiary]);
 
     expect(report.partial).toBe(true);
     // Gate stays enabled on partial, just logged
@@ -404,7 +404,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const report = await validateRuntimeConsensusDisjointness(
       primary,
       consensus as DnsProvider,
-      tertiary,
+      [tertiary],
     );
 
     expect(report.partial).toBe(true);
@@ -414,7 +414,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const primary = fakeProvider(['1.1.1.1']);
     const consensus = fakeProvider(['9.9.9.9']);
 
-    const report = await validateRuntimeConsensusDisjointness(primary, consensus);
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined);
 
     expect(report.ok).toBe(true);
     expect(report.overlapIPs).toEqual([]);
@@ -425,7 +425,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
     const primary = fakeProvider(['1.1.1.1']);
     const consensus = fakeProvider(['1.1.1.1']);
 
-    const report = await validateRuntimeConsensusDisjointness(primary, consensus);
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus, undefined);
 
     expect(report.ok).toBe(false);
     expect(report.overlapOperators).toContain('cloudflare');
@@ -541,12 +541,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const consensus = fakeProvider(['9.9.9.9']);
       const tertiary = fakeProvider([]); // Partial
 
-      const report = await validateRuntimeConsensusDisjointness(
-        primary,
-        consensus,
-        tertiary,
-        'strict',
-      );
+const report = await validateRuntimeConsensusDisjointness(
+      primary,
+      consensus,
+      [tertiary],
+      'strict',
+    );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(false);
@@ -561,7 +561,7 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const report = await validateRuntimeConsensusDisjointness(
         primary,
         consensus,
-        tertiary,
+        [tertiary],
         'permissive',
       );
 

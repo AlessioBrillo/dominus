@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { DnsCheckResult, DnsCheckOptions } from '../../../types/domain-status.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { DnsCheckResult } from '../../../types/domain-status.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import { ConsensusDnsProvider } from '../consensus-dns-provider.js';
-import type { DnsProvider } from '../dns-provider.js';
+import type { DnsProvider, DnsCheckOptions } from '../dns-provider.js';
 
 function createMockProvider(name: string, results: Map<string, DnsCheckResult | Error>): DnsProvider {
   return {
@@ -59,7 +59,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
         primary: tertiary1,
         secondary: tertiary2,
@@ -84,7 +84,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
         primary: tertiary1,
         secondary: tertiary2,
@@ -111,7 +111,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
         primary: tertiary1,
         secondary: tertiary2,
@@ -138,18 +138,17 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      },
       disjointnessValidator: {
-        isDisjoint: (a, b) => {
+        isDisjoint: (a: string[], b: string[]): boolean => {
           disjointCalls.push(`${a.join(',')} vs ${b.join(',')}`);
           return true;
         },
       },
-      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
+      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
     });
 
     await provider.checkAvailability(domain);
@@ -171,7 +170,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
         primary: tertiary1,
         secondary: tertiary2,
@@ -198,7 +197,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
         primary: tertiary1,
         secondary: tertiary2,
@@ -226,11 +225,11 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const originalCheck1 = tertiary1.checkAvailability.bind(tertiary1);
     const originalCheck2 = tertiary2.checkAvailability.bind(tertiary2);
 
-    tertiary1.checkAvailability = async (d, s, o) => {
+    tertiary1.checkAvailability = async (d: string, s?: AbortSignal, o?: DnsCheckOptions): Promise<DnsCheckResult> => {
       if (o?.forceRecheck) probeCalls.push('tertiary1');
       return originalCheck1(d, s, o);
     };
-    tertiary2.checkAvailability = async (d, s, o) => {
+    tertiary2.checkAvailability = async (d: string, s?: AbortSignal, o?: DnsCheckOptions): Promise<DnsCheckResult> => {
       if (o?.forceRecheck) probeCalls.push('tertiary2');
       return originalCheck2(d, s, o);
     };
@@ -238,7 +237,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
         primary: tertiary1,
         secondary: tertiary2,
@@ -266,7 +265,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
       primary,
       secondary,
       tertiary: singleTertiary,
-      disjointnessValidator: { isDisjoint: () => true },
+      disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
     });
 
