@@ -46,4 +46,5 @@ export type {
   DisjointnessValidator,
   ConsensusConfig,
   ConsensusDnsProviderOptions,
+  TertiaryDnsConfig,
 } from './consensus-dns-provider.js';

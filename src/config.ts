@@ -646,6 +646,7 @@ const configSchema = z
      * third opinion disjoint from primary (CF/Google/Quad9) and consensus
      * (AdGuard/Mullvad/NextDNS). Two operators = majority vote + 2 breakers.
      * Overlapping setups disable the leg with a warning (ADR-0064, ADR-0065).
+     * DEPRECATED: Use DNS_TERTIARY_STRATEGY_1 and DNS_TERTIARY_STRATEGY_2 for dual-redundant tertiary.
      */
     DNS_TERTIARY_STRATEGY: z
       .enum([
@@ -662,6 +663,96 @@ const configSchema = z
         'doh-tertiary',
       ])
       .default('doh-tertiary'),
+    /**
+     * Primary tertiary DNS strategy (ADR-0068): first independent operator for
+     * dual-redundant tertiary leg. Default: 'doh-alternate' (OpenDNS over DoH wire format).
+     * Used when DNS_TERTIARY_DUAL_REDUNDANT=true.
+     */
+    DNS_TERTIARY_STRATEGY_1: z
+      .enum([
+        'native',
+        'native-with-doh-fallback',
+        'doh-only',
+        'doh-primary',
+        'dot-alternate',
+        'dot-with-doh-fallback',
+        'multi-doh-plus-native',
+        'doh-alternate',
+        'doh-primary-no-fallback',
+        'dot-consensus',
+        'doh-tertiary',
+      ])
+      .optional()
+      .default('doh-alternate'),
+    /**
+     * Secondary tertiary DNS strategy (ADR-0068): second independent operator
+     * for dual-redundant tertiary leg. Default: 'doh-tertiary' (Digital Society over DoH wire format).
+     * Used when DNS_TERTIARY_DUAL_REDUNDANT=true.
+     */
+    DNS_TERTIARY_STRATEGY_2: z
+      .enum([
+        'native',
+        'native-with-doh-fallback',
+        'doh-only',
+        'doh-primary',
+        'dot-alternate',
+        'dot-with-doh-fallback',
+        'multi-doh-plus-native',
+        'doh-alternate',
+        'doh-primary-no-fallback',
+        'dot-consensus',
+        'doh-tertiary',
+      ])
+      .optional()
+      .default('doh-tertiary'),
+    /**
+     * Enable dual-redundant tertiary leg (ADR-0068): when true, two independent
+     * tertiary providers are created (using DNS_TERTIARY_STRATEGY_1 and _2) and
+     * raced for rescue/veto. A single tertiary provider failure no longer degrades
+     * the entire tertiary leg. Default: true.
+     */
+    DNS_TERTIARY_DUAL_REDUNDANT: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .optional()
+      .default(true),
+    /**
+     * Rate limiting for tertiary provider 1 (ADR-0068): max tokens for the first
+     * tertiary provider. Default: 5 req/sec (half of legacy tertiary budget).
+     */
+    DNS_TERTIARY_RATE_LIMIT_TOKENS_1: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .default(5),
+    /** Rate limiting: refill interval in ms for tertiary provider 1 (default: 1000). */
+    DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .default(1000),
+    /**
+     * Rate limiting for tertiary provider 2 (ADR-0068): max tokens for the second
+     * tertiary provider. Default: 5 req/sec (half of legacy tertiary budget).
+     */
+    DNS_TERTIARY_RATE_LIMIT_TOKENS_2: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .default(5),
+    /** Rate limiting: refill interval in ms for tertiary provider 2 (default: 1000). */
+    DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .default(1000),
     /**
      * Comma-separated private recursor addresses (host or host:port) for the
      * DNS consensus tertiary (ADR-0045, ADR-0064). Allows a second pinned independent

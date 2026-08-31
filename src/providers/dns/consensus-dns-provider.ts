@@ -11,10 +11,17 @@ export interface DisjointnessValidator {
   isDisjoint(primaryEndpoints: string[], secondaryEndpoints: string[]): boolean;
 }
 
+export interface TertiaryDnsConfig {
+  primary: DnsProvider;
+  secondary: DnsProvider;
+  strategy: 'dual-redundant' | 'single';
+}
+
 export interface ConsensusConfig {
   requiredConfirmations: 1 | 2;
   degradedRatio: number;
   degradedMin: number;
+  tertiaryConfig?: TertiaryDnsConfig;
 }
 
 export interface ConsensusDnsProviderOptions {
