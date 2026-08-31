@@ -36,6 +36,9 @@ export function openDatabase(path: string, busyTimeout: number = 30000): Databas
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
   _db.pragma(`busy_timeout = ${busyTimeout}`);
+  // Checkpoint WAL every 1000 pages (~1MB) to prevent WAL file growth
+  // and reduce contention between readers and the bulk writer.
+  _db.pragma('wal_autocheckpoint = 1000');
   _refCount = 1;
   _currentPath = resolve(path);
   return _db;
@@ -88,6 +91,9 @@ export function acquireBulkWriteConnection(
   _bulkDb.pragma('journal_mode = WAL');
   _bulkDb.pragma('foreign_keys = ON');
   _bulkDb.pragma(`busy_timeout = ${busyTimeout}`);
+  // Checkpoint WAL every 1000 pages (~1MB) to prevent WAL file growth
+  // and reduce contention between readers and the bulk writer.
+  _bulkDb.pragma('wal_autocheckpoint = 1000');
 
   logger.info({ dbPath }, 'Acquired bulk-write database connection');
   _bulkRefCount = 1;

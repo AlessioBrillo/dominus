@@ -918,11 +918,22 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     // second leg's disjointness check. rdap.org is deliberately excluded —
     // it doubles as the default second leg, mirroring the static
     // disjointness semantics of rdap-consensus-validator.ts.
+    // Defensive: on any resolver error, return empty array (no known
+    // authoritative origins = no overlap possible) instead of throwing,
+    // which would trigger fail-closed downgrade (ADR-0060).
     async (tld: string): Promise<string[]> => {
-      const servers = await ianaBootstrap.getServers(tld);
-      return servers
-        .map((server) => server.baseUrl)
-        .filter((url) => rdapUrlOrigin(url) !== rdapUrlOrigin(RDAP_ORG_UNIVERSAL.baseUrl));
+      try {
+        const servers = await ianaBootstrap.getServers(tld);
+        return servers
+          .map((server) => server.baseUrl)
+          .filter((url) => rdapUrlOrigin(url) !== rdapUrlOrigin(RDAP_ORG_UNIVERSAL.baseUrl));
+      } catch (err) {
+        getLogger().warn(
+          { err, tld },
+          'RDAP: authoritative origins resolver failed — treating as no overlap (fail-open for guard)',
+        );
+        return [];
+      }
     },
   );
   if (rdapConsensusConfig !== undefined) {
@@ -943,11 +954,22 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     redisClient,
     // ADR-0058 origin-overlap guard: authoritative per-TLD origins for the
     // tertiary leg's disjointness check. Reuses the same resolver as secondary.
+    // Defensive: on any resolver error, return empty array (no known
+    // authoritative origins = no overlap possible) instead of throwing,
+    // which would trigger fail-closed downgrade (ADR-0060).
     async (tld: string): Promise<string[]> => {
-      const servers = await ianaBootstrap.getServers(tld);
-      return servers
-        .map((server) => server.baseUrl)
-        .filter((url) => rdapUrlOrigin(url) !== rdapUrlOrigin(RDAP_ORG_UNIVERSAL.baseUrl));
+      try {
+        const servers = await ianaBootstrap.getServers(tld);
+        return servers
+          .map((server) => server.baseUrl)
+          .filter((url) => rdapUrlOrigin(url) !== rdapUrlOrigin(RDAP_ORG_UNIVERSAL.baseUrl));
+      } catch (err) {
+        getLogger().warn(
+          { err, tld },
+          'RDAP: authoritative origins resolver failed — treating as no overlap (fail-open for guard)',
+        );
+        return [];
+      }
     },
   );
 

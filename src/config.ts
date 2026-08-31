@@ -896,34 +896,25 @@ const configSchema = z
      *   resolver topology or explicitly disable consensus.
      * - 'permissive': fail-open on transient failures, logs warning but keeps
      *   gate enabled. The bootstrap check remains authoritative.
-     * Default: 'permissive' for community edition (self-hosted, often behind
-     * CGNAT/VPN with restricted egress DNS), 'strict' for cloud edition
-     * (managed infrastructure with controlled egress). The default is derived
-     * from DATABASE_URL and AUTH_PROVIDER: if DATABASE_URL is set or
-     * AUTH_PROVIDER !== 'env', it's cloud mode → 'strict'; otherwise 'permissive'.
-     * Operators can always override explicitly via the env var.
+     * Default: 'strict' for ALL editions. The consensus gate is a correctness
+     * guarantee (ADR-0002); permissive mode defeats its purpose by allowing
+     * rubber-stamp second opinions. Operators with restricted egress MUST
+     * configure disjoint recursors via DNS_CONSENSUS_NAMESERVERS or explicitly
+     * disable consensus (DNS_CONSENSUS_ENABLED=false).
      */
-    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z.enum(['strict', 'permissive']).default(() => {
-      const isCloud =
-        !!process.env.DATABASE_URL ||
-        (process.env.AUTH_PROVIDER && process.env.AUTH_PROVIDER !== 'env');
-      return isCloud ? 'strict' : 'permissive';
-    }),
+    DNS_CONSENSUS_RUNTIME_VALIDATION_MODE: z.enum(['strict', 'permissive']).default('strict'),
     /**
      * Behavior when the DNS consensus gate fails runtime disjointness validation
      * (ADR-0066). This occurs when the primary and secondary resolver sets share
      * IPs/operators, making the second opinion a rubber stamp.
-     * - 'fail': throw at startup, preventing the pipeline from running (strict, default for cloud).
-     * - 'degrade': log warning, disable consensus for this run, continue with single-resolver verdicts (default for community).
+     * - 'fail': throw at startup, preventing the pipeline from running (default).
+     * - 'degrade': log warning, disable consensus for this run, continue with single-resolver verdicts.
      * - 'disable': silently disable consensus, continue without cross-validation (legacy escape hatch).
-     * Default: derived from cloud mode — 'fail' when DATABASE_URL set or AUTH_PROVIDER !== 'env', otherwise 'degrade'.
+     * Default: 'fail' for ALL editions. A consensus gate that cannot prove
+     * independence is not a consensus gate — it is consensus theater. The
+     * operator must configure genuinely disjoint resolvers or disable the gate.
      */
-    DNS_CONSENSUS_ON_FAILURE: z.enum(['fail', 'degrade', 'disable']).default(() => {
-      const isCloud =
-        !!process.env.DATABASE_URL ||
-        (process.env.AUTH_PROVIDER && process.env.AUTH_PROVIDER !== 'env');
-      return isCloud ? 'fail' : 'degrade';
-    }),
+    DNS_CONSENSUS_ON_FAILURE: z.enum(['fail', 'degrade', 'disable']).default('fail'),
     /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).
@@ -995,13 +986,13 @@ const configSchema = z
     DNS_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600000).default(120_000),
     /**
      * Maximum time (ms) to wait for a WHOIS port-43 response.
-     * Reduced from 10s to 5s to fail fast on truly dead servers while still
-     * allowing legitimate slow ccTLD responses. The WHOIS rescue budget
-     * (RDAP_WHOIS_BUDGET_MS) controls how long we wait for rescue specifically.
-     * Must be <= RDAP_WHOIS_BUDGET_MS to avoid race where rescue times out
-     * before the WHOIS query completes.
+     * Increased to 10s to accommodate slow ccTLD WHOIS servers (.it, .de, .jp, .br
+     * commonly respond in 4-8s). The WHOIS rescue budget (RDAP_WHOIS_BUDGET_MS)
+     * controls how long we wait for rescue specifically. Must be <=
+     * RDAP_WHOIS_BUDGET_MS to avoid race where rescue times out before the
+     * WHOIS query completes.
      */
-    WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(5_000),
+    WHOIS_LOOKUP_TIMEOUT: z.coerce.number().int().min(1000).max(60000).default(10_000),
     /**
      * Rate limiting: max tokens (burst capacity) for RDAP requests.
      * Token bucket refills at RDAP_RATE_LIMIT_TOKENS per RDAP_RATE_LIMIT_INTERVAL_MS.
@@ -1152,7 +1143,7 @@ const configSchema = z
      * candidate is downgraded exactly as without the rescue. Rescue is NEVER
      * consulted on a definitive Registered from the second RDAP leg. Default:
      * true — the rescue leg is now enabled by default because the budget
-     * (RDAP_WHOIS_BUDGET_MS=3000) is sufficient for it to work on problematic
+     * (RDAP_WHOIS_BUDGET_MS=10000) is sufficient for it to work on problematic
      * ccTLDs. The per-TLD override (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS) forces
      * rescue for known unstable ccTLDs (.it, .de, .jp, .br, .cn, .ru, .fr, .uk)
      * regardless of this flag. Set RDAP_CONSENSUS_RESCUE_WHOIS_TLDS=[] to disable.
@@ -1732,14 +1723,14 @@ const configSchema = z
      * discarded. RDAP is authoritative (ADR-0035): a WHOIS disagreement within
      * this budget still blocks conservatively, beyond the budget RDAP decides.
      * This keeps large batches moving even when WHOIS servers are slow.
-     * Default: 3000 (3 seconds) — increased from 1s to allow WHOIS rescue to
-     * actually work for slow ccTLDs (.it, .de, .jp, .br) which commonly
-     * respond in 2-4s. The per-TLD rescue list (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS)
-     * is enabled by default for these TLDs.
+     * Default: 10000 (10 seconds) — allows WHOIS rescue to actually work for
+     * slow ccTLDs (.it, .de, .jp, .br, .cn, .ru, .fr, .uk) which commonly
+     * respond in 4-8s. The per-TLD rescue list
+     * (RDAP_CONSENSUS_RESCUE_WHOIS_TLDS) is enabled by default for these TLDs.
      * Must be >= WHOIS_LOOKUP_TIMEOUT to avoid race where rescue times out
      * before the WHOIS query completes.
      */
-    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(10000).default(5000),
+    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(10000).default(10_000),
 
     /**
      * Staleness window in hours after which a persisted RDAP "Available" row

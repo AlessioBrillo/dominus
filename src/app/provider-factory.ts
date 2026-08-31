@@ -1125,12 +1125,13 @@ export async function buildDnsConsensusConfig(
  * Returns empty array when the leg is disabled or when its resolver set overlaps
  * either the primary or the secondary — a third opinion through the same endpoints
  * is no opinion at all, and the gate must never silently degrade by thinning redundancy.
- * Shares the dedicated consensus rate-limit budget (ADR-0044): the whole verification
- * gate counts against its own bucket, never against the primary's.
+ * Each tertiary provider uses its own dedicated rate-limit budget (ADR-0044/0068):
+ * the verification gate counts against its own bucket, never against the primary's
+ * or the secondary's.
  */
 async function buildTertiaryConsensusProviders(
   config: Config,
-  rateLimiter: RateLimiterLike,
+  _consensusRateLimiter: RateLimiterLike, // Unused: tertiary gets its own budget
   primaryGroups: DnsResolverGroup[],
   primaryNameservers: string[] | undefined,
   consensusGroups: DnsResolverGroup[],
@@ -1386,6 +1387,22 @@ async function buildTertiaryConsensusProviders(
     );
   }
 
+  // Dedicated rate limiter for single tertiary provider (not shared with consensus)
+  const tertiaryRateLimiter = config.REDIS_URL
+    ? new RedisRateLimiter({
+        tokens: config.DNS_TERTIARY_RATE_LIMIT_TOKENS ?? 10,
+        intervalMs: config.DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS ?? 1000,
+        namespace: 'dns:tertiary:',
+      } as RedisRateLimiterConfig)
+    : new PriorityRateLimiter(
+        {
+          maxTokens: config.DNS_TERTIARY_RATE_LIMIT_TOKENS ?? 10,
+          tokensPerInterval: config.DNS_TERTIARY_RATE_LIMIT_TOKENS ?? 10,
+          intervalMs: config.DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS ?? 1000,
+        },
+        0,
+      );
+
   return [
     new NodeDnsProvider({
       cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
@@ -1398,7 +1415,7 @@ async function buildTertiaryConsensusProviders(
       ...(effectiveTertiaryNameservers !== undefined
         ? { nameservers: effectiveTertiaryNameservers }
         : {}),
-      rateLimiter,
+      rateLimiter: tertiaryRateLimiter,
       retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
       breakers,
       ...(legTelemetry !== undefined
