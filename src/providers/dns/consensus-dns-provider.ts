@@ -199,9 +199,12 @@ export class ConsensusDnsProvider implements DnsProvider {
 
     // 3. Tertiary lookup (if available and needed)
     // Support dual-redundant tertiary (ADR-0068): race two independent providers
-    const tertiaryProviders = this.#tertiaryConfig?.strategy === 'dual-redundant'
-      ? [this.#tertiaryConfig.primary, this.#tertiaryConfig.secondary]
-      : this.#tertiary !== undefined ? [this.#tertiary] : [];
+    const tertiaryProviders =
+      this.#tertiaryConfig?.strategy === 'dual-redundant'
+        ? [this.#tertiaryConfig.primary, this.#tertiaryConfig.secondary]
+        : this.#tertiary !== undefined
+          ? [this.#tertiary]
+          : [];
 
     if (tertiaryProviders.length > 0) {
       const needTertiary = !secondaryConfirmed || this.#config.requiredConfirmations === 2;
@@ -256,7 +259,9 @@ export class ConsensusDnsProvider implements DnsProvider {
         }
 
         // Check for confirmations: any Available from any tertiary provider confirms
-        const hasConfirmation = tertiaryResults.some((r) => r.result?.status === DomainStatus.Available);
+        const hasConfirmation = tertiaryResults.some(
+          (r) => r.result?.status === DomainStatus.Available,
+        );
 
         if (this.#config.requiredConfirmations === 2) {
           // Both secondary and tertiary must confirm

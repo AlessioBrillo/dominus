@@ -401,11 +401,9 @@ describe('validateRuntimeConsensusDisjointness', () => {
     };
     const tertiary = fakeProvider(['8.8.8.8']);
 
-    const report = await validateRuntimeConsensusDisjointness(
-      primary,
-      consensus as DnsProvider,
-      [tertiary],
-    );
+    const report = await validateRuntimeConsensusDisjointness(primary, consensus as DnsProvider, [
+      tertiary,
+    ]);
 
     expect(report.partial).toBe(true);
   });
@@ -541,12 +539,12 @@ describe('validateRuntimeConsensusDisjointness', () => {
       const consensus = fakeProvider(['9.9.9.9']);
       const tertiary = fakeProvider([]); // Partial
 
-const report = await validateRuntimeConsensusDisjointness(
-      primary,
-      consensus,
-      [tertiary],
-      'strict',
-    );
+      const report = await validateRuntimeConsensusDisjointness(
+        primary,
+        consensus,
+        [tertiary],
+        'strict',
+      );
 
       expect(report.partial).toBe(true);
       expect(report.ok).toBe(false);

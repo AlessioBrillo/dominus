@@ -155,6 +155,7 @@ jobs:
       - name: Smoke test — native binding + health endpoint
         env:
           SMOKE_CONTAINER: dominus-smoke
+          DNS_TERTIARY_ENABLED: "false"
         run: |
           set -euo pipefail
 
@@ -521,6 +522,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests
+        env:
+          DNS_TERTIARY_ENABLED: "false"
         run: npm run test:e2e
 
       - name: Upload Playwright report

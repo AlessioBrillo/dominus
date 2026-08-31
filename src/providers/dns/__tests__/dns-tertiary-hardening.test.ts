@@ -5,19 +5,30 @@ import { DomainStatus } from '../../../types/domain-status.js';
 import { ConsensusDnsProvider } from '../consensus-dns-provider.js';
 import type { DnsProvider, DnsCheckOptions } from '../dns-provider.js';
 
-function createMockProvider(name: string, results: Map<string, DnsCheckResult | Error>): DnsProvider {
+function createMockProvider(
+  name: string,
+  results: Map<string, DnsCheckResult | Error>,
+): DnsProvider {
   return {
     name,
-    async checkAvailability(domain: string, _signal?: AbortSignal, _options?: DnsCheckOptions): Promise<DnsCheckResult> {
+    async checkAvailability(
+      domain: string,
+      _signal?: AbortSignal,
+      _options?: DnsCheckOptions,
+    ): Promise<DnsCheckResult> {
       const result = results.get(domain);
       if (result instanceof Error) throw result;
-      return result ?? { domain, status: DomainStatus.Unknown, checkedAt: new Date().toISOString() };
+      return (
+        result ?? { domain, status: DomainStatus.Unknown, checkedAt: new Date().toISOString() }
+      );
     },
     checkBulk(domains: string[]): Promise<DnsCheckResult[]> {
       return Promise.all(domains.map((d) => this.checkAvailability(d)));
     },
     clearCache(): void {},
-    pruneCache(): number { return 0; },
+    pruneCache(): number {
+      return 0;
+    },
     dispose(): void {},
   };
 }
@@ -51,20 +62,34 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const domain = 'test.example.com';
 
     primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
-    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+    secondary = createMockProvider(
+      'secondary',
+      new Map([[domain, errorResult(new Error('timeout'))]]),
+    );
 
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, errorResult(new Error('timeout'))]]));
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, errorResult(new Error('timeout'))]]),
+    );
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
       disjointnessValidator: { isDisjoint: (): boolean => true },
-      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 1,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     const result = await provider.checkAvailability(domain);
@@ -76,20 +101,34 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const domain = 'test.example.com';
 
     primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
-    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+    secondary = createMockProvider(
+      'secondary',
+      new Map([[domain, errorResult(new Error('timeout'))]]),
+    );
 
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, registeredResult(domain)]]));
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, registeredResult(domain)]]),
+    );
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
       disjointnessValidator: { isDisjoint: (): boolean => true },
-      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 1,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     const result = await provider.checkAvailability(domain);
@@ -101,22 +140,36 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const domain = 'test.example.com';
 
     primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
-    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+    secondary = createMockProvider(
+      'secondary',
+      new Map([[domain, errorResult(new Error('timeout'))]]),
+    );
 
     // Tertiary 1 fails (simulating breaker open)
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, errorResult(new Error('breaker open'))]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, errorResult(new Error('breaker open'))]]),
+    );
     // Tertiary 2 succeeds
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
       disjointnessValidator: { isDisjoint: (): boolean => true },
-      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 1,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     const result = await provider.checkAvailability(domain);
@@ -131,8 +184,14 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
     secondary = createMockProvider('secondary', new Map([[domain, availableResult(domain)]]));
 
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, availableResult(domain)]]),
+    );
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     const disjointCalls: string[] = [];
     const provider = new ConsensusDnsProvider({
@@ -144,11 +203,16 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
           return true;
         },
       },
-      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 1,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     await provider.checkAvailability(domain);
@@ -164,18 +228,29 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     secondary = createMockProvider('secondary', new Map([[domain, availableResult(domain)]]));
 
     // Only tertiary1 confirms, tertiary2 fails
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, errorResult(new Error('timeout'))]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, availableResult(domain)]]),
+    );
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, errorResult(new Error('timeout'))]]),
+    );
 
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
       disjointnessValidator: { isDisjoint: (): boolean => true },
-      config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 2,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     const result = await provider.checkAvailability(domain);
@@ -191,18 +266,29 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     secondary = createMockProvider('secondary', new Map([[domain, registeredResult(domain)]]));
 
     // Both tertiary providers confirm, but secondary vetoes
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, availableResult(domain)]]),
+    );
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     const provider = new ConsensusDnsProvider({
       primary,
       secondary,
       disjointnessValidator: { isDisjoint: (): boolean => true },
-      config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 2,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     const result = await provider.checkAvailability(domain);
@@ -218,18 +304,32 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     secondary = createMockProvider('secondary', new Map([[domain, availableResult(domain)]]));
 
     const probeCalls: string[] = [];
-    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
-    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+    tertiary1 = createMockProvider(
+      'tertiary1-opendns',
+      new Map([[domain, availableResult(domain)]]),
+    );
+    tertiary2 = createMockProvider(
+      'tertiary2-digitalsociety',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     // Wrap checkAvailability to track probe calls
     const originalCheck1 = tertiary1.checkAvailability.bind(tertiary1);
     const originalCheck2 = tertiary2.checkAvailability.bind(tertiary2);
 
-    tertiary1.checkAvailability = async (d: string, s?: AbortSignal, o?: DnsCheckOptions): Promise<DnsCheckResult> => {
+    tertiary1.checkAvailability = async (
+      d: string,
+      s?: AbortSignal,
+      o?: DnsCheckOptions,
+    ): Promise<DnsCheckResult> => {
       if (o?.forceRecheck) probeCalls.push('tertiary1');
       return originalCheck1(d, s, o);
     };
-    tertiary2.checkAvailability = async (d: string, s?: AbortSignal, o?: DnsCheckOptions): Promise<DnsCheckResult> => {
+    tertiary2.checkAvailability = async (
+      d: string,
+      s?: AbortSignal,
+      o?: DnsCheckOptions,
+    ): Promise<DnsCheckResult> => {
       if (o?.forceRecheck) probeCalls.push('tertiary2');
       return originalCheck2(d, s, o);
     };
@@ -238,11 +338,16 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
       primary,
       secondary,
       disjointnessValidator: { isDisjoint: (): boolean => true },
-      config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
-        primary: tertiary1,
-        secondary: tertiary2,
-        strategy: 'dual-redundant',
-      }},
+      config: {
+        requiredConfirmations: 2,
+        degradedRatio: 0.5,
+        degradedMin: 10,
+        tertiaryConfig: {
+          primary: tertiary1,
+          secondary: tertiary2,
+          strategy: 'dual-redundant',
+        },
+      },
     });
 
     await provider.checkAvailability(domain);
@@ -256,10 +361,16 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
     const domain = 'test.example.com';
 
     primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
-    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+    secondary = createMockProvider(
+      'secondary',
+      new Map([[domain, errorResult(new Error('timeout'))]]),
+    );
 
     // Single tertiary (no tertiaryConfig)
-    const singleTertiary = createMockProvider('tertiary-legacy', new Map([[domain, availableResult(domain)]]));
+    const singleTertiary = createMockProvider(
+      'tertiary-legacy',
+      new Map([[domain, availableResult(domain)]]),
+    );
 
     const provider = new ConsensusDnsProvider({
       primary,
