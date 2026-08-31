@@ -93,9 +93,10 @@ jobs:
             fi
             sleep 1
           done
-          # Create flag file to skip RLS migration in CI (more reliable than env vars)
-          touch /tmp/skip_rls_migration
-          # Run migrations on PG (RLS migration skipped via flag file)
+          # Configure app.tenant_id GUC for RLS policies (migration 0030)
+          docker exec dominus-pg-roundtrip psql -U postgres -d dominus -c "ALTER SYSTEM SET app.tenant_id = 'default';"
+          docker exec dominus-pg-roundtrip psql -U postgres -d dominus -c "SELECT pg_reload_conf();"
+          # Run migrations on PG
           DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
           # Create a test SQLite DB with some data
           sqlite_db="$(mktemp -d)/roundtrip.db"
@@ -105,7 +106,6 @@ jobs:
             npx tsx scripts/migrate-sqlite-to-pg.ts verify-roundtrip "$sqlite_db"
           # Cleanup
           docker rm -f dominus-pg-roundtrip >/dev/null
-          rm -f /tmp/skip_rls_migration
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
