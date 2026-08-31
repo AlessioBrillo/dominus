@@ -193,10 +193,15 @@ jobs:
           #    non-root user can write. HOST must be 0.0.0.0 for the
           #    published port to forward, which requires API_KEYS or the
           #    app aborts with a security fatal at startup.
+          #    Disable DNS consensus/tertiary for smoke test (CI lacks disjoint resolvers).
           docker run -d --name "$SMOKE_CONTAINER" -p 3000:3000 \
             -e DATABASE_PATH=/tmp/dominus.db \
             -e HOST=0.0.0.0 \
-            -e API_KEYS=smoke-test-key dominus-api:test
+            -e API_KEYS=smoke-test-key \
+            -e DNS_CONSENSUS_ENABLED=false \
+            -e DNS_TERTIARY_ENABLED=false \
+            -e DNS_CONSENSUS_ON_FAILURE=disable \
+            dominus-api:test
 
           for i in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
