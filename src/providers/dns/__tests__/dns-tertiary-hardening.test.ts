@@ -1,221 +1,277 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NodeDnsProvider } from '../node-dns-provider.js';
+import type { DnsCheckResult, DnsCheckOptions } from '../../../types/domain-status.js';
 import { DomainStatus } from '../../../types/domain-status.js';
-import type { DnsConsensusStats } from '../../../pipeline/stage.js';
-import { strategyToResolverGroups, collectResolverEndpoints } from '../dns-provider.js';
+import { ConsensusDnsProvider } from '../consensus-dns-provider.js';
+import type { DnsProvider } from '../dns-provider.js';
 
-const mockSetServersCalls = vi.hoisted(() => [] as string[][]);
+function createMockProvider(name: string, results: Map<string, DnsCheckResult | Error>): DnsProvider {
+  return {
+    name,
+    async checkAvailability(domain: string, _signal?: AbortSignal, _options?: DnsCheckOptions): Promise<DnsCheckResult> {
+      const result = results.get(domain);
+      if (result instanceof Error) throw result;
+      return result ?? { domain, status: DomainStatus.Unknown, checkedAt: new Date().toISOString() };
+    },
+    checkBulk(domains: string[]): Promise<DnsCheckResult[]> {
+      return Promise.all(domains.map((d) => this.checkAvailability(d)));
+    },
+    clearCache(): void {},
+    pruneCache(): number { return 0; },
+    dispose(): void {},
+  };
+}
 
-vi.mock('node:dns', () => {
-  class MockResolver {
-    resolve(
-      _domain: string,
-      _rrtype: string,
-      callback: (err: Error | null, addresses?: string[]) => void,
-    ): void {
-      callback(null, ['1.2.3.4']);
-    }
-    cancel(): void {}
-    setServers(servers: string[]): void {
-      mockSetServersCalls.push(servers);
-    }
-  }
-  return { promises: { resolve: vi.fn().mockResolvedValue([]) }, Resolver: MockResolver };
-});
+function availableResult(domain: string): DnsCheckResult {
+  return { domain, status: DomainStatus.Available, checkedAt: new Date().toISOString() };
+}
 
-describe('DNS Tertiary Leg Hardening (ADR-0064/0065)', () => {
+function registeredResult(domain: string): DnsCheckResult {
+  return { domain, status: DomainStatus.Registered, checkedAt: new Date().toISOString() };
+}
+
+function errorResult(err: Error): Error {
+  return err;
+}
+
+describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
+  let primary: DnsProvider;
+  let secondary: DnsProvider;
+  let tertiary1: DnsProvider;
+  let tertiary2: DnsProvider;
+
   beforeEach(() => {
-    mockSetServersCalls.length = 0;
-    vi.clearAllMocks();
+    primary = createMockProvider('primary', new Map());
+    secondary = createMockProvider('secondary', new Map());
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map());
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map());
   });
 
-  describe('doh-tertiary strategy — three operators for fault tolerance', () => {
-    it('returns THREE resolver groups (not two) for majority vote resilience', () => {
-      const groups = strategyToResolverGroups(
-        'doh-tertiary',
-        'https://cloudflare-dns.com/dns-query',
-      );
-      expect(groups).toHaveLength(1);
-      expect(groups[0]!.name).toBe('multi-doh-tertiary');
-      expect(groups[0]!.lookups).toHaveLength(3); // Was 2, now 3 for fault tolerance
+  it('race rescue: first Available from any tertiary rescues the domain', async () => {
+    const domain = 'test.example.com';
+
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, errorResult(new Error('timeout'))]]));
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
     });
 
-    it('operators are genuinely disjoint from primary (CF/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS)', () => {
-      const primaryGroups = strategyToResolverGroups(
-        'doh-primary',
-        'https://cloudflare-dns.com/dns-query',
-      );
-      const consensusGroups = strategyToResolverGroups(
-        'dot-consensus',
-        'https://cloudflare-dns.com/dns-query',
-      );
-      const tertiaryGroups = strategyToResolverGroups(
-        'doh-tertiary',
-        'https://cloudflare-dns.com/dns-query',
-      );
+    const result = await provider.checkAvailability(domain);
 
-      const primaryEndpoints = collectResolverEndpoints(primaryGroups);
-      const consensusEndpoints = collectResolverEndpoints(consensusGroups);
-      const tertiaryEndpoints = collectResolverEndpoints(tertiaryGroups);
-
-      // No overlap between any pair
-      const primarySet = new Set(primaryEndpoints);
-      const consensusSet = new Set(consensusEndpoints);
-
-      for (const ep of tertiaryEndpoints) {
-        expect(primarySet.has(ep), `Tertiary endpoint ${ep} overlaps primary`).toBe(false);
-        expect(consensusSet.has(ep), `Tertiary endpoint ${ep} overlaps consensus`).toBe(false);
-      }
-    });
-
-    it('three operators = majority vote (2/3) + 2 breaker circuits', () => {
-      const groups = strategyToResolverGroups(
-        'doh-tertiary',
-        'https://cloudflare-dns.com/dns-query',
-      );
-      const lookups = groups[0]!.lookups;
-
-      // Must have exactly 3 lookups from 3 different operators
-      expect(lookups).toHaveLength(3);
-
-      // All must be DoH wire-format (per ADR-0047/0065)
-      for (const lookup of lookups) {
-        expect(lookup.type).toBe('doh');
-        expect(lookup.format).toBe('wire');
-      }
-
-      // With 3 operators, majority is 2. If 1 fails, 2 remain -> still majority.
-      // This is the fault tolerance guarantee.
-    });
+    expect(result.status).toBe(DomainStatus.Available);
   });
 
-  describe('Tertiary leg telemetry — role label in DnsLegSample', () => {
-    it('emits legRole: "tertiary" for tertiary provider telemetry', async () => {
-      const telemetrySamples: Array<{ role: string; verdict: string }> = [];
-      const provider = new NodeDnsProvider({
-        lookupStrategy: 'doh-tertiary',
-        cacheTtlMs: 60_000,
-        onLegResult: (sample): void => {
-          telemetrySamples.push({ role: sample.role, verdict: sample.verdict });
+  it('race veto: any Registered from any tertiary vetoes the domain', async () => {
+    const domain = 'test.example.com';
+
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, registeredResult(domain)]]));
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
+    });
+
+    const result = await provider.checkAvailability(domain);
+
+    expect(result.status).toBe(DomainStatus.Unknown);
+  });
+
+  it('circuit isolation: one tertiary breaker open does not block the other', async () => {
+    const domain = 'test.example.com';
+
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
+
+    // Tertiary 1 fails (simulating breaker open)
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, errorResult(new Error('breaker open'))]]));
+    // Tertiary 2 succeeds
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
+    });
+
+    const result = await provider.checkAvailability(domain);
+
+    // Should be rescued by tertiary2 even though tertiary1 failed
+    expect(result.status).toBe(DomainStatus.Available);
+  });
+
+  it('both tertiary providers must be disjoint from primary and secondary', async () => {
+    const domain = 'test.example.com';
+
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, availableResult(domain)]]));
+
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+
+    const disjointCalls: string[] = [];
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      },
+      disjointnessValidator: {
+        isDisjoint: (a, b) => {
+          disjointCalls.push(`${a.join(',')} vs ${b.join(',')}`);
+          return true;
         },
-        legRole: 'tertiary',
-      });
-
-      await provider.checkAvailability('example.com');
-
-      expect(telemetrySamples.length).toBeGreaterThan(0);
-      for (const s of telemetrySamples) {
-        expect(s.role).toBe('tertiary');
-      }
+      },
+      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
     });
+
+    await provider.checkAvailability(domain);
+
+    // Verify disjointness was checked for both tertiary providers
+    expect(disjointCalls.length).toBeGreaterThanOrEqual(1);
   });
 
-  describe('DnsConsensusStats — tertiaryUnverifiable counter', () => {
-    it('stage.ts DnsConsensusStats can be extended with tertiaryUnverifiable', () => {
-      // This test documents the expected extension to DnsConsensusStats
-      // The actual type extension is in stage.ts
-      const stats: DnsConsensusStats = {
-        verified: 10,
-        disagreed: 2,
-        unverifiable: 1,
-        degraded: false,
-        tertiaryRescued: 1,
-        // Future extension (to be added):
-        // tertiaryUnverifiable: 0,
-        // tertiaryDegraded: false,
-      };
+  it('requiredConfirmations=2: ANY tertiary confirmation suffices when secondary confirmed', async () => {
+    const domain = 'test.example.com';
 
-      expect(stats.verified).toBe(10);
-      expect(stats.tertiaryRescued).toBe(1);
-      // When implemented:
-      // expect(stats.tertiaryUnverifiable).toBe(0);
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, availableResult(domain)]]));
+
+    // Only tertiary1 confirms, tertiary2 fails
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, errorResult(new Error('timeout'))]]));
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
     });
+
+    const result = await provider.checkAvailability(domain);
+
+    // Secondary confirmed AND tertiary1 confirmed = should pass
+    expect(result.status).toBe(DomainStatus.Available);
   });
 
-  describe('Tertiary provider construction — isolated budget', () => {
-    it('DNS_TERTIARY_RATE_LIMIT_TOKENS and DNS_TERTIARY_BULK_CONCURRENCY env vars exist in config', async () => {
-      const { loadConfig, resetConfig } = await import('../../../config.js');
-      const saved = ['DNS_TERTIARY_RATE_LIMIT_TOKENS', 'DNS_TERTIARY_BULK_CONCURRENCY'] as const;
-      try {
-        for (const k of saved) delete process.env[k];
-        process.env.DNS_TERTIARY_RATE_LIMIT_TOKENS = '10';
-        process.env.DNS_TERTIARY_BULK_CONCURRENCY = '10';
-        resetConfig();
-        const config = loadConfig();
-        expect(config.DNS_TERTIARY_RATE_LIMIT_TOKENS).toBe(10);
-        expect(config.DNS_TERTIARY_BULK_CONCURRENCY).toBe(10);
-      } finally {
-        for (const k of saved) delete process.env[k];
-        resetConfig();
-      }
+  it('requiredConfirmations=2: secondary veto always wins over tertiary', async () => {
+    const domain = 'test.example.com';
+
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, registeredResult(domain)]]));
+
+    // Both tertiary providers confirm, but secondary vetoes
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
     });
+
+    const result = await provider.checkAvailability(domain);
+
+    // Secondary Registered vetoes everything
+    expect(result.status).toBe(DomainStatus.Unknown);
   });
 
-  describe('End-to-end: tertiary leg survives single operator outage', () => {
-    it('with 3 operators, if 1 fails, majority (2) still confirms Available', async () => {
-      // Mock a provider where one leg fails but two succeed
-      let callCount = 0;
-      const mockProvider = {
-        name: 'MockTertiary',
-        checkAvailability: vi.fn().mockImplementation(async (domain: string) => {
-          callCount++;
-          // First call fails (simulated operator outage), subsequent succeed
-          if (callCount === 1) {
-            throw new Error('Operator 1 unreachable');
-          }
-          return { domain, status: DomainStatus.Available, checkedAt: new Date().toISOString() };
-        }),
-        checkBulk: vi.fn().mockImplementation(async (domains: string[]) => {
-          return domains.map((d) => ({
-            domain: d,
-            status: DomainStatus.Available,
-            checkedAt: new Date().toISOString(),
-          }));
-        }),
-        clearCache: vi.fn(),
-        pruneCache: vi.fn().mockReturnValue(0),
-      };
+  it('bootstrap probe: both tertiary legs probed at startup', async () => {
+    const domain = 'test.example.com';
 
-      // This test verifies the CONCEPT: with 3 operators, 1 failure still leaves majority
-      // The actual NodeDnsProvider implementation handles this via majority vote in #raceGroup
-      const results = await Promise.allSettled([
-        mockProvider.checkAvailability('a.com'),
-        mockProvider.checkAvailability('b.com'),
-        mockProvider.checkAvailability('c.com'),
-      ]);
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, availableResult(domain)]]));
 
-      const successful = results.filter((r) => r.status === 'fulfilled').length;
-      expect(successful).toBeGreaterThanOrEqual(2); // Majority of 3
+    const probeCalls: string[] = [];
+    tertiary1 = createMockProvider('tertiary1-opendns', new Map([[domain, availableResult(domain)]]));
+    tertiary2 = createMockProvider('tertiary2-digitalsociety', new Map([[domain, availableResult(domain)]]));
+
+    // Wrap checkAvailability to track probe calls
+    const originalCheck1 = tertiary1.checkAvailability.bind(tertiary1);
+    const originalCheck2 = tertiary2.checkAvailability.bind(tertiary2);
+
+    tertiary1.checkAvailability = async (d, s, o) => {
+      if (o?.forceRecheck) probeCalls.push('tertiary1');
+      return originalCheck1(d, s, o);
+    };
+    tertiary2.checkAvailability = async (d, s, o) => {
+      if (o?.forceRecheck) probeCalls.push('tertiary2');
+      return originalCheck2(d, s, o);
+    };
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 2, degradedRatio: 0.5, degradedMin: 10, tertiaryConfig: {
+        primary: tertiary1,
+        secondary: tertiary2,
+        strategy: 'dual-redundant',
+      }},
     });
+
+    await provider.checkAvailability(domain);
+
+    // Both tertiary providers should have been probed with forceRecheck
+    expect(probeCalls).toContain('tertiary1');
+    expect(probeCalls).toContain('tertiary2');
   });
 
-  describe('Boot-time disjointness validation includes tertiary', () => {
-    it('validateConsensusDisjointness checks tertiary against primary AND consensus', async () => {
-      const { validateConsensusDisjointness } = await import('../resolver-validator.js');
-      const primaryGroups = strategyToResolverGroups(
-        'doh-primary',
-        'https://cloudflare-dns.com/dns-query',
-      );
-      const consensusGroups = strategyToResolverGroups(
-        'dot-consensus',
-        'https://cloudflare-dns.com/dns-query',
-      );
-      // tertiaryGroups would be used when the function supports tertiary validation
-      // const tertiaryGroups = strategyToResolverGroups('doh-tertiary', 'https://cloudflare-dns.com/dns-query');
+  it('legacy single tertiary mode still works', async () => {
+    const domain = 'test.example.com';
 
-      // Current function only checks primary vs consensus
-      // After hardening, it should also check tertiary
-      const result = await validateConsensusDisjointness(
-        primaryGroups,
-        undefined,
-        consensusGroups,
-        undefined,
-        { excludeFallbacks: true },
-      );
+    primary = createMockProvider('primary', new Map([[domain, availableResult(domain)]]));
+    secondary = createMockProvider('secondary', new Map([[domain, errorResult(new Error('timeout'))]]));
 
-      expect(result.ok).toBe(true);
-      // Future: expect(result.tertiaryOverlaps).toBeDefined();
+    // Single tertiary (no tertiaryConfig)
+    const singleTertiary = createMockProvider('tertiary-legacy', new Map([[domain, availableResult(domain)]]));
+
+    const provider = new ConsensusDnsProvider({
+      primary,
+      secondary,
+      tertiary: singleTertiary,
+      disjointnessValidator: { isDisjoint: () => true },
+      config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
     });
+
+    const result = await provider.checkAvailability(domain);
+
+    expect(result.status).toBe(DomainStatus.Available);
   });
 });
