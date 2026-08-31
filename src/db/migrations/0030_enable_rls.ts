@@ -33,21 +33,6 @@ const ENTITY_TABLES = [
 ] as const;
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
-  // Create a safe helper function for getting the current tenant_id.
-  // Uses PL/pgSQL with exception handling to safely call current_setting.
-  // current_setting(setting, missing_ok) returns NULL if missing_ok=true and setting unset.
-  // COALESCE provides a default. Exception handling catches any parsing issues.
-  await db.exec(`
-    CREATE OR REPLACE FUNCTION current_tenant_id() RETURNS text
-    LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$
-    BEGIN
-      RETURN COALESCE(current_setting('app.tenant_id', true), 'default');
-    EXCEPTION WHEN OTHERS THEN
-      RETURN 'default';
-    END;
-    $$;
-  `);
-
   for (const table of ENTITY_TABLES) {
     const tableName = typeof table === 'string' ? table : table.name;
     const extraUsing = typeof table === 'string' ? '' : table.extraUsing;
@@ -55,9 +40,10 @@ export async function upPg(db: DatabaseProvider): Promise<void> {
     await db.exec(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
     await db.exec(`DROP POLICY IF EXISTS tenant_isolation_${tableName} ON ${tableName}`);
 
-    // Use the helper function for safe tenant_id resolution.
-    // The extraUsing for public_scores adds an OR clause for public access.
-    const usingClause = `tenant_id = current_tenant_id()::TEXT${extraUsing ?? ''}`;
+    // Use COALESCE(current_setting(...)) directly in the policy to avoid
+    // function creation issues. current_setting(setting, true) returns NULL
+    // if the setting is not set, and COALESCE provides a default.
+    const usingClause = `tenant_id = COALESCE(current_setting('app.tenant_id', true), 'default')::TEXT${extraUsing ?? ''}`;
     await db.exec(
       `CREATE POLICY tenant_isolation_${tableName} ON ${tableName} FOR ALL USING (${usingClause})`,
     );
