@@ -40,7 +40,10 @@ export async function upPg(db: DatabaseProvider): Promise<void> {
     await db.exec(`ALTER TABLE ${tableName} ENABLE ROW LEVEL SECURITY`);
     await db.exec(`DROP POLICY IF EXISTS tenant_isolation_${tableName} ON ${tableName}`);
 
-    const usingClause = `tenant_id = current_setting('app.tenant_id', true)::TEXT${extraUsing ?? ''}`;
+    // Use COALESCE to provide a default when app.tenant_id is not set.
+    // current_setting(setting, missing_ok) returns NULL if not set and missing_ok=true.
+    // COALESCE handles the NULL case with a default tenant.
+    const usingClause = `tenant_id = COALESCE(current_setting('app.tenant_id', true), 'default')::TEXT${extraUsing ?? ''}`;
     await db.exec(
       `CREATE POLICY tenant_isolation_${tableName} ON ${tableName} FOR ALL USING (${usingClause})`,
     );
