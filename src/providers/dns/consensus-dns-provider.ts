@@ -68,6 +68,7 @@ export class ConsensusDnsProvider implements DnsProvider {
   #primary: DnsProvider;
   #secondary: DnsProvider;
   #tertiary: DnsProvider | undefined;
+  #tertiaryConfig: TertiaryDnsConfig | undefined;
   #disjointnessValidator: DisjointnessValidator;
   #telemetry: DnsLegTelemetry | undefined;
   #config: ConsensusConfig;
@@ -77,6 +78,7 @@ export class ConsensusDnsProvider implements DnsProvider {
     this.#primary = options.primary;
     this.#secondary = options.secondary;
     this.#tertiary = options.tertiary;
+    this.#tertiaryConfig = options.config.tertiaryConfig;
     this.#disjointnessValidator = options.disjointnessValidator;
     this.#telemetry = options.telemetry;
     this.#config = options.config;
@@ -195,37 +197,53 @@ export class ConsensusDnsProvider implements DnsProvider {
     }
 
     // 3. Tertiary lookup (if available and needed)
-    if (this.#tertiary !== undefined) {
+    // Support dual-redundant tertiary (ADR-0068): race two independent providers
+    const tertiaryProviders = this.#tertiaryConfig?.strategy === 'dual-redundant'
+      ? [this.#tertiaryConfig.primary, this.#tertiaryConfig.secondary]
+      : this.#tertiary !== undefined ? [this.#tertiary] : [];
+
+    if (tertiaryProviders.length > 0) {
       const needTertiary = !secondaryConfirmed || this.#config.requiredConfirmations === 2;
 
       if (needTertiary) {
         const tertiaryStartedAt = performance.now();
-        let tertiaryResult: DnsCheckResult | undefined;
-        let tertiaryError: unknown;
+        let tertiaryResults: Array<{ result: DnsCheckResult | undefined; error: unknown; provider: DnsProvider }> = [];
 
-        try {
-          tertiaryResult = await this.#tertiary.checkAvailability(domain, signal, {
-            ...options,
-            forceRecheck: true,
-          });
-        } catch (err) {
-          tertiaryError = err;
+        // Race all tertiary providers: first Available rescues, any Registered vetoes
+        const tertiaryPromises = tertiaryProviders.map(async (provider) => {
+          let result: DnsCheckResult | undefined;
+          let error: unknown;
+          try {
+            result = await provider.checkAvailability(domain, signal, {
+              ...options,
+              forceRecheck: true,
+            });
+          } catch (err) {
+            error = err;
+          }
+          return { result, error, provider };
+        });
+
+        tertiaryResults = await Promise.all(tertiaryPromises);
+
+        // Emit telemetry for all tertiary providers
+        for (const { result, error, provider } of tertiaryResults) {
+          emitTelemetry(
+            this.#telemetry,
+            { transport: 'tertiary', endpoint: provider.name },
+            result,
+            error,
+            'tertiary',
+            tertiaryStartedAt,
+          );
         }
 
-        emitTelemetry(
-          this.#telemetry,
-          { transport: 'tertiary', endpoint: this.#tertiary.name },
-          tertiaryResult,
-          tertiaryError,
-          'tertiary',
-          tertiaryStartedAt,
+        // Check for vetoes: any Registered from any tertiary provider vetoes
+        const hasVeto = tertiaryResults.some(
+          (r) => r.result?.status === DomainStatus.Registered || r.result?.isParked === true,
         );
 
-        // Tertiary veto: Registered wins
-        if (
-          tertiaryResult?.status === DomainStatus.Registered ||
-          tertiaryResult?.isParked === true
-        ) {
+        if (hasVeto) {
           logger.warn(
             { domain },
             'Consensus vetoed by tertiary (Registered) — downgraded to Unknown',
@@ -237,15 +255,17 @@ export class ConsensusDnsProvider implements DnsProvider {
           };
         }
 
-        const tertiaryConfirmed = tertiaryResult?.status === DomainStatus.Available;
+        // Check for confirmations: any Available from any tertiary provider confirms
+        const hasConfirmation = tertiaryResults.some((r) => r.result?.status === DomainStatus.Available);
 
         if (this.#config.requiredConfirmations === 2) {
           // Both secondary and tertiary must confirm
-          if (secondaryConfirmed && tertiaryConfirmed) {
+          // For dual-redundant, tertiary confirms if ANY provider confirms
+          if (secondaryConfirmed && hasConfirmation) {
             return primaryResult;
           }
           logger.warn(
-            { domain, secondaryConfirmed, tertiaryConfirmed },
+            { domain, secondaryConfirmed, tertiaryConfirmed: hasConfirmation },
             'Consensus not confirmed by both secondary and tertiary — downgraded to Unknown',
           );
           return {
@@ -255,7 +275,7 @@ export class ConsensusDnsProvider implements DnsProvider {
           };
         } else {
           // requiredConfirmations=1: tertiary rescues if secondary failed
-          if (tertiaryConfirmed) {
+          if (hasConfirmation) {
             logger.info({ domain }, 'Consensus rescued by tertiary (Available)');
             return primaryResult;
           }
