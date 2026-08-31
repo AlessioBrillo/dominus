@@ -34,12 +34,17 @@ const ENTITY_TABLES = [
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
   // Create a safe helper function for getting the current tenant_id.
+  // Uses PL/pgSQL with exception handling to safely call current_setting.
   // current_setting(setting, missing_ok) returns NULL if missing_ok=true and setting unset.
-  // COALESCE provides a default. Wrapped in a function to avoid syntax issues in policies.
+  // COALESCE provides a default. Exception handling catches any parsing issues.
   await db.exec(`
     CREATE OR REPLACE FUNCTION current_tenant_id() RETURNS text
-    LANGUAGE sql STABLE SECURITY DEFINER AS $$
-      SELECT COALESCE(current_setting('app.tenant_id', true), 'default');
+    LANGUAGE plpgsql STABLE SECURITY DEFINER AS $$
+    BEGIN
+      RETURN COALESCE(current_setting('app.tenant_id', true), 'default');
+    EXCEPTION WHEN OTHERS THEN
+      RETURN 'default';
+    END;
     $$;
   `);
 
