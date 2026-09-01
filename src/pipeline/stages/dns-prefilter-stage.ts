@@ -2,7 +2,7 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
 import { CandidateSource, type DomainCandidate } from '../../types/candidate.js';
-import type { DnsProvider, DnsCheckOptions } from '../../providers/dns/dns-provider.js';
+import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
@@ -139,9 +139,9 @@ export interface ConsensusDnsConfig {
    */
   anycastDegraded?: boolean;
   // Internal fields for runtime re-validation (not part of public API)
-  _primaryGroups?: import('../../providers/dns/dns-provider.js').DnsResolverGroup[];
-  _secondaryGroups?: import('../../providers/dns/dns-provider.js').DnsResolverGroup[];
-  _tertiaryGroups?: import('../../providers/dns/dns-provider.js').DnsResolverGroup[] | undefined;
+  _primaryGroups?: DnsResolverGroup[];
+  _secondaryGroups?: DnsResolverGroup[];
+  _tertiaryGroups?: DnsResolverGroup[] | undefined;
   _primaryNameservers?: string[];
   _secondaryNameservers?: string[];
   _tertiaryNameservers?: string[] | undefined;

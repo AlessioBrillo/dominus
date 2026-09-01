@@ -46,6 +46,7 @@ import {
   DbCheckpointStore,
 } from '../pipeline/index.js';
 import type { RdapConsensusConfig } from '../pipeline/stages/rdap-confirmation-stage.js';
+import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
 import {
   PortfolioManager,
   RenewalAlertEngine,
@@ -892,12 +893,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
           dnsConsensusConfig.secondaryProvider,
           dnsConsensusConfig.tertiaryProvider,
           // Pass resolver groups and nameservers for runtime disjointness re-validation (ADR-0063/0066)
-          (dnsConsensusConfig as any)._primaryGroups ?? [],
-          (dnsConsensusConfig as any)._secondaryGroups ?? [],
-          (dnsConsensusConfig as any)._tertiaryGroups ?? [],
-          (dnsConsensusConfig as any)._primaryNameservers ?? [],
-          (dnsConsensusConfig as any)._secondaryNameservers ?? [],
-          (dnsConsensusConfig as any)._tertiaryNameservers ?? [],
+          (dnsConsensusConfig as ConsensusDnsConfig)._primaryGroups ?? [],
+          (dnsConsensusConfig as ConsensusDnsConfig)._secondaryGroups ?? [],
+          (dnsConsensusConfig as ConsensusDnsConfig)._tertiaryGroups ?? [],
+          (dnsConsensusConfig as ConsensusDnsConfig)._primaryNameservers ?? [],
+          (dnsConsensusConfig as ConsensusDnsConfig)._secondaryNameservers ?? [],
+          (dnsConsensusConfig as ConsensusDnsConfig)._tertiaryNameservers ?? [],
           undefined, // Use default DisjointnessValidator with ResolvedEndpoints
           dnsLegTelemetry,
           {
