@@ -910,11 +910,30 @@ const configSchema = z
      * - 'fail': throw at startup, preventing the pipeline from running (default).
      * - 'degrade': log warning, disable consensus for this run, continue with single-resolver verdicts.
      * - 'disable': silently disable consensus, continue without cross-validation (legacy escape hatch).
+     * - 'degraded-anycast': allow consensus to run but mark run as degraded when anycast overlap
+     *   exceeds DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD. The gate remains active with
+     *   requiredConfirmations=1, but metrics and run metadata reflect the degraded topology.
+     *   Use when operating behind anycast-heavy resolvers (Cloudflare, Google, Quad9) where
+     *   strict disjointness is impractical but visibility into overlap is required.
      * Default: 'fail' for ALL editions. A consensus gate that cannot prove
      * independence is not a consensus gate — it is consensus theater. The
      * operator must configure genuinely disjoint resolvers or disable the gate.
      */
-    DNS_CONSENSUS_ON_FAILURE: z.enum(['fail', 'degrade', 'disable']).default('fail'),
+    DNS_CONSENSUS_ON_FAILURE: z
+      .enum(['fail', 'degrade', 'disable', 'degraded-anycast'])
+      .default('fail'),
+    /**
+     * Anycast overlap threshold for the 'degraded-anycast' failure policy (ADR-0068).
+     * When DNS_CONSENSUS_ON_FAILURE=degraded-anycast, this defines the fraction of
+     * resolved IPs that may overlap between primary and secondary/tertiary legs before
+     * the run is marked degraded. Expressed as a ratio 0.0-1.0:
+     * - 0.0 = any overlap triggers degraded (strict)
+     * - 0.5 = majority of IPs must overlap to trigger degraded (default, permissive)
+     * - 1.0 = never trigger degraded from anycast overlap alone
+     * Only applies when DNS_CONSENSUS_ON_FAILURE=degraded-anycast.
+     * Default: 0.5 (overlap must affect majority of resolved IPs to degrade).
+     */
+    DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
     /**
      * Test domain used for DNS consensus bootstrap validation (ADR-0066).
      * Must be a domain that resolves consistently (example.com is reserved per RFC 2606).

@@ -366,7 +366,7 @@ export interface DnsConsensusValidationResult {
   secondaryEndpoints: string[];
   /** Sorted list of tertiary resolver endpoints (if configured) */
   tertiaryEndpoints?: string[];
-  /** Overlaps detected between legs */
+  /** Overlaps detected between legs (legacy flat endpoint overlaps) */
   overlaps: {
     /** Endpoints shared between primary and secondary */
     primarySecondary: string[];
@@ -375,10 +375,36 @@ export interface DnsConsensusValidationResult {
     /** Endpoints shared between secondary and tertiary */
     secondaryTertiary: string[];
   };
+  /** Anycast-aware overlap analysis per leg pair */
+  anycastOverlaps?: {
+    primarySecondary: AnycastOverlapDetail[];
+    primaryTertiary: AnycastOverlapDetail[];
+    secondaryTertiary: AnycastOverlapDetail[];
+  };
   /** Whether the consensus topology is valid (no overlaps) */
   isValid: boolean;
   /** Human-readable failure reason when isValid=false */
   failureReason?: string;
+  /** Whether anycast overlap exceeds threshold (for degraded-anycast policy) */
+  anycastDegraded?: boolean;
+}
+
+/** Detailed anycast overlap between two resolver endpoints */
+export interface AnycastOverlapDetail {
+  /** Primary endpoint hostname/identity */
+  primaryIdentity: string;
+  /** Secondary/tertiary endpoint hostname/identity */
+  secondaryIdentity: string;
+  /** Primary endpoint's resolved IP set */
+  primaryIps: string[];
+  /** Secondary endpoint's resolved IP set */
+  secondaryIps: string[];
+  /** Overlapping IP addresses */
+  overlappingIps: string[];
+  /** Overlap ratio: overlappingIps / max(primaryIps.length, secondaryIps.length) */
+  overlapRatio: number;
+  /** Whether this pair exceeds the configured threshold */
+  exceedsThreshold: boolean;
 }
 
 /**
@@ -393,27 +419,67 @@ export interface DnsConsensusValidationResult {
  * @param secondaryGroups - Secondary consensus groups (from DNS_CONSENSUS_STRATEGY)
  * @param tertiaryGroups - Optional tertiary groups (from DNS_TERTIARY_STRATEGY)
  * @param timeoutMs - Per-query timeout in ms (default: 2000)
- * @returns Validation result with structured overlap data
+ * @param anycastOverlapThreshold - Overlap ratio threshold for anycast degradation (0.0-1.0, default: 0.5)
+ * @returns Validation result with structured overlap data including anycast analysis
  */
 export async function validateConsensusDisjointnessRuntime(
   primaryGroups: DnsResolverGroup[],
   secondaryGroups: DnsResolverGroup[],
   tertiaryGroups: DnsResolverGroup[] | undefined,
   timeoutMs: number = 2000,
+  anycastOverlapThreshold: number = 0.5,
 ): Promise<DnsConsensusValidationResult> {
-  const primaryEndpoints = await resolveEndpointsLive(primaryGroups, timeoutMs);
-  const secondaryEndpoints = await resolveEndpointsLive(secondaryGroups, timeoutMs);
-  const tertiaryEndpoints = tertiaryGroups
-    ? await resolveEndpointsLive(tertiaryGroups, timeoutMs)
-    : [];
+  // Use the new anycast-aware resolution for detailed IP sets
+  const primaryResult = await resolveEndpointsLiveWithAnycast(primaryGroups, timeoutMs);
+  const secondaryResult = await resolveEndpointsLiveWithAnycast(secondaryGroups, timeoutMs);
+  const tertiaryResult = tertiaryGroups
+    ? await resolveEndpointsLiveWithAnycast(tertiaryGroups, timeoutMs)
+    : { flatEndpoints: [], endpointDetails: [] };
 
+  // Legacy flat endpoint overlaps (backward compatibility)
   const overlaps = {
-    primarySecondary: findOverlaps(primaryEndpoints, secondaryEndpoints),
+    primarySecondary: findOverlaps(primaryResult.flatEndpoints, secondaryResult.flatEndpoints),
     primaryTertiary:
-      tertiaryEndpoints.length > 0 ? findOverlaps(primaryEndpoints, tertiaryEndpoints) : [],
+      tertiaryResult.flatEndpoints.length > 0
+        ? findOverlaps(primaryResult.flatEndpoints, tertiaryResult.flatEndpoints)
+        : [],
     secondaryTertiary:
-      tertiaryEndpoints.length > 0 ? findOverlaps(secondaryEndpoints, tertiaryEndpoints) : [],
+      tertiaryResult.flatEndpoints.length > 0
+        ? findOverlaps(secondaryResult.flatEndpoints, tertiaryResult.flatEndpoints)
+        : [],
   };
+
+  // Anycast-aware overlap analysis: compare IP sets per resolver identity
+  const anycastOverlaps = {
+    primarySecondary: computeAnycastOverlaps(
+      primaryResult.endpointDetails,
+      secondaryResult.endpointDetails,
+      anycastOverlapThreshold,
+    ),
+    primaryTertiary:
+      tertiaryResult.endpointDetails.length > 0
+        ? computeAnycastOverlaps(
+            primaryResult.endpointDetails,
+            tertiaryResult.endpointDetails,
+            anycastOverlapThreshold,
+          )
+        : [],
+    secondaryTertiary:
+      tertiaryResult.endpointDetails.length > 0
+        ? computeAnycastOverlaps(
+            secondaryResult.endpointDetails,
+            tertiaryResult.endpointDetails,
+            anycastOverlapThreshold,
+          )
+        : [],
+  };
+
+  // Check if any anycast overlap exceeds threshold (for degraded-anycast policy)
+  const anycastDegraded = [
+    ...anycastOverlaps.primarySecondary,
+    ...anycastOverlaps.primaryTertiary,
+    ...anycastOverlaps.secondaryTertiary,
+  ].some((o) => o.exceedsThreshold);
 
   const allOverlaps = [
     ...overlaps.primarySecondary,
@@ -422,21 +488,81 @@ export async function validateConsensusDisjointnessRuntime(
   ];
 
   const result: DnsConsensusValidationResult = {
-    primaryEndpoints: [...primaryEndpoints].sort(),
-    secondaryEndpoints: [...secondaryEndpoints].sort(),
+    primaryEndpoints: [...primaryResult.flatEndpoints].sort(),
+    secondaryEndpoints: [...secondaryResult.flatEndpoints].sort(),
     overlaps,
-    isValid: allOverlaps.length === 0,
+    anycastOverlaps,
+    isValid: allOverlaps.length === 0 && !anycastDegraded,
+    anycastDegraded,
   };
+
   if (allOverlaps.length > 0) {
     result.failureReason =
       `Resolver overlap detected: ${allOverlaps.join(', ')}. ` +
       'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
       'or disable consensus (DNS_CONSENSUS_ENABLED=false).';
+  } else if (anycastDegraded) {
+    const exceedingPairs = [
+      ...anycastOverlaps.primarySecondary,
+      ...anycastOverlaps.primaryTertiary,
+      ...anycastOverlaps.secondaryTertiary,
+    ].filter((o) => o.exceedsThreshold);
+    result.failureReason =
+      `Anycast overlap exceeds threshold (${anycastOverlapThreshold}): ` +
+      exceedingPairs
+        .map(
+          (o) =>
+            `${o.primaryIdentity} <-> ${o.secondaryIdentity} (${(o.overlapRatio * 100).toFixed(1)}% overlap: ${o.overlappingIps.join(', ')})`,
+        )
+        .join('; ');
   }
-  if (tertiaryEndpoints.length > 0) {
-    result.tertiaryEndpoints = [...tertiaryEndpoints].sort();
+
+  if (tertiaryResult.flatEndpoints.length > 0) {
+    result.tertiaryEndpoints = [...tertiaryResult.flatEndpoints].sort();
   }
   return result;
+}
+
+/**
+ * Computes anycast overlap ratios between two sets of resolver endpoints.
+ * Compares IP sets per resolver identity (hostname) to detect anycast sharing.
+ */
+function computeAnycastOverlaps(
+  primaryDetails: ResolvedEndpoint[],
+  secondaryDetails: ResolvedEndpoint[],
+  threshold: number,
+): AnycastOverlapDetail[] {
+  const overlaps: AnycastOverlapDetail[] = [];
+
+  for (const primary of primaryDetails) {
+    if (primary.ips.size === 0) continue; // Skip endpoints with no resolved IPs (e.g., system-resolver)
+
+    for (const secondary of secondaryDetails) {
+      if (secondary.ips.size === 0) continue;
+
+      const primaryIps = [...primary.ips];
+      const secondaryIps = [...secondary.ips];
+      const primaryIpSet = new Set(primaryIps);
+      const overlappingIps = secondaryIps.filter((ip) => primaryIpSet.has(ip));
+
+      if (overlappingIps.length === 0) continue;
+
+      const maxIps = Math.max(primaryIps.length, secondaryIps.length);
+      const overlapRatio = overlappingIps.length / maxIps;
+
+      overlaps.push({
+        primaryIdentity: primary.identity,
+        secondaryIdentity: secondary.identity,
+        primaryIps,
+        secondaryIps,
+        overlappingIps,
+        overlapRatio,
+        exceedsThreshold: overlapRatio > threshold,
+      });
+    }
+  }
+
+  return overlaps;
 }
 
 /**
@@ -445,12 +571,44 @@ export async function validateConsensusDisjointnessRuntime(
  * For DoH: extracts the HTTPS endpoint hostname.
  * For DoT: extracts the TLS server hostname/IP.
  * For native: extracts the nameserver IPs used.
+ * Returns a flat list of endpoint identifiers for backward compatibility.
  */
-async function resolveEndpointsLive(
+export async function resolveEndpointsLive(
   groups: DnsResolverGroup[],
   timeoutMs: number,
 ): Promise<string[]> {
-  const endpoints = new Set<string>();
+  const result = await resolveEndpointsLiveWithAnycast(groups, timeoutMs);
+  return result.flatEndpoints;
+}
+
+/**
+ * Resolves endpoints with full anycast IP resolution (A + AAAA records).
+ * Returns structured data mapping each resolver identity to its resolved IP set.
+ * Used for anycast-aware overlap detection in consensus validation.
+ */
+export interface ResolvedEndpoint {
+  /** Transport-specific identifier (doh:host, dot:host, native:ip, native:system-resolver) */
+  identity: string;
+  /** All resolved IP addresses (IPv4 + IPv6) for this endpoint */
+  ips: Set<string>;
+  /** Hostname that was resolved (for DoH/DoT with hostname endpoints) */
+  hostname?: string;
+}
+
+export interface ResolveEndpointsLiveResult {
+  /** Flat list of all endpoint identifiers (backward compatible) */
+  flatEndpoints: string[];
+  /** Structured endpoint data with IP sets for anycast analysis */
+  endpointDetails: ResolvedEndpoint[];
+}
+
+async function resolveEndpointsLiveWithAnycast(
+  groups: DnsResolverGroup[],
+  timeoutMs: number,
+): Promise<ResolveEndpointsLiveResult> {
+  const flatEndpoints = new Set<string>();
+  const endpointDetails: ResolvedEndpoint[] = [];
+  const hostnameToDetails = new Map<string, ResolvedEndpoint>();
 
   for (const group of groups) {
     if (group.fallback) continue; // Skip fallback groups (same as static analysis)
@@ -458,40 +616,93 @@ async function resolveEndpointsLive(
     for (const lookup of group.lookups) {
       try {
         if (lookup.type === 'doh' && lookup.endpoint) {
-          // For DoH, the endpoint hostname is the identity
           const host = new URL(lookup.endpoint).hostname;
-          endpoints.add(`doh:${host}`);
-          // Also try to resolve the hostname to catch anycast
+          const identity = `doh:${host}`;
+          flatEndpoints.add(identity);
+
+          let details = hostnameToDetails.get(host);
+          if (!details) {
+            details = { identity, ips: new Set(), hostname: host };
+            hostnameToDetails.set(host, details);
+            endpointDetails.push(details);
+          }
+
+          // Resolve both A and AAAA records for full anycast detection
           try {
             const { default: dns } = await import('node:dns/promises');
-            const ips = await Promise.race([
-              dns.resolve4(host),
-              new Promise<string[]>((_, reject) =>
-                setTimeout(() => reject(new Error('timeout')), timeoutMs),
-              ),
-            ]);
-            for (const ip of ips) {
-              endpoints.add(`ip:${ip}`);
-            }
-          } catch {
-            // Resolution failed, but we still have the hostname
-          }
-        } else if (lookup.type === 'dot' && lookup.endpoint) {
-          // For DoT, the endpoint is the server identity
-          endpoints.add(`dot:${lookup.endpoint}`);
-          if (isIP(lookup.endpoint) !== 0) {
-            endpoints.add(`ip:${lookup.endpoint}`);
-          } else {
-            try {
-              const { default: dns } = await import('node:dns/promises');
-              const ips = await Promise.race([
-                dns.resolve4(lookup.endpoint),
+            const [aRecords, aaaaRecords] = await Promise.allSettled([
+              Promise.race([
+                dns.resolve4(host),
                 new Promise<string[]>((_, reject) =>
                   setTimeout(() => reject(new Error('timeout')), timeoutMs),
                 ),
+              ]),
+              Promise.race([
+                dns.resolve6(host),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+            ]);
+
+            if (aRecords.status === 'fulfilled') {
+              for (const ip of aRecords.value) {
+                details.ips.add(ip);
+                flatEndpoints.add(`ip:${ip}`);
+              }
+            }
+            if (aaaaRecords.status === 'fulfilled') {
+              for (const ip of aaaaRecords.value) {
+                details.ips.add(ip);
+                flatEndpoints.add(`ip:${ip}`);
+              }
+            }
+          } catch {
+            // Resolution failed, but we still have the hostname identity
+          }
+        } else if (lookup.type === 'dot' && lookup.endpoint) {
+          const identity = `dot:${lookup.endpoint}`;
+          flatEndpoints.add(identity);
+
+          let details = hostnameToDetails.get(lookup.endpoint);
+          if (!details) {
+            details = { identity, ips: new Set(), hostname: lookup.endpoint };
+            hostnameToDetails.set(lookup.endpoint, details);
+            endpointDetails.push(details);
+          }
+
+          if (isIP(lookup.endpoint) !== 0) {
+            details.ips.add(lookup.endpoint);
+            flatEndpoints.add(`ip:${lookup.endpoint}`);
+          } else {
+            try {
+              const { default: dns } = await import('node:dns/promises');
+              const [aRecords, aaaaRecords] = await Promise.allSettled([
+                Promise.race([
+                  dns.resolve4(lookup.endpoint),
+                  new Promise<string[]>((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                  ),
+                ]),
+                Promise.race([
+                  dns.resolve6(lookup.endpoint),
+                  new Promise<string[]>((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                  ),
+                ]),
               ]);
-              for (const ip of ips) {
-                endpoints.add(`ip:${ip}`);
+
+              if (aRecords.status === 'fulfilled') {
+                for (const ip of aRecords.value) {
+                  details.ips.add(ip);
+                  flatEndpoints.add(`ip:${ip}`);
+                }
+              }
+              if (aaaaRecords.status === 'fulfilled') {
+                for (const ip of aaaaRecords.value) {
+                  details.ips.add(ip);
+                  flatEndpoints.add(`ip:${ip}`);
+                }
               }
             } catch {
               // Resolution failed
@@ -501,21 +712,46 @@ async function resolveEndpointsLive(
           const nameservers = lookup.nameservers;
           if (nameservers && nameservers.length > 0) {
             for (const ns of nameservers) {
-              endpoints.add(`native:${ns}`);
-              if (isIP(ns) !== 0) endpoints.add(`ip:${ns}`);
+              const identity = `native:${ns}`;
+              flatEndpoints.add(identity);
+              if (isIP(ns) !== 0) {
+                flatEndpoints.add(`ip:${ns}`);
+                // Create or update details for this native nameserver
+                let details = hostnameToDetails.get(ns);
+                if (!details) {
+                  details = { identity, ips: new Set([ns]), hostname: ns };
+                  hostnameToDetails.set(ns, details);
+                  endpointDetails.push(details);
+                } else {
+                  details.ips.add(ns);
+                }
+              }
             }
           } else {
-            endpoints.add('native:system-resolver');
+            flatEndpoints.add('native:system-resolver');
+            // System resolver has no resolvable IPs in this context
+            const details: ResolvedEndpoint = {
+              identity: 'native:system-resolver',
+              ips: new Set(),
+            };
+            endpointDetails.push(details);
           }
         }
       } catch (err) {
-        // If we can't determine the endpoint, include a marker
-        endpoints.add(`error:${lookup.type}:${err instanceof Error ? err.message : 'unknown'}`);
+        const errorMarker = `error:${lookup.type}:${err instanceof Error ? err.message : 'unknown'}`;
+        flatEndpoints.add(errorMarker);
+        endpointDetails.push({
+          identity: errorMarker,
+          ips: new Set(),
+        });
       }
     }
   }
 
-  return [...endpoints];
+  return {
+    flatEndpoints: [...flatEndpoints],
+    endpointDetails,
+  };
 }
 
 /**

@@ -4,6 +4,9 @@ export type {
   DnsLookupSpec,
   DnsResolverGroup,
   DnsConsensusValidationResult,
+  AnycastOverlapDetail,
+  ResolvedEndpoint,
+  ResolveEndpointsLiveResult,
 } from './dns-provider.js';
 export {
   strategyToResolverGroups,
