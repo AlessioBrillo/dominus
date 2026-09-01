@@ -910,7 +910,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // second leg is rdap.org and the primary draws its authoritative per-TLD
   // servers from IANA, so the two legs stay independent. The second leg
   // draws from its own rdapConsensus rate-limit budget (ADR-0044 pattern).
-  const rdapConsensusConfig = createRdapConsensusConfig(
+  const rdapConsensusConfig = await createRdapConsensusConfig(
     config,
     rdapConsensusRateLimiter,
     redisClient,
