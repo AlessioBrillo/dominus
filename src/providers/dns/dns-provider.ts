@@ -408,6 +408,22 @@ export interface AnycastOverlapDetail {
 }
 
 /**
+ * Structured resolver endpoints for runtime consensus disjointness validation.
+ * Contains IPs, operators, and transports for each resolver leg, enabling
+ * anycast-aware and operator-aware overlap detection at runtime.
+ */
+export interface ResolvedEndpoints {
+  /** All resolved endpoint identifiers (doh:host, dot:host, native:ip, ip:address) */
+  flatEndpoints: string[];
+  /** Detailed endpoint data with IP sets for anycast analysis */
+  endpointDetails: ResolvedEndpoint[];
+  /** Well-known operator hints for each endpoint identity */
+  operators: Map<string, string>;
+  /** Transport type for each endpoint identity (doh, dot, native) */
+  transports: Map<string, string>;
+}
+
+/**
  * Performs live DNS queries to validate that consensus resolver legs
  * are genuinely operator-disjoint. This catches anycast/IP overlap
  * that static analysis (collectResolverEndpoints) cannot detect.
@@ -602,7 +618,7 @@ export interface ResolveEndpointsLiveResult {
   endpointDetails: ResolvedEndpoint[];
 }
 
-async function resolveEndpointsLiveWithAnycast(
+export async function resolveEndpointsLiveWithAnycast(
   groups: DnsResolverGroup[],
   timeoutMs: number,
 ): Promise<ResolveEndpointsLiveResult> {

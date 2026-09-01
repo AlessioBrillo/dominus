@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { DnsProvider, DnsCheckOptions } from './dns-provider.js';
+import type { DnsProvider, DnsCheckOptions, ResolvedEndpoints } from './dns-provider.js';
 import type { DnsLegTelemetry, DnsLegSample } from './index.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import { getLogger } from '../../logger.js';
@@ -8,7 +8,7 @@ import { getLogger } from '../../logger.js';
 const logger = getLogger();
 
 export interface DisjointnessValidator {
-  isDisjoint(primaryEndpoints: string[], secondaryEndpoints: string[]): boolean;
+  isDisjoint(primaryEndpoints: ResolvedEndpoints, secondaryEndpoints: ResolvedEndpoints): boolean;
 }
 
 export interface TertiaryDnsConfig {
@@ -28,10 +28,17 @@ export interface ConsensusDnsProviderOptions {
   primary: DnsProvider;
   secondary: DnsProvider;
   tertiary?: DnsProvider;
+  tertiaryConfig?: TertiaryDnsConfig;
   disjointnessValidator: DisjointnessValidator;
   breakers?: unknown;
   telemetry?: DnsLegTelemetry;
   config: ConsensusConfig;
+  /** Pre-resolved endpoint data for runtime disjointness validation (ADR-0063/0066) */
+  primaryEndpoints?: ResolvedEndpoints;
+  secondaryEndpoints?: ResolvedEndpoints;
+  tertiaryEndpoints?: ResolvedEndpoints;
+  /** Re-validation interval in ms (default: 600000 = 10min). Set to 0 to disable. */
+  revalidationIntervalMs?: number;
 }
 
 function emitTelemetry(
@@ -73,6 +80,10 @@ export class ConsensusDnsProvider implements DnsProvider {
   #telemetry: DnsLegTelemetry | undefined;
   #config: ConsensusConfig;
   #disjointnessCache: Map<string, boolean> = new Map();
+  #primaryEndpoints: ResolvedEndpoints | undefined;
+  #secondaryEndpoints: ResolvedEndpoints | undefined;
+  #revalidationIntervalMs: number;
+  #revalidationTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: ConsensusDnsProviderOptions) {
     this.#primary = options.primary;
@@ -82,6 +93,142 @@ export class ConsensusDnsProvider implements DnsProvider {
     this.#disjointnessValidator = options.disjointnessValidator;
     this.#telemetry = options.telemetry;
     this.#config = options.config;
+    this.#primaryEndpoints = options.primaryEndpoints;
+    this.#secondaryEndpoints = options.secondaryEndpoints;
+    this.#revalidationIntervalMs = options.revalidationIntervalMs ?? 600_000; // 10min default
+
+    // Start periodic re-validation if interval > 0 and endpoints are available
+    if (this.#revalidationIntervalMs > 0 && this.#primaryEndpoints && this.#secondaryEndpoints) {
+      this.#startPeriodicRevalidation();
+    }
+  }
+
+  /** Start periodic runtime disjointness re-validation */
+  #startPeriodicRevalidation(): void {
+    this.#revalidationTimer = setInterval(async () => {
+      try {
+        await this.#revalidateDisjointness();
+      } catch (err) {
+        logger.error({ err }, 'DNS consensus periodic re-validation failed');
+      }
+    }, this.#revalidationIntervalMs).unref();
+    logger.info(
+      { intervalMs: this.#revalidationIntervalMs },
+      'DNS consensus periodic re-validation started',
+    );
+  }
+
+  /** Stop periodic re-validation (for graceful shutdown) */
+  #stopPeriodicRevalidation(): void {
+    if (this.#revalidationTimer) {
+      clearInterval(this.#revalidationTimer);
+      this.#revalidationTimer = undefined;
+    }
+  }
+
+  /** Perform runtime disjointness re-validation using live DNS resolution */
+  async #revalidateDisjointness(): Promise<void> {
+    if (!this.#primaryEndpoints || !this.#secondaryEndpoints) return;
+
+    try {
+      // Re-resolve primary and secondary endpoints
+      // Note: We need the original resolver groups to re-resolve. Since we don't have them,
+      // we re-validate using the existing endpoint details by checking if their IPs still match.
+      // This is a lightweight check - full re-resolution would require access to resolver groups.
+
+      // For now, check if anycast overlaps have changed by re-resolving endpoint hostnames
+      const primaryDetails = this.#primaryEndpoints.endpointDetails;
+      const secondaryDetails = this.#secondaryEndpoints.endpointDetails;
+
+      if (primaryDetails.length === 0 || secondaryDetails.length === 0) return;
+
+      // Re-resolve hostnames for endpoints that have them
+      const { default: dns } = await import('node:dns/promises');
+      const timeoutMs = 2000;
+
+      // Check primary-secondary overlap
+      for (const primary of primaryDetails) {
+        if (primary.ips.size === 0 || !primary.hostname) continue;
+
+        for (const secondary of secondaryDetails) {
+          if (secondary.ips.size === 0 || !secondary.hostname) continue;
+
+          try {
+            const [primaryA, primaryAaaa, secondaryA, secondaryAaaa] = await Promise.allSettled([
+              Promise.race([
+                dns.resolve4(primary.hostname!),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+              Promise.race([
+                dns.resolve6(primary.hostname!),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+              Promise.race([
+                dns.resolve4(secondary.hostname!),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+              Promise.race([
+                dns.resolve6(secondary.hostname!),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+            ]);
+
+            const primaryIps = new Set<string>();
+            if (primaryA.status === 'fulfilled')
+              for (const ip of primaryA.value) primaryIps.add(ip);
+            if (primaryAaaa.status === 'fulfilled')
+              for (const ip of primaryAaaa.value) primaryIps.add(ip);
+
+            const secondaryIps = new Set<string>();
+            if (secondaryA.status === 'fulfilled')
+              for (const ip of secondaryA.value) secondaryIps.add(ip);
+            if (secondaryAaaa.status === 'fulfilled')
+              for (const ip of secondaryAaaa.value) secondaryIps.add(ip);
+
+            const overlappingIps = [...primaryIps].filter((ip) => secondaryIps.has(ip));
+            if (overlappingIps.length > 0) {
+              const maxIps = Math.max(primaryIps.size, secondaryIps.size);
+              const overlapRatio = overlappingIps.length / maxIps;
+
+              if (overlapRatio > 0.5) {
+                // Default threshold
+                logger.warn(
+                  {
+                    primaryIdentity: primary.identity,
+                    secondaryIdentity: secondary.identity,
+                    overlappingIps,
+                    overlapRatio: overlapRatio.toFixed(2),
+                  },
+                  'DNS consensus runtime re-validation: anycast overlap detected — gate may be degraded',
+                );
+                // Emit metric for alerting
+                // Note: metrics collector not available here, would need to be injected
+              }
+            }
+          } catch {
+            // Resolution failed, skip this pair
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn({ err }, 'DNS consensus re-validation error — continuing with cached validation');
+    }
+  }
+
+  /** Override dispose to also stop revalidation */
+  dispose(): void {
+    this.#stopPeriodicRevalidation();
+    this.#primary.dispose?.();
+    this.#secondary.dispose?.();
+    this.#tertiary?.dispose?.();
   }
 
   async checkAvailability(
@@ -361,23 +508,36 @@ export class ConsensusDnsProvider implements DnsProvider {
     return total;
   }
 
-  dispose(): void {
-    this.#primary.dispose?.();
-    this.#secondary.dispose?.();
-    this.#tertiary?.dispose?.();
-  }
-
   async #checkDisjointness(): Promise<boolean> {
     const cacheKey = `${this.#primary.name}|${this.#secondary.name}|${this.#tertiary?.name ?? 'none'}`;
     const cached = this.#disjointnessCache.get(cacheKey);
     if (cached !== undefined) return cached;
 
     try {
-      // For the primary, we need to get its endpoints. Since the provider interface
-      // doesn't expose endpoints, we use the provider name as a proxy.
-      // In production, the factory wires the actual endpoint lists.
-      const primaryEndpoints = [this.#primary.name];
-      const secondaryEndpoints = [this.#secondary.name];
+      // Use pre-resolved endpoints if available (from factory at bootstrap)
+      // Otherwise fall back to provider name proxy (backward compatibility)
+      let primaryEndpoints: ResolvedEndpoints;
+      let secondaryEndpoints: ResolvedEndpoints;
+
+      if (this.#primaryEndpoints && this.#secondaryEndpoints) {
+        primaryEndpoints = this.#primaryEndpoints;
+        secondaryEndpoints = this.#secondaryEndpoints;
+      } else {
+        // Fallback: create minimal ResolvedEndpoints from provider names
+        primaryEndpoints = {
+          flatEndpoints: [this.#primary.name],
+          endpointDetails: [],
+          operators: new Map(),
+          transports: new Map(),
+        };
+        secondaryEndpoints = {
+          flatEndpoints: [this.#secondary.name],
+          endpointDetails: [],
+          operators: new Map(),
+          transports: new Map(),
+        };
+      }
+
       const isDisjoint = this.#disjointnessValidator.isDisjoint(
         primaryEndpoints,
         secondaryEndpoints,
