@@ -198,8 +198,8 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
       primary,
       secondary,
       disjointnessValidator: {
-        isDisjoint: (a: string[], b: string[]): boolean => {
-          disjointCalls.push(`${a.join(',')} vs ${b.join(',')}`);
+        isDisjoint: (a, b): boolean => {
+          disjointCalls.push(`${a.flatEndpoints.join(',')} vs ${b.flatEndpoints.join(',')}`);
           return true;
         },
       },

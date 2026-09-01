@@ -887,18 +887,24 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // to handle consensus logic internally.
   const consensusDnsProvider =
     dnsConsensusConfig !== undefined && !dnsConsensusConfig.disabled
-      ? buildConsensusDnsProvider(
+      ? await buildConsensusDnsProvider(
           dnsProvider,
           dnsConsensusConfig.secondaryProvider,
           dnsConsensusConfig.tertiaryProvider,
-          {
-            isDisjoint: () => true, // Disjointness already validated at bootstrap
-          },
+          // Pass resolver groups and nameservers for runtime disjointness re-validation (ADR-0063/0066)
+          (dnsConsensusConfig as any)._primaryGroups ?? [],
+          (dnsConsensusConfig as any)._secondaryGroups ?? [],
+          (dnsConsensusConfig as any)._tertiaryGroups ?? [],
+          (dnsConsensusConfig as any)._primaryNameservers ?? [],
+          (dnsConsensusConfig as any)._secondaryNameservers ?? [],
+          (dnsConsensusConfig as any)._tertiaryNameservers ?? [],
+          undefined, // Use default DisjointnessValidator with ResolvedEndpoints
           dnsLegTelemetry,
           {
             requiredConfirmations: dnsConsensusConfig.requiredAvailable as 1 | 2,
             degradedRatio: dnsConsensusConfig.degradedRatio ?? config.DNS_CONSENSUS_DEGRADED_RATIO,
             degradedMin: dnsConsensusConfig.degradedMin ?? config.DNS_CONSENSUS_DEGRADED_MIN,
+            revalidationIntervalMs: 600_000, // 10min periodic re-validation
           },
         )
       : dnsProvider;

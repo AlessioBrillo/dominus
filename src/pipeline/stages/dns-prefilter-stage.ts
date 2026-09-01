@@ -138,6 +138,13 @@ export interface ConsensusDnsConfig {
    * as degraded but the consensus gate remains active.
    */
   anycastDegraded?: boolean;
+  // Internal fields for runtime re-validation (not part of public API)
+  _primaryGroups?: import('../../providers/dns/dns-provider.js').DnsResolverGroup[];
+  _secondaryGroups?: import('../../providers/dns/dns-provider.js').DnsResolverGroup[];
+  _tertiaryGroups?: import('../../providers/dns/dns-provider.js').DnsResolverGroup[] | undefined;
+  _primaryNameservers?: string[];
+  _secondaryNameservers?: string[];
+  _tertiaryNameservers?: string[] | undefined;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
