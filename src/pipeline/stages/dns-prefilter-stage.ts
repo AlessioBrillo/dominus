@@ -98,6 +98,46 @@ export interface ConsensusDnsConfig {
     secondary: DnsProvider;
     strategy: 'dual-redundant' | 'single';
   };
+  /**
+   * Anycast overlap details from runtime validation (ADR-0068).
+   * Populated when DNS_CONSENSUS_ON_FAILURE=degraded-anycast or when
+   * anycast overlap is detected during validation.
+   */
+  anycastOverlaps?: {
+    primarySecondary: Array<{
+      primaryIdentity: string;
+      secondaryIdentity: string;
+      primaryIps: string[];
+      secondaryIps: string[];
+      overlappingIps: string[];
+      overlapRatio: number;
+      exceedsThreshold: boolean;
+    }>;
+    primaryTertiary: Array<{
+      primaryIdentity: string;
+      secondaryIdentity: string;
+      primaryIps: string[];
+      secondaryIps: string[];
+      overlappingIps: string[];
+      overlapRatio: number;
+      exceedsThreshold: boolean;
+    }>;
+    secondaryTertiary: Array<{
+      primaryIdentity: string;
+      secondaryIdentity: string;
+      primaryIps: string[];
+      secondaryIps: string[];
+      overlappingIps: string[];
+      overlapRatio: number;
+      exceedsThreshold: boolean;
+    }>;
+  };
+  /**
+   * Whether anycast overlap exceeded the configured threshold.
+   * When true and DNS_CONSENSUS_ON_FAILURE=degraded-anycast, the run is marked
+   * as degraded but the consensus gate remains active.
+   */
+  anycastDegraded?: boolean;
 }
 
 export class DnsPreFilterStage implements Stage<DomainCandidate> {
@@ -399,6 +439,23 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       if (consensusStats !== undefined) consensusStats.degraded = true;
       logger.warn(
         'DNS: consensus gate running in degraded mode — runtime validation incomplete (strict mode)',
+      );
+    }
+    // Anycast overlap degradation (ADR-0068) — consensus gate is active but
+    // anycast IP overlap exceeds threshold. Run is marked degraded for visibility.
+    if (this.consensusConfig.anycastDegraded && degradations !== undefined) {
+      degradations.push({
+        stageName: this.name,
+        reason: 'consensus-anycast-degraded',
+        processedCount: 0,
+        expectedCount: 0,
+        message:
+          'DNS consensus gate running with anycast overlap exceeding threshold — independent verification may share resolver infrastructure',
+      });
+      if (consensusStats !== undefined) consensusStats.degraded = true;
+      logger.warn(
+        { anycastOverlaps: this.consensusConfig.anycastOverlaps },
+        'DNS: consensus gate running in anycast-degraded mode — anycast IP overlap detected',
       );
     }
     return this.#applyConsensusCheck(results, domains, signal, degradations, consensusStats);

@@ -17,11 +17,14 @@ import {
   DnsBreakerRegistry,
   strategyToResolverGroups,
   collectResolverEndpoints,
+  validateConsensusDisjointnessRuntime,
   type DnsBreakerRegistryLike,
   type DnsLegTelemetry,
   type DnsLookupStrategy,
   type DnsProvider,
   type DnsResolverGroup,
+  type DnsConsensusValidationResult,
+  type AnycastOverlapDetail,
 } from '../providers/dns/index.js';
 import type { ConsensusDnsProviderOptions } from '../providers/dns/consensus-dns-provider.js';
 import { ConsensusDnsProvider } from '../providers/dns/consensus-dns-provider.js';
@@ -557,7 +560,7 @@ export function buildConsensusDnsProvider(
  * DNS_CONSENSUS_RATE_LIMIT_* config so the isolation holds even for callers
  * that never build the shared budget.
  */
-type ConsensusOnFailureMode = 'fail' | 'degrade' | 'disable';
+type ConsensusOnFailureMode = 'fail' | 'degrade' | 'disable' | 'degraded-anycast';
 
 function buildDisabledConsensusConfig(reason: string): ConsensusDnsConfig {
   return {
@@ -581,6 +584,7 @@ export async function buildDnsConsensusConfig(
       overlapOperators: string[];
     }): void;
     recordDnsConsensusDegradedReason(reason: string): void;
+    recordDnsConsensusAnycastDegradedRun(): void;
   },
   consensusOnFailure: ConsensusOnFailureMode = 'fail',
 ): Promise<ConsensusDnsConfig | undefined> {
@@ -1065,6 +1069,102 @@ export async function buildDnsConsensusConfig(
     );
   }
 
+  // ANYCAST-AWARE VALIDATION (ADR-0068): Perform live DNS resolution of endpoint
+  // hostnames to detect anycast IP overlap that probe-based validation might miss.
+  // This is especially important for major anycast operators (Cloudflare, Google, Quad9)
+  // where different hostnames can resolve to overlapping IP sets.
+
+  // Build tertiary groups for validation if tertiary is enabled
+  let tertiaryGroups: DnsResolverGroup[] | undefined;
+  if (config.DNS_TERTIARY_ENABLED) {
+    const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+    const effectiveTertiaryStrategy: DnsLookupStrategy = tertiaryNameservers
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY);
+    tertiaryGroups = strategyToResolverGroups(effectiveTertiaryStrategy, config.DNS_DOH_ENDPOINT);
+  }
+
+  let anycastReport: DnsConsensusValidationResult;
+  let anycastDegraded: boolean;
+
+  anycastReport = await validateConsensusDisjointnessRuntime(
+    primaryGroups,
+    consensusGroups,
+    tertiaryGroups,
+    config.DNS_CONSENSUS_VALIDATION_TIMEOUT_MS ?? 2000,
+    config.DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD ?? 0.5,
+  ).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    getLogger().warn(
+      { err: message },
+      'DNS: anycast-aware consensus validation failed — continuing without anycast overlap analysis',
+    );
+    return {
+      primaryEndpoints: [],
+      secondaryEndpoints: [],
+      overlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
+      anycastOverlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
+      isValid: true,
+      anycastDegraded: false,
+    } as DnsConsensusValidationResult;
+  });
+
+  anycastDegraded = anycastReport.anycastDegraded === true;
+
+  // Handle 'degraded-anycast' failure policy
+  if (anycastDegraded) {
+    const exceedingPairs = [
+      ...(anycastReport.anycastOverlaps?.primarySecondary ?? []),
+      ...(anycastReport.anycastOverlaps?.primaryTertiary ?? []),
+      ...(anycastReport.anycastOverlaps?.secondaryTertiary ?? []),
+    ].filter((o) => o.exceedsThreshold);
+
+    const anycastReason =
+      `Anycast overlap exceeds threshold (${config.DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD}): ` +
+      exceedingPairs
+        .map(
+          (o) =>
+            `${o.primaryIdentity} <-> ${o.secondaryIdentity} (${(o.overlapRatio * 100).toFixed(1)}% overlap: ${o.overlappingIps.join(', ')})`,
+        )
+        .join('; ');
+
+    getLogger().warn(
+      {
+        anycastOverlaps: anycastReport.anycastOverlaps,
+        threshold: config.DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD,
+        exceedingPairs: exceedingPairs.map((o) => ({
+          primary: o.primaryIdentity,
+          secondary: o.secondaryIdentity,
+          overlapRatio: o.overlapRatio,
+          overlappingIps: o.overlappingIps,
+        })),
+      },
+      `DNS: anycast overlap detected — ${anycastReason}`,
+    );
+
+    metricsCollector?.recordDnsConsensusDegradedReason(`anycast-overlap: ${anycastReason}`);
+
+    if (consensusOnFailure === 'fail') {
+      throw new Error(
+        `DNS consensus gate invalid at bootstrap: ${anycastReason}. ` +
+          `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ` +
+          `or set DNS_CONSENSUS_ON_FAILURE=degraded-anycast to allow degraded operation.`,
+      );
+    } else if (consensusOnFailure === 'degrade' || consensusOnFailure === 'disable') {
+      getLogger().warn(
+        { mode: consensusOnFailure, reason: anycastReason },
+        `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
+      );
+      return buildDisabledConsensusConfig(anycastReason);
+    }
+    // 'degraded-anycast' mode: continue with gate enabled but mark as degraded
+    getLogger().info(
+      { mode: consensusOnFailure, reason: anycastReason },
+      'DNS: consensus gate enabled in degraded-anycast mode — run will be marked degraded',
+    );
+    metricsCollector?.recordDnsConsensusAnycastDegradedRun();
+  }
+
   // Collect consensus resolver endpoints for authoritative zone overlap detection
   const secondaryEndpoints = collectResolverEndpoints(
     consensusGroups,
@@ -1097,6 +1197,46 @@ export async function buildDnsConsensusConfig(
     consensusConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
     requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
     runtimeDegraded: runtimeReport.runtimeDegraded,
+    anycastDegraded,
+    ...(anycastReport.anycastOverlaps
+      ? {
+          anycastOverlaps: {
+            primarySecondary: (anycastReport.anycastOverlaps.primarySecondary ?? []).map(
+              (o: AnycastOverlapDetail) => ({
+                primaryIdentity: o.primaryIdentity,
+                secondaryIdentity: o.secondaryIdentity,
+                primaryIps: o.primaryIps,
+                secondaryIps: o.secondaryIps,
+                overlappingIps: o.overlappingIps,
+                overlapRatio: o.overlapRatio,
+                exceedsThreshold: o.exceedsThreshold,
+              }),
+            ),
+            primaryTertiary: (anycastReport.anycastOverlaps.primaryTertiary ?? []).map(
+              (o: AnycastOverlapDetail) => ({
+                primaryIdentity: o.primaryIdentity,
+                secondaryIdentity: o.secondaryIdentity,
+                primaryIps: o.primaryIps,
+                secondaryIps: o.secondaryIps,
+                overlappingIps: o.overlappingIps,
+                overlapRatio: o.overlapRatio,
+                exceedsThreshold: o.exceedsThreshold,
+              }),
+            ),
+            secondaryTertiary: (anycastReport.anycastOverlaps.secondaryTertiary ?? []).map(
+              (o: AnycastOverlapDetail) => ({
+                primaryIdentity: o.primaryIdentity,
+                secondaryIdentity: o.secondaryIdentity,
+                primaryIps: o.primaryIps,
+                secondaryIps: o.secondaryIps,
+                overlappingIps: o.overlappingIps,
+                overlapRatio: o.overlapRatio,
+                exceedsThreshold: o.exceedsThreshold,
+              }),
+            ),
+          },
+        }
+      : {}),
     ...(authoritativeZoneResolver !== undefined ? { authoritativeZoneResolver } : {}),
     secondaryEndpoints,
     tertiaryEndpoints,
@@ -1906,12 +2046,12 @@ export function buildAnonBudgetGate(config: Config, redisClient?: RedisClient): 
  * endpoint is not configured — a misconfigured gate logs prominently
  * instead of silently passing single-leg verdicts.
  */
-export function createRdapConsensusConfig(
+export async function createRdapConsensusConfig(
   config: Config,
   rdapConsensusRateLimiter?: RateLimiterLike,
   redisClient?: RedisClient,
   tldOriginsResolver?: (tld: string) => Promise<string[]>,
-): RdapConsensusConfig | undefined {
+): Promise<RdapConsensusConfig | undefined> {
   if (!config.RDAP_CONSENSUS_ENABLED) return undefined;
   const logger = getLogger();
 
@@ -1922,6 +2062,83 @@ export function createRdapConsensusConfig(
         'Set the independent second-leg origin to harden availability verdicts (ADR-0050).',
     );
     return undefined;
+  }
+
+  // STATIC DISJOINTNESS VALIDATION (ADR-0050/0058): Verify the consensus endpoint
+  // origin is genuinely independent from the primary's authoritative origins.
+  // If the consensus endpoint converges to the same anycast infrastructure as
+  // the primary bootstrap servers, the 2-of-2 gate is a rubber stamp.
+  if (tldOriginsResolver !== undefined) {
+    try {
+      const consensusUrl = new URL(endpoint);
+      const consensusHostname = consensusUrl.hostname;
+      const { default: dns } = await import('node:dns/promises');
+      const consensusIps = new Set<string>();
+      for (const record of await Promise.allSettled([
+        dns.resolve4(consensusHostname),
+        dns.resolve6(consensusHostname),
+      ])) {
+        if (record.status === 'fulfilled') {
+          for (const ip of record.value) consensusIps.add(ip);
+        }
+      }
+
+      // Check overlap for common TLDs (sample check)
+      const sampleTlds = ['com', 'net', 'org', 'io', 'ai', 'app', 'dev'];
+      let totalOverlap = 0;
+      let totalAuthoritative = 0;
+      for (const tld of sampleTlds) {
+        try {
+          const primaryOrigins = await tldOriginsResolver(tld);
+          for (const origin of primaryOrigins) {
+            totalAuthoritative++;
+            try {
+              const primaryUrl = new URL(origin);
+              const primaryHostname = primaryUrl.hostname;
+              const primaryIps = new Set<string>();
+              for (const record of await Promise.allSettled([
+                dns.resolve4(primaryHostname),
+                dns.resolve6(primaryHostname),
+              ])) {
+                if (record.status === 'fulfilled') {
+                  for (const ip of record.value) primaryIps.add(ip);
+                }
+              }
+              for (const ip of consensusIps) {
+                if (primaryIps.has(ip)) {
+                  totalOverlap++;
+                  break; // Count each origin once
+                }
+              }
+            } catch {
+              // Invalid origin URL, skip
+            }
+          }
+        } catch {
+          // Resolver error, skip this TLD
+        }
+      }
+
+      if (totalAuthoritative > 0) {
+        const overlapRatio = totalOverlap / totalAuthoritative;
+        if (overlapRatio > 0.5) {
+          logger.warn(
+            {
+              consensusEndpoint: endpoint,
+              overlapRatio,
+              overlappingOrigins: totalOverlap,
+              totalAuthoritative,
+            },
+            'RDAP: consensus endpoint overlaps with primary authoritative origins — 2-of-2 gate may be a rubber stamp',
+          );
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'RDAP: static disjointness validation failed — continuing without overlap check',
+      );
+    }
   }
 
   const rateLimiter =

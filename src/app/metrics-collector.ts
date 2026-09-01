@@ -78,6 +78,11 @@ export class MetricsCollector {
   #dnsRuntimeConsensusObserved = false;
   /** Consensus gate degradation reason counters (ADR-0065/0066). */
   #dnsConsensusDegradedReason: Map<string, number> = new Map();
+  /** Anycast overlap degradation counter (ADR-0068). */
+  #dnsConsensusAnycastOverlapTotal = 0;
+  /** Anycast degraded runs counter (ADR-0068): runs where anycast overlap
+   *  exceeded threshold and DNS_CONSENSUS_ON_FAILURE=degraded-anycast. */
+  #dnsConsensusAnycastDegradedRuns = 0;
   #rdapConsensusVerified = 0;
   #rdapConsensusDisagreed = 0;
   #rdapConsensusUnverifiable = 0;
@@ -356,6 +361,17 @@ export class MetricsCollector {
   recordDnsConsensusDegradedReason(reason: string): void {
     const count = this.#dnsConsensusDegradedReason.get(reason) ?? 0;
     this.#dnsConsensusDegradedReason.set(reason, count + 1);
+
+    // Track anycast-specific degradation
+    if (reason.startsWith('anycast-overlap:')) {
+      this.#dnsConsensusAnycastOverlapTotal++;
+    }
+  }
+
+  /** Record an anycast-degraded run (ADR-0068): called when consensus gate
+   *  runs in degraded-anycast mode and anycast overlap exceeded threshold. */
+  recordDnsConsensusAnycastDegradedRun(): void {
+    this.#dnsConsensusAnycastDegradedRuns++;
   }
 
   /** Record a successful database backup (fed by BackupService.onSuccess). */
@@ -477,6 +493,8 @@ export class MetricsCollector {
           partialTotal: this.#dnsRuntimeConsensusPartial,
           observed: this.#dnsRuntimeConsensusObserved,
           degradedReasonTotal: Object.fromEntries(this.#dnsConsensusDegradedReason),
+          anycastOverlapTotal: this.#dnsConsensusAnycastOverlapTotal,
+          anycastDegradedRunsTotal: this.#dnsConsensusAnycastDegradedRuns,
         },
       },
       system: {
@@ -536,6 +554,8 @@ export class MetricsCollector {
     this.#dnsRuntimeConsensusPartial = 0;
     this.#dnsRuntimeConsensusObserved = false;
     this.#dnsConsensusDegradedReason.clear();
+    this.#dnsConsensusAnycastOverlapTotal = 0;
+    this.#dnsConsensusAnycastDegradedRuns = 0;
     this.#rdapConsensusVerified = 0;
     this.#rdapConsensusDisagreed = 0;
     this.#rdapConsensusUnverifiable = 0;

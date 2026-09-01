@@ -5,7 +5,8 @@ export type StageDegradationReason =
   | 'consensus-unverified'
   | 'consensus-disabled'
   | 'consensus-disabled-runtime'
-  | 'consensus-runtime-degraded';
+  | 'consensus-runtime-degraded'
+  | 'consensus-anycast-degraded';
 
 export interface StageDegradation {
   stageName: string;

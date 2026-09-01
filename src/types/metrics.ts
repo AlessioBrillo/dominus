@@ -151,6 +151,10 @@ export interface DnsRuntimeConsensusMetrics {
   observed: boolean;
   /** Degradation reasons and their counts (ADR-0065/0066). */
   degradedReasonTotal: Record<string, number>;
+  /** Total anycast overlap detections (ADR-0068). */
+  anycastOverlapTotal: number;
+  /** Total runs degraded due to anycast overlap (ADR-0068). */
+  anycastDegradedRunsTotal: number;
 }
 
 /** Current DNS circuit-breaker state counts across all tracked endpoints
