@@ -1370,12 +1370,22 @@ export async function buildDnsConsensusConfig(
 
   // Extra fields for runtime re-validation (internal, not part of public API)
   // Only include when defined to satisfy exactOptionalPropertyTypes
-  if (primaryGroups.length > 0) (enabledConfig as any)._primaryGroups = primaryGroups;
-  if (consensusGroups.length > 0) (enabledConfig as any)._secondaryGroups = consensusGroups;
-  if (tertiaryGroups && tertiaryGroups.length > 0) (enabledConfig as any)._tertiaryGroups = tertiaryGroups;
-  if (nameservers && nameservers.length > 0) (enabledConfig as any)._primaryNameservers = nameservers;
-  if (effectiveConsensusNameservers && effectiveConsensusNameservers.length > 0) (enabledConfig as any)._secondaryNameservers = effectiveConsensusNameservers;
-  if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0) (enabledConfig as any)._tertiaryNameservers = effectiveTertiaryNameservers;
+  type InternalConfig = ConsensusDnsConfig & {
+    _primaryGroups?: DnsResolverGroup[];
+    _secondaryGroups?: DnsResolverGroup[];
+    _tertiaryGroups?: DnsResolverGroup[] | undefined;
+    _primaryNameservers?: string[] | undefined;
+    _secondaryNameservers?: string[] | undefined;
+    _tertiaryNameservers?: string[] | undefined;
+  };
+  const internalConfig = enabledConfig as InternalConfig;
+
+  if (primaryGroups.length > 0) internalConfig._primaryGroups = primaryGroups;
+  if (consensusGroups.length > 0) internalConfig._secondaryGroups = consensusGroups;
+  if (tertiaryGroups && tertiaryGroups.length > 0) internalConfig._tertiaryGroups = tertiaryGroups;
+  if (nameservers && nameservers.length > 0) internalConfig._primaryNameservers = nameservers;
+  if (effectiveConsensusNameservers && effectiveConsensusNameservers.length > 0) internalConfig._secondaryNameservers = effectiveConsensusNameservers;
+  if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0) internalConfig._tertiaryNameservers = effectiveTertiaryNameservers;
   if (tertiaryProviders.length > 0) {
     // Use first tertiary for backward compatibility
     const firstTertiary = tertiaryProviders[0]!;
