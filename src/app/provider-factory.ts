@@ -18,6 +18,7 @@ import {
   strategyToResolverGroups,
   collectResolverEndpoints,
   validateConsensusDisjointnessRuntime,
+  resolveEndpointsLiveWithAnycast,
   type DnsBreakerRegistryLike,
   type DnsLegTelemetry,
   type DnsLookupStrategy,
@@ -25,6 +26,7 @@ import {
   type DnsResolverGroup,
   type DnsConsensusValidationResult,
   type AnycastOverlapDetail,
+  type ResolvedEndpoints,
 } from '../providers/dns/index.js';
 import type { ConsensusDnsProviderOptions } from '../providers/dns/consensus-dns-provider.js';
 import { ConsensusDnsProvider } from '../providers/dns/consensus-dns-provider.js';
@@ -514,38 +516,162 @@ export function buildSecondaryDnsProvider(
  * This abstraction allows the pipeline stage to simply call checkAvailability/checkBulk
  * without knowing about the consensus internals.
  */
-export function buildConsensusDnsProvider(
+export async function buildConsensusDnsProvider(
   primaryProvider: DnsProvider,
   secondaryProvider: DnsProvider,
   tertiaryProvider: DnsProvider | undefined,
-  disjointnessValidator: {
-    isDisjoint(primaryEndpoints: string[], secondaryEndpoints: string[]): boolean;
+  primaryGroups: DnsResolverGroup[],
+  secondaryGroups: DnsResolverGroup[],
+  tertiaryGroups: DnsResolverGroup[] | undefined,
+  primaryNameservers: string[] | undefined,
+  secondaryNameservers: string[] | undefined,
+  tertiaryNameservers: string[] | undefined,
+  disjointnessValidator?: {
+    isDisjoint(primaryEndpoints: ResolvedEndpoints, secondaryEndpoints: ResolvedEndpoints): boolean;
   },
   legTelemetry?: DnsLegTelemetry,
   config?: {
     requiredConfirmations?: 1 | 2;
     degradedRatio?: number;
     degradedMin?: number;
+    revalidationIntervalMs?: number;
   },
-): DnsProvider {
+): Promise<DnsProvider> {
+  // Build ResolvedEndpoints for each leg for runtime disjointness validation (ADR-0063/0066)
+  const [primaryEndpoints, secondaryEndpoints, tertiaryEndpoints] = await Promise.all([
+    buildResolvedEndpoints(primaryGroups, primaryNameservers),
+    buildResolvedEndpoints(secondaryGroups, secondaryNameservers),
+    tertiaryGroups ? buildResolvedEndpoints(tertiaryGroups, tertiaryNameservers) : Promise.resolve(undefined as ResolvedEndpoints | undefined),
+  ]);
+
+  // Default DisjointnessValidator using ResolvedEndpoints
+  const validator = disjointnessValidator ?? {
+    isDisjoint(primary: ResolvedEndpoints, secondary: ResolvedEndpoints): boolean {
+      const primarySet = new Set(primary.flatEndpoints);
+      const overlap = secondary.flatEndpoints.filter((ep) => primarySet.has(ep));
+      if (overlap.length > 0) {
+        getLogger().warn(
+          { overlap, primary: primary.flatEndpoints, secondary: secondary.flatEndpoints },
+          'DNS: consensus disjointness check FAILED — endpoint overlap detected',
+        );
+        return false;
+      }
+      // Operator overlap check
+      const primaryOps = new Set<string>();
+      const secondaryOps = new Set<string>();
+      for (const [, op] of primary.operators) {
+        if (op) primaryOps.add(op);
+      }
+      for (const [, op] of secondary.operators) {
+        if (op) secondaryOps.add(op);
+      }
+      for (const op of primaryOps) {
+        if (secondaryOps.has(op)) {
+          getLogger().warn(
+            { operator: op, primary: primary.flatEndpoints, secondary: secondary.flatEndpoints },
+            'DNS: consensus disjointness check FAILED — same operator on both legs',
+          );
+          return false;
+        }
+      }
+      return true;
+    },
+  };
+
   const opts: ConsensusDnsProviderOptions = {
     primary: primaryProvider,
     secondary: secondaryProvider,
-    disjointnessValidator,
+    disjointnessValidator: validator,
     breakers: undefined,
     config: {
       requiredConfirmations: config?.requiredConfirmations ?? 1,
       degradedRatio: config?.degradedRatio ?? 0.5,
       degradedMin: config?.degradedMin ?? 10,
     },
+    primaryEndpoints,
+    secondaryEndpoints,
+    revalidationIntervalMs: config?.revalidationIntervalMs ?? 600_000,
   };
   if (tertiaryProvider !== undefined) {
     opts.tertiary = tertiaryProvider;
+  }
+  if (tertiaryEndpoints !== undefined) {
+    opts.tertiaryEndpoints = tertiaryEndpoints;
   }
   if (legTelemetry !== undefined) {
     opts.telemetry = legTelemetry;
   }
   return new ConsensusDnsProvider(opts);
+}
+
+/**
+ * Build ResolvedEndpoints from resolver groups for runtime disjointness validation.
+ * Uses live DNS resolution to populate IP sets for anycast-aware overlap detection.
+ */
+async function buildResolvedEndpoints(
+  groups: DnsResolverGroup[],
+  _nameservers: string[] | undefined,
+): Promise<ResolvedEndpoints> {
+  // Use the existing live resolution function
+  const result = await resolveEndpointsLiveWithAnycast(groups, 2000);
+
+  // Build operator map from OPERATOR_HINTS
+  const operators = new Map<string, string>();
+  const transports = new Map<string, string>();
+
+  // Import OPERATOR_HINTS from resolver-validator
+  // We'll use a local copy for now (the full map is in resolver-validator.ts)
+  const operatorHints: Record<string, string> = {
+    'doh:cloudflare-dns.com': 'cloudflare',
+    'doh:one.one.one.one': 'cloudflare',
+    'doh:dns.google': 'google',
+    'doh:dns.google.com': 'google',
+    'doh:dns.quad9.net': 'quad9',
+    'doh:dns.adguard.com': 'adguard',
+    'doh:dns.mullvad.net': 'mullvad',
+    'doh:dns.opendns.com': 'opendns',
+    'doh:dns.digitale-gesellschaft.ch': 'digitale-gesellschaft',
+    'doh:doh.libredns.gr': 'libredns',
+    'ip:1.1.1.1': 'cloudflare',
+    'ip:1.0.0.1': 'cloudflare',
+    'ip:162.159.36.1': 'cloudflare',
+    'ip:162.159.46.1': 'cloudflare',
+    'ip:8.8.8.8': 'google',
+    'ip:8.8.4.4': 'google',
+    'ip:9.9.9.9': 'quad9',
+    'ip:149.112.112.112': 'quad9',
+    'ip:94.140.14.14': 'adguard',
+    'ip:94.140.15.15': 'adguard',
+    'ip:194.242.2.2': 'mullvad',
+    'ip:193.138.218.74': 'mullvad',
+    'ip:45.90.28.2': 'nextdns',
+    'ip:45.90.30.2': 'nextdns',
+    'ip:208.67.222.222': 'opendns',
+    'ip:208.67.220.220': 'opendns',
+    'ip:185.95.218.42': 'digitale-gesellschaft',
+    'ip:185.95.218.43': 'digitale-gesellschaft',
+    'ip:2a05:fc84::42': 'digitale-gesellschaft',
+    'ip:2a05:fc84::43': 'digitale-gesellschaft',
+    'ip:116.202.176.26': 'libredns',
+    'ip:116.202.176.27': 'libredns',
+    'ip:2a01:4f8:1c0c:4c5f::2': 'libredns',
+    'ip:2a01:4f8:1c0c:4c5f::3': 'libredns',
+  };
+
+  for (const detail of result.endpointDetails) {
+    const op = operatorHints[detail.identity];
+    if (op) operators.set(detail.identity, op);
+    // Extract transport from identity prefix (doh:, dot:, native:)
+    const transport = detail.identity.split(':')[0];
+    if (transport) transports.set(detail.identity, transport);
+  }
+
+  return {
+    flatEndpoints: result.flatEndpoints,
+    endpointDetails: result.endpointDetails,
+    operators,
+    transports,
+  };
 }
 
 /**
@@ -1241,6 +1367,15 @@ export async function buildDnsConsensusConfig(
     secondaryEndpoints,
     tertiaryEndpoints,
   };
+
+  // Extra fields for runtime re-validation (internal, not part of public API)
+  // Only include when defined to satisfy exactOptionalPropertyTypes
+  if (primaryGroups.length > 0) (enabledConfig as any)._primaryGroups = primaryGroups;
+  if (consensusGroups.length > 0) (enabledConfig as any)._secondaryGroups = consensusGroups;
+  if (tertiaryGroups && tertiaryGroups.length > 0) (enabledConfig as any)._tertiaryGroups = tertiaryGroups;
+  if (nameservers && nameservers.length > 0) (enabledConfig as any)._primaryNameservers = nameservers;
+  if (effectiveConsensusNameservers && effectiveConsensusNameservers.length > 0) (enabledConfig as any)._secondaryNameservers = effectiveConsensusNameservers;
+  if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0) (enabledConfig as any)._tertiaryNameservers = effectiveTertiaryNameservers;
   if (tertiaryProviders.length > 0) {
     // Use first tertiary for backward compatibility
     const firstTertiary = tertiaryProviders[0]!;
