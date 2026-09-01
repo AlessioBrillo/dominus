@@ -7,11 +7,13 @@ export type {
   AnycastOverlapDetail,
   ResolvedEndpoint,
   ResolveEndpointsLiveResult,
+  ResolvedEndpoints,
 } from './dns-provider.js';
 export {
   strategyToResolverGroups,
   collectResolverEndpoints,
   validateConsensusDisjointnessRuntime,
+  resolveEndpointsLiveWithAnycast,
 } from './dns-provider.js';
 export { NodeDnsProvider } from './node-dns-provider.js';
 export type {
