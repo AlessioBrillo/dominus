@@ -427,6 +427,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_CONSENSUS_PRIORITY_RESERVED_RATIO: 0.3,
       DNS_CONSENSUS_FALLBACK_STRATEGY: 'doh-alternate',
       DNS_CONSENSUS_ON_FAILURE: 'degrade',
+      DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD: 0.5,
       DNS_CACHE_TTL_SECONDS: 300,
       DNS_CACHE_MAX_SIZE: 10000,
       DNS_RATE_LIMIT_TOKENS: 20,

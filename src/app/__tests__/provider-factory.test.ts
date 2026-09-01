@@ -78,6 +78,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_RATE_LIMIT_PER_TENANT_TOKENS: 5,
     DNS_RATE_LIMIT_PER_TENANT_INTERVAL_MS: 1000,
     DNS_CONSENSUS_ON_FAILURE: 'degrade',
+    DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD: 0.5,
     USPTO_TSDR_SEARCH_URL: 'https://tsdr.uspto.gov/tsdr/tmsearch/data',
     USPTO_RATE_LIMIT_TOKENS: 5,
     USPTO_RATE_LIMIT_INTERVAL_MS: 1000,
@@ -391,6 +392,7 @@ describe('buildDnsConsensusConfig', () => {
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_ON_FAILURE: 'degrade', // should still veto, not degrade
+      DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD: 0.5,
     });
     const result = await buildDnsConsensusConfig(
       config,
@@ -946,28 +948,28 @@ describe('WHOIS distributed rate-limit parity (ADR-0052)', () => {
 });
 
 describe('createRdapConsensusConfig (ADR-0050)', () => {
-  it('returns undefined when RDAP_CONSENSUS_ENABLED is explicitly false', () => {
+  it('returns undefined when RDAP_CONSENSUS_ENABLED is explicitly false', async () => {
     const config = makeConfig({ RDAP_CONSENSUS_ENABLED: false });
-    expect(createRdapConsensusConfig(config)).toBeUndefined();
+    expect(await createRdapConsensusConfig(config)).toBeUndefined();
   });
 
-  it('returns undefined with a prominent log when enabled but the endpoint is empty', () => {
+  it('returns undefined with a prominent log when enabled but the endpoint is empty', async () => {
     const config = makeConfig({ RDAP_CONSENSUS_ENABLED: true, RDAP_CONSENSUS_ENDPOINT: '' });
-    expect(createRdapConsensusConfig(config)).toBeUndefined();
+    expect(await createRdapConsensusConfig(config)).toBeUndefined();
   });
 
-  it('builds a secondary provider pinned to the independent endpoint', () => {
+  it('builds a secondary provider pinned to the independent endpoint', async () => {
     const config = makeConfig({
       RDAP_CONSENSUS_ENABLED: true,
       RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
     });
-    const result = createRdapConsensusConfig(config);
+    const result = await createRdapConsensusConfig(config);
     expect(result).toBeDefined();
     expect(result?.secondaryOrigin).toBe('https://rdap.secondary.example.com/');
     expect(typeof result?.secondaryProvider.confirm).toBe('function');
   });
 
-  it('threads the degraded ratio/min and concurrency tuning into the config', () => {
+  it('threads the degraded ratio/min and concurrency tuning into the config', async () => {
     const config = makeConfig({
       RDAP_CONSENSUS_ENABLED: true,
       RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
@@ -975,14 +977,14 @@ describe('createRdapConsensusConfig (ADR-0050)', () => {
       RDAP_CONSENSUS_DEGRADED_MIN: 25,
       RDAP_CONSENSUS_BULK_CONCURRENCY: 3,
     });
-    const result = createRdapConsensusConfig(config);
+    const result = await createRdapConsensusConfig(config);
     expect(result?.degradedRatio).toBe(0.3);
     expect(result?.degradedMin).toBe(25);
     expect(result?.consensusConcurrency).toBe(3);
   });
 
-  it('wires the WHOIS rescue leg flag through the stage config (ADR-0051)', () => {
-    const on = createRdapConsensusConfig(
+  it('wires the WHOIS rescue leg flag through the stage config (ADR-0051)', async () => {
+    const on = await createRdapConsensusConfig(
       makeConfig({
         RDAP_CONSENSUS_ENABLED: true,
         RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
@@ -991,7 +993,7 @@ describe('createRdapConsensusConfig (ADR-0050)', () => {
     );
     expect(on?.rescueWhoisEnabled).toBe(true);
 
-    const off = createRdapConsensusConfig(
+    const off = await createRdapConsensusConfig(
       makeConfig({
         RDAP_CONSENSUS_ENABLED: true,
         RDAP_CONSENSUS_ENDPOINT: 'https://rdap.secondary.example.com/',
