@@ -2,7 +2,11 @@
 import { DomainStatus } from '../../types/domain-status.js';
 import { CandidateStatus } from '../../types/candidate.js';
 import { CandidateSource, type DomainCandidate } from '../../types/candidate.js';
-import type { DnsProvider, DnsCheckOptions, DnsResolverGroup } from '../../providers/dns/dns-provider.js';
+import type {
+  DnsProvider,
+  DnsCheckOptions,
+  DnsResolverGroup,
+} from '../../providers/dns/dns-provider.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';

@@ -541,7 +541,9 @@ export async function buildConsensusDnsProvider(
   const [primaryEndpoints, secondaryEndpoints, tertiaryEndpoints] = await Promise.all([
     buildResolvedEndpoints(primaryGroups, primaryNameservers),
     buildResolvedEndpoints(secondaryGroups, secondaryNameservers),
-    tertiaryGroups ? buildResolvedEndpoints(tertiaryGroups, tertiaryNameservers) : Promise.resolve(undefined as ResolvedEndpoints | undefined),
+    tertiaryGroups
+      ? buildResolvedEndpoints(tertiaryGroups, tertiaryNameservers)
+      : Promise.resolve(undefined as ResolvedEndpoints | undefined),
   ]);
 
   // Default DisjointnessValidator using ResolvedEndpoints
@@ -1384,8 +1386,10 @@ export async function buildDnsConsensusConfig(
   if (consensusGroups.length > 0) internalConfig._secondaryGroups = consensusGroups;
   if (tertiaryGroups && tertiaryGroups.length > 0) internalConfig._tertiaryGroups = tertiaryGroups;
   if (nameservers && nameservers.length > 0) internalConfig._primaryNameservers = nameservers;
-  if (effectiveConsensusNameservers && effectiveConsensusNameservers.length > 0) internalConfig._secondaryNameservers = effectiveConsensusNameservers;
-  if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0) internalConfig._tertiaryNameservers = effectiveTertiaryNameservers;
+  if (effectiveConsensusNameservers && effectiveConsensusNameservers.length > 0)
+    internalConfig._secondaryNameservers = effectiveConsensusNameservers;
+  if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0)
+    internalConfig._tertiaryNameservers = effectiveTertiaryNameservers;
   if (tertiaryProviders.length > 0) {
     // Use first tertiary for backward compatibility
     const firstTertiary = tertiaryProviders[0]!;
