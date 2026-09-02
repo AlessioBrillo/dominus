@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { Resolver } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import type { DnsCheckResult } from '../../types/domain-status.js';
-import type { DnsProvider, DnsCheckOptions, ResolvedEndpoints } from './dns-provider.js';
+import type {
+  DnsProvider,
+  DnsCheckOptions,
+  DnsResolverGroup,
+  ResolvedEndpoints,
+} from './dns-provider.js';
 import type { DnsLegTelemetry, DnsLegSample } from './index.js';
 import { DomainStatus } from '../../types/domain-status.js';
 import { getLogger } from '../../logger.js';
@@ -37,6 +44,10 @@ export interface ConsensusDnsProviderOptions {
   primaryEndpoints?: ResolvedEndpoints;
   secondaryEndpoints?: ResolvedEndpoints;
   tertiaryEndpoints?: ResolvedEndpoints;
+  /** Resolver groups used by each leg — required for privacy-mode-compliant re-validation */
+  primaryGroups?: DnsResolverGroup[];
+  secondaryGroups?: DnsResolverGroup[];
+  tertiaryGroups?: DnsResolverGroup[] | undefined;
   /** Re-validation interval in ms (default: 600000 = 10min). Set to 0 to disable. */
   revalidationIntervalMs?: number;
 }
@@ -69,6 +80,140 @@ function emitTelemetry(
   }
 }
 
+/**
+ * Creates a dedicated Resolver instance for the given nameservers.
+ * This mirrors the pattern in NodeDnsProvider for privacy-mode compliance.
+ */
+function createResolverForNameservers(nameservers: string[]): Resolver {
+  const resolver = new Resolver();
+  resolver.setServers(nameservers);
+  return resolver;
+}
+
+/**
+ * Resolves a hostname (A + AAAA) using the provided resolver groups.
+ * Uses the same logic as the primary DNS provider: races all lookups in each group,
+ * preferring native with pinned nameservers when available.
+ * Returns the set of resolved IPs (IPv4 + IPv6).
+ */
+async function resolveHostnameViaGroups(
+  groups: DnsResolverGroup[],
+  hostname: string,
+  timeoutMs: number,
+): Promise<Set<string>> {
+  const ips = new Set<string>();
+
+  for (const group of groups) {
+    if (group.fallback) continue; // Skip fallback groups for re-validation
+
+    for (const lookup of group.lookups) {
+      try {
+        if (lookup.type === 'native') {
+          // Use pinned nameservers if available, otherwise system resolver
+          const nameservers = lookup.nameservers;
+          const resolver =
+            nameservers && nameservers.length > 0
+              ? createResolverForNameservers(nameservers)
+              : new Resolver(); // system resolver
+
+          const [aResult, aaaaResult] = await Promise.allSettled([
+            Promise.race([
+              resolver.resolve4(hostname),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]),
+            Promise.race([
+              resolver.resolve6(hostname),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]),
+          ]);
+
+          if (aResult.status === 'fulfilled') {
+            for (const ip of aResult.value) ips.add(ip);
+          }
+          if (aaaaResult.status === 'fulfilled') {
+            for (const ip of aaaaResult.value) ips.add(ip);
+          }
+
+          // If we got results from a native lookup with pinned nameservers,
+          // that's authoritative for this group — don't try other lookups in this group
+          if (nameservers && nameservers.length > 0 && ips.size > 0) {
+            break;
+          }
+        } else if (lookup.type === 'doh' && lookup.endpoint) {
+          // For DoH, we resolve the DoH endpoint hostname using system resolver
+          // (DoH endpoint itself is the resolver, we just need its IPs for anycast check)
+          const host = new URL(lookup.endpoint).hostname;
+          // Skip if we already resolved this hostname
+          if (ips.size > 0 && hostname === host) continue;
+
+          const resolver = new Resolver(); // System resolver for DoH endpoint hostname
+          const [aResult, aaaaResult] = await Promise.allSettled([
+            Promise.race([
+              resolver.resolve4(host),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]),
+            Promise.race([
+              resolver.resolve6(host),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]),
+          ]);
+
+          if (aResult.status === 'fulfilled') {
+            for (const ip of aResult.value) ips.add(ip);
+          }
+          if (aaaaResult.status === 'fulfilled') {
+            for (const ip of aaaaResult.value) ips.add(ip);
+          }
+        } else if (lookup.type === 'dot' && lookup.endpoint) {
+          // For DoT, resolve the endpoint hostname/IP
+          const host = lookup.endpoint;
+          if (isIP(host) !== 0) {
+            ips.add(host); // It's already an IP
+          } else {
+            const resolver = new Resolver(); // System resolver for DoT endpoint hostname
+            const [aResult, aaaaResult] = await Promise.allSettled([
+              Promise.race([
+                resolver.resolve4(host),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+              Promise.race([
+                resolver.resolve6(host),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+            ]);
+
+            if (aResult.status === 'fulfilled') {
+              for (const ip of aResult.value) ips.add(ip);
+            }
+            if (aaaaResult.status === 'fulfilled') {
+              for (const ip of aaaaResult.value) ips.add(ip);
+            }
+          }
+        }
+      } catch {
+        // Resolution failed for this lookup, continue to next
+      }
+    }
+
+    // If we got IPs from this group, stop (groups are tried sequentially)
+    if (ips.size > 0) break;
+  }
+
+  return ips;
+}
+
 export class ConsensusDnsProvider implements DnsProvider {
   readonly name = 'ConsensusDnsProvider';
 
@@ -82,6 +227,10 @@ export class ConsensusDnsProvider implements DnsProvider {
   #disjointnessCache: Map<string, boolean> = new Map();
   #primaryEndpoints: ResolvedEndpoints | undefined;
   #secondaryEndpoints: ResolvedEndpoints | undefined;
+  #tertiaryEndpoints: ResolvedEndpoints | undefined;
+  #primaryGroups: DnsResolverGroup[] | undefined;
+  #secondaryGroups: DnsResolverGroup[] | undefined;
+  #tertiaryGroups: DnsResolverGroup[] | undefined;
   #revalidationIntervalMs: number;
   #revalidationTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -95,6 +244,10 @@ export class ConsensusDnsProvider implements DnsProvider {
     this.#config = options.config;
     this.#primaryEndpoints = options.primaryEndpoints;
     this.#secondaryEndpoints = options.secondaryEndpoints;
+    this.#tertiaryEndpoints = options.tertiaryEndpoints;
+    this.#primaryGroups = options.primaryGroups;
+    this.#secondaryGroups = options.secondaryGroups;
+    this.#tertiaryGroups = options.tertiaryGroups;
     this.#revalidationIntervalMs = options.revalidationIntervalMs ?? 600_000; // 10min default
 
     // Start periodic re-validation if interval > 0 and endpoints are available
@@ -126,24 +279,24 @@ export class ConsensusDnsProvider implements DnsProvider {
     }
   }
 
-  /** Perform runtime disjointness re-validation using live DNS resolution */
+  /** Perform runtime disjointness re-validation using live DNS resolution via pinned resolver groups */
   async #revalidateDisjointness(): Promise<void> {
     if (!this.#primaryEndpoints || !this.#secondaryEndpoints) return;
+    if (!this.#primaryGroups || !this.#secondaryGroups) {
+      logger.warn(
+        'DNS consensus re-validation skipped: resolver groups not available — ' +
+          'cannot perform privacy-mode-compliant re-resolution. ' +
+          'Ensure primaryGroups and secondaryGroups are passed to ConsensusDnsProvider.',
+      );
+      return;
+    }
 
     try {
-      // Re-resolve primary and secondary endpoints
-      // Note: We need the original resolver groups to re-resolve. Since we don't have them,
-      // we re-validate using the existing endpoint details by checking if their IPs still match.
-      // This is a lightweight check - full re-resolution would require access to resolver groups.
-
-      // For now, check if anycast overlaps have changed by re-resolving endpoint hostnames
       const primaryDetails = this.#primaryEndpoints.endpointDetails;
       const secondaryDetails = this.#secondaryEndpoints.endpointDetails;
 
       if (primaryDetails.length === 0 || secondaryDetails.length === 0) return;
 
-      // Re-resolve hostnames for endpoints that have them
-      const { default: dns } = await import('node:dns/promises');
       const timeoutMs = 2000;
 
       // Check primary-secondary overlap
@@ -154,44 +307,18 @@ export class ConsensusDnsProvider implements DnsProvider {
           if (secondary.ips.size === 0 || !secondary.hostname) continue;
 
           try {
-            const [primaryA, primaryAaaa, secondaryA, secondaryAaaa] = await Promise.allSettled([
-              Promise.race([
-                dns.resolve4(primary.hostname!),
-                new Promise<string[]>((_, reject) =>
-                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
-                ),
-              ]),
-              Promise.race([
-                dns.resolve6(primary.hostname!),
-                new Promise<string[]>((_, reject) =>
-                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
-                ),
-              ]),
-              Promise.race([
-                dns.resolve4(secondary.hostname!),
-                new Promise<string[]>((_, reject) =>
-                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
-                ),
-              ]),
-              Promise.race([
-                dns.resolve6(secondary.hostname!),
-                new Promise<string[]>((_, reject) =>
-                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
-                ),
-              ]),
-            ]);
-
-            const primaryIps = new Set<string>();
-            if (primaryA.status === 'fulfilled')
-              for (const ip of primaryA.value) primaryIps.add(ip);
-            if (primaryAaaa.status === 'fulfilled')
-              for (const ip of primaryAaaa.value) primaryIps.add(ip);
-
-            const secondaryIps = new Set<string>();
-            if (secondaryA.status === 'fulfilled')
-              for (const ip of secondaryA.value) secondaryIps.add(ip);
-            if (secondaryAaaa.status === 'fulfilled')
-              for (const ip of secondaryAaaa.value) secondaryIps.add(ip);
+            // Re-resolve using the SAME resolver groups that were used at bootstrap
+            // This ensures privacy mode (DNS_NAMESERVERS, DNS_CONSENSUS_NAMESERVERS) is respected
+            const primaryIps = await resolveHostnameViaGroups(
+              this.#primaryGroups!,
+              primary.hostname,
+              timeoutMs,
+            );
+            const secondaryIps = await resolveHostnameViaGroups(
+              this.#secondaryGroups!,
+              secondary.hostname,
+              timeoutMs,
+            );
 
             const overlappingIps = [...primaryIps].filter((ip) => secondaryIps.has(ip));
             if (overlappingIps.length > 0) {
@@ -215,6 +342,94 @@ export class ConsensusDnsProvider implements DnsProvider {
             }
           } catch {
             // Resolution failed, skip this pair
+          }
+        }
+      }
+
+      // Also check tertiary if configured
+      if (this.#tertiaryGroups && this.#tertiaryEndpoints) {
+        const tertiaryDetails = this.#tertiaryEndpoints.endpointDetails;
+        if (tertiaryDetails.length > 0) {
+          for (const primary of primaryDetails) {
+            if (primary.ips.size === 0 || !primary.hostname) continue;
+
+            for (const tertiary of tertiaryDetails) {
+              if (tertiary.ips.size === 0 || !tertiary.hostname) continue;
+
+              try {
+                const primaryIps = await resolveHostnameViaGroups(
+                  this.#primaryGroups!,
+                  primary.hostname,
+                  timeoutMs,
+                );
+                const tertiaryIps = await resolveHostnameViaGroups(
+                  this.#tertiaryGroups!,
+                  tertiary.hostname,
+                  timeoutMs,
+                );
+
+                const overlappingIps = [...primaryIps].filter((ip) => tertiaryIps.has(ip));
+                if (overlappingIps.length > 0) {
+                  const maxIps = Math.max(primaryIps.size, tertiaryIps.size);
+                  const overlapRatio = overlappingIps.length / maxIps;
+
+                  if (overlapRatio > 0.5) {
+                    logger.warn(
+                      {
+                        primaryIdentity: primary.identity,
+                        tertiaryIdentity: tertiary.identity,
+                        overlappingIps,
+                        overlapRatio: overlapRatio.toFixed(2),
+                      },
+                      'DNS consensus runtime re-validation: primary-tertiary anycast overlap detected',
+                    );
+                  }
+                }
+              } catch {
+                // Resolution failed, skip
+              }
+            }
+          }
+
+          for (const secondary of secondaryDetails) {
+            if (secondary.ips.size === 0 || !secondary.hostname) continue;
+
+            for (const tertiary of tertiaryDetails) {
+              if (tertiary.ips.size === 0 || !tertiary.hostname) continue;
+
+              try {
+                const secondaryIps = await resolveHostnameViaGroups(
+                  this.#secondaryGroups!,
+                  secondary.hostname,
+                  timeoutMs,
+                );
+                const tertiaryIps = await resolveHostnameViaGroups(
+                  this.#tertiaryGroups!,
+                  tertiary.hostname,
+                  timeoutMs,
+                );
+
+                const overlappingIps = [...secondaryIps].filter((ip) => tertiaryIps.has(ip));
+                if (overlappingIps.length > 0) {
+                  const maxIps = Math.max(secondaryIps.size, tertiaryIps.size);
+                  const overlapRatio = overlappingIps.length / maxIps;
+
+                  if (overlapRatio > 0.5) {
+                    logger.warn(
+                      {
+                        secondaryIdentity: secondary.identity,
+                        tertiaryIdentity: tertiary.identity,
+                        overlappingIps,
+                        overlapRatio: overlapRatio.toFixed(2),
+                      },
+                      'DNS consensus runtime re-validation: secondary-tertiary anycast overlap detected',
+                    );
+                  }
+                }
+              } catch {
+                // Resolution failed, skip
+              }
+            }
           }
         }
       }

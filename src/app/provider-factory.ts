@@ -592,6 +592,9 @@ export async function buildConsensusDnsProvider(
     },
     primaryEndpoints,
     secondaryEndpoints,
+    primaryGroups,
+    secondaryGroups,
+    tertiaryGroups,
     revalidationIntervalMs: config?.revalidationIntervalMs ?? 600_000,
   };
   if (tertiaryProvider !== undefined) {
