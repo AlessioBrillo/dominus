@@ -72,11 +72,17 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
     );
 
     it.each(APP_SERVICES)(
-      "enables the doh-tertiary (dual-operator) tertiary on '%s' (ADR-0064/0065, no consensus SPOF)",
+      "enables the dual-redundant tertiary (ADR-0068) on '%s' — two independent operators, independent breakers + rate limiters",
       (service) => {
         const block = composeServiceBlock(service);
         expect(block).toContain('- DNS_TERTIARY_ENABLED=true');
-        expect(block).toContain('- DNS_TERTIARY_STRATEGY=doh-tertiary');
+        expect(block).toContain('- DNS_TERTIARY_DUAL_REDUNDANT=true');
+        expect(block).toContain('- DNS_TERTIARY_STRATEGY_1=doh-alternate');
+        expect(block).toContain('- DNS_TERTIARY_STRATEGY_2=doh-tertiary');
+        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5');
+        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5');
+        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000');
+        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000');
       },
     );
 
@@ -121,14 +127,14 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       }
     });
 
-    it('boots the doh-tertiary (dual-operator) tertiary from the override env (gate actually built)', async () => {
-      // ADR-0064/0065: the override turns the tertiary on with a multi-operator
-      // group (OpenDNS + Digital Society), operator-disjoint from both the
-      // primary (DoH) and the pinned secondary (Unbound). Two operators =
-      // majority vote + 2 breakers — a single degraded endpoint can no longer
-      // silently remove the tertiary opinion (ADR-0065). Boot-equivalent
-      // regression: the leg is vetoed at runtime on any overlap, so assert the
-      // 2-of-3 gate still constructs with a tertiary provider attached.
+    it('boots the dual-redundant tertiary from the override env (gate actually built)', async () => {
+      // ADR-0068: the override turns the tertiary on with DUAL-REDUNDANT topology:
+      // two independent NodeDnsProvider instances (OpenDNS + Digital Society), each
+      // with its own rate limiter, circuit breaker, and disjointness validation.
+      // Two operators = majority vote + 2 breakers — a single degraded endpoint can
+      // no longer silently remove the tertiary opinion. Boot-equivalent regression:
+      // the leg is vetoed at runtime on any overlap, so assert the 2-of-3 gate
+      // still constructs with a tertiary config attached.
       // Use distinct recursors for primary, consensus, and tertiary to avoid static overlap.
       // Disable runtime validation (DNS servers don't exist in test env).
       const keys = [
@@ -136,7 +142,9 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         'DNS_CONSENSUS_ENABLED',
         'DNS_CONSENSUS_NAMESERVERS',
         'DNS_TERTIARY_ENABLED',
-        'DNS_TERTIARY_STRATEGY',
+        'DNS_TERTIARY_DUAL_REDUNDANT',
+        'DNS_TERTIARY_STRATEGY_1',
+        'DNS_TERTIARY_STRATEGY_2',
         'DNS_TERTIARY_NAMESERVERS',
         'DNS_CONSENSUS_RUNTIME_VALIDATION',
       ] as const;
@@ -147,14 +155,17 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         process.env.DNS_CONSENSUS_ENABLED = 'true';
         process.env.DNS_CONSENSUS_NAMESERVERS = '172.20.0.11:5300'; // Distinct recursor
         process.env.DNS_TERTIARY_ENABLED = 'true';
-        process.env.DNS_TERTIARY_STRATEGY = 'doh-tertiary';
+        process.env.DNS_TERTIARY_DUAL_REDUNDANT = 'true';
+        process.env.DNS_TERTIARY_STRATEGY_1 = 'doh-alternate';
+        process.env.DNS_TERTIARY_STRATEGY_2 = 'doh-tertiary';
         process.env.DNS_TERTIARY_NAMESERVERS = '172.20.0.12:5300'; // Distinct recursor for tertiary
         process.env.DNS_CONSENSUS_RUNTIME_VALIDATION = 'false';
         resetConfig();
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);
         expect(consensus).toBeDefined();
-        expect(typeof consensus?.tertiaryProvider?.checkAvailability).toBe('function');
+        expect(consensus?.tertiaryConfig).toBeDefined();
+        expect(consensus?.tertiaryConfig?.strategy).toBe('dual-redundant');
         expect(consensus?.requiredAvailable).toBe(config.DNS_CONSENSUS_REQUIRED_AVAILABLE);
       } finally {
         for (const [k, v] of saved) {

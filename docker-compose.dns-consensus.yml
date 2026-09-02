@@ -19,16 +19,14 @@
 # every DNS path in the app — native primary leg and consensus secondary —
 # goes through the private, DNSSEC-validating recursor.
 #
-# The TERTIARY consensus leg (ADR-0064/0065) is enabled on this override with
-# 'doh-tertiary': a multi-operator DoH group (Cisco OpenDNS + Digital Society)
-# providing a genuinely independent third opinion disjoint from the primary
-# (Cloudflare/Google/Quad9), the consensus (the private recursor) and the
-# emergency fallback. Two operators = majority vote + 2 breakers — a single
-# degraded endpoint can no longer silently remove the tertiary opinion
-# (ADR-0065). If the Unbound container dies, the 2-of-3 gate no longer loses
-# every Available verdict — the tertiary rescues them. It is only consulted
-# when the secondary cannot answer, so the steady-state egress cost of the
-# override is unchanged.
+# The TERTIARY consensus leg (ADR-0064/0065/0068) is enabled on this override with
+# DUAL-REDUNDANT topology: two independent NodeDnsProvider instances, each with
+# its own rate limiter, circuit breaker, and disjointness validation.
+# - DNS_TERTIARY_STRATEGY_1=doh-alternate (OpenDNS over DoH wire format)
+# - DNS_TERTIARY_STRATEGY_2=doh-tertiary (Digital Society over DoH wire format)
+# Each operator gets 5 req/sec (total 10, matching legacy tertiary budget).
+# If one operator fails, the other still rescues Available verdicts.
+# The gate races both: first Available rescues, ANY Registered vetoes.
 #
 # The dedicated /24 keeps the recursor on the loopback-isolated compose
 # subnet it is allowed to serve (access-control 172.20.0.0/24 in unbound.conf).
@@ -83,7 +81,13 @@ services:
       - DNS_CONSENSUS_ENABLED=true
       - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
       - DNS_TERTIARY_ENABLED=true
-      - DNS_TERTIARY_STRATEGY=doh-tertiary
+      - DNS_TERTIARY_DUAL_REDUNDANT=true
+      - DNS_TERTIARY_STRATEGY_1=doh-alternate
+      - DNS_TERTIARY_STRATEGY_2=doh-tertiary
+      - DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5
+      - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
+      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
+      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
     networks:
       - default
       - dns-consensus-net
@@ -96,7 +100,13 @@ services:
       - DNS_CONSENSUS_ENABLED=true
       - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
       - DNS_TERTIARY_ENABLED=true
-      - DNS_TERTIARY_STRATEGY=doh-tertiary
+      - DNS_TERTIARY_DUAL_REDUNDANT=true
+      - DNS_TERTIARY_STRATEGY_1=doh-alternate
+      - DNS_TERTIARY_STRATEGY_2=doh-tertiary
+      - DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5
+      - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
+      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
+      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
     networks:
       - default
       - dns-consensus-net
@@ -109,7 +119,13 @@ services:
       - DNS_CONSENSUS_ENABLED=true
       - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
       - DNS_TERTIARY_ENABLED=true
-      - DNS_TERTIARY_STRATEGY=doh-tertiary
+      - DNS_TERTIARY_DUAL_REDUNDANT=true
+      - DNS_TERTIARY_STRATEGY_1=doh-alternate
+      - DNS_TERTIARY_STRATEGY_2=doh-tertiary
+      - DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5
+      - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
+      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
+      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
     networks:
       - default
       - dns-consensus-net
