@@ -12,7 +12,6 @@ export type {
 export {
   strategyToResolverGroups,
   collectResolverEndpoints,
-  validateConsensusDisjointnessRuntime,
   resolveEndpointsLiveWithAnycast,
 } from './dns-provider.js';
 export { NodeDnsProvider } from './node-dns-provider.js';
@@ -35,11 +34,18 @@ export {
 } from './dns-breaker.js';
 export {
   validateResolverGroups,
-  validateConsensusEndpointDisjointness,
+  validateConsensusStrategyDisjointness,
   validateConsensusDisjointness,
+  validateRuntimeConsensusDisjointness,
   validateFallbackIsolation,
-  type ConsensusDisjointnessReport,
+  hasUsableLookups,
+  findOverlaps,
+  computeAnycastOverlaps,
+  type DisjointnessReport,
   type FallbackIsolationReport,
+  type RuntimeConsensusReport,
+  type RuntimeValidationMode,
+  OPERATOR_HINTS,
 } from './resolver-validator.js';
 export {
   AuthoritativeZoneResolver,
@@ -53,3 +59,5 @@ export type {
   ConsensusDnsProviderOptions,
   TertiaryDnsConfig,
 } from './consensus-dns-provider.js';
+export { runConsensus, runConsensusBulk, revalidateDisjointness } from './consensus-engine.js';
+export type { ConsensusEngineOptions, ConsensusResult } from './consensus-engine.js';

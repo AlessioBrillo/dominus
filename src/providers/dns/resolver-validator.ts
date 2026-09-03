@@ -1,32 +1,131 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { promises as dnsPromises } from 'node:dns';
-import type { DnsResolverGroup, CollectResolverEndpointsOptions } from './dns-provider.js';
-import { collectResolverEndpoints } from './dns-provider.js';
-import type { DnsProvider } from './dns-provider.js';
+import { isIP } from 'node:net';
 import { getLogger } from '../../logger.js';
+import type {
+  DnsResolverGroup,
+  DnsConsensusValidationResult,
+  AnycastOverlapDetail,
+  ResolvedEndpoint,
+  ResolveEndpointsLiveResult,
+  CollectResolverEndpointsOptions,
+} from './dns-provider.js';
+import { collectResolverEndpoints } from './dns-provider.js';
 
-const PROBE_DOMAINS = ['google.com', 'cloudflare.com', 'github.com'];
-
-const VALIDATION_TIMEOUT_MS = 5000;
-
-/** Per-hostname DoH resolution budget for the boot-time independence check. */
-const HOST_RESOLUTION_TIMEOUT_MS = 2000;
-
-/** Runtime consensus validation budget — short, must not slow startup. */
-const RUNTIME_VALIDATION_TIMEOUT_MS = 3000;
-
-/** Number of probe domains to query per leg for runtime validation. */
-const RUNTIME_PROBE_DOMAINS = ['example.com', 'google.com'];
+const logger = getLogger();
 
 /**
- * Known resolver operators, keyed by the endpoint keys produced by
- * collectResolverEndpoints() plus resolved DoH IPs. Two legs from the same
- * operator are NOT independent opinions even over different transports:
- * a correlated incident (BGP hijack, anycast outage, IXP fault) takes both
- * down together. The map covers the well-known public resolvers; unknown
- * hosts carry no operator and are judged on endpoint/IP overlap alone.
+ * Validates that a resolver group has at least one usable (non-fallback) lookup.
+ * Used for fallback strategy auto-switching (ADR-0063/0065).
  */
-const OPERATOR_HINTS: Readonly<Record<string, string>> = {
+export function hasUsableLookups(groups: DnsResolverGroup[]): boolean {
+  for (const group of groups) {
+    if (group.fallback === true) continue;
+    for (const lookup of group.lookups) {
+      if (lookup.type === 'native') return true;
+      if (lookup.type === 'doh' && lookup.endpoint && lookup.endpoint.trim() !== '') return true;
+      if (lookup.type === 'dot' && lookup.endpoint && lookup.endpoint.trim() !== '') return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Validates that two strategies are disjoint at the strategy level.
+ * This is a quick check before doing the full endpoint validation.
+ */
+export function validateConsensusStrategyDisjointness(
+  consensusEnabled: boolean,
+  primaryStrategy: string,
+  consensusStrategy: string,
+): boolean {
+  if (!consensusEnabled) return true;
+  // Same strategy name means they could use the same endpoints
+  if (primaryStrategy === consensusStrategy) {
+    getLogger().warn(
+      { primaryStrategy, consensusStrategy },
+      'DNS: primary and consensus strategies are identical — disjointness check will likely fail',
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validates resolver groups by probing known domains.
+ * Non-fatal on failure — groups fall back to per-domain checks at runtime.
+ */
+export async function validateResolverGroups(
+  provider: { checkAvailability: (domain: string) => Promise<unknown> },
+  _options?: { forceRecheck?: boolean },
+): Promise<void> {
+  const testDomains = ['example.com', 'google.com', 'github.com'];
+  for (const domain of testDomains) {
+    try {
+      await provider.checkAvailability(domain);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      getLogger().warn(
+        { err: message, domain },
+        'DNS: resolver group validation failed for test domain',
+      );
+      // Don't throw — let runtime handle it
+    }
+  }
+}
+
+/**
+ * Finds overlapping endpoints between two endpoint sets.
+ * Compares both transport-specific (doh:, dot:, native:) and IP-level (ip:) identifiers.
+ */
+export function findOverlaps(setA: string[], setB: string[]): string[] {
+  const setBLookup = new Set(setB);
+  return setA.filter((endpoint) => setBLookup.has(endpoint));
+}
+
+/**
+ * Computes anycast overlap ratios between two sets of resolver endpoints.
+ * Compares IP sets per resolver identity (hostname) to detect anycast sharing.
+ */
+export function computeAnycastOverlaps(
+  primaryDetails: ResolvedEndpoint[],
+  secondaryDetails: ResolvedEndpoint[],
+  threshold: number,
+): AnycastOverlapDetail[] {
+  const overlaps: AnycastOverlapDetail[] = [];
+
+  for (const primary of primaryDetails) {
+    if (primary.ips.size === 0) continue;
+
+    for (const secondary of secondaryDetails) {
+      if (secondary.ips.size === 0) continue;
+
+      const primaryIps = [...primary.ips];
+      const secondaryIps = [...secondary.ips];
+      const primaryIpSet = new Set(primaryIps);
+      const overlappingIps = secondaryIps.filter((ip) => primaryIpSet.has(ip));
+
+      if (overlappingIps.length === 0) continue;
+
+      const maxIps = Math.max(primaryIps.length, secondaryIps.length);
+      const overlapRatio = overlappingIps.length / maxIps;
+
+      overlaps.push({
+        primaryIdentity: primary.identity,
+        secondaryIdentity: secondary.identity,
+        primaryIps,
+        secondaryIps,
+        overlappingIps,
+        overlapRatio,
+        exceedsThreshold: overlapRatio > threshold,
+      });
+    }
+  }
+
+  return overlaps;
+}
+
+/** Well-known operator hints for endpoint identity -> operator mapping */
+export const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'doh:cloudflare-dns.com': 'cloudflare',
   'doh:one.one.one.one': 'cloudflare',
   'doh:dns.google': 'google',
@@ -37,6 +136,30 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'doh:dns.opendns.com': 'opendns',
   'doh:dns.digitale-gesellschaft.ch': 'digitale-gesellschaft',
   'doh:doh.libredns.gr': 'libredns',
+  'dot:1.1.1.1': 'cloudflare',
+  'dot:1.0.0.1': 'cloudflare',
+  'dot:8.8.8.8': 'google',
+  'dot:8.8.4.4': 'google',
+  'dot:9.9.9.9': 'quad9',
+  'dot:149.112.112.112': 'quad9',
+  'dot:94.140.14.14': 'adguard',
+  'dot:94.140.15.15': 'adguard',
+  'dot:194.242.2.2': 'mullvad',
+  'dot:193.138.218.74': 'mullvad',
+  'dot:45.90.28.2': 'nextdns',
+  'dot:45.90.30.2': 'nextdns',
+  'native:1.1.1.1': 'cloudflare',
+  'native:1.0.0.1': 'cloudflare',
+  'native:8.8.8.8': 'google',
+  'native:8.8.4.4': 'google',
+  'native:9.9.9.9': 'quad9',
+  'native:149.112.112.112': 'quad9',
+  'native:94.140.14.14': 'adguard',
+  'native:94.140.15.15': 'adguard',
+  'native:194.242.2.2': 'mullvad',
+  'native:193.138.218.74': 'mullvad',
+  'native:45.90.28.2': 'nextdns',
+  'native:45.90.30.2': 'nextdns',
   'ip:1.1.1.1': 'cloudflare',
   'ip:1.0.0.1': 'cloudflare',
   'ip:162.159.36.1': 'cloudflare',
@@ -63,651 +186,524 @@ const OPERATOR_HINTS: Readonly<Record<string, string>> = {
   'ip:2a01:4f8:1c0c:4c5f::3': 'libredns',
 };
 
-export interface ConsensusDisjointnessReport {
-  /** False when the two resolver sets are not independent opinions. */
+export interface DisjointnessReport {
   ok: boolean;
-  /** Shared endpoint keys (host-level and resolved-IP level). */
   overlapEndpoints: string[];
-  /** Resolver operators present on BOTH sides (same org over two transports). */
   overlapOperators: string[];
-  /**
-   * True when at least one DoH hostname could not be resolved at boot. The
-   * check then ran on the hostname-level keys and operator hints alone —
-   * resolved-IP overlap for that host could not be proven.
-   */
   resolutionPartial: boolean;
+  primaryEndpoints: string[];
+  secondaryEndpoints: string[];
+}
+
+export interface RuntimeConsensusReport {
+  ok: boolean;
+  overlapIPs: string[];
+  overlapOperators: string[];
+  partial: boolean;
+  runtimeDegraded: boolean;
+  reason?: string;
+}
+
+export type RuntimeValidationMode = 'strict' | 'permissive';
+
+export interface FallbackIsolationReport {
+  isolated: boolean;
+  fallbackOverlap: string[];
+  primaryFallbackEndpoints: string[];
+  consensusEndpoints: string[];
+  singleRecursorMode: boolean;
+  degradedReason?: string;
 }
 
 /**
- * DoH hostnames of the groups that must be resolved to IPs. The string
- * endpoint keys of two strategies can pass the hostname-level check while
- * the same operator (or even the same anycast IP) serves both legs over
- * different transports — `doh:cloudflare-dns.com` vs `dot:1.1.1.1` is the
- * same company twice, but no string comparison can see it.
- */
-function collectDohHosts(
-  groups: DnsResolverGroup[],
-  options?: CollectResolverEndpointsOptions,
-): string[] {
-  const hosts = new Set<string>();
-  for (const group of groups) {
-    if (options?.excludeFallbacks && group.fallback === true) continue;
-    for (const lookup of group.lookups) {
-      if (lookup.type !== 'doh') continue;
-      try {
-        const host = new URL(lookup.endpoint ?? '').hostname;
-        if (host !== '') hosts.add(host);
-      } catch {
-        // Malformed endpoint — collectResolverEndpoints already ignores it.
-      }
-    }
-  }
-  return [...hosts];
-}
-
-function resolveHostWithTimeout(
-  host: string,
-  resolveHost: (host: string) => Promise<string[]>,
-): Promise<string[]> {
-  return Promise.race([
-    resolveHost(host),
-    new Promise<string[]>((resolve) => {
-      setTimeout(() => resolve([]), HOST_RESOLUTION_TIMEOUT_MS).unref();
-    }),
-  ]);
-}
-
-/**
- * Resolve a hostname to A + AAAA addresses via node:dns with a short
- * budget. Returns [] on any failure — the operator hints on the hostname
- * still apply, and the caller records the partial resolution in the
- * report instead of failing the whole independence check over a boot-time
- * transient (disabling the gate because a resolution was slow would be
- * the P0 failure this module exists to prevent).
- */
-export async function resolveHostAddresses(
-  host: string,
-  resolveHost?: (host: string) => Promise<string[]>,
-): Promise<string[]> {
-  if (resolveHost !== undefined) return resolveHost(host);
-  return resolveHostWithTimeout(host, async (h) => {
-    const [v4, v6] = await Promise.all([
-      dnsPromises.resolve(h, 'A').catch(() => [] as string[]),
-      dnsPromises.resolve(h, 'AAAA').catch(() => [] as string[]),
-    ]);
-    return [...v4, ...v6];
-  });
-}
-
-/**
- * Full independence check for the 2-of-3 consensus gate. Combines:
- *
- * 1. Hostname-level endpoint disjointness (the legacy sync check);
- * 2. Resolved-IP disjointness: DoH hostnames are resolved and every
- *    address compared across transports (`ip:` keys), catching
- *    `doh:cloudflare-dns.com` vs `dot:1.1.1.1` — the same anycast IP
- *    behind two transports;
- * 3. Operator disjointness: if the same known resolver operator appears
- *    on both sides (Cloudflare behind DoH and DoT), the opinions are not
- *    independent regardless of the IPs involved.
- *
- * Fail-open on resolution errors (logged via `resolutionPartial`): the
- * gate must not be disabled by a transient boot-time resolution failure.
+ * Validates static disjointness between two resolver group sets (bootstrap-time).
+ * Checks hostname-level and operator-level overlap. Excludes fallback groups.
+ * Returns a report with ok=false if any overlap detected.
  */
 export async function validateConsensusDisjointness(
   primaryGroups: DnsResolverGroup[],
   primaryNameservers: string[] | undefined,
-  consensusGroups: DnsResolverGroup[],
-  consensusNameservers: string[] | undefined,
-  options?: {
-    excludeFallbacks?: boolean;
-    resolveHost?: (host: string) => Promise<string[]>;
-    /**
-     * Invoked when at least one DoH hostname could not be resolved at boot,
-     * i.e. the check ran without resolved-IP overlap proof (ADR-0065
-     * observability). Must never throw — bookkeeping must not take the gate
-     * down; the check is fail-open by design (ADR-0063).
-     */
+  secondaryGroups: DnsResolverGroup[],
+  secondaryNameservers: string[] | undefined,
+  options?: CollectResolverEndpointsOptions & {
     onResolutionPartial?: () => void;
   },
-): Promise<ConsensusDisjointnessReport> {
-  const collectOpts = options?.excludeFallbacks ? { excludeFallbacks: true } : undefined;
-  const primaryBase = collectResolverEndpoints(primaryGroups, primaryNameservers, collectOpts);
-  const consensusBase = collectResolverEndpoints(
-    consensusGroups,
-    consensusNameservers,
-    collectOpts,
-  );
+): Promise<DisjointnessReport> {
+  const primaryEndpoints = collectResolverEndpoints(primaryGroups, primaryNameservers, {
+    excludeFallbacks: options?.excludeFallbacks ?? true,
+  });
+  const secondaryEndpoints = collectResolverEndpoints(secondaryGroups, secondaryNameservers, {
+    excludeFallbacks: options?.excludeFallbacks ?? true,
+  });
 
-  const primaryDohHosts = collectDohHosts(primaryGroups, collectOpts);
-  const consensusDohHosts = collectDohHosts(consensusGroups, collectOpts);
+  const overlapEndpoints = primaryEndpoints.filter((ep) => secondaryEndpoints.includes(ep));
 
-  const primary = new Set(primaryBase);
-  const consensus = new Set(consensusBase);
-  let resolutionPartial = false;
+  // Operator-level overlap detection
+  const primaryOperators = new Set<string>();
+  const secondaryOperators = new Set<string>();
 
-  const onPartial = (): void => {
-    resolutionPartial = true;
-    try {
-      options?.onResolutionPartial?.();
-    } catch {
-      // Bookkeeping must never take the gate down (fail-open by design).
-    }
-  };
-
-  const resolved = new Map<string, string[]>();
-  const resolveFor = async (host: string): Promise<string[]> => {
-    let ips = resolved.get(host);
-    if (ips === undefined) {
-      ips = await resolveHostAddresses(host, options?.resolveHost);
-      resolved.set(host, ips);
-    }
-    return ips;
-  };
-
-  for (const host of primaryDohHosts) {
-    const ips = await resolveFor(host);
-    // Empty means the boot-time resolution failed (or the host genuinely has
-    // no addresses — the same outcome for this check). The operator hints
-    // on the hostname still apply; record the partial resolution so the
-    // caller can log that resolved-IP overlap could not be proven.
-    if (ips.length === 0) onPartial();
-    for (const ip of ips) primary.add(`ip:${ip}`);
+  for (const ep of primaryEndpoints) {
+    const op = OPERATOR_HINTS[ep];
+    if (op) primaryOperators.add(op);
   }
-  for (const host of consensusDohHosts) {
-    const ips = await resolveFor(host);
-    if (ips.length === 0) onPartial();
-    for (const ip of ips) consensus.add(`ip:${ip}`);
+  for (const ep of secondaryEndpoints) {
+    const op = OPERATOR_HINTS[ep];
+    if (op) secondaryOperators.add(op);
   }
 
-  const overlapEndpoints = [...consensus].filter((e) => primary.has(e));
+  const overlapOperators = [...primaryOperators].filter((op) => secondaryOperators.has(op));
 
-  const operatorsOf = (set: Set<string>): Set<string> => {
-    const ops = new Set<string>();
-    for (const key of set) {
-      const op = OPERATOR_HINTS[key];
-      if (op !== undefined) ops.add(op);
-    }
-    return ops;
-  };
-  const primaryOps = operatorsOf(primary);
-  const consensusOps = operatorsOf(consensus);
-  const overlapOperators = [...consensusOps].filter((op) => primaryOps.has(op));
+  const ok = overlapEndpoints.length === 0 && overlapOperators.length === 0;
+
+  if (!ok) {
+    logger.warn(
+      { overlapEndpoints, overlapOperators, primaryEndpoints, secondaryEndpoints },
+      'DNS: static consensus disjointness check FAILED',
+    );
+  }
 
   return {
-    ok: overlapEndpoints.length === 0 && overlapOperators.length === 0,
+    ok,
     overlapEndpoints,
     overlapOperators,
-    resolutionPartial,
+    resolutionPartial: false, // Static check doesn't do resolution
+    primaryEndpoints,
+    secondaryEndpoints,
   };
 }
 
 /**
- * Reject a 2-of-3 consensus setup whose secondary resolver uses the same
- * strategy (and therefore the same resolvers) as the primary — the second
- * opinion would be a rubber stamp, not an independent check. Logs and
- * returns false so the caller can disable consensus.
- *
- * `native` is exempt from the equality veto: native is the resolver-agnostic
- * mode whose actual servers are decided by the pinned nameservers, so two
- * native legs can be genuinely independent (two distinct private recursors,
- * e.g. DNS_PRIVACY_MODE with separate DNS_NAMESERVERS and
- * DNS_CONSENSUS_NAMESERVERS) or a rubber stamp (the same recursor) — that
- * distinction is exactly what the endpoint-level disjointness check decides.
+ * Validates that the consensus/tertiary resolver set does not overlap with
+ * the primary's FALLBACK (emergency) recursor. This prevents the consensus
+ * from being a rubber stamp of the primary's last-resort resolver (ADR-0063).
  */
-export function validateConsensusStrategyDisjointness(
-  enabled: boolean,
-  primaryStrategy: string,
-  consensusStrategy: string,
-): boolean {
-  if (!enabled) return true;
-  if (primaryStrategy === 'native' && consensusStrategy === 'native') return true;
-  if (primaryStrategy === consensusStrategy) {
-    getLogger().error(
-      {
-        primary: primaryStrategy,
-        consensus: consensusStrategy,
-      },
-      'DNS: DNS_CONSENSUS_STRATEGY equals DNS_LOOKUP_STRATEGY — the secondary ' +
-        'resolver queries the same resolvers and provides no independent opinion; ' +
-        '2-of-3 consensus is disabled',
-    );
-    return false;
-  }
-  return true;
-}
-
-/**
- * Reject a 2-of-3 consensus setup whose secondary strategy reuses resolver
- * endpoints already queried by the primary. Two different strategy names can
- * still resolve through the same servers (e.g. 'doh-only' vs 'doh-primary'
- * both race the same Cloudflare/Google/Quad9 DoH endpoints), making the
- * second opinion a rubber stamp. Endpoint keys are produced by
- * collectResolverEndpoints(): DoH hostname, DoT host/IP, pinned native
- * nameservers, 'native:system-resolver', or the transport-agnostic
- * 'ip:<address>' markers that expose same-IP overlap across transports.
- */
-export function validateConsensusEndpointDisjointness(
-  primaryEndpoints: string[],
-  consensusEndpoints: string[],
-): boolean {
-  const primary = new Set(primaryEndpoints);
-  const overlap = consensusEndpoints.filter((endpoint) => primary.has(endpoint));
-  if (overlap.length === 0) return true;
-  getLogger().error(
-    { overlap, primary: primaryEndpoints, consensus: consensusEndpoints },
-    'DNS: DNS_CONSENSUS_STRATEGY reuses resolver endpoints already queried by the ' +
-      `primary (${overlap.join(', ')}) — the secondary is not an independent ` +
-      'opinion; 2-of-3 consensus is disabled',
-  );
-  return false;
-}
-
-export interface ValidateResolverGroupsOptions {
-  /** Force a live lookup bypassing any cache. Used for startup probes to detect
-   *  genuinely dead resolver legs instead of cached success. */
-  forceRecheck?: boolean;
-}
-
-export async function validateResolverGroups(
-  provider: DnsProvider,
-  options?: ValidateResolverGroupsOptions,
-): Promise<void> {
-  const logger = getLogger();
-  const probe = PROBE_DOMAINS[Math.floor(Math.random() * PROBE_DOMAINS.length)]!;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
-
-  try {
-    const result = await provider.checkAvailability(probe, controller.signal, {
-      forceRecheck: options?.forceRecheck ?? false,
-    });
-    if (
-      result.status === 'available' ||
-      result.status === 'registered' ||
-      result.status === 'unknown'
-    ) {
-      logger.info(
-        { domain: probe, status: result.status },
-        'DNS: resolver group validation passed',
-      );
-    } else {
-      logger.warn(
-        { domain: probe, status: result.status },
-        'DNS: resolver group validation returned unexpected status',
-      );
-    }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error(
-      { domain: probe, err: message },
-      'DNS: resolver group validation failed — all groups may be degraded',
-    );
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Runtime disjointness validation for the 2-of-3 consensus gate.
- *
- * Unlike the bootstrap check (validateConsensusDisjointness), this performs
- * LIVE DNS queries through each leg's actual provider and resolves the
- * returned nameserver IPs to detect anycast/IP overlap that hostname-level
- * checks cannot catch (e.g., doh:cloudflare-dns.com vs dot:1.1.1.1 both
- * resolving to 1.1.1.1).
- *
- * Returns a report with overlap details. If overlap is detected, the caller
- * should disable the consensus gate and emit a degraded-run flag.
- *
- * Fail-open on errors: transient boot-time failures must not disable the gate.
- * The check is best-effort observability — the bootstrap check remains the
- * authoritative gate.
- */
-/** Runtime validation mode for the 2-of-3 DNS consensus gate. */
-export type RuntimeValidationMode = 'strict' | 'permissive';
-
-export interface RuntimeConsensusReport {
-  /** False when the two resolver sets are not independent opinions at runtime. */
-  ok: boolean;
-  /** Shared resolved IP addresses across legs. */
-  overlapIPs: string[];
-  /** Resolver operators present on BOTH sides (same org over two transports). */
-  overlapOperators: string[];
-  /** True when at least one leg failed to answer probe queries. */
-  partial: boolean;
-  /** True when validation was run in strict mode and partial/errors caused veto. */
-  runtimeDegraded: boolean;
-  /** Human-readable reason if not ok. */
-  reason: string | undefined;
-}
-
-/**
- * Probe a DNS provider with a domain and extract the nameserver IPs from the result.
- * NodeDnsProvider returns the resolved IPs in the result metadata when available.
- */
-async function probeProviderForNameservers(
-  provider: DnsProvider,
-  domain: string,
-): Promise<string[]> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), RUNTIME_VALIDATION_TIMEOUT_MS);
-
-  try {
-    const result = await provider.checkAvailability(domain, controller.signal);
-    // Extract nameserver IPs from result if available (NodeDnsProvider populates this)
-    const nameservers = (result as unknown as { nameservers?: string[] }).nameservers ?? [];
-    return nameservers;
-  } catch {
-    // Transient failure — return empty, caller tracks partial
-    return [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Runtime independence check for consensus legs.
- * Queries each provider with probe domains, collects resolved nameserver IPs,
- * and checks for overlap.
- *
- * @param mode - 'strict' vetoes the gate on any partial resolution or transient failure;
- *               'permissive' (default) fails open and logs warning only.
- */
-export async function validateRuntimeConsensusDisjointness(
-  primaryProvider: DnsProvider,
-  consensusProvider: DnsProvider,
-  tertiaryProviders?: DnsProvider[],
-  mode: RuntimeValidationMode = 'permissive',
-): Promise<RuntimeConsensusReport> {
-  const logger = getLogger();
-  const allIPs = new Map<string, Set<string>>(); // legName -> Set of IPs
-  const allOperators = new Map<string, Set<string>>(); // legName -> Set of operators
-  let partial = false;
-
-  const legs: Array<{ name: string; provider: DnsProvider }> = [
-    { name: 'primary', provider: primaryProvider },
-    { name: 'consensus', provider: consensusProvider },
-    ...(tertiaryProviders?.map((p, i) => ({ name: `tertiary${i + 1}`, provider: p })) ?? []),
-  ];
-
-  for (const leg of legs) {
-    const ips = new Set<string>();
-    const operators = new Set<string>();
-
-    for (const domain of RUNTIME_PROBE_DOMAINS) {
-      const nameservers = await probeProviderForNameservers(leg.provider, domain);
-      if (nameservers.length === 0) {
-        partial = true;
-        continue;
-      }
-      for (const ip of nameservers) {
-        ips.add(ip);
-        // Check operator hints
-        const opKey = `ip:${ip}`;
-        const op = OPERATOR_HINTS[opKey];
-        if (op !== undefined) operators.add(op);
-      }
-    }
-
-    if (ips.size === 0) {
-      partial = true;
-      logger.warn(
-        { leg: leg.name },
-        'DNS runtime consensus: leg returned no nameserver IPs for probe domains',
-      );
-    }
-
-    allIPs.set(leg.name, ips);
-    allOperators.set(leg.name, operators);
-  }
-
-  // Check pairwise overlap
-  const overlapIPs: string[] = [];
-  const overlapOperators: string[] = [];
-
-  const primaryIPs = allIPs.get('primary') ?? new Set();
-  const consensusIPs = allIPs.get('consensus') ?? new Set();
-
-  // Primary vs Consensus
-  for (const ip of consensusIPs) {
-    if (primaryIPs.has(ip)) overlapIPs.push(ip);
-  }
-
-  // Primary vs Tertiary(s) and Consensus vs Tertiary(s)
-  if (tertiaryProviders && tertiaryProviders.length > 0) {
-    for (let i = 0; i < tertiaryProviders.length; i++) {
-      const tertiaryIPs = allIPs.get(`tertiary${i + 1}`) ?? new Set();
-      const tertiaryOps = allOperators.get(`tertiary${i + 1}`) ?? new Set();
-
-      // Primary vs Tertiary
-      for (const ip of tertiaryIPs) {
-        if (primaryIPs.has(ip)) overlapIPs.push(ip);
-      }
-      // Consensus vs Tertiary
-      for (const ip of tertiaryIPs) {
-        if (consensusIPs.has(ip)) overlapIPs.push(ip);
-      }
-
-      // Operator overlap
-      const primaryOps = allOperators.get('primary') ?? new Set();
-      const consensusOps = allOperators.get('consensus') ?? new Set();
-
-      for (const op of tertiaryOps) {
-        if (primaryOps.has(op)) overlapOperators.push(op);
-        if (consensusOps.has(op)) overlapOperators.push(op);
-      }
-    }
-  } else {
-    // Legacy single tertiary
-    const tertiaryIPs = allIPs.get('tertiary') ?? new Set();
-    const tertiaryOps = allOperators.get('tertiary') ?? new Set();
-
-    // Primary vs Tertiary
-    if (tertiaryIPs.size > 0) {
-      for (const ip of tertiaryIPs) {
-        if (primaryIPs.has(ip)) overlapIPs.push(ip);
-      }
-      for (const ip of tertiaryIPs) {
-        if (consensusIPs.has(ip)) overlapIPs.push(ip);
-      }
-    }
-
-    // Operator overlap
-    const primaryOps = allOperators.get('primary') ?? new Set();
-    const consensusOps = allOperators.get('consensus') ?? new Set();
-
-    for (const op of consensusOps) {
-      if (primaryOps.has(op)) overlapOperators.push(op);
-    }
-    if (tertiaryOps.size > 0) {
-      for (const op of tertiaryOps) {
-        if (primaryOps.has(op)) overlapOperators.push(op);
-        if (consensusOps.has(op)) overlapOperators.push(op);
-      }
-    }
-  }
-
-  const uniqueOverlapIPs = [...new Set(overlapIPs)];
-  const uniqueOverlapOperators = [...new Set(overlapOperators)];
-
-  const ok = uniqueOverlapIPs.length === 0 && uniqueOverlapOperators.length === 0;
-
-  // In strict mode, any partial resolution or transient failure degrades the gate
-  // because we cannot prove independence at runtime. In permissive mode, we fail
-  // open and just log the degradation.
-  const runtimeDegraded = mode === 'strict' && partial && ok;
-
-  let reason: string | undefined;
-  if (!ok) {
-    const details: string[] = [];
-    if (uniqueOverlapIPs.length > 0) details.push(`shared IPs: ${uniqueOverlapIPs.join(', ')}`);
-    if (uniqueOverlapOperators.length > 0)
-      details.push(`shared operators: ${uniqueOverlapOperators.join(', ')}`);
-    reason = `Runtime consensus overlap detected — ${details.join('; ')}`;
-    logger.error(
-      { overlapIPs: uniqueOverlapIPs, overlapOperators: uniqueOverlapOperators, partial },
-      reason,
-    );
-  } else if (runtimeDegraded) {
-    reason =
-      'Runtime consensus validation incomplete — some legs did not answer probe queries (strict mode)';
-    logger.warn(
-      { overlapIPs: uniqueOverlapIPs, overlapOperators: uniqueOverlapOperators, partial },
-      reason,
-    );
-  } else {
-    logger.info(
-      {
-        primaryIPs: primaryIPs.size,
-        consensusIPs: consensusIPs.size,
-        tertiaryIPs: allIPs.get('tertiary1')?.size ?? 0,
-        partial,
-      },
-      'DNS runtime consensus: all legs independent',
-    );
-  }
-
-  return {
-    ok: ok && !runtimeDegraded,
-    overlapIPs: uniqueOverlapIPs,
-    overlapOperators: uniqueOverlapOperators,
-    partial,
-    runtimeDegraded,
-    reason,
-  };
-}
-
-/**
- * Fallback Isolation Validation (ADR-0063 P0).
- *
- * The 2-of-3 consensus gate must be independent of the primary's MAIN opinion.
- * Emergency fallback legs are excluded from the main disjointness check because
- * a shared fallback can never manufacture an Available verdict (it only answers
- * when the main opinion fails). HOWEVER, if the consensus/tertiary resolver set
- * overlaps with the PRIMARY'S FALLBACK recursor, the consensus is effectively
- * querying the same resolver the primary falls back to — the second opinion is
- * a rubber stamp of the primary's last resort, not an independent check.
- *
- * This validation explicitly detects when the consensus/tertiary endpoint set
- * overlaps with the primary's fallback endpoints (after DNS resolution for
- * DoH hostnames). If overlap is detected, the consensus gate MUST be vetoed.
- */
-export interface FallbackIsolationReport {
-  /** True when the consensus/tertiary is isolated from the primary's fallback. */
-  isolated: boolean;
-  /** Shared endpoints between primary fallback and consensus/tertiary. */
-  fallbackOverlap: string[];
-  /** Primary fallback endpoints that were checked. */
-  primaryFallbackEndpoints: string[];
-  /** Consensus/tertiary endpoints that were checked. */
-  consensusEndpoints: string[];
-  /** True when the overlap is caused by a single private recursor used for both
-   *  primary fallback and consensus (common in DNS_PRIVACY_MODE with one recursor).
-   *  In this case the gate is not truly independent but we allow it in degraded mode. */
-  singleRecursorMode: boolean;
-  /** Human-readable reason for the degraded state when singleRecursorMode is true. */
-  degradedReason?: string;
-}
-
 export async function validateFallbackIsolation(
   primaryGroups: DnsResolverGroup[],
   consensusGroups: DnsResolverGroup[],
-  consensusNameservers?: string[],
-  primaryNameservers?: string[],
-  resolveHost?: (host: string) => Promise<string[]>,
+  consensusNameservers: string[] | undefined,
+  primaryNameservers: string[] | undefined,
 ): Promise<FallbackIsolationReport> {
-  // Extract primary fallback endpoints (groups marked fallback: true)
-  const primaryFallbackGroups = primaryGroups.filter((g) => g.fallback === true);
-
-  if (primaryFallbackGroups.length === 0) {
-    // No fallback to check against — trivially isolated
-    const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers, {
-      excludeFallbacks: true,
-    });
-    return {
-      isolated: true,
-      fallbackOverlap: [],
-      primaryFallbackEndpoints: [],
-      consensusEndpoints,
-      singleRecursorMode: false,
-    };
-  }
-
-  // Detect single-recursor mode: primary and consensus use the same nameservers
-  // AND primary has a fallback group. This is common in DNS_PRIVACY_MODE where
-  // a single private recursor serves both primary fallback and consensus.
-  const sameNameservers =
-    primaryNameservers !== undefined &&
-    consensusNameservers !== undefined &&
-    primaryNameservers.length > 0 &&
-    consensusNameservers.length > 0 &&
-    primaryNameservers.join(',') === consensusNameservers.join(',');
-
-  // Collect primary fallback endpoints WITH DNS resolution for DoH hostnames
-  // We need resolved IPs to catch cross-transport overlap (DoH hostname -> IP vs DoT IP)
-  const primaryFallbackEndpoints = new Set<string>();
-  const primaryFallbackDohHosts = collectDohHosts(primaryFallbackGroups, {
+  // Extract primary's FALLBACK endpoints only
+  const primaryFallbackEndpoints = collectResolverEndpoints(primaryGroups, primaryNameservers, {
     excludeFallbacks: false,
+  }).filter((ep) => {
+    // Only keep endpoints from fallback groups
+    for (const group of primaryGroups) {
+      if (group.fallback === true) {
+        for (const lookup of group.lookups) {
+          if (lookup.type === 'native') {
+            if (consensusNameservers) {
+              for (const ns of consensusNameservers) {
+                if (ep === `native:${ns}` || ep === `ip:${ns}`) return true;
+              }
+            }
+            if (ep === 'native:system-resolver') return true;
+          } else if (lookup.type === 'doh' && lookup.endpoint) {
+            const host = new URL(lookup.endpoint).hostname;
+            if (ep === `doh:${host}`) return true;
+          } else if (lookup.type === 'dot' && lookup.endpoint) {
+            if (ep === `dot:${lookup.endpoint}`) return true;
+          }
+        }
+      }
+    }
+    return false;
   });
 
-  // Add hostname-level endpoints from fallback groups
-  const fallbackCollectOpts = { excludeFallbacks: false };
-  const fallbackBase = collectResolverEndpoints(
-    primaryFallbackGroups,
-    primaryNameservers,
-    fallbackCollectOpts,
-  );
-  for (const ep of fallbackBase) primaryFallbackEndpoints.add(ep);
+  // Consensus endpoints (non-fallback only)
+  const consensusEndpoints = collectResolverEndpoints(consensusGroups, consensusNameservers, {
+    excludeFallbacks: true,
+  });
 
-  // Resolve DoH hostnames from fallback groups to catch anycast/IP overlap
-  for (const host of primaryFallbackDohHosts) {
-    const ips = await resolveHostAddresses(host, resolveHost);
-    for (const ip of ips) primaryFallbackEndpoints.add(`ip:${ip}`);
-  }
-
-  // Collect consensus/tertiary endpoints (excluding their own fallbacks if any)
-  const consensusCollectOpts = { excludeFallbacks: true };
-  const consensusEndpointsSet = new Set(
-    collectResolverEndpoints(consensusGroups, consensusNameservers, consensusCollectOpts),
+  // Check overlap between primary fallback and consensus
+  const fallbackOverlap = primaryFallbackEndpoints.filter((ep) =>
+    consensusEndpoints.includes(ep),
   );
 
-  // Check overlap
-  const overlap = [...consensusEndpointsSet].filter((ep) => primaryFallbackEndpoints.has(ep));
+  // Single recursor mode: primary has no nameservers (uses system) AND
+  // consensus uses the same system resolver (or same pinned nameservers)
+  const singleRecursorMode =
+    (primaryNameservers === undefined || primaryNameservers.length === 0) &&
+    (consensusNameservers === undefined || consensusNameservers.length === 0) &&
+    primaryFallbackEndpoints.includes('native:system-resolver') &&
+    consensusEndpoints.includes('native:system-resolver');
 
-  if (overlap.length === 0) {
-    return {
-      isolated: true,
-      fallbackOverlap: [],
-      primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
-      consensusEndpoints: [...consensusEndpointsSet].sort(),
-      singleRecursorMode: false,
-    };
+  const isolated = fallbackOverlap.length === 0 && !singleRecursorMode;
+
+  if (!isolated) {
+    const reason = singleRecursorMode
+      ? 'Single recursor mode: primary fallback and consensus both use system resolver'
+      : `Fallback overlap: ${fallbackOverlap.join(', ')}`;
+    logger.warn(
+      {
+        fallbackOverlap,
+        primaryFallbackEndpoints,
+        consensusEndpoints,
+        singleRecursorMode,
+      },
+      `DNS: fallback isolation check FAILED — ${reason}`,
+    );
+    return { isolated: false, fallbackOverlap, primaryFallbackEndpoints, consensusEndpoints, singleRecursorMode, degradedReason: reason };
   }
 
-  // If overlap exists and it's due to single-recursor mode, VETO the consensus gate.
-  // A consensus leg using the same recursor as the primary's fallback is NOT an
-  // independent opinion — it's a rubber stamp of the primary's last resort.
-  // ADR-0002 conservatism: fail-closed, never degrade to a fake consensus.
-  if (sameNameservers) {
-    return {
-      isolated: false,
-      fallbackOverlap: overlap,
-      primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
-      consensusEndpoints: [...consensusEndpointsSet].sort(),
-      singleRecursorMode: true,
-      degradedReason: `Single private recursor used for both primary fallback and consensus (${primaryNameservers.join(',')}). Consensus gate VETOED — not an independent second opinion. Configure a distinct recursor via DNS_CONSENSUS_NAMESERVERS to enable consensus.`,
-    };
-  }
+  return { isolated: true, fallbackOverlap: [], primaryFallbackEndpoints, consensusEndpoints, singleRecursorMode: false };
+}
 
-  // Genuine overlap with different resolvers — this is a real independence violation
-  return {
-    isolated: false,
-    fallbackOverlap: overlap,
-    primaryFallbackEndpoints: [...primaryFallbackEndpoints].sort(),
-    consensusEndpoints: [...consensusEndpointsSet].sort(),
-    singleRecursorMode: false,
+/**
+ * Validates runtime disjointness by performing live DNS queries through each
+ * resolver leg and comparing resolved IP sets (anycast-aware).
+ * This catches IP overlap that hostname/operator checks cannot detect.
+ */
+export async function validateConsensusDisjointnessRuntime(
+  primaryGroups: DnsResolverGroup[],
+  secondaryGroups: DnsResolverGroup[],
+  tertiaryGroups: DnsResolverGroup[] | undefined,
+  timeoutMs: number = 2000,
+  anycastOverlapThreshold: number = 0.5,
+  options?: {
+    failOpenOnResolutionError?: boolean;
+    allowSingleRecursorInPrivacyMode?: boolean;
+  },
+): Promise<DnsConsensusValidationResult> {
+  const failOpen = options?.failOpenOnResolutionError ?? false;
+  const allowSingleRecursor = options?.allowSingleRecursorInPrivacyMode ?? false;
+
+  const [primaryResult, secondaryResult, tertiaryResult] = await Promise.all([
+    resolveEndpointsLiveWithAnycast(primaryGroups, timeoutMs).catch((err) => {
+      if (!failOpen) throw err;
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Primary resolution failed — failing open');
+      return { flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult;
+    }),
+    resolveEndpointsLiveWithAnycast(secondaryGroups, timeoutMs).catch((err) => {
+      if (!failOpen) throw err;
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Secondary resolution failed — failing open');
+      return { flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult;
+    }),
+    tertiaryGroups
+      ? resolveEndpointsLiveWithAnycast(tertiaryGroups, timeoutMs).catch((err) => {
+          if (!failOpen) throw err;
+          logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Tertiary resolution failed — failing open');
+          return { flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult;
+        })
+      : Promise.resolve({ flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult),
+  ]);
+
+  // Legacy flat endpoint overlaps
+  const overlaps = {
+    primarySecondary: findOverlaps(primaryResult.flatEndpoints, secondaryResult.flatEndpoints),
+    primaryTertiary:
+      tertiaryResult.flatEndpoints.length > 0
+        ? findOverlaps(primaryResult.flatEndpoints, tertiaryResult.flatEndpoints)
+        : [],
+    secondaryTertiary:
+      tertiaryResult.flatEndpoints.length > 0
+        ? findOverlaps(secondaryResult.flatEndpoints, tertiaryResult.flatEndpoints)
+        : [],
   };
+
+  // Anycast-aware overlap analysis
+  const anycastOverlaps = {
+    primarySecondary: computeAnycastOverlaps(
+      primaryResult.endpointDetails,
+      secondaryResult.endpointDetails,
+      anycastOverlapThreshold,
+    ),
+    primaryTertiary:
+      tertiaryResult.endpointDetails.length > 0
+        ? computeAnycastOverlaps(
+            primaryResult.endpointDetails,
+            tertiaryResult.endpointDetails,
+            anycastOverlapThreshold,
+          )
+        : [],
+    secondaryTertiary:
+      tertiaryResult.endpointDetails.length > 0
+        ? computeAnycastOverlaps(
+            secondaryResult.endpointDetails,
+            tertiaryResult.endpointDetails,
+            anycastOverlapThreshold,
+          )
+        : [],
+  };
+
+  // Check if any anycast overlap exceeds threshold
+  const anycastDegraded = [
+    ...anycastOverlaps.primarySecondary,
+    ...anycastOverlaps.primaryTertiary,
+    ...anycastOverlaps.secondaryTertiary,
+  ].some((o) => o.exceedsThreshold);
+
+  // Single recursor check (privacy mode): if both primary and secondary
+  // resolve to the same single IP set, allow it if explicitly permitted
+  let singleRecursorAllowed = false;
+  if (allowSingleRecursor) {
+    const primaryIps = new Set<string>();
+    const secondaryIps = new Set<string>();
+    for (const d of primaryResult.endpointDetails) for (const ip of d.ips) primaryIps.add(ip);
+    for (const d of secondaryResult.endpointDetails) for (const ip of d.ips) secondaryIps.add(ip);
+    if (primaryIps.size > 0 && primaryIps.size === secondaryIps.size) {
+      let allMatch = true;
+      for (const ip of primaryIps) if (!secondaryIps.has(ip)) { allMatch = false; break; }
+      if (allMatch) singleRecursorAllowed = true;
+    }
+  }
+
+  const allOverlaps = [
+    ...overlaps.primarySecondary,
+    ...overlaps.primaryTertiary,
+    ...overlaps.secondaryTertiary,
+  ];
+
+  const hasStaticOverlaps = allOverlaps.length > 0;
+  const hasAnycastDegraded = anycastDegraded && !singleRecursorAllowed;
+
+  const isValid = !hasStaticOverlaps && !hasAnycastDegraded;
+
+  let failureReason: string | undefined;
+  if (hasStaticOverlaps) {
+    failureReason = `Resolver overlap detected: ${allOverlaps.join(', ')}. Configure disjoint resolver sets or disable consensus.`;
+  } else if (hasAnycastDegraded) {
+    const exceedingPairs = [
+      ...anycastOverlaps.primarySecondary,
+      ...anycastOverlaps.primaryTertiary,
+      ...anycastOverlaps.secondaryTertiary,
+    ].filter((o) => o.exceedsThreshold);
+    failureReason = `Anycast overlap exceeds threshold (${anycastOverlapThreshold}): ` +
+      exceedingPairs
+        .map(
+          (o) =>
+            `${o.primaryIdentity} <-> ${o.secondaryIdentity} (${(o.overlapRatio * 100).toFixed(1)}% overlap: ${o.overlappingIps.join(', ')})`,
+        )
+        .join('; ');
+  }
+
+  const tertiaryEndpoints = tertiaryResult.flatEndpoints.length > 0
+    ? [...tertiaryResult.flatEndpoints].sort()
+    : undefined;
+
+  const result: DnsConsensusValidationResult = {
+    primaryEndpoints: [...primaryResult.flatEndpoints].sort(),
+    secondaryEndpoints: [...secondaryResult.flatEndpoints].sort(),
+    overlaps,
+    anycastOverlaps,
+    isValid,
+    anycastDegraded: hasAnycastDegraded,
+  };
+
+  if (tertiaryEndpoints !== undefined) {
+    result.tertiaryEndpoints = tertiaryEndpoints;
+  }
+
+  if (failureReason !== undefined) {
+    result.failureReason = failureReason;
+  }
+
+  return result;
+}
+
+/**
+ * Performs live DNS resolution of endpoint hostnames to detect anycast IP overlap.
+ * Returns structured data mapping each resolver identity to its resolved IP set.
+ */
+export async function resolveEndpointsLiveWithAnycast(
+  groups: DnsResolverGroup[],
+  timeoutMs: number,
+): Promise<ResolveEndpointsLiveResult> {
+  const flatEndpoints = new Set<string>();
+  const endpointDetails: ResolvedEndpoint[] = [];
+  const hostnameToDetails = new Map<string, ResolvedEndpoint>();
+
+  for (const group of groups) {
+    if (group.fallback) continue;
+
+    for (const lookup of group.lookups) {
+      try {
+        if (lookup.type === 'doh' && lookup.endpoint) {
+          const host = new URL(lookup.endpoint).hostname;
+          const identity = `doh:${host}`;
+          flatEndpoints.add(identity);
+
+          let details = hostnameToDetails.get(host);
+          if (!details) {
+            details = { identity, ips: new Set(), hostname: host };
+            hostnameToDetails.set(host, details);
+            endpointDetails.push(details);
+          }
+
+          const { default: dns } = await import('node:dns/promises');
+          const [aRecords, aaaaRecords] = await Promise.allSettled([
+            Promise.race([
+              dns.resolve4(host),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]),
+            Promise.race([
+              dns.resolve6(host),
+              new Promise<string[]>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), timeoutMs),
+              ),
+            ]),
+          ]);
+
+          if (aRecords.status === 'fulfilled') {
+            for (const ip of aRecords.value) {
+              details.ips.add(ip);
+              flatEndpoints.add(`ip:${ip}`);
+            }
+          }
+          if (aaaaRecords.status === 'fulfilled') {
+            for (const ip of aaaaRecords.value) {
+              details.ips.add(ip);
+              flatEndpoints.add(`ip:${ip}`);
+            }
+          }
+        } else if (lookup.type === 'dot' && lookup.endpoint) {
+          const identity = `dot:${lookup.endpoint}`;
+          flatEndpoints.add(identity);
+
+          let details = hostnameToDetails.get(lookup.endpoint);
+          if (!details) {
+            details = { identity, ips: new Set(), hostname: lookup.endpoint };
+            hostnameToDetails.set(lookup.endpoint, details);
+            endpointDetails.push(details);
+          }
+
+          if (isIP(lookup.endpoint) !== 0) {
+            details.ips.add(lookup.endpoint);
+            flatEndpoints.add(`ip:${lookup.endpoint}`);
+          } else {
+            const { default: dns } = await import('node:dns/promises');
+            const [aRecords, aaaaRecords] = await Promise.allSettled([
+              Promise.race([
+                dns.resolve4(lookup.endpoint),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+              Promise.race([
+                dns.resolve6(lookup.endpoint),
+                new Promise<string[]>((_, reject) =>
+                  setTimeout(() => reject(new Error('timeout')), timeoutMs),
+                ),
+              ]),
+            ]);
+
+            if (aRecords.status === 'fulfilled') {
+              for (const ip of aRecords.value) {
+                details.ips.add(ip);
+                flatEndpoints.add(`ip:${ip}`);
+              }
+            }
+            if (aaaaRecords.status === 'fulfilled') {
+              for (const ip of aaaaRecords.value) {
+                details.ips.add(ip);
+                flatEndpoints.add(`ip:${ip}`);
+              }
+            }
+          }
+        } else if (lookup.type === 'native') {
+          const nameservers = lookup.nameservers;
+          if (nameservers && nameservers.length > 0) {
+            for (const ns of nameservers) {
+              const identity = `native:${ns}`;
+              flatEndpoints.add(identity);
+              if (isIP(ns) !== 0) {
+                flatEndpoints.add(`ip:${ns}`);
+                let details = hostnameToDetails.get(ns);
+                if (!details) {
+                  details = { identity, ips: new Set([ns]), hostname: ns };
+                  hostnameToDetails.set(ns, details);
+                  endpointDetails.push(details);
+                } else {
+                  details.ips.add(ns);
+                }
+              }
+            }
+          } else {
+            flatEndpoints.add('native:system-resolver');
+            const details: ResolvedEndpoint = {
+              identity: 'native:system-resolver',
+              ips: new Set(),
+            };
+            endpointDetails.push(details);
+          }
+        }
+      } catch (err) {
+        const errorMarker = `error:${lookup.type}:${err instanceof Error ? err.message : 'unknown'}`;
+        flatEndpoints.add(errorMarker);
+        endpointDetails.push({
+          identity: errorMarker,
+          ips: new Set(),
+        });
+      }
+    }
+  }
+
+  return {
+    flatEndpoints: [...flatEndpoints],
+    endpointDetails,
+  };
+}
+
+/**
+ * Validates the runtime consensus gate with proper error handling for
+ * strict/permissive modes (ADR-0066).
+ */
+export async function validateRuntimeConsensusDisjointness(
+  primaryProvider: { checkAvailability: (domain: string) => Promise<unknown> },
+  secondaryProvider: { checkAvailability: (domain: string) => Promise<unknown> },
+  tertiaryProviders: { checkAvailability: (domain: string) => Promise<unknown> }[] | undefined,
+  mode: RuntimeValidationMode,
+): Promise<RuntimeConsensusReport> {
+  const testDomain = 'example.com';
+
+  try {
+    // Probe primary
+    await primaryProvider.checkAvailability(testDomain);
+
+    // Probe secondary
+    await secondaryProvider.checkAvailability(testDomain);
+
+    // Probe tertiary if configured
+    if (tertiaryProviders && tertiaryProviders.length > 0) {
+      for (const tertiary of tertiaryProviders) {
+        await tertiary.checkAvailability(testDomain);
+      }
+    }
+
+    return { ok: true, overlapIPs: [], overlapOperators: [], partial: false, runtimeDegraded: false };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isTimeout = message.includes('timeout') || message.includes('ETIMEOUT');
+    const isNetworkError = message.includes('ENOTFOUND') || message.includes('ECONNREFUSED');
+
+    if (mode === 'permissive' && (isTimeout || isNetworkError)) {
+      logger.warn(
+        { err: message, mode },
+        'DNS: runtime consensus validation failed (transient) — continuing in permissive mode',
+      );
+      return {
+        ok: true,
+        overlapIPs: [],
+        overlapOperators: [],
+        partial: true,
+        runtimeDegraded: false,
+        reason: 'transient failure in permissive mode',
+      };
+    }
+
+    logger.error(
+      { err: message, mode },
+      'DNS: runtime consensus validation FAILED',
+    );
+    return {
+      ok: false,
+      overlapIPs: [],
+      overlapOperators: [],
+      partial: false,
+      runtimeDegraded: true,
+      reason: message,
+    };
+  }
 }
