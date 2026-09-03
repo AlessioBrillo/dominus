@@ -954,6 +954,44 @@ const configSchema = z
       .optional()
       .default(2000),
     /**
+     * Privacy mode consensus fallback behavior (ADR-0065).
+     * When DNS_PRIVACY_MODE=true with a single recursor (DNS_NAMESERVERS only),
+     * the consensus gate cannot have a distinct second recursor.
+     * - 'disable': consensus gate is disabled, single-resolver verdicts used
+     * - 'degraded': consensus gate runs in degraded mode (single-resolver, run marked degraded)
+     * - 'local-doh': use a local DoH endpoint (DNS_CONSENSUS_LOCAL_DOH_ENDPOINT) as the second opinion
+     * Default: 'degraded' — keeps the gate visible in metrics while being honest about independence.
+     */
+    DNS_CONSENSUS_PRIVACY_FALLBACK: z
+      .enum(['disable', 'degraded', 'local-doh'])
+      .default('degraded'),
+    /**
+     * Local DoH endpoint for privacy mode consensus fallback.
+     * Used when DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh.
+     * Example: https://127.0.0.1:8443/dns-query (cloudflared/doh-proxy sidecar to local Unbound).
+     * The endpoint must support RFC 8484 wire format or Google JSON API.
+     */
+    DNS_CONSENSUS_LOCAL_DOH_ENDPOINT: z.string().url().optional(),
+    /**
+     * Tertiary vote mode for dual-redundant tertiary (ADR-0068).
+     * - 'any-registered-veto': any tertiary provider returning Registered vetoes the domain (default)
+     * - 'majority': majority vote among tertiary providers (both must agree for Available/Registered)
+     * Default: 'any-registered-veto' — conservative, matches existing veto semantics.
+     */
+    DNS_CONSENSUS_TERTIARY_VOTE_MODE: z
+      .enum(['any-registered-veto', 'majority'])
+      .default('any-registered-veto'),
+    /**
+     * Fail-open on DNS resolution errors during runtime disjointness validation.
+     * When true, transient DNS failures (timeout, NXDOMAIN on resolver hostname) do not
+     * fail the runtime validation — the gate continues with bootstrap-only disjointness.
+     * When false (default, ADR-0060 fail-closed), any resolution error fails validation.
+     * Default: false — conservative, matches ADR-0002.
+     */
+    DNS_CONSENSUS_FAIL_OPEN_ON_RESOLUTION_ERROR: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
+    /**
      * Per-endpoint circuit breaker for the DNS layer (ADR-0059). DNS is the
      * last provider without circuit protection: RDAP and WHOIS trip on
      * repeated failures (global + per-server), while a dead DNS resolver
