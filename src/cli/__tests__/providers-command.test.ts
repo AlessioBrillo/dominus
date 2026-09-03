@@ -248,6 +248,9 @@ function buildConfig(overrides: Partial<Config> = {}): Config {
     STAGE_TIMEOUT_CAP_MS: 3_600_000,
     STAGE_TIMEOUT_GRACE_MS: 5_000,
     RDAP_CONSENSUS_RESCUE_WHOIS_TLDS: [],
+    DNS_CONSENSUS_PRIVACY_FALLBACK: 'degraded',
+    DNS_CONSENSUS_TERTIARY_VOTE_MODE: 'any-registered-veto',
+    DNS_CONSENSUS_FAIL_OPEN_ON_RESOLUTION_ERROR: false,
     ...overrides,
   };
 }

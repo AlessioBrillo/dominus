@@ -613,6 +613,9 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       STAGE_TIMEOUT_CAP_MS: 3_600_000,
       STAGE_TIMEOUT_GRACE_MS: 5_000,
       RDAP_CONSENSUS_RESCUE_WHOIS_TLDS: [] as string[],
+      DNS_CONSENSUS_PRIVACY_FALLBACK: 'degraded' as const,
+      DNS_CONSENSUS_TERTIARY_VOTE_MODE: 'any-registered-veto' as const,
+      DNS_CONSENSUS_FAIL_OPEN_ON_RESOLUTION_ERROR: false,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);
