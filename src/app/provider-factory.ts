@@ -723,12 +723,15 @@ export async function buildDnsConsensusConfig(
         getLogger().warn(
           'DNS: privacy mode with single recursor — consensus disabled (DNS_CONSENSUS_PRIVACY_FALLBACK=disable)',
         );
-        return buildDisabledConsensusConfig('Privacy mode with single recursor — consensus disabled');
+        return buildDisabledConsensusConfig(
+          'Privacy mode with single recursor — consensus disabled',
+        );
       }
       if (fallbackMode === 'local-doh') {
         const localDohEndpoint = config.DNS_CONSENSUS_LOCAL_DOH_ENDPOINT;
         if (!localDohEndpoint) {
-          const msg = 'DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh requires DNS_CONSENSUS_LOCAL_DOH_ENDPOINT';
+          const msg =
+            'DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh requires DNS_CONSENSUS_LOCAL_DOH_ENDPOINT';
           getLogger().error(msg);
           if (consensusOnFailure === 'fail') throw new Error(msg);
           return buildDisabledConsensusConfig(msg);
@@ -739,11 +742,14 @@ export async function buildDnsConsensusConfig(
           'DNS: privacy mode — using local DoH endpoint as consensus secondary',
         );
       } else {
-        // 'degraded' mode (default)
+        // 'degraded' mode (default) — return disabled config since single recursor
+        // cannot provide independent consensus; the run will be marked degraded
         getLogger().warn(
-          'DNS: privacy mode with single recursor — consensus running in degraded mode (single-resolver, run marked degraded)',
+          'DNS: privacy mode with single recursor — consensus disabled (degraded fallback)',
         );
-        // Continue to build config but mark as runtimeDegraded
+        return buildDisabledConsensusConfig(
+          'Privacy mode with single recursor — consensus disabled',
+        );
       }
     }
     // If consensusNameservers is set, normal distinct-recursor validation proceeds below
@@ -998,10 +1004,7 @@ export async function buildDnsConsensusConfig(
       : effectiveDnsLookupStrategy(config, config.DNS_TERTIARY_STRATEGY);
     effectiveTertiaryNameservers = tertiaryNameservers ?? nameservers;
 
-    tertiaryGroups = strategyToResolverGroups(
-      effectiveTertiaryStrategy,
-      config.DNS_DOH_ENDPOINT,
-    );
+    tertiaryGroups = strategyToResolverGroups(effectiveTertiaryStrategy, config.DNS_DOH_ENDPOINT);
 
     const tertiaryFallbackReport = await validateFallbackIsolation(
       primaryGroups,
@@ -1105,7 +1108,8 @@ export async function buildDnsConsensusConfig(
 
     // Use the new resolver-validator function with fail-open option
     const failOpenOnResolutionError = config.DNS_CONSENSUS_FAIL_OPEN_ON_RESOLUTION_ERROR ?? false;
-    const allowSingleRecursorInPrivacyMode = config.DNS_PRIVACY_MODE && config.DNS_CONSENSUS_PRIVACY_FALLBACK !== 'disable';
+    const allowSingleRecursorInPrivacyMode =
+      config.DNS_PRIVACY_MODE && config.DNS_CONSENSUS_PRIVACY_FALLBACK !== 'disable';
 
     const anycastReport = await validateConsensusDisjointnessRuntime(
       primaryGroups,
@@ -1138,7 +1142,8 @@ export async function buildDnsConsensusConfig(
     runtimeReport.overlapIPs = anycastReport.overlaps.primarySecondary;
     runtimeReport.overlapOperators = [];
     runtimeReport.partial = false;
-    runtimeReport.runtimeDegraded = anycastReport.anycastDegraded === true || allowSingleRecursorInPrivacyMode;
+    runtimeReport.runtimeDegraded =
+      anycastReport.anycastDegraded === true || allowSingleRecursorInPrivacyMode;
     runtimeReport.reason = anycastReport.failureReason ?? '';
 
     // Also run the probe-based validation for endpoint reachability
@@ -1257,44 +1262,51 @@ export async function buildDnsConsensusConfig(
 
   // ANYCAST-AWARE VALIDATION (ADR-0068): Already computed above in runtime validation
   // Reuse the anycastReport from the runtime validation step
-  const anycastReport = runtimeReport.ok !== undefined && runtimeReport.overlapIPs.length >= 0
-    ? { // Reconstruct minimal report from runtime validation
-        primaryEndpoints: [],
-        secondaryEndpoints: [],
-        tertiaryEndpoints: undefined,
-        overlaps: { primarySecondary: runtimeReport.overlapIPs, primaryTertiary: [], secondaryTertiary: [] },
-        anycastOverlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
-        isValid: runtimeReport.ok,
-        anycastDegraded: runtimeReport.runtimeDegraded,
-        failureReason: runtimeReport.reason,
-      }
-    : await validateConsensusDisjointnessRuntime(
-        primaryGroups,
-        consensusGroups,
-        tertiaryGroups,
-        config.DNS_CONSENSUS_VALIDATION_TIMEOUT_MS ?? 2000,
-        config.DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD ?? 0.5,
-        {
-          failOpenOnResolutionError: config.DNS_CONSENSUS_FAIL_OPEN_ON_RESOLUTION_ERROR ?? false,
-          allowSingleRecursorInPrivacyMode: config.DNS_PRIVACY_MODE && config.DNS_CONSENSUS_PRIVACY_FALLBACK !== 'disable',
-        },
-      ).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        getLogger().warn(
-          { err: message },
-          'DNS: anycast-aware consensus validation failed — continuing without anycast overlap analysis',
-        );
-        return {
+  const anycastReport =
+    runtimeReport.ok !== undefined && runtimeReport.overlapIPs.length >= 0
+      ? {
+          // Reconstruct minimal report from runtime validation
           primaryEndpoints: [],
           secondaryEndpoints: [],
-          overlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
+          tertiaryEndpoints: undefined,
+          overlaps: {
+            primarySecondary: runtimeReport.overlapIPs,
+            primaryTertiary: [],
+            secondaryTertiary: [],
+          },
           anycastOverlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
-          isValid: true,
-          anycastDegraded: false,
-        } as DnsConsensusValidationResult;
-    });
+          isValid: runtimeReport.ok,
+          anycastDegraded: runtimeReport.runtimeDegraded,
+          failureReason: runtimeReport.reason,
+        }
+      : await validateConsensusDisjointnessRuntime(
+          primaryGroups,
+          consensusGroups,
+          tertiaryGroups,
+          config.DNS_CONSENSUS_VALIDATION_TIMEOUT_MS ?? 2000,
+          config.DNS_CONSENSUS_ANYCAST_OVERLAP_THRESHOLD ?? 0.5,
+          {
+            failOpenOnResolutionError: config.DNS_CONSENSUS_FAIL_OPEN_ON_RESOLUTION_ERROR ?? false,
+            allowSingleRecursorInPrivacyMode:
+              config.DNS_PRIVACY_MODE && config.DNS_CONSENSUS_PRIVACY_FALLBACK !== 'disable',
+          },
+        ).catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          getLogger().warn(
+            { err: message },
+            'DNS: anycast-aware consensus validation failed — continuing without anycast overlap analysis',
+          );
+          return {
+            primaryEndpoints: [],
+            secondaryEndpoints: [],
+            overlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
+            anycastOverlaps: { primarySecondary: [], primaryTertiary: [], secondaryTertiary: [] },
+            isValid: true,
+            anycastDegraded: false,
+          } as DnsConsensusValidationResult;
+        });
 
-    const anycastDegraded = anycastReport.anycastDegraded === true;
+  const anycastDegraded = anycastReport.anycastDegraded === true;
 
   // Handle 'degraded-anycast' failure policy
   if (anycastDegraded) {

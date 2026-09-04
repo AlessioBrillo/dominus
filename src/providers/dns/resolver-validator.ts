@@ -40,7 +40,9 @@ export function validateConsensusStrategyDisjointness(
 ): boolean {
   if (!consensusEnabled) return true;
   // Same strategy name means they could use the same endpoints
-  if (primaryStrategy === consensusStrategy) {
+  // EXCEPTION: 'native' vs 'native' is allowed in privacy mode (ADR-0065)
+  // because independence is determined by pinned nameservers, not strategy name.
+  if (primaryStrategy === consensusStrategy && primaryStrategy !== 'native') {
     getLogger().warn(
       { primaryStrategy, consensusStrategy },
       'DNS: primary and consensus strategies are identical — disjointness check will likely fail',
@@ -316,9 +318,7 @@ export async function validateFallbackIsolation(
   });
 
   // Check overlap between primary fallback and consensus
-  const fallbackOverlap = primaryFallbackEndpoints.filter((ep) =>
-    consensusEndpoints.includes(ep),
-  );
+  const fallbackOverlap = primaryFallbackEndpoints.filter((ep) => consensusEndpoints.includes(ep));
 
   // Single recursor mode: primary has no nameservers (uses system) AND
   // consensus uses the same system resolver (or same pinned nameservers)
@@ -343,10 +343,23 @@ export async function validateFallbackIsolation(
       },
       `DNS: fallback isolation check FAILED — ${reason}`,
     );
-    return { isolated: false, fallbackOverlap, primaryFallbackEndpoints, consensusEndpoints, singleRecursorMode, degradedReason: reason };
+    return {
+      isolated: false,
+      fallbackOverlap,
+      primaryFallbackEndpoints,
+      consensusEndpoints,
+      singleRecursorMode,
+      degradedReason: reason,
+    };
   }
 
-  return { isolated: true, fallbackOverlap: [], primaryFallbackEndpoints, consensusEndpoints, singleRecursorMode: false };
+  return {
+    isolated: true,
+    fallbackOverlap: [],
+    primaryFallbackEndpoints,
+    consensusEndpoints,
+    singleRecursorMode: false,
+  };
 }
 
 /**
@@ -371,18 +384,27 @@ export async function validateConsensusDisjointnessRuntime(
   const [primaryResult, secondaryResult, tertiaryResult] = await Promise.all([
     resolveEndpointsLiveWithAnycast(primaryGroups, timeoutMs).catch((err) => {
       if (!failOpen) throw err;
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Primary resolution failed — failing open');
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Primary resolution failed — failing open',
+      );
       return { flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult;
     }),
     resolveEndpointsLiveWithAnycast(secondaryGroups, timeoutMs).catch((err) => {
       if (!failOpen) throw err;
-      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Secondary resolution failed — failing open');
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Secondary resolution failed — failing open',
+      );
       return { flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult;
     }),
     tertiaryGroups
       ? resolveEndpointsLiveWithAnycast(tertiaryGroups, timeoutMs).catch((err) => {
           if (!failOpen) throw err;
-          logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Tertiary resolution failed — failing open');
+          logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            'Tertiary resolution failed — failing open',
+          );
           return { flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult;
         })
       : Promise.resolve({ flatEndpoints: [], endpointDetails: [] } as ResolveEndpointsLiveResult),
@@ -443,7 +465,11 @@ export async function validateConsensusDisjointnessRuntime(
     for (const d of secondaryResult.endpointDetails) for (const ip of d.ips) secondaryIps.add(ip);
     if (primaryIps.size > 0 && primaryIps.size === secondaryIps.size) {
       let allMatch = true;
-      for (const ip of primaryIps) if (!secondaryIps.has(ip)) { allMatch = false; break; }
+      for (const ip of primaryIps)
+        if (!secondaryIps.has(ip)) {
+          allMatch = false;
+          break;
+        }
       if (allMatch) singleRecursorAllowed = true;
     }
   }
@@ -468,7 +494,8 @@ export async function validateConsensusDisjointnessRuntime(
       ...anycastOverlaps.primaryTertiary,
       ...anycastOverlaps.secondaryTertiary,
     ].filter((o) => o.exceedsThreshold);
-    failureReason = `Anycast overlap exceeds threshold (${anycastOverlapThreshold}): ` +
+    failureReason =
+      `Anycast overlap exceeds threshold (${anycastOverlapThreshold}): ` +
       exceedingPairs
         .map(
           (o) =>
@@ -477,9 +504,8 @@ export async function validateConsensusDisjointnessRuntime(
         .join('; ');
   }
 
-  const tertiaryEndpoints = tertiaryResult.flatEndpoints.length > 0
-    ? [...tertiaryResult.flatEndpoints].sort()
-    : undefined;
+  const tertiaryEndpoints =
+    tertiaryResult.flatEndpoints.length > 0 ? [...tertiaryResult.flatEndpoints].sort() : undefined;
 
   const result: DnsConsensusValidationResult = {
     primaryEndpoints: [...primaryResult.flatEndpoints].sort(),
@@ -672,7 +698,13 @@ export async function validateRuntimeConsensusDisjointness(
       }
     }
 
-    return { ok: true, overlapIPs: [], overlapOperators: [], partial: false, runtimeDegraded: false };
+    return {
+      ok: true,
+      overlapIPs: [],
+      overlapOperators: [],
+      partial: false,
+      runtimeDegraded: false,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isTimeout = message.includes('timeout') || message.includes('ETIMEOUT');
@@ -693,10 +725,7 @@ export async function validateRuntimeConsensusDisjointness(
       };
     }
 
-    logger.error(
-      { err: message, mode },
-      'DNS: runtime consensus validation FAILED',
-    );
+    logger.error({ err: message, mode }, 'DNS: runtime consensus validation FAILED');
     return {
       ok: false,
       overlapIPs: [],

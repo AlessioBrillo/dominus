@@ -93,12 +93,12 @@ describe('ConsensusDnsProvider', () => {
   let telemetryCalls: DnsLegSample[] = [];
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    vi.useRealTimers();
     telemetryCalls = [];
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    // vi.useRealTimers(); // Already using real timers
   });
 
   function createProvider(
@@ -363,6 +363,28 @@ describe('ConsensusDnsProvider', () => {
       const tertiary = createMockProvider('Tertiary', 'available');
       const disjointnessValidator = { isDisjoint: vi.fn(() => false) };
 
+      // Provide endpoints for the disjointness check to run
+      const primaryEndpoints = {
+        flatEndpoints: ['doh:cloudflare-dns.com'],
+        endpointDetails: [
+          {
+            identity: 'doh:cloudflare-dns.com',
+            ips: new Set(['1.1.1.1']),
+            hostname: 'cloudflare-dns.com',
+          },
+        ],
+        operators: new Map([['doh:cloudflare-dns.com', 'cloudflare']]),
+        transports: new Map([['doh:cloudflare-dns.com', 'doh']]),
+      };
+      const secondaryEndpoints = {
+        flatEndpoints: ['dot:1.1.1.1'],
+        endpointDetails: [
+          { identity: 'dot:1.1.1.1', ips: new Set(['1.1.1.1']), hostname: '1.1.1.1' },
+        ],
+        operators: new Map([['dot:1.1.1.1', 'cloudflare']]),
+        transports: new Map([['dot:1.1.1.1', 'dot']]),
+      };
+
       const opts: ConsensusDnsProviderOptions = {
         primary,
         secondary,
@@ -371,6 +393,8 @@ describe('ConsensusDnsProvider', () => {
         breakers: undefined,
         telemetry: (sample: DnsLegSample) => telemetryCalls.push(sample),
         config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
+        primaryEndpoints,
+        secondaryEndpoints,
       };
       const provider = new ConsensusDnsProvider(opts);
 

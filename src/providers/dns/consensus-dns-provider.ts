@@ -8,7 +8,12 @@ import type {
 } from './dns-provider.js';
 import type { DnsLegTelemetry } from './index.js';
 import { getLogger } from '../../logger.js';
-import { runConsensus, runConsensusBulk, revalidateDisjointness, type ConsensusEngineOptions } from './consensus-engine.js';
+import {
+  runConsensus,
+  runConsensusBulk,
+  revalidateDisjointness,
+  type ConsensusEngineOptions,
+} from './consensus-engine.js';
 
 const logger = getLogger();
 
@@ -81,6 +86,9 @@ export class ConsensusDnsProvider implements DnsProvider {
       tertiaryGroups: options.tertiaryGroups,
       revalidationIntervalMs: this.#revalidationIntervalMs,
     };
+    if (options.telemetry !== undefined) {
+      engineOptions.telemetry = options.telemetry;
+    }
 
     // Only include tertiary if defined (exactOptionalPropertyTypes)
     if (options.tertiary !== undefined) {
@@ -137,6 +145,7 @@ export class ConsensusDnsProvider implements DnsProvider {
     this.#stopPeriodicRevalidation();
     this.#engineOptions.primary.dispose?.();
     this.#engineOptions.secondary.dispose?.();
+    this.#engineOptions.tertiary?.dispose?.();
     this.#engineOptions.tertiaryConfig?.primary.dispose?.();
     this.#engineOptions.tertiaryConfig?.secondary.dispose?.();
   }
@@ -162,6 +171,7 @@ export class ConsensusDnsProvider implements DnsProvider {
   clearCache(): void {
     this.#engineOptions.primary.clearCache();
     this.#engineOptions.secondary.clearCache();
+    this.#engineOptions.tertiary?.clearCache();
     this.#engineOptions.tertiaryConfig?.primary.clearCache();
     this.#engineOptions.tertiaryConfig?.secondary.clearCache();
   }
@@ -170,6 +180,7 @@ export class ConsensusDnsProvider implements DnsProvider {
     let total = 0;
     total += this.#engineOptions.primary.pruneCache();
     total += this.#engineOptions.secondary.pruneCache();
+    total += this.#engineOptions.tertiary?.pruneCache() ?? 0;
     total += this.#engineOptions.tertiaryConfig?.primary.pruneCache() ?? 0;
     total += this.#engineOptions.tertiaryConfig?.secondary.pruneCache() ?? 0;
     return total;

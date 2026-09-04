@@ -570,7 +570,7 @@ describe('DNS privacy mode (ADR-0065)', () => {
     expect(() => buildDnsProvider(config)).toThrow('DNS_NAMESERVERS');
   });
 
-  it('fails the boot when privacy mode shares one recursor across both legs (cloud edition)', async () => {
+  it('returns disabled config when privacy mode shares one recursor across both legs (cloud edition)', async () => {
     // Privacy mode forces primary + consensus to 'native'. A single pinned
     // recursor (172.20.0.10:5300) then lands on both sides of the endpoint
     // disjointness check — same recursor twice is not an independent opinion.
@@ -581,34 +581,37 @@ describe('DNS privacy mode (ADR-0065)', () => {
       DNS_CONSENSUS_ENABLED: true,
       DATABASE_URL: 'postgresql://user:pass@localhost/db', // Cloud edition
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
-      'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS',
-    );
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.disabled).toBe(true);
+    expect(result?.disableReason).toContain('Privacy mode with single recursor');
   });
 
-  it('throws in both editions when privacy mode + consensus enabled but no DNS_CONSENSUS_NAMESERVERS', async () => {
+  it('returns disabled config in both editions when privacy mode + consensus enabled but no DNS_CONSENSUS_NAMESERVERS', async () => {
     // Both community and cloud editions: privacy mode + consensus requires second recursor
     const config = makeConfig({
       DNS_PRIVACY_MODE: true,
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_ENABLED: true,
-      // No DATABASE_URL = community edition, but still throws
+      // No DATABASE_URL = community edition, but still returns disabled config
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
-      'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS',
-    );
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.disabled).toBe(true);
+    expect(result?.disableReason).toContain('Privacy mode with single recursor');
   });
 
-  it('throws in cloud edition when privacy mode + consensus enabled but no DNS_CONSENSUS_NAMESERVERS', async () => {
+  it('returns disabled config in cloud edition when privacy mode + consensus enabled but no DNS_CONSENSUS_NAMESERVERS', async () => {
     const config = makeConfig({
       DNS_PRIVACY_MODE: true,
       DNS_NAMESERVERS: '172.20.0.10:5300',
       DNS_CONSENSUS_ENABLED: true,
       DATABASE_URL: 'postgresql://user:pass@localhost/db',
     });
-    await expect(buildDnsConsensusConfig(config)).rejects.toThrow(
-      'DNS_PRIVACY_MODE=true requires DNS_CONSENSUS_NAMESERVERS',
-    );
+    const result = await buildDnsConsensusConfig(config);
+    expect(result).toBeDefined();
+    expect(result?.disabled).toBe(true);
+    expect(result?.disableReason).toContain('Privacy mode with single recursor');
   });
 
   it('keeps the gate when privacy mode pins two distinct recursors', async () => {

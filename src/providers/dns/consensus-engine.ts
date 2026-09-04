@@ -5,7 +5,7 @@ import { DomainStatus } from '../../types/domain-status.js';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider } from '../dns/dns-provider.js';
 import type { DnsLegSample, DnsLegTelemetry } from '../dns/index.js';
-import type { DnsResolverGroup } from '../dns/dns-provider.js';
+import type { DnsResolverGroup, ResolvedEndpoints } from '../dns/dns-provider.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
@@ -225,7 +225,8 @@ export async function runConsensus(
   signal?: AbortSignal,
   checkOptions?: { forceRecheck?: boolean },
 ): Promise<ConsensusResult> {
-  const { primary, secondary, tertiary, tertiaryConfig, disjointnessValidator, telemetry, config } = options;
+  const { primary, secondary, tertiary, tertiaryConfig, disjointnessValidator, telemetry, config } =
+    options;
 
   const consensusStats = {
     verified: 0,
@@ -246,7 +247,14 @@ export async function runConsensus(
     primaryError = err;
   }
 
-  emitTelemetry(telemetry, { transport: 'primary', endpoint: primary.name }, primaryResult, primaryError, 'primary', primaryStartedAt);
+  emitTelemetry(
+    telemetry,
+    { transport: 'primary', endpoint: primary.name },
+    primaryResult,
+    primaryError,
+    'primary',
+    primaryStartedAt,
+  );
 
   if (primaryError !== undefined || primaryResult === undefined) {
     return {
@@ -303,7 +311,14 @@ export async function runConsensus(
     secondaryError = err;
   }
 
-  emitTelemetry(telemetry, { transport: 'consensus', endpoint: secondary.name }, secondaryResult, secondaryError, 'consensus', secondaryStartedAt);
+  emitTelemetry(
+    telemetry,
+    { transport: 'consensus', endpoint: secondary.name },
+    secondaryResult,
+    secondaryError,
+    'consensus',
+    secondaryStartedAt,
+  );
 
   // Secondary veto: Registered wins
   if (secondaryResult?.status === DomainStatus.Registered || secondaryResult?.isParked === true) {
@@ -332,7 +347,10 @@ export async function runConsensus(
   if (!secondaryConfirmed) {
     const hasAnyTertiary = tertiaryConfig !== undefined || tertiary !== undefined;
     if (!hasAnyTertiary) {
-      logger.warn({ domain }, 'Consensus not confirmed by secondary, no tertiary — downgraded to Unknown');
+      logger.warn(
+        { domain },
+        'Consensus not confirmed by secondary, no tertiary — downgraded to Unknown',
+      );
       consensusStats.unverifiable = 1;
       return {
         result: {
@@ -392,7 +410,10 @@ export async function runConsensus(
       );
 
       if (hasVeto) {
-        logger.warn({ domain }, 'Consensus vetoed by tertiary (Registered) — downgraded to Unknown');
+        logger.warn(
+          { domain },
+          'Consensus vetoed by tertiary (Registered) — downgraded to Unknown',
+        );
         consensusStats.disagreed = 1;
         return {
           result: {
@@ -546,7 +567,14 @@ export async function revalidateDisjointness(
   options: ConsensusEngineOptions,
   timeoutMs: number = 2000,
 ): Promise<void> {
-  const { primaryEndpoints, secondaryEndpoints, tertiaryEndpoints, primaryGroups, secondaryGroups, tertiaryGroups } = options;
+  const {
+    primaryEndpoints,
+    secondaryEndpoints,
+    tertiaryEndpoints,
+    primaryGroups,
+    secondaryGroups,
+    tertiaryGroups,
+  } = options;
 
   if (!primaryEndpoints || !secondaryEndpoints) return;
   if (!primaryGroups || !secondaryGroups) {
@@ -557,8 +585,8 @@ export async function revalidateDisjointness(
   }
 
   try {
-    const primaryDetails = (primaryEndpoints as { endpointDetails: Array<{ hostname?: string; ips: Set<string>; identity: string }> }).endpointDetails;
-    const secondaryDetails = (secondaryEndpoints as { endpointDetails: Array<{ hostname?: string; ips: Set<string>; identity: string }> }).endpointDetails;
+    const primaryDetails = (primaryEndpoints as ResolvedEndpoints).endpointDetails;
+    const secondaryDetails = (secondaryEndpoints as ResolvedEndpoints).endpointDetails;
 
     if (primaryDetails.length === 0 || secondaryDetails.length === 0) return;
 
@@ -571,12 +599,12 @@ export async function revalidateDisjointness(
 
         try {
           const primaryIps = await resolveHostnameViaGroups(
-            primaryGroups as any[],
+            primaryGroups as DnsResolverGroup[],
             primary.hostname,
             timeoutMs,
           );
           const secondaryIps = await resolveHostnameViaGroups(
-            secondaryGroups as any[],
+            secondaryGroups as DnsResolverGroup[],
             secondary.hostname,
             timeoutMs,
           );
@@ -606,7 +634,7 @@ export async function revalidateDisjointness(
 
     // Also check tertiary if configured
     if (tertiaryGroups && tertiaryEndpoints) {
-      const tertiaryDetails = (tertiaryEndpoints as { endpointDetails: Array<{ hostname?: string; ips: Set<string>; identity: string }> }).endpointDetails;
+      const tertiaryDetails = (tertiaryEndpoints as ResolvedEndpoints).endpointDetails;
       if (tertiaryDetails.length > 0) {
         for (const primary of primaryDetails) {
           if (primary.ips.size === 0 || !primary.hostname) continue;
@@ -616,12 +644,12 @@ export async function revalidateDisjointness(
 
             try {
               const primaryIps = await resolveHostnameViaGroups(
-                primaryGroups as any[],
+                primaryGroups as DnsResolverGroup[],
                 primary.hostname,
                 timeoutMs,
               );
               const tertiaryIps = await resolveHostnameViaGroups(
-                tertiaryGroups as any[],
+                tertiaryGroups as DnsResolverGroup[],
                 tertiary.hostname,
                 timeoutMs,
               );
@@ -657,12 +685,12 @@ export async function revalidateDisjointness(
 
             try {
               const secondaryIps = await resolveHostnameViaGroups(
-                secondaryGroups as any[],
+                secondaryGroups as DnsResolverGroup[],
                 secondary.hostname,
                 timeoutMs,
               );
               const tertiaryIps = await resolveHostnameViaGroups(
-                tertiaryGroups as any[],
+                tertiaryGroups as DnsResolverGroup[],
                 tertiary.hostname,
                 timeoutMs,
               );
