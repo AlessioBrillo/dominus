@@ -41,6 +41,8 @@ export default defineConfig({
       API_KEYS: 'admin=sk-e2e-test-key',
       WORKER_ENABLED: 'false',
       SCHEDULER_ENABLED: 'false',
+      // Disable DNS tertiary consensus which requires disjoint resolver sets
+      DNS_TERTIARY_ENABLED: 'false',
       // The suite performs hundreds of API calls in seconds; disable the
       // general API rate limiters (guarded by RATE_LIMIT_MAX > 0). Config
       // validation only allows 0 under NODE_ENV=development.
