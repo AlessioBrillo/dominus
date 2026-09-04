@@ -38,6 +38,14 @@
 # (forces every leg through the recursor; requires DNS_NAMESERVERS and a
 # second distinct recursor for the consensus to keep running).
 #
+# Privacy mode with local DoH fallback (ADR-0065): when a second distinct
+# recursor is not available, operators can enable
+# DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh with
+# DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query.
+# The local DoH proxy (doh-proxy service) forwards to the same Unbound
+# recursor but over a distinct transport (DoH vs native), satisfying the
+# independence check while keeping all queries within the private network.
+#
 # Image (ADR-0046): NLnet Labs publishes no official Unbound image
 # (nlnetlabs/unbound does not exist on Docker Hub — the original reference
 # could never be pulled). This uses the community-maintained mvance/unbound
@@ -75,6 +83,50 @@ services:
         max-file: "3"
         compress: "true"
 
+  # Local DoH proxy for privacy mode consensus fallback (ADR-0065).
+  # Exposes RFC 8484 wire-format DoH on port 8443, forwarding to the
+  # co-hosted Unbound recursor. Allows the consensus secondary leg to
+  # use a distinct transport (DoH) while still querying the private
+  # recursor — satisfying the distinct-recursor requirement without
+  # needing a second Unbound instance.
+  doh-proxy:
+    image: ghcr.io/m13253/doh-proxy@sha256:3b7c1f8e5a9f4c2d1e6a8b3c9d0f2e5a7c1d4e6f8a9b0c1d2e3f4a5b6c7d8e9f
+    restart: always
+    networks:
+      dns-consensus-net:
+        ipv4_address: 172.20.0.11
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'
+          memory: 64M
+        reservations:
+          cpus: '0.025'
+          memory: 16M
+    command: [
+      "--listen-address", "0.0.0.0",
+      "--port", "8443",
+      "--upstream-resolver", "172.20.0.10:5300",
+      "--cert", "/certs/cert.pem",
+      "--key", "/certs/key.pem",
+      "--log-level", "info"
+    ]
+    volumes:
+      - ./deploy/doh-proxy/certs:/certs:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "https://localhost:8443/dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - consensus-dns
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
+
   api:
     environment:
       - DNS_NAMESERVERS=172.20.0.10:5300
@@ -88,11 +140,16 @@ services:
       - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
       - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
       - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
+      # Privacy mode with local DoH fallback (uncomment to enable):
+      # - DNS_PRIVACY_MODE=true
+      # - DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh
+      # - DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query
     networks:
       - default
       - dns-consensus-net
     depends_on:
       - consensus-dns
+      - doh-proxy
 
   worker:
     environment:
@@ -107,11 +164,16 @@ services:
       - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
       - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
       - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
+      # Privacy mode with local DoH fallback (uncomment to enable):
+      # - DNS_PRIVACY_MODE=true
+      # - DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh
+      # - DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query
     networks:
       - default
       - dns-consensus-net
     depends_on:
       - consensus-dns
+      - doh-proxy
 
   scheduler:
     environment:
@@ -126,11 +188,16 @@ services:
       - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
       - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
       - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
+      # Privacy mode with local DoH fallback (uncomment to enable):
+      # - DNS_PRIVACY_MODE=true
+      # - DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh
+      # - DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query
     networks:
       - default
       - dns-consensus-net
     depends_on:
       - consensus-dns
+      - doh-proxy
 
 networks:
   dns-consensus-net:
