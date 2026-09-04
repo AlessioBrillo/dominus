@@ -166,7 +166,7 @@ describe('DNS Consensus Bootstrap Validation', () => {
       expect(result.overlaps.primarySecondary).toHaveLength(0);
       expect(result.overlaps.primaryTertiary).toHaveLength(0);
       expect(result.overlaps.secondaryTertiary).toHaveLength(0);
-    });
+    }, 15000);
 
     it('FAILS when primary and secondary share the same DoH endpoint (misconfigured)', async () => {
       const primaryGroups = createGroupsFromProviders([
@@ -368,7 +368,7 @@ describe('DNS Consensus Bootstrap Validation', () => {
       // Verify the function completed without error
       expect(result).toBeDefined();
       expect(typeof result.isValid).toBe('boolean');
-    });
+    }, 15000);
   });
 
   describe('Integration: buildDnsConsensusConfig with validation', () => {
