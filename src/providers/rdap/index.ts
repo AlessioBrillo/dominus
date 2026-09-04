@@ -6,10 +6,8 @@ export {
   collectRdapOrigins,
   rdapUrlOrigin,
   validateRdapConsensusOriginDisjointness,
-  validateRdapTertiaryOriginDisjointness,
   hasAuthoritativeOriginOverlap,
   hasWinningOriginOverlap,
-  hasTertiaryWinningOriginOverlap,
   type OriginDisjointnessResult,
 } from './rdap-consensus-validator.js';
 export {

@@ -11,16 +11,12 @@ import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '.
 import {
   hasAuthoritativeOriginOverlap,
   hasWinningOriginOverlap,
-  hasTertiaryWinningOriginOverlap,
   rdapUrlOrigin,
 } from '../../providers/rdap/rdap-consensus-validator.js';
 import { getLogger } from '../../logger.js';
 
 const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
 
-/** Default WHOIS budget: WHOIS is a bounded enrichment over the authoritative
- *  RDAP answer (ADR-0035). A WHOIS response slower than this is discarded and
- *  RDAP decides. */
 const DEFAULT_WHOIS_BUDGET_MS = 1_000;
 
 interface AvailabilityResult {
@@ -33,8 +29,6 @@ interface AvailabilityResult {
   domainAge?: number | undefined;
   checkedAt: string;
   source: 'rdap' | 'whois' | 'cross-validated';
-  /** Origin of the RDAP server that produced the verdict (consensus
-   *  rubber-stamp detection, ADR-0050). Undefined for WHOIS-only paths. */
   sourceOrigin?: string | undefined;
 }
 
@@ -79,99 +73,19 @@ function buildWhoisMeta(result: AvailabilityResult): WhoisMeta | undefined {
   return Object.keys(meta).length > 0 ? meta : undefined;
 }
 
-/**
- * Consensus mode for the 2-of-2+1 RDAP gate.
- * - SECONDARY_ONLY: secondary alone confirms; tertiary never queried.
- * - SECONDARY_THEN_TERTIARY_RESCUE: secondary first; if it cannot answer,
- *   tertiary is consulted as a rescue (Available rescues, Registered vetoes).
- * - BOTH_REQUIRED: both secondary AND tertiary must independently confirm Available.
- *   If either fails or returns Registered, the domain is downgraded.
- */
-export enum RdapConsensusMode {
-  SecondaryOnly = 'secondary-only',
-  SecondaryThenTertiaryRescue = 'secondary-then-tertiary-rescue',
-  BothRequired = 'both-required',
-}
-
 export interface RdapConsensusConfig {
-  /** Dedicated second RDAP provider on an independent origin (ADR-0050). */
   secondaryProvider: RdapProvider;
-  /** Endpoint origin of the second leg, for diagnostics. */
   secondaryOrigin: string;
-  /**
-   * Fraction of consensus-confirmed Available domains that may be
-   * unverifiable before the run is flagged degraded. Default: 0.5.
-   */
   degradedRatio?: number;
-  /** Minimum consensus-confirmed domains before a degradation is flagged. Default: 10. */
   degradedMin?: number;
-  /**
-   * Concurrency ceiling for the verification phase (ADR-0050 §4).
-   * Bounded independently of RDAP_BATCH_CONCURRENCY so a verification
-   * stampede cannot multiply registry traffic.
-   */
   consensusConcurrency?: number;
-  /**
-   * Opt-in WHOIS rescue leg (ADR-0051): when the second RDAP leg cannot
-   * answer, the verdict is re-checked through WHOIS within the same bounded
-   * budget as the stage's enrichment race. False by default — fail-closed.
-   */
   rescueWhoisEnabled?: boolean;
-  /**
-   * Per-TLD forced WHOIS rescue (ADR-0051 extension): for TLDs in this set,
-   * WHOIS rescue is attempted even when rescueWhoisEnabled is false.
-   * Targets ccTLDs with historically unstable RDAP (e.g., .it, .de, .jp, .br).
-   */
   rescueWhoisTlds?: Set<string>;
-  /**
-   * Per-TLD authoritative origin resolver (ADR-0058): returns the origins
-   * that are authoritative for a TLD (IANA bootstrap, rdap.org excluded —
-   * it doubles as the default second leg). When configured, the stage skips
-   * the second leg and counts the verdict as originOverlap whenever the
-   * second endpoint's origin is authoritative for the candidate's TLD: the
-   * 2-of-2 would be a rubber stamp. Unset disables the runtime guard.
-   *
-   * Fail-closed by default (ADR-0060): a resolver rejection downgrades the
-   * verdict as unverifiable (originGuardUnavailable) instead of consulting
-   * a second leg that might overlap the TLD's authoritative origins.
-   *
-   * A second, unconditional rubber-stamp guard runs regardless: when the
-   * origin that served the primary verdict equals the second leg origin
-   * (e.g. rdap.org winning the primary race AND being the second leg), the
-   * second opinion is skipped and counted as originOverlap (ADR-0050).
-   */
   tldOriginsResolver?: (tld: string) => Promise<string[]>;
-  /**
-   * Optional third RDAP provider for tertiary consensus (ADR-0050/0064 parallel).
-   * When configured, domains the secondary cannot answer (error/timeout/Unknown)
-   * are re-queried against this third independent provider. A tertiary Available
-   * confirmation rescues the domain; a tertiary Registered answer vetoes it.
-   * The tertiary leg is subject to the same origin-disjointness guards as the
-   * secondary: it must not overlap the primary's authoritative origins nor the
-   * secondary's endpoint origin.
-   */
-  tertiaryProvider?: RdapProvider;
-  /** Endpoint origin of the tertiary leg, for diagnostics. */
-  tertiaryOrigin?: string;
-  /**
-   * Consensus mode (replaces deprecated requiredConfirmations):
-   * - SECONDARY_ONLY: secondary alone suffices, tertiary never queried.
-   * - SECONDARY_THEN_TERTIARY_RESCUE: secondary first; tertiary rescues on failure.
-   * - BOTH_REQUIRED: both secondary and tertiary must confirm.
-   * Default: SECONDARY_THEN_TERTIARY_RESCUE when tertiaryProvider is configured,
-   *   SECONDARY_ONLY otherwise.
-   * @deprecated Use mode instead. Kept for backward compatibility.
-   */
-  requiredConfirmations?: number;
-  /** Explicit consensus mode (preferred over requiredConfirmations). */
-  mode?: RdapConsensusMode;
 }
 
-/** Default fraction of unverifiable Available domains that flags a run degraded. */
 const DEFAULT_CONSENSUS_DEGRADED_RATIO = 0.5;
-/** Default minimum consensus-confirmed domains before degradation counts. */
 const DEFAULT_CONSENSUS_DEGRADED_MIN = 10;
-/** Default concurrency ceiling for the consensus verification phase. */
 const DEFAULT_CONSENSUS_CONCURRENCY = 10;
 
 export class RdapConfirmationStage implements Stage<DomainCandidate> {
@@ -182,23 +96,8 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     private readonly whoisProvider?: WhoisProvider,
     private readonly concurrency: number = 10,
     private readonly enrichTimeoutMs: number = DEFAULT_ENRICH_TIMEOUT_MS,
-    /** Maximum time a WHOIS answer may take before it is discarded. RDAP is
-     *  authoritative (ADR-0035): within the budget a WHOIS disagreement still
-     *  blocks conservatively, beyond the budget RDAP decides. */
     private readonly whoisBudgetMs: number = DEFAULT_WHOIS_BUDGET_MS,
-    /**
-     * Provider that bypasses the persistent RDAP cache (live lookup that
-     * still refreshes the entry). Used for closeout candidates, which are in
-     * a transitional state (aftermarket/expiring): a stale cached
-     * "Available"/"Registered" verdict would otherwise gate their run,
-     * mirroring the DNS stage's forceRecheck for closeout sources.
-     */
     private readonly freshRdapProvider?: RdapProvider,
-    /**
-     * Optional 2-of-2 consensus gate (ADR-0050): every Available verdict is
-     * re-confirmed by an independent second provider. Fail-closed — a
-     * disagreement or unverifiable confirmation downgrades the candidate.
-     */
     private readonly consensusConfig?: RdapConsensusConfig,
   ) {}
 
@@ -211,9 +110,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
 
     let passed: DomainCandidate[] = [];
     const filtered: DomainCandidate[] = [];
-    // Origin that served each primary verdict (RdapResult.sourceOrigin) —
-    // the consensus gate compares it against the second leg endpoint to
-    // catch the same-server rubber stamp (ADR-0050).
     const winningOrigins = new Map<string, string>();
 
     const batches = toBatches(candidates, this.concurrency);
@@ -271,11 +167,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       }
     }
 
-    // 2-of-2 consensus (ADR-0050): every primary-Available verdict must be
-    // independently confirmed by the second provider. Fail-closed — a
-    // disagreement or an unverifiable answer downgrades the candidate. The
-    // gate covers BOTH provider paths (cached and fresh closeout lookups):
-    // it runs on the stage's outcome, not inside a single provider.
     const rdapConsensusStats: RdapConsensusStats | undefined = this.consensusConfig
       ? { verified: 0, disagreed: 0, unverifiable: 0, degraded: false }
       : undefined;
@@ -303,23 +194,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
   }
 
-  /**
-   * Re-confirms every primary-Available verdict on the dedicated second leg
-   * (ADR-0050) and optional tertiary leg. A definitive Registered (or premium)
-   * answer from either verification leg vetoes the domain — "registered wins",
-   * ADR-0002 conservatism. A failure to answer (error/timeout/Unknown) from
-   * the secondary triggers the tertiary leg (when configured): a tertiary
-   * Available confirmation rescues the domain; a tertiary Registered answer
-   * vetoes it. Both legs are skipped (counted unverifiable) when they would be
-   * a rubber stamp: their origin is authoritative for the TLD (ADR-0058) or
-   * matches the winning primary/secondary origin (ADR-0050). Returns the
-   * candidates that survived the gate.
-   *
-   * Runs under its own concurrency ceiling (RDAP_CONSENSUS_BULK_CONCURRENCY
-   * for secondary, RDAP_TERTIARY_BULK_CONCURRENCY for tertiary) and flags
-   * the run degraded when the secondary cannot verify the majority of a
-   * minimum sample, mirroring the DNS consensus-degradation policy (ADR-0039).
-   */
   async #verifyConsensus(
     passed: DomainCandidate[],
     filtered: DomainCandidate[],
@@ -332,21 +206,9 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     const logger = getLogger();
     const concurrency = cfg.consensusConcurrency ?? DEFAULT_CONSENSUS_CONCURRENCY;
 
-    // Outcome per verified domain. Batches are re-checked in slices over the
-    // original array; the survivors are re-assembled at the end.
     const survivor = new Set<string>();
 
-    // ADR-0058 origin-overlap guard: per-TLD authoritative origins (IANA
-    // bootstrap, rdap.org excluded upstream) resolved once per TLD per run.
-    // In-flight resolutions are deduplicated so a parallel batch cannot
-    // hammer the resolver for the same TLD.
-    //
-    // ADR-0060: a resolver failure is fail-closed, not fail-open. When the
-    // guard cannot prove the verification leg is disjoint from the TLD's
-    // authoritative origins, the opinion is never consulted (it could be a
-    // rubber stamp) and the verdict is downgraded as unverifiable.
     const secondaryOrigin = rdapUrlOrigin(cfg.secondaryOrigin);
-    const tertiaryOrigin = cfg.tertiaryOrigin ? rdapUrlOrigin(cfg.tertiaryOrigin) : undefined;
     const authoritativeOriginsByTld = new Map<string, string[]>();
     const authoritativeOriginsInFlight = new Map<string, Promise<string[] | undefined>>();
     const resolveAuthoritativeOrigins = async (tld: string): Promise<string[] | undefined> => {
@@ -355,11 +217,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       if (cached !== undefined) return cached;
       const inFlight = authoritativeOriginsInFlight.get(tld);
       if (inFlight !== undefined) return inFlight;
-      // An unresolved TLD resolves to an empty array (no overlap, leg consulted)
-      // — the same behaviour as a successful empty lookup. A rejection is
-      // deliberately NOT caught here: it must propagate to the per-candidate
-      // handler below, which downgrades the verdict (fail-closed, ADR-0060)
-      // instead of consulting a possibly-overlapping leg.
       const pending = cfg
         .tldOriginsResolver(tld)
         .then((origins) => {
@@ -373,20 +230,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return pending;
     };
 
-    const hasTertiary = cfg.tertiaryProvider !== undefined;
-    // Determine consensus mode: explicit mode > deprecated requiredConfirmations > default
-    const mode: RdapConsensusMode =
-      cfg.mode ??
-      ((): RdapConsensusMode => {
-        if (hasTertiary) {
-          // With tertiary: default to rescue mode (secondary first, tertiary rescues)
-          return RdapConsensusMode.SecondaryThenTertiaryRescue;
-        }
-        return RdapConsensusMode.SecondaryOnly;
-      })();
-    // Backward compatibility: if requiredConfirmations explicitly set to 2, use BothRequired
-    const effectiveMode = cfg.requiredConfirmations === 2 ? RdapConsensusMode.BothRequired : mode;
-
     const batches = toBatches(passed, concurrency);
     for (const batch of batches) {
       if (signal?.aborted) break;
@@ -396,25 +239,18 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           try {
             authoritativeOrigins = await resolveAuthoritativeOrigins(candidate.tld);
           } catch (error) {
-            // Fail-closed (ADR-0060): the guard could not rule out that a
-            // verification leg is an authoritative origin for the TLD.
             logger.warn(
               { error, tld: candidate.tld, domain: candidate.domain },
-              'RDAP: authoritative origin lookup failed — verification legs not consulted ' +
-                '(fail-closed, ADR-0060)',
+              'RDAP: authoritative origin lookup failed — verification leg not consulted (fail-closed, ADR-0060)',
             );
             return {
               candidate,
               secondaryResult: undefined,
-              tertiaryResult: undefined,
               secondaryOverlap: false,
-              tertiaryOverlap: false,
               secondaryGuardUnavailable: true,
-              tertiaryGuardUnavailable: true,
             };
           }
 
-          // ---- Secondary leg (2-of-2) ----
           let secondaryResult: RdapResult | undefined;
           let secondaryOverlap = false;
           let secondaryGuardUnavailable = false;
@@ -435,60 +271,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
               secondaryResult = await cfg.secondaryProvider.confirm(candidate.domain, signal);
             }
           } catch {
-            // Error from secondary provider — will trigger tertiary if available
-          }
-
-          // ---- Tertiary leg (optional) ----
-          let tertiaryResult: RdapResult | undefined;
-          let tertiaryOverlap = false;
-          let tertiaryGuardUnavailable = false;
-
-          if (hasTertiary && tertiaryOrigin !== undefined) {
-            try {
-              const authoritativeOverlap =
-                authoritativeOrigins !== undefined &&
-                hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.tertiaryOrigin!);
-              const winnerOverlap = hasTertiaryWinningOriginOverlap(
-                winningOrigins.get(candidate.domain),
-                secondaryOrigin,
-                cfg.tertiaryOrigin!,
-              );
-              if (authoritativeOverlap || winnerOverlap) {
-                tertiaryOverlap = true;
-              } else {
-                // Only query tertiary when secondary could not confirm
-                const secondaryConfirmed =
-                  secondaryResult !== undefined &&
-                  secondaryResult.status === DomainStatus.Available &&
-                  !secondaryResult.isPremium;
-                const secondaryVetoed =
-                  secondaryResult !== undefined &&
-                  (secondaryResult.status === DomainStatus.Registered || secondaryResult.isPremium);
-
-                // If secondary vetoed, we don't query tertiary (registered wins)
-                // If secondary confirmed and mode=SECONDARY_ONLY, we don't need tertiary
-                // If secondary confirmed and mode=BOTH_REQUIRED, we need tertiary too
-                // If secondary failed/unknown and mode!=SECONDARY_ONLY, try tertiary
-                const needTertiary =
-                  !secondaryConfirmed || effectiveMode === RdapConsensusMode.BothRequired;
-
-                if (needTertiary && !secondaryVetoed) {
-                  tertiaryResult = await cfg.tertiaryProvider!.confirm(candidate.domain, signal);
-                }
-              }
-            } catch {
-              // Error from tertiary provider
-            }
+            // Ignore secondary provider errors — treated as unverifiable
           }
 
           return {
             candidate,
             secondaryResult,
-            tertiaryResult,
             secondaryOverlap,
-            tertiaryOverlap,
             secondaryGuardUnavailable,
-            tertiaryGuardUnavailable,
             secondaryWinnerOverlap,
             secondaryConfirmed:
               secondaryResult !== undefined &&
@@ -501,19 +291,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       for (const {
         candidate,
         secondaryResult,
-        tertiaryResult,
         secondaryOverlap,
-        tertiaryOverlap,
         secondaryGuardUnavailable,
-        tertiaryGuardUnavailable,
         secondaryWinnerOverlap,
         secondaryConfirmed,
       } of results) {
-        // ---- Secondary leg outcome ----
         if (secondaryGuardUnavailable) {
           stats.unverifiable++;
           stats.originGuardUnavailable = (stats.originGuardUnavailable ?? 0) + 1;
-          // Still try tertiary if available
         } else if (secondaryOverlap) {
           stats.unverifiable++;
           stats.originOverlap = (stats.originOverlap ?? 0) + 1;
@@ -529,18 +314,11 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           );
         } else if (secondaryResult !== undefined) {
           if (secondaryResult.status === DomainStatus.Available && !secondaryResult.isPremium) {
-            if (effectiveMode === RdapConsensusMode.SecondaryOnly || !hasTertiary) {
-              // Secondary alone confirms (SecondaryOnly mode or no tertiary)
-              survivor.add(candidate.domain);
-              stats.verified++;
-              continue;
-            }
-            // BOTH_REQUIRED mode: need tertiary too, fall through
-          } else if (
-            secondaryResult.status === DomainStatus.Registered ||
-            secondaryResult.isPremium
-          ) {
-            // Secondary vetoes — registered wins, never query tertiary
+            survivor.add(candidate.domain);
+            stats.verified++;
+            continue;
+          }
+          if (secondaryResult.status === DomainStatus.Registered || secondaryResult.isPremium) {
             stats.disagreed++;
             logger.warn(
               {
@@ -554,75 +332,11 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           }
         }
 
-        // ---- Tertiary leg (when secondary didn't confirm) ----
-        if (hasTertiary) {
-          if (tertiaryGuardUnavailable) {
-            stats.unverifiable++;
-            stats.tertiaryOriginGuardUnavailable = (stats.tertiaryOriginGuardUnavailable ?? 0) + 1;
-            continue;
-          }
-          if (tertiaryOverlap) {
-            stats.unverifiable++;
-            stats.tertiaryOriginOverlap = (stats.tertiaryOriginOverlap ?? 0) + 1;
-            logger.warn(
-              { domain: candidate.domain, origin: tertiaryOrigin },
-              'RDAP: tertiary consensus skipped — the tertiary leg origin is authoritative ' +
-                'for the candidate TLD or matches winning origin (rubber-stamp guard) — ' +
-                'downgraded as unverifiable',
-            );
-            continue;
-          }
-
-          if (tertiaryResult !== undefined) {
-            if (tertiaryResult.status === DomainStatus.Available && !tertiaryResult.isPremium) {
-              // Tertiary confirms
-              if (secondaryConfirmed) {
-                // Both secondary and tertiary confirmed (BOTH_REQUIRED mode)
-                stats.verified++;
-              } else {
-                // Secondary failed, tertiary rescued
-                stats.verified++;
-                stats.tertiaryRescued = (stats.tertiaryRescued ?? 0) + 1;
-              }
-              survivor.add(candidate.domain);
-              continue;
-            }
-            if (tertiaryResult.status === DomainStatus.Registered || tertiaryResult.isPremium) {
-              // Tertiary vetoes
-              stats.tertiaryDisagreed = (stats.tertiaryDisagreed ?? 0) + 1;
-              stats.disagreed++;
-              logger.warn(
-                {
-                  domain: candidate.domain,
-                  tertiaryStatus: tertiaryResult.status,
-                  isPremium: tertiaryResult.isPremium,
-                },
-                'RDAP: tertiary consensus vetoed (tertiary leg says registered) — downgraded',
-              );
-              continue;
-            }
-          }
-
-          // Tertiary could not answer or gave Unknown
-          // If secondary also couldn't confirm, this is unverifiable
-          if (!secondaryConfirmed) {
-            stats.unverifiable++;
-            continue;
-          }
-        }
-
-        // ---- WHOIS rescue (ADR-0051) for secondary leg ----
-        // Only attempted when secondary couldn't answer AND no tertiary rescue happened
         const forceRescue = cfg.rescueWhoisTlds?.has(candidate.tld.toLowerCase()) === true;
         if (
           (cfg.rescueWhoisEnabled === true || forceRescue) &&
           this.whoisProvider !== undefined &&
-          !secondaryConfirmed &&
-          !(
-            hasTertiary &&
-            tertiaryResult !== undefined &&
-            tertiaryResult.status === DomainStatus.Available
-          )
+          !secondaryConfirmed
         ) {
           const rescued = await this.#tryWhoisRescue(candidate);
           if (rescued === true) {
@@ -651,10 +365,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       }
     }
 
-    // Fail-closed with a visible flag (ADR-0039 pattern): when the second leg
-    // cannot verify the majority of a minimum sample of Available domains,
-    // the run completes but is marked degraded so the caller knows the
-    // verdicts downstream rest on a single provider. Small runs never flag.
     const consensusTotal = stats.verified + stats.disagreed + stats.unverifiable;
     const degradedRatio = cfg.degradedRatio ?? DEFAULT_CONSENSUS_DEGRADED_RATIO;
     const degradedMin = cfg.degradedMin ?? DEFAULT_CONSENSUS_DEGRADED_MIN;
@@ -683,8 +393,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         remaining.push(candidate);
         continue;
       }
-      // Fail-closed (ADR-0050): both a definitive veto and a failure to
-      // verify downgrade the candidate to Unknown — never Available.
       filtered.push({
         ...candidate,
         rdapStatus: DomainStatus.Unknown,
@@ -695,14 +403,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     return remaining;
   }
 
-  /**
-   * WHOIS rescue leg for the 2-of-2 consensus gate (ADR-0051): re-checks a
-   * verdict the second RDAP leg could not confirm, through the WHOIS channel
-   * within the same bounded budget as the stage's enrichment race. Returns
-   * true when WHOIS confirms Available (rescued), false when WHOIS says
-   * registered (veto — "registered wins", ADR-0002), and undefined when the
-   * WHOIS answer is unavailable or late (stays unverifiable, fail-closed).
-   */
   async #tryWhoisRescue(candidate: DomainCandidate): Promise<boolean | undefined> {
     const budgetSignal = AbortSignal.any([AbortSignal.timeout(this.whoisBudgetMs)]);
     try {
@@ -721,9 +421,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     }
   }
 
-  /** Closeout candidates always hit the fresh provider (cache-bypassing live
-   *  lookup): they are in a transitional state where a stale cached verdict
-   *  would wrongly gate them. Mirror of the DNS stage's closeout forceRecheck. */
   rdapProviderFor(candidate: DomainCandidate): RdapProvider {
     if (candidate.source === CandidateSource.CloseoutCsv && this.freshRdapProvider !== undefined) {
       return this.freshRdapProvider;
@@ -744,9 +441,6 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       return rdapToResult(rdap);
     }
 
-    // WHOIS is bounded: a response that does not arrive within whoisBudgetMs
-    // is discarded and RDAP is authoritative (ADR-0035). The race guarantees
-    // the budget even if the WHOIS provider is not abort-aware.
     let whois: WhoisResult | undefined;
     try {
       const whoisBudgetSignal = AbortSignal.any([

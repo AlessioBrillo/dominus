@@ -45,7 +45,6 @@ import {
   TrademarkGateStage,
   DbCheckpointStore,
 } from '../pipeline/index.js';
-import type { RdapConsensusConfig } from '../pipeline/stages/rdap-confirmation-stage.js';
 import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
 import {
   PortfolioManager,
@@ -108,7 +107,6 @@ import {
   probeConsensusProvider,
   probeRdapConsensusEndpoint,
   createRdapConsensusConfig,
-  createRdapTertiaryConfig,
   buildWhoisProviders,
   buildRateLimiters,
   buildAnonBudgetGate,
@@ -951,58 +949,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     void probeRdapConsensusEndpoint(config, rdapConsensusConfig.secondaryProvider);
   }
 
-  // 2-of-2+1 RDAP consensus: optional tertiary leg (ADR-0050/0064 parallel).
-  // When enabled, domains the second leg cannot answer get a third opinion
-  // from an independent registry-authoritative endpoint. Mirrors the DNS
-  // tertiary leg pattern: dedicated budget, disjointness checks, rescue/veto.
-  const rdapTertiaryConfig = await createRdapTertiaryConfig(
-    config,
-    undefined, // rate limiter will be built inside
-    redisClient,
-    // ADR-0058 origin-overlap guard: authoritative per-TLD origins for the
-    // tertiary leg's disjointness check. Reuses the same resolver as secondary.
-    // Defensive: on any resolver error, return empty array (no known
-    // authoritative origins = no overlap possible) instead of throwing,
-    // which would trigger fail-closed downgrade (ADR-0060).
-    async (tld: string): Promise<string[]> => {
-      try {
-        const servers = await ianaBootstrap.getServers(tld);
-        return servers
-          .map((server) => server.baseUrl)
-          .filter((url) => rdapUrlOrigin(url) !== rdapUrlOrigin(RDAP_ORG_UNIVERSAL.baseUrl));
-      } catch (err) {
-        getLogger().warn(
-          { err, tld },
-          'RDAP: authoritative origins resolver failed — treating as no overlap (fail-open for guard)',
-        );
-        return [];
-      }
-    },
-  );
-
-  // Merge tertiary config into secondary config (same type, tertiary fields
-  // extend the base). The stage handles both legs from the unified config.
-  let mergedRdapConsensusConfig: RdapConsensusConfig | undefined = rdapConsensusConfig;
-  if (rdapTertiaryConfig !== undefined && rdapConsensusConfig !== undefined) {
-    mergedRdapConsensusConfig = {
-      secondaryProvider: rdapConsensusConfig.secondaryProvider,
-      secondaryOrigin: rdapConsensusConfig.secondaryOrigin,
-      degradedRatio: rdapConsensusConfig.degradedRatio ?? config.RDAP_CONSENSUS_DEGRADED_RATIO,
-      degradedMin: rdapConsensusConfig.degradedMin ?? config.RDAP_CONSENSUS_DEGRADED_MIN,
-      consensusConcurrency:
-        rdapConsensusConfig.consensusConcurrency ?? config.RDAP_CONSENSUS_BULK_CONCURRENCY,
-      rescueWhoisEnabled:
-        rdapConsensusConfig.rescueWhoisEnabled ?? config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED,
-      rescueWhoisTlds: rdapConsensusConfig.rescueWhoisTlds ?? new Set<string>(),
-      tldOriginsResolver: rdapConsensusConfig.tldOriginsResolver,
-      tertiaryProvider: rdapTertiaryConfig.secondaryProvider,
-      tertiaryOrigin: rdapTertiaryConfig.secondaryOrigin,
-      requiredConfirmations: 1, // Default: secondary alone suffices; tertiary rescues on failure
-    } as RdapConsensusConfig;
-    // Startup probe for the tertiary leg
-    void probeRdapConsensusEndpoint(config, rdapTertiaryConfig.secondaryProvider);
-  }
-
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(
@@ -1018,7 +964,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.WHOIS_PER_QUERY_TIMEOUT_MS,
       config.RDAP_WHOIS_BUDGET_MS,
       freshRdapProvider,
-      mergedRdapConsensusConfig,
+      rdapConsensusConfig,
     ),
     new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
