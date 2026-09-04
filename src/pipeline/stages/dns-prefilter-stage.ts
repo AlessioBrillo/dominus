@@ -103,6 +103,17 @@ export interface ConsensusDnsConfig {
     strategy: 'dual-redundant' | 'single';
   };
   /**
+   * Dual-redundant secondary configuration (ADR-00XX): when dual-redundant mode
+   * is enabled, this contains the two independent secondary providers that are
+   * raced for rescue/veto. A single secondary provider failure no longer degrades
+   * the entire secondary leg.
+   */
+  secondaryConfig?: {
+    primary: DnsProvider;
+    secondary: DnsProvider;
+    strategy: 'dual-redundant' | 'single';
+  };
+  /**
    * Anycast overlap details from runtime validation (ADR-0068).
    * Populated when DNS_CONSENSUS_ON_FAILURE=degraded-anycast or when
    * anycast overlap is detected during validation.
