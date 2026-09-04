@@ -610,6 +610,96 @@ const configSchema = z
      */
     DNS_CONSENSUS_NAMESERVERS: z.string().optional(),
     /**
+     * Primary secondary DNS strategy (ADR-00XX): first independent operator for
+     * dual-redundant secondary leg. Default: 'dot-alternate' (AdGuard over DoT).
+     * Used when DNS_CONSENSUS_DUAL_REDUNDANT=true.
+     */
+    DNS_CONSENSUS_STRATEGY_1: z
+      .enum([
+        'native',
+        'native-with-doh-fallback',
+        'doh-only',
+        'doh-primary',
+        'dot-alternate',
+        'dot-with-doh-fallback',
+        'multi-doh-plus-native',
+        'doh-alternate',
+        'doh-primary-no-fallback',
+        'dot-consensus',
+        'doh-tertiary',
+      ])
+      .optional()
+      .default('dot-alternate'),
+    /**
+     * Secondary secondary DNS strategy (ADR-00XX): second independent operator
+     * for dual-redundant secondary leg. Default: 'dot-consensus' (Mullvad over DoT).
+     * Used when DNS_CONSENSUS_DUAL_REDUNDANT=true.
+     */
+    DNS_CONSENSUS_STRATEGY_2: z
+      .enum([
+        'native',
+        'native-with-doh-fallback',
+        'doh-only',
+        'doh-primary',
+        'dot-alternate',
+        'dot-with-doh-fallback',
+        'multi-doh-plus-native',
+        'doh-alternate',
+        'doh-primary-no-fallback',
+        'dot-consensus',
+        'doh-tertiary',
+      ])
+      .optional()
+      .default('dot-consensus'),
+    /**
+     * Enable dual-redundant secondary leg (ADR-00XX): when true, two independent
+     * secondary providers are created (using DNS_CONSENSUS_STRATEGY_1 and _2) and
+     * raced for rescue/veto. A single secondary provider failure no longer degrades
+     * the entire secondary leg. Default: true.
+     */
+    DNS_CONSENSUS_DUAL_REDUNDANT: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .optional()
+      .default(true),
+    /**
+     * Rate limiting for secondary provider 1 (ADR-00XX): max tokens for the first
+     * secondary provider. Default: 10 req/sec (half of legacy secondary budget).
+     */
+    DNS_CONSENSUS_RATE_LIMIT_TOKENS_1: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .default(10),
+    /** Rate limiting: refill interval in ms for secondary provider 1 (default: 1000). */
+    DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS_1: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .default(1000),
+    /**
+     * Rate limiting for secondary provider 2 (ADR-00XX): max tokens for the second
+     * secondary provider. Default: 10 req/sec (half of legacy secondary budget).
+     */
+    DNS_CONSENSUS_RATE_LIMIT_TOKENS_2: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .optional()
+      .default(10),
+    /** Rate limiting: refill interval in ms for secondary provider 2 (default: 1000). */
+    DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS_2: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .optional()
+      .default(1000),
+    /**
      * Require that the consensus secondary and tertiary resolver sets are
      * disjoint from the primary resolver set (ADR-0065, ADR-0066). When true
      * (default), the bootstrap disjointness check vetoes the consensus gate if

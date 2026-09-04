@@ -157,11 +157,18 @@ export interface TertiaryDnsConfig {
   strategy: 'dual-redundant' | 'single';
 }
 
+export interface SecondaryDnsConfig {
+  primary: DnsProvider;
+  secondary: DnsProvider;
+  strategy: 'dual-redundant' | 'single';
+}
+
 export interface ConsensusEngineOptions {
   primary: DnsProvider;
   secondary: DnsProvider;
   tertiary?: DnsProvider; // Legacy single tertiary mode
   tertiaryConfig?: TertiaryDnsConfig;
+  secondaryConfig?: SecondaryDnsConfig;
   disjointnessValidator: {
     isDisjoint(primaryEndpoints: unknown, secondaryEndpoints: unknown): boolean;
   };
@@ -297,32 +304,51 @@ export async function runConsensus(
     }
   }
 
-  // 2. Secondary lookup
+  // 2. Secondary lookup (dual-redundant or single)
   const secondaryStartedAt = performance.now();
-  let secondaryResult: DnsCheckResult | undefined;
-  let secondaryError: unknown;
 
-  try {
-    secondaryResult = await secondary.checkAvailability(domain, signal, {
-      ...checkOptions,
-      forceRecheck: true,
-    });
-  } catch (err) {
-    secondaryError = err;
+  const secondaryProviders =
+    options.secondaryConfig?.strategy === 'dual-redundant'
+      ? [options.secondaryConfig.primary, options.secondaryConfig.secondary]
+      : [secondary]; // Legacy single secondary mode
+
+  // Race all secondary providers in parallel
+  const secondaryPromises = secondaryProviders.map(async (provider) => {
+    let result: DnsCheckResult | undefined;
+    let error: unknown;
+    try {
+      result = await provider.checkAvailability(domain, signal, {
+        ...checkOptions,
+        forceRecheck: true,
+      });
+    } catch (err) {
+      error = err;
+    }
+    return { result, error, provider };
+  });
+
+  const secondaryResults = await Promise.all(secondaryPromises);
+
+  // Emit telemetry for each secondary provider
+  for (const { result, error, provider } of secondaryResults) {
+    emitTelemetry(
+      telemetry,
+      { transport: 'consensus', endpoint: provider.name },
+      result,
+      error,
+      'consensus',
+      secondaryStartedAt,
+    );
   }
 
-  emitTelemetry(
-    telemetry,
-    { transport: 'consensus', endpoint: secondary.name },
-    secondaryResult,
-    secondaryError,
-    'consensus',
-    secondaryStartedAt,
+  // Check for vetoes: any Registered from any secondary provider vetoes
+  const hasVeto = secondaryResults.some(
+    (r) => r.result?.status === DomainStatus.Registered || r.result?.isParked === true,
   );
 
-  // Secondary veto: Registered wins
-  if (secondaryResult?.status === DomainStatus.Registered || secondaryResult?.isParked === true) {
+  if (hasVeto) {
     logger.warn({ domain }, 'Consensus vetoed by secondary (Registered) — downgraded to Unknown');
+    consensusStats.disagreed = 1;
     return {
       result: {
         domain,
@@ -333,7 +359,10 @@ export async function runConsensus(
     };
   }
 
-  const secondaryConfirmed = secondaryResult?.status === DomainStatus.Available;
+  // Check for confirmations: any Available from any secondary provider confirms
+  let secondaryConfirmed = secondaryResults.some(
+    (r) => r.result?.status === DomainStatus.Available,
+  );
 
   // If secondary confirms and we only need 1 confirmation, we're done
   if (secondaryConfirmed && config.requiredConfirmations === 1) {

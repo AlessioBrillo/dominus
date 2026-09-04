@@ -499,6 +499,263 @@ export function buildSecondaryDnsProvider(
 }
 
 /**
+ * Builds dual-redundant secondary DNS consensus providers (ADR-00XX).
+ * When DNS_CONSENSUS_DUAL_REDUNDANT=true, creates two independent secondary
+ * providers using DNS_CONSENSUS_STRATEGY_1 and DNS_CONSENSUS_STRATEGY_2.
+ * Each has its own rate limiter (split budget) and independent disjointness checks.
+ * Returns array of providers (1 or 2 depending on config).
+ */
+async function buildSecondaryConsensusProviders(
+  config: Config,
+  consensusRateLimiter: RateLimiterLike,
+  primaryGroups: DnsResolverGroup[],
+  primaryNameservers: string[] | undefined,
+  breakers?: DnsBreakerRegistryLike,
+  legTelemetry?: DnsLegTelemetry,
+  onDisjointnessPartial?: () => void,
+): Promise<DnsProvider[]> {
+  // Dual-redundant mode (ADR-00XX): create two independent secondary providers
+  if (config.DNS_CONSENSUS_DUAL_REDUNDANT) {
+    const providers: DnsProvider[] = [];
+
+    // Provider 1: DNS_CONSENSUS_STRATEGY_1
+    const consensusNameservers1 = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+    const effectiveConsensus1Strategy: DnsLookupStrategy = consensusNameservers1
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY_1);
+    const consensus1Groups = strategyToResolverGroups(
+      effectiveConsensus1Strategy,
+      config.DNS_DOH_ENDPOINT,
+    );
+    const effectiveConsensus1Nameservers = consensusNameservers1 ?? primaryNameservers;
+
+    // Rate limiter for secondary provider 1 (split budget)
+    const consensus1RateLimiter = config.REDIS_URL
+      ? new RedisRateLimiter({
+          tokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS_1 ?? 10,
+          intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS_1 ?? 1000,
+          namespace: 'dns:consensus1:',
+        } as RedisRateLimiterConfig)
+      : new PriorityRateLimiter(
+          {
+            maxTokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS_1 ?? 10,
+            tokensPerInterval: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS_1 ?? 10,
+            intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS_1 ?? 1000,
+          },
+          0,
+        );
+
+    // Independence check against primary for provider 1
+    const primaryReport1 = await validateConsensusDisjointness(
+      consensus1Groups,
+      effectiveConsensus1Nameservers,
+      primaryGroups,
+      primaryNameservers,
+      {
+        excludeFallbacks: true,
+        ...(onDisjointnessPartial !== undefined
+          ? { onResolutionPartial: onDisjointnessPartial }
+          : {}),
+      },
+    );
+
+    if (primaryReport1.ok) {
+      providers.push(
+        new NodeDnsProvider({
+          cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+          maxSize: 0,
+          lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+          lookupStrategy: effectiveConsensus1Strategy,
+          dohEndpoint: config.DNS_DOH_ENDPOINT,
+          dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+          bulkConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY ?? 20,
+          ...(effectiveConsensus1Nameservers !== undefined
+            ? { nameservers: effectiveConsensus1Nameservers }
+            : {}),
+          rateLimiter: consensus1RateLimiter,
+          retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+          breakers,
+          ...(legTelemetry !== undefined
+            ? { onLegResult: legTelemetry, legRole: 'consensus' as const }
+            : {}),
+          dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+          dnssecNativeEnabled:
+            config.DNS_NATIVE_DNSSEC_ENABLED && effectiveConsensus1Nameservers !== undefined,
+        }),
+      );
+    } else {
+      const reason =
+        primaryReport1.overlapEndpoints.length > 0
+          ? `Static overlap: ${primaryReport1.overlapEndpoints.join(', ')}`
+          : `Operator overlap: ${primaryReport1.overlapOperators.join(', ')}`;
+      getLogger().warn(
+        {
+          overlapEndpoints: primaryReport1.overlapEndpoints,
+          overlapOperators: primaryReport1.overlapOperators,
+        },
+        `DNS: secondary provider 1 (${config.DNS_CONSENSUS_STRATEGY_1}) DISABLED at bootstrap — ${reason}.`,
+      );
+    }
+
+    // Provider 2: DNS_CONSENSUS_STRATEGY_2
+    const consensusNameservers2 = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+    const effectiveConsensus2Strategy: DnsLookupStrategy = consensusNameservers2
+      ? 'native'
+      : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY_2);
+    const consensus2Groups = strategyToResolverGroups(
+      effectiveConsensus2Strategy,
+      config.DNS_DOH_ENDPOINT,
+    );
+    const effectiveConsensus2Nameservers = consensusNameservers2 ?? primaryNameservers;
+
+    // Rate limiter for secondary provider 2 (split budget)
+    const consensus2RateLimiter = config.REDIS_URL
+      ? new RedisRateLimiter({
+          tokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS_2 ?? 10,
+          intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS_2 ?? 1000,
+          namespace: 'dns:consensus2:',
+        } as RedisRateLimiterConfig)
+      : new PriorityRateLimiter(
+          {
+            maxTokens: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS_2 ?? 10,
+            tokensPerInterval: config.DNS_CONSENSUS_RATE_LIMIT_TOKENS_2 ?? 10,
+            intervalMs: config.DNS_CONSENSUS_RATE_LIMIT_INTERVAL_MS_2 ?? 1000,
+          },
+          0,
+        );
+
+    // Independence check against primary for provider 2
+    const primaryReport2 = await validateConsensusDisjointness(
+      consensus2Groups,
+      effectiveConsensus2Nameservers,
+      primaryGroups,
+      primaryNameservers,
+      {
+        excludeFallbacks: true,
+        ...(onDisjointnessPartial !== undefined
+          ? { onResolutionPartial: onDisjointnessPartial }
+          : {}),
+      },
+    );
+
+    if (primaryReport2.ok) {
+      providers.push(
+        new NodeDnsProvider({
+          cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+          maxSize: 0,
+          lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+          lookupStrategy: effectiveConsensus2Strategy,
+          dohEndpoint: config.DNS_DOH_ENDPOINT,
+          dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+          bulkConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY ?? 20,
+          ...(effectiveConsensus2Nameservers !== undefined
+            ? { nameservers: effectiveConsensus2Nameservers }
+            : {}),
+          rateLimiter: consensus2RateLimiter,
+          retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+          breakers,
+          ...(legTelemetry !== undefined
+            ? { onLegResult: legTelemetry, legRole: 'consensus' as const }
+            : {}),
+          dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+          dnssecNativeEnabled:
+            config.DNS_NATIVE_DNSSEC_ENABLED && effectiveConsensus2Nameservers !== undefined,
+        }),
+      );
+    } else {
+      const reason =
+        primaryReport2.overlapEndpoints.length > 0
+          ? `Static overlap: ${primaryReport2.overlapEndpoints.join(', ')}`
+          : `Operator overlap: ${primaryReport2.overlapOperators.join(', ')}`;
+      getLogger().warn(
+        {
+          overlapEndpoints: primaryReport2.overlapEndpoints,
+          overlapOperators: primaryReport2.overlapOperators,
+        },
+        `DNS: secondary provider 2 (${config.DNS_CONSENSUS_STRATEGY_2}) DISABLED at bootstrap — ${reason}.`,
+      );
+    }
+
+    if (providers.length === 0) {
+      throw new Error(
+        'DNS secondary consensus gate invalid at bootstrap: both secondary providers overlap with primary. ' +
+          `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS) or disable secondary consensus (DNS_CONSENSUS_DUAL_REDUNDANT=false).`,
+      );
+    }
+
+    return providers;
+  }
+
+  // Legacy single secondary provider mode
+  const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+  const effectiveConsensusStrategy: DnsLookupStrategy = consensusNameservers
+    ? 'native'
+    : effectiveDnsLookupStrategy(config, config.DNS_CONSENSUS_STRATEGY);
+  const consensusGroups = strategyToResolverGroups(
+    effectiveConsensusStrategy,
+    config.DNS_DOH_ENDPOINT,
+  );
+  const effectiveConsensusNameservers = consensusNameservers ?? primaryNameservers;
+
+  // Independence check against primary
+  const primaryReport = await validateConsensusDisjointness(
+    consensusGroups,
+    effectiveConsensusNameservers,
+    primaryGroups,
+    primaryNameservers,
+    {
+      excludeFallbacks: true,
+      ...(onDisjointnessPartial !== undefined
+        ? { onResolutionPartial: onDisjointnessPartial }
+        : {}),
+    },
+  );
+  if (!primaryReport.ok) {
+    const reason =
+      primaryReport.overlapEndpoints.length > 0
+        ? `Static overlap: ${primaryReport.overlapEndpoints.join(', ')}`
+        : `Operator overlap: ${primaryReport.overlapOperators.join(', ')}`;
+    getLogger().error(
+      {
+        overlapEndpoints: primaryReport.overlapEndpoints,
+        overlapOperators: primaryReport.overlapOperators,
+      },
+      `DNS: secondary consensus gate DISABLED at bootstrap — ${reason}. Refusing to start.`,
+    );
+    throw new Error(
+      `DNS secondary consensus gate invalid at bootstrap: ${reason}. ` +
+        `Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS) ` +
+        `or disable secondary consensus (DNS_CONSENSUS_ENABLED=false).`,
+    );
+  }
+
+  // Dedicated rate limiter for single secondary provider (shared budget with tertiary)
+  return [
+    new NodeDnsProvider({
+      cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+      maxSize: 0,
+      lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+      lookupStrategy: effectiveConsensusStrategy,
+      dohEndpoint: config.DNS_DOH_ENDPOINT,
+      dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+      bulkConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY ?? 20,
+      ...(effectiveConsensusNameservers !== undefined
+        ? { nameservers: effectiveConsensusNameservers }
+        : {}),
+      rateLimiter: consensusRateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      breakers,
+      ...(legTelemetry !== undefined
+        ? { onLegResult: legTelemetry, legRole: 'consensus' as const }
+        : {}),
+      dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+      dnssecNativeEnabled:
+        config.DNS_NATIVE_DNSSEC_ENABLED && effectiveConsensusNameservers !== undefined,
+    }),
+  ];
+}
+
+/**
  * Builds the ConsensusDnsProvider that wraps primary, secondary, and tertiary
  * providers into a single DnsProvider implementing the 2-of-3 / 2-of-2+1 consensus logic.
  * This abstraction allows the pipeline stage to simply call checkAvailability/checkBulk
@@ -1490,6 +1747,7 @@ export async function buildDnsConsensusConfig(
   type InternalConfig = ConsensusDnsConfig & {
     _primaryGroups?: DnsResolverGroup[];
     _secondaryGroups?: DnsResolverGroup[];
+    _secondaryGroups2?: DnsResolverGroup[];
     _tertiaryGroups?: DnsResolverGroup[] | undefined;
     _primaryNameservers?: string[] | undefined;
     _secondaryNameservers?: string[] | undefined;
@@ -1505,6 +1763,32 @@ export async function buildDnsConsensusConfig(
     internalConfig._secondaryNameservers = effectiveConsensusNameservers;
   if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0)
     internalConfig._tertiaryNameservers = effectiveTertiaryNameservers;
+
+  // Add dual-redundant secondary config if we have multiple providers
+  const effectiveConsensusRateLimiter =
+    consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
+  const secondaryProviders = await buildSecondaryConsensusProviders(
+    config,
+    effectiveConsensusRateLimiter,
+    primaryGroups,
+    nameservers,
+    breakers,
+    legTelemetry,
+    onDisjointnessPartial,
+  );
+
+  if (secondaryProviders.length > 1) {
+    const firstSecondary = secondaryProviders[0]!;
+    const secondSecondary = secondaryProviders[1]!;
+    enabledConfig.secondaryConfig = {
+      primary: firstSecondary,
+      secondary: secondSecondary,
+      strategy: 'dual-redundant',
+    };
+    // Also store the second secondary's resolver groups for runtime re-validation
+    internalConfig._secondaryGroups2 = consensusGroups; // We'll need to capture both groups
+  }
+
   if (tertiaryProviders.length > 0) {
     // Use first tertiary for backward compatibility
     const firstTertiary = tertiaryProviders[0]!;
