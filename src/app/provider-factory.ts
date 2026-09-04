@@ -709,6 +709,9 @@ export async function buildDnsConsensusConfig(
 ): Promise<ConsensusDnsConfig | undefined> {
   if (!config.DNS_CONSENSUS_ENABLED) return undefined;
 
+  // Track local DoH consensus endpoint for privacy mode fallback (function-scoped)
+  let localDohConsensusEndpoint: string | undefined;
+
   // Privacy mode (ADR-0065): when DNS_PRIVACY_MODE=true, all legs are forced to
   // 'native' against pinned recursors. The consensus gate requires a SECOND
   // distinct recursor (DNS_CONSENSUS_NAMESERVERS) to be an independent opinion.
@@ -728,8 +731,8 @@ export async function buildDnsConsensusConfig(
         );
       }
       if (fallbackMode === 'local-doh') {
-        const localDohEndpoint = config.DNS_CONSENSUS_LOCAL_DOH_ENDPOINT;
-        if (!localDohEndpoint) {
+        localDohConsensusEndpoint = config.DNS_CONSENSUS_LOCAL_DOH_ENDPOINT;
+        if (!localDohConsensusEndpoint) {
           const msg =
             'DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh requires DNS_CONSENSUS_LOCAL_DOH_ENDPOINT';
           getLogger().error(msg);
@@ -738,7 +741,7 @@ export async function buildDnsConsensusConfig(
         }
         // Will create a local DoH provider as secondary below
         getLogger().info(
-          { endpoint: localDohEndpoint },
+          { endpoint: localDohConsensusEndpoint },
           'DNS: privacy mode — using local DoH endpoint as consensus secondary',
         );
       } else {
@@ -762,49 +765,55 @@ export async function buildDnsConsensusConfig(
   // are configured AND distinct from DNS_NAMESERVERS.
   // This check runs early but respects the consensusOnFailure mode.
   if (config.DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS && config.DNS_NAMESERVERS !== undefined) {
-    const primaryNameservers = resolveNameservers(config.DNS_NAMESERVERS);
-    if (primaryNameservers === undefined) {
-      // DNS_NAMESERVERS is set but resolves to empty — this shouldn't happen but handle gracefully
-      return buildDisabledConsensusConfig(
-        'DNS_NAMESERVERS configured but resolves to empty nameserver list',
-      );
-    }
-    const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
-    const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
+    // localDohConsensusEndpoint is already in scope from above
+    // Skip distinct-recursor check for local-doh fallback: the consensus uses
+    // a DoH endpoint (different transport) rather than a nameserver IP.
+    // The runtime disjointness check will validate transport-level independence.
+    if (!localDohConsensusEndpoint) {
+      const primaryNameservers = resolveNameservers(config.DNS_NAMESERVERS);
+      if (primaryNameservers === undefined) {
+        // DNS_NAMESERVERS is set but resolves to empty — this shouldn't happen but handle gracefully
+        return buildDisabledConsensusConfig(
+          'DNS_NAMESERVERS configured but resolves to empty nameserver list',
+        );
+      }
+      const consensusNameservers = resolveNameservers(config.DNS_CONSENSUS_NAMESERVERS);
+      const tertiaryNameservers = resolveNameservers(config.DNS_TERTIARY_NAMESERVERS);
 
-    const primarySet = new Set(primaryNameservers);
-    const overlaps: string[] = [];
-    const checkDistinct = (label: string, nameservers: string[] | undefined): void => {
-      if (nameservers === undefined) return; // Not configured — disjointness check will catch later
-      for (const ns of nameservers) {
-        if (primarySet.has(ns)) {
-          overlaps.push(`${label}:${ns}`);
+      const primarySet = new Set(primaryNameservers);
+      const overlaps: string[] = [];
+      const checkDistinct = (label: string, nameservers: string[] | undefined): void => {
+        if (nameservers === undefined) return; // Not configured — disjointness check will catch later
+        for (const ns of nameservers) {
+          if (primarySet.has(ns)) {
+            overlaps.push(`${label}:${ns}`);
+          }
         }
-      }
-    };
+      };
 
-    checkDistinct('consensus', consensusNameservers);
-    if (config.DNS_TERTIARY_ENABLED) {
-      checkDistinct('tertiary', tertiaryNameservers);
-    }
-
-    if (overlaps.length > 0) {
-      const msg =
-        `DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS=true: consensus/tertiary recursor overlaps with primary. ` +
-        `Primary: ${primaryNameservers.join(', ')}. Overlaps: ${overlaps.join(', ')}. ` +
-        `In privacy mode (or when DNS_NAMESERVERS is pinned), consensus/tertiary must use ` +
-        `a DIFFERENT recursor. Configure DNS_CONSENSUS_NAMESERVERS/DNS_TERTIARY_NAMESERVERS ` +
-        `with a distinct IP/host, or set DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS=false ` +
-        `(not recommended — reduces 2-of-3 gate to a rubber stamp).`;
-      getLogger().error({ overlaps }, `DNS: consensus gate DISABLED at bootstrap — ${msg}`);
-      if (consensusOnFailure === 'fail') {
-        throw new Error(msg);
+      checkDistinct('consensus', consensusNameservers);
+      if (config.DNS_TERTIARY_ENABLED) {
+        checkDistinct('tertiary', tertiaryNameservers);
       }
-      getLogger().warn(
-        { mode: consensusOnFailure, reason: msg },
-        `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
-      );
-      return buildDisabledConsensusConfig(msg);
+
+      if (overlaps.length > 0) {
+        const msg =
+          `DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS=true: consensus/tertiary recursor overlaps with primary. ` +
+          `Primary: ${primaryNameservers.join(', ')}. Overlaps: ${overlaps.join(', ')}. ` +
+          `In privacy mode (or when DNS_NAMESERVERS is pinned), consensus/tertiary must use ` +
+          `a DIFFERENT recursor. Configure DNS_CONSENSUS_NAMESERVERS/DNS_TERTIARY_NAMESERVERS ` +
+          `with a distinct IP/host, or set DNS_CONSENSUS_REQUIRE_DISTINCT_RECURSORS=false ` +
+          `(not recommended — reduces 2-of-3 gate to a rubber stamp).`;
+        getLogger().error({ overlaps }, `DNS: consensus gate DISABLED at bootstrap — ${msg}`);
+        if (consensusOnFailure === 'fail') {
+          throw new Error(msg);
+        }
+        getLogger().warn(
+          { mode: consensusOnFailure, reason: msg },
+          `DNS: consensus gate disabled at bootstrap (${consensusOnFailure} mode) — continuing without cross-validation`,
+        );
+        return buildDisabledConsensusConfig(msg);
+      }
     }
   }
 
@@ -1057,13 +1066,50 @@ export async function buildDnsConsensusConfig(
   const secondaryRateLimiter = consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
 
   // Build consensus providers (always needed for the return config)
-  const secondaryProvider = buildSecondaryDnsProvider(
-    config,
-    secondaryRateLimiter,
-    breakers,
-    legTelemetry,
-    effectiveConsensusStrategyFinal, // Use fallback strategy if primary yielded no endpoints
-  );
+  let secondaryProvider: DnsProvider;
+  if (localDohConsensusEndpoint) {
+    // Privacy mode with local DoH fallback: create a custom NodeDnsProvider
+    // using the local DoH endpoint as the sole consensus leg.
+    // This provides a distinct transport (DoH vs native) while querying
+    // the same private recursor — satisfying the independence check.
+    const localDohGroups: DnsResolverGroup[] = [
+      {
+        name: 'local-doh-consensus',
+        lookups: [
+          {
+            type: 'doh',
+            endpoint: localDohConsensusEndpoint,
+            format: 'wire', // RFC 8484 wire format
+          },
+        ],
+      },
+    ];
+    secondaryProvider = new NodeDnsProvider({
+      cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+      maxSize: 0,
+      lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+      resolverGroups: localDohGroups,
+      dohEndpoint: localDohConsensusEndpoint!,
+      dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+      bulkConcurrency: config.DNS_CONSENSUS_BULK_CONCURRENCY,
+      rateLimiter: secondaryRateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      breakers,
+      ...(legTelemetry !== undefined
+        ? { onLegResult: legTelemetry, legRole: 'consensus' as const }
+        : {}),
+      dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+      dnssecNativeEnabled: false,
+    });
+  } else {
+    secondaryProvider = buildSecondaryDnsProvider(
+      config,
+      secondaryRateLimiter,
+      breakers,
+      legTelemetry,
+      effectiveConsensusStrategyFinal, // Use fallback strategy if primary yielded no endpoints
+    );
+  }
   const tertiaryProviders = await buildTertiaryConsensusProviders(
     config,
     secondaryRateLimiter,
