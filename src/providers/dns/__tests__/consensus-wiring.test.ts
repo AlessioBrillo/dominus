@@ -117,7 +117,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);
         expect(consensus).toBeDefined();
-        expect(typeof consensus?.secondaryProvider.checkAvailability).toBe('function');
+        expect(typeof consensus!.secondaryProvider!.checkAvailability).toBe('function');
       } finally {
         for (const [k, v] of saved) {
           if (v === undefined) delete process.env[k];
@@ -164,9 +164,9 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);
         expect(consensus).toBeDefined();
-        expect(consensus?.tertiaryConfig).toBeDefined();
-        expect(consensus?.tertiaryConfig?.strategy).toBe('dual-redundant');
-        expect(consensus?.requiredAvailable).toBe(config.DNS_CONSENSUS_REQUIRED_AVAILABLE);
+        expect(consensus!.tertiaryConfig).toBeDefined();
+        expect(consensus!.tertiaryConfig!.strategy).toBe('dual-redundant');
+        expect(consensus!.requiredAvailable).toBe(config.DNS_CONSENSUS_REQUIRED_AVAILABLE);
       } finally {
         for (const [k, v] of saved) {
           if (v === undefined) delete process.env[k];
