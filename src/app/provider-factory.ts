@@ -865,51 +865,15 @@ async function buildResolvedEndpoints(
   // Use the existing live resolution function
   const result = await resolveEndpointsLiveWithAnycast(groups, 2000);
 
-  // Build operator map from OPERATOR_HINTS
+  // Load operator map (from cache/registry/embedded)
+  const { getOperatorMap } = await import('../providers/dns/operator-map.js');
+  const operatorMap = await getOperatorMap();
+
   const operators = new Map<string, string>();
   const transports = new Map<string, string>();
 
-  // Import OPERATOR_HINTS from resolver-validator
-  // We'll use a local copy for now (the full map is in resolver-validator.ts)
-  const operatorHints: Record<string, string> = {
-    'doh:cloudflare-dns.com': 'cloudflare',
-    'doh:one.one.one.one': 'cloudflare',
-    'doh:dns.google': 'google',
-    'doh:dns.google.com': 'google',
-    'doh:dns.quad9.net': 'quad9',
-    'doh:dns.adguard.com': 'adguard',
-    'doh:dns.mullvad.net': 'mullvad',
-    'doh:dns.opendns.com': 'opendns',
-    'doh:dns.digitale-gesellschaft.ch': 'digitale-gesellschaft',
-    'doh:doh.libredns.gr': 'libredns',
-    'ip:1.1.1.1': 'cloudflare',
-    'ip:1.0.0.1': 'cloudflare',
-    'ip:162.159.36.1': 'cloudflare',
-    'ip:162.159.46.1': 'cloudflare',
-    'ip:8.8.8.8': 'google',
-    'ip:8.8.4.4': 'google',
-    'ip:9.9.9.9': 'quad9',
-    'ip:149.112.112.112': 'quad9',
-    'ip:94.140.14.14': 'adguard',
-    'ip:94.140.15.15': 'adguard',
-    'ip:194.242.2.2': 'mullvad',
-    'ip:193.138.218.74': 'mullvad',
-    'ip:45.90.28.2': 'nextdns',
-    'ip:45.90.30.2': 'nextdns',
-    'ip:208.67.222.222': 'opendns',
-    'ip:208.67.220.220': 'opendns',
-    'ip:185.95.218.42': 'digitale-gesellschaft',
-    'ip:185.95.218.43': 'digitale-gesellschaft',
-    'ip:2a05:fc84::42': 'digitale-gesellschaft',
-    'ip:2a05:fc84::43': 'digitale-gesellschaft',
-    'ip:116.202.176.26': 'libredns',
-    'ip:116.202.176.27': 'libredns',
-    'ip:2a01:4f8:1c0c:4c5f::2': 'libredns',
-    'ip:2a01:4f8:1c0c:4c5f::3': 'libredns',
-  };
-
   for (const detail of result.endpointDetails) {
-    const op = operatorHints[detail.identity];
+    const op = operatorMap.identityToOperator.get(detail.identity);
     if (op) operators.set(detail.identity, op);
     // Extract transport from identity prefix (doh:, dot:, native:)
     const transport = detail.identity.split(':')[0];

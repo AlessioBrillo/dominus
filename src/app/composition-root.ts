@@ -674,6 +674,20 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   //     can feed its histograms; all other consumers read it later) ---
   const metrics = new MetricsCollector();
 
+  // Initialize DNS operator map for consensus disjointness validation (ADR-0065).
+  // This loads from cache/registry/embedded and records version for staleness alerting.
+  // Non-blocking: runs in background, consensus config will use cached map if available.
+  void (async (): Promise<void> => {
+    try {
+      const { getOperatorMap } = await import('../providers/dns/operator-map.js');
+      const map = await getOperatorMap();
+      metrics.recordDnsOperatorMapInfo(map.version, map.source);
+      logger.info({ version: map.version, source: map.source }, 'DNS operator map initialized');
+    } catch (err) {
+      logger.warn({ err }, 'Failed to initialize DNS operator map');
+    }
+  })();
+
   // SLO latency telemetry (ADR-0064): per-leg DNS resolution times and
   // per-server RDAP request times land in Prometheus histograms, split by
   // transport/endpoint/verdict/role and by server/outcome respectively.

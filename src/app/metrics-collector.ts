@@ -83,6 +83,10 @@ export class MetricsCollector {
   /** Anycast degraded runs counter (ADR-0068): runs where anycast overlap
    *  exceeded threshold and DNS_CONSENSUS_ON_FAILURE=degraded-anycast. */
   #dnsConsensusAnycastDegradedRuns = 0;
+  /** DNS operator map version (for staleness alerting). */
+  #dnsOperatorMapVersion: string | null = null;
+  /** DNS operator map source (embedded/registry). */
+  #dnsOperatorMapSource: string | null = null;
   #rdapConsensusVerified = 0;
   #rdapConsensusDisagreed = 0;
   #rdapConsensusUnverifiable = 0;
@@ -413,6 +417,13 @@ export class MetricsCollector {
     this.#usptoWafBlockRate = Number.isFinite(stats.wafBlockRate) ? stats.wafBlockRate : 0;
   }
 
+  /** Record DNS operator map version and source for staleness alerting.
+   *  Called at startup after operator map initialization. */
+  recordDnsOperatorMapInfo(version: string, source: 'embedded' | 'registry'): void {
+    this.#dnsOperatorMapVersion = version;
+    this.#dnsOperatorMapSource = source;
+  }
+
   snapshot(): MetricsSnapshot {
     const stageMetrics: Record<string, StageMetrics> = {};
     for (const [key, value] of this.#stageMetrics) {
@@ -496,6 +507,11 @@ export class MetricsCollector {
           anycastOverlapTotal: this.#dnsConsensusAnycastOverlapTotal,
           anycastDegradedRunsTotal: this.#dnsConsensusAnycastDegradedRuns,
         },
+        dnsOperatorMap: {
+          version: this.#dnsOperatorMapVersion,
+          source: this.#dnsOperatorMapSource,
+          observed: this.#dnsOperatorMapVersion !== null,
+        },
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -556,6 +572,8 @@ export class MetricsCollector {
     this.#dnsConsensusDegradedReason.clear();
     this.#dnsConsensusAnycastOverlapTotal = 0;
     this.#dnsConsensusAnycastDegradedRuns = 0;
+    this.#dnsOperatorMapVersion = null;
+    this.#dnsOperatorMapSource = null;
     this.#rdapConsensusVerified = 0;
     this.#rdapConsensusDisagreed = 0;
     this.#rdapConsensusUnverifiable = 0;

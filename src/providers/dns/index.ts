@@ -45,8 +45,19 @@ export {
   type FallbackIsolationReport,
   type RuntimeConsensusReport,
   type RuntimeValidationMode,
-  OPERATOR_HINTS,
 } from './resolver-validator.js';
+export {
+  getOperatorMap,
+  getOperatorForIdentity,
+  getIdentitiesForOperator,
+  areSameOperator,
+  getOperatorMapVersion,
+  getOperatorMapSource,
+  refreshOperatorMap,
+  clearOperatorMapCache,
+  EMBEDDED_OPERATOR_MAP,
+  type OperatorMap,
+} from './operator-map.js';
 export {
   AuthoritativeZoneResolver,
   createAuthoritativeZoneResolver,
