@@ -149,6 +149,26 @@ export interface ConsensusConfig {
   degradedRatio: number;
   degradedMin: number;
   revalidationIntervalMs: number;
+  tertiaryConfig?: TertiaryDnsConfig;
+  secondaryConfig?: SecondaryDnsConfig;
+  disabled?: boolean;
+  disableReason?: string;
+  runtimeDegraded?: boolean;
+  requiredAvailable?: number;
+  secondaryProvider?: DnsProvider;
+  tertiaryProvider?: DnsProvider;
+  _primaryGroups?: DnsResolverGroup[];
+  _secondaryGroups?: DnsResolverGroup[];
+  _secondaryGroups2?: DnsResolverGroup[];
+  _tertiaryGroups?: DnsResolverGroup[] | undefined;
+  _primaryNameservers?: string[];
+  _secondaryNameservers?: string[];
+  _tertiaryNameservers?: string[] | undefined;
+  anycastDegraded?: boolean;
+  authoritativeZoneResolver?: unknown;
+  secondaryEndpoints?: string[];
+  tertiaryEndpoints?: string[];
+  consensusConcurrency?: number;
 }
 
 export interface TertiaryDnsConfig {
@@ -185,14 +205,19 @@ export interface ConsensusEngineOptions {
 
 export interface ConsensusResult {
   result: DnsCheckResult;
-  consensusStats: {
-    verified: number;
-    disagreed: number;
-    unverifiable: number;
-    degraded: boolean;
-    tertiaryRescued?: number;
-  };
+  consensusStats: ConsensusStats;
 }
+
+export interface ConsensusStats {
+  verified: number;
+  disagreed: number;
+  unverifiable: number;
+  degraded: boolean;
+  tertiaryRescued: number;
+}
+
+// Re-export alias for backward compatibility
+export type ConsensusDnsConfig = ConsensusConfig;
 
 function emitTelemetry(
   telemetry: DnsLegTelemetry | undefined,
@@ -577,6 +602,7 @@ export async function runConsensusBulk(
               disagreed: 0,
               unverifiable: 1,
               degraded: false,
+              tertiaryRescued: 0,
             },
           };
         }
