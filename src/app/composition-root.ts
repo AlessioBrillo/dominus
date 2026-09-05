@@ -1082,6 +1082,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config.WORKER_ENABLED,
     bulkWriteProvider,
     usageEnforcer,
+    config.PIPELINE_LOCK_TTL_MS,
+    config.PIPELINE_LOCK_HEARTBEAT_MS,
   );
   runService.setOnRunComplete(async (result, options) => {
     if (!options?.autoList) return;

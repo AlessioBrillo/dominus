@@ -46,15 +46,33 @@ const PERSISTENCE_BATCH_SLOW_THRESHOLD_MS = 500;
 /** If a write batch finishes faster than this (ms), double the batch size. */
 const PERSISTENCE_BATCH_FAST_THRESHOLD_MS = 100;
 /**
- * Total wall-clock timeout for the persistence phase (candidate upsert +
- * score insert). When exceeded, the run is marked as error and an exception
- * is thrown. Must be shorter than the pipeline lock TTL (120s) to prevent
+ * Default total wall-clock timeout for the persistence phase (candidate upsert +
+ * score insert). Used when lock TTL/heartbeat are not configured.
+ * Must be shorter than the pipeline lock TTL (120s) to prevent
  * another worker from acquiring the lock and starting a concurrent run on the
  * same pipeline while persistence is still in-flight (split-brain write).
  * Default: 90s — well within the 120s lock TTL, with 30s margin for heartbeat
  * renewal overhead.
  */
-const PERSISTENCE_TOTAL_TIMEOUT_MS = 90_000;
+const DEFAULT_PERSISTENCE_TOTAL_TIMEOUT_MS = 90_000;
+
+/**
+ * Computes the persistence timeout from lock TTL and heartbeat interval.
+ * Persistence must complete before the lock expires, with margin for
+ * heartbeat renewal overhead.
+ * Formula: lockTtlMs - 2 * lockHeartbeatMs - 10_000 (10s safety margin)
+ * Falls back to DEFAULT_PERSISTENCE_TOTAL_TIMEOUT_MS if inputs are invalid.
+ */
+function computePersistenceTimeoutMs(
+  lockTtlMs: number | undefined,
+  lockHeartbeatMs: number | undefined,
+): number {
+  if (lockTtlMs && lockHeartbeatMs && lockTtlMs > 0 && lockHeartbeatMs > 0) {
+    const computed = lockTtlMs - 2 * lockHeartbeatMs - 10_000;
+    return Math.max(30_000, Math.min(computed, DEFAULT_PERSISTENCE_TOTAL_TIMEOUT_MS));
+  }
+  return DEFAULT_PERSISTENCE_TOTAL_TIMEOUT_MS;
+}
 
 export interface PersistenceSummary {
   candidatesPersisted: number;
@@ -151,6 +169,7 @@ export class PipelineRunService {
   readonly #bulkWriteProvider: DatabaseProvider | undefined;
   readonly #usageEnforcer: PipelineUsageEnforcer | undefined;
   #onRunComplete: OnRunComplete | undefined;
+  readonly #persistenceTimeoutMs: number;
 
   constructor(
     provider: DatabaseProvider,
@@ -175,6 +194,10 @@ export class PipelineRunService {
      * says the enqueue path already accounted for the run.
      */
     usageEnforcer?: PipelineUsageEnforcer,
+    /** Pipeline lock TTL in milliseconds (for persistence deadline calculation). */
+    lockTtlMs?: number,
+    /** Pipeline lock heartbeat interval in milliseconds (for persistence deadline calculation). */
+    lockHeartbeatMs?: number,
   ) {
     this.#provider = provider;
     this.#orchestrator = orchestrator;
@@ -189,6 +212,7 @@ export class PipelineRunService {
     this.#workerEnabled = workerEnabled;
     this.#bulkWriteProvider = bulkWriteProvider;
     this.#usageEnforcer = usageEnforcer;
+    this.#persistenceTimeoutMs = computePersistenceTimeoutMs(lockTtlMs, lockHeartbeatMs);
   }
 
   setOnRunComplete(cb: OnRunComplete): void {
@@ -334,7 +358,7 @@ export class PipelineRunService {
     }
 
     let persistence: PersistenceSummary;
-    const deadline = Date.now() + PERSISTENCE_TOTAL_TIMEOUT_MS;
+    const deadline = Date.now() + this.#persistenceTimeoutMs;
     const remainingBudget = (): number => Math.max(0, deadline - Date.now());
 
     try {
