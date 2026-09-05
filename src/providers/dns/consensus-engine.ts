@@ -618,10 +618,15 @@ export async function runConsensusBulk(
  * Periodic runtime re-validation of disjointness using live DNS resolution.
  * Called periodically to catch anycast topology changes.
  */
+/**
+ * Periodic runtime re-validation of disjointness using live DNS resolution.
+ * Called periodically to catch anycast topology changes.
+ * Returns true if anycast overlap degradation was detected.
+ */
 export async function revalidateDisjointness(
   options: ConsensusEngineOptions,
   timeoutMs: number = 2000,
-): Promise<void> {
+): Promise<boolean> {
   const {
     primaryEndpoints,
     secondaryEndpoints,
@@ -629,21 +634,24 @@ export async function revalidateDisjointness(
     primaryGroups,
     secondaryGroups,
     tertiaryGroups,
+    config,
   } = options;
 
-  if (!primaryEndpoints || !secondaryEndpoints) return;
+  if (!primaryEndpoints || !secondaryEndpoints) return false;
   if (!primaryGroups || !secondaryGroups) {
     logger.warn(
       'DNS consensus re-validation skipped: resolver groups not available — cannot perform privacy-mode-compliant re-resolution',
     );
-    return;
+    return false;
   }
+
+  let anycastDegraded = false;
 
   try {
     const primaryDetails = (primaryEndpoints as ResolvedEndpoints).endpointDetails;
     const secondaryDetails = (secondaryEndpoints as ResolvedEndpoints).endpointDetails;
 
-    if (primaryDetails.length === 0 || secondaryDetails.length === 0) return;
+    if (primaryDetails.length === 0 || secondaryDetails.length === 0) return false;
 
     // Check primary-secondary overlap
     for (const primary of primaryDetails) {
@@ -670,6 +678,7 @@ export async function revalidateDisjointness(
             const overlapRatio = overlappingIps.length / maxIps;
 
             if (overlapRatio > 0.5) {
+              anycastDegraded = true;
               logger.warn(
                 {
                   primaryIdentity: primary.identity,
@@ -677,7 +686,7 @@ export async function revalidateDisjointness(
                   overlappingIps,
                   overlapRatio: overlapRatio.toFixed(2),
                 },
-                'DNS consensus runtime re-validation: anycast overlap detected — gate may be degraded',
+                'DNS consensus runtime re-validation: anycast overlap detected — gate degraded',
               );
             }
           }
@@ -715,6 +724,7 @@ export async function revalidateDisjointness(
                 const overlapRatio = overlappingIps.length / maxIps;
 
                 if (overlapRatio > 0.5) {
+                  anycastDegraded = true;
                   logger.warn(
                     {
                       primaryIdentity: primary.identity,
@@ -756,6 +766,7 @@ export async function revalidateDisjointness(
                 const overlapRatio = overlappingIps.length / maxIps;
 
                 if (overlapRatio > 0.5) {
+                  anycastDegraded = true;
                   logger.warn(
                     {
                       secondaryIdentity: secondary.identity,
@@ -777,4 +788,12 @@ export async function revalidateDisjointness(
   } catch (err) {
     logger.warn({ err }, 'DNS consensus re-validation error — continuing with cached validation');
   }
+
+  // Update config flags if degradation detected
+  if (anycastDegraded && config) {
+    config.runtimeDegraded = true;
+    config.anycastDegraded = true;
+  }
+
+  return anycastDegraded;
 }
