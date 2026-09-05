@@ -10,6 +10,7 @@ import type {
   CollectResolverEndpointsOptions,
 } from './dns-provider.js';
 import { collectResolverEndpoints } from './dns-provider.js';
+import { getOperatorMap, type OperatorMap } from './operator-map.js';
 
 const logger = getLogger();
 
@@ -126,67 +127,25 @@ export function computeAnycastOverlaps(
   return overlaps;
 }
 
-/** Well-known operator hints for endpoint identity -> operator mapping */
-export const OPERATOR_HINTS: Readonly<Record<string, string>> = {
-  'doh:cloudflare-dns.com': 'cloudflare',
-  'doh:one.one.one.one': 'cloudflare',
-  'doh:dns.google': 'google',
-  'doh:dns.google.com': 'google',
-  'doh:dns.quad9.net': 'quad9',
-  'doh:dns.adguard.com': 'adguard',
-  'doh:dns.mullvad.net': 'mullvad',
-  'doh:dns.opendns.com': 'opendns',
-  'doh:dns.digitale-gesellschaft.ch': 'digitale-gesellschaft',
-  'doh:doh.libredns.gr': 'libredns',
-  'dot:1.1.1.1': 'cloudflare',
-  'dot:1.0.0.1': 'cloudflare',
-  'dot:8.8.8.8': 'google',
-  'dot:8.8.4.4': 'google',
-  'dot:9.9.9.9': 'quad9',
-  'dot:149.112.112.112': 'quad9',
-  'dot:94.140.14.14': 'adguard',
-  'dot:94.140.15.15': 'adguard',
-  'dot:194.242.2.2': 'mullvad',
-  'dot:193.138.218.74': 'mullvad',
-  'dot:45.90.28.2': 'nextdns',
-  'dot:45.90.30.2': 'nextdns',
-  'native:1.1.1.1': 'cloudflare',
-  'native:1.0.0.1': 'cloudflare',
-  'native:8.8.8.8': 'google',
-  'native:8.8.4.4': 'google',
-  'native:9.9.9.9': 'quad9',
-  'native:149.112.112.112': 'quad9',
-  'native:94.140.14.14': 'adguard',
-  'native:94.140.15.15': 'adguard',
-  'native:194.242.2.2': 'mullvad',
-  'native:193.138.218.74': 'mullvad',
-  'native:45.90.28.2': 'nextdns',
-  'native:45.90.30.2': 'nextdns',
-  'ip:1.1.1.1': 'cloudflare',
-  'ip:1.0.0.1': 'cloudflare',
-  'ip:162.159.36.1': 'cloudflare',
-  'ip:162.159.46.1': 'cloudflare',
-  'ip:8.8.8.8': 'google',
-  'ip:8.8.4.4': 'google',
-  'ip:9.9.9.9': 'quad9',
-  'ip:149.112.112.112': 'quad9',
-  'ip:94.140.14.14': 'adguard',
-  'ip:94.140.15.15': 'adguard',
-  'ip:194.242.2.2': 'mullvad',
-  'ip:193.138.218.74': 'mullvad',
-  'ip:45.90.28.2': 'nextdns',
-  'ip:45.90.30.2': 'nextdns',
-  'ip:208.67.222.222': 'opendns',
-  'ip:208.67.220.220': 'opendns',
-  'ip:185.95.218.42': 'digitale-gesellschaft',
-  'ip:185.95.218.43': 'digitale-gesellschaft',
-  'ip:2a05:fc84::42': 'digitale-gesellschaft',
-  'ip:2a05:fc84::43': 'digitale-gesellschaft',
-  'ip:116.202.176.26': 'libredns',
-  'ip:116.202.176.27': 'libredns',
-  'ip:2a01:4f8:1c0c:4c5f::2': 'libredns',
-  'ip:2a01:4f8:1c0c:4c5f::3': 'libredns',
-};
+/**
+ * Get the operator map for disjointness validation.
+ * Loads from cache/registry/embedded as needed.
+ * The map is cached in-memory after first load.
+ */
+async function getOperatorMapForValidation(): Promise<OperatorMap> {
+  return getOperatorMap();
+}
+
+/**
+ * Get operator for an endpoint identity using the dynamic operator map.
+ * Falls back to undefined if not found (unknown operator).
+ */
+async function getOperator(
+  identity: string,
+  operatorMap: OperatorMap,
+): Promise<string | undefined> {
+  return operatorMap.identityToOperator.get(identity);
+}
 
 export interface DisjointnessReport {
   ok: boolean;
@@ -240,16 +199,19 @@ export async function validateConsensusDisjointness(
 
   const overlapEndpoints = primaryEndpoints.filter((ep) => secondaryEndpoints.includes(ep));
 
+  // Load operator map for operator-level overlap detection
+  const operatorMap = await getOperatorMapForValidation();
+
   // Operator-level overlap detection
   const primaryOperators = new Set<string>();
   const secondaryOperators = new Set<string>();
 
   for (const ep of primaryEndpoints) {
-    const op = OPERATOR_HINTS[ep];
+    const op = await getOperator(ep, operatorMap);
     if (op) primaryOperators.add(op);
   }
   for (const ep of secondaryEndpoints) {
-    const op = OPERATOR_HINTS[ep];
+    const op = await getOperator(ep, operatorMap);
     if (op) secondaryOperators.add(op);
   }
 
@@ -259,7 +221,13 @@ export async function validateConsensusDisjointness(
 
   if (!ok) {
     logger.warn(
-      { overlapEndpoints, overlapOperators, primaryEndpoints, secondaryEndpoints },
+      {
+        overlapEndpoints,
+        overlapOperators,
+        primaryEndpoints,
+        secondaryEndpoints,
+        operatorMapVersion: operatorMap.version,
+      },
       'DNS: static consensus disjointness check FAILED',
     );
   }

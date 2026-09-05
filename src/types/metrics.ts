@@ -124,6 +124,8 @@ export interface PipelineRunSummary {
   dnsDisjointness?: DnsDisjointnessMetrics;
   /** Runtime DNS consensus disjointness validation (ADR-0066). */
   dnsRuntimeConsensus?: DnsRuntimeConsensusMetrics;
+  /** DNS operator map version/source for staleness alerting (ADR-0065). */
+  dnsOperatorMap?: DnsOperatorMapMetrics;
 }
 
 /** Boot-time DNS consensus disjointness check tallies (ADR-0065).
@@ -155,6 +157,16 @@ export interface DnsRuntimeConsensusMetrics {
   anycastOverlapTotal: number;
   /** Total runs degraded due to anycast overlap (ADR-0068). */
   anycastDegradedRunsTotal: number;
+}
+
+/** DNS operator map version and source for staleness alerting. */
+export interface DnsOperatorMapMetrics {
+  /** Version string from registry (date) or 'embedded'. */
+  version: string | null;
+  /** Source of the operator map: 'embedded' | 'registry'. */
+  source: string | null;
+  /** Whether operator map info was recorded. */
+  observed: boolean;
 }
 
 /** Current DNS circuit-breaker state counts across all tracked endpoints
