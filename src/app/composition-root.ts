@@ -642,7 +642,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // across api/worker/scheduler containers, leading to split-brain rate
   // limiting and circuit breaker state. Enforced via REDIS_REQUIRED.
   const isCloudMode = !!config.DATABASE_URL || config.AUTH_PROVIDER !== 'env';
-  const redisRequired = config.REDIS_REQUIRED !== undefined ? config.REDIS_REQUIRED : isCloudMode;
+  const redisExplicitlySet = config.REDIS_REQUIRED !== undefined;
+  const redisRequired = redisExplicitlySet ? config.REDIS_REQUIRED : isCloudMode;
   let redisClient: RedisClient | undefined;
   if (config.REDIS_URL) {
     redisClient = getRedisClient({
@@ -658,6 +659,14 @@ export async function createDependencies(config: Config): Promise<DominusDepende
         'Set REDIS_URL in your environment or configure REDIS_REQUIRED=false for single-process deployments.',
     );
     throw new Error('Redis is required in cloud mode');
+  } else if (isCloudMode && redisExplicitlySet && !config.REDIS_REQUIRED) {
+    // Cloud mode with explicit REDIS_REQUIRED=false — warn about split-brain risk
+    logger.warn(
+      'Running in cloud mode (DATABASE_URL or AUTH_PROVIDER) with REDIS_REQUIRED=false. ' +
+        'Distributed rate limiting, circuit breakers, and advisory locks are DISABLED. ' +
+        'This causes split-brain across api/worker/scheduler processes. ' +
+        'Only use for single-process deployments (testing/staging).',
+    );
   }
 
   // --- Rate Limiters ---
