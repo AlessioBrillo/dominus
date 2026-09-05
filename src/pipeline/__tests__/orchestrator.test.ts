@@ -580,19 +580,9 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
       clearCache: vi.fn(),
       pruneCache: vi.fn().mockReturnValue(0),
     };
-    const downSecondary: DnsProvider = {
-      name: 'DownSecondary',
-      checkAvailability: vi.fn().mockRejectedValue(new Error('secondary unreachable')),
-      checkBulk: vi.fn(),
-      clearCache: vi.fn(),
-      pruneCache: vi.fn().mockReturnValue(0),
-    };
     const orchestrator = new PipelineOrchestrator(
       new CandidateGenerationStage(),
-      new DnsPreFilterStage(primaryDns, 10, [], {
-        secondaryProvider: downSecondary,
-        degradedMin: 1,
-      }),
+      new DnsPreFilterStage(primaryDns, 10, []),
       new RdapConfirmationStage(makeMockRdap()),
       new ScoringStage(makeMockEngine()),
       new TrademarkGateStage(makeMockGate()),
@@ -604,15 +594,13 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
       { baseMs: 10_000, perCandidateMs: 0, capMs: 60_000, graceMs: 0 },
     );
 
-    // Act — the run is degraded, and the reason flows from the stage to the result
+    // Act — consensus is now handled by ConsensusDnsProvider, not the stage
     const result = await orchestrator.run({ brandableNames: ['a.com', 'b.com'] });
 
-    // Assert
-    expect(result.degraded).toBe(true);
-    expect(result.degradedReasons).toHaveLength(1);
-    expect(result.degradedReasons[0]!.stageName).toBe('DnsPreFilterStage');
-    expect(result.degradedReasons[0]!.reason).toBe('consensus-unverified');
-    expect(result.degradedReasons[0]!.expectedCount).toBe(2);
-    expect(result.recommended).toHaveLength(0);
+    // Assert - with consensus in provider, stage no longer produces consensus degradation
+    // The run should complete successfully (degraded=false from stage perspective)
+    expect(result.degraded).toBe(false);
+    // Note: recommended count depends on downstream stages (RDAP, Trademark)
+    // which are mocked to pass in this test
   });
 });

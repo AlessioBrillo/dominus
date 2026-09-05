@@ -45,7 +45,7 @@ import {
   TrademarkGateStage,
   DbCheckpointStore,
 } from '../pipeline/index.js';
-import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
+import type { ConsensusDnsConfig } from '../providers/dns/consensus-dns-provider.js';
 import {
   PortfolioManager,
   RenewalAlertEngine,
@@ -878,7 +878,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
         : dnsConsensusConfig.tertiaryProvider
           ? [dnsConsensusConfig.tertiaryProvider]
           : undefined;
-    probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider, tertiaryProviders);
+    if (dnsConsensusConfig.secondaryProvider) {
+      probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider, tertiaryProviders);
+    }
   }
 
   // Build the ConsensusDnsProvider that wraps primary, secondary, and tertiary
@@ -888,7 +890,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     dnsConsensusConfig !== undefined && !dnsConsensusConfig.disabled
       ? await buildConsensusDnsProvider(
           dnsProvider,
-          dnsConsensusConfig.secondaryProvider,
+          dnsConsensusConfig.secondaryProvider!,
           dnsConsensusConfig.tertiaryProvider,
           // Pass resolver groups and nameservers for runtime disjointness re-validation (ADR-0063/0066)
           (dnsConsensusConfig as ConsensusDnsConfig)._primaryGroups ?? [],
@@ -955,7 +957,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       consensusDnsProvider,
       config.DNS_BULK_CONCURRENCY,
       [], // No sources skipped — closeout CSV candidates now go through DNS with forceRecheck
-      undefined, // Consensus logic now handled by ConsensusDnsProvider
     ),
     new RdapConfirmationStage(
       cachedRdapProvider,
@@ -995,6 +996,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // TTL-based expiry handles freshness; prune avoids the nuclear clearCache().
   orchestrator.setOnRunStart(() => {
     dnsProvider.pruneCache();
+    // Reset DNS consensus stats for the new run (ConsensusDnsProvider)
+    if (consensusDnsProvider.name === 'ConsensusDnsProvider') {
+      const provider = consensusDnsProvider as { resetConsensusStats?: () => void };
+      if (typeof provider.resetConsensusStats === 'function') {
+        provider.resetConsensusStats();
+      }
+    }
     // Clear the RDAP intra-run cache (60s TTL) so a fresh run cannot reuse a
     // verdict resolved by a previous run a moment before.
     (rawRdapProvider as { clearCache?: () => void }).clearCache?.();
@@ -1121,7 +1129,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     notifiers,
     config,
     usageEnforcer,
-    undefined, // Consensus logic now handled by ConsensusDnsProvider
   );
 
   // --- Portfolio RDAP Healthcheck --- (verifies renewal dates against live RDAP/WHOIS)

@@ -77,7 +77,7 @@ import {
 } from '../providers/circuit-breaker.js';
 import { CdxWaybackProvider } from '../providers/wayback/index.js';
 import type { WaybackProvider, WaybackResult } from '../providers/wayback/wayback-provider.js';
-import type { ConsensusDnsConfig } from '../pipeline/stages/dns-prefilter-stage.js';
+import type { ConsensusDnsConfig } from '../providers/dns/consensus-dns-provider.js';
 import type { RdapConsensusConfig } from '../pipeline/stages/rdap-confirmation-stage.js';
 import { getLogger } from '../logger.js';
 import { createAuthoritativeZoneResolver } from '../providers/dns/authoritative-zone-resolver.js';
@@ -943,6 +943,10 @@ function buildDisabledConsensusConfig(reason: string): ConsensusDnsConfig {
     secondaryProvider: null as unknown as DnsProvider,
     disabled: true,
     disableReason: reason,
+    requiredConfirmations: 1,
+    degradedRatio: 0.5,
+    degradedMin: 10,
+    revalidationIntervalMs: 600_000,
   };
 }
 
@@ -1698,6 +1702,8 @@ export async function buildDnsConsensusConfig(
     requiredAvailable: config.DNS_CONSENSUS_REQUIRED_AVAILABLE,
     runtimeDegraded: runtimeReport.runtimeDegraded,
     anycastDegraded,
+    requiredConfirmations: config.DNS_CONSENSUS_REQUIRED_AVAILABLE as 1 | 2,
+    revalidationIntervalMs: 600_000,
     ...(anycastReport.anycastOverlaps
       ? {
           anycastOverlaps: {

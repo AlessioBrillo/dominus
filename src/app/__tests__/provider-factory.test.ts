@@ -312,8 +312,8 @@ describe('buildDnsConsensusConfig', () => {
     });
     const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
-    expect(result?.secondaryProvider).toBeDefined();
-    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+    expect(result!.secondaryProvider).toBeDefined();
+    expect(typeof result!.secondaryProvider!.checkAvailability).toBe('function');
   });
 
   it('throws when the secondary reuses the primary DoH endpoints', async () => {
@@ -384,7 +384,7 @@ describe('buildDnsConsensusConfig', () => {
     });
     const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
-    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+    expect(typeof result!.secondaryProvider!.checkAvailability).toBe('function');
   });
 
   it('VETOES the gate when primary FALLBACK shares the pinned recursor (single-recursor mode)', async () => {
@@ -471,7 +471,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
     });
     const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
-    expect(typeof result?.tertiaryProvider?.checkAvailability).toBe('function');
+    expect(typeof result!.tertiaryProvider!.checkAvailability).toBe('function');
   });
 
   it('uses DNS_TERTIARY_STRATEGY when no tertiary nameservers are pinned', async () => {
@@ -487,7 +487,7 @@ describe('buildDnsConsensusConfig tertiary leg (ADR-0045)', () => {
       DNS_TERTIARY_STRATEGY: 'dot-alternate',
     });
     const result = await buildDnsConsensusConfig(config);
-    expect(typeof result?.tertiaryProvider?.checkAvailability).toBe('function');
+    expect(typeof result!.tertiaryProvider!.checkAvailability).toBe('function');
   });
 
   it('does not build a tertiary leg when DNS_TERTIARY_ENABLED is off', async () => {
@@ -633,7 +633,7 @@ describe('DNS privacy mode (ADR-0065)', () => {
     });
     const result = await buildDnsConsensusConfig(config);
     expect(result).toBeDefined();
-    expect(typeof result?.secondaryProvider.checkAvailability).toBe('function');
+    expect(typeof result!.secondaryProvider!.checkAvailability).toBe('function');
   });
 });
 
@@ -979,7 +979,7 @@ describe('createRdapConsensusConfig (ADR-0050)', () => {
     const result = await createRdapConsensusConfig(config);
     expect(result).toBeDefined();
     expect(result?.secondaryOrigin).toBe('https://rdap.secondary.example.com/');
-    expect(typeof result?.secondaryProvider.confirm).toBe('function');
+    expect(typeof result!.secondaryProvider!.confirm).toBe('function');
   });
 
   it('threads the degraded ratio/min and concurrency tuning into the config', async () => {

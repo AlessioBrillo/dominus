@@ -13,6 +13,8 @@ import {
   runConsensusBulk,
   revalidateDisjointness,
   type ConsensusEngineOptions,
+  type ConsensusResult,
+  type ConsensusStats,
 } from './consensus-engine.js';
 
 const logger = getLogger();
@@ -63,6 +65,13 @@ export class ConsensusDnsProvider implements DnsProvider {
   #revalidationTimer: ReturnType<typeof setInterval> | undefined;
   #primaryEndpoints: ResolvedEndpoints | undefined;
   #secondaryEndpoints: ResolvedEndpoints | undefined;
+  #consensusStats: ConsensusStats = {
+    verified: 0,
+    disagreed: 0,
+    unverifiable: 0,
+    degraded: false,
+    tertiaryRescued: 0,
+  };
 
   constructor(options: ConsensusDnsProviderOptions) {
     this.#revalidationIntervalMs = options.revalidationIntervalMs ?? 600_000; // 10min default
@@ -112,6 +121,31 @@ export class ConsensusDnsProvider implements DnsProvider {
     }
   }
 
+  /** Get aggregated consensus stats for the current run. */
+  getConsensusStats(): ConsensusStats {
+    return { ...this.#consensusStats };
+  }
+
+  /** Reset consensus stats for a new run. */
+  resetConsensusStats(): void {
+    this.#consensusStats = {
+      verified: 0,
+      disagreed: 0,
+      unverifiable: 0,
+      degraded: false,
+      tertiaryRescued: 0,
+    };
+  }
+
+  /** Accumulate stats from a single consensus result. */
+  #accumulateStats(stats: ConsensusResult['consensusStats']): void {
+    this.#consensusStats.verified += stats.verified;
+    this.#consensusStats.disagreed += stats.disagreed;
+    this.#consensusStats.unverifiable += stats.unverifiable;
+    if (stats.degraded) this.#consensusStats.degraded = true;
+    this.#consensusStats.tertiaryRescued += stats.tertiaryRescued ?? 0;
+  }
+
   /** Start periodic runtime disjointness re-validation */
   #startPeriodicRevalidation(): void {
     this.#revalidationTimer = setInterval(async () => {
@@ -156,6 +190,7 @@ export class ConsensusDnsProvider implements DnsProvider {
     options?: DnsCheckOptions,
   ): Promise<DnsCheckResult> {
     const result = await runConsensus(domain, this.#engineOptions, signal, options);
+    this.#accumulateStats(result.consensusStats);
     return result.result;
   }
 
@@ -165,6 +200,9 @@ export class ConsensusDnsProvider implements DnsProvider {
     options?: DnsCheckOptions,
   ): Promise<DnsCheckResult[]> {
     const results = await runConsensusBulk(domains, this.#engineOptions, signal, options);
+    for (const r of results) {
+      this.#accumulateStats(r.consensusStats);
+    }
     return results.map((r) => r.result);
   }
 
@@ -189,4 +227,9 @@ export class ConsensusDnsProvider implements DnsProvider {
 
 // Re-export for backward compatibility
 export { runConsensus, runConsensusBulk, revalidateDisjointness } from './consensus-engine.js';
-export type { ConsensusEngineOptions, ConsensusResult } from './consensus-engine.js';
+export type {
+  ConsensusEngineOptions,
+  ConsensusResult,
+  ConsensusStats,
+  ConsensusConfig as ConsensusDnsConfig,
+} from './consensus-engine.js';
