@@ -3,10 +3,12 @@ import {
   CircuitBreaker,
   type CircuitBreakerPolicy,
   type ICircuitBreaker,
+  type CircuitState,
 } from '../circuit-breaker.js';
 import { DistributedCircuitBreaker } from '../redis/index.js';
 import type { RedisClient } from '../redis/redis-client.js';
 import type { DnsLookupSpec } from './dns-provider.js';
+import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 
 /**
  * Per-endpoint circuit breaker registry for the DNS layer (ADR-0059).
@@ -29,6 +31,9 @@ import type { DnsLookupSpec } from './dns-provider.js';
  * fail-closed Unknown path is the safety. Bookkeeping failures (Redis
  * down, registry misconfiguration) must never take DNS down — callers
  * guard every interaction and fail open (ADR-0059 Decision Drivers).
+ *
+ * State persistence (ADR-0059): breaker state survives process restarts
+ * via the provider_cache table, preventing query storms on known-bad endpoints.
  */
 export interface DnsBreakerStats {
   open: number;
@@ -156,5 +161,59 @@ export class DnsBreakerRegistry implements DnsBreakerRegistryLike {
       (breaker as ICircuitBreaker & { reset(): void }).reset();
     }
     this.#breakers.clear();
+  }
+
+  /**
+   * Serialize breaker states for persistence (ADR-0059).
+   * Only CircuitBreaker (in-memory) state is persisted; DistributedCircuitBreaker
+   * stores state in Redis and doesn't need local persistence.
+   */
+  async saveState(cacheRepo: ProviderCacheRepository): Promise<void> {
+    const states: Record<
+      string,
+      {
+        state: string;
+        failureCount: number;
+        windowStart: number;
+        openedAt: number;
+      }
+    > = {};
+    for (const [key, breaker] of this.#breakers) {
+      if (breaker instanceof CircuitBreaker) {
+        states[key] = breaker.getStateForPersistence();
+      }
+    }
+    if (Object.keys(states).length > 0) {
+      await cacheRepo.set('dns:breaker:state', 'dns', JSON.stringify(states), 86400); // 24h TTL
+    }
+  }
+
+  /**
+   * Restore breaker states from persistence (ADR-0059).
+   * Called at startup to avoid query storms on known-bad endpoints.
+   */
+  async loadState(cacheRepo: ProviderCacheRepository): Promise<void> {
+    const cached = await cacheRepo.get('dns:breaker:state', 'dns');
+    if (!cached) return;
+
+    try {
+      const states = JSON.parse(cached) as Record<
+        string,
+        {
+          state: CircuitState;
+          failureCount: number;
+          windowStart: number;
+          openedAt: number;
+        }
+      >;
+      for (const [key, state] of Object.entries(states)) {
+        const breaker = this.#breakers.get(key);
+        if (breaker instanceof CircuitBreaker) {
+          breaker.restoreFromPersistence(state);
+        }
+      }
+    } catch {
+      // Ignore corrupted cache
+    }
   }
 }
