@@ -126,6 +126,34 @@ export class CircuitBreaker implements ICircuitBreaker {
     return this.#policy.cooldownMs;
   }
 
+  /** Get full state for persistence (ADR-0059: survive restarts). */
+  getStateForPersistence(): {
+    state: CircuitState;
+    failureCount: number;
+    windowStart: number;
+    openedAt: number;
+  } {
+    return {
+      state: this.#state,
+      failureCount: this.#failureCount,
+      windowStart: this.#windowStart,
+      openedAt: this.#openedAt,
+    };
+  }
+
+  /** Restore state from persistence (ADR-0059). */
+  restoreFromPersistence(data: {
+    state: CircuitState;
+    failureCount: number;
+    windowStart: number;
+    openedAt: number;
+  }): void {
+    this.#state = data.state;
+    this.#failureCount = data.failureCount;
+    this.#windowStart = data.windowStart;
+    this.#openedAt = data.openedAt;
+  }
+
   reset(): void {
     this.#state = 'closed';
     this.#failureCount = 0;

@@ -734,6 +734,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // secondary, and tertiary consensus providers all consult the same
   // circuits, so a failing endpoint is skipped for every leg that uses it.
   const dnsBreakers = buildDnsBreakers(config, redisClient);
+
+  // Load persisted DNS breaker state to avoid query storms on known-bad endpoints (ADR-0059)
+  if (dnsBreakers instanceof DnsBreakerRegistry) {
+    await dnsBreakers.loadState(repos.providerCacheRepo);
+  }
+
   const dnsProvider = buildDnsProvider(
     config,
     repos.providerCacheRepo,
@@ -748,8 +754,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // DNS breaker circuits feed the process-lifetime metrics: every transition
   // (open/half-open/closed) is reflected in the dominus_dns_breaker_* series.
+  // Also persist state on change (ADR-0059).
   if (dnsBreakers instanceof DnsBreakerRegistry) {
-    dnsBreakers.onChange = (stats): void => metrics.recordDnsBreakers(stats);
+    dnsBreakers.onChange = async (stats): Promise<void> => {
+      metrics.recordDnsBreakers(stats);
+      await dnsBreakers.saveState(repos.providerCacheRepo).catch(() => {});
+    };
   }
 
   // RDAP bootstrap health feeds the process-lifetime metrics (ADR-0058).
