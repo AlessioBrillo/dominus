@@ -78,7 +78,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 1,
@@ -117,7 +117,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 1,
@@ -158,7 +158,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 1,
@@ -198,7 +198,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 1,
@@ -238,7 +238,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 2,
@@ -276,7 +276,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 2,
@@ -335,7 +335,7 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: {
         requiredConfirmations: 2,
@@ -373,8 +373,8 @@ describe('ConsensusDnsProvider — dual-redundant tertiary (ADR-0068)', () => {
 
     const provider = new ConsensusDnsProvider({
       primary,
-      secondary,
-      tertiary: singleTertiary,
+      secondaryProviders: [secondary],
+      tertiaryProviders: [singleTertiary],
       disjointnessValidator: { isDisjoint: (): boolean => true },
       config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
     });
