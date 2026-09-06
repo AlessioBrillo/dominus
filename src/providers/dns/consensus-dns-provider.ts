@@ -29,16 +29,42 @@ export interface TertiaryDnsConfig {
   strategy: 'dual-redundant' | 'single';
 }
 
+export interface SecondaryDnsConfig {
+  primary: DnsProvider;
+  secondary: DnsProvider;
+  strategy: 'dual-redundant' | 'single';
+}
+
 export interface ConsensusConfig {
   requiredConfirmations: 1 | 2;
   degradedRatio: number;
   degradedMin: number;
   tertiaryConfig?: TertiaryDnsConfig;
+  secondaryConfig?: SecondaryDnsConfig;
+  disabled?: boolean;
+  disableReason?: string;
+  runtimeDegraded?: boolean;
+  requiredAvailable?: number;
+  secondaryProvider?: DnsProvider;
+  tertiaryProvider?: DnsProvider;
+  _primaryGroups?: DnsResolverGroup[];
+  _secondaryGroups?: DnsResolverGroup[];
+  _secondaryGroups2?: DnsResolverGroup[];
+  _tertiaryGroups?: DnsResolverGroup[] | undefined;
+  _primaryNameservers?: string[];
+  _secondaryNameservers?: string[];
+  _tertiaryNameservers?: string[] | undefined;
+  anycastDegraded?: boolean;
+  authoritativeZoneResolver?: unknown;
+  secondaryEndpoints?: string[];
+  tertiaryEndpoints?: string[];
+  consensusConcurrency?: number;
 }
 
 export interface ConsensusDnsProviderOptions {
   primary: DnsProvider;
   secondary: DnsProvider;
+  secondaryProviders?: DnsProvider[];
   tertiary?: DnsProvider;
   tertiaryConfig?: TertiaryDnsConfig;
   disjointnessValidator: DisjointnessValidator;
@@ -97,6 +123,11 @@ export class ConsensusDnsProvider implements DnsProvider {
     };
     if (options.telemetry !== undefined) {
       engineOptions.telemetry = options.telemetry;
+    }
+
+    // Only include secondaryProviders if defined (exactOptionalPropertyTypes)
+    if (options.secondaryProviders !== undefined && options.secondaryProviders.length > 0) {
+      engineOptions.secondaryProviders = options.secondaryProviders;
     }
 
     // Only include tertiary if defined (exactOptionalPropertyTypes)

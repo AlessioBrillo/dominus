@@ -186,7 +186,8 @@ export interface SecondaryDnsConfig {
 export interface ConsensusEngineOptions {
   primary: DnsProvider;
   secondary: DnsProvider;
-  tertiary?: DnsProvider; // Legacy single tertiary mode
+  secondaryProviders?: DnsProvider[];
+  tertiary?: DnsProvider;
   tertiaryConfig?: TertiaryDnsConfig;
   secondaryConfig?: SecondaryDnsConfig;
   disjointnessValidator: {
@@ -332,8 +333,9 @@ export async function runConsensus(
   // 2. Secondary lookup (dual-redundant or single)
   const secondaryStartedAt = performance.now();
 
-  const secondaryProviders =
-    options.secondaryConfig?.strategy === 'dual-redundant'
+  const secondaryProviders = options.secondaryProviders?.length
+    ? options.secondaryProviders
+    : options.secondaryConfig?.strategy === 'dual-redundant'
       ? [options.secondaryConfig.primary, options.secondaryConfig.secondary]
       : [secondary]; // Legacy single secondary mode
 

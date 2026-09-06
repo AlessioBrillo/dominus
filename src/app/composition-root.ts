@@ -919,11 +919,20 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // Build the ConsensusDnsProvider that wraps primary, secondary, and tertiary
   // into a single DnsProvider. This replaces the need for DnsPreFilterStage
   // to handle consensus logic internally.
+  const secondaryProviders =
+    dnsConsensusConfig?.secondaryConfig?.strategy === 'dual-redundant'
+      ? [dnsConsensusConfig.secondaryConfig.primary, dnsConsensusConfig.secondaryConfig.secondary]
+      : dnsConsensusConfig?.secondaryProvider
+        ? [dnsConsensusConfig.secondaryProvider]
+        : [];
+
   const consensusDnsProvider =
-    dnsConsensusConfig !== undefined && !dnsConsensusConfig.disabled
+    dnsConsensusConfig !== undefined &&
+    !dnsConsensusConfig.disabled &&
+    secondaryProviders.length > 0
       ? await buildConsensusDnsProvider(
           dnsProvider,
-          dnsConsensusConfig.secondaryProvider!,
+          secondaryProviders,
           dnsConsensusConfig.tertiaryProvider,
           // Pass resolver groups and nameservers for runtime disjointness re-validation (ADR-0063/0066)
           (dnsConsensusConfig as ConsensusDnsConfig)._primaryGroups ?? [],
