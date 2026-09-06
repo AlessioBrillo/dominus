@@ -48,6 +48,24 @@ function composeServiceBlock(service: string): string {
   return block.join('\n');
 }
 
+function composeAnchorBlock(): string {
+  const lines = readFileSync(COMPOSE_PATH, 'utf8').split(/\r?\n/);
+  const start = lines.findIndex(
+    (line) => line.trim() === 'x-dns-consensus-env: &dns-consensus-env',
+  );
+  expect(
+    start,
+    'compose override must define the x-dns-consensus-env anchor',
+  ).toBeGreaterThanOrEqual(0);
+  const block: string[] = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line === undefined || (line.length > 0 && line[0] !== ' ')) break;
+    block.push(line);
+  }
+  return block.join('\n');
+}
+
 describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
   beforeEach(() => {
     mockSetServersCalls.length = 0;
@@ -58,7 +76,9 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       "pins the native leg to the recursor on '%s' via DNS_NAMESERVERS",
       (service) => {
         const block = composeServiceBlock(service);
-        expect(block).toContain('- DNS_NAMESERVERS=172.20.0.10:5300');
+        expect(block).toContain('<<: *dns-consensus-env');
+        const anchor = composeAnchorBlock();
+        expect(anchor).toContain('DNS_NAMESERVERS: 172.20.0.10:5300');
       },
     );
 
@@ -66,8 +86,10 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       "keeps the consensus gate enabled on '%s' (2-of-3 secondary leg)",
       (service) => {
         const block = composeServiceBlock(service);
-        expect(block).toContain('- DNS_CONSENSUS_ENABLED=true');
-        expect(block).toContain('- DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300');
+        expect(block).toContain('<<: *dns-consensus-env');
+        const anchor = composeAnchorBlock();
+        expect(anchor).toContain("DNS_CONSENSUS_ENABLED: 'true'");
+        expect(anchor).toContain('DNS_CONSENSUS_NAMESERVERS: 172.20.0.10:5300');
       },
     );
 
@@ -75,14 +97,28 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
       "enables the dual-redundant tertiary (ADR-0068) on '%s' — two independent operators, independent breakers + rate limiters",
       (service) => {
         const block = composeServiceBlock(service);
-        expect(block).toContain('- DNS_TERTIARY_ENABLED=true');
-        expect(block).toContain('- DNS_TERTIARY_DUAL_REDUNDANT=true');
-        expect(block).toContain('- DNS_TERTIARY_STRATEGY_1=doh-alternate');
-        expect(block).toContain('- DNS_TERTIARY_STRATEGY_2=doh-tertiary');
-        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5');
-        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5');
-        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000');
-        expect(block).toContain('- DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000');
+        expect(block).toContain('<<: *dns-consensus-env');
+        const anchor = composeAnchorBlock();
+        expect(anchor).toContain("DNS_TERTIARY_ENABLED: 'true'");
+        expect(anchor).toContain("DNS_TERTIARY_DUAL_REDUNDANT: 'true'");
+        expect(anchor).toContain('DNS_TERTIARY_STRATEGY_1: doh-alternate');
+        expect(anchor).toContain('DNS_TERTIARY_STRATEGY_2: doh-tertiary');
+        expect(anchor).toContain("DNS_TERTIARY_RATE_LIMIT_TOKENS_1: '5'");
+        expect(anchor).toContain("DNS_TERTIARY_RATE_LIMIT_TOKENS_2: '5'");
+        expect(anchor).toContain("DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1: '1000'");
+        expect(anchor).toContain("DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2: '1000'");
+      },
+    );
+
+    it.each(APP_SERVICES)(
+      "enables the dual-redundant secondary (ADR-0069) on '%s' — two independent operators",
+      (service) => {
+        const block = composeServiceBlock(service);
+        expect(block).toContain('<<: *dns-consensus-env');
+        const anchor = composeAnchorBlock();
+        expect(anchor).toContain("DNS_CONSENSUS_DUAL_REDUNDANT: 'true'");
+        expect(anchor).toContain('DNS_CONSENSUS_STRATEGY_1: dot-alternate');
+        expect(anchor).toContain('DNS_CONSENSUS_STRATEGY_2: dot-consensus');
       },
     );
 
@@ -117,7 +153,7 @@ describe('DNS consensus wiring (native leg pin + rigorous DNSSEC)', () => {
         const config = loadConfig();
         const consensus = await buildDnsConsensusConfig(config);
         expect(consensus).toBeDefined();
-        expect(typeof consensus!.secondaryProvider!.checkAvailability).toBe('function');
+        expect(typeof consensus!.secondaryConfig?.primary.checkAvailability).toBe('function');
       } finally {
         for (const [k, v] of saved) {
           if (v === undefined) delete process.env[k];

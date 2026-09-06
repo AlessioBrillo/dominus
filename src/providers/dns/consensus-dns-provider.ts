@@ -15,7 +15,12 @@ import {
   type ConsensusEngineOptions,
   type ConsensusResult,
   type ConsensusStats,
+  type TertiaryDnsConfig,
+  type SecondaryDnsConfig,
+  type ConsensusConfig,
 } from './consensus-engine.js';
+
+export type { TertiaryDnsConfig, SecondaryDnsConfig, ConsensusConfig };
 
 const logger = getLogger();
 
@@ -23,62 +28,28 @@ export interface DisjointnessValidator {
   isDisjoint(primaryEndpoints: ResolvedEndpoints, secondaryEndpoints: ResolvedEndpoints): boolean;
 }
 
-export interface TertiaryDnsConfig {
-  primary: DnsProvider;
-  secondary: DnsProvider;
-  strategy: 'dual-redundant' | 'single';
-}
-
-export interface SecondaryDnsConfig {
-  primary: DnsProvider;
-  secondary: DnsProvider;
-  strategy: 'dual-redundant' | 'single';
-}
-
-export interface ConsensusConfig {
-  requiredConfirmations: 1 | 2;
-  degradedRatio: number;
-  degradedMin: number;
-  tertiaryConfig?: TertiaryDnsConfig;
-  secondaryConfig?: SecondaryDnsConfig;
-  disabled?: boolean;
-  disableReason?: string;
-  runtimeDegraded?: boolean;
-  requiredAvailable?: number;
-  secondaryProvider?: DnsProvider;
-  tertiaryProvider?: DnsProvider;
-  _primaryGroups?: DnsResolverGroup[];
-  _secondaryGroups?: DnsResolverGroup[];
-  _secondaryGroups2?: DnsResolverGroup[];
-  _tertiaryGroups?: DnsResolverGroup[] | undefined;
-  _primaryNameservers?: string[];
-  _secondaryNameservers?: string[];
-  _tertiaryNameservers?: string[] | undefined;
-  anycastDegraded?: boolean;
-  authoritativeZoneResolver?: unknown;
-  secondaryEndpoints?: string[];
-  tertiaryEndpoints?: string[];
-  consensusConcurrency?: number;
-}
-
 export interface ConsensusDnsProviderOptions {
   primary: DnsProvider;
-  secondary: DnsProvider;
-  secondaryProviders?: DnsProvider[];
-  tertiary?: DnsProvider;
+  secondaryProviders: DnsProvider[];
+  tertiaryProviders?: DnsProvider[];
   tertiaryConfig?: TertiaryDnsConfig;
+  secondaryConfig?: SecondaryDnsConfig;
   disjointnessValidator: DisjointnessValidator;
   breakers?: unknown;
   telemetry?: DnsLegTelemetry;
   config: ConsensusConfig;
-  /** Pre-resolved endpoint data for runtime disjointness validation (ADR-0063/0066) */
+  /** Pre-resolved endpoint data for runtime disjointness validation (ADR-0063/0066/0069) */
   primaryEndpoints?: ResolvedEndpoints;
   secondaryEndpoints?: ResolvedEndpoints;
+  secondaryEndpoints2?: ResolvedEndpoints;
   tertiaryEndpoints?: ResolvedEndpoints;
+  tertiaryEndpoints2?: ResolvedEndpoints;
   /** Resolver groups used by each leg — required for privacy-mode-compliant re-validation */
   primaryGroups?: DnsResolverGroup[];
   secondaryGroups?: DnsResolverGroup[];
+  secondaryGroups2?: DnsResolverGroup[];
   tertiaryGroups?: DnsResolverGroup[] | undefined;
+  tertiaryGroups2?: DnsResolverGroup[] | undefined;
   /** Re-validation interval in ms (default: 600000 = 10min). Set to 0 to disable. */
   revalidationIntervalMs?: number;
 }
@@ -102,10 +73,33 @@ export class ConsensusDnsProvider implements DnsProvider {
   constructor(options: ConsensusDnsProviderOptions) {
     this.#revalidationIntervalMs = options.revalidationIntervalMs ?? 600_000; // 10min default
 
-    // Build engine options from constructor options
+    const secondaryConfig = options.secondaryConfig ?? options.config.secondaryConfig;
+    const tertiaryConfig = options.tertiaryConfig ?? options.config.tertiaryConfig;
+
+    // Derive provider arrays: explicit arrays win, else fall back to
+    // secondaryConfig/tertiaryConfig (single → [primary], dual → [primary, secondary]).
+    const secondaryProviders =
+      options.secondaryProviders.length > 0
+        ? options.secondaryProviders
+        : secondaryConfig !== undefined
+          ? secondaryConfig.strategy === 'dual-redundant'
+            ? [secondaryConfig.primary, secondaryConfig.secondary]
+            : [secondaryConfig.primary]
+          : [];
+    const tertiaryProviders =
+      options.tertiaryProviders !== undefined && options.tertiaryProviders.length > 0
+        ? options.tertiaryProviders
+        : tertiaryConfig !== undefined
+          ? tertiaryConfig.strategy === 'dual-redundant'
+            ? [tertiaryConfig.primary, tertiaryConfig.secondary]
+            : [tertiaryConfig.primary]
+          : [];
+
+    // Build engine options from constructor options (ADR-0069)
     const engineOptions: ConsensusEngineOptions = {
       primary: options.primary,
-      secondary: options.secondary,
+      secondaryProviders,
+      tertiaryProviders,
       disjointnessValidator: options.disjointnessValidator,
       config: {
         requiredConfirmations: options.config.requiredConfirmations,
@@ -115,29 +109,38 @@ export class ConsensusDnsProvider implements DnsProvider {
       },
       primaryEndpoints: options.primaryEndpoints,
       secondaryEndpoints: options.secondaryEndpoints,
-      tertiaryEndpoints: options.tertiaryEndpoints,
       primaryGroups: options.primaryGroups,
       secondaryGroups: options.secondaryGroups,
-      tertiaryGroups: options.tertiaryGroups,
       revalidationIntervalMs: this.#revalidationIntervalMs,
     };
     if (options.telemetry !== undefined) {
       engineOptions.telemetry = options.telemetry;
     }
-
-    // Only include secondaryProviders if defined (exactOptionalPropertyTypes)
-    if (options.secondaryProviders !== undefined && options.secondaryProviders.length > 0) {
-      engineOptions.secondaryProviders = options.secondaryProviders;
+    if (options.secondaryEndpoints2 !== undefined) {
+      engineOptions.secondaryEndpoints2 = options.secondaryEndpoints2;
+    }
+    if (options.tertiaryEndpoints !== undefined) {
+      engineOptions.tertiaryEndpoints = options.tertiaryEndpoints;
+    }
+    if (options.tertiaryEndpoints2 !== undefined) {
+      engineOptions.tertiaryEndpoints2 = options.tertiaryEndpoints2;
+    }
+    if (options.secondaryGroups2 !== undefined) {
+      engineOptions.secondaryGroups2 = options.secondaryGroups2;
+    }
+    if (options.tertiaryGroups !== undefined) {
+      engineOptions.tertiaryGroups = options.tertiaryGroups;
+    }
+    if (options.tertiaryGroups2 !== undefined) {
+      engineOptions.tertiaryGroups2 = options.tertiaryGroups2;
     }
 
-    // Only include tertiary if defined (exactOptionalPropertyTypes)
-    if (options.tertiary !== undefined) {
-      engineOptions.tertiary = options.tertiary;
+    // Only include secondaryConfig/tertiaryConfig if defined (exactOptionalPropertyTypes)
+    if (secondaryConfig !== undefined) {
+      engineOptions.secondaryConfig = secondaryConfig;
     }
-
-    // Only include tertiaryConfig if defined (exactOptionalPropertyTypes)
-    if (options.config.tertiaryConfig !== undefined) {
-      engineOptions.tertiaryConfig = options.config.tertiaryConfig;
+    if (tertiaryConfig !== undefined) {
+      engineOptions.tertiaryConfig = tertiaryConfig;
     }
 
     this.#engineOptions = engineOptions;
@@ -175,6 +178,8 @@ export class ConsensusDnsProvider implements DnsProvider {
     this.#consensusStats.unverifiable += stats.unverifiable;
     if (stats.degraded) this.#consensusStats.degraded = true;
     this.#consensusStats.tertiaryRescued += stats.tertiaryRescued ?? 0;
+    this.#consensusStats.secondaryRescued =
+      (this.#consensusStats.secondaryRescued ?? 0) + (stats.secondaryRescued ?? 0);
   }
 
   /** Start periodic runtime disjointness re-validation */
@@ -209,10 +214,12 @@ export class ConsensusDnsProvider implements DnsProvider {
   dispose(): void {
     this.#stopPeriodicRevalidation();
     this.#engineOptions.primary.dispose?.();
-    this.#engineOptions.secondary.dispose?.();
-    this.#engineOptions.tertiary?.dispose?.();
+    for (const p of this.#engineOptions.secondaryProviders) p.dispose?.();
+    for (const p of this.#engineOptions.tertiaryProviders) p.dispose?.();
     this.#engineOptions.tertiaryConfig?.primary.dispose?.();
     this.#engineOptions.tertiaryConfig?.secondary.dispose?.();
+    this.#engineOptions.secondaryConfig?.primary.dispose?.();
+    this.#engineOptions.secondaryConfig?.secondary.dispose?.();
   }
 
   async checkAvailability(
@@ -239,19 +246,15 @@ export class ConsensusDnsProvider implements DnsProvider {
 
   clearCache(): void {
     this.#engineOptions.primary.clearCache();
-    this.#engineOptions.secondary.clearCache();
-    this.#engineOptions.tertiary?.clearCache();
-    this.#engineOptions.tertiaryConfig?.primary.clearCache();
-    this.#engineOptions.tertiaryConfig?.secondary.clearCache();
+    for (const p of this.#engineOptions.secondaryProviders) p.clearCache();
+    for (const p of this.#engineOptions.tertiaryProviders) p.clearCache();
   }
 
   pruneCache(): number {
     let total = 0;
     total += this.#engineOptions.primary.pruneCache();
-    total += this.#engineOptions.secondary.pruneCache();
-    total += this.#engineOptions.tertiary?.pruneCache() ?? 0;
-    total += this.#engineOptions.tertiaryConfig?.primary.pruneCache() ?? 0;
-    total += this.#engineOptions.tertiaryConfig?.secondary.pruneCache() ?? 0;
+    for (const p of this.#engineOptions.secondaryProviders) total += p.pruneCache();
+    for (const p of this.#engineOptions.tertiaryProviders) total += p.pruneCache();
     return total;
   }
 }

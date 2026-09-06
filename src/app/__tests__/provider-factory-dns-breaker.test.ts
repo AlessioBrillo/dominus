@@ -89,9 +89,13 @@ describe('buildDnsBreakers (ADR-0059)', () => {
 
       const consensus = await buildDnsConsensusConfig(config, undefined, breakers);
       expect(consensus).toBeDefined();
-      expect((consensus!.secondaryProvider as NodeDnsProvider).breakerSnapshot()).toBeDefined();
-      expect(consensus!.tertiaryProvider).toBeDefined();
-      expect((consensus!.tertiaryProvider as NodeDnsProvider).breakerSnapshot()).toBeDefined();
+      expect(
+        (consensus!.secondaryConfig?.primary as NodeDnsProvider).breakerSnapshot(),
+      ).toBeDefined();
+      expect(consensus!.tertiaryConfig?.primary).toBeDefined();
+      expect(
+        (consensus!.tertiaryConfig?.primary as NodeDnsProvider).breakerSnapshot(),
+      ).toBeDefined();
     } finally {
       delete process.env.DNS_CONSENSUS_ENABLED;
       delete process.env.DNS_TERTIARY_ENABLED;

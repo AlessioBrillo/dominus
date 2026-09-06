@@ -41,10 +41,12 @@
 # Privacy mode with local DoH fallback (ADR-0065): when a second distinct
 # recursor is not available, operators can enable
 # DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh with
-# DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query.
-# The local DoH proxy (doh-proxy service) forwards to the same Unbound
-# recursor but over a distinct transport (DoH vs native), satisfying the
-# independence check while keeping all queries within the private network.
+# DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://<own-doh-proxy>:8443/dns-query,
+# pointing at an operator-provided DoH frontend (e.g. cloudflared or any
+# RFC 8484 proxy) that forwards to the same Unbound recursor over a distinct
+# transport (DoH vs native). No DoH proxy ships in this override: the
+# previously referenced image never existed in its registry and could never
+# be pulled, so shipping it violated ADR-0046 — bring your own sidecar.
 #
 # Image (ADR-0046): NLnet Labs publishes no official Unbound image
 # (nlnetlabs/unbound does not exist on Docker Hub — the original reference
@@ -52,6 +54,31 @@
 # recommended by the Unbound project, digest-pinned. NOTE: it is amd64-only;
 # an arm64 host cannot run this override until a self-built multi-arch
 # recursor image lands — tracked as deferred follow-up per ADR-0046.
+
+# Shared DNS consensus env (ADR-0068/0069: dual-redundant secondary + tertiary).
+# Top-level extension (x-): single source of truth merged into
+# api/worker/scheduler so the three services can never drift to different
+# gate cardinalities.
+x-dns-consensus-env: &dns-consensus-env
+  DNS_NAMESERVERS: 172.20.0.10:5300
+  DNS_CONSENSUS_ENABLED: 'true'
+  DNS_CONSENSUS_NAMESERVERS: 172.20.0.10:5300
+  DNS_CONSENSUS_DUAL_REDUNDANT: 'true'
+  DNS_CONSENSUS_STRATEGY_1: dot-alternate
+  DNS_CONSENSUS_STRATEGY_2: dot-consensus
+  DNS_TERTIARY_ENABLED: 'true'
+  DNS_TERTIARY_DUAL_REDUNDANT: 'true'
+  DNS_TERTIARY_STRATEGY_1: doh-alternate
+  DNS_TERTIARY_STRATEGY_2: doh-tertiary
+  DNS_TERTIARY_RATE_LIMIT_TOKENS_1: '5'
+  DNS_TERTIARY_RATE_LIMIT_TOKENS_2: '5'
+  DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1: '1000'
+  DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2: '1000'
+  # Privacy mode with local DoH fallback (uncomment to enable; endpoint must
+  # be an operator-provided RFC 8484 proxy forwarding to 172.20.0.10:5300):
+  # DNS_PRIVACY_MODE: 'true'
+  # DNS_CONSENSUS_PRIVACY_FALLBACK: local-doh
+  # DNS_CONSENSUS_LOCAL_DOH_ENDPOINT: https://doh-sidecar:8443/dns-query
 
 services:
   consensus-dns:
@@ -70,134 +97,45 @@ services:
           memory: 32M
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
-    command: ["-d", "-c", "/opt/unbound/unbound.conf"]
+    command: ['-d', '-c', '/opt/unbound/unbound.conf']
     healthcheck:
-      test: ["CMD", "unbound-control", "status"]
+      test: ['CMD', 'unbound-control', 'status']
       interval: 15s
       timeout: 5s
       retries: 5
     logging:
-      driver: "json-file"
+      driver: 'json-file'
       options:
-        max-size: "10m"
-        max-file: "3"
-        compress: "true"
-
-  # Local DoH proxy for privacy mode consensus fallback (ADR-0065).
-  # Exposes RFC 8484 wire-format DoH on port 8443, forwarding to the
-  # co-hosted Unbound recursor. Allows the consensus secondary leg to
-  # use a distinct transport (DoH) while still querying the private
-  # recursor — satisfying the distinct-recursor requirement without
-  # needing a second Unbound instance.
-  doh-proxy:
-    image: ghcr.io/m13253/doh-proxy@sha256:3b7c1f8e5a9f4c2d1e6a8b3c9d0f2e5a7c1d4e6f8a9b0c1d2e3f4a5b6c7d8e9f
-    restart: always
-    networks:
-      dns-consensus-net:
-        ipv4_address: 172.20.0.11
-    deploy:
-      resources:
-        limits:
-          cpus: '0.05'
-          memory: 64M
-        reservations:
-          cpus: '0.025'
-          memory: 16M
-    command: [
-      "--listen-address", "0.0.0.0",
-      "--port", "8443",
-      "--upstream-resolver", "172.20.0.10:5300",
-      "--cert", "/certs/cert.pem",
-      "--key", "/certs/key.pem",
-      "--log-level", "info"
-    ]
-    volumes:
-      - ./deploy/doh-proxy/certs:/certs:ro
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "https://localhost:8443/dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    depends_on:
-      - consensus-dns
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-        compress: "true"
+        max-size: '10m'
+        max-file: '3'
+        compress: 'true'
 
   api:
     environment:
-      - DNS_NAMESERVERS=172.20.0.10:5300
-      - DNS_CONSENSUS_ENABLED=true
-      - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
-      - DNS_TERTIARY_ENABLED=true
-      - DNS_TERTIARY_DUAL_REDUNDANT=true
-      - DNS_TERTIARY_STRATEGY_1=doh-alternate
-      - DNS_TERTIARY_STRATEGY_2=doh-tertiary
-      - DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5
-      - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
-      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
-      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
-      # Privacy mode with local DoH fallback (uncomment to enable):
-      # - DNS_PRIVACY_MODE=true
-      # - DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh
-      # - DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query
+      <<: *dns-consensus-env
     networks:
       - default
       - dns-consensus-net
     depends_on:
       - consensus-dns
-      - doh-proxy
 
   worker:
     environment:
-      - DNS_NAMESERVERS=172.20.0.10:5300
-      - DNS_CONSENSUS_ENABLED=true
-      - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
-      - DNS_TERTIARY_ENABLED=true
-      - DNS_TERTIARY_DUAL_REDUNDANT=true
-      - DNS_TERTIARY_STRATEGY_1=doh-alternate
-      - DNS_TERTIARY_STRATEGY_2=doh-tertiary
-      - DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5
-      - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
-      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
-      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
-      # Privacy mode with local DoH fallback (uncomment to enable):
-      # - DNS_PRIVACY_MODE=true
-      # - DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh
-      # - DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query
+      <<: *dns-consensus-env
     networks:
       - default
       - dns-consensus-net
     depends_on:
       - consensus-dns
-      - doh-proxy
 
   scheduler:
     environment:
-      - DNS_NAMESERVERS=172.20.0.10:5300
-      - DNS_CONSENSUS_ENABLED=true
-      - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
-      - DNS_TERTIARY_ENABLED=true
-      - DNS_TERTIARY_DUAL_REDUNDANT=true
-      - DNS_TERTIARY_STRATEGY_1=doh-alternate
-      - DNS_TERTIARY_STRATEGY_2=doh-tertiary
-      - DNS_TERTIARY_RATE_LIMIT_TOKENS_1=5
-      - DNS_TERTIARY_RATE_LIMIT_TOKENS_2=5
-      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_1=1000
-      - DNS_TERTIARY_RATE_LIMIT_INTERVAL_MS_2=1000
-      # Privacy mode with local DoH fallback (uncomment to enable):
-      # - DNS_PRIVACY_MODE=true
-      # - DNS_CONSENSUS_PRIVACY_FALLBACK=local-doh
-      # - DNS_CONSENSUS_LOCAL_DOH_ENDPOINT=https://doh-proxy:8443/dns-query
+      <<: *dns-consensus-env
     networks:
       - default
       - dns-consensus-net
     depends_on:
       - consensus-dns
-      - doh-proxy
 
 networks:
   dns-consensus-net:

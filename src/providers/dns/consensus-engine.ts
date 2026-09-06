@@ -148,26 +148,25 @@ export interface ConsensusConfig {
   requiredConfirmations: 1 | 2;
   degradedRatio: number;
   degradedMin: number;
-  revalidationIntervalMs: number;
+  revalidationIntervalMs?: number;
   tertiaryConfig?: TertiaryDnsConfig;
   secondaryConfig?: SecondaryDnsConfig;
   disabled?: boolean;
   disableReason?: string;
   runtimeDegraded?: boolean;
   requiredAvailable?: number;
-  secondaryProvider?: DnsProvider;
-  tertiaryProvider?: DnsProvider;
   _primaryGroups?: DnsResolverGroup[];
   _secondaryGroups?: DnsResolverGroup[];
   _secondaryGroups2?: DnsResolverGroup[];
   _tertiaryGroups?: DnsResolverGroup[] | undefined;
+  _tertiaryGroups2?: DnsResolverGroup[] | undefined;
   _primaryNameservers?: string[];
   _secondaryNameservers?: string[];
+  _secondaryNameservers2?: string[];
   _tertiaryNameservers?: string[] | undefined;
+  _tertiaryNameservers2?: string[] | undefined;
   anycastDegraded?: boolean;
   authoritativeZoneResolver?: unknown;
-  secondaryEndpoints?: string[];
-  tertiaryEndpoints?: string[];
   consensusConcurrency?: number;
 }
 
@@ -185,9 +184,8 @@ export interface SecondaryDnsConfig {
 
 export interface ConsensusEngineOptions {
   primary: DnsProvider;
-  secondary: DnsProvider;
-  secondaryProviders?: DnsProvider[];
-  tertiary?: DnsProvider;
+  secondaryProviders: DnsProvider[];
+  tertiaryProviders: DnsProvider[];
   tertiaryConfig?: TertiaryDnsConfig;
   secondaryConfig?: SecondaryDnsConfig;
   disjointnessValidator: {
@@ -197,10 +195,14 @@ export interface ConsensusEngineOptions {
   config: ConsensusConfig;
   primaryEndpoints?: unknown;
   secondaryEndpoints?: unknown;
+  secondaryEndpoints2?: unknown;
   tertiaryEndpoints?: unknown;
+  tertiaryEndpoints2?: unknown;
   primaryGroups?: unknown;
   secondaryGroups?: unknown;
+  secondaryGroups2?: unknown;
   tertiaryGroups?: unknown;
+  tertiaryGroups2?: unknown;
   revalidationIntervalMs?: number;
 }
 
@@ -215,6 +217,7 @@ export interface ConsensusStats {
   unverifiable: number;
   degraded: boolean;
   tertiaryRescued: number;
+  secondaryRescued?: number;
 }
 
 // Re-export alias for backward compatibility
@@ -250,7 +253,7 @@ function emitTelemetry(
 
 /**
  * Pure consensus engine logic - no side effects, fully testable.
- * Implements 2-of-3 / 2-of-2+1 consensus with dual-redundant tertiary support.
+ * Implements 2-of-3 / 2-of-2+1 consensus with dual-redundant secondary and tertiary support.
  */
 export async function runConsensus(
   domain: string,
@@ -258,8 +261,14 @@ export async function runConsensus(
   signal?: AbortSignal,
   checkOptions?: { forceRecheck?: boolean },
 ): Promise<ConsensusResult> {
-  const { primary, secondary, tertiary, tertiaryConfig, disjointnessValidator, telemetry, config } =
-    options;
+  const {
+    primary,
+    secondaryProviders,
+    tertiaryProviders,
+    disjointnessValidator,
+    telemetry,
+    config,
+  } = options;
 
   const consensusStats = {
     verified: 0,
@@ -267,6 +276,7 @@ export async function runConsensus(
     unverifiable: 0,
     degraded: false,
     tertiaryRescued: 0,
+    secondaryRescued: 0,
   };
 
   // 1. Primary lookup
@@ -311,7 +321,7 @@ export async function runConsensus(
   }
 
   // Primary says Available — need consensus
-  // Check disjointness (cached)
+  // Check disjointness (cached) against primary secondary (s1)
   const primaryEndpoints = options.primaryEndpoints;
   const secondaryEndpoints = options.secondaryEndpoints;
 
@@ -330,16 +340,9 @@ export async function runConsensus(
     }
   }
 
-  // 2. Secondary lookup (dual-redundant or single)
+  // 2. Secondary lookup (dual-redundant or single) — race s1 and s2
   const secondaryStartedAt = performance.now();
 
-  const secondaryProviders = options.secondaryProviders?.length
-    ? options.secondaryProviders
-    : options.secondaryConfig?.strategy === 'dual-redundant'
-      ? [options.secondaryConfig.primary, options.secondaryConfig.secondary]
-      : [secondary]; // Legacy single secondary mode
-
-  // Race all secondary providers in parallel
   const secondaryPromises = secondaryProviders.map(async (provider) => {
     let result: DnsCheckResult | undefined;
     let error: unknown;
@@ -368,7 +371,7 @@ export async function runConsensus(
     );
   }
 
-  // Check for vetoes: any Registered from any secondary provider vetoes
+  // Check for vetoes: any Registered from any secondary provider vetoes (fail-closed)
   const hasVeto = secondaryResults.some(
     (r) => r.result?.status === DomainStatus.Registered || r.result?.isParked === true,
   );
@@ -386,14 +389,21 @@ export async function runConsensus(
     };
   }
 
-  // Check for confirmations: any Available from any secondary provider confirms
-  let secondaryConfirmed = secondaryResults.some(
+  // Check for confirmations (ADR-0069: 1-of-N rescue within each leg).
+  // requiredConfirmations counts LEGS (secondary leg + tertiary leg), not
+  // individual providers: ANY Available within the leg confirms the leg.
+  const secondaryConfirmedAny = secondaryResults.some(
     (r) => r.result?.status === DomainStatus.Available,
   );
+  const secondaryConfirmedAll = secondaryResults.every(
+    (r) => r.result?.status === DomainStatus.Available,
+  );
+  const secondaryConfirmed = secondaryConfirmedAny;
 
   // If secondary confirms and we only need 1 confirmation, we're done
   if (secondaryConfirmed && config.requiredConfirmations === 1) {
     consensusStats.verified = 1;
+    if (!secondaryConfirmedAll) consensusStats.secondaryRescued = 1;
     return { result: primaryResult, consensusStats };
   }
 
@@ -401,7 +411,7 @@ export async function runConsensus(
   // If secondary failed/unknown and we have tertiary, try tertiary
   // If secondary failed/unknown and no tertiary, return Unknown
   if (!secondaryConfirmed) {
-    const hasAnyTertiary = tertiaryConfig !== undefined || tertiary !== undefined;
+    const hasAnyTertiary = tertiaryProviders.length > 0;
     if (!hasAnyTertiary) {
       logger.warn(
         { domain },
@@ -419,14 +429,7 @@ export async function runConsensus(
     }
   }
 
-  // 3. Tertiary lookup (dual-redundant or single)
-  const tertiaryProviders =
-    tertiaryConfig?.strategy === 'dual-redundant'
-      ? [tertiaryConfig.primary, tertiaryConfig.secondary]
-      : tertiary !== undefined
-        ? [tertiary] // Legacy single tertiary mode
-        : [];
-
+  // 3. Tertiary lookup (dual-redundant or single) — race t1 and t2
   if (tertiaryProviders.length > 0) {
     const needTertiary = !secondaryConfirmed || config.requiredConfirmations === 2;
 
@@ -481,20 +484,20 @@ export async function runConsensus(
         };
       }
 
-      // Check for confirmations: any Available from any tertiary provider confirms
-      const hasConfirmation = tertiaryResults.some(
+      // Check for confirmations: ANY Available within the tertiary leg confirms it
+      const tertiaryConfirmedAny = tertiaryResults.some(
         (r) => r.result?.status === DomainStatus.Available,
       );
 
       if (config.requiredConfirmations === 2) {
-        // Both secondary and tertiary must confirm
-        if (secondaryConfirmed && hasConfirmation) {
+        // Both legs must confirm (secondary leg AND tertiary leg)
+        if (secondaryConfirmed && tertiaryConfirmedAny) {
           consensusStats.verified = 1;
-          if (!secondaryConfirmed) consensusStats.tertiaryRescued = 1;
+          if (!secondaryConfirmedAll) consensusStats.secondaryRescued = 1;
           return { result: primaryResult, consensusStats };
         }
         logger.warn(
-          { domain, secondaryConfirmed, tertiaryConfirmed: hasConfirmation },
+          { domain, secondaryConfirmed, tertiaryConfirmed: tertiaryConfirmedAny },
           'Consensus not confirmed by both secondary and tertiary — downgraded to Unknown',
         );
         consensusStats.unverifiable = 1;
@@ -507,8 +510,8 @@ export async function runConsensus(
           consensusStats,
         };
       } else {
-        // requiredConfirmations=1: tertiary rescues if secondary failed
-        if (hasConfirmation) {
+        // requiredConfirmations=1: tertiary rescues if secondary failed (1-of-N)
+        if (tertiaryConfirmedAny) {
           logger.info({ domain }, 'Consensus rescued by tertiary (Available)');
           consensusStats.verified = 1;
           if (!secondaryConfirmed) consensusStats.tertiaryRescued = 1;
@@ -526,39 +529,6 @@ export async function runConsensus(
         };
       }
     }
-  }
-
-  // Legacy single tertiary path (backward compatibility)
-  if (options.tertiaryEndpoints !== undefined && !tertiaryConfig) {
-    // This path is for backward compatibility when tertiary is passed via endpoints
-    // but not as dual-redundant config. We skip it since the new config uses tertiaryConfig.
-    logger.warn({ domain }, 'Legacy tertiary path not implemented — downgraded to Unknown');
-    consensusStats.unverifiable = 1;
-    return {
-      result: {
-        domain,
-        status: DomainStatus.Unknown,
-        checkedAt: new Date().toISOString(),
-      },
-      consensusStats,
-    };
-  }
-
-  // Secondary confirmed but we need 2 confirmations and no tertiary
-  if (config.requiredConfirmations === 2 && !tertiaryConfig) {
-    logger.warn(
-      { domain },
-      'requiredConfirmations=2 but no tertiary configured — downgraded to Unknown',
-    );
-    consensusStats.unverifiable = 1;
-    return {
-      result: {
-        domain,
-        status: DomainStatus.Unknown,
-        checkedAt: new Date().toISOString(),
-      },
-      consensusStats,
-    };
   }
 
   // Fallback: secondary couldn't confirm and no tertiary rescue possible
@@ -632,10 +602,14 @@ export async function revalidateDisjointness(
   const {
     primaryEndpoints,
     secondaryEndpoints,
+    secondaryEndpoints2,
     tertiaryEndpoints,
+    tertiaryEndpoints2,
     primaryGroups,
     secondaryGroups,
+    secondaryGroups2,
     tertiaryGroups,
+    tertiaryGroups2,
     config,
   } = options;
 
@@ -652,10 +626,13 @@ export async function revalidateDisjointness(
   try {
     const primaryDetails = (primaryEndpoints as ResolvedEndpoints).endpointDetails;
     const secondaryDetails = (secondaryEndpoints as ResolvedEndpoints).endpointDetails;
+    const secondaryDetails2 = secondaryEndpoints2
+      ? (secondaryEndpoints2 as ResolvedEndpoints).endpointDetails
+      : [];
 
     if (primaryDetails.length === 0 || secondaryDetails.length === 0) return false;
 
-    // Check primary-secondary overlap
+    // Check primary-secondary (s1) overlap
     for (const primary of primaryDetails) {
       if (primary.ips.size === 0 || !primary.hostname) continue;
 
@@ -688,7 +665,7 @@ export async function revalidateDisjointness(
                   overlappingIps,
                   overlapRatio: overlapRatio.toFixed(2),
                 },
-                'DNS consensus runtime re-validation: anycast overlap detected — gate degraded',
+                'DNS consensus runtime re-validation: anycast overlap detected (primary vs s1) — gate degraded',
               );
             }
           }
@@ -698,9 +675,103 @@ export async function revalidateDisjointness(
       }
     }
 
+    // Check primary-secondary (s2) overlap if dual-redundant
+    if (secondaryDetails2.length > 0 && secondaryGroups2) {
+      for (const primary of primaryDetails) {
+        if (primary.ips.size === 0 || !primary.hostname) continue;
+
+        for (const secondary of secondaryDetails2) {
+          if (secondary.ips.size === 0 || !secondary.hostname) continue;
+
+          try {
+            const primaryIps = await resolveHostnameViaGroups(
+              primaryGroups as DnsResolverGroup[],
+              primary.hostname,
+              timeoutMs,
+            );
+            const secondaryIps = await resolveHostnameViaGroups(
+              secondaryGroups2 as DnsResolverGroup[],
+              secondary.hostname,
+              timeoutMs,
+            );
+
+            const overlappingIps = [...primaryIps].filter((ip) => secondaryIps.has(ip));
+            if (overlappingIps.length > 0) {
+              const maxIps = Math.max(primaryIps.size, secondaryIps.size);
+              const overlapRatio = overlappingIps.length / maxIps;
+
+              if (overlapRatio > 0.5) {
+                anycastDegraded = true;
+                logger.warn(
+                  {
+                    primaryIdentity: primary.identity,
+                    secondaryIdentity: secondary.identity,
+                    overlappingIps,
+                    overlapRatio: overlapRatio.toFixed(2),
+                  },
+                  'DNS consensus runtime re-validation: anycast overlap detected (primary vs s2) — gate degraded',
+                );
+              }
+            }
+          } catch {
+            // Resolution failed, skip this pair
+          }
+        }
+      }
+    }
+
+    // Check secondary (s1) vs secondary (s2) overlap
+    if (secondaryDetails2.length > 0 && secondaryGroups2) {
+      for (const secondary of secondaryDetails) {
+        if (secondary.ips.size === 0 || !secondary.hostname) continue;
+
+        for (const secondary2 of secondaryDetails2) {
+          if (secondary2.ips.size === 0 || !secondary2.hostname) continue;
+
+          try {
+            const secondaryIps = await resolveHostnameViaGroups(
+              secondaryGroups as DnsResolverGroup[],
+              secondary.hostname,
+              timeoutMs,
+            );
+            const secondary2Ips = await resolveHostnameViaGroups(
+              secondaryGroups2 as DnsResolverGroup[],
+              secondary2.hostname,
+              timeoutMs,
+            );
+
+            const overlappingIps = [...secondaryIps].filter((ip) => secondary2Ips.has(ip));
+            if (overlappingIps.length > 0) {
+              const maxIps = Math.max(secondaryIps.size, secondary2Ips.size);
+              const overlapRatio = overlappingIps.length / maxIps;
+
+              if (overlapRatio > 0.5) {
+                anycastDegraded = true;
+                logger.warn(
+                  {
+                    secondaryIdentity: secondary.identity,
+                    secondary2Identity: secondary2.identity,
+                    overlappingIps,
+                    overlapRatio: overlapRatio.toFixed(2),
+                  },
+                  'DNS consensus runtime re-validation: anycast overlap detected (s1 vs s2) — gate degraded',
+                );
+              }
+            }
+          } catch {
+            // Resolution failed, skip this pair
+          }
+        }
+      }
+    }
+
     // Also check tertiary if configured
     if (tertiaryGroups && tertiaryEndpoints) {
       const tertiaryDetails = (tertiaryEndpoints as ResolvedEndpoints).endpointDetails;
+      const tertiaryDetails2 = tertiaryEndpoints2
+        ? (tertiaryEndpoints2 as ResolvedEndpoints).endpointDetails
+        : [];
+
       if (tertiaryDetails.length > 0) {
         for (const primary of primaryDetails) {
           if (primary.ips.size === 0 || !primary.hostname) continue;
@@ -734,12 +805,57 @@ export async function revalidateDisjointness(
                       overlappingIps,
                       overlapRatio: overlapRatio.toFixed(2),
                     },
-                    'DNS consensus runtime re-validation: primary-tertiary anycast overlap detected',
+                    'DNS consensus runtime re-validation: primary-tertiary anycast overlap detected (t1)',
                   );
                 }
               }
             } catch {
               // Resolution failed, skip
+            }
+          }
+        }
+
+        // Check primary-tertiary (t2) overlap
+        if (tertiaryDetails2.length > 0 && tertiaryGroups2) {
+          for (const primary of primaryDetails) {
+            if (primary.ips.size === 0 || !primary.hostname) continue;
+
+            for (const tertiary of tertiaryDetails2) {
+              if (tertiary.ips.size === 0 || !tertiary.hostname) continue;
+
+              try {
+                const primaryIps = await resolveHostnameViaGroups(
+                  primaryGroups as DnsResolverGroup[],
+                  primary.hostname,
+                  timeoutMs,
+                );
+                const tertiaryIps = await resolveHostnameViaGroups(
+                  tertiaryGroups2 as DnsResolverGroup[],
+                  tertiary.hostname,
+                  timeoutMs,
+                );
+
+                const overlappingIps = [...primaryIps].filter((ip) => tertiaryIps.has(ip));
+                if (overlappingIps.length > 0) {
+                  const maxIps = Math.max(primaryIps.size, tertiaryIps.size);
+                  const overlapRatio = overlappingIps.length / maxIps;
+
+                  if (overlapRatio > 0.5) {
+                    anycastDegraded = true;
+                    logger.warn(
+                      {
+                        primaryIdentity: primary.identity,
+                        tertiaryIdentity: tertiary.identity,
+                        overlappingIps,
+                        overlapRatio: overlapRatio.toFixed(2),
+                      },
+                      'DNS consensus runtime re-validation: primary-tertiary anycast overlap detected (t2)',
+                    );
+                  }
+                }
+              } catch {
+                // Resolution failed, skip
+              }
             }
           }
         }
@@ -776,12 +892,102 @@ export async function revalidateDisjointness(
                       overlappingIps,
                       overlapRatio: overlapRatio.toFixed(2),
                     },
-                    'DNS consensus runtime re-validation: secondary-tertiary anycast overlap detected',
+                    'DNS consensus runtime re-validation: secondary-tertiary anycast overlap detected (t1)',
                   );
                 }
               }
             } catch {
               // Resolution failed, skip
+            }
+          }
+        }
+
+        // Check secondary (s2) vs tertiary
+        if (secondaryDetails2.length > 0 && secondaryGroups2) {
+          for (const secondary of secondaryDetails2) {
+            if (secondary.ips.size === 0 || !secondary.hostname) continue;
+
+            for (const tertiary of tertiaryDetails) {
+              if (tertiary.ips.size === 0 || !tertiary.hostname) continue;
+
+              try {
+                const secondaryIps = await resolveHostnameViaGroups(
+                  secondaryGroups2 as DnsResolverGroup[],
+                  secondary.hostname,
+                  timeoutMs,
+                );
+                const tertiaryIps = await resolveHostnameViaGroups(
+                  tertiaryGroups as DnsResolverGroup[],
+                  tertiary.hostname,
+                  timeoutMs,
+                );
+
+                const overlappingIps = [...secondaryIps].filter((ip) => tertiaryIps.has(ip));
+                if (overlappingIps.length > 0) {
+                  const maxIps = Math.max(secondaryIps.size, tertiaryIps.size);
+                  const overlapRatio = overlappingIps.length / maxIps;
+
+                  if (overlapRatio > 0.5) {
+                    anycastDegraded = true;
+                    logger.warn(
+                      {
+                        secondaryIdentity: secondary.identity,
+                        tertiaryIdentity: tertiary.identity,
+                        overlappingIps,
+                        overlapRatio: overlapRatio.toFixed(2),
+                      },
+                      'DNS consensus runtime re-validation: secondary-tertiary anycast overlap detected (s2 vs t1)',
+                    );
+                  }
+                }
+              } catch {
+                // Resolution failed, skip
+              }
+            }
+          }
+        }
+
+        // Check tertiary (t1) vs tertiary (t2) overlap
+        if (tertiaryDetails2.length > 0 && tertiaryGroups2) {
+          for (const tertiary of tertiaryDetails) {
+            if (tertiary.ips.size === 0 || !tertiary.hostname) continue;
+
+            for (const tertiary2 of tertiaryDetails2) {
+              if (tertiary2.ips.size === 0 || !tertiary2.hostname) continue;
+
+              try {
+                const tertiaryIps = await resolveHostnameViaGroups(
+                  tertiaryGroups as DnsResolverGroup[],
+                  tertiary.hostname,
+                  timeoutMs,
+                );
+                const tertiary2Ips = await resolveHostnameViaGroups(
+                  tertiaryGroups2 as DnsResolverGroup[],
+                  tertiary2.hostname,
+                  timeoutMs,
+                );
+
+                const overlappingIps = [...tertiaryIps].filter((ip) => tertiary2Ips.has(ip));
+                if (overlappingIps.length > 0) {
+                  const maxIps = Math.max(tertiaryIps.size, tertiary2Ips.size);
+                  const overlapRatio = overlappingIps.length / maxIps;
+
+                  if (overlapRatio > 0.5) {
+                    anycastDegraded = true;
+                    logger.warn(
+                      {
+                        tertiaryIdentity: tertiary.identity,
+                        tertiary2Identity: tertiary2.identity,
+                        overlappingIps,
+                        overlapRatio: overlapRatio.toFixed(2),
+                      },
+                      'DNS consensus runtime re-validation: tertiary-tertiary anycast overlap detected (t1 vs t2)',
+                    );
+                  }
+                }
+              } catch {
+                // Resolution failed, skip
+              }
             }
           }
         }

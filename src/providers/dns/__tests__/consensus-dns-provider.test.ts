@@ -109,7 +109,7 @@ describe('ConsensusDnsProvider', () => {
   ): ConsensusDnsProvider {
     const opts: ConsensusDnsProviderOptions = {
       primary,
-      secondary,
+      secondaryProviders: [secondary],
       disjointnessValidator: createDisjointnessValidator(),
       breakers: undefined,
       telemetry: (sample: DnsLegSample) => telemetryCalls.push(sample),
@@ -120,7 +120,7 @@ describe('ConsensusDnsProvider', () => {
       },
     };
     if (tertiary !== undefined) {
-      opts.tertiary = tertiary;
+      opts.tertiaryProviders = [tertiary];
     }
     return new ConsensusDnsProvider(opts);
   }
@@ -266,6 +266,69 @@ describe('ConsensusDnsProvider', () => {
     });
   });
 
+  describe('Dual-redundant secondary (ADR-0069)', () => {
+    function createDualSecondaryProvider(
+      primary: MockDnsProvider,
+      secondary1: MockDnsProvider,
+      secondary2: MockDnsProvider,
+    ): ConsensusDnsProvider {
+      return new ConsensusDnsProvider({
+        primary,
+        secondaryProviders: [secondary1, secondary2],
+        secondaryConfig: { primary: secondary1, secondary: secondary2, strategy: 'dual-redundant' },
+        disjointnessValidator: createDisjointnessValidator(),
+        breakers: undefined,
+        telemetry: (sample: DnsLegSample) => telemetryCalls.push(sample),
+        config: { requiredConfirmations: 1, degradedRatio: 0.5, degradedMin: 10 },
+      });
+    }
+
+    it('race rescue: s1 error + s2 Available confirms without tertiary', async () => {
+      const primary = createMockProvider('Primary', 'available');
+      const secondary1 = createMockProvider('Secondary1', 'error');
+      const secondary2 = createMockProvider('Secondary2', 'available');
+      const provider = createDualSecondaryProvider(primary, secondary1, secondary2);
+      const result = await provider.checkAvailability('test.com');
+      expect(result.status).toBe(DomainStatus.Available);
+      expect(secondary1.checkAvailability).toHaveBeenCalled();
+      expect(secondary2.checkAvailability).toHaveBeenCalled();
+    });
+
+    it('veto: ANY Registered from s1/s2 downgrades to Unknown', async () => {
+      const primary = createMockProvider('Primary', 'available');
+      const secondary1 = createMockProvider('Secondary1', 'available');
+      const secondary2 = createMockProvider('Secondary2', 'registered');
+      const provider = createDualSecondaryProvider(primary, secondary1, secondary2);
+      const result = await provider.checkAvailability('test.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+
+    it('both secondaries Unknown with no tertiary downgrades to Unknown', async () => {
+      const primary = createMockProvider('Primary', 'available');
+      const secondary1 = createMockProvider('Secondary1', 'unknown');
+      const secondary2 = createMockProvider('Secondary2', 'unknown');
+      const provider = createDualSecondaryProvider(primary, secondary1, secondary2);
+      const result = await provider.checkAvailability('test.com');
+      expect(result.status).toBe(DomainStatus.Unknown);
+    });
+
+    it('dispose/clearCache/pruneCache cover both secondaries', () => {
+      const primary = createMockProvider('Primary', 'available');
+      const secondary1 = createMockProvider('Secondary1', 'available');
+      const secondary2 = createMockProvider('Secondary2', 'available');
+      const provider = createDualSecondaryProvider(primary, secondary1, secondary2);
+      provider.clearCache();
+      expect(secondary1.clearCache).toHaveBeenCalled();
+      expect(secondary2.clearCache).toHaveBeenCalled();
+      provider.pruneCache();
+      expect(secondary1.pruneCache).toHaveBeenCalled();
+      expect(secondary2.pruneCache).toHaveBeenCalled();
+      provider.dispose();
+      expect(secondary1.dispose).toHaveBeenCalled();
+      expect(secondary2.dispose).toHaveBeenCalled();
+    });
+  });
+
   describe('Bulk operations', () => {
     it('processes multiple domains in checkBulk', async () => {
       const primary = createMockProvider('Primary', 'available');
@@ -387,8 +450,8 @@ describe('ConsensusDnsProvider', () => {
 
       const opts: ConsensusDnsProviderOptions = {
         primary,
-        secondary,
-        tertiary,
+        secondaryProviders: [secondary],
+        tertiaryProviders: [tertiary],
         disjointnessValidator,
         breakers: undefined,
         telemetry: (sample: DnsLegSample) => telemetryCalls.push(sample),

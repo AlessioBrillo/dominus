@@ -29,7 +29,7 @@ const ENTITY_TABLES = [
   'auto_listings',
   'events',
   'onboarding_state',
-  { name: 'public_scores', extraUsing: "OR current_setting('app.tenant_id', true) = 'public'" },
+  { name: 'public_scores', extraUsing: " OR (current_setting('app.tenant_id', true) = 'public')" },
 ] as const;
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
