@@ -610,7 +610,7 @@ const configSchema = z
      */
     DNS_CONSENSUS_NAMESERVERS: z.string().optional(),
     /**
-     * Primary secondary DNS strategy (ADR-00XX): first independent operator for
+     * Primary secondary DNS strategy (ADR-0069): first independent operator for
      * dual-redundant secondary leg. Default: 'dot-alternate' (AdGuard over DoT).
      * Used when DNS_CONSENSUS_DUAL_REDUNDANT=true.
      */
@@ -631,7 +631,7 @@ const configSchema = z
       .optional()
       .default('dot-alternate'),
     /**
-     * Secondary secondary DNS strategy (ADR-00XX): second independent operator
+     * Secondary secondary DNS strategy (ADR-0069): second independent operator
      * for dual-redundant secondary leg. Default: 'dot-consensus' (Mullvad over DoT).
      * Used when DNS_CONSENSUS_DUAL_REDUNDANT=true.
      */
@@ -652,7 +652,7 @@ const configSchema = z
       .optional()
       .default('dot-consensus'),
     /**
-     * Enable dual-redundant secondary leg (ADR-00XX): when true, two independent
+     * Enable dual-redundant secondary leg (ADR-0069): when true, two independent
      * secondary providers are created (using DNS_CONSENSUS_STRATEGY_1 and _2) and
      * raced for rescue/veto. A single secondary provider failure no longer degrades
      * the entire secondary leg. Default: true.
@@ -662,7 +662,7 @@ const configSchema = z
       .optional()
       .default(true),
     /**
-     * Rate limiting for secondary provider 1 (ADR-00XX): max tokens for the first
+     * Rate limiting for secondary provider 1 (ADR-0069): max tokens for the first
      * secondary provider. Default: 10 req/sec (half of legacy secondary budget).
      */
     DNS_CONSENSUS_RATE_LIMIT_TOKENS_1: z.coerce
@@ -681,7 +681,7 @@ const configSchema = z
       .optional()
       .default(1000),
     /**
-     * Rate limiting for secondary provider 2 (ADR-00XX): max tokens for the second
+     * Rate limiting for secondary provider 2 (ADR-0069): max tokens for the second
      * secondary provider. Default: 10 req/sec (half of legacy secondary budget).
      */
     DNS_CONSENSUS_RATE_LIMIT_TOKENS_2: z.coerce
