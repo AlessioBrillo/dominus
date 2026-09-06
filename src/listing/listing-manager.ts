@@ -2,7 +2,7 @@
 import type { ListingProvider } from '../providers/listing/listing-provider.js';
 import type { ListingRepository } from '../db/repositories/listing-repository.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
-import type { TrademarkGate } from '../trademark/trademark-gate.js';
+import { GateVerdict, type TrademarkGate } from '../trademark/trademark-gate.js';
 import type {
   Listing,
   ListingOffer,
@@ -12,6 +12,7 @@ import type {
   ListingsFilter,
 } from '../types/listing.js';
 import { getLogger } from '../logger.js';
+import { TrademarkGateError } from '../types/errors.js';
 
 const logger = getLogger();
 
@@ -19,16 +20,18 @@ export class ListingManager {
   readonly #provider: ListingProvider;
   readonly #repo: ListingRepository;
   readonly #engine: ScoringEngine;
+  readonly #trademarkGate: TrademarkGate;
 
   constructor(
     provider: ListingProvider,
     repo: ListingRepository,
     engine: ScoringEngine,
-    _trademarkGate: TrademarkGate,
+    trademarkGate: TrademarkGate,
   ) {
     this.#provider = provider;
     this.#repo = repo;
     this.#engine = engine;
+    this.#trademarkGate = trademarkGate;
   }
 
   get provider(): ListingProvider {
@@ -48,6 +51,20 @@ export class ListingManager {
         'ListingManager: domain already listed on this marketplace',
       );
       return existing;
+    }
+
+    // Trademark gate (Principle 6, ADR-0006): a Blocked domain must never
+    // enter the sell pipeline, not even as a local draft. Unverified
+    // (sources unreachable) is still tracked as a draft — local-only,
+    // no legal exposure — but publish is refused in listOnMarketplace.
+    const gate = await this.#trademarkGate.check(domain);
+    if (gate.verdict === GateVerdict.Blocked) {
+      throw new TrademarkGateError(
+        `Refusing to list ${domain}: trademark match on ${gate.matchedMark ?? 'unknown mark'} (${gate.matchSource ?? 'unknown source'})`,
+      );
+    }
+    if (gate.verdict === GateVerdict.Unverified) {
+      logger.warn({ domain, marketplace }, 'ListingManager: trademark unverified — draft only');
     }
 
     let finalPrice = priceEur;
@@ -124,6 +141,16 @@ export class ListingManager {
         'ListingManager: listing already published',
       );
       return listing;
+    }
+
+    // Re-check at publish time: a match may have appeared after the draft
+    // was created, and pre-gate drafts bypassed listDomain entirely.
+    // Publishing is the legal-exposure point, so Unverified blocks here.
+    const gate = await this.#trademarkGate.check(listing.domain);
+    if (gate.verdict !== GateVerdict.Clear) {
+      throw new TrademarkGateError(
+        `Refusing to publish ${listing.domain}: trademark verdict is ${gate.verdict}`,
+      );
     }
 
     if (!this.#provider.isAvailable) {

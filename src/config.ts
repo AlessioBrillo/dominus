@@ -2236,14 +2236,15 @@ const configSchema = z
     /**
      * Listing provider implementation to use for marketplace integration.
      * Supported values:
-     *   'manual' — local-only tracking, no external API calls (default)
-     *   'dan'    — Dan.com Marketplace API (requires DAN_API_KEY)
+     *   'manual'   — local-only tracking, no external API calls (default)
+     *   'dan'      — Dan.com Marketplace API (requires DAN_API_KEY)
+     *   'afternic' — Afternic Marketplace API (requires AFTERNIC_API_KEY)
      * Adding a new provider requires:
      *   1. Creating a new implementation of ListingProvider interface
      *   2. Adding the type to the union below
      *   3. Adding the factory case in src/providers/listing/index.ts
      */
-    LISTING_PROVIDER: z.enum(['manual', 'dan']).default('manual'),
+    LISTING_PROVIDER: z.enum(['manual', 'dan', 'afternic']).default('manual'),
 
     /**
      * Dan.com API key for marketplace listing management.
@@ -2251,6 +2252,20 @@ const configSchema = z
      * Obtain from https://dan.com/settings/api
      */
     DAN_API_KEY: z.string().optional(),
+
+    /**
+     * Afternic API key for marketplace listing management.
+     * Required when LISTING_PROVIDER=afternic.
+     * Without a key the provider reports isAvailable=false and the
+     * ListingManager degrades to local-only tracking (manual mode).
+     */
+    AFTERNIC_API_KEY: z.string().optional(),
+
+    /**
+     * Afternic API base URL override (tests, future API versioning).
+     * Defaults to https://api.afternic.com/v1.
+     */
+    AFTERNIC_API_URL: z.string().url().optional(),
 
     /**
      * Default marketplace for listings when none is specified.
