@@ -93,9 +93,12 @@ jobs:
             fi
             sleep 1
           done
-          # Configure app.tenant_id GUC for RLS policies (migration 0030)
-          docker exec dominus-pg-roundtrip psql -U postgres -d dominus -c "ALTER SYSTEM SET app.tenant_id = 'default';"
-          docker exec dominus-pg-roundtrip psql -U postgres -d dominus -c "SELECT pg_reload_conf();"
+          # NOTE: no ALTER SYSTEM for app.tenant_id here. That GUC is an
+          # undeclared custom placeholder: ALTER SYSTEM validates GUC names
+          # and fails with "unrecognized configuration parameter", while the
+          # app sets it per-session via set_config() (postgres-adapter) and
+          # migration 0030 reads it with current_setting(..., true)
+          # (missing_ok). Nothing to pre-configure for the roundtrip.
           # Run migrations on PG
           DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
           # Create a test SQLite DB with some data
@@ -532,8 +535,8 @@ jobs:
 
       - name: Run E2E tests
         env:
-          DNS_TERTIARY_ENABLED: "false"
-          DNS_CONSENSUS_ENABLED: "false"
+          DNS_TERTIARY_ENABLED: 'false'
+          DNS_CONSENSUS_ENABLED: 'false'
         run: npm run test:e2e
 
       - name: Upload Playwright report
