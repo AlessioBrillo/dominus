@@ -25,7 +25,6 @@ import {
   type DnsProvider,
   type DnsResolverGroup,
   type DnsConsensusValidationResult,
-  type AnycastOverlapDetail,
   type ResolvedEndpoints,
 } from '../providers/dns/index.js';
 import type { ConsensusDnsProviderOptions } from '../providers/dns/consensus-dns-provider.js';
@@ -499,7 +498,7 @@ export function buildSecondaryDnsProvider(
 }
 
 /**
- * Builds dual-redundant secondary DNS consensus providers (ADR-00XX).
+ * Builds dual-redundant secondary DNS consensus providers (ADR-0069).
  * When DNS_CONSENSUS_DUAL_REDUNDANT=true, creates two independent secondary
  * providers using DNS_CONSENSUS_STRATEGY_1 and DNS_CONSENSUS_STRATEGY_2.
  * Each has its own rate limiter (split budget) and independent disjointness checks.
@@ -514,7 +513,7 @@ async function buildSecondaryConsensusProviders(
   legTelemetry?: DnsLegTelemetry,
   onDisjointnessPartial?: () => void,
 ): Promise<DnsProvider[]> {
-  // Dual-redundant mode (ADR-00XX): create two independent secondary providers
+  // Dual-redundant mode (ADR-0069): create two independent secondary providers
   if (config.DNS_CONSENSUS_DUAL_REDUNDANT) {
     const providers: DnsProvider[] = [];
 
@@ -764,7 +763,7 @@ async function buildSecondaryConsensusProviders(
 export async function buildConsensusDnsProvider(
   primaryProvider: DnsProvider,
   secondaryProviders: DnsProvider[],
-  tertiaryProvider: DnsProvider | undefined,
+  tertiaryProviders: DnsProvider[],
   primaryGroups: DnsResolverGroup[],
   secondaryGroups: DnsResolverGroup[],
   tertiaryGroups: DnsResolverGroup[] | undefined,
@@ -780,14 +779,32 @@ export async function buildConsensusDnsProvider(
     degradedRatio?: number;
     degradedMin?: number;
     revalidationIntervalMs?: number;
+    secondaryConfig?: ConsensusDnsProviderOptions['secondaryConfig'];
+    tertiaryConfig?: ConsensusDnsProviderOptions['tertiaryConfig'];
+    secondaryGroups2?: DnsResolverGroup[];
+    secondaryNameservers2?: string[];
+    tertiaryGroups2?: DnsResolverGroup[];
+    tertiaryNameservers2?: string[];
   },
 ): Promise<DnsProvider> {
-  // Build ResolvedEndpoints for each leg for runtime disjointness validation (ADR-0063/0066)
-  const [primaryEndpoints, secondaryEndpoints, tertiaryEndpoints] = await Promise.all([
+  // Build ResolvedEndpoints for each leg for runtime disjointness validation (ADR-0063/0066/0069)
+  const [
+    primaryEndpoints,
+    secondaryEndpoints,
+    tertiaryEndpoints,
+    secondaryEndpoints2,
+    tertiaryEndpoints2,
+  ] = await Promise.all([
     buildResolvedEndpoints(primaryGroups, primaryNameservers),
     buildResolvedEndpoints(secondaryGroups, secondaryNameservers),
     tertiaryGroups
       ? buildResolvedEndpoints(tertiaryGroups, tertiaryNameservers)
+      : Promise.resolve(undefined as ResolvedEndpoints | undefined),
+    config?.secondaryGroups2
+      ? buildResolvedEndpoints(config.secondaryGroups2, config.secondaryNameservers2)
+      : Promise.resolve(undefined as ResolvedEndpoints | undefined),
+    config?.tertiaryGroups2
+      ? buildResolvedEndpoints(config.tertiaryGroups2, config.tertiaryNameservers2)
       : Promise.resolve(undefined as ResolvedEndpoints | undefined),
   ]);
 
@@ -827,8 +844,8 @@ export async function buildConsensusDnsProvider(
 
   const opts: ConsensusDnsProviderOptions = {
     primary: primaryProvider,
-    secondary: secondaryProviders[0]!,
     secondaryProviders,
+    tertiaryProviders,
     disjointnessValidator: validator,
     breakers: undefined,
     config: {
@@ -843,11 +860,26 @@ export async function buildConsensusDnsProvider(
     tertiaryGroups,
     revalidationIntervalMs: config?.revalidationIntervalMs ?? 600_000,
   };
-  if (tertiaryProvider !== undefined) {
-    opts.tertiary = tertiaryProvider;
+  if (config?.secondaryConfig !== undefined) {
+    opts.secondaryConfig = config.secondaryConfig;
+  }
+  if (config?.tertiaryConfig !== undefined) {
+    opts.tertiaryConfig = config.tertiaryConfig;
+  }
+  if (secondaryEndpoints2 !== undefined) {
+    opts.secondaryEndpoints2 = secondaryEndpoints2;
+  }
+  if (config?.secondaryGroups2 !== undefined) {
+    opts.secondaryGroups2 = config.secondaryGroups2;
   }
   if (tertiaryEndpoints !== undefined) {
     opts.tertiaryEndpoints = tertiaryEndpoints;
+  }
+  if (tertiaryEndpoints2 !== undefined) {
+    opts.tertiaryEndpoints2 = tertiaryEndpoints2;
+  }
+  if (config?.tertiaryGroups2 !== undefined) {
+    opts.tertiaryGroups2 = config.tertiaryGroups2;
   }
   if (legTelemetry !== undefined) {
     opts.telemetry = legTelemetry;
@@ -905,7 +937,6 @@ type ConsensusOnFailureMode = 'fail' | 'degrade' | 'disable' | 'degraded-anycast
 
 function buildDisabledConsensusConfig(reason: string): ConsensusDnsConfig {
   return {
-    secondaryProvider: null as unknown as DnsProvider,
     disabled: true,
     disableReason: reason,
     requiredConfirmations: 1,
@@ -1347,7 +1378,6 @@ export async function buildDnsConsensusConfig(
     legTelemetry,
     onDisjointnessPartial,
   );
-  const tertiaryProvider = tertiaryProviders[0]; // First provider for backward compatibility with runtime validation
 
   // RUNTIME DISJOINTNESS VALIDATION (ADR-0066)
   // Perform live DNS queries through each leg to detect anycast/IP overlap
@@ -1634,32 +1664,12 @@ export async function buildDnsConsensusConfig(
     metricsCollector?.recordDnsConsensusAnycastDegradedRun();
   }
 
-  // Collect consensus resolver endpoints for authoritative zone overlap detection
-  const secondaryEndpoints = collectResolverEndpoints(
-    consensusGroups,
-    effectiveConsensusNameservers,
-    {
-      excludeFallbacks: true,
-    },
-  );
-  const tertiaryEndpoints = tertiaryProvider
-    ? collectResolverEndpoints(
-        strategyToResolverGroups(
-          effectiveTertiaryStrategy ?? 'doh-tertiary',
-          config.DNS_DOH_ENDPOINT,
-        ),
-        effectiveTertiaryNameservers,
-        { excludeFallbacks: true },
-      )
-    : [];
-
   // Create AuthoritativeZoneResolver for zone-aware disjointness validation
   const authoritativeZoneResolver = await createAuthoritativeZoneResolver(
     config.DNS_CONSENSUS_ENABLED,
   );
 
   const enabledConfig: ConsensusDnsConfig = {
-    secondaryProvider,
     disabled: false,
     degradedRatio: config.DNS_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.DNS_CONSENSUS_DEGRADED_MIN,
@@ -1669,48 +1679,7 @@ export async function buildDnsConsensusConfig(
     anycastDegraded,
     requiredConfirmations: config.DNS_CONSENSUS_REQUIRED_AVAILABLE as 1 | 2,
     revalidationIntervalMs: 600_000,
-    ...(anycastReport.anycastOverlaps
-      ? {
-          anycastOverlaps: {
-            primarySecondary: (anycastReport.anycastOverlaps.primarySecondary ?? []).map(
-              (o: AnycastOverlapDetail) => ({
-                primaryIdentity: o.primaryIdentity,
-                secondaryIdentity: o.secondaryIdentity,
-                primaryIps: o.primaryIps,
-                secondaryIps: o.secondaryIps,
-                overlappingIps: o.overlappingIps,
-                overlapRatio: o.overlapRatio,
-                exceedsThreshold: o.exceedsThreshold,
-              }),
-            ),
-            primaryTertiary: (anycastReport.anycastOverlaps.primaryTertiary ?? []).map(
-              (o: AnycastOverlapDetail) => ({
-                primaryIdentity: o.primaryIdentity,
-                secondaryIdentity: o.secondaryIdentity,
-                primaryIps: o.primaryIps,
-                secondaryIps: o.secondaryIps,
-                overlappingIps: o.overlappingIps,
-                overlapRatio: o.overlapRatio,
-                exceedsThreshold: o.exceedsThreshold,
-              }),
-            ),
-            secondaryTertiary: (anycastReport.anycastOverlaps.secondaryTertiary ?? []).map(
-              (o: AnycastOverlapDetail) => ({
-                primaryIdentity: o.primaryIdentity,
-                secondaryIdentity: o.secondaryIdentity,
-                primaryIps: o.primaryIps,
-                secondaryIps: o.secondaryIps,
-                overlappingIps: o.overlappingIps,
-                overlapRatio: o.overlapRatio,
-                exceedsThreshold: o.exceedsThreshold,
-              }),
-            ),
-          },
-        }
-      : {}),
     ...(authoritativeZoneResolver !== undefined ? { authoritativeZoneResolver } : {}),
-    secondaryEndpoints,
-    tertiaryEndpoints,
   };
 
   // Extra fields for runtime re-validation (internal, not part of public API)
@@ -1720,9 +1689,12 @@ export async function buildDnsConsensusConfig(
     _secondaryGroups?: DnsResolverGroup[];
     _secondaryGroups2?: DnsResolverGroup[];
     _tertiaryGroups?: DnsResolverGroup[] | undefined;
+    _tertiaryGroups2?: DnsResolverGroup[] | undefined;
     _primaryNameservers?: string[] | undefined;
     _secondaryNameservers?: string[] | undefined;
+    _secondaryNameservers2?: string[] | undefined;
     _tertiaryNameservers?: string[] | undefined;
+    _tertiaryNameservers2?: string[] | undefined;
   };
   const internalConfig = enabledConfig as InternalConfig;
 
@@ -1735,10 +1707,10 @@ export async function buildDnsConsensusConfig(
   if (effectiveTertiaryNameservers && effectiveTertiaryNameservers.length > 0)
     internalConfig._tertiaryNameservers = effectiveTertiaryNameservers;
 
-  // Add dual-redundant secondary config if we have multiple providers
+  // Dual-redundant secondary (ADR-0069): two independent providers, else single
   const effectiveConsensusRateLimiter =
     consensusRateLimiter ?? buildConsensusRateLimiter(config, undefined);
-  const secondaryProviders = await buildSecondaryConsensusProviders(
+  const dualSecondaryProviders = await buildSecondaryConsensusProviders(
     config,
     effectiveConsensusRateLimiter,
     primaryGroups,
@@ -1748,31 +1720,41 @@ export async function buildDnsConsensusConfig(
     onDisjointnessPartial,
   );
 
-  if (secondaryProviders.length > 1) {
-    const firstSecondary = secondaryProviders[0]!;
-    const secondSecondary = secondaryProviders[1]!;
+  if (dualSecondaryProviders.length > 1) {
+    const firstSecondary = dualSecondaryProviders[0]!;
+    const secondSecondary = dualSecondaryProviders[1]!;
     enabledConfig.secondaryConfig = {
       primary: firstSecondary,
       secondary: secondSecondary,
       strategy: 'dual-redundant',
     };
-    // Also store the second secondary's resolver groups for runtime re-validation
-    internalConfig._secondaryGroups2 = consensusGroups; // We'll need to capture both groups
+    internalConfig._secondaryGroups2 = consensusGroups;
+    if (effectiveConsensusNameservers && effectiveConsensusNameservers.length > 0)
+      internalConfig._secondaryNameservers2 = effectiveConsensusNameservers;
+  } else {
+    // Single secondary (legacy or local-doh fallback): same instance, single strategy
+    enabledConfig.secondaryConfig = {
+      primary: secondaryProvider,
+      secondary: secondaryProvider,
+      strategy: 'single',
+    };
   }
 
-  if (tertiaryProviders.length > 0) {
-    // Use first tertiary for backward compatibility
+  if (tertiaryProviders.length > 1) {
     const firstTertiary = tertiaryProviders[0]!;
-    enabledConfig.tertiaryProvider = firstTertiary;
-    // Add dual-redundant config if we have multiple providers
-    if (tertiaryProviders.length > 1) {
-      const secondTertiary = tertiaryProviders[1]!;
-      enabledConfig.tertiaryConfig = {
-        primary: firstTertiary,
-        secondary: secondTertiary,
-        strategy: 'dual-redundant',
-      };
-    }
+    const secondTertiary = tertiaryProviders[1]!;
+    enabledConfig.tertiaryConfig = {
+      primary: firstTertiary,
+      secondary: secondTertiary,
+      strategy: 'dual-redundant',
+    };
+  } else if (tertiaryProviders.length === 1) {
+    const onlyTertiary = tertiaryProviders[0]!;
+    enabledConfig.tertiaryConfig = {
+      primary: onlyTertiary,
+      secondary: onlyTertiary,
+      strategy: 'single',
+    };
   }
   return enabledConfig;
 }
@@ -2102,6 +2084,7 @@ export function probeConsensusProvider(
   config: Config,
   secondaryProvider: DnsProvider,
   tertiaryProviders?: DnsProvider[],
+  extraSecondaryProviders?: DnsProvider[],
 ): void {
   if (!config.DNS_CONSENSUS_ENABLED) return;
   const logger = getLogger();
@@ -2119,6 +2102,23 @@ export function probeConsensusProvider(
         'egress (dot strategies use TCP/853) or consider DNS_CONSENSUS_ENABLED=false.',
     );
   });
+  if (extraSecondaryProviders && extraSecondaryProviders.length > 0) {
+    for (let i = 0; i < extraSecondaryProviders.length; i++) {
+      const strategy = config.DNS_CONSENSUS_STRATEGY_2;
+      logger.warn(
+        { strategy, index: i + 2 },
+        `DNS: probing consensus secondary provider ${i + 2} at startup`,
+      );
+      validateResolverGroups(extraSecondaryProviders[i]!, probeOpts).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { err: message, strategy },
+          `DNS: consensus secondary provider ${i + 2} unreachable at startup — dual-redundant ` +
+            'secondary degrades to single. Verify DNS_CONSENSUS_STRATEGY_2 egress.',
+        );
+      });
+    }
+  }
   if (tertiaryProviders && tertiaryProviders.length > 0) {
     for (let i = 0; i < tertiaryProviders.length; i++) {
       const strategy = i === 0 ? config.DNS_TERTIARY_STRATEGY_1 : config.DNS_TERTIARY_STRATEGY_2;

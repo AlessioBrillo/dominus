@@ -117,7 +117,7 @@ import type { DnsLegSample, DnsLegTelemetry } from '../providers/dns/index.js';
 import type { RdapRequestSample, RdapRequestTelemetry } from '../providers/rdap/index.js';
 import { RDAP_ORG_UNIVERSAL } from '../providers/rdap/rdap-bootstrap.js';
 import { rdapUrlOrigin } from '../providers/rdap/rdap-consensus-validator.js';
-import type { DnsProvider } from '../providers/dns/dns-provider.js';
+import type { DnsProvider, DnsResolverGroup } from '../providers/dns/dns-provider.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import type { PurchaseService as PurchaseServiceType } from '../services/purchase-service.js';
 import { AcquisitionRepository } from '../db/repositories/acquisition-repository.js';
@@ -886,7 +886,22 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     metrics,
     config.DNS_CONSENSUS_ON_FAILURE,
   );
-  // Record consensus gate status for observability (ADR-0066)
+  // Derive provider arrays from secondary/tertiary configs (ADR-0069).
+  // single → [primary], dual-redundant → [primary, secondary].
+  const secondaryProviders =
+    dnsConsensusConfig?.secondaryConfig !== undefined
+      ? dnsConsensusConfig.secondaryConfig.strategy === 'dual-redundant'
+        ? [dnsConsensusConfig.secondaryConfig.primary, dnsConsensusConfig.secondaryConfig.secondary]
+        : [dnsConsensusConfig.secondaryConfig.primary]
+      : [];
+  const tertiaryProviders =
+    dnsConsensusConfig?.tertiaryConfig !== undefined
+      ? dnsConsensusConfig.tertiaryConfig.strategy === 'dual-redundant'
+        ? [dnsConsensusConfig.tertiaryConfig.primary, dnsConsensusConfig.tertiaryConfig.secondary]
+        : [dnsConsensusConfig.tertiaryConfig.primary]
+      : [];
+
+  // Record consensus gate status for observability (ADR-0066/0069: with cardinality)
   if (dnsConsensusConfig === undefined) {
     metrics.recordDnsConsensusGateStatus('disabled', 'DNS_CONSENSUS_ENABLED=false');
   } else if (dnsConsensusConfig.disabled) {
@@ -897,35 +912,36 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       'runtime validation incomplete or fallback isolation overlap',
     );
   } else {
-    metrics.recordDnsConsensusGateStatus('active');
+    const gateCardinality =
+      secondaryProviders.length > 1 && tertiaryProviders.length > 1
+        ? 'dual-dual'
+        : secondaryProviders.length > 1
+          ? 'dual-s'
+          : tertiaryProviders.length > 1
+            ? 'dual-t'
+            : 'single';
+    metrics.recordDnsConsensusGateStatus('active', `cardinality=${gateCardinality}`);
   }
+
   if (dnsConsensusConfig !== undefined && !dnsConsensusConfig.disabled) {
     // Startup probe of the consensus legs: with strict 2-of-3 semantics
     // a dead secondary (or a dead tertiary under requiredAvailable=2)
     // downgrades every Available to Unknown, so surface egress/strategy
     // problems at boot instead of discovering them in runs.
-    // Support dual-redundant tertiary (ADR-0068): pass all tertiary providers
-    const tertiaryProviders =
-      dnsConsensusConfig.tertiaryConfig?.strategy === 'dual-redundant'
-        ? [dnsConsensusConfig.tertiaryConfig.primary, dnsConsensusConfig.tertiaryConfig.secondary]
-        : dnsConsensusConfig.tertiaryProvider
-          ? [dnsConsensusConfig.tertiaryProvider]
-          : undefined;
-    if (dnsConsensusConfig.secondaryProvider) {
-      probeConsensusProvider(config, dnsConsensusConfig.secondaryProvider, tertiaryProviders);
+    // Probe ALL secondary + tertiary providers (ADR-0068/0069).
+    if (secondaryProviders.length > 0) {
+      probeConsensusProvider(
+        config,
+        secondaryProviders[0]!,
+        tertiaryProviders.length > 0 ? tertiaryProviders : undefined,
+        secondaryProviders.length > 1 ? secondaryProviders.slice(1) : undefined,
+      );
     }
   }
 
   // Build the ConsensusDnsProvider that wraps primary, secondary, and tertiary
   // into a single DnsProvider. This replaces the need for DnsPreFilterStage
   // to handle consensus logic internally.
-  const secondaryProviders =
-    dnsConsensusConfig?.secondaryConfig?.strategy === 'dual-redundant'
-      ? [dnsConsensusConfig.secondaryConfig.primary, dnsConsensusConfig.secondaryConfig.secondary]
-      : dnsConsensusConfig?.secondaryProvider
-        ? [dnsConsensusConfig.secondaryProvider]
-        : [];
-
   const consensusDnsProvider =
     dnsConsensusConfig !== undefined &&
     !dnsConsensusConfig.disabled &&
@@ -933,8 +949,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       ? await buildConsensusDnsProvider(
           dnsProvider,
           secondaryProviders,
-          dnsConsensusConfig.tertiaryProvider,
-          // Pass resolver groups and nameservers for runtime disjointness re-validation (ADR-0063/0066)
+          tertiaryProviders,
+          // Pass resolver groups and nameservers for runtime disjointness re-validation (ADR-0063/0066/0069)
           (dnsConsensusConfig as ConsensusDnsConfig)._primaryGroups ?? [],
           (dnsConsensusConfig as ConsensusDnsConfig)._secondaryGroups ?? [],
           (dnsConsensusConfig as ConsensusDnsConfig)._tertiaryGroups ?? [],
@@ -948,6 +964,36 @@ export async function createDependencies(config: Config): Promise<DominusDepende
             degradedRatio: dnsConsensusConfig.degradedRatio ?? config.DNS_CONSENSUS_DEGRADED_RATIO,
             degradedMin: dnsConsensusConfig.degradedMin ?? config.DNS_CONSENSUS_DEGRADED_MIN,
             revalidationIntervalMs: 600_000, // 10min periodic re-validation
+            ...(dnsConsensusConfig.secondaryConfig !== undefined
+              ? { secondaryConfig: dnsConsensusConfig.secondaryConfig }
+              : {}),
+            ...(dnsConsensusConfig.tertiaryConfig !== undefined
+              ? { tertiaryConfig: dnsConsensusConfig.tertiaryConfig }
+              : {}),
+            ...((dnsConsensusConfig as ConsensusDnsConfig)._secondaryGroups2 !== undefined
+              ? {
+                  secondaryGroups2: (dnsConsensusConfig as ConsensusDnsConfig)
+                    ._secondaryGroups2 as DnsResolverGroup[],
+                }
+              : {}),
+            ...((dnsConsensusConfig as ConsensusDnsConfig)._secondaryNameservers2 !== undefined
+              ? {
+                  secondaryNameservers2: (dnsConsensusConfig as ConsensusDnsConfig)
+                    ._secondaryNameservers2 as string[],
+                }
+              : {}),
+            ...((dnsConsensusConfig as ConsensusDnsConfig)._tertiaryGroups2 !== undefined
+              ? {
+                  tertiaryGroups2: (dnsConsensusConfig as ConsensusDnsConfig)
+                    ._tertiaryGroups2 as DnsResolverGroup[],
+                }
+              : {}),
+            ...((dnsConsensusConfig as ConsensusDnsConfig)._tertiaryNameservers2 !== undefined
+              ? {
+                  tertiaryNameservers2: (dnsConsensusConfig as ConsensusDnsConfig)
+                    ._tertiaryNameservers2 as string[],
+                }
+              : {}),
           },
         )
       : dnsProvider;
