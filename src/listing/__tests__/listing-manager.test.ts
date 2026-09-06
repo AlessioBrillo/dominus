@@ -7,7 +7,8 @@ import { ManualListingProvider } from '../../providers/listing/manual-listing-pr
 import { ListingManager } from '../listing-manager.js';
 import type { ListingProvider } from '../../providers/listing/listing-provider.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
-import type { TrademarkGate } from '../../trademark/trademark-gate.js';
+import { GateVerdict, type TrademarkGate } from '../../trademark/trademark-gate.js';
+import { TrademarkGateError } from '../../types/errors.js';
 
 function createTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
   const db = new Database(':memory:');
@@ -74,7 +75,34 @@ function createMockEngine(): ScoringEngine {
 
 function createMockGate(): TrademarkGate {
   return {
-    check: vi.fn().mockResolvedValue({ status: 'clear', match: null }),
+    check: vi.fn().mockResolvedValue({
+      domain: 'example.com',
+      verdict: GateVerdict.Clear,
+      verifiedSources: ['USPTO', 'EUIPO'],
+    }),
+  } as unknown as TrademarkGate;
+}
+
+function createBlockedGate(): TrademarkGate {
+  return {
+    check: vi.fn().mockResolvedValue({
+      domain: 'apple.com',
+      verdict: GateVerdict.Blocked,
+      verifiedSources: [],
+      matchedMark: 'APPLE',
+      matchedOwner: 'Apple Inc.',
+      matchSource: 'USPTO',
+    }),
+  } as unknown as TrademarkGate;
+}
+
+function createUnverifiedGate(): TrademarkGate {
+  return {
+    check: vi.fn().mockResolvedValue({
+      domain: 'example.com',
+      verdict: GateVerdict.Unverified,
+      verifiedSources: [],
+    }),
   } as unknown as TrademarkGate;
 }
 
@@ -225,5 +253,47 @@ describe('ListingManager', () => {
 
     const dan = await manager.getListings({ marketplace: 'dan' });
     expect(dan.length).toBe(1);
+  });
+
+  it('refuses to create a listing for a trademark-blocked domain', async () => {
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
+    const provider: ListingProvider = new ManualListingProvider(repo);
+
+    const manager = new ListingManager(provider, repo, createMockEngine(), createBlockedGate());
+    await expect(manager.listDomain('apple.com', 'manual', 1000)).rejects.toThrow(
+      TrademarkGateError,
+    );
+    expect(await manager.getListings()).toHaveLength(0);
+  });
+
+  it('creates a draft but refuses publish when trademark is unverified', async () => {
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
+    const provider: ListingProvider = new ManualListingProvider(repo);
+
+    const manager = new ListingManager(provider, repo, createMockEngine(), createUnverifiedGate());
+    const listing = await manager.listDomain('example.com', 'manual', 1000);
+    expect(listing.status).toBe('draft');
+
+    await expect(manager.listOnMarketplace(listing.id)).rejects.toThrow(TrademarkGateError);
+    expect((await manager.getListing(listing.id))?.status).toBe('draft');
+  });
+
+  it('refuses publish when a match appears after draft creation', async () => {
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
+    const provider: ListingProvider = new ManualListingProvider(repo);
+
+    const manager = new ListingManager(provider, repo, createMockEngine(), createMockGate());
+    const listing = await manager.listDomain('example.com', 'manual', 1000);
+
+    const blockedManager = new ListingManager(
+      provider,
+      repo,
+      createMockEngine(),
+      createBlockedGate(),
+    );
+    await expect(blockedManager.listOnMarketplace(listing.id)).rejects.toThrow(TrademarkGateError);
   });
 });
