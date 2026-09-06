@@ -289,7 +289,15 @@ describe('UsptoCasesProvider', () => {
       .mockResolvedValueOnce(mockHtmlResponse(503))
       .mockResolvedValueOnce(nikeResponse);
 
-    await provider.search('nike');
+    // UA selection is Math.random()-based (4 agents): pin the first pick to
+    // index 0 and everything after (incl. backoff jitter) to the last index
+    // so rotation is deterministic instead of 1-in-16 flaky.
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValue(0.99);
+    try {
+      await provider.search('nike');
+    } finally {
+      randomSpy.mockRestore();
+    }
     expect(mockFetch).toHaveBeenCalledTimes(3);
 
     // Verify different User-Agents used

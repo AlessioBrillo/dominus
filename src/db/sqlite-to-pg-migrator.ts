@@ -144,8 +144,13 @@ async function insertBatch(
       }
       placeholders.push(`(${rowPlaceholders.join(', ')})`);
     }
+    // ON CONFLICT DO NOTHING: the target PG is freshly migrated, so it already
+    // holds migration seed rows (e.g. plan_limits) identical to the SQLite
+    // export — plain INSERT would PK-collide on them. Skipping conflicts also
+    // makes the import re-runnable, as documented on importJsonlToPg. Genuine
+    // user-table collisions cannot occur on a fresh target (only seeds exist).
     await client.query(
-      `INSERT INTO "${table}" (${colList}) VALUES ${placeholders.join(', ')}`,
+      `INSERT INTO "${table}" (${colList}) VALUES ${placeholders.join(', ')} ON CONFLICT DO NOTHING`,
       values,
     );
   }

@@ -46,12 +46,24 @@ interface PgExecutor {
   unlockWithFence(lockName: string, fenceToken: string): Promise<void>;
 }
 
+/**
+ * node-postgres returns an ARRAY of results for multi-statement queries
+ * (migrations bundle CREATE TABLE + CREATE INDEX + DO blocks in one exec).
+ * Normalize to the last statement's result so exec/query/queryOne never
+ * crash on `result.rows` being undefined. Single-statement callers are
+ * unaffected (non-array passes through).
+ */
+// ponytail: last-result wins for multi-statement batches; split DDL per exec if per-statement rowCounts ever matter
+function lastResult<T>(result: T | T[]): T {
+  return Array.isArray(result) ? result[result.length - 1]! : result;
+}
+
 function createPgExecutor(queryFn: QueryFn): PgExecutor {
   async function exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
       const isInsert = /^\s*INSERT\s/i.test(sql) && !hasReturning(sql);
       const text = isInsert ? `${convertPlaceholders(sql)} RETURNING id` : convertPlaceholders(sql);
-      const result = await queryFn(text, params ?? []);
+      const result = lastResult(await queryFn(text, params ?? []));
       return {
         changes: result.rowCount ?? 0,
         lastInsertRowid: result.rows[0]?.id != null ? Number(result.rows[0].id) : undefined,
@@ -63,7 +75,7 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
 
   async function query<T>(sql: string, params?: unknown[]): Promise<T[]> {
     try {
-      const result = await queryFn(convertPlaceholders(sql), params ?? []);
+      const result = lastResult(await queryFn(convertPlaceholders(sql), params ?? []));
       return result.rows as unknown as T[];
     } catch (err) {
       throw wrapError(err);
@@ -72,7 +84,7 @@ function createPgExecutor(queryFn: QueryFn): PgExecutor {
 
   async function queryOne<T>(sql: string, params?: unknown[]): Promise<T | null> {
     try {
-      const result = await queryFn(convertPlaceholders(sql), params ?? []);
+      const result = lastResult(await queryFn(convertPlaceholders(sql), params ?? []));
       if (result.rows.length === 0) return null;
       return result.rows[0] as unknown as T;
     } catch (err) {
