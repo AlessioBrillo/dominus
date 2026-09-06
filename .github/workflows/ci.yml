@@ -101,9 +101,14 @@ jobs:
           # (missing_ok). Nothing to pre-configure for the roundtrip.
           # Run migrations on PG
           DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
-          # Create a test SQLite DB with some data
+          # Create a test SQLite DB with some data.
+          # NOTE: env -u DATABASE_URL is load-bearing — this job exports
+          # DATABASE_URL at job level and createDatabaseProvider prefers it
+          # over DATABASE_PATH, so without unsetting it this leg would
+          # no-op against PG (55 → 55) and leave $sqlite_db uncreated,
+          # failing the export below with SQLITE_CANTOPEN.
           sqlite_db="$(mktemp -d)/roundtrip.db"
-          DATABASE_PATH="$sqlite_db" npx tsx dist/db/migrate-cli.js
+          env -u DATABASE_URL DATABASE_PATH="$sqlite_db" npx tsx dist/db/migrate-cli.js
           # Run roundtrip verification
           DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus \
             npx tsx scripts/migrate-sqlite-to-pg.ts verify-roundtrip "$sqlite_db"
