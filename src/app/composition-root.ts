@@ -1114,6 +1114,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const listingProvider = createListingProvider(config.LISTING_PROVIDER as ListingProviderType, {
     listingRepo: repos.listingRepo,
     danApiKey: config.DAN_API_KEY ?? undefined,
+    afternicApiKey: config.AFTERNIC_API_KEY ?? undefined,
+    afternicApiUrl: config.AFTERNIC_API_URL ?? undefined,
   });
   const listingManager = new ListingManager(
     listingProvider,

@@ -21,7 +21,7 @@ type FetchOptions = {
   signal?: AbortSignal;
 };
 
-interface DanApiListing {
+interface AfternicApiListing {
   id: string;
   domain: string;
   buy_now_price: number;
@@ -31,7 +31,7 @@ interface DanApiListing {
   expires_at: string | null;
 }
 
-interface DanApiOffer {
+interface AfternicApiOffer {
   id: string;
   amount: number;
   buyer: string;
@@ -39,22 +39,22 @@ interface DanApiOffer {
   created_at: string;
 }
 
-interface DanListingsResponse {
-  listings: DanApiListing[];
+interface AfternicListingsResponse {
+  listings: AfternicApiListing[];
   total: number;
   page: number;
 }
 
-interface DanCreateListingPayload {
+interface AfternicCreateListingPayload {
   domain: string;
   buy_now_price: number;
   listing_type?: 'buy_it_now' | 'lease_to_own';
 }
 
-const DAN_API_BASE = 'https://api.dan.com/v1';
+export const AFTERNIC_API_BASE = 'https://api.afternic.com/v1';
 
-function danStatusToInternal(status: DanApiListing['status']): ListingStatus {
-  const map: Record<DanApiListing['status'], ListingStatus> = {
+function afternicStatusToInternal(status: AfternicApiListing['status']): ListingStatus {
+  const map: Record<AfternicApiListing['status'], ListingStatus> = {
     active: 'listed',
     sold: 'sold',
     expired: 'expired',
@@ -65,8 +65,8 @@ function danStatusToInternal(status: DanApiListing['status']): ListingStatus {
   return map[status] ?? 'draft';
 }
 
-function internalStatusToDan(status: ListingStatus): DanApiListing['status'] | undefined {
-  const map: Record<string, DanApiListing['status']> = {
+function internalStatusToAfternic(status: ListingStatus): AfternicApiListing['status'] | undefined {
+  const map: Record<string, AfternicApiListing['status']> = {
     listed: 'active',
     sold: 'sold',
     expired: 'expired',
@@ -77,8 +77,8 @@ function internalStatusToDan(status: ListingStatus): DanApiListing['status'] | u
   return map[status];
 }
 
-function danOfferStatusToInternal(status: DanApiOffer['status']): OfferStatus {
-  const map: Record<DanApiOffer['status'], OfferStatus> = {
+function afternicOfferStatusToInternal(status: AfternicApiOffer['status']): OfferStatus {
+  const map: Record<AfternicApiOffer['status'], OfferStatus> = {
     pending: 'pending',
     accepted: 'accepted',
     declined: 'declined',
@@ -88,14 +88,14 @@ function danOfferStatusToInternal(status: DanApiOffer['status']): OfferStatus {
   return map[status] ?? 'pending';
 }
 
-export class DanListingProvider implements ListingProvider {
-  readonly name = 'dan';
+export class AfternicListingProvider implements ListingProvider {
+  readonly name = 'afternic';
   readonly #apiKey: string;
   readonly #baseUrl: string;
 
-  constructor(apiKey: string | undefined, baseUrl: string = DAN_API_BASE) {
+  constructor(apiKey: string | undefined, baseUrl: string = AFTERNIC_API_BASE) {
     if (!apiKey) {
-      logger.warn('DanListingProvider: no API key provided — provider is unavailable');
+      logger.warn('AfternicListingProvider: no API key provided — provider is unavailable');
     }
     this.#apiKey = apiKey ?? '';
     this.#baseUrl = baseUrl;
@@ -108,19 +108,19 @@ export class DanListingProvider implements ListingProvider {
   async createListing(newListing: NewListing): Promise<Listing> {
     this.#requireAuth();
 
-    const payload: DanCreateListingPayload = {
+    const payload: AfternicCreateListingPayload = {
       domain: newListing.domain,
       buy_now_price: newListing.priceEur,
     };
 
-    const response = await this.#request<DanApiListing>('/listings', {
+    const response = await this.#request<AfternicApiListing>('/listings', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
 
     logger.info(
-      { domain: newListing.domain, danId: response.id },
-      'DanListingProvider: listing created',
+      { domain: newListing.domain, afternicId: response.id },
+      'AfternicListingProvider: listing created',
     );
     return this.#toInternal(response);
   }
@@ -131,11 +131,11 @@ export class DanListingProvider implements ListingProvider {
     const body: Record<string, unknown> = {};
     if (update.priceEur !== undefined) body['buy_now_price'] = update.priceEur;
     if (update.status !== undefined) {
-      const danStatus = internalStatusToDan(update.status);
-      if (danStatus) body['status'] = danStatus;
+      const afternicStatus = internalStatusToAfternic(update.status);
+      if (afternicStatus) body['status'] = afternicStatus;
     }
 
-    const response = await this.#request<DanApiListing>(`/listings/${externalId}`, {
+    const response = await this.#request<AfternicApiListing>(`/listings/${externalId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
@@ -146,13 +146,13 @@ export class DanListingProvider implements ListingProvider {
   async cancelListing(externalId: string): Promise<void> {
     this.#requireAuth();
     await this.#request(`/listings/${externalId}`, { method: 'DELETE' });
-    logger.info({ danId: externalId }, 'DanListingProvider: listing cancelled');
+    logger.info({ afternicId: externalId }, 'AfternicListingProvider: listing cancelled');
   }
 
   async getListing(externalId: string): Promise<Listing | undefined> {
     this.#requireAuth();
     try {
-      const response = await this.#request<DanApiListing>(`/listings/${externalId}`);
+      const response = await this.#request<AfternicApiListing>(`/listings/${externalId}`);
       return this.#toInternal(response);
     } catch (err) {
       if (err instanceof ProviderError && err.message.includes('404')) {
@@ -164,13 +164,13 @@ export class DanListingProvider implements ListingProvider {
 
   async getListings(): Promise<Listing[]> {
     this.#requireAuth();
-    const response = await this.#request<DanListingsResponse>('/listings');
+    const response = await this.#request<AfternicListingsResponse>('/listings');
     return response.listings.map((l) => this.#toInternal(l));
   }
 
   async getOffers(externalId: string): Promise<ListingOffer[]> {
     this.#requireAuth();
-    const offers = await this.#request<DanApiOffer[]>(`/listings/${externalId}/offers`);
+    const offers = await this.#request<AfternicApiOffer[]>(`/listings/${externalId}/offers`);
     return offers.map((o) => this.#toInternalOffer(o, parseInt(externalId, 10)));
   }
 
@@ -179,34 +179,34 @@ export class DanListingProvider implements ListingProvider {
 
     if (!this.isAvailable) {
       return {
-        marketplace: 'dan',
+        marketplace: 'afternic',
         listings: [],
         offers: [],
-        errors: ['Dan.com API key not configured'],
+        errors: ['Afternic API key not configured'],
         syncedAt: new Date().toISOString(),
       };
     }
 
     // ponytail: naive page-at-a-time pagination with page size derived from
-    // the first response. If Dan API performance degrades at scale, replace
-    // with concurrent page fetches.
-    const allDanListings: DanApiListing[] = [];
+    // the first response. If Afternic API performance degrades at scale,
+    // replace with concurrent page fetches.
+    const allAfternicListings: AfternicApiListing[] = [];
 
     try {
-      let response = await this.#request<DanListingsResponse>('/listings?page=1');
-      allDanListings.push(...response.listings);
+      let response = await this.#request<AfternicListingsResponse>('/listings?page=1');
+      allAfternicListings.push(...response.listings);
 
       let page = 2;
-      while (allDanListings.length < response.total) {
-        response = await this.#request<DanListingsResponse>(`/listings?page=${page}`);
-        allDanListings.push(...response.listings);
+      while (allAfternicListings.length < response.total) {
+        response = await this.#request<AfternicListingsResponse>(`/listings?page=${page}`);
+        allAfternicListings.push(...response.listings);
         page++;
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, 'DanListingProvider: sync failed');
+      logger.error({ err }, 'AfternicListingProvider: sync failed');
       return {
-        marketplace: 'dan',
+        marketplace: 'afternic',
         listings: [],
         offers: [],
         errors: [msg],
@@ -217,26 +217,26 @@ export class DanListingProvider implements ListingProvider {
     const listings: Listing[] = [];
     const allOffers: ListingOffer[] = [];
 
-    for (const dl of allDanListings) {
+    for (const al of allAfternicListings) {
       try {
-        const listing = this.#toInternal(dl);
+        const listing = this.#toInternal(al);
         listings.push(listing);
 
-        const offers = await this.#request<DanApiOffer[]>(`/listings/${dl.id}/offers`);
-        allOffers.push(...offers.map((o) => this.#toInternalOffer(o, parseInt(dl.id, 10))));
+        const offers = await this.#request<AfternicApiOffer[]>(`/listings/${al.id}/offers`);
+        allOffers.push(...offers.map((o) => this.#toInternalOffer(o, parseInt(al.id, 10))));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`${dl.domain}: ${msg}`);
+        errors.push(`${al.domain}: ${msg}`);
       }
     }
 
     logger.info(
       { totalListings: listings.length, totalOffers: allOffers.length, errors: errors.length },
-      'DanListingProvider: sync complete',
+      'AfternicListingProvider: sync complete',
     );
 
     return {
-      marketplace: 'dan',
+      marketplace: 'afternic',
       listings,
       offers: allOffers,
       errors,
@@ -259,9 +259,9 @@ export class DanListingProvider implements ListingProvider {
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       throw new ProviderError(
-        `Dan.com API error: ${response.status} ${response.statusText}`,
-        'dan',
-        'DAN_API_ERROR',
+        `Afternic API error: ${response.status} ${response.statusText}`,
+        'afternic',
+        'AFTERNIC_API_ERROR',
         { status: response.status, path, body },
       );
     }
@@ -272,38 +272,38 @@ export class DanListingProvider implements ListingProvider {
   #requireAuth(): void {
     if (!this.isAvailable) {
       throw new ProviderError(
-        'Dan.com API key is not configured. Set DAN_API_KEY in your environment.',
-        'dan',
-        'DAN_API_NOT_CONFIGURED',
+        'Afternic API key is not configured. Set AFTERNIC_API_KEY in your environment.',
+        'afternic',
+        'AFTERNIC_API_NOT_CONFIGURED',
       );
     }
   }
 
-  #toInternal(dan: DanApiListing): Listing {
+  #toInternal(afternic: AfternicApiListing): Listing {
     return {
-      id: parseInt(dan.id, 10),
-      domain: dan.domain,
-      marketplace: 'dan' as MarketplaceName,
-      listingUrl: dan.listing_url,
-      priceEur: dan.buy_now_price,
-      status: danStatusToInternal(dan.status),
+      id: parseInt(afternic.id, 10),
+      domain: afternic.domain,
+      marketplace: 'afternic' as MarketplaceName,
+      listingUrl: afternic.listing_url,
+      priceEur: afternic.buy_now_price,
+      status: afternicStatusToInternal(afternic.status),
       scoringSnapshotJson: null,
-      listedAt: dan.created_at,
-      expiresAt: dan.expires_at ?? null,
+      listedAt: afternic.created_at,
+      expiresAt: afternic.expires_at ?? null,
       notes: null,
-      createdAt: dan.created_at,
-      updatedAt: dan.created_at,
+      createdAt: afternic.created_at,
+      updatedAt: afternic.created_at,
     };
   }
 
-  #toInternalOffer(dan: DanApiOffer, listingId: number): ListingOffer {
+  #toInternalOffer(afternic: AfternicApiOffer, listingId: number): ListingOffer {
     return {
-      id: parseInt(dan.id, 10),
+      id: parseInt(afternic.id, 10),
       listingId,
-      amountEur: dan.amount,
-      buyer: dan.buyer,
-      status: danOfferStatusToInternal(dan.status),
-      receivedAt: dan.created_at,
+      amountEur: afternic.amount,
+      buyer: afternic.buyer,
+      status: afternicOfferStatusToInternal(afternic.status),
+      receivedAt: afternic.created_at,
       respondedAt: null,
       notes: null,
     };
