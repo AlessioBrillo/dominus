@@ -71,7 +71,10 @@ re-running the original arguments.
 | [0062](0062-enterprise-sso.md)                               | Enterprise SSO — OIDC Authorization Code + PKCE with backend session cookies                                                    | 2026-08-19 | Accepted                            |
 | [0063](0063-dns-consensus-independence-topology.md)          | DNS consensus independence — resolved-IP + operator disjointness, disjoint default strategy, live-only verification              | 2026-08-20 | Accepted                            |
 | [0064](0064-dns-slo-observability.md)                         | DNS SLO observability — per-leg latency histograms, doh-alternate tertiary in the production override                            | 2026-08-20 | Accepted                            |
-| [0065](0065-dns-privacy-and-redundancy.md)                     | DNS privacy mode (all-native against a pinned recursor), second doh-alternate leg, disjointness partial-resolution observability | 2026-08-20 | Accepted                            |
+| [0065](0065-dns-privacy-and-redundancy.md)                     | DNS privacy mode (all-native against a pinned recursor), second doh-alternate leg, disjointness partial-resolution observability | 2026-08-20 | Accepted |
+| [0068](0068-dns-tertiary-dual-redundancy.md)                | DNS tertiary dual-redundancy for SPOF elimination                                                                             | 2026-08-31 | Accepted                            |
+| [0069](0069-dns-secondary-dual-redundancy.md)               | DNS secondary dual-redundancy for consensus gate resilience                                                                   | 2026-09-06 | Accepted                            |
+| [0070](0070-afternic-listing-provider.md)                   | Afternic listing provider and trademark-gated publishing                                                                      | 2026-09-06 | Accepted                            |
 
 ## Conventions
 
