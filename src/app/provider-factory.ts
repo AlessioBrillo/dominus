@@ -763,7 +763,7 @@ async function buildSecondaryConsensusProviders(
  */
 export async function buildConsensusDnsProvider(
   primaryProvider: DnsProvider,
-  secondaryProvider: DnsProvider,
+  secondaryProviders: DnsProvider[],
   tertiaryProvider: DnsProvider | undefined,
   primaryGroups: DnsResolverGroup[],
   secondaryGroups: DnsResolverGroup[],
@@ -827,7 +827,8 @@ export async function buildConsensusDnsProvider(
 
   const opts: ConsensusDnsProviderOptions = {
     primary: primaryProvider,
-    secondary: secondaryProvider,
+    secondary: secondaryProviders[0]!,
+    secondaryProviders,
     disjointnessValidator: validator,
     breakers: undefined,
     config: {
