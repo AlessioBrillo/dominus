@@ -786,6 +786,9 @@ export async function buildConsensusDnsProvider(
     tertiaryGroups2?: DnsResolverGroup[];
     tertiaryNameservers2?: string[];
   },
+  revalidationMetrics?: {
+    recordRevalidationRun(degraded: boolean, error?: string): void;
+  },
 ): Promise<DnsProvider> {
   // Build ResolvedEndpoints for each leg for runtime disjointness validation (ADR-0063/0066/0069)
   const [
@@ -883,6 +886,9 @@ export async function buildConsensusDnsProvider(
   }
   if (legTelemetry !== undefined) {
     opts.telemetry = legTelemetry;
+  }
+  if (revalidationMetrics !== undefined) {
+    opts.revalidationMetrics = revalidationMetrics;
   }
   return new ConsensusDnsProvider(opts);
 }
