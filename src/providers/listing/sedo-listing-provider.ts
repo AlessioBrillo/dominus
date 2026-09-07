@@ -22,7 +22,7 @@ type FetchOptions = {
   signal?: AbortSignal;
 };
 
-interface AfternicApiListing {
+interface SedoApiListing {
   id: string;
   domain: string;
   buy_now_price: number;
@@ -32,7 +32,7 @@ interface AfternicApiListing {
   expires_at: string | null;
 }
 
-interface AfternicApiOffer {
+interface SedoApiOffer {
   id: string;
   amount: number;
   buyer: string;
@@ -40,22 +40,22 @@ interface AfternicApiOffer {
   created_at: string;
 }
 
-interface AfternicListingsResponse {
-  listings: AfternicApiListing[];
+interface SedoListingsResponse {
+  listings: SedoApiListing[];
   total: number;
   page: number;
 }
 
-interface AfternicCreateListingPayload {
+interface SedoCreateListingPayload {
   domain: string;
   buy_now_price: number;
   listing_type?: 'buy_it_now' | 'lease_to_own';
 }
 
-export const AFTERNIC_API_BASE = 'https://api.afternic.com/v1';
+export const SEDO_API_BASE = 'https://api.sedo.com/v1';
 
-function afternicStatusToInternal(status: AfternicApiListing['status']): ListingStatus {
-  const map: Record<AfternicApiListing['status'], ListingStatus> = {
+function sedoStatusToInternal(status: SedoApiListing['status']): ListingStatus {
+  const map: Record<SedoApiListing['status'], ListingStatus> = {
     active: 'listed',
     sold: 'sold',
     expired: 'expired',
@@ -66,8 +66,8 @@ function afternicStatusToInternal(status: AfternicApiListing['status']): Listing
   return map[status] ?? 'draft';
 }
 
-function internalStatusToAfternic(status: ListingStatus): AfternicApiListing['status'] | undefined {
-  const map: Record<string, AfternicApiListing['status']> = {
+function internalStatusToSedo(status: ListingStatus): SedoApiListing['status'] | undefined {
+  const map: Record<string, SedoApiListing['status']> = {
     listed: 'active',
     sold: 'sold',
     expired: 'expired',
@@ -78,8 +78,8 @@ function internalStatusToAfternic(status: ListingStatus): AfternicApiListing['st
   return map[status];
 }
 
-function afternicOfferStatusToInternal(status: AfternicApiOffer['status']): OfferStatus {
-  const map: Record<AfternicApiOffer['status'], OfferStatus> = {
+function sedoOfferStatusToInternal(status: SedoApiOffer['status']): OfferStatus {
+  const map: Record<SedoApiOffer['status'], OfferStatus> = {
     pending: 'pending',
     accepted: 'accepted',
     declined: 'declined',
@@ -89,14 +89,14 @@ function afternicOfferStatusToInternal(status: AfternicApiOffer['status']): Offe
   return map[status] ?? 'pending';
 }
 
-export class AfternicListingProvider implements ListingProvider {
-  readonly name = 'afternic';
+export class SedoListingProvider implements ListingProvider {
+  readonly name = 'sedo';
   readonly #apiKey: string;
   readonly #baseUrl: string;
 
-  constructor(apiKey: string | undefined, baseUrl: string = AFTERNIC_API_BASE) {
+  constructor(apiKey: string | undefined, baseUrl: string = SEDO_API_BASE) {
     if (!apiKey) {
-      logger.warn('AfternicListingProvider: no API key provided — provider is unavailable');
+      logger.warn('SedoListingProvider: no API key provided — provider is unavailable');
     }
     this.#apiKey = apiKey ?? '';
     this.#baseUrl = baseUrl;
@@ -109,19 +109,19 @@ export class AfternicListingProvider implements ListingProvider {
   async createListing(newListing: NewListing): Promise<Listing> {
     this.#requireAuth();
 
-    const payload: AfternicCreateListingPayload = {
+    const payload: SedoCreateListingPayload = {
       domain: newListing.domain,
       buy_now_price: newListing.priceEur,
     };
 
-    const response = await this.#request<AfternicApiListing>('/listings', {
+    const response = await this.#request<SedoApiListing>('/listings', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
 
     logger.info(
-      { domain: newListing.domain, afternicId: response.id },
-      'AfternicListingProvider: listing created',
+      { domain: newListing.domain, sedoId: response.id },
+      'SedoListingProvider: listing created',
     );
     return this.#toInternal(response);
   }
@@ -132,11 +132,11 @@ export class AfternicListingProvider implements ListingProvider {
     const body: Record<string, unknown> = {};
     if (update.priceEur !== undefined) body['buy_now_price'] = update.priceEur;
     if (update.status !== undefined) {
-      const afternicStatus = internalStatusToAfternic(update.status);
-      if (afternicStatus) body['status'] = afternicStatus;
+      const sedoStatus = internalStatusToSedo(update.status);
+      if (sedoStatus) body['status'] = sedoStatus;
     }
 
-    const response = await this.#request<AfternicApiListing>(`/listings/${externalId}`, {
+    const response = await this.#request<SedoApiListing>(`/listings/${externalId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
@@ -147,13 +147,13 @@ export class AfternicListingProvider implements ListingProvider {
   async cancelListing(externalId: string): Promise<void> {
     this.#requireAuth();
     await this.#request(`/listings/${externalId}`, { method: 'DELETE' });
-    logger.info({ afternicId: externalId }, 'AfternicListingProvider: listing cancelled');
+    logger.info({ sedoId: externalId }, 'SedoListingProvider: listing cancelled');
   }
 
   async getListing(externalId: string): Promise<Listing | undefined> {
     this.#requireAuth();
     try {
-      const response = await this.#request<AfternicApiListing>(`/listings/${externalId}`);
+      const response = await this.#request<SedoApiListing>(`/listings/${externalId}`);
       return this.#toInternal(response);
     } catch (err) {
       if (
@@ -168,12 +168,12 @@ export class AfternicListingProvider implements ListingProvider {
 
   async getListings(): Promise<Listing[]> {
     this.#requireAuth();
-    return (await this.#fetchAllListings()).map((l) => this.#toInternal(l));
+    return (await this.#fetchAllListings()).listings.map((l) => this.#toInternal(l));
   }
 
   async getOffers(externalId: string): Promise<ListingOffer[]> {
     this.#requireAuth();
-    const offers = await this.#request<AfternicApiOffer[]>(`/listings/${externalId}/offers`);
+    const offers = await this.#request<SedoApiOffer[]>(`/listings/${externalId}/offers`);
     return offers.map((o) => this.#toInternalOffer(o, safeRemoteNumericId(externalId)));
   }
 
@@ -182,25 +182,28 @@ export class AfternicListingProvider implements ListingProvider {
 
     if (!this.isAvailable) {
       return {
-        marketplace: 'afternic',
+        marketplace: 'sedo',
         listings: [],
         offers: [],
-        errors: ['Afternic API key not configured'],
+        errors: ['Sedo API key not configured'],
         syncedAt: new Date().toISOString(),
       };
     }
 
     // ponytail: naive page-at-a-time pagination with page size derived from
-    // the first response. If Afternic API performance degrades at scale,
+    // the first response. If Sedo API performance degrades at scale,
     // replace with concurrent page fetches.
-    let allAfternicListings: AfternicApiListing[];
+    let allSedoListings: SedoApiListing[];
+    let truncated: boolean;
     try {
-      allAfternicListings = await this.#fetchAllListings();
+      const fetched = await this.#fetchAllListings();
+      allSedoListings = fetched.listings;
+      truncated = fetched.truncated;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, 'AfternicListingProvider: sync failed');
+      logger.error({ err }, 'SedoListingProvider: sync failed');
       return {
-        marketplace: 'afternic',
+        marketplace: 'sedo',
         listings: [],
         offers: [],
         errors: [msg],
@@ -210,27 +213,32 @@ export class AfternicListingProvider implements ListingProvider {
 
     const listings: Listing[] = [];
     const allOffers: ListingOffer[] = [];
+    if (truncated) {
+      errors.push(
+        `pagination truncated at page cap (${MAX_SYNC_PAGES} pages): re-run sync to continue`,
+      );
+    }
 
-    for (const al of allAfternicListings) {
+    for (const sl of allSedoListings) {
       try {
-        const listing = this.#toInternal(al);
+        const listing = this.#toInternal(sl);
         listings.push(listing);
 
-        const offers = await this.#request<AfternicApiOffer[]>(`/listings/${al.id}/offers`);
-        allOffers.push(...offers.map((o) => this.#toInternalOffer(o, safeRemoteNumericId(al.id))));
+        const offers = await this.#request<SedoApiOffer[]>(`/listings/${sl.id}/offers`);
+        allOffers.push(...offers.map((o) => this.#toInternalOffer(o, safeRemoteNumericId(sl.id))));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        errors.push(`${al.domain}: ${msg}`);
+        errors.push(`${sl.domain}: ${msg}`);
       }
     }
 
     logger.info(
       { totalListings: listings.length, totalOffers: allOffers.length, errors: errors.length },
-      'AfternicListingProvider: sync complete',
+      'SedoListingProvider: sync complete',
     );
 
     return {
-      marketplace: 'afternic',
+      marketplace: 'sedo',
       listings,
       offers: allOffers,
       errors,
@@ -239,25 +247,26 @@ export class AfternicListingProvider implements ListingProvider {
   }
 
   // ponytail: sequential page walk shared by getListings/sync. Concurrent
-  // page fetches only if Afternic pagination proves slow at scale.
-  async #fetchAllListings(): Promise<AfternicApiListing[]> {
-    const all: AfternicApiListing[] = [];
-    let response = await this.#request<AfternicListingsResponse>('/listings?page=1');
+  // page fetches only if Sedo pagination proves slow at scale.
+  async #fetchAllListings(): Promise<{ listings: SedoApiListing[]; truncated: boolean }> {
+    const all: SedoApiListing[] = [];
+    let response = await this.#request<SedoListingsResponse>('/listings?page=1');
     all.push(...response.listings);
 
     let page = 2;
     while (all.length < response.total && page <= MAX_SYNC_PAGES && response.listings.length > 0) {
-      response = await this.#request<AfternicListingsResponse>(`/listings?page=${page}`);
+      response = await this.#request<SedoListingsResponse>(`/listings?page=${page}`);
       all.push(...response.listings);
       page++;
     }
-    if (all.length < response.total) {
+    const truncated = all.length < response.total;
+    if (truncated) {
       logger.warn(
         { fetched: all.length, total: response.total },
-        'AfternicListingProvider: pagination truncated at page cap',
+        'SedoListingProvider: pagination truncated at page cap',
       );
     }
-    return all;
+    return { listings: all, truncated };
   }
 
   async #request<T>(path: string, options: FetchOptions = {}): Promise<T> {
@@ -276,9 +285,9 @@ export class AfternicListingProvider implements ListingProvider {
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       throw new ProviderError(
-        `Afternic API error: ${response.status} ${response.statusText}`,
-        'afternic',
-        'AFTERNIC_API_ERROR',
+        `Sedo API error: ${response.status} ${response.statusText}`,
+        'sedo',
+        'SEDO_API_ERROR',
         { status: response.status, path, body },
       );
     }
@@ -289,39 +298,39 @@ export class AfternicListingProvider implements ListingProvider {
   #requireAuth(): void {
     if (!this.isAvailable) {
       throw new ProviderError(
-        'Afternic API key is not configured. Set AFTERNIC_API_KEY in your environment.',
-        'afternic',
-        'AFTERNIC_API_NOT_CONFIGURED',
+        'Sedo API key is not configured. Set SEDO_API_KEY in your environment.',
+        'sedo',
+        'SEDO_API_NOT_CONFIGURED',
       );
     }
   }
 
-  #toInternal(afternic: AfternicApiListing): Listing {
+  #toInternal(sedo: SedoApiListing): Listing {
     return {
-      id: safeRemoteNumericId(afternic.id),
-      domain: afternic.domain,
-      marketplace: 'afternic' as MarketplaceName,
-      externalId: afternic.id,
-      listingUrl: afternic.listing_url,
-      priceEur: afternic.buy_now_price,
-      status: afternicStatusToInternal(afternic.status),
+      id: safeRemoteNumericId(sedo.id),
+      domain: sedo.domain,
+      marketplace: 'sedo' as MarketplaceName,
+      externalId: sedo.id,
+      listingUrl: sedo.listing_url,
+      priceEur: sedo.buy_now_price,
+      status: sedoStatusToInternal(sedo.status),
       scoringSnapshotJson: null,
-      listedAt: afternic.created_at,
-      expiresAt: afternic.expires_at ?? null,
+      listedAt: sedo.created_at,
+      expiresAt: sedo.expires_at ?? null,
       notes: null,
-      createdAt: afternic.created_at,
-      updatedAt: afternic.created_at,
+      createdAt: sedo.created_at,
+      updatedAt: sedo.created_at,
     };
   }
 
-  #toInternalOffer(afternic: AfternicApiOffer, listingId: number): ListingOffer {
+  #toInternalOffer(sedo: SedoApiOffer, listingId: number): ListingOffer {
     return {
-      id: safeRemoteNumericId(afternic.id),
+      id: safeRemoteNumericId(sedo.id),
       listingId,
-      amountEur: afternic.amount,
-      buyer: afternic.buyer,
-      status: afternicOfferStatusToInternal(afternic.status),
-      receivedAt: afternic.created_at,
+      amountEur: sedo.amount,
+      buyer: sedo.buyer,
+      status: sedoOfferStatusToInternal(sedo.status),
+      receivedAt: sedo.created_at,
       respondedAt: null,
       notes: null,
     };

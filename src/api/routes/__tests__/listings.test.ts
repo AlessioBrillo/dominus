@@ -203,6 +203,23 @@ describe('Listings API', () => {
       expect(res.status).toBe(200);
       expect(res.body.listing.status).toBe('listed');
     });
+
+    it('returns 400 on marketplace mismatch instead of silent misrouting', async () => {
+      const mgr = createMockListingManager();
+      mgr.listOnMarketplace.mockRejectedValue(
+        Object.assign(new Error("Refusing to publish example.com: listing targets 'dan'"), {
+          code: 'LISTING_MARKETPLACE_MISMATCH',
+        }),
+      );
+      const app = express();
+      app.use(express.json());
+      app.use('/listings', createListingsRouter(mgr));
+      app.use(errorHandler);
+
+      const res = await request(app).post('/listings/1/publish');
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('LISTING_MARKETPLACE_MISMATCH');
+    });
   });
 
   describe('POST /listings/sync', () => {
