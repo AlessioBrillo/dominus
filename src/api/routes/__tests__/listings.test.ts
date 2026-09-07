@@ -138,16 +138,31 @@ describe('Listings API', () => {
   describe('PATCH /listings/:id', () => {
     it('updates a listing', async () => {
       const mgr = createMockListingManager();
-      mgr.updateListing.mockResolvedValue(makeListing({ priceEur: 2500, status: 'listed' }));
+      mgr.updateListing.mockResolvedValue(makeListing({ priceEur: 2500, status: 'paused' }));
       const app = express();
       app.use(express.json());
       app.use('/listings', createListingsRouter(mgr));
       app.use(errorHandler);
 
-      const res = await request(app).patch('/listings/1').send({ price: 2500, status: 'listed' });
+      const res = await request(app).patch('/listings/1').send({ price: 2500, status: 'paused' });
       expect(res.status).toBe(200);
       expect(res.body.listing.priceEur).toBe(2500);
     });
+
+    it.each(['listed', 'sold', 'offer_received'])(
+      'rejects publish-state escalation to %s',
+      async (status) => {
+        const mgr = createMockListingManager();
+        const app = express();
+        app.use(express.json());
+        app.use('/listings', createListingsRouter(mgr));
+        app.use(errorHandler);
+
+        const res = await request(app).patch('/listings/1').send({ status });
+        expect(res.status).toBe(400);
+        expect(mgr.updateListing).not.toHaveBeenCalled();
+      },
+    );
 
     it('returns 400 for invalid id', async () => {
       const mgr = createMockListingManager();
