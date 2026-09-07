@@ -13,6 +13,7 @@ import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
 import {
   NodeDnsProvider,
+  UnboundResolver,
   ParkingIpRegistry,
   DnsBreakerRegistry,
   strategyToResolverGroups,
@@ -377,7 +378,52 @@ export function buildDnsProvider(
   rateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
   legTelemetry?: DnsLegTelemetry,
+  metrics?: {
+    recordUnboundResolution: (stats: {
+      durationMs: number;
+      status: 'registered' | 'available' | 'unknown';
+      dnssec: 'valid' | 'unchecked' | 'bogus';
+      fromCache: boolean;
+    }) => void;
+  },
 ): DnsProvider {
+  // Unbound Resolver (ADR-0072): Single source of truth for DNS.
+  // When DNS_UNBOUND_ENABLED=true (default), route all queries through
+  // a local Unbound recursive resolver — replaces the multi-leg consensus
+  // architecture (DoH/DoT/tertiary) with one properly configured resolver.
+  if (config.DNS_UNBOUND_ENABLED) {
+    const unboundHosts = config.DNS_UNBOUND_HOSTS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (unboundHosts.length === 0) {
+      throw new Error(
+        'DNS_UNBOUND_ENABLED=true requires DNS_UNBOUND_HOSTS to be set (e.g. "127.0.0.1,::1" or "unbound:5300")',
+      );
+    }
+
+    return new UnboundResolver({
+      unboundHosts,
+      lookupTimeoutMs: config.DNS_UNBOUND_TIMEOUT_MS,
+      cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+      maxSize: config.DNS_CACHE_MAX_SIZE,
+      bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+      parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
+      rateLimiter: rateLimiter as RateLimiterLike,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      persistentCache:
+        config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
+          ? providerCacheRepo
+          : undefined,
+      persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
+      persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
+      breakers,
+      useTls: config.DNS_UNBOUND_TLS,
+      tlsPort: 853,
+      dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+      onResolution: metrics?.recordUnboundResolution,
+    });
+  }
+
   const nameservers: string[] | undefined = resolveNameservers(config.DNS_NAMESERVERS);
 
   // Privacy mode (ADR-0065) forces every strategy to 'native' so no query
