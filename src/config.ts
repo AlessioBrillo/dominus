@@ -2239,12 +2239,13 @@ const configSchema = z
      *   'manual'   — local-only tracking, no external API calls (default)
      *   'dan'      — Dan.com Marketplace API (requires DAN_API_KEY)
      *   'afternic' — Afternic Marketplace API (requires AFTERNIC_API_KEY)
+     *   'sedo'     — Sedo Marketplace API (requires SEDO_API_KEY)
      * Adding a new provider requires:
      *   1. Creating a new implementation of ListingProvider interface
      *   2. Adding the type to the union below
      *   3. Adding the factory case in src/providers/listing/index.ts
      */
-    LISTING_PROVIDER: z.enum(['manual', 'dan', 'afternic']).default('manual'),
+    LISTING_PROVIDER: z.enum(['manual', 'dan', 'afternic', 'sedo']).default('manual'),
 
     /**
      * Dan.com API key for marketplace listing management.
@@ -2266,6 +2267,20 @@ const configSchema = z
      * Defaults to https://api.afternic.com/v1.
      */
     AFTERNIC_API_URL: z.string().url().optional(),
+
+    /**
+     * Sedo API key for marketplace listing management.
+     * Required when LISTING_PROVIDER=sedo.
+     * Without a key the provider reports isAvailable=false and the
+     * ListingManager degrades to local-only tracking (manual mode).
+     */
+    SEDO_API_KEY: z.string().optional(),
+
+    /**
+     * Sedo API base URL override (tests, future API versioning).
+     * Defaults to https://api.sedo.com/v1.
+     */
+    SEDO_API_URL: z.string().url().optional(),
 
     /**
      * Default marketplace for listings when none is specified.
