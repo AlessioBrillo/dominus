@@ -995,6 +995,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
                 }
               : {}),
           },
+          // Revalidation metrics callback for Prometheus observability
+          {
+            recordRevalidationRun: (degraded: boolean, error?: string): void => {
+              if (degraded) {
+                metrics.recordDnsConsensusDegradedReason('revalidation:anycast-overlap');
+              }
+              if (error) {
+                metrics.recordDnsConsensusDegradedReason(
+                  `revalidation:error:${error.slice(0, 50)}`,
+                );
+              }
+            },
+          },
         )
       : dnsProvider;
 
