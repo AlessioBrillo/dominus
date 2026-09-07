@@ -9,6 +9,7 @@ import type {
   ListingStatus,
 } from '../../types/listing.js';
 import type { ListingProvider, SyncResult } from './listing-provider.js';
+import { MAX_SYNC_PAGES, safeRemoteNumericId } from './remote-id.js';
 import { getLogger } from '../../logger.js';
 import { ProviderError } from '../../types/errors.js';
 
@@ -173,7 +174,7 @@ export class DanListingProvider implements ListingProvider {
   async getOffers(externalId: string): Promise<ListingOffer[]> {
     this.#requireAuth();
     const offers = await this.#request<DanApiOffer[]>(`/listings/${externalId}/offers`);
-    return offers.map((o) => this.#toInternalOffer(o, parseInt(externalId, 10)));
+    return offers.map((o) => this.#toInternalOffer(o, safeRemoteNumericId(externalId)));
   }
 
   async sync(): Promise<SyncResult> {
@@ -216,7 +217,7 @@ export class DanListingProvider implements ListingProvider {
         listings.push(listing);
 
         const offers = await this.#request<DanApiOffer[]>(`/listings/${dl.id}/offers`);
-        allOffers.push(...offers.map((o) => this.#toInternalOffer(o, parseInt(dl.id, 10))));
+        allOffers.push(...offers.map((o) => this.#toInternalOffer(o, safeRemoteNumericId(dl.id))));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         errors.push(`${dl.domain}: ${msg}`);
@@ -245,10 +246,16 @@ export class DanListingProvider implements ListingProvider {
     all.push(...response.listings);
 
     let page = 2;
-    while (all.length < response.total) {
+    while (all.length < response.total && page <= MAX_SYNC_PAGES && response.listings.length > 0) {
       response = await this.#request<DanListingsResponse>(`/listings?page=${page}`);
       all.push(...response.listings);
       page++;
+    }
+    if (all.length < response.total) {
+      logger.warn(
+        { fetched: all.length, total: response.total },
+        'DanListingProvider: pagination truncated at page cap',
+      );
     }
     return all;
   }
@@ -291,7 +298,7 @@ export class DanListingProvider implements ListingProvider {
 
   #toInternal(dan: DanApiListing): Listing {
     return {
-      id: parseInt(dan.id, 10),
+      id: safeRemoteNumericId(dan.id),
       domain: dan.domain,
       marketplace: 'dan' as MarketplaceName,
       externalId: dan.id,
@@ -309,7 +316,7 @@ export class DanListingProvider implements ListingProvider {
 
   #toInternalOffer(dan: DanApiOffer, listingId: number): ListingOffer {
     return {
-      id: parseInt(dan.id, 10),
+      id: safeRemoteNumericId(dan.id),
       listingId,
       amountEur: dan.amount,
       buyer: dan.buyer,
