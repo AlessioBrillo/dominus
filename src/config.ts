@@ -375,6 +375,50 @@ const configSchema = z
      */
     DNS_PARKING_IPS_PATH: z.string().optional(),
 
+    // ── Unbound Resolver (ADR-0072: Single Source of Truth) ──────────────
+    /**
+     * Enable the Unbound resolver as the single DNS source of truth.
+     * When true (default), all DNS queries route through a local Unbound
+     * recursive resolver (sidecar or host), providing full DNSSEC validation,
+     * DoT/DoH upstream, and anycast-free resolution. This replaces the
+     * multi-leg consensus architecture (DoH/DoT/tertiary) with one properly
+     * configured resolver cluster.
+     * Default: true — the hardened architecture.
+     */
+    DNS_UNBOUND_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
+     * Comma-separated Unbound host(s) for the resolver.
+     * Examples: '127.0.0.1,::1' (host), 'unbound:5300' (Docker service name),
+     * '10.0.0.1:5300,[::1]:5300' (explicit ports).
+     * When DNS_UNBOUND_ENABLED=true, this is REQUIRED.
+     * Default: '127.0.0.1' (localhost Unbound on standard port 53).
+     */
+    DNS_UNBOUND_HOSTS: z.string().default('127.0.0.1'),
+    /**
+     * Use DNS-over-TLS to Unbound (port 853) instead of plain DNS (port 53).
+     * When true, queries are encrypted between the application and Unbound.
+     * Requires Unbound to be configured with 'tls-service-key', 'tls-service-pem',
+     * and 'tls-port: 853'. Default: true for defense-in-depth.
+     */
+    DNS_UNBOUND_TLS: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
+     * Per-query timeout in milliseconds for Unbound resolution.
+     * Each individual DNS resolution (A, AAAA, NS, SOA) has this timeout.
+     * Default: 1500ms (1.5 seconds).
+     */
+    DNS_UNBOUND_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(1500),
+    /**
+     * Enable parking page detection for registered domains via Unbound.
+     * When true, registered domains whose A records resolve to known parking
+     * IP ranges are NOT filtered — they pass through with `dnsStatus: 'parked'`,
+     * allowing RDAP confirmation and scoring to evaluate aftermarket availability.
+     * Default: false (parked domains are filtered as Registered).
+     */
+
     /**
      * TTL for in-memory DNS result cache in seconds.
      * DNS records for domain availability are relatively stable (hours to days).
