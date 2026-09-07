@@ -64,6 +64,7 @@ export {
   checkAuthoritativeZoneOverlap,
 } from './authoritative-zone-resolver.js';
 export { ConsensusDnsProvider } from './consensus-dns-provider.js';
+export { UnboundResolver } from './unbound-resolver.js';
 export type {
   DisjointnessValidator,
   ConsensusConfig,
