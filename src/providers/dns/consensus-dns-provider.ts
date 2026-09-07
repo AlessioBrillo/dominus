@@ -18,6 +18,7 @@ import {
   type TertiaryDnsConfig,
   type SecondaryDnsConfig,
   type ConsensusConfig,
+  type DnsConsensusRevalidationMetrics,
 } from './consensus-engine.js';
 
 export type { TertiaryDnsConfig, SecondaryDnsConfig, ConsensusConfig };
@@ -52,6 +53,8 @@ export interface ConsensusDnsProviderOptions {
   tertiaryGroups2?: DnsResolverGroup[] | undefined;
   /** Re-validation interval in ms (default: 600000 = 10min). Set to 0 to disable. */
   revalidationIntervalMs?: number;
+  /** Optional metrics callback for revalidation runs (Prometheus observability) */
+  revalidationMetrics?: DnsConsensusRevalidationMetrics;
 }
 
 export class ConsensusDnsProvider implements DnsProvider {
@@ -62,6 +65,7 @@ export class ConsensusDnsProvider implements DnsProvider {
   #revalidationTimer: ReturnType<typeof setInterval> | undefined;
   #primaryEndpoints: ResolvedEndpoints | undefined;
   #secondaryEndpoints: ResolvedEndpoints | undefined;
+  #revalidationMetrics: DnsConsensusRevalidationMetrics | undefined;
   #consensusStats: ConsensusStats = {
     verified: 0,
     disagreed: 0,
@@ -148,6 +152,7 @@ export class ConsensusDnsProvider implements DnsProvider {
     // Store endpoints for revalidation check
     this.#primaryEndpoints = options.primaryEndpoints;
     this.#secondaryEndpoints = options.secondaryEndpoints;
+    this.#revalidationMetrics = options.revalidationMetrics;
 
     // Start periodic re-validation if interval > 0 and endpoints are available
     if (this.#revalidationIntervalMs > 0 && this.#primaryEndpoints && this.#secondaryEndpoints) {
@@ -207,7 +212,7 @@ export class ConsensusDnsProvider implements DnsProvider {
 
   /** Perform runtime disjointness re-validation using live DNS resolution via pinned resolver groups */
   async #revalidateDisjointness(): Promise<void> {
-    await revalidateDisjointness(this.#engineOptions, 2000);
+    await revalidateDisjointness(this.#engineOptions, 2000, this.#revalidationMetrics);
   }
 
   /** Override dispose to also stop revalidation */
