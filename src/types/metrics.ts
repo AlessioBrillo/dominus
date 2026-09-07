@@ -219,6 +219,30 @@ export interface AnonTrademarkBudgetMetrics {
   observed: boolean;
 }
 
+/** Unbound resolver metrics (ADR-0072). */
+export interface UnboundMetrics {
+  /** Total DNS queries made since process start. */
+  totalQueries: number;
+  /** Total duration of all queries in ms. */
+  totalDurationMs: number;
+  /** Total Registered verdicts. */
+  registeredTotal: number;
+  /** Total Available verdicts. */
+  availableTotal: number;
+  /** Total Unknown verdicts. */
+  unknownTotal: number;
+  /** Total DNSSEC valid responses. */
+  dnssecValidTotal: number;
+  /** Total DNSSEC bogus responses. */
+  dnssecBogusTotal: number;
+  /** Total cache hits. */
+  cacheHitsTotal: number;
+  /** Average query duration in ms. */
+  avgDurationMs: number;
+  /** Whether any query was recorded since process start. */
+  observed: boolean;
+}
+
 /** A Prometheus-style histogram sample accumulated since process start
  *  (SLO observability, ADR-0064): fixed upper bounds with cumulative
  *  bucket counts, plus the sample sum and count. */
@@ -240,6 +264,8 @@ export interface MetricsSnapshot {
   /** Optional so callers constructing snapshots remain valid even when the
    *  anonymous trademark budget has never fired. */
   anonTrademark?: AnonTrademarkBudgetMetrics;
+  /** Unbound resolver metrics (ADR-0072). */
+  unbound?: UnboundMetrics;
   /** IANA RDAP bootstrap health (ADR-0058). Always present; `observed`
    *  distinguishes "never recorded" from a healthy/failed refresh. */
   rdapBootstrap?: RdapBootstrapMetrics;

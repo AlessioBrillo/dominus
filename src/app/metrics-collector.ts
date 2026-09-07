@@ -114,6 +114,16 @@ export class MetricsCollector {
   #usptoRequestCount = 0;
   /** USPTO WAF block count. */
   #usptoWafBlockCount = 0;
+  /** Unbound resolver metrics (ADR-0072). */
+  #unboundTotalQueries = 0;
+  #unboundTotalDurationMs = 0;
+  #unboundRegistered = 0;
+  #unboundAvailable = 0;
+  #unboundUnknown = 0;
+  #unboundDnssecValid = 0;
+  #unboundDnssecBogus = 0;
+  #unboundCacheHits = 0;
+  #unboundObserved = false;
   #backupLastSuccessAtMs: number | null = null;
   #pitrWalLagBytes: number | null = null;
   #pitrBaseBackupAgeHours: number | null = null;
@@ -417,6 +427,25 @@ export class MetricsCollector {
     this.#usptoWafBlockRate = Number.isFinite(stats.wafBlockRate) ? stats.wafBlockRate : 0;
   }
 
+  /** Record DNS resolution metrics for the Unbound resolver (ADR-0072).
+   *  Called from UnboundResolver for each checkAvailability/checkBulk. */
+  recordUnboundResolution(stats: {
+    durationMs: number;
+    status: 'registered' | 'available' | 'unknown';
+    dnssec: 'valid' | 'unchecked' | 'bogus';
+    fromCache: boolean;
+  }): void {
+    this.#unboundObserved = true;
+    this.#unboundTotalQueries++;
+    this.#unboundTotalDurationMs += stats.durationMs;
+    if (stats.status === 'registered') this.#unboundRegistered++;
+    else if (stats.status === 'available') this.#unboundAvailable++;
+    else this.#unboundUnknown++;
+    if (stats.dnssec === 'valid') this.#unboundDnssecValid++;
+    else if (stats.dnssec === 'bogus') this.#unboundDnssecBogus++;
+    if (stats.fromCache) this.#unboundCacheHits++;
+  }
+
   /** Record DNS operator map version and source for staleness alerting.
    *  Called at startup after operator map initialization. */
   recordDnsOperatorMapInfo(version: string, source: 'embedded' | 'registry'): void {
@@ -532,6 +561,21 @@ export class MetricsCollector {
         blockedTotal: this.#anonTrademarkBlocked,
         observed: this.#anonTrademarkObserved,
       },
+      unbound: {
+        totalQueries: this.#unboundTotalQueries,
+        totalDurationMs: this.#unboundTotalDurationMs,
+        registeredTotal: this.#unboundRegistered,
+        availableTotal: this.#unboundAvailable,
+        unknownTotal: this.#unboundUnknown,
+        dnssecValidTotal: this.#unboundDnssecValid,
+        dnssecBogusTotal: this.#unboundDnssecBogus,
+        cacheHitsTotal: this.#unboundCacheHits,
+        avgDurationMs:
+          this.#unboundTotalQueries > 0
+            ? this.#unboundTotalDurationMs / this.#unboundTotalQueries
+            : 0,
+        observed: this.#unboundObserved,
+      },
       histograms,
       rdapBootstrap: {
         ok: this.#rdapBootstrapOk,
@@ -603,6 +647,15 @@ export class MetricsCollector {
     this.#anonTrademarkHits = 0;
     this.#anonTrademarkBlocked = 0;
     this.#anonTrademarkObserved = false;
+    this.#unboundTotalQueries = 0;
+    this.#unboundTotalDurationMs = 0;
+    this.#unboundRegistered = 0;
+    this.#unboundAvailable = 0;
+    this.#unboundUnknown = 0;
+    this.#unboundDnssecValid = 0;
+    this.#unboundDnssecBogus = 0;
+    this.#unboundCacheHits = 0;
+    this.#unboundObserved = false;
     this.#histograms.clear();
   }
 }
