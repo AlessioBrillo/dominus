@@ -12,7 +12,7 @@ import type {
   ListingsFilter,
 } from '../types/listing.js';
 import { getLogger } from '../logger.js';
-import { TrademarkGateError } from '../types/errors.js';
+import { DominusError, TrademarkGateError } from '../types/errors.js';
 
 const logger = getLogger();
 
@@ -166,7 +166,22 @@ export class ListingManager {
       );
     }
 
-    if (!this.#provider.isAvailable) {
+    // Single active provider (ADR-0070): a draft labelled for another
+    // marketplace must fail loudly, never publish silently elsewhere.
+    // The manual provider is local-only tracking, so any label is fine.
+    if (this.#provider.name !== 'manual' && listing.marketplace !== this.#provider.name) {
+      throw new DominusError(
+        `Refusing to publish ${listing.domain}: listing targets '${listing.marketplace}' but the active provider is '${this.#provider.name}'`,
+        'LISTING_MARKETPLACE_MISMATCH',
+        { marketplace: listing.marketplace, provider: this.#provider.name },
+      );
+    }
+
+    // Local-only path: the manual provider has no remote API (its
+    // createListing would re-INSERT the same domain and hit the
+    // UNIQUE(domain, marketplace) constraint), and an unavailable remote
+    // provider degrades to local tracking by design.
+    if (this.#provider.name === 'manual' || !this.#provider.isAvailable) {
       logger.info({ listingId: id }, 'ListingManager: marking as listed (manual mode)');
       await this.#repo.update(id, { status: 'listed' });
       const updated = await this.#repo.findById(id);
@@ -314,6 +329,9 @@ export class ListingManager {
   ): Promise<ListingOffer> {
     const listing = await this.#repo.findById(listingId);
     if (!listing) throw new Error(`Listing ${listingId} not found`);
+    if (!Number.isFinite(amountEur) || amountEur <= 0) {
+      throw new Error(`Invalid offer amount: ${amountEur}`);
+    }
 
     const { id } = await this.#repo.insertOffer({
       listingId,

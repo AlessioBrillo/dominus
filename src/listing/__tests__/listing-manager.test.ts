@@ -297,4 +297,57 @@ describe('ListingManager', () => {
     );
     await expect(blockedManager.listOnMarketplace(listing.id)).rejects.toThrow(TrademarkGateError);
   });
+
+  it('publishes a manual draft via local update without a second insert', async () => {
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
+    const provider: ListingProvider = new ManualListingProvider(repo);
+
+    const manager = new ListingManager(provider, repo, createMockEngine(), createMockGate());
+    const listing = await manager.listDomain('example.com', 'manual', 1000);
+
+    const published = await manager.listOnMarketplace(listing.id);
+    expect(published.status).toBe('listed');
+    expect(await manager.getListings()).toHaveLength(1);
+  });
+
+  it('refuses publish when the draft targets another active provider', async () => {
+    const { dbProvider } = createTestDb();
+    const repo = new ListingRepository(dbProvider);
+    const remote: ListingProvider = {
+      name: 'sedo',
+      isAvailable: true,
+      createListing: vi.fn(),
+      updateListing: vi.fn(),
+      cancelListing: vi.fn(),
+      getListing: vi.fn(),
+      getListings: vi.fn(),
+      getOffers: vi.fn(),
+      sync: vi.fn(),
+    };
+
+    const manager = new ListingManager(remote, repo, createMockEngine(), createMockGate());
+    const listing = await manager.listDomain('example.com', 'dan', 1000);
+
+    await expect(manager.listOnMarketplace(listing.id)).rejects.toMatchObject({
+      code: 'LISTING_MARKETPLACE_MISMATCH',
+    });
+    expect(remote.createListing).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -50, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid offer amount %s',
+    async (amount) => {
+      const { dbProvider } = createTestDb();
+      const repo = new ListingRepository(dbProvider);
+      const provider: ListingProvider = new ManualListingProvider(repo);
+
+      const manager = new ListingManager(provider, repo, createMockEngine(), createMockGate());
+      const listing = await manager.listDomain('example.com', 'manual', 1000);
+
+      await expect(manager.recordOffer(listing.id, amount, 'Buyer')).rejects.toThrow(
+        'Invalid offer amount',
+      );
+    },
+  );
 });

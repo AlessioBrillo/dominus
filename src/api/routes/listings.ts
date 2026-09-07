@@ -140,6 +140,15 @@ export function createListingsRouter(listingManager: ListingManager): Router {
       const listing = await listingManager.listOnMarketplace(id);
       res.json({ listing });
     } catch (err) {
+      if ((err as { code?: string }).code === 'LISTING_MARKETPLACE_MISMATCH') {
+        res.status(400).json({
+          error: {
+            code: 'LISTING_MARKETPLACE_MISMATCH',
+            message: (err as Error).message,
+          },
+        });
+        return;
+      }
       next(err);
     }
   });
