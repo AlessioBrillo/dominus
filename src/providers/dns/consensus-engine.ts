@@ -11,6 +11,14 @@ import { getLogger } from '../../logger.js';
 const logger = getLogger();
 
 /**
+ * Metrics recording interface for DNS consensus revalidation.
+ * Keeps the engine decoupled from the concrete MetricsCollector implementation.
+ */
+export interface DnsConsensusRevalidationMetrics {
+  recordRevalidationRun(degraded: boolean, error?: string): void;
+}
+
+/**
  * Creates a dedicated Resolver instance for the given nameservers.
  * This mirrors the pattern in NodeDnsProvider for privacy-mode compliance.
  */
@@ -598,6 +606,7 @@ export async function runConsensusBulk(
 export async function revalidateDisjointness(
   options: ConsensusEngineOptions,
   timeoutMs: number = 2000,
+  metrics?: DnsConsensusRevalidationMetrics,
 ): Promise<boolean> {
   const {
     primaryEndpoints,
@@ -995,6 +1004,8 @@ export async function revalidateDisjointness(
     }
   } catch (err) {
     logger.warn({ err }, 'DNS consensus re-validation error — continuing with cached validation');
+    metrics?.recordRevalidationRun(false, String(err));
+    return false;
   }
 
   // Update config flags if degradation detected
@@ -1002,6 +1013,8 @@ export async function revalidateDisjointness(
     config.runtimeDegraded = true;
     config.anycastDegraded = true;
   }
+
+  metrics?.recordRevalidationRun(anycastDegraded);
 
   return anycastDegraded;
 }
