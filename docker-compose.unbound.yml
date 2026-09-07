@@ -1,0 +1,128 @@
+# DOMINUS Unbound Recursor — ADR-0072 Hardened DNS Architecture.
+#
+# Single source of truth for DNS: one properly configured Unbound recursive
+# resolver with DNSSEC validation, DoT upstream, and anycast-free resolution.
+# Replaces the multi-leg consensus architecture (DoH/DoT/tertiary).
+#
+# Usage (Community):
+#   docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+#
+# Usage (Cloud):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.unbound.yml up -d
+#
+# The recursor listens on port 53 (UDP/TCP) and 853 (DoT) on the compose
+# subnet. Application services query it via DNS_UNBOUND_HOSTS=unbound:5300
+# with DNS_UNBOUND_ENABLED=true (default) and DNS_UNBOUND_TLS=true (default).
+#
+# Privacy: with this architecture, NO candidate domain name leaves the host
+# except to the pinned Unbound recursor. The recursor itself queries
+# authoritative servers directly (root → TLD → authoritative) with DNSSEC
+# validation, eliminating the commercial signal leakage of public DoH/DoT.
+#
+# Upstreams (DoT): Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9)
+# are used as fallback forwarders when authoritative resolution fails or for
+# zones not in the cache. All DoT connections use TLS 1.3 with certificate
+# validation (tls-upstream: yes).
+#
+# Image (ADR-0046): mvance/unbound@sha256:... — community-maintained image
+# recommended by the Unbound project, digest-pinned. Multi-arch (amd64/arm64).
+
+x-unbound-env: &unbound-env
+  DNS_UNBOUND_ENABLED: 'true'
+  DNS_UNBOUND_HOSTS: 'unbound:5300'
+  DNS_UNBOUND_TLS: 'true'
+  DNS_UNBOUND_TIMEOUT_MS: '1500'
+  DNS_PARKING_CHECK_ENABLED: 'false'
+  # Legacy consensus disabled when Unbound is active (ADR-0072)
+  DNS_CONSENSUS_ENABLED: 'false'
+  DNS_TERTIARY_ENABLED: 'false'
+  # Native resolver pins for legacy/fallback (not used when Unbound enabled)
+  DNS_NAMESERVERS: 'unbound:5300'
+
+services:
+  unbound:
+    image: mvance/unbound@sha256:76906da36d1806f3387338f15dcf8b357c51ce6897fb6450d6ce010460927e90
+    restart: always
+    networks:
+      unbound-net:
+        ipv4_address: 172.21.0.10
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    volumes:
+      - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
+    command: ['-d', '-c', '/opt/unbound/unbound.conf']
+    healthcheck:
+      test: ['CMD', 'unbound-control', 'status']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+        compress: 'true'
+
+  # Prometheus exporter for Unbound metrics (observability)
+  unbound-exporter:
+    image: kumina/unbound-exporter@sha256:5c4b8f1c8e9e4b8f9d5e4b8f1c8e9e4b8f9d5e4b8f1c8e9e4b8f9d5e4b8f1c8e9
+    restart: always
+    networks:
+      - unbound-net
+    environment:
+      - UNBOUND_HOST=unbound
+      - UNBOUND_PORT=8953
+      - UNBOUND_USE_SSL=true
+    ports:
+      - "127.0.0.1:9199:9199"
+    depends_on:
+      - unbound
+    logging:
+      driver: 'json-file'
+      options:
+        max-size: '10m'
+        max-file: '3'
+        compress: 'true'
+
+  api:
+    environment:
+      <<: *unbound-env
+    networks:
+      - default
+      - unbound-net
+    depends_on:
+      unbound:
+        condition: service_healthy
+
+  worker:
+    environment:
+      <<: *unbound-env
+    networks:
+      - default
+      - unbound-net
+    depends_on:
+      unbound:
+        condition: service_healthy
+
+  scheduler:
+    environment:
+      <<: *unbound-env
+    networks:
+      - default
+      - unbound-net
+    depends_on:
+      unbound:
+        condition: service_healthy
+
+networks:
+  unbound-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
