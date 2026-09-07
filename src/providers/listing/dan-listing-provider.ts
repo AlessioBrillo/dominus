@@ -155,7 +155,10 @@ export class DanListingProvider implements ListingProvider {
       const response = await this.#request<DanApiListing>(`/listings/${externalId}`);
       return this.#toInternal(response);
     } catch (err) {
-      if (err instanceof ProviderError && err.message.includes('404')) {
+      if (
+        err instanceof ProviderError &&
+        (err.context['status'] === 404 || err.message.includes('404'))
+      ) {
         return undefined;
       }
       throw err;
@@ -164,8 +167,7 @@ export class DanListingProvider implements ListingProvider {
 
   async getListings(): Promise<Listing[]> {
     this.#requireAuth();
-    const response = await this.#request<DanListingsResponse>('/listings');
-    return response.listings.map((l) => this.#toInternal(l));
+    return (await this.#fetchAllListings()).map((l) => this.#toInternal(l));
   }
 
   async getOffers(externalId: string): Promise<ListingOffer[]> {
@@ -190,18 +192,9 @@ export class DanListingProvider implements ListingProvider {
     // ponytail: naive page-at-a-time pagination with page size derived from
     // the first response. If Dan API performance degrades at scale, replace
     // with concurrent page fetches.
-    const allDanListings: DanApiListing[] = [];
-
+    let allDanListings: DanApiListing[];
     try {
-      let response = await this.#request<DanListingsResponse>('/listings?page=1');
-      allDanListings.push(...response.listings);
-
-      let page = 2;
-      while (allDanListings.length < response.total) {
-        response = await this.#request<DanListingsResponse>(`/listings?page=${page}`);
-        allDanListings.push(...response.listings);
-        page++;
-      }
+      allDanListings = await this.#fetchAllListings();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error({ err }, 'DanListingProvider: sync failed');
@@ -244,9 +237,26 @@ export class DanListingProvider implements ListingProvider {
     };
   }
 
+  // ponytail: sequential page walk shared by getListings/sync. Concurrent
+  // page fetches only if Dan pagination proves slow at scale.
+  async #fetchAllListings(): Promise<DanApiListing[]> {
+    const all: DanApiListing[] = [];
+    let response = await this.#request<DanListingsResponse>('/listings?page=1');
+    all.push(...response.listings);
+
+    let page = 2;
+    while (all.length < response.total) {
+      response = await this.#request<DanListingsResponse>(`/listings?page=${page}`);
+      all.push(...response.listings);
+      page++;
+    }
+    return all;
+  }
+
   async #request<T>(path: string, options: FetchOptions = {}): Promise<T> {
     const url = `${this.#baseUrl}${path}`;
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -284,6 +294,7 @@ export class DanListingProvider implements ListingProvider {
       id: parseInt(dan.id, 10),
       domain: dan.domain,
       marketplace: 'dan' as MarketplaceName,
+      externalId: dan.id,
       listingUrl: dan.listing_url,
       priceEur: dan.buy_now_price,
       status: danStatusToInternal(dan.status),

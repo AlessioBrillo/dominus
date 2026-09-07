@@ -155,7 +155,10 @@ export class AfternicListingProvider implements ListingProvider {
       const response = await this.#request<AfternicApiListing>(`/listings/${externalId}`);
       return this.#toInternal(response);
     } catch (err) {
-      if (err instanceof ProviderError && err.message.includes('404')) {
+      if (
+        err instanceof ProviderError &&
+        (err.context['status'] === 404 || err.message.includes('404'))
+      ) {
         return undefined;
       }
       throw err;
@@ -164,8 +167,7 @@ export class AfternicListingProvider implements ListingProvider {
 
   async getListings(): Promise<Listing[]> {
     this.#requireAuth();
-    const response = await this.#request<AfternicListingsResponse>('/listings');
-    return response.listings.map((l) => this.#toInternal(l));
+    return (await this.#fetchAllListings()).map((l) => this.#toInternal(l));
   }
 
   async getOffers(externalId: string): Promise<ListingOffer[]> {
@@ -190,18 +192,9 @@ export class AfternicListingProvider implements ListingProvider {
     // ponytail: naive page-at-a-time pagination with page size derived from
     // the first response. If Afternic API performance degrades at scale,
     // replace with concurrent page fetches.
-    const allAfternicListings: AfternicApiListing[] = [];
-
+    let allAfternicListings: AfternicApiListing[];
     try {
-      let response = await this.#request<AfternicListingsResponse>('/listings?page=1');
-      allAfternicListings.push(...response.listings);
-
-      let page = 2;
-      while (allAfternicListings.length < response.total) {
-        response = await this.#request<AfternicListingsResponse>(`/listings?page=${page}`);
-        allAfternicListings.push(...response.listings);
-        page++;
-      }
+      allAfternicListings = await this.#fetchAllListings();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error({ err }, 'AfternicListingProvider: sync failed');
@@ -244,9 +237,26 @@ export class AfternicListingProvider implements ListingProvider {
     };
   }
 
+  // ponytail: sequential page walk shared by getListings/sync. Concurrent
+  // page fetches only if Afternic pagination proves slow at scale.
+  async #fetchAllListings(): Promise<AfternicApiListing[]> {
+    const all: AfternicApiListing[] = [];
+    let response = await this.#request<AfternicListingsResponse>('/listings?page=1');
+    all.push(...response.listings);
+
+    let page = 2;
+    while (all.length < response.total) {
+      response = await this.#request<AfternicListingsResponse>(`/listings?page=${page}`);
+      all.push(...response.listings);
+      page++;
+    }
+    return all;
+  }
+
   async #request<T>(path: string, options: FetchOptions = {}): Promise<T> {
     const url = `${this.#baseUrl}${path}`;
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -284,6 +294,7 @@ export class AfternicListingProvider implements ListingProvider {
       id: parseInt(afternic.id, 10),
       domain: afternic.domain,
       marketplace: 'afternic' as MarketplaceName,
+      externalId: afternic.id,
       listingUrl: afternic.listing_url,
       priceEur: afternic.buy_now_price,
       status: afternicStatusToInternal(afternic.status),

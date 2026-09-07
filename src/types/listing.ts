@@ -29,6 +29,8 @@ export interface Listing {
   id: number;
   domain: string;
   marketplace: MarketplaceName;
+  /** Remote marketplace identifier (Afternic/Dan listing id). Null for manual-only rows. */
+  externalId?: string | null;
   listingUrl: string | null;
   priceEur: number;
   status: ListingStatus;
@@ -43,6 +45,7 @@ export interface Listing {
 export interface NewListing {
   domain: string;
   marketplace: MarketplaceName;
+  externalId?: string | null;
   priceEur: number;
   listingUrl: string | null;
   status: ListingStatus;
@@ -54,6 +57,7 @@ export interface NewListing {
 export interface ListingUpdate {
   priceEur?: number;
   status?: ListingStatus;
+  externalId?: string | null;
   listingUrl?: string;
   expiresAt?: string;
   notes?: string;
@@ -119,6 +123,7 @@ export interface ListingRow {
   id: number;
   domain: string;
   marketplace: string;
+  external_id?: string | null;
   listing_url: string | null;
   list_price_eur?: number;
   price_eur?: number;
@@ -147,6 +152,7 @@ export function listingFromRow(row: ListingRow): Listing {
     id: row.id,
     domain: row.domain,
     marketplace: row.marketplace as MarketplaceName,
+    externalId: row.external_id ?? null,
     listingUrl: row.listing_url,
     priceEur: row.list_price_eur ?? row.price_eur ?? 0,
     status: row.status as ListingStatus,

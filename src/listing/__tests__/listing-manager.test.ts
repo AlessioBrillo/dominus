@@ -17,6 +17,7 @@ function createTestDb(): { db: Database.Database; dbProvider: SqliteProvider } {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       domain TEXT NOT NULL,
       marketplace TEXT NOT NULL,
+      external_id TEXT,
       listing_url TEXT,
       price_eur REAL NOT NULL,
       list_price_eur REAL,
@@ -163,9 +164,9 @@ describe('ListingManager', () => {
     const manager = new ListingManager(provider, repo, engine, gate);
     const listing = await manager.listDomain('example.com', 'manual', 1000);
 
-    const updated = await manager.updateListing(listing.id, { priceEur: 1200, status: 'listed' });
+    const updated = await manager.updateListing(listing.id, { priceEur: 1200, status: 'paused' });
     expect(updated.priceEur).toBe(1200);
-    expect(updated.status).toBe('listed');
+    expect(updated.status).toBe('paused');
   });
 
   it('deletes a listing', async () => {

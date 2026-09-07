@@ -87,6 +87,22 @@ export function createListingsRouter(listingManager: ListingManager): Router {
       notes?: string;
     };
 
+    // Defense in depth with ListingManager.updateListing: publish states are
+    // reachable only via POST /:id/publish and the offer endpoints, which
+    // enforce the trademark gate. A PATCH must never manufacture them.
+    if (
+      status !== undefined &&
+      (status === 'listed' || status === 'sold' || status === 'offer_received')
+    ) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `status '${status}' requires the publish/offer endpoints`,
+        },
+      });
+      return;
+    }
+
     const update: Record<string, unknown> = {};
     if (price !== undefined) update.priceEur = price;
     if (status !== undefined) update.status = status;

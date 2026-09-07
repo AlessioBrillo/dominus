@@ -12,6 +12,7 @@ function createTestDb(): SqliteProvider {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       domain TEXT NOT NULL,
       marketplace TEXT NOT NULL,
+      external_id TEXT,
       listing_url TEXT,
       price_eur REAL NOT NULL,
       list_price_eur REAL,

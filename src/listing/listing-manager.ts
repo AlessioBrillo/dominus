@@ -100,11 +100,24 @@ export class ListingManager {
     const listing = await this.#repo.findById(id);
     if (!listing) throw new Error(`Listing ${id} not found`);
 
+    // Gate-bypass guard (Principle 6, ADR-0006): 'listed', 'sold' and
+    // 'offer_received' are reachable only through listOnMarketplace /
+    // recordOffer / respondToOffer, which enforce the trademark gate and
+    // offer ownership. A PATCH must never manufacture them.
+    if (
+      update.status !== undefined &&
+      (update.status === 'listed' || update.status === 'sold' || update.status === 'offer_received')
+    ) {
+      throw new Error(
+        `Refusing status transition to '${update.status}': publish via listOnMarketplace, offers via recordOffer/respondToOffer`,
+      );
+    }
+
     await this.#repo.update(id, update);
 
     if (listing.status !== 'draft' && this.#provider.isAvailable) {
       try {
-        await this.#provider.updateListing(String(id), update);
+        await this.#provider.updateListing(listing.externalId ?? String(id), update);
       } catch (err) {
         logger.error({ err, listingId: id }, 'ListingManager: failed to update remote listing');
       }
@@ -121,7 +134,7 @@ export class ListingManager {
 
     if (listing.status === 'listed' && this.#provider.isAvailable) {
       try {
-        await this.#provider.cancelListing(String(id));
+        await this.#provider.cancelListing(listing.externalId ?? String(id));
       } catch (err) {
         logger.error({ err, listingId: id }, 'ListingManager: failed to cancel remote listing');
       }
@@ -177,6 +190,10 @@ export class ListingManager {
       if (remoteListing.listingUrl !== null) {
         updateFields.listingUrl = remoteListing.listingUrl;
       }
+      // Persist the remote id separately from the local primary key so
+      // later update/cancel calls address the remote listing, not a
+      // parseInt() collision in the local id space.
+      updateFields.externalId = remoteListing.externalId ?? String(remoteListing.id);
       await this.#repo.update(id, updateFields);
 
       logger.info(
@@ -203,19 +220,42 @@ export class ListingManager {
     const allOffers: ListingOffer[] = [];
     const allErrors: string[] = [...result.errors];
 
+    // Remote numeric ids live in the provider's id space, not ours:
+    // resolve every remote listing to its local row first, then link
+    // offers through the local id. Never persist parseInt(remoteId).
+    const remoteExternalId = (remote: { externalId?: string | null; id: number }): string =>
+      remote.externalId ?? String(remote.id);
+    const localByExternal = new Map<string, Listing>();
+
     for (const remote of result.listings) {
-      const local = await this.#repo.findByDomainAndMarketplace(remote.domain, remote.marketplace);
-      if (local) {
-        if (local.status !== remote.status || local.priceEur !== remote.priceEur) {
-          await this.#repo.update(local.id, {
-            status: remote.status,
-            priceEur: remote.priceEur,
-          });
+      const externalId = remoteExternalId(remote);
+      const local =
+        (await this.#repo.findByMarketplaceAndExternalId(remote.marketplace, externalId)) ??
+        (await this.#repo.findByDomainAndMarketplace(remote.domain, remote.marketplace));
+
+      // Trademark gate applies to the local mirror too: a Blocked domain
+      // must never be shown as listed/sold, even if the marketplace did.
+      const gate = await this.#trademarkGate.check(remote.domain);
+      if (gate.verdict === GateVerdict.Blocked) {
+        allErrors.push(`${remote.domain}: trademark ${gate.verdict} — not mirrored as listed`);
+        if (local && (local.status === 'listed' || local.status === 'offer_received')) {
+          await this.#repo.update(local.id, { status: 'unlisted' });
         }
+        continue;
+      }
+
+      if (local) {
+        localByExternal.set(externalId, local);
+        const patch: ListingUpdate = {};
+        if (local.externalId !== externalId) patch.externalId = externalId;
+        if (local.status !== remote.status) patch.status = remote.status;
+        if (local.priceEur !== remote.priceEur) patch.priceEur = remote.priceEur;
+        if (Object.keys(patch).length > 0) await this.#repo.update(local.id, patch);
       } else {
-        await this.#repo.insert({
+        const { id } = await this.#repo.insert({
           domain: remote.domain,
           marketplace: remote.marketplace,
+          externalId,
           priceEur: remote.priceEur,
           status: remote.status,
           listingUrl: remote.listingUrl,
@@ -223,22 +263,34 @@ export class ListingManager {
           expiresAt: remote.expiresAt,
           notes: null,
         });
+        const inserted = await this.#repo.findById(id);
+        if (inserted) localByExternal.set(externalId, inserted);
       }
     }
 
+    const remoteById = new Map(result.listings.map((r) => [r.id, r] as const));
     for (const remoteOffer of result.offers) {
-      const existing = await this.#repo.findPendingOffer(remoteOffer.listingId);
+      const remoteListing = remoteById.get(remoteOffer.listingId);
+      const local = remoteListing
+        ? localByExternal.get(remoteExternalId(remoteListing))
+        : undefined;
+      if (!local) {
+        allErrors.push(`orphan offer ${remoteOffer.id}: unknown remote listing — skipped`);
+        continue;
+      }
+      const existing = await this.#repo.findPendingOffer(local.id);
       if (!existing || existing.amountEur !== remoteOffer.amountEur) {
         const { id } = await this.#repo.insertOffer({
-          listingId: remoteOffer.listingId,
+          listingId: local.id,
           amountEur: remoteOffer.amountEur,
           buyer: remoteOffer.buyer,
           notes: null,
         });
         remoteOffer.id = id;
+        remoteOffer.listingId = local.id;
 
         if (remoteOffer.status === 'pending') {
-          await this.#repo.update(remoteOffer.listingId, { status: 'offer_received' });
+          await this.#repo.update(local.id, { status: 'offer_received' });
         }
       }
       allOffers.push(remoteOffer);
@@ -291,6 +343,12 @@ export class ListingManager {
     listingId: number,
     status: 'accepted' | 'declined',
   ): Promise<void> {
+    const offers = await this.#repo.findOffersByListingId(listingId);
+    const offer = offers.find((o) => o.id === offerId);
+    if (!offer) throw new Error(`Offer ${offerId} not found for listing ${listingId}`);
+    if (offer.status !== 'pending') {
+      throw new Error(`Offer ${offerId} is not pending (status: ${offer.status})`);
+    }
     await this.#repo.updateOfferStatus(offerId, status);
     if (status === 'accepted') {
       await this.#repo.update(listingId, { status: 'sold' });
