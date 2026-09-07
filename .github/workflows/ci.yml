@@ -185,7 +185,7 @@ jobs:
           migrate_out=$(docker run --rm -e DATABASE_PATH=/tmp/migrate-smoke.db \
             --entrypoint node dominus-api:test dist/db/migrate-cli.js)
           echo "$migrate_out"
-          grep -q "migrations applied: 55" <<<"$migrate_out" || {
+          grep -q "migrations applied: 56" <<<"$migrate_out" || {
             echo "FATAL: migrate CLI must migrate a fresh SQLite database to the full manifest inside the image"
             exit 1
           }
