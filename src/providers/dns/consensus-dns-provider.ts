@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+/**
+ * @deprecated Since ADR-0072: The 2-of-3 DNS consensus architecture (primary/secondary/tertiary
+ * DoH/DoT legs) is deprecated in favor of Unbound as the single source of truth for DNS.
+ * Unbound provides full DNSSEC validation, DoT/DoH upstream, and anycast-free resolution
+ * without the complexity of multi-leg consensus. New deployments should use DNS_UNBOUND_ENABLED=true.
+ * This provider remains for legacy deployments that cannot run Unbound (e.g., serverless, edge).
+ */
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type {
   DnsProvider,
@@ -75,6 +82,16 @@ export class ConsensusDnsProvider implements DnsProvider {
   };
 
   constructor(options: ConsensusDnsProviderOptions) {
+    // DEPRECATED: ConsensusDnsProvider is part of the legacy 2-of-3 DNS consensus
+    // architecture (ADR-0039/0040/0045/0059/0063-0069). Per ADR-0072, new deployments
+    // should use DNS_UNBOUND_ENABLED=true with a local Unbound resolver for
+    // single-source-of-truth DNS with full DNSSEC validation.
+    logger.warn(
+      'DEPRECATED: ConsensusDnsProvider is active — this is the legacy 2-of-3 DNS consensus architecture. ' +
+        'Migrate to DNS_UNBOUND_ENABLED=true (ADR-0072) for single-source-of-truth DNS with DNSSEC validation. ' +
+        'See https://github.com/AlessioBrillo/dominus/blob/master/docs/adr/0072-dns-consensus-revalidation-hardening.md',
+    );
+
     this.#revalidationIntervalMs = options.revalidationIntervalMs ?? 600_000; // 10min default
 
     const secondaryConfig = options.secondaryConfig ?? options.config.secondaryConfig;

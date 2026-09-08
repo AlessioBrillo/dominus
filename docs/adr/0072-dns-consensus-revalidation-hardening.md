@@ -28,6 +28,17 @@ Additionally, the revalidation lacked Prometheus metrics, making it impossible t
 
 5. **Privacy-mode compliance**: The system-resolver approach works correctly with `DNS_PRIVACY_MODE=true` — the revalidation queries never leave the host except to the system resolver, maintaining the privacy guarantee while still detecting overlap.
 
+### Deprecation Notice (2026-09-08)
+
+**The entire 2-of-3 DNS consensus architecture (primary/secondary/tertiary legs) is deprecated** in favor of **Unbound as the single source of truth** (ADR-0072). 
+
+- **Default changed**: `DNS_UNBOUND_ENABLED=true` (was `false`)
+- **When Unbound is enabled**: The consensus gate is automatically disabled — Unbound provides full DNSSEC validation, DoT/DoH upstream, and anycast-free resolution with a single properly configured recursive resolver cluster.
+- **Legacy path**: `DNS_UNBOUND_ENABLED=false` with `DNS_CONSENSUS_ENABLED=true` still works but emits a deprecation warning at startup. This path is retained only for deployments that cannot run Unbound (e.g., serverless, edge environments without container orchestration).
+- **Migration**: Set `DNS_UNBOUND_ENABLED=true` and `DNS_UNBOUND_HOSTS` (e.g., `unbound:5300` in Docker, `127.0.0.1,::1` on host). The consensus config (`DNS_CONSENSUS_*`) becomes irrelevant and can be removed.
+
+The consensus implementation (`ConsensusDnsProvider`, `buildDnsConsensusConfig`, `buildConsensusDnsProvider`, `consensus-engine.ts`) is marked `@deprecated` and will be removed in a future major version.
+
 ## Consequences
 
 ### Positive
