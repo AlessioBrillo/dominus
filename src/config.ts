@@ -2612,6 +2612,19 @@ const configSchema = z
         'WHOIS_LOOKUP_TIMEOUT must be <= RDAP_WHOIS_BUDGET_MS to avoid race condition where rescue timeout fires before WHOIS query completes.',
       path: ['WHOIS_LOOKUP_TIMEOUT'],
     },
+  )
+  .refine(
+    (_data) => {
+      // Legacy path warning: DNS_CONSENSUS_ENABLED=true with DNS_UNBOUND_ENABLED=false
+      // means the old multi-leg consensus architecture is active. This is deprecated
+      // in favor of Unbound as single source of truth (ADR-0072).
+      // We don't block — just warn at startup via loadConfig().
+      return true; // Always passes validation; warning is emitted in loadConfig()
+    },
+    {
+      message: '',
+      path: ['DNS_CONSENSUS_ENABLED'],
+    },
   );
 
 export type Config = z.infer<typeof configSchema>;
@@ -2643,6 +2656,18 @@ export function loadConfig(): Config {
     if (path !== undefined && !existsSync(path)) {
       console.warn(`[config] ${key}=${path} — file not found, will use defaults`);
     }
+  }
+
+  // Legacy DNS consensus architecture deprecation warning (ADR-0072).
+  // When Unbound is disabled but consensus is enabled, the old multi-leg
+  // consensus architecture (primary/secondary/tertiary DoH/DoT) is active.
+  // This path is deprecated — operators should migrate to DNS_UNBOUND_ENABLED=true.
+  if (!_config.DNS_UNBOUND_ENABLED && _config.DNS_CONSENSUS_ENABLED) {
+    console.warn(
+      '[config] DEPRECATED: DNS_UNBOUND_ENABLED=false with DNS_CONSENSUS_ENABLED=true activates the legacy 2-of-3 DNS consensus architecture. ' +
+        'This path is deprecated per ADR-0072; migrate to Unbound (DNS_UNBOUND_ENABLED=true) for single-source-of-truth DNS with DNSSEC validation. ' +
+        'Set DNS_CONSENSUS_ENABLED=false to silence this warning if consensus is intentionally disabled.',
+    );
   }
 
   return _config;
