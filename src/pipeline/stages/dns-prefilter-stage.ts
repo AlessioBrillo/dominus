@@ -116,7 +116,6 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       }
     }
 
-    // Collect consensus stats from the provider (ConsensusDnsProvider)
     return {
       passed,
       filtered,
@@ -181,7 +180,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     return results;
   }
 
-  /** Runs the per-domain fallback. Consensus is now handled by ConsensusDnsProvider. */
+  /** Runs the per-domain fallback. DNS consensus removed per ADR-0072 (Unbound single source of truth). */
   async #fallbackWithConsensus(
     results: (DnsCheckResult | undefined)[],
     domains: DomainCandidate[],
