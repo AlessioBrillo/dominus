@@ -81,7 +81,7 @@ export class MetricsCollector {
   /** Anycast overlap degradation counter (ADR-0068). */
   #dnsConsensusAnycastOverlapTotal = 0;
   /** Anycast degraded runs counter (ADR-0068): runs where anycast overlap
-   *  exceeded threshold and DNS_CONSENSUS_ON_FAILURE=degraded-anycast. */
+   *  exceeded threshold and consensus was degraded. */
   #dnsConsensusAnycastDegradedRuns = 0;
   /** DNS operator map version (for staleness alerting). */
   #dnsOperatorMapVersion: string | null = null;
