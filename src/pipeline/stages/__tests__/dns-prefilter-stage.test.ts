@@ -229,45 +229,4 @@ describe('DnsPreFilterStage', () => {
     expect(result.passed).toHaveLength(3);
     expect(checkAvailability).toHaveBeenCalledWith('b.io', undefined, undefined);
   });
-
-  it('returns consensus stats from ConsensusDnsProvider', async () => {
-    const provider = {
-      name: 'ConsensusDnsProvider',
-      checkAvailability: vi.fn().mockResolvedValue({
-        domain: 'free.io',
-        status: DomainStatus.Available,
-        checkedAt: '',
-      }),
-      checkBulk: vi
-        .fn()
-        .mockResolvedValue([{ domain: 'free.io', status: DomainStatus.Available, checkedAt: '' }]),
-      clearCache: vi.fn(),
-      pruneCache: vi.fn().mockReturnValue(0),
-      getConsensusStats: vi.fn().mockReturnValue({
-        verified: 1,
-        disagreed: 0,
-        unverifiable: 0,
-        degraded: false,
-        tertiaryRescued: 0,
-      }),
-    } as unknown as DnsProvider & {
-      getConsensusStats: () => {
-        verified: number;
-        disagreed: number;
-        unverifiable: number;
-        degraded: boolean;
-        tertiaryRescued: number;
-      };
-    };
-    const stage = new DnsPreFilterStage(provider);
-    const candidates = [createMockCandidate({ domain: 'free.io' })];
-    const result = await stage.process(candidates);
-    expect(result.consensusStats).toEqual({
-      verified: 1,
-      disagreed: 0,
-      unverifiable: 0,
-      degraded: false,
-      tertiaryRescued: 0,
-    });
-  });
 });

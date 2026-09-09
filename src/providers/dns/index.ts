@@ -32,44 +32,4 @@ export {
   type DnsBreakerRegistryLike,
   type DnsBreakerStats,
 } from './dns-breaker.js';
-export {
-  validateResolverGroups,
-  validateConsensusStrategyDisjointness,
-  validateConsensusDisjointness,
-  validateRuntimeConsensusDisjointness,
-  validateFallbackIsolation,
-  hasUsableLookups,
-  findOverlaps,
-  computeAnycastOverlaps,
-  type DisjointnessReport,
-  type FallbackIsolationReport,
-  type RuntimeConsensusReport,
-  type RuntimeValidationMode,
-} from './resolver-validator.js';
-export {
-  getOperatorMap,
-  getOperatorForIdentity,
-  getIdentitiesForOperator,
-  areSameOperator,
-  getOperatorMapVersion,
-  getOperatorMapSource,
-  refreshOperatorMap,
-  clearOperatorMapCache,
-  EMBEDDED_OPERATOR_MAP,
-  type OperatorMap,
-} from './operator-map.js';
-export {
-  AuthoritativeZoneResolver,
-  createAuthoritativeZoneResolver,
-  checkAuthoritativeZoneOverlap,
-} from './authoritative-zone-resolver.js';
-export { ConsensusDnsProvider } from './consensus-dns-provider.js';
 export { UnboundResolver } from './unbound-resolver.js';
-export type {
-  DisjointnessValidator,
-  ConsensusConfig,
-  ConsensusDnsProviderOptions,
-  TertiaryDnsConfig,
-} from './consensus-dns-provider.js';
-export { runConsensus, runConsensusBulk, revalidateDisjointness } from './consensus-engine.js';
-export type { ConsensusEngineOptions, ConsensusResult } from './consensus-engine.js';
