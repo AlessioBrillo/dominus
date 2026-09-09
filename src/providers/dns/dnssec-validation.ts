@@ -18,7 +18,7 @@ export type DnssecStatus = 'valid' | 'bogus' | 'insecure' | 'unchecked';
  *
  * This is called when:
  * - DNS_NATIVE_DNSSEC_ENABLED=true
- * - Custom nameservers are configured (DNS_NAMESERVERS, DNS_CONSENSUS_NAMESERVERS, or DNS_TERTIARY_NAMESERVERS)
+ * - Custom nameservers are configured (DNS_NAMESERVERS)
  * - The native resolver path is being used
  *
  * The native Node.js resolver doesn't support DNSSEC (no DO bit, no AD flag).
