@@ -7,7 +7,6 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { Stage, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
-import type { ConsensusStats } from '../../providers/dns/consensus-dns-provider.js';
 
 const logger = getLogger();
 
@@ -118,25 +117,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     }
 
     // Collect consensus stats from the provider (ConsensusDnsProvider)
-    const consensusStats = this.#collectConsensusStats();
-
     return {
       passed,
       filtered,
       stageName: this.name,
       durationMs: Date.now() - start,
-      ...(consensusStats ? { consensusStats } : {}),
     };
-  }
-
-  #collectConsensusStats(): ConsensusStats | undefined {
-    if (this.dnsProvider.name === 'ConsensusDnsProvider') {
-      const provider = this.dnsProvider as { getConsensusStats?: () => ConsensusStats };
-      if (typeof provider.getConsensusStats === 'function') {
-        return provider.getConsensusStats();
-      }
-    }
-    return undefined;
   }
 
   /** Threshold fraction of undefined results that triggers a cross-validation retry. */

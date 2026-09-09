@@ -327,7 +327,7 @@ async function main(): Promise<void> {
     '/backtest',
     createBacktestRouter(deps.provider, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
   );
-  protectedRouter.use('/providers', createProvidersRouter(deps.config, deps.dnsConsensusActive));
+  protectedRouter.use('/providers', createProvidersRouter(deps.config));
   protectedRouter.use(
     '/outcomes',
     createOutcomesRouter(deps.outcomeRepo, (domain, salePriceEur) => {

@@ -24,20 +24,7 @@ export interface ProviderStatus {
   note: string;
 }
 
-/**
- * @param dnsConsensusActive Actual runtime state of the 2-of-3 DNS consensus
- *   gate, as built by `buildDnsConsensusConfig`. When omitted, the report
- *   falls back to the configured intent (DNS_CONSENSUS_ENABLED) — the
- *   default is only safe for callers that cannot know the runtime veto
- *   outcome (tests, static config reports). Production entrypoints must
- *   pass the built-gate state: the gate is silently absent when the
- *   secondary resolver set overlaps the primary's, and the status report
- *   must never claim an active gate that is not running.
- */
-export function reportProviderStatuses(
-  config: Config,
-  dnsConsensusActive?: boolean,
-): ProviderStatus[] {
+export function reportProviderStatuses(config: Config): ProviderStatus[] {
   const euipoConfigured =
     config.EUIPO_CLIENT_ID !== undefined &&
     config.EUIPO_CLIENT_ID !== '' &&
@@ -53,7 +40,7 @@ export function reportProviderStatuses(
     {
       name: 'DNS',
       configured: true,
-      note: buildDnsStatusNote(config, dnsConsensusActive),
+      note: buildDnsStatusNote(config),
     },
     {
       name: 'RDAP',
@@ -122,21 +109,21 @@ export function reportProviderStatuses(
 }
 
 /**
- * The DNS provider status note. The 2-of-3 consensus gate section reflects
- * the ACTUAL runtime state (dnsConsensusActive) rather than the configured
- * intent: the gate is absent when its resolver set overlaps the primary's,
- * and reporting "active" for a vetoed gate is a silent-opacity hazard.
+ * The DNS provider status note. Reflects Unbound as single source of truth (ADR-0072).
  */
-function buildDnsStatusNote(config: Config, dnsConsensusActive?: boolean): string {
-  const consensusActive = dnsConsensusActive ?? config.DNS_CONSENSUS_ENABLED;
-  const consensusNote = consensusActive
-    ? config.DNS_CONSENSUS_NAMESERVERS
-      ? ` 2-of-3 consensus gate active (secondary via private recursor ${config.DNS_CONSENSUS_NAMESERVERS}).`
-      : ` 2-of-3 consensus gate active (secondary strategy ${config.DNS_CONSENSUS_STRATEGY}).`
-    : ' 2-of-3 consensus gate inactive (DNS_CONSENSUS_ENABLED=false, or disabled at startup because the secondary resolver set overlaps the primary — see logs).';
+function buildDnsStatusNote(config: Config): string {
+  if (config.DNS_UNBOUND_ENABLED) {
+    return (
+      `Unbound recursive resolver (single source of truth, ADR-0072) at ${config.DNS_UNBOUND_HOSTS}. ` +
+      `DNSSEC validation ${config.DNS_DNSSEC_VALIDATION_ENABLED ? 'enabled' : 'disabled'}. ` +
+      `DoT to Unbound ${config.DNS_UNBOUND_TLS ? 'enabled' : 'disabled'}. ` +
+      `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.`
+    );
+  }
   return (
     `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). ` +
-    `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.${consensusNote}`
+    `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}. ` +
+    `Legacy path (DNS_UNBOUND_ENABLED=false) — deprecated per ADR-0072.`
   );
 }
 

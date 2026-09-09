@@ -10,7 +10,6 @@ import type { Config } from '../../config.js';
 export interface HealthCommandDeps {
   db: Database.Database | null;
   config: Config;
-  dnsConsensusActive?: boolean;
 }
 
 export function registerHealthCommand(program: Command, deps: HealthCommandDeps): void {
@@ -23,7 +22,7 @@ export function registerHealthCommand(program: Command, deps: HealthCommandDeps)
       const version = readVersion();
       const uptime = process.uptime();
       const dbOk = checkDatabase(rawDb);
-      const providers = reportProviderStatuses(deps.config, deps.dnsConsensusActive);
+      const providers = reportProviderStatuses(deps.config);
 
       if (options.json) {
         process.stdout.write(
