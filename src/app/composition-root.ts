@@ -852,9 +852,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // complexity of multi-leg consensus.
   if (config.DNS_UNBOUND_ENABLED) {
     metrics.recordDnsConsensusGateStatus('disabled', 'DNS_UNBOUND_ENABLED=true (ADR-0072)');
-    getLogger().info('DNS: Unbound resolver active — skipping 2-of-3 consensus (ADR-0072)');
+    getLogger().info('DNS: Unbound resolver active (ADR-0072)');
   }
-  const consensusDnsProvider = dnsProvider;
 
   // 2-of-2 RDAP consensus (ADR-0050): a dedicated second RDAP provider on the
   // independent RDAP_CONSENSUS_ENDPOINT re-confirms every Available verdict
@@ -900,7 +899,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const orchestrator = new PipelineOrchestrator(
     new CandidateGenerationStage(config.DEFAULT_KEYWORD_TLD),
     new DnsPreFilterStage(
-      consensusDnsProvider ?? dnsProvider,
+      dnsProvider,
       config.DNS_BULK_CONCURRENCY,
       [], // No sources skipped — closeout CSV candidates now go through DNS with forceRecheck
     ),
@@ -942,13 +941,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // TTL-based expiry handles freshness; prune avoids the nuclear clearCache().
   orchestrator.setOnRunStart(() => {
     dnsProvider.pruneCache();
-    // Reset DNS consensus stats for the new run (ConsensusDnsProvider)
-    if (consensusDnsProvider && consensusDnsProvider.name === 'ConsensusDnsProvider') {
-      const provider = consensusDnsProvider as { resetConsensusStats?: () => void };
-      if (typeof provider.resetConsensusStats === 'function') {
-        provider.resetConsensusStats();
-      }
-    }
     // Clear the RDAP intra-run cache (60s TTL) so a fresh run cannot reuse a
     // verdict resolved by a previous run a moment before.
     (rawRdapProvider as { clearCache?: () => void }).clearCache?.();
@@ -1076,7 +1068,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Watchlist ---
   const watchlistService = new WatchlistService(
     repos.watchlistRepo,
-    consensusDnsProvider ?? dnsProvider,
+    dnsProvider,
     rawRdapProvider,
     notifiers,
     config,

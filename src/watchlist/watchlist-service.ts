@@ -151,39 +151,9 @@ export class WatchlistService {
       // verdict on the drop-side surface stays visible in logs (ADR-0059).
       logger.warn({ domain }, 'watchlist: DNS suggests available, awaiting RDAP confirmation');
 
-      // Apply DNS 2-of-3 consensus gate via ConsensusDnsProvider (ADR-0059/0068):
-      // the primary Available verdict must be confirmed by independent verification legs.
-      // Fail-closed: disagreement or failure to verify downgrades to Unknown.
-      if (this.dnsProvider.name === 'ConsensusDnsProvider') {
-        try {
-          const consensusResult = await this.dnsProvider.checkAvailability(domain, undefined, {
-            forceRecheck: true,
-          });
-          if (consensusResult.status !== DomainStatus.Available) {
-            logger.warn(
-              { domain, consensusStatus: consensusResult.status },
-              'watchlist: DNS consensus gate vetoed (not Available) — downgraded to Unknown',
-            );
-            await this.repo.updateStatus(domain, {
-              lastCheckedAt: new Date().toISOString(),
-              lastStatus: DomainStatus.Unknown,
-              lastStatusChange: null,
-            });
-            return false;
-          }
-        } catch (err) {
-          logger.warn(
-            { err, domain },
-            'watchlist: DNS consensus gate verification failed — downgraded to Unknown',
-          );
-          await this.repo.updateStatus(domain, {
-            lastCheckedAt: new Date().toISOString(),
-            lastStatus: DomainStatus.Unknown,
-            lastStatusChange: null,
-          });
-          return false;
-        }
-      }
+      // DNS 2-of-3 consensus gate removed per ADR-0072 (Unbound single source of truth).
+      // Unbound provides full DNSSEC validation, DoT/DoH upstream, anycast-free resolution.
+      // If DNS_UNBOUND_ENABLED=false (legacy), this check is skipped.
     }
 
     let rdapResult: RdapResult;

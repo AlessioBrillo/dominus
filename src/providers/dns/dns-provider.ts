@@ -49,11 +49,11 @@ const DEFAULT_DOT_PROVIDERS: Array<{ name: string; host: string }> = [
 
 /**
  * Operators the default DoH primary never consults. Used by the
- * 'dot-alternate' consensus strategy: with DNS_CONSENSUS_STRATEGY defaulting
- * to it, the 2-of-3 gate's second opinion is genuinely operator-disjoint
- * from the default 'doh-primary' primary (Cloudflare/Google/Quad9) — the
- * P1 hardening that a same-operator DoH-vs-DoT pairing must not be treated
- * as an independent opinion.
+ * 'dot-alternate' strategy (legacy): the 2-of-3 gate's second opinion
+ * was genuinely operator-disjoint from the default 'doh-primary' primary
+ * (Cloudflare/Google/Quad9) — the P1 hardening that a same-operator
+ * DoH-vs-DoT pairing must not be treated as an independent opinion.
+ * NOTE: This strategy is deprecated per ADR-0072 (Unbound single source of truth).
  */
 const DEFAULT_DOT_ALTERNATE_PROVIDERS: Array<{ name: string; host: string }> = [
   { name: 'AdGuard', host: '94.140.14.14' },
@@ -62,16 +62,11 @@ const DEFAULT_DOT_ALTERNATE_PROVIDERS: Array<{ name: string; host: string }> = [
 ];
 
 /**
- * Operator-disjoint DoH providers used by the 'doh-alternate' strategy.
+ * Operator-disjoint DoH providers used by the 'doh-alternate' strategy (legacy).
  * Cisco OpenDNS answers RFC 8484 wire-format GETs (live-verified
  * 2026-08-20); Digital Society (dns.digitale-gesellschaft.ch, live-verified
- * 2026-08-20 through the real wire path) adds a second keyless operator so
- * the group keeps a majority vote and two breaker circuits — a single
- * degraded DoH endpoint can no longer silently remove the tertiary opinion
- * (ADR-0065). Both are independent of the default primary
- * (Cloudflare/Google/Quad9) and consensus (AdGuard/Mullvad/NextDNS) sets,
- * and disjoint from a pinned private recursor — the turnkey tertiary
- * opinion of ADR-0064.
+ * 2026-08-20 through the real wire path) adds a second keyless operator.
+ * NOTE: This strategy is deprecated per ADR-0072 (Unbound single source of truth).
  */
 const DEFAULT_DOH_ALTERNATE_PROVIDERS: Array<{
   name: string;
@@ -432,8 +427,8 @@ export interface ResolvedEndpoints {
  * observed responder IPs/hostnames.
  *
  * @param primaryGroups - Primary resolver groups (from DNS_LOOKUP_STRATEGY)
- * @param secondaryGroups - Secondary consensus groups (from DNS_CONSENSUS_STRATEGY)
- * @param tertiaryGroups - Optional tertiary groups (from DNS_TERTIARY_STRATEGY)
+ * @param secondaryGroups - Secondary consensus groups (legacy)
+ * @param tertiaryGroups - Optional tertiary groups (legacy)
  * @param timeoutMs - Per-query timeout in ms (default: 2000)
  * @param anycastOverlapThreshold - Overlap ratio threshold for anycast degradation (0.0-1.0, default: 0.5)
  * @returns Validation result with structured overlap data including anycast analysis
@@ -515,8 +510,7 @@ export async function validateConsensusDisjointnessRuntime(
   if (allOverlaps.length > 0) {
     result.failureReason =
       `Resolver overlap detected: ${allOverlaps.join(', ')}. ` +
-      'Configure disjoint resolver sets (DNS_CONSENSUS_NAMESERVERS, DNS_TERTIARY_NAMESERVERS) ' +
-      'or disable consensus (DNS_CONSENSUS_ENABLED=false).';
+      'Configure disjoint resolver sets or disable consensus.';
   } else if (anycastDegraded) {
     const exceedingPairs = [
       ...anycastOverlaps.primarySecondary,

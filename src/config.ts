@@ -293,17 +293,12 @@ const configSchema = z
      * name to public resolvers (Cloudflare/Google/Quad9 DoH, AdGuard/Mullvad/
      * NextDNS DoT, OpenDNS/Digital Society DoH, and the system/ISP resolver on
      * native legs) — a commercially sensitive investment signal for an
-     * operator watching resolver logs. Privacy mode forces ALL strategies
-     * (primary, consensus secondary, tertiary) to 'native', so every leg
-     * queries only the DNS_NAMESERVERS pins. It therefore REQUIRES
-     * DNS_NAMESERVERS to be set: boot fails loudly otherwise, because "private"
-     * with the system resolver would still leak to the ISP. Consensus keeps
-     * running only when a SECOND distinct recursor is pinned via
-     * DNS_CONSENSUS_NAMESERVERS (native-vs-native independence is decided by
-     * the endpoint disjointness check); with a single recursor the gate is
-     * honestly vetoed at boot — one resolver cannot be its own second opinion.
-     * Default: false for both editions. When enabled, DNS_NAMESERVERS is required
-     * and DNS_CONSENSUS_NAMESERVERS is required if DNS_CONSENSUS_ENABLED=true.
+     * operator watching resolver logs. Privacy mode (ADR-0065) forces the
+     * strategy to 'native', so every leg queries only the DNS_NAMESERVERS pins.
+     * It therefore REQUIRES DNS_NAMESERVERS to be set: boot fails loudly
+     * otherwise, because "private" with the system resolver would still
+     * leak to the ISP. Default: false for both editions.
+     * When DNS_UNBOUND_ENABLED=true (default), Unbound resolver is used instead.
      */
     DNS_PRIVACY_MODE: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
@@ -688,8 +683,7 @@ const configSchema = z
      * Available verdict from the primary failover must be independently
      * confirmed by a dedicated second RDAP provider (rdap.org by default,
      * see RDAP_CONSENSUS_ENDPOINT). ON by default: the extra HTTP query per
-     * Available is the price of the fail-closed guarantee, mirroring the DNS
-     * consensus gate (DNS_CONSENSUS_ENABLED, ADR-0040). Disable explicitly
+     * Available is the price of the fail-closed guarantee. Disable explicitly
      * to trade safety for volume.
      */
     RDAP_CONSENSUS_ENABLED: z
