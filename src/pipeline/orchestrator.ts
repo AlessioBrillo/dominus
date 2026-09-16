@@ -96,7 +96,7 @@ export interface StageBudgetOptions {
 const STAGE_BUDGET_DEFAULT_BASE_MS = 30_000;
 const STAGE_BUDGET_DEFAULT_PER_CANDIDATE_MS = 200;
 const STAGE_BUDGET_DEFAULT_CAP_MS = 3_600_000;
-export const STAGE_BUDGET_DEFAULT_GRACE_MS = 5_000;
+export const STAGE_BUDGET_DEFAULT_GRACE_MS = 15_000;
 
 export function computeStageBudgetMs(candidateCount: number, options?: StageBudgetOptions): number {
   const baseMs = options?.baseMs ?? STAGE_BUDGET_DEFAULT_BASE_MS;
@@ -673,6 +673,18 @@ export class PipelineOrchestrator {
       allCandidates.length,
       trademark.passed.length,
       Date.now() - start,
+    );
+
+    logger.info(
+      {
+        runId,
+        recommended: trademark.passed.length,
+        total: allCandidates.length,
+        durationMs: Date.now() - start,
+        degraded: stageErrors.length > 0 || degradations.length > 0,
+        degradedReasons: degradations,
+      },
+      'Pipeline run completed',
     );
 
     return {

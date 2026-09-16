@@ -5,6 +5,10 @@ import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
+export interface CompositeLockProviderOptions {
+  onFallback?: (from: string, to: string) => void;
+}
+
 export interface NamedLockProvider {
   name: string;
   provider: LockProvider;
@@ -14,10 +18,17 @@ export class CompositeLockProvider implements LockProvider {
   readonly #providers: NamedLockProvider[];
   readonly #redisClient: RedisClient | null;
   readonly #lockOwners: Map<string, string> = new Map();
+  readonly #onFallback: ((from: string, to: string) => void) | undefined;
+  #fallbackLogged = false;
 
-  constructor(providers: NamedLockProvider[], redisClient?: RedisClient) {
+  constructor(
+    providers: NamedLockProvider[],
+    redisClient?: RedisClient,
+    options?: CompositeLockProviderOptions,
+  ) {
     this.#providers = providers;
     this.#redisClient = redisClient ?? null;
+    this.#onFallback = options?.onFallback as ((from: string, to: string) => void) | undefined;
     logger.info({ providers: providers.map((p) => p.name) }, 'CompositeLockProvider initialized');
   }
 
@@ -29,7 +40,13 @@ export class CompositeLockProvider implements LockProvider {
     if (this.#redisClient && !this.#redisClient.isConnected && this.#providers.length > 1) {
       const redisName = this.#providers[0]?.name ?? '';
       if (redisName.startsWith('Redis')) {
-        logger.warn('Redis not connected — starting with database lock provider');
+        if (!this.#fallbackLogged) {
+          logger.warn('Redis not connected — starting with database lock provider');
+          this.#fallbackLogged = true;
+        }
+        if (this.#onFallback) {
+          this.#onFallback(redisName, this.#providers[1]?.name ?? 'DatabaseLock');
+        }
         return 1;
       }
     }

@@ -714,7 +714,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     await dnsBreakers.loadState(repos.providerCacheRepo);
   }
 
-  const dnsProvider = buildDnsProvider(
+  const dnsProvider = await buildDnsProvider(
     config,
     repos.providerCacheRepo,
     dnsRateLimiter,
@@ -843,6 +843,12 @@ export async function createDependencies(config: Config): Promise<DominusDepende
           { name: 'DatabaseLock', provider },
         ],
         redisClient,
+        {
+          onFallback: (from, to): void => {
+            logger.warn({ from, to }, 'Distributed lock fallback — split-brain risk!');
+            metrics.recordLockFallback(from, to);
+          },
+        },
       )
     : undefined;
 
@@ -892,8 +898,15 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     // Startup probe of the consensus second leg (ADR-0051): with the
     // fail-closed 2-of-2 gate a dead endpoint downgrades every unconfirmable
     // Available verdict, so surface egress problems at boot like the DNS
-    // consensus probe does.
-    void probeRdapConsensusEndpoint(config, rdapConsensusConfig.secondaryProvider);
+    // consensus probe does. Fail-fast if probe fails.
+    const probeOk = await probeRdapConsensusEndpoint(config, rdapConsensusConfig.secondaryProvider);
+    if (!probeOk) {
+      logger.fatal(
+        'RDAP consensus second provider probe failed at startup. ' +
+          'Set RDAP_CONSENSUS_ENABLED=false or fix RDAP_CONSENSUS_ENDPOINT egress.',
+      );
+      process.exit(1);
+    }
   }
 
   const orchestrator = new PipelineOrchestrator(
