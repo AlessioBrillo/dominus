@@ -407,6 +407,16 @@ const configSchema = z
      */
     DNS_UNBOUND_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(1500),
     /**
+     * Enable health check for Unbound resolver at startup.
+     * When true (default), the application validates that Unbound can resolve
+     * a known-good domain (example.com) before accepting traffic. Set to false
+     * to disable in test environments or when Unbound is not yet available.
+     * Default: true.
+     */
+    DNS_UNBOUND_HEALTH_CHECK_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
      * Enable parking page detection for registered domains via Unbound.
      * When true, registered domains whose A records resolve to known parking
      * IP ranges are NOT filtered — they pass through with `dnsStatus: 'parked'`,
@@ -812,6 +822,12 @@ const configSchema = z
      * Default: 10000. Range: 1000-30000.
      */
     RDAP_CONSENSUS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+    /**
+     * Timeout for the startup probe of the RDAP consensus second provider (ms).
+     * Default: 15000 (15 seconds). Range: 1000-60000.
+     * Separate from query timeout to allow longer startup validation.
+     */
+    RDAP_CONSENSUS_PROBE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
 
     /**
      * Enable an optional THIRD RDAP consensus opinion (tertiary leg).
@@ -1287,7 +1303,7 @@ const configSchema = z
      * Must be >= WHOIS_LOOKUP_TIMEOUT to avoid race where rescue times out
      * before the WHOIS query completes.
      */
-    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(10000).default(10_000),
+    RDAP_WHOIS_BUDGET_MS: z.coerce.number().int().min(50).max(20000).default(15_000),
 
     /**
      * Staleness window in hours after which a persisted RDAP "Available" row
@@ -1308,12 +1324,12 @@ const configSchema = z
      * capped at STAGE_TIMEOUT_CAP_MS. When a stage exceeds its budget it is
      * aborted and given STAGE_TIMEOUT_GRACE_MS to harvest partial results,
      * otherwise it degrades empty and the run is marked degraded.
-     * Defaults: base 30s, 200ms/candidate, cap 1h, grace 5s.
+     * Defaults: base 30s, 200ms/candidate, cap 1h, grace 15s.
      */
     STAGE_TIMEOUT_BASE_MS: z.coerce.number().int().min(0).max(86_400_000).default(30_000),
     STAGE_TIMEOUT_PER_CANDIDATE_MS: z.coerce.number().int().min(0).max(600_000).default(200),
     STAGE_TIMEOUT_CAP_MS: z.coerce.number().int().min(0).max(86_400_000).default(3_600_000),
-    STAGE_TIMEOUT_GRACE_MS: z.coerce.number().int().min(0).max(300_000).default(5_000),
+    STAGE_TIMEOUT_GRACE_MS: z.coerce.number().int().min(0).max(300_000).default(15_000),
 
     /** Maximum concurrent domains to rescore in a single portfolio rescore operation.
      *  Each domain hits scoring engine + trademark gate. Default: 5. */

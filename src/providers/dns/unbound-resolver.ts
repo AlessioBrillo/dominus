@@ -166,6 +166,39 @@ export class UnboundResolver implements DnsProvider {
     return registry.snapshot?.();
   }
 
+  /**
+   * Health check for the Unbound resolver. Attempts to resolve a known-good
+   * domain (example.com) via A and NS records. Returns true if at least one
+   * query succeeds, false otherwise. Used at startup to validate the resolver
+   * is reachable before accepting traffic.
+   */
+  async healthCheck(): Promise<boolean> {
+    const testDomain = 'example.com';
+    const timeoutMs = 3000;
+
+    try {
+      // Try A record first
+      const aResult = await Promise.race([
+        this.#resolveWithTimeout(testDomain, 'A', timeoutMs),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('health check timeout')), timeoutMs),
+        ),
+      ]);
+      if (aResult) return true;
+
+      // Fallback to NS record
+      const nsResult = await Promise.race([
+        this.#resolveWithTimeout(testDomain, 'NS', timeoutMs),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('health check timeout')), timeoutMs),
+        ),
+      ]);
+      return nsResult;
+    } catch {
+      return false;
+    }
+  }
+
   async checkAvailability(
     domain: string,
     signal?: AbortSignal,

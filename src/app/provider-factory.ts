@@ -277,7 +277,7 @@ export function effectiveDnsLookupStrategy(config: Config, strategy: string): st
   return config.DNS_PRIVACY_MODE ? 'native' : strategy;
 }
 
-export function buildDnsProvider(
+export async function buildDnsProvider(
   config: Config,
   providerCacheRepo?: ProviderCacheRepository,
   rateLimiter?: RateLimiterLike,
@@ -291,7 +291,7 @@ export function buildDnsProvider(
       fromCache: boolean;
     }) => void;
   },
-): DnsProvider {
+): Promise<DnsProvider> {
   if (config.DNS_UNBOUND_ENABLED) {
     const unboundHosts = config.DNS_UNBOUND_HOSTS.split(',')
       .map((s) => s.trim())
@@ -302,7 +302,7 @@ export function buildDnsProvider(
       );
     }
 
-    return new UnboundResolver({
+    const resolver = new UnboundResolver({
       unboundHosts,
       lookupTimeoutMs: config.DNS_UNBOUND_TIMEOUT_MS,
       cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
@@ -323,10 +323,29 @@ export function buildDnsProvider(
       dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
       onResolution: metrics?.recordUnboundResolution,
     });
+
+    // Health check at startup (unless disabled for testing)
+    if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
+      const healthy = await resolver.healthCheck();
+      if (!healthy) {
+        throw new Error(
+          'Unbound resolver health check failed: cannot resolve example.com. ' +
+            'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
+            'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
+        );
+      }
+      getLogger().info({ hosts: unboundHosts }, 'Unbound resolver health check passed');
+    }
+
+    return resolver;
   }
 
+  // Legacy consensus path deprecated per ADR-0072 — the multi-leg consensus
+  // implementation has been removed. Users must enable Unbound resolver.
   throw new Error(
-    'DNS_UNBOUND_ENABLED=false is deprecated. Enable Unbound resolver (ADR-0072) or update configuration.',
+    'DNS_UNBOUND_ENABLED=false is not supported (ADR-0072). The legacy 2-of-3 DNS consensus ' +
+      'architecture has been removed. Enable Unbound resolver by setting DNS_UNBOUND_ENABLED=true ' +
+      'and configuring DNS_UNBOUND_HOSTS (e.g. "unbound:5300" in Docker, "127.0.0.1,::1" on host).',
   );
 }
 
@@ -607,14 +626,17 @@ export async function createRdapConsensusConfig(
 export async function probeRdapConsensusEndpoint(
   config: Config,
   secondaryProvider: RdapProvider,
-): Promise<void> {
-  if (!config.RDAP_CONSENSUS_ENABLED) return;
+): Promise<boolean> {
+  if (!config.RDAP_CONSENSUS_ENABLED) return true;
   const logger = getLogger();
   const endpoint = config.RDAP_CONSENSUS_ENDPOINT;
-  logger.warn({ endpoint }, 'RDAP: probing consensus second provider at startup');
-  const probeSignal = AbortSignal.timeout(config.RDAP_CONSENSUS_TIMEOUT_MS);
+  const timeoutMs = config.RDAP_CONSENSUS_PROBE_TIMEOUT_MS ?? config.RDAP_CONSENSUS_TIMEOUT_MS;
+  logger.warn({ endpoint, timeoutMs }, 'RDAP: probing consensus second provider at startup');
+  const probeSignal = AbortSignal.timeout(timeoutMs);
   try {
     await secondaryProvider.confirm('example.com', probeSignal);
+    logger.info({ endpoint }, 'RDAP: consensus second provider probe succeeded');
+    return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(
@@ -623,5 +645,6 @@ export async function probeRdapConsensusEndpoint(
         'gate will downgrade unconfirmable Available verdicts. Verify egress to the ' +
         'consensus endpoint or disable the gate (RDAP_CONSENSUS_ENABLED=false).',
     );
+    return false;
   }
 }

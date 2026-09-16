@@ -427,6 +427,12 @@ export class MetricsCollector {
     this.#usptoWafBlockRate = Number.isFinite(stats.wafBlockRate) ? stats.wafBlockRate : 0;
   }
 
+  /** Record a distributed lock fallback event (Redis → Database).
+   *  Used to alert on split-brain risk when Redis becomes unavailable. */
+  recordLockFallback(from: string, to: string): void {
+    this.recordHistogram('dominus_lock_fallback_total', 1, { from, to }, [1]);
+  }
+
   /** Record DNS resolution metrics for the Unbound resolver (ADR-0072).
    *  Called from UnboundResolver for each checkAvailability/checkBulk. */
   recordUnboundResolution(stats: {
