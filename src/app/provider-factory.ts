@@ -326,15 +326,25 @@ export async function buildDnsProvider(
 
     // Health check at startup (unless disabled for testing)
     if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
-      const healthy = await resolver.healthCheck();
-      if (!healthy) {
+      const health = await resolver.healthCheck();
+      if (!health.healthy) {
         throw new Error(
-          'Unbound resolver health check failed: cannot resolve example.com. ' +
+          'Unbound resolver health check failed: cannot resolve cloudflare.com. ' +
             'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
             'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
         );
       }
-      getLogger().info({ hosts: unboundHosts }, 'Unbound resolver health check passed');
+      if (!health.dnssecValid) {
+        getLogger().warn(
+          { hosts: unboundHosts, details: health.details },
+          'Unbound resolver reachable but DNSSEC validation may not be active (no DS record for cloudflare.com). ' +
+            'Ensure Unbound is configured with validator module and val-permissive-mode: no.',
+        );
+      }
+      getLogger().info(
+        { hosts: unboundHosts, dnssecValid: health.dnssecValid, details: health.details },
+        'Unbound resolver health check passed',
+      );
     }
 
     return resolver;

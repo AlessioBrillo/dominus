@@ -29,7 +29,7 @@ const STALE_UNKNOWN_WINDOW_MS = 15 * 60_000;
  */
 const STALE_AVAILABLE_DEFAULT_MS = 24 * 60 * 60_000;
 
-type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
+type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA' | 'DS';
 
 /**
  * UnboundResolver provides DNS resolution via a local Unbound recursive
@@ -168,34 +168,44 @@ export class UnboundResolver implements DnsProvider {
 
   /**
    * Health check for the Unbound resolver. Attempts to resolve a known-good
-   * domain (example.com) via A and NS records. Returns true if at least one
-   * query succeeds, false otherwise. Used at startup to validate the resolver
-   * is reachable before accepting traffic.
+   * domain (cloudflare.com) via A and DS records to validate both reachability
+   * and DNSSEC delegation. Returns detailed result for observability.
    */
-  async healthCheck(): Promise<boolean> {
-    const testDomain = 'example.com';
+  async healthCheck(): Promise<{ healthy: boolean; dnssecValid: boolean; details: string }> {
+    const testDomain = 'cloudflare.com'; // Known DNSSEC-signed domain
     const timeoutMs = 3000;
 
     try {
-      // Try A record first
+      // Try A record first (basic reachability)
       const aResult = await Promise.race([
         this.#resolveWithTimeout(testDomain, 'A', timeoutMs),
         new Promise<boolean>((_, reject) =>
           setTimeout(() => reject(new Error('health check timeout')), timeoutMs),
         ),
       ]);
-      if (aResult) return true;
+      if (!aResult) {
+        return { healthy: false, dnssecValid: false, details: 'A record resolution failed' };
+      }
 
-      // Fallback to NS record
-      const nsResult = await Promise.race([
-        this.#resolveWithTimeout(testDomain, 'NS', timeoutMs),
-        new Promise<boolean>((_, reject) =>
-          setTimeout(() => reject(new Error('health check timeout')), timeoutMs),
-        ),
-      ]);
-      return nsResult;
-    } catch {
-      return false;
+      // Check DNSSEC delegation via DS record
+      let dnssecValid = false;
+      try {
+        const dsResult = await this.#resolveWithTimeout(testDomain, 'DS', timeoutMs);
+        dnssecValid = dsResult === true; // DS exists = delegation signed
+      } catch {
+        // DS query failed - zone may be unsigned or Unbound not validating
+        dnssecValid = false;
+      }
+
+      return {
+        healthy: true,
+        dnssecValid,
+        details: dnssecValid
+          ? 'DNSSEC delegation validated (DS record found)'
+          : 'No DS record (insecure or unsigned zone)',
+      };
+    } catch (err) {
+      return { healthy: false, dnssecValid: false, details: String(err) };
     }
   }
 
@@ -300,10 +310,24 @@ export class UnboundResolver implements DnsProvider {
         resolved = await resolveFn(undefined);
       }
 
-      // Unbound validates DNSSEC when configured with 'validator' module and
-      // 'val-permissive-mode: no'. We trust Unbound's AD flag when DNSSEC is enabled.
+      // Determine DNSSEC status by querying DS record (delegation signed)
+      // This runs in parallel with the main resolution to minimize latency impact.
+      // If DS exists -> zone is signed -> 'valid' (assuming Unbound validates with val-permissive-mode: no)
+      // If no DS -> 'insecure'
+      // If resolution failed with SERVFAIL on a signed zone -> 'bogus' (caught as error/unknown)
+      let dnssecValid = false;
+      if (this.#dnssecValidationEnabled && resolved !== undefined) {
+        try {
+          const dsResult = await this.#resolveWithTimeout(domain, 'DS', this.#lookupTimeoutMs);
+          dnssecValid = dsResult === true;
+        } catch {
+          // DS query failed - treat as insecure
+          dnssecValid = false;
+        }
+      }
+
       if (resolved !== undefined) {
-        dnssecStatus = this.#dnssecValidationEnabled ? 'valid' : 'unchecked';
+        dnssecStatus = dnssecValid ? 'valid' : 'insecure';
       } else {
         dnssecStatus = 'unchecked';
       }

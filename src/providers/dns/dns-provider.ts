@@ -807,9 +807,9 @@ export interface DnsProvider {
    */
   dispose?(): void;
   /**
-   * Health check for the DNS provider. Returns true if the provider can
-   * successfully resolve a known-good domain. Used at startup to validate
-   * the resolver is reachable and functional before accepting traffic.
+   * Health check for the DNS provider. Returns detailed result including
+   * DNSSEC validation status. Used at startup to validate the resolver is
+   * reachable and functional before accepting traffic.
    */
-  healthCheck?(): Promise<boolean>;
+  healthCheck?(): Promise<{ healthy: boolean; dnssecValid: boolean; details: string }>;
 }
