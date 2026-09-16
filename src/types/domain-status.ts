@@ -7,6 +7,74 @@ export enum DomainStatus {
   Error = 'error',
 }
 
+/**
+ * VerdictProvenance captures the complete chain of evidence for an availability
+ * verdict across DNS, RDAP, and Trademark stages. This enables full auditability
+ * and debugging of false positives/negatives in the pipeline.
+ */
+export interface VerdictProvenance {
+  /**
+   * DNS resolution provenance from the pre-filter stage.
+   */
+  dns?: {
+    /** Resolver endpoint that produced the verdict (e.g., "unbound:5300", "1.1.1.1"). */
+    resolver: string;
+    /** Transport protocol used for the query. */
+    transport: 'DoT' | 'DoH' | 'native';
+    /** DNSSEC validation status as reported by the resolver. */
+    dnssec: 'valid' | 'bogus' | 'insecure' | 'unchecked';
+    /** Query duration in milliseconds. */
+    durationMs: number;
+    /** Whether the result was served from cache. */
+    fromCache: boolean;
+  };
+
+  /**
+   * RDAP confirmation provenance including 2-of-2 consensus details.
+   */
+  rdap?: {
+    /** Primary RDAP server that produced the initial verdict (e.g., "rdap.verisign.com"). */
+    primaryServer: string;
+    /** 2-of-2 consensus verification details, when the gate is enabled. */
+    consensus?: {
+      /** Second RDAP server consulted for consensus (e.g., "rdap.org"). */
+      secondServer: string;
+      /** Whether the second leg independently confirmed Available. */
+      verified: boolean;
+      /** Whether the second leg vetoed with Registered/Premium. */
+      vetoed: boolean;
+      /** Whether the second leg was skipped due to authoritative origin overlap (rubber-stamp guard). */
+      originOverlap: boolean;
+      /** Whether WHOIS rescue leg confirmed the verdict. */
+      whoisRescued: boolean;
+    };
+    /** Total RDAP verification duration in milliseconds (primary + consensus). */
+    durationMs: number;
+  };
+
+  /**
+   * Trademark gate provenance from USPTO and EUIPO checks.
+   */
+  trademark?: {
+    /** USPTO provider result. */
+    uspto: { checked: boolean; durationMs: number; verdict: GateVerdict };
+    /** EUIPO provider result. */
+    euipo: { checked: boolean; durationMs: number; verdict: GateVerdict };
+  };
+
+  /** ISO-8601 timestamp when the provenance was recorded. */
+  timestamp: string;
+}
+
+/**
+ * Trademark gate verdict enum (re-exported for provenance typing).
+ */
+export enum GateVerdict {
+  Clear = 'clear',
+  Blocked = 'blocked',
+  Unverified = 'unverified',
+}
+
 export interface DnsCheckResult {
   domain: string;
   status: DomainStatus;

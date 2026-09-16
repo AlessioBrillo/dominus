@@ -16,6 +16,8 @@ export enum CandidateStatus {
   Unscored = 'unscored',
 }
 
+import type { VerdictProvenance } from './domain-status.js';
+
 /**
  * Closeout-specific scoring inputs that ride along with a candidate from import
  * to the scoring engine, where they feed the expiry signal. All optional: a row
@@ -61,6 +63,10 @@ export interface DomainCandidate extends RawCandidate {
    *  candidate. Set by DNS prefilter for closeout/expiring domains where a
    *  stale WHOIS "Available" would incorrectly gate the verdict. */
   forceWhoisRecheck?: boolean;
+  /** Complete chain of evidence for the availability verdict across all stages.
+   *  Populated by each pipeline stage as the candidate flows through.
+   *  Enables audit trail and debugging of false positives/negatives. */
+  verdictProvenance?: VerdictProvenance;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }
