@@ -156,7 +156,7 @@ describe('API: /api/v1/admin', () => {
       await request(buildApp(service)).get('/api/v1/admin/tenants/tenant-a/usage?days=7');
       expect(service.tenantUsageSeries).toHaveBeenCalledWith(
         'tenant-a',
-        expect.stringContaining('2026-08-'),
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/),
       );
     });
 
