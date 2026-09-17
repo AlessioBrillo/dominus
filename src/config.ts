@@ -392,10 +392,12 @@ const configSchema = z
      */
     DNS_UNBOUND_HOSTS: z.string().default('127.0.0.1'),
     /**
-     * Use DNS-over-TLS to Unbound (port 853) instead of plain DNS (port 53).
-     * When true, queries are encrypted between the application and Unbound.
-     * Requires Unbound to be configured with 'tls-service-key', 'tls-service-pem',
-     * and 'tls-port: 853'. Default: true for defense-in-depth.
+     * Reserved for a future DoT transport between the application and
+     * Unbound. NOT currently wired: `UnboundResolver` uses node:dns
+     * `Resolver`, which speaks plain DNS only — this flag has no effect on
+     * the app-to-Unbound hop today. The encrypted hop that actually exists
+     * is Unbound-to-upstream (`forward-tls-upstream: yes` in
+     * deploy/unbound/unbound.conf), which is unaffected by this setting.
      */
     DNS_UNBOUND_TLS: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())

@@ -93,11 +93,20 @@ export interface DnsCheckResult {
    */
   parkingRegistrar?: string | undefined;
   /**
-   * DNSSEC validation status (ADR-0061).
-   * - 'valid': response has valid DNSSEC chain (AD=1, signatures verify)
-   * - 'bogus': response has invalid signatures (treated as Registered, fail-closed)
-   * - 'insecure': zone is not DNSSEC-signed
-   * - 'unchecked': validation not performed (DO=0 or disabled)
+   * DNSSEC validation status (ADR-0061). Semantics depend on the producing
+   * provider:
+   * - Wire-format validators with AD-flag access: 'valid' (AD=1, signatures
+   *   verify), 'bogus' (invalid signatures, fail-closed), 'insecure' (zone
+   *   not signed), 'unchecked' (DO=0 or disabled).
+   * - `UnboundResolver`: `node:dns` exposes no per-query AD flag, so this is
+   *   a resolver-level fact proven once at boot (see
+   *   `UnboundResolver.healthCheck()`'s negative-control probe), not a
+   *   per-domain wire-format result. Only 'valid' (validation proven active)
+   *   or 'unchecked' (not proven, or disabled) are produced — 'bogus' is
+   *   unreachable there because Unbound already fails a bogus answer closed
+   *   with SERVFAIL, which surfaces as `DomainStatus.Unknown`; 'insecure' is
+   *   unreachable because per-domain signed-vs-unsigned cannot be observed
+   *   through this transport.
    */
   dnssec?: 'valid' | 'bogus' | 'insecure' | 'unchecked';
 }

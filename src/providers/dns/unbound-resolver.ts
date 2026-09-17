@@ -29,13 +29,33 @@ const STALE_UNKNOWN_WINDOW_MS = 15 * 60_000;
  */
 const STALE_AVAILABLE_DEFAULT_MS = 24 * 60 * 60_000;
 
-type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA' | 'DS';
+type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
+
+/** Well-known DNSSEC test zone used as a positive control: proves the test
+ *  zone itself is reachable, so a subsequent SERVFAIL on the sibling "sigfail"
+ *  name can only mean the resolver rejected a bad signature — not that the
+ *  zone is simply unreachable. Exported for test use only. */
+export const DNSSEC_POSITIVE_CONTROL = 'sigok.verteiltesysteme.net';
+/** Deliberately misconfigured record in the same zone as the positive
+ *  control above. A validating resolver MUST reject it with SERVFAIL.
+ *  Exported for test use only. */
+export const DNSSEC_NEGATIVE_CONTROL = 'sigfail.verteiltesysteme.net';
+/** Fallback negative control, used only when the primary zone is unreachable
+ *  (retired test domain / egress filtering). Exported for test use only. */
+export const DNSSEC_NEGATIVE_CONTROL_FALLBACK = 'dnssec-failed.org';
 
 /**
  * UnboundResolver provides DNS resolution via a local Unbound recursive
  * resolver (typically running as a sidecar container or on the host). It uses
- * Node's native `dns.Resolver` pointed at the Unbound instance(s), providing
- * full DNSSEC validation, DoT/DoH upstream, and anycast-free resolution.
+ * Node's native `dns.Resolver` pointed at the Unbound instance(s).
+ *
+ * The app-to-Unbound hop is plain DNS over the container/host network —
+ * Node's `dns.Resolver` has no DoT/DoH capability. The encrypted hop that
+ * matters is Unbound-to-upstream (`forward-tls-upstream: yes` in
+ * `deploy/unbound/unbound.conf`). DNSSEC validation is performed by Unbound
+ * itself and is proven, not assumed: `healthCheck()` runs a negative-control
+ * probe (see DNSSEC_NEGATIVE_CONTROL below) once at boot, since `node:dns`
+ * cannot read the AD flag on a per-query basis to verify it directly.
  *
  * This is the SINGLE SOURCE OF TRUTH for DNS in the hardened architecture
  * (ADR-0072). All multi-leg consensus complexity (DoH/DoT/tertiary) is
@@ -64,10 +84,6 @@ export interface UnboundResolverOptions {
   persistentAvailableStaleMs?: number;
   /** Optional shared circuit breaker registry. */
   breakers?: DnsBreakerRegistryLike | undefined;
-  /** Use DNS-over-TLS to Unbound (default: true). */
-  useTls?: boolean | undefined;
-  /** DoT port (default: 853). */
-  tlsPort?: number | undefined;
   /** Enable DNSSEC validation (default: true). */
   dnssecValidationEnabled?: boolean | undefined;
   /** Enable parking page detection (default: false). */
@@ -103,6 +119,10 @@ export class UnboundResolver implements DnsProvider {
   readonly #resolver: Resolver;
   readonly #onResolution: UnboundResolverOptions['onResolution'];
   readonly #dnssecValidationEnabled: boolean;
+  /** Set once by healthCheck() at boot: whether the negative-control probe
+   *  proved this resolver rejects bogus DNSSEC signatures. Per-domain lookups
+   *  stamp this resolver-level fact — node:dns exposes no per-query AD flag. */
+  #dnssecValidating = false;
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -167,16 +187,23 @@ export class UnboundResolver implements DnsProvider {
   }
 
   /**
-   * Health check for the Unbound resolver. Attempts to resolve a known-good
-   * domain (cloudflare.com) via A and DS records to validate both reachability
-   * and DNSSEC delegation. Returns detailed result for observability.
+   * Health check for the Unbound resolver. First confirms basic reachability
+   * (A record for cloudflare.com), then proves DNSSEC validation is actually
+   * active via a negative-control probe: `node:dns` cannot read the AD flag,
+   * so "the resolver returns an answer" proves nothing about validation — a
+   * misconfigured resolver (`val-permissive-mode: yes`) resolves everything.
+   * Instead we query a name with a deliberately bad signature
+   * (DNSSEC_NEGATIVE_CONTROL) and require an explicit SERVFAIL; a sibling
+   * name in the same zone (DNSSEC_POSITIVE_CONTROL) proves the zone itself
+   * is reachable, so the SERVFAIL can't be mistaken for a network failure.
+   * The result is cached on the instance and stamped on every subsequent
+   * per-domain lookup (see #dnssecValidating).
    */
   async healthCheck(): Promise<{ healthy: boolean; dnssecValid: boolean; details: string }> {
-    const testDomain = 'cloudflare.com'; // Known DNSSEC-signed domain
+    const testDomain = 'cloudflare.com';
     const timeoutMs = 3000;
 
     try {
-      // Try A record first (basic reachability)
       const aResult = await Promise.race([
         this.#resolveWithTimeout(testDomain, 'A', timeoutMs),
         new Promise<boolean>((_, reject) =>
@@ -184,29 +211,74 @@ export class UnboundResolver implements DnsProvider {
         ),
       ]);
       if (!aResult) {
+        this.#dnssecValidating = false;
         return { healthy: false, dnssecValid: false, details: 'A record resolution failed' };
       }
 
-      // Check DNSSEC delegation via DS record
-      let dnssecValid = false;
-      try {
-        const dsResult = await this.#resolveWithTimeout(testDomain, 'DS', timeoutMs);
-        dnssecValid = dsResult === true; // DS exists = delegation signed
-      } catch {
-        // DS query failed - zone may be unsigned or Unbound not validating
-        dnssecValid = false;
-      }
+      const dnssecValid = await this.#probeDnssecValidation(timeoutMs);
+      this.#dnssecValidating = dnssecValid;
 
       return {
         healthy: true,
         dnssecValid,
         details: dnssecValid
-          ? 'DNSSEC delegation validated (DS record found)'
-          : 'No DS record (insecure or unsigned zone)',
+          ? 'DNSSEC validation confirmed (negative-control signature rejected with SERVFAIL)'
+          : 'DNSSEC validation NOT confirmed — resolver accepted a bad signature, or the ' +
+            'negative-control probe was inconclusive (network error)',
       };
     } catch (err) {
+      this.#dnssecValidating = false;
       return { healthy: false, dnssecValid: false, details: String(err) };
     }
+  }
+
+  /** Runs the negative-control probe described on healthCheck(). Returns
+   *  true only on an explicit, proven rejection — inconclusive results
+   *  (timeouts, unreachable test zone) fail closed to false, never true. */
+  async #probeDnssecValidation(timeoutMs: number): Promise<boolean> {
+    const zoneReachable = await this.#resolvesOk(DNSSEC_POSITIVE_CONTROL, timeoutMs);
+    if (zoneReachable) {
+      const rejected = await this.#probeRejectsBogusSignature(DNSSEC_NEGATIVE_CONTROL, timeoutMs);
+      if (rejected !== undefined) return rejected;
+    }
+    // Primary zone unreachable or inconclusive — try the fallback negative
+    // control. Still fail closed (undefined -> false) if that's inconclusive too.
+    const rejected = await this.#probeRejectsBogusSignature(
+      DNSSEC_NEGATIVE_CONTROL_FALLBACK,
+      timeoutMs,
+    );
+    return rejected ?? false;
+  }
+
+  async #resolvesOk(domain: string, timeoutMs: number): Promise<boolean> {
+    try {
+      return await this.#resolveWithTimeout(domain, 'A', timeoutMs);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Returns true if the resolver proved it rejects a bad DNSSEC signature
+   *  (SERVFAIL), false if it proved it does NOT (the name resolved despite
+   *  the bad signature — the val-permissive-mode bypass this check exists to
+   *  catch), or undefined if inconclusive after retries (any other error —
+   *  never treated as proof either way). */
+  async #probeRejectsBogusSignature(
+    domain: string,
+    timeoutMs: number,
+  ): Promise<boolean | undefined> {
+    const attempts = 2;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await this.#resolveWithTimeout(domain, 'A', timeoutMs);
+        return false; // resolved despite the bad signature -> validation bypassed
+      } catch (err) {
+        if ((err as { code?: string }).code === 'ESERVFAIL') return true; // proven rejection
+        // Any other error (ENOTFOUND/ETIMEOUT/...) is inconclusive — retry once
+        // before giving up, so a single transient blip can't block boot.
+      }
+    }
+    return undefined;
   }
 
   async checkAvailability(
@@ -267,7 +339,7 @@ export class UnboundResolver implements DnsProvider {
     }
   }
 
-  #recordMetrics(result: DnsCheckResult, durationMs: number, _fromCache: boolean): void {
+  #recordMetrics(result: DnsCheckResult, durationMs: number, fromCache: boolean): void {
     if (!this.#onResolution) return;
     let status: 'registered' | 'available' | 'unknown';
     if (result.status === DomainStatus.Registered) status = 'registered';
@@ -279,7 +351,7 @@ export class UnboundResolver implements DnsProvider {
       durationMs,
       status,
       dnssec,
-      fromCache: true,
+      fromCache,
     });
   }
 
@@ -296,7 +368,6 @@ export class UnboundResolver implements DnsProvider {
         this.#resolveDomain(domain, s);
 
       let resolved: boolean | undefined;
-      let dnssecStatus: DnsCheckResult['dnssec'] = 'unchecked';
 
       if (this.#rateLimiter && this.#retryPolicy) {
         await this.#rateLimiter.acquire();
@@ -310,27 +381,13 @@ export class UnboundResolver implements DnsProvider {
         resolved = await resolveFn(undefined);
       }
 
-      // Determine DNSSEC status by querying DS record (delegation signed)
-      // This runs in parallel with the main resolution to minimize latency impact.
-      // If DS exists -> zone is signed -> 'valid' (assuming Unbound validates with val-permissive-mode: no)
-      // If no DS -> 'insecure'
-      // If resolution failed with SERVFAIL on a signed zone -> 'bogus' (caught as error/unknown)
-      let dnssecValid = false;
-      if (this.#dnssecValidationEnabled && resolved !== undefined) {
-        try {
-          const dsResult = await this.#resolveWithTimeout(domain, 'DS', this.#lookupTimeoutMs);
-          dnssecValid = dsResult === true;
-        } catch {
-          // DS query failed - treat as insecure
-          dnssecValid = false;
-        }
-      }
-
-      if (resolved !== undefined) {
-        dnssecStatus = dnssecValid ? 'valid' : 'insecure';
-      } else {
-        dnssecStatus = 'unchecked';
-      }
+      // DNSSEC status is a resolver-level fact, not a per-domain one:
+      // node:dns exposes no AD flag, so a per-domain probe can't tell "this
+      // zone validated" from "this zone isn't signed". healthCheck() proves
+      // validation once at boot via a negative-control probe; we stamp that
+      // proof here rather than re-querying. See class doc comment.
+      const dnssecStatus: DnsCheckResult['dnssec'] =
+        this.#dnssecValidationEnabled && this.#dnssecValidating ? 'valid' : 'unchecked';
 
       if (resolved !== undefined) {
         const status = resolved ? DomainStatus.Registered : DomainStatus.Available;

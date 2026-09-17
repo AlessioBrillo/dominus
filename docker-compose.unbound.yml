@@ -10,9 +10,13 @@
 # Usage (Cloud):
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.unbound.yml up -d
 #
-# The recursor listens on port 53 (UDP/TCP) and 853 (DoT) on the compose
-# subnet. Application services query it via DNS_UNBOUND_HOSTS=unbound:5300
-# with DNS_UNBOUND_ENABLED=true (default) and DNS_UNBOUND_TLS=true (default).
+# The recursor listens on port 5300 (plain UDP/TCP) and 853 (DoT) on the
+# compose subnet. Application services query it via
+# DNS_UNBOUND_HOSTS=unbound:5300 with DNS_UNBOUND_ENABLED=true (default).
+# That hop is PLAIN DNS on the internal compose network — node:dns has no DoT
+# capability, so DNS_UNBOUND_TLS is reserved for a future transport and has
+# no effect today (see its JSDoc in src/config.ts). The DoT that is actually
+# active is Unbound's own upstream leg to Cloudflare/Google/Quad9 below.
 #
 # Privacy: with this architecture, NO candidate domain name leaves the host
 # except to the pinned Unbound recursor. The recursor itself queries
@@ -30,7 +34,9 @@
 x-unbound-env: &unbound-env
   DNS_UNBOUND_ENABLED: 'true'
   DNS_UNBOUND_HOSTS: 'unbound:5300'
-  DNS_UNBOUND_TLS: 'true'
+  # Reserved for a future app-to-Unbound DoT transport; currently a no-op
+  # (see JSDoc in src/config.ts). Left false to not overclaim encryption.
+  DNS_UNBOUND_TLS: 'false'
   DNS_UNBOUND_TIMEOUT_MS: '1500'
   DNS_PARKING_CHECK_ENABLED: 'false'
   # Legacy consensus disabled when Unbound is active (ADR-0072)
