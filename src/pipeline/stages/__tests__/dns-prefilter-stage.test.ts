@@ -229,4 +229,45 @@ describe('DnsPreFilterStage', () => {
     expect(result.passed).toHaveLength(3);
     expect(checkAvailability).toHaveBeenCalledWith('b.io', undefined, undefined);
   });
+
+  it('attaches verdictProvenance.dns to passing candidates', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'valid',
+      durationMs: 12,
+      fromCache: false,
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [createMockCandidate({ domain: 'free.io' })];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(1);
+    expect(result.passed[0]!.verdictProvenance?.dns).toEqual({
+      resolver: 'mock',
+      transport: 'native',
+      dnssec: 'valid',
+      durationMs: 12,
+      fromCache: false,
+    });
+    expect(result.passed[0]!.verdictProvenance?.timestamp).toBeDefined();
+  });
+
+  it('defaults verdictProvenance.dns dnssec/durationMs/fromCache when the provider omits them', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [createMockCandidate({ domain: 'free.io' })];
+    const result = await stage.process(candidates);
+    expect(result.passed[0]!.verdictProvenance?.dns).toEqual({
+      resolver: 'mock',
+      transport: 'native',
+      dnssec: 'unchecked',
+      durationMs: 0,
+      fromCache: false,
+    });
+  });
 });

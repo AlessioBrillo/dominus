@@ -106,6 +106,20 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           ...(result.parkingRegistrar !== undefined
             ? { whoisMeta: { ...candidate.whoisMeta, registrar: result.parkingRegistrar } }
             : {}),
+          verdictProvenance: {
+            ...candidate.verdictProvenance,
+            dns: {
+              resolver: this.dnsProvider.name,
+              // 'native': node:dns speaks plain DNS to the resolver — see
+              // UnboundResolver's class doc comment for why this is the
+              // truthful value regardless of DNS_UNBOUND_TLS.
+              transport: 'native',
+              dnssec: result.dnssec ?? 'unchecked',
+              durationMs: result.durationMs ?? 0,
+              fromCache: result.fromCache ?? false,
+            },
+            timestamp: new Date().toISOString(),
+          },
         });
       } else {
         filtered.push({
@@ -139,10 +153,10 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     const [bulkOk, results] = await this.#tryBulkCheck(domains, signal, options);
     if (!bulkOk || results === null) {
       // Bulk check failed entirely — fall back to per-domain checks. ADR-0040:
-      // the 2-of-3 consensus MUST still run on the recovered verdicts; a bulk
+      // the fallback MUST still run on the recovered verdicts; a bulk
       // failure must not strip the availability guarantee that a healthy run
       // gets (ADR-0002 parity across every resolution path).
-      return this.#fallbackWithConsensus(
+      return this.#perDomainFallback(
         results ?? new Array(domains.length),
         domains,
         signal,
@@ -171,24 +185,13 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           if (stillUndefined === 0) {
             return retried;
           }
-          return this.#fallbackWithConsensus(retried, domains, signal, options);
+          return this.#perDomainFallback(retried, domains, signal, options);
         }
       }
-      return this.#fallbackWithConsensus(results, domains, signal, options);
+      return this.#perDomainFallback(results, domains, signal, options);
     }
 
     return results;
-  }
-
-  /** Runs the per-domain fallback. DNS consensus removed per ADR-0072 (Unbound single source of truth). */
-  async #fallbackWithConsensus(
-    results: (DnsCheckResult | undefined)[],
-    domains: DomainCandidate[],
-    signal?: AbortSignal,
-    options?: DnsCheckOptions,
-  ): Promise<(DnsCheckResult | undefined)[]> {
-    const fallback = await this.#perDomainFallback(results, domains, signal, options);
-    return fallback;
   }
 
   /** Attempt the bulk DNS check. Returns [true, results] on full success,
