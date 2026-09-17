@@ -11,19 +11,6 @@
 #   docker run -d -v ./data:/app/data dominus-worker
 #   docker run -d -v ./data:/app/data dominus-scheduler
 
-# DOMINUS — Multi-stage production build
-# Requires Docker BuildKit (default since Docker 23.0).
-#
-# Build targets:
-#   docker build --target api    -t dominus-api:latest .
-#   docker build --target worker -t dominus-worker:latest .
-#   docker build --target scheduler -t dominus-scheduler:latest .
-#
-# Run:
-#   docker run -d -p 3000:3000 -v ./data:/app/data dominus-api
-#   docker run -d -v ./data:/app/data dominus-worker
-#   docker run -d -v ./data:/app/data dominus-scheduler
-
 # Immutable base image (ADR-0046): pinned by digest so a retagged
 # node:22-alpine cannot silently inject new CVEs into the build. Bump the
 # digest deliberately along with an upstream release with:
@@ -69,6 +56,13 @@ RUN npm run build
 FROM ${NODE_IMAGE} AS api
 WORKDIR /app
 
+# Alpine v3.24's own package repo already carries the fix for 10 libssl3/
+# libcrypto3 CVEs (incl. CVE-2026-14456, HIGH) that shipped baked into
+# NODE_IMAGE's libssl3-3.5.7-r0. Pin the patched version explicitly rather
+# than a floating `apk upgrade` (ADR-0046: no untracked package drift) —
+# drop this once a NODE_IMAGE digest bump picks up libssl3 >= 3.5.8-r0 baked in.
+RUN apk add --no-cache --upgrade libssl3=3.5.8-r0
+
 # Runtime strip (ADR-0046): the base image bundles the npm CLI with its own
 # dependency tree (/usr/local/lib/node_modules/npm). The runtime never
 # invokes npm — entrypoint and healthchecks are plain `node` — so the
@@ -108,6 +102,9 @@ CMD ["dist/index.js"]
 # ---- Stage 5: Job Worker (no HTTP listener) ----
 FROM ${NODE_IMAGE} AS worker
 WORKDIR /app
+
+# Patched libssl3/libcrypto3 — see the comment in the api stage.
+RUN apk add --no-cache --upgrade libssl3=3.5.8-r0
 
 # Runtime strip (ADR-0046): npm/corepack are unused at runtime — see the
 # comment in the api stage. Removes the bundled-npm CVE surface class from
@@ -150,6 +147,9 @@ CMD ["dist/worker-entrypoint.js"]
 # ---- Stage 6: Scheduler (lightweight cron container) ----
 FROM ${NODE_IMAGE} AS scheduler
 WORKDIR /app
+
+# Patched libssl3/libcrypto3 — see the comment in the api stage.
+RUN apk add --no-cache --upgrade libssl3=3.5.8-r0
 
 # Runtime strip (ADR-0046): npm/corepack/npx are never used at runtime —
 # see the comment in the api stage.
