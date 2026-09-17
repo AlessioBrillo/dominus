@@ -39,10 +39,7 @@ x-unbound-env: &unbound-env
   DNS_UNBOUND_TLS: 'false'
   DNS_UNBOUND_TIMEOUT_MS: '1500'
   DNS_PARKING_CHECK_ENABLED: 'false'
-  # Legacy consensus disabled when Unbound is active (ADR-0072)
-  DNS_CONSENSUS_ENABLED: 'false'
-  DNS_TERTIARY_ENABLED: 'false'
-  # Native resolver pins for legacy/fallback (not used when Unbound enabled)
+  # Native resolver pins for the fallback path (not used when Unbound enabled)
   DNS_NAMESERVERS: 'unbound:5300'
 
 services:
@@ -68,27 +65,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-    logging:
-      driver: 'json-file'
-      options:
-        max-size: '10m'
-        max-file: '3'
-        compress: 'true'
-
-  # Prometheus exporter for Unbound metrics (observability)
-  unbound-exporter:
-    image: kumina/unbound-exporter@sha256:5c4b8f1c8e9e4b8f9d5e4b8f1c8e9e4b8f9d5e4b8f1c8e9e4b8f9d5e4b8f1c8e9
-    restart: always
-    networks:
-      - unbound-net
-    environment:
-      - UNBOUND_HOST=unbound
-      - UNBOUND_PORT=8953
-      - UNBOUND_USE_SSL=true
-    ports:
-      - "127.0.0.1:9199:9199"
-    depends_on:
-      - unbound
     logging:
       driver: 'json-file'
       options:
