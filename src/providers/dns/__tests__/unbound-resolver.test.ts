@@ -149,7 +149,11 @@ describe('UnboundResolver', () => {
       );
 
       const result = await resolver.checkAvailability('example.com');
-      expect(result).toEqual(cachedResult);
+      expect(result).toEqual({
+        ...cachedResult,
+        durationMs: expect.any(Number),
+        fromCache: true,
+      });
       expect(mockCacheRepo.get).toHaveBeenCalledWith('example.com', 'UnboundResolver');
       expect(mockMetrics).toHaveBeenCalledWith(
         expect.objectContaining({
