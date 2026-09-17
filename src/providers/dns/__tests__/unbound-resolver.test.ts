@@ -1,10 +1,46 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { UnboundResolver } from '../unbound-resolver.js';
+
+/** Routes every Resolver.resolve() call through this mock, keyed by
+ *  (domain, rrtype), so DNSSEC negative-control behavior is deterministic
+ *  instead of depending on real network/Unbound reachability. */
+const resolveFn = vi.fn<(domain: string, rrtype: string) => Promise<string[]>>();
+
+vi.mock('node:dns', () => {
+  class MockResolver {
+    resolve(
+      domain: string,
+      rrtype: string,
+      callback: (err: Error | null, addresses?: string[]) => void,
+    ): void {
+      resolveFn(domain, rrtype).then(
+        (addresses: string[]) => callback(null, addresses),
+        (err: unknown) => callback(err instanceof Error ? err : new Error(String(err))),
+      );
+    }
+    cancel(): void {}
+    setServers(_servers: string[]): void {}
+  }
+  return { Resolver: MockResolver };
+});
+
+import {
+  UnboundResolver,
+  DNSSEC_POSITIVE_CONTROL,
+  DNSSEC_NEGATIVE_CONTROL,
+  DNSSEC_NEGATIVE_CONTROL_FALLBACK,
+} from '../unbound-resolver.js';
 import { DomainStatus } from '../../../types/domain-status.js';
 import type { DnsCheckResult } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
 import type { RateLimiterLike } from '../../../providers/rate-limiter.js';
+
+/** Build an Error carrying a c-ares style `code`, as node:dns produces. */
+function dnsError(code: string): Error {
+  const err = new Error(code) as Error & { code?: string };
+  err.code = code;
+  return err;
+}
 
 describe('UnboundResolver', () => {
   let resolver: UnboundResolver;
@@ -18,6 +54,17 @@ describe('UnboundResolver', () => {
   }) => void;
 
   beforeEach(() => {
+    resolveFn.mockReset();
+    // Default: every domain resolves an A record ("registered"), except the
+    // one name tests use to exercise the resolver-error (Unknown) path.
+    // ECONNREFUSED, not ENOTFOUND: an NXDOMAIN answer on A/NS/SOA is a valid
+    // "available" verdict, not an error — this simulates the resolver itself
+    // being unreachable/misbehaving.
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      return Promise.resolve(['1.2.3.4']);
+    });
+
     mockCacheRepo = {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
@@ -45,8 +92,6 @@ describe('UnboundResolver', () => {
       persistentCache: mockCacheRepo,
       persistentCacheTtlHours: 168,
       persistentAvailableStaleMs: 24 * 60 * 60_000,
-      useTls: true,
-      tlsPort: 853,
       dnssecValidationEnabled: true,
       onResolution: mockMetrics,
     });
@@ -76,13 +121,19 @@ describe('UnboundResolver', () => {
 
   describe('checkAvailability', () => {
     it('should return cached result from memory cache', async () => {
-      // Manually populate cache via public method
       await resolver.checkAvailability('example.com');
-      // The result will be Unknown since no real Unbound, but we can test structure
       const result = await resolver.checkAvailability('example.com');
       expect(result.domain).toBe('example.com');
-      expect(result.status).toBeDefined();
+      expect(result.status).toBe(DomainStatus.Registered);
       expect(result.checkedAt).toBeDefined();
+    });
+
+    it('should report fromCache=false on a live lookup and true on a memory-cache hit', async () => {
+      await resolver.checkAvailability('example.com');
+      expect(mockMetrics).toHaveBeenLastCalledWith(expect.objectContaining({ fromCache: false }));
+
+      await resolver.checkAvailability('example.com');
+      expect(mockMetrics).toHaveBeenLastCalledWith(expect.objectContaining({ fromCache: true }));
     });
 
     it('should return cached result from persistent cache', async () => {
@@ -120,20 +171,15 @@ describe('UnboundResolver', () => {
         JSON.stringify(cachedResult),
       );
 
-      // The actual DNS lookup will happen (returns Unknown since no real Unbound)
       await resolver.checkAvailability('example.com', undefined, {
         forceRecheck: true,
       });
 
-      // Should not have used persistent cache
       expect(mockCacheRepo.get).not.toHaveBeenCalled();
     });
 
     it('should not persist Unknown results', async () => {
-      // Let the lookup run (will fail without real Unbound, returns Unknown)
       await resolver.checkAvailability('nonexistent.invalid');
-
-      // Verify persistent cache was not set for Unknown
       expect(mockCacheRepo.set).not.toHaveBeenCalled();
     });
   });
@@ -146,7 +192,7 @@ describe('UnboundResolver', () => {
       expect(results).toHaveLength(3);
       results.forEach((r) => {
         expect(r.domain).toBeDefined();
-        expect(r.status).toBeDefined();
+        expect(r.status).toBe(DomainStatus.Registered);
         expect(r.checkedAt).toBeDefined();
       });
     });
@@ -164,7 +210,6 @@ describe('UnboundResolver', () => {
   describe('cache operations', () => {
     it('should clear cache', () => {
       resolver.clearCache();
-      // Should not throw
     });
 
     it('should prune cache', () => {
@@ -181,19 +226,89 @@ describe('UnboundResolver', () => {
     it('should clear pending lookups on dispose', async () => {
       const promise = resolver.checkAvailability('example.com');
       resolver.dispose();
-      // The promise should still resolve (not hang)
       const result = await promise;
       expect(result).toBeDefined();
     });
   });
 
-  describe('DNSSEC status', () => {
-    it('should report dnssec as valid when enabled and resolved', async () => {
-      // We can't easily test the actual DNS resolution without a real Unbound
-      // but we can verify the structure
+  describe('per-domain DNSSEC stamping', () => {
+    it('never queries the unsupported DS rrtype', async () => {
+      await resolver.checkAvailability('example.com');
+      await resolver.healthCheck();
+      for (const call of resolveFn.mock.calls) {
+        expect(call[1]).not.toBe('DS');
+      }
+    });
+
+    it('stamps dnssec=unchecked before healthCheck() has proven validation', async () => {
       const result = await resolver.checkAvailability('example.com');
-      expect(result.dnssec).toBeDefined();
-      expect(['valid', 'unchecked']).toContain(result.dnssec);
+      expect(result.dnssec).toBe('unchecked');
+    });
+
+    it('stamps dnssec=valid on every subsequent lookup once healthCheck() proves validation', async () => {
+      resolveFn.mockImplementation((domain) => {
+        if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+        return Promise.resolve(['1.2.3.4']);
+      });
+      const health = await resolver.healthCheck();
+      expect(health.dnssecValid).toBe(true);
+
+      const result = await resolver.checkAvailability('example.com');
+      expect(result.dnssec).toBe('valid');
+    });
+  });
+
+  describe('healthCheck DNSSEC negative-control probe', () => {
+    it('proves validation when the negative control SERVFAILs and the positive control resolves', async () => {
+      resolveFn.mockImplementation((domain) => {
+        if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+        return Promise.resolve(['1.2.3.4']);
+      });
+
+      const health = await resolver.healthCheck();
+      expect(health.healthy).toBe(true);
+      expect(health.dnssecValid).toBe(true);
+    });
+
+    it('disproves validation when the negative control resolves (val-permissive-mode bypass)', async () => {
+      // Every probe resolves, including the deliberately-bogus signature —
+      // this is exactly the misconfiguration (val-permissive-mode: yes)
+      // this check exists to catch.
+      resolveFn.mockImplementation(() => Promise.resolve(['1.2.3.4']));
+
+      const health = await resolver.healthCheck();
+      expect(health.healthy).toBe(true);
+      expect(health.dnssecValid).toBe(false);
+    });
+
+    it('falls back to the secondary negative control when the primary zone is unreachable', async () => {
+      resolveFn.mockImplementation((domain) => {
+        if (domain === DNSSEC_POSITIVE_CONTROL) return Promise.reject(dnsError('ENOTFOUND'));
+        if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK)
+          return Promise.reject(dnsError('ESERVFAIL'));
+        return Promise.resolve(['1.2.3.4']);
+      });
+
+      const health = await resolver.healthCheck();
+      expect(health.dnssecValid).toBe(true);
+    });
+
+    it('fails closed (never true) when every probe is inconclusive', async () => {
+      resolveFn.mockImplementation((domain) => {
+        if (domain === 'cloudflare.com') return Promise.resolve(['1.2.3.4']);
+        return Promise.reject(dnsError('ETIMEOUT'));
+      });
+
+      const health = await resolver.healthCheck();
+      expect(health.dnssecValid).toBe(false);
+    });
+
+    it('reports unhealthy when the basic reachability check fails', async () => {
+      resolveFn.mockImplementation(() => Promise.reject(dnsError('ETIMEOUT')));
+
+      const health = await resolver.healthCheck();
+      expect(health.healthy).toBe(false);
+      expect(health.dnssecValid).toBe(false);
     });
   });
 });
