@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { DomainCandidate, CandidateStatus, CandidateSource } from '../../types/candidate.js';
+import type { VerdictProvenance } from '../../types/domain-status.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
 
 interface CandidateRow {
@@ -13,8 +14,19 @@ interface CandidateRow {
   rdap_status: string | null;
   is_premium: number;
   pipeline_run_id: string | null;
+  verdict_provenance: string | null;
   created_at: string;
   updated_at: string;
+}
+
+function parseVerdictProvenance(raw: string | null): VerdictProvenance | undefined {
+  if (raw === null) return undefined;
+  try {
+    return JSON.parse(raw) as VerdictProvenance;
+  } catch {
+    // Corrupted row — degrade to no provenance rather than failing the read.
+    return undefined;
+  }
 }
 
 function rowToCandidate(row: CandidateRow): DomainCandidate {
@@ -28,6 +40,7 @@ function rowToCandidate(row: CandidateRow): DomainCandidate {
     rdapStatus: row.rdap_status ?? undefined,
     isPremium: row.is_premium === 1,
     pipelineRunId: row.pipeline_run_id ?? '',
+    verdictProvenance: parseVerdictProvenance(row.verdict_provenance),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -132,15 +145,16 @@ export class CandidateRepository {
     const tid = resolveTenantId();
     const row = await this.db.queryOne<{ id: number }>(
       `INSERT INTO candidates
-         (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id, verdict_provenance, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(domain) DO UPDATE SET
-         status          = excluded.status,
-         dns_status      = excluded.dns_status,
-         rdap_status     = excluded.rdap_status,
-         is_premium      = excluded.is_premium,
-         pipeline_run_id = excluded.pipeline_run_id,
-         updated_at      = CURRENT_TIMESTAMP
+         status             = excluded.status,
+         dns_status         = excluded.dns_status,
+         rdap_status        = excluded.rdap_status,
+         is_premium         = excluded.is_premium,
+         pipeline_run_id    = excluded.pipeline_run_id,
+         verdict_provenance = excluded.verdict_provenance,
+         updated_at         = CURRENT_TIMESTAMP
        RETURNING id`,
       [
         candidate.domain,
@@ -151,6 +165,7 @@ export class CandidateRepository {
         candidate.rdapStatus ?? null,
         candidate.isPremium ? 1 : 0,
         candidate.pipelineRunId,
+        candidate.verdictProvenance ? JSON.stringify(candidate.verdictProvenance) : null,
         tid,
       ],
     );

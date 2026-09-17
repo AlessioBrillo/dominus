@@ -6,6 +6,7 @@ import { SqliteProvider } from '../../provider/sqlite-adapter.js';
 import { CandidateRepository } from '../candidate-repository.js';
 import { CandidateSource, CandidateStatus } from '../../../types/candidate.js';
 import type { DomainCandidate } from '../../../types/candidate.js';
+import type { VerdictProvenance } from '../../../types/domain-status.js';
 
 function openTestDb(): SqliteProvider {
   const provider = new SqliteProvider(new Database(':memory:'));
@@ -108,5 +109,65 @@ describe('CandidateRepository.upsert', () => {
     // Assert
     expect(row?.dnsStatus).toBe('available');
     expect(row?.rdapStatus).toBe('available');
+  });
+
+  it('round-trips verdictProvenance through JSON persistence', async () => {
+    // Arrange
+    const verdictProvenance: VerdictProvenance = {
+      dns: {
+        resolver: 'UnboundResolver',
+        transport: 'native',
+        dnssec: 'valid',
+        durationMs: 42,
+        fromCache: false,
+      },
+      rdap: {
+        primaryServer: 'https://rdap.verisign.com',
+        consensus: {
+          secondServer: 'https://rdap.org',
+          verified: true,
+          vetoed: false,
+          originOverlap: false,
+          whoisRescued: false,
+        },
+        durationMs: 210,
+      },
+      timestamp: '2026-09-17T00:00:00.000Z',
+    };
+    const candidate = makeCandidate('example.com', { verdictProvenance });
+
+    // Act
+    const result = await repo.upsert(candidate);
+    const row = await repo.findById(result.id!);
+
+    // Assert
+    expect(row?.verdictProvenance).toEqual(verdictProvenance);
+  });
+
+  it('degrades a corrupted verdict_provenance column to undefined instead of throwing', async () => {
+    // Arrange
+    const candidate = makeCandidate('example.com');
+    const inserted = await repo.upsert(candidate);
+    provider.rawDb
+      .prepare('UPDATE candidates SET verdict_provenance = ? WHERE id = ?')
+      .run('{not valid json', inserted.id);
+
+    // Act
+    const row = await repo.findById(inserted.id!);
+
+    // Assert
+    expect(row?.verdictProvenance).toBeUndefined();
+  });
+
+  it('leaves verdictProvenance undefined when the candidate carries none', async () => {
+    // Arrange
+    const candidate = makeCandidate('example.com');
+
+    // Act
+    const result = await repo.upsert(candidate);
+    const row = await repo.findById(result.id!);
+
+    // Assert
+    expect(row?.verdictProvenance).toBeUndefined();
   });
 });
