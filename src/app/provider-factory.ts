@@ -318,8 +318,6 @@ export async function buildDnsProvider(
       persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
       persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
       breakers,
-      useTls: config.DNS_UNBOUND_TLS,
-      tlsPort: 853,
       dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
       onResolution: metrics?.recordUnboundResolution,
     });
@@ -335,10 +333,13 @@ export async function buildDnsProvider(
         );
       }
       if (!health.dnssecValid) {
-        getLogger().warn(
-          { hosts: unboundHosts, details: health.details },
-          'Unbound resolver reachable but DNSSEC validation may not be active (no DS record for cloudflare.com). ' +
-            'Ensure Unbound is configured with validator module and val-permissive-mode: no.',
+        throw new Error(
+          'Unbound resolver reachable but DNSSEC validation is not confirmed active: ' +
+            `${health.details}. Verdicts depend on authenticated NXDOMAIN denial-of-existence — ` +
+            'without proven validation a misconfigured Unbound (e.g. val-permissive-mode: yes) ' +
+            'silently accepts forged answers. Fix the Unbound config (validator module + ' +
+            'val-permissive-mode: no), or set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to bypass ' +
+            '(not recommended for production).',
         );
       }
       getLogger().info(
