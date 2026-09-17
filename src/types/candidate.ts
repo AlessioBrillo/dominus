@@ -66,7 +66,7 @@ export interface DomainCandidate extends RawCandidate {
   /** Complete chain of evidence for the availability verdict across all stages.
    *  Populated by each pipeline stage as the candidate flows through.
    *  Enables audit trail and debugging of false positives/negatives. */
-  verdictProvenance?: VerdictProvenance;
+  verdictProvenance?: VerdictProvenance | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
 }

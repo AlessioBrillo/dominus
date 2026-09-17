@@ -109,6 +109,13 @@ export interface DnsCheckResult {
    *   through this transport.
    */
   dnssec?: 'valid' | 'bogus' | 'insecure' | 'unchecked';
+  /** Query duration in milliseconds, when the producing provider tracks it.
+   *  Feeds `VerdictProvenance.dns.durationMs`. */
+  durationMs?: number | undefined;
+  /** Whether this result was served from a cache tier rather than a live
+   *  query, when the producing provider tracks it. Feeds
+   *  `VerdictProvenance.dns.fromCache`. */
+  fromCache?: boolean | undefined;
 }
 
 export interface RdapResult {

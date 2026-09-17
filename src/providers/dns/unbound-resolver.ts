@@ -294,8 +294,9 @@ export class UnboundResolver implements DnsProvider {
     if (!this.#cacheDisabled) {
       const memCached = this.#cache.get(domain);
       if (memCached !== undefined) {
-        this.#recordMetrics(memCached, Date.now() - startTime, true);
-        return memCached;
+        const durationMs = Date.now() - startTime;
+        this.#recordMetrics(memCached, durationMs, true);
+        return { ...memCached, durationMs, fromCache: true };
       }
     }
 
@@ -316,8 +317,9 @@ export class UnboundResolver implements DnsProvider {
               Date.now() - Date.parse(parsed.checkedAt) > this.#persistentAvailableStaleMs;
             if (!staleUnknown && !staleAvailable) {
               if (!this.#cacheDisabled) this.#cache.set(domain, parsed);
-              this.#recordMetrics(parsed, Date.now() - startTime, true);
-              return parsed;
+              const durationMs = Date.now() - startTime;
+              this.#recordMetrics(parsed, durationMs, true);
+              return { ...parsed, durationMs, fromCache: true };
             }
           }
         } catch {
@@ -399,8 +401,9 @@ export class UnboundResolver implements DnsProvider {
           dnssec: dnssecStatus,
         };
         this.#setCaches(domain, result);
-        this.#recordMetrics(result, Date.now() - lookupStartTime, false);
-        return result;
+        const durationMs = Date.now() - lookupStartTime;
+        this.#recordMetrics(result, durationMs, false);
+        return { ...result, durationMs, fromCache: false };
       }
 
       const unknown: DnsCheckResult = {
@@ -410,8 +413,9 @@ export class UnboundResolver implements DnsProvider {
         dnssec: dnssecStatus,
       };
       this.#setCaches(domain, unknown);
-      this.#recordMetrics(unknown, Date.now() - lookupStartTime, false);
-      return unknown;
+      const unknownDurationMs = Date.now() - lookupStartTime;
+      this.#recordMetrics(unknown, unknownDurationMs, false);
+      return { ...unknown, durationMs: unknownDurationMs, fromCache: false };
     } catch (_err: unknown) {
       const result: DnsCheckResult = {
         domain,
@@ -420,8 +424,9 @@ export class UnboundResolver implements DnsProvider {
         dnssec: 'unchecked',
       };
       this.#setCaches(domain, result);
-      this.#recordMetrics(result, Date.now() - lookupStartTime, false);
-      return result;
+      const durationMs = Date.now() - lookupStartTime;
+      this.#recordMetrics(result, durationMs, false);
+      return { ...result, durationMs, fromCache: false };
     }
   }
 
