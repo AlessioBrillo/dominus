@@ -1063,3 +1063,115 @@ describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
     expect(resultCom.rdapConsensusStats!.unverifiable).toBe(1);
   });
 });
+
+describe('RdapConfirmationStage verdictProvenance.rdap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('records the primary server and duration without a consensus gate', async () => {
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('primary.com', undefined, undefined, 'https://rdap.verisign.com'),
+      undefined,
+      10,
+      10_000,
+      1_000,
+    );
+    const result = await stage.process([makeCandidate('primary.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    const provenance = result.passed[0]!.verdictProvenance!.rdap!;
+    expect(provenance.primaryServer).toBe('https://rdap.verisign.com');
+    expect(provenance.durationMs).toBeGreaterThanOrEqual(0);
+    expect(provenance.consensus).toBeUndefined();
+    expect(result.passed[0]!.verdictProvenance!.timestamp).toBeDefined();
+  });
+
+  it('falls back to the result source as primaryServer when RDAP carries no origin', async () => {
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('primary.com'),
+      undefined,
+      10,
+      10_000,
+      1_000,
+    );
+    const result = await stage.process([makeCandidate('primary.com')]);
+    expect(result.passed[0]!.verdictProvenance!.rdap!.primaryServer).toBe('rdap');
+  });
+
+  function consensusStage(secondary: RdapProvider): RdapConfirmationStage {
+    return new RdapConfirmationStage(
+      makeMockRdap('primary.com', undefined, undefined, 'https://rdap.verisign.com'),
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+    );
+  }
+
+  it('records a verified consensus leg on a surviving candidate', async () => {
+    const secondary = makeSecondary({ 'confirm.com': DomainStatus.Available });
+    const result = await consensusStage(secondary).process([makeCandidate('confirm.com')]);
+
+    const consensus = result.passed[0]!.verdictProvenance!.rdap!.consensus!;
+    expect(consensus).toEqual({
+      secondServer: 'https://secondary.example.com',
+      verified: true,
+      vetoed: false,
+      originOverlap: false,
+      whoisRescued: false,
+    });
+  });
+
+  it('records a vetoed consensus leg on a filtered candidate', async () => {
+    const secondary = makeSecondary({ 'veto.com': DomainStatus.Registered });
+    const result = await consensusStage(secondary).process([makeCandidate('veto.com')]);
+
+    expect(result.filtered).toHaveLength(1);
+    const consensus = result.filtered[0]!.verdictProvenance!.rdap!.consensus!;
+    expect(consensus).toMatchObject({ verified: false, vetoed: true, whoisRescued: false });
+  });
+
+  it('records originOverlap on the rubber-stamp guard skip path', async () => {
+    const secondary = makeSecondary({ 'overlap.com': DomainStatus.Available });
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('overlap.com', undefined, undefined, 'https://secondary.example.com'),
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+    );
+    const result = await stage.process([makeCandidate('overlap.com')]);
+
+    const consensus = result.filtered[0]!.verdictProvenance!.rdap!.consensus!;
+    expect(consensus.originOverlap).toBe(true);
+    expect(consensus.verified).toBe(false);
+  });
+
+  it('records whoisRescued on a rescued candidate', async () => {
+    const secondary = makeSecondary({}); // throws -> unverifiable, falls through to rescue
+    const whois = makeMockWhois(true);
+    const stage = new RdapConfirmationStage(
+      makeMockRdap('rescue.com', undefined, undefined, 'https://rdap.verisign.com'),
+      whois,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      {
+        secondaryProvider: secondary,
+        secondaryOrigin: 'https://secondary.example.com/',
+        rescueWhoisEnabled: true,
+      },
+    );
+    const result = await stage.process([makeCandidate('rescue.com')]);
+
+    expect(result.passed).toHaveLength(1);
+    const consensus = result.passed[0]!.verdictProvenance!.rdap!.consensus!;
+    expect(consensus).toMatchObject({ verified: true, vetoed: false, whoisRescued: true });
+  });
+});

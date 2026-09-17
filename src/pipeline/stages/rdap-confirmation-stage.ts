@@ -4,7 +4,7 @@ import { CandidateStatus } from '../../types/candidate.js';
 import { toBatches } from '../../utils/array.js';
 import type { DomainCandidate, WhoisMeta } from '../../types/candidate.js';
 import { CandidateSource } from '../../types/candidate.js';
-import type { RdapResult } from '../../types/domain-status.js';
+import type { RdapResult, VerdictProvenance } from '../../types/domain-status.js';
 import type { RdapProvider } from '../../providers/rdap/rdap-provider.js';
 import type { WhoisProvider, WhoisResult } from '../../providers/whois/whois-provider.js';
 import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '../stage.js';
@@ -88,6 +88,11 @@ const DEFAULT_CONSENSUS_DEGRADED_RATIO = 0.5;
 const DEFAULT_CONSENSUS_DEGRADED_MIN = 10;
 const DEFAULT_CONSENSUS_CONCURRENCY = 10;
 
+/** Per-candidate consensus provenance, keyed by domain — populated during
+ *  #verifyConsensus and merged into each candidate's verdictProvenance.rdap
+ *  once the survivor set is final. */
+type RdapConsensusProvenance = NonNullable<NonNullable<VerdictProvenance['rdap']>['consensus']>;
+
 export class RdapConfirmationStage implements Stage<DomainCandidate> {
   readonly name = 'RdapConfirmationStage';
 
@@ -117,17 +122,28 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       if (signal?.aborted) break;
       const results = await Promise.allSettled(
         batch.map(async (candidate) => {
+          const startedAt = Date.now();
           try {
             const result = await this.#checkAvailability(candidate, signal);
-            return { candidate, result, error: undefined } as const;
+            return {
+              candidate,
+              result,
+              error: undefined,
+              durationMs: Date.now() - startedAt,
+            } as const;
           } catch (error) {
-            return { candidate, result: undefined, error } as const;
+            return {
+              candidate,
+              result: undefined,
+              error,
+              durationMs: Date.now() - startedAt,
+            } as const;
           }
         }),
       );
       for (const settled of results) {
         if (settled.status === 'rejected') continue;
-        const { candidate, result, error } = settled.value;
+        const { candidate, result, error, durationMs } = settled.value;
         if (error !== undefined) {
           filtered.push({
             ...candidate,
@@ -139,6 +155,11 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         if (result!.sourceOrigin !== undefined) {
           winningOrigins.set(candidate.domain, result!.sourceOrigin);
         }
+        const verdictProvenance: VerdictProvenance = {
+          ...candidate.verdictProvenance,
+          rdap: { primaryServer: result!.sourceOrigin ?? result!.source, durationMs },
+          timestamp: new Date().toISOString(),
+        };
         if (result!.status === DomainStatus.Available && !result!.isPremium) {
           const rdapMeta = buildWhoisMeta(result!);
           const merged = {
@@ -155,6 +176,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             isPremium: false,
             status: CandidateStatus.Pending,
             whoisMeta,
+            verdictProvenance,
           });
         } else {
           filtered.push({
@@ -162,6 +184,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             rdapStatus: result!.status,
             isPremium: result!.isPremium,
             status: CandidateStatus.RdapFiltered,
+            verdictProvenance,
           });
         }
       }
@@ -207,8 +230,24 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     const concurrency = cfg.consensusConcurrency ?? DEFAULT_CONSENSUS_CONCURRENCY;
 
     const survivor = new Set<string>();
-
     const secondaryOrigin = rdapUrlOrigin(cfg.secondaryOrigin);
+    const consensusProvenance = new Map<string, RdapConsensusProvenance>();
+    // First write wins: the overlap/guard-unavailable branches below don't
+    // `continue` (mirroring the pre-existing stats.unverifiable++ double
+    // count on those paths) and fall through to the generic unverifiable
+    // recordConsensus call at the end of the loop — without this guard that
+    // call would clobber the more specific outcome already recorded.
+    const recordConsensus = (
+      domain: string,
+      outcome: Omit<RdapConsensusProvenance, 'secondServer'>,
+    ): void => {
+      if (consensusProvenance.has(domain)) return;
+      consensusProvenance.set(domain, {
+        secondServer: secondaryOrigin ?? cfg.secondaryOrigin,
+        ...outcome,
+      });
+    };
+
     const authoritativeOriginsByTld = new Map<string, string[]>();
     const authoritativeOriginsInFlight = new Map<string, Promise<string[] | undefined>>();
     const resolveAuthoritativeOrigins = async (tld: string): Promise<string[] | undefined> => {
@@ -299,9 +338,21 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         if (secondaryGuardUnavailable) {
           stats.unverifiable++;
           stats.originGuardUnavailable = (stats.originGuardUnavailable ?? 0) + 1;
+          recordConsensus(candidate.domain, {
+            verified: false,
+            vetoed: false,
+            originOverlap: false,
+            whoisRescued: false,
+          });
         } else if (secondaryOverlap) {
           stats.unverifiable++;
           stats.originOverlap = (stats.originOverlap ?? 0) + 1;
+          recordConsensus(candidate.domain, {
+            verified: false,
+            vetoed: false,
+            originOverlap: true,
+            whoisRescued: false,
+          });
           logger.warn(
             { domain: candidate.domain, origin: secondaryOrigin },
             secondaryWinnerOverlap === true
@@ -316,10 +367,22 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           if (secondaryResult.status === DomainStatus.Available && !secondaryResult.isPremium) {
             survivor.add(candidate.domain);
             stats.verified++;
+            recordConsensus(candidate.domain, {
+              verified: true,
+              vetoed: false,
+              originOverlap: false,
+              whoisRescued: false,
+            });
             continue;
           }
           if (secondaryResult.status === DomainStatus.Registered || secondaryResult.isPremium) {
             stats.disagreed++;
+            recordConsensus(candidate.domain, {
+              verified: false,
+              vetoed: true,
+              originOverlap: false,
+              whoisRescued: false,
+            });
             logger.warn(
               {
                 domain: candidate.domain,
@@ -347,10 +410,22 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             } else {
               stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
             }
+            recordConsensus(candidate.domain, {
+              verified: true,
+              vetoed: false,
+              originOverlap: false,
+              whoisRescued: true,
+            });
             continue;
           }
           if (rescued === false) {
             stats.disagreed++;
+            recordConsensus(candidate.domain, {
+              verified: false,
+              vetoed: true,
+              originOverlap: false,
+              whoisRescued: false,
+            });
             logger.warn(
               { domain: candidate.domain, forced: forceRescue },
               forceRescue
@@ -362,6 +437,12 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         }
 
         stats.unverifiable++;
+        recordConsensus(candidate.domain, {
+          verified: false,
+          vetoed: false,
+          originOverlap: false,
+          whoisRescued: false,
+        });
       }
     }
 
@@ -389,12 +470,23 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
 
     const remaining: DomainCandidate[] = [];
     for (const candidate of passed) {
+      const consensus = consensusProvenance.get(candidate.domain);
+      const withConsensus: DomainCandidate = consensus
+        ? {
+            ...candidate,
+            verdictProvenance: {
+              ...candidate.verdictProvenance!,
+              rdap: { ...candidate.verdictProvenance!.rdap!, consensus },
+              timestamp: new Date().toISOString(),
+            },
+          }
+        : candidate;
       if (survivor.has(candidate.domain)) {
-        remaining.push(candidate);
+        remaining.push(withConsensus);
         continue;
       }
       filtered.push({
-        ...candidate,
+        ...withConsensus,
         rdapStatus: DomainStatus.Unknown,
         isPremium: false,
         status: CandidateStatus.RdapFiltered,
