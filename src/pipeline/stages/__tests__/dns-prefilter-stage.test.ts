@@ -251,6 +251,7 @@ describe('DnsPreFilterStage', () => {
       fromCache: false,
     });
     expect(result.passed[0]!.verdictProvenance?.timestamp).toBeDefined();
+    expect(result.degradations).toBeUndefined();
   });
 
   it('defaults verdictProvenance.dns dnssec/durationMs/fromCache when the provider omits them', async () => {
@@ -269,5 +270,47 @@ describe('DnsPreFilterStage', () => {
       durationMs: 0,
       fromCache: false,
     });
+  });
+
+  it('reports a dns-unvalidated degradation when Available verdicts lack DNSSEC validation', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'unchecked',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [
+      createMockCandidate({ domain: 'a.free.io' }),
+      createMockCandidate({ domain: 'b.free.io' }),
+    ];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(2);
+    expect(result.degradations).toEqual([
+      {
+        stageName: 'DnsPreFilterStage',
+        reason: 'dns-unvalidated',
+        processedCount: 0,
+        expectedCount: 2,
+        message: '2/2 Available verdicts resolved without DNSSEC validation',
+      },
+    ]);
+  });
+
+  it('does not report a dns-unvalidated degradation when every verdict is DNSSEC-valid', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'valid',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [
+      createMockCandidate({ domain: 'a.free.io' }),
+      createMockCandidate({ domain: 'b.free.io' }),
+    ];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(2);
+    expect(result.degradations).toBeUndefined();
   });
 });

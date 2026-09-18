@@ -6,7 +6,8 @@ export type StageDegradationReason =
   | 'consensus-disabled'
   | 'consensus-disabled-runtime'
   | 'consensus-runtime-degraded'
-  | 'consensus-anycast-degraded';
+  | 'consensus-anycast-degraded'
+  | 'dns-unvalidated';
 
 export interface StageDegradation {
   stageName: string;
