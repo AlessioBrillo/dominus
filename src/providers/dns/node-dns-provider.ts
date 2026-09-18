@@ -62,18 +62,7 @@ export function verdictFromLookupError(_err: unknown): DomainStatus {
   return DomainStatus.Unknown;
 }
 
-export type DnsLookupStrategy =
-  | 'native'
-  | 'native-with-doh-fallback'
-  | 'doh-only'
-  | 'doh-primary'
-  | 'dot-alternate'
-  | 'dot-with-doh-fallback'
-  | 'multi-doh-plus-native'
-  | 'doh-alternate'
-  | 'doh-primary-no-fallback'
-  | 'dot-consensus'
-  | 'doh-tertiary';
+export type DnsLookupStrategy = 'native' | 'native-with-doh-fallback' | 'doh-only' | 'doh-primary';
 
 /** Per-leg verdict as observed by the provider (ADR-0002 mapping). */
 export type DnsLegVerdict = 'registered' | 'available' | 'unknown' | 'error';
