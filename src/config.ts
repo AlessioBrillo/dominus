@@ -262,30 +262,21 @@ const configSchema = z
      */
     DNS_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).optional().default(1500),
     /**
-     * DNS lookup strategy for availability checks.
-     * - 'doh-primary' (default): Try multi-resolver DNS-over-HTTPS (Cloudflare,
-     *   Google, Quad9 in parallel) first, fall back to native Node.js resolver
-     *   on timeout or error. Best performance in containerized environments
-     *   where the system resolver may be slow or non-authoritative.
+     * DNS lookup strategy for availability checks (legacy NodeDnsProvider fallback only).
+     * When DNS_UNBOUND_ENABLED=true (default), this setting is ignored — Unbound resolver is used.
      * - 'native': Use Node.js built-in resolver only.
      * - 'native-with-doh-fallback': Use native resolver; on timeout, fall back to
      *   DNS-over-HTTPS (Cloudflare by default) for a second attempt.
      * - 'doh-only': Use DNS-over-HTTPS exclusively (no native fallback).
      *   Use when the system resolver is unreliable or unavailable.
+     * - 'doh-primary': Try multi-resolver DNS-over-HTTPS (Cloudflare,
+     *   Google, Quad9 in parallel) first, fall back to native Node.js resolver
+     *   on timeout or error.
      * DoH fallback improves reliability when the system resolver returns
      * sporadic timeouts, at the cost of one extra HTTPS request per timeout.
      */
     DNS_LOOKUP_STRATEGY: z
-      .enum([
-        'native',
-        'native-with-doh-fallback',
-        'doh-only',
-        'doh-primary',
-        'dot-alternate',
-        'dot-with-doh-fallback',
-        'multi-doh-plus-native',
-        'doh-alternate',
-      ])
+      .enum(['native', 'native-with-doh-fallback', 'doh-only', 'doh-primary'])
       .default('doh-primary'),
     /**
      * Privacy mode (ADR-0065): when true, NO DNS query leaves the host except
