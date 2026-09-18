@@ -109,7 +109,6 @@ import {
   probeRdapConsensusEndpoint,
 } from './provider-factory.js';
 import { DnsBreakerRegistry } from '../providers/dns/dns-breaker.js';
-import type { DnsLegSample, DnsLegTelemetry } from '../providers/dns/index.js';
 import type { RdapRequestSample, RdapRequestTelemetry } from '../providers/rdap/index.js';
 import { RDAP_ORG_UNIVERSAL } from '../providers/rdap/rdap-bootstrap.js';
 import { rdapUrlOrigin } from '../providers/rdap/rdap-consensus-validator.js';
@@ -667,21 +666,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     rdapConsensus: rdapConsensusRateLimiter,
   } = buildRateLimiters(config, redisClient);
 
-  // --- Metrics (created before the providers so DNS/RDAP leg telemetry
+  // --- Metrics (created before the providers so RDAP telemetry
   //     can feed its histograms; all other consumers read it later) ---
   const metrics = new MetricsCollector();
 
-  // SLO latency telemetry (ADR-0064): per-leg DNS resolution times and
-  // per-server RDAP request times land in Prometheus histograms, split by
-  // transport/endpoint/verdict/role and by server/outcome respectively.
-  const dnsLegTelemetry: DnsLegTelemetry = (leg: DnsLegSample): void => {
-    metrics.recordHistogram('dominus_dns_leg_duration_ms', leg.durationMs, {
-      transport: leg.transport,
-      endpoint: leg.endpoint,
-      verdict: leg.verdict,
-      role: leg.role,
-    });
-  };
+  // SLO latency telemetry (ADR-0064): per-server RDAP request times land in Prometheus histograms.
   const rdapRequestTelemetry: RdapRequestTelemetry = (t: RdapRequestSample): void => {
     metrics.recordHistogram('dominus_rdap_request_duration_ms', t.durationMs, {
       server: t.server,
@@ -719,7 +708,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.providerCacheRepo,
     dnsRateLimiter,
     dnsBreakers,
-    dnsLegTelemetry,
     metrics,
   );
   const { withRetry: whoisProvider } = buildWhoisProviders(config, redisClient);
@@ -857,7 +845,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // validation, DoT/DoH upstream, and anycast-free resolution without the
   // complexity of multi-leg consensus.
   if (config.DNS_UNBOUND_ENABLED) {
-    metrics.recordDnsConsensusGateStatus('disabled', 'DNS_UNBOUND_ENABLED=true (ADR-0072)');
     getLogger().info('DNS: Unbound resolver active (ADR-0072)');
   }
 
