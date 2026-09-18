@@ -121,9 +121,9 @@ function buildDnsStatusNote(config: Config): string {
     );
   }
   return (
-    `Multi-resolver availability check (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). ` +
+    `Native node:dns fallback (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). ` +
     `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}. ` +
-    `Legacy path (DNS_UNBOUND_ENABLED=false) — deprecated per ADR-0072.`
+    `DNSSEC is NOT validated on this path — set DNS_UNBOUND_ENABLED=true for DNSSEC-validated verdicts.`
   );
 }
 
