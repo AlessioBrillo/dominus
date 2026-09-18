@@ -80,6 +80,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     }
 
     const passed: DomainCandidate[] = [...toSkip];
+    let unvalidatedCount = 0;
+    let availableCount = 0;
 
     for (let i = 0; i < toFilter.length; i++) {
       const candidate = toFilter[i];
@@ -98,6 +100,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       if (result.status === DomainStatus.Available || result.isParked === true) {
         const dnsStatus = result.isParked ? 'parked' : result.status;
         const isCloseout = candidate.source === CandidateSource.CloseoutCsv;
+        availableCount++;
+        if ((result.dnssec ?? 'unchecked') !== 'valid') unvalidatedCount++;
         passed.push({
           ...candidate,
           dnsStatus,
@@ -135,6 +139,19 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
       filtered,
       stageName: this.name,
       durationMs: Date.now() - start,
+      ...(unvalidatedCount > 0
+        ? {
+            degradations: [
+              {
+                stageName: this.name,
+                reason: 'dns-unvalidated' as const,
+                processedCount: availableCount - unvalidatedCount,
+                expectedCount: availableCount,
+                message: `${unvalidatedCount}/${availableCount} Available verdicts resolved without DNSSEC validation`,
+              },
+            ],
+          }
+        : {}),
     };
   }
 

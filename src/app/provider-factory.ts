@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { fileURLToPath } from 'node:url';
 import type { Config } from '../config.js';
 import type { Dispatcher } from 'undici';
 import type { ProviderCacheRepository } from '../db/index.js';
@@ -12,9 +13,12 @@ import type { ComparableSale } from '../providers/comps/comps-provider.js';
 import { CachedProvider } from '../providers/cached-provider.js';
 import {
   UnboundResolver,
+  NodeDnsProvider,
+  ParkingIpRegistry,
   DnsBreakerRegistry,
   type DnsBreakerRegistryLike,
   type DnsLegTelemetry,
+  type DnsLookupStrategy,
   type DnsProvider,
 } from '../providers/dns/index.js';
 import { PriorityRateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
@@ -282,7 +286,7 @@ export async function buildDnsProvider(
   providerCacheRepo?: ProviderCacheRepository,
   rateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
-  _legTelemetry?: DnsLegTelemetry,
+  legTelemetry?: DnsLegTelemetry,
   metrics?: {
     recordUnboundResolution: (stats: {
       durationMs: number;
@@ -351,13 +355,79 @@ export async function buildDnsProvider(
     return resolver;
   }
 
-  // Legacy consensus path deprecated per ADR-0072 — the multi-leg consensus
-  // implementation has been removed. Users must enable Unbound resolver.
-  throw new Error(
-    'DNS_UNBOUND_ENABLED=false is not supported (ADR-0072). The legacy 2-of-3 DNS consensus ' +
-      'architecture has been removed. Enable Unbound resolver by setting DNS_UNBOUND_ENABLED=true ' +
-      'and configuring DNS_UNBOUND_HOSTS (e.g. "unbound:5300" in Docker, "127.0.0.1,::1" on host).',
+  // Native fallback (community edition, no Docker/Unbound required): the
+  // multi-leg 2-of-3 consensus architecture that used to live on this path
+  // is gone (ADR-0072 cleanup), but the underlying node:dns provider never
+  // was — it stays the boot path for DNS_UNBOUND_ENABLED=false so
+  // `npm install && dominus run` keeps working at €0 infra cost. DNSSEC is
+  // NOT validated on this path (unlike Unbound's proven negative-control
+  // probe): every result carries `dnssec: 'unchecked'`, DnsPreFilterStage
+  // surfaces a `dns-unvalidated` run degradation for it, and RDAP remains
+  // the authoritative gate.
+  const nameservers = resolveNameservers(config.DNS_NAMESERVERS);
+
+  if (config.DNS_PRIVACY_MODE && nameservers === undefined) {
+    throw new Error(
+      'DNS_PRIVACY_MODE=true requires DNS_NAMESERVERS to be set: every DNS query is forced to ' +
+        'the pinned recursor, and the system resolver would still leak candidate names to the ' +
+        'ISP. Pin your private recursor (e.g. 127.0.0.1:5300) or disable DNS_PRIVACY_MODE (ADR-0065).',
+    );
+  }
+
+  getLogger().warn(
+    'DNS: DNS_UNBOUND_ENABLED=false — using the native node:dns resolver fallback. ' +
+      'DNSSEC is NOT validated on this path; RDAP remains the authoritative availability gate. ' +
+      'Set DNS_UNBOUND_ENABLED=true (and run the Unbound sidecar) for DNSSEC-validated verdicts.',
   );
+
+  // An unset or missing DNS_PARKING_IPS_PATH falls back to the bundled
+  // reference list (ADR-0059): DNS_PARKING_CHECK_ENABLED=true must work out
+  // of the box without a data file. An explicit readable file always wins.
+  const parkingRegistry = ParkingIpRegistry.load(
+    config.DNS_PARKING_IPS_PATH,
+    fileURLToPath(new URL('../providers/dns/parking-ips.json', import.meta.url)),
+  );
+
+  return new NodeDnsProvider({
+    cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+    maxSize: config.DNS_CACHE_MAX_SIZE,
+    lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+    lookupStrategy: effectiveDnsLookupStrategy(
+      config,
+      config.DNS_LOOKUP_STRATEGY,
+    ) as DnsLookupStrategy,
+    dohEndpoint: config.DNS_DOH_ENDPOINT,
+    dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+    bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+    parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
+    parkingRegistry,
+    rateLimiter,
+    retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+    persistentCache:
+      config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
+        ? providerCacheRepo
+        : undefined,
+    persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
+    persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
+    dotPoolMaxQueued: config.DNS_DOT_POOL_MAX_QUEUED,
+    ...(nameservers !== undefined ? { nameservers } : {}),
+    useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,
+    breakers,
+    ...(legTelemetry !== undefined
+      ? { onLegResult: legTelemetry, legRole: 'primary' as const }
+      : {}),
+    dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+    dnssecNativeEnabled: config.DNS_NATIVE_DNSSEC_ENABLED && nameservers !== undefined,
+  });
+}
+
+function resolveNameservers(raw: string | undefined): string[] | undefined {
+  if (!raw || raw.trim().length === 0) return undefined;
+  const servers = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return servers.length > 0 ? servers : undefined;
 }
 
 export function buildWhoisProviders(
