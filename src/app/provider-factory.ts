@@ -17,7 +17,6 @@ import {
   ParkingIpRegistry,
   DnsBreakerRegistry,
   type DnsBreakerRegistryLike,
-  type DnsLegTelemetry,
   type DnsLookupStrategy,
   type DnsProvider,
 } from '../providers/dns/index.js';
@@ -286,7 +285,6 @@ export async function buildDnsProvider(
   providerCacheRepo?: ProviderCacheRepository,
   rateLimiter?: RateLimiterLike,
   breakers?: DnsBreakerRegistryLike,
-  legTelemetry?: DnsLegTelemetry,
   metrics?: {
     recordUnboundResolution: (stats: {
       durationMs: number;
@@ -356,9 +354,7 @@ export async function buildDnsProvider(
   }
 
   // Native fallback (community edition, no Docker/Unbound required): the
-  // multi-leg 2-of-3 consensus architecture that used to live on this path
-  // is gone (ADR-0072 cleanup), but the underlying node:dns provider never
-  // was — it stays the boot path for DNS_UNBOUND_ENABLED=false so
+  // legacy node:dns provider stays the boot path for DNS_UNBOUND_ENABLED=false so
   // `npm install && dominus run` keeps working at €0 infra cost. DNSSEC is
   // NOT validated on this path (unlike Unbound's proven negative-control
   // probe): every result carries `dnssec: 'unchecked'`, DnsPreFilterStage
@@ -412,10 +408,6 @@ export async function buildDnsProvider(
     dotPoolMaxQueued: config.DNS_DOT_POOL_MAX_QUEUED,
     ...(nameservers !== undefined ? { nameservers } : {}),
     useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,
-    breakers,
-    ...(legTelemetry !== undefined
-      ? { onLegResult: legTelemetry, legRole: 'primary' as const }
-      : {}),
     dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
     dnssecNativeEnabled: config.DNS_NATIVE_DNSSEC_ENABLED && nameservers !== undefined,
   });
