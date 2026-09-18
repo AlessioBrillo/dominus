@@ -22,11 +22,15 @@ import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 function makeMockDns(status = DomainStatus.Available): DnsProvider {
   return {
     name: 'MockDns',
-    checkAvailability: vi.fn().mockResolvedValue({ domain: 'x', status, checkedAt: '' }),
+    checkAvailability: vi
+      .fn()
+      .mockResolvedValue({ domain: 'x', status, checkedAt: '', dnssec: 'valid' }),
     checkBulk: vi
       .fn()
       .mockImplementation((domains: string[]) =>
-        Promise.resolve(domains.map((d) => ({ domain: d, status, checkedAt: '' }))),
+        Promise.resolve(
+          domains.map((d) => ({ domain: d, status, checkedAt: '', dnssec: 'valid' })),
+        ),
       ),
     clearCache: vi.fn(),
     pruneCache: vi.fn().mockReturnValue(0),
