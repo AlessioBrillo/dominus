@@ -70,19 +70,8 @@ export class MetricsCollector {
    *  hostname/operator hints when the system resolver is slow at boot. */
   #dnsDisjointnessResolutionPartial = 0;
   #dnsDisjointnessObserved = false;
-  /** Runtime consensus disjointness checks (ADR-0066): live DNS queries
-   *  at startup to detect anycast/IP overlap that bootstrap checks miss. */
-  #dnsRuntimeConsensusOverlapTotal = 0;
-  #dnsRuntimeConsensusDisabled = 0;
-  #dnsRuntimeConsensusPartial = 0;
-  #dnsRuntimeConsensusObserved = false;
   /** Consensus gate degradation reason counters (ADR-0065/0066). */
   #dnsConsensusDegradedReason: Map<string, number> = new Map();
-  /** Anycast overlap degradation counter (ADR-0068). */
-  #dnsConsensusAnycastOverlapTotal = 0;
-  /** Anycast degraded runs counter (ADR-0068): runs where anycast overlap
-   *  exceeded threshold and consensus was degraded. */
-  #dnsConsensusAnycastDegradedRuns = 0;
   /** DNS operator map version (for staleness alerting). */
   #dnsOperatorMapVersion: string | null = null;
   /** DNS operator map source (embedded/registry). */
@@ -336,56 +325,11 @@ export class MetricsCollector {
     this.#dnsDisjointnessObserved = true;
   }
 
-  /** Record runtime consensus disjointness validation outcome (ADR-0066).
-   *  Called at startup after live DNS queries through each consensus leg.
-   *  overlapDetected=true means the gate was disabled due to shared IPs/operators. */
-  recordRuntimeConsensusValidation(stats: {
-    overlapDetected: boolean;
-    partial: boolean;
-    overlapIPs: string[];
-    overlapOperators: string[];
-  }): void {
-    this.#dnsRuntimeConsensusObserved = true;
-    if (stats.overlapDetected) {
-      this.#dnsRuntimeConsensusOverlapTotal++;
-      this.#dnsRuntimeConsensusDisabled++;
-    }
-    if (stats.partial) {
-      this.#dnsRuntimeConsensusPartial++;
-    }
-  }
-
-  /** Record the DNS consensus gate status at startup (ADR-0066).
-   *  status: 'active' | 'disabled' | 'degraded'
-   *  Called once per process start after buildDnsConsensusConfig completes. */
-  recordDnsConsensusGateStatus(status: 'active' | 'disabled' | 'degraded', reason?: string): void {
-    this.#dnsRuntimeConsensusObserved = true;
-    if (status === 'disabled') {
-      this.#dnsRuntimeConsensusDisabled++;
-      if (reason) {
-        const count = this.#dnsConsensusDegradedReason.get(reason) ?? 0;
-        this.#dnsConsensusDegradedReason.set(reason, count + 1);
-      }
-    }
-    // Could extend with gauges for active/degraded if needed
-  }
-
   /** Record a DNS consensus degradation reason (ADR-0065/0066).
    *  Called when the consensus gate is vetoed/disabled at bootstrap. */
   recordDnsConsensusDegradedReason(reason: string): void {
     const count = this.#dnsConsensusDegradedReason.get(reason) ?? 0;
     this.#dnsConsensusDegradedReason.set(reason, count + 1);
-
-    // Track anycast-specific degradation
-    if (reason.startsWith('anycast-overlap:')) {
-      this.#dnsConsensusAnycastOverlapTotal++;
-    }
-  }
-
-  /** Record an anycast-degraded run (ADR-0068): called when consensus gate
-   *  runs in degraded-anycast mode and anycast overlap exceeded threshold. */
-  recordDnsConsensusAnycastDegradedRun(): void {
-    this.#dnsConsensusAnycastDegradedRuns++;
   }
 
   /** Record a successful database backup (fed by BackupService.onSuccess). */
@@ -533,15 +477,6 @@ export class MetricsCollector {
           resolutionPartialTotal: this.#dnsDisjointnessResolutionPartial,
           observed: this.#dnsDisjointnessObserved,
         },
-        dnsRuntimeConsensus: {
-          overlapTotal: this.#dnsRuntimeConsensusOverlapTotal,
-          disabledTotal: this.#dnsRuntimeConsensusDisabled,
-          partialTotal: this.#dnsRuntimeConsensusPartial,
-          observed: this.#dnsRuntimeConsensusObserved,
-          degradedReasonTotal: Object.fromEntries(this.#dnsConsensusDegradedReason),
-          anycastOverlapTotal: this.#dnsConsensusAnycastOverlapTotal,
-          anycastDegradedRunsTotal: this.#dnsConsensusAnycastDegradedRuns,
-        },
         dnsOperatorMap: {
           version: this.#dnsOperatorMapVersion,
           source: this.#dnsOperatorMapSource,
@@ -615,13 +550,7 @@ export class MetricsCollector {
     this.#dnsBreakersObserved = false;
     this.#dnsDisjointnessResolutionPartial = 0;
     this.#dnsDisjointnessObserved = false;
-    this.#dnsRuntimeConsensusOverlapTotal = 0;
-    this.#dnsRuntimeConsensusDisabled = 0;
-    this.#dnsRuntimeConsensusPartial = 0;
-    this.#dnsRuntimeConsensusObserved = false;
     this.#dnsConsensusDegradedReason.clear();
-    this.#dnsConsensusAnycastOverlapTotal = 0;
-    this.#dnsConsensusAnycastDegradedRuns = 0;
     this.#dnsOperatorMapVersion = null;
     this.#dnsOperatorMapSource = null;
     this.#rdapConsensusVerified = 0;
