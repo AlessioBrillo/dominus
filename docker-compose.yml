@@ -63,6 +63,11 @@ services:
       - SCHEDULER_ENABLED=false
       - REDIS_URL=${REDIS_URL:-}
       - PURCHASE_AUTO_APPROVAL=${PURCHASE_AUTO_APPROVAL:-never}
+      # No Unbound sidecar in this base stack (community edition, €0 infra
+      # cost) — boot on the native node:dns fallback. Enable Unbound's
+      # DNSSEC-validated resolution with the docker-compose.unbound.yml
+      # overlay, which overrides this back to true.
+      - DNS_UNBOUND_ENABLED=${DNS_UNBOUND_ENABLED:-false}
     restart: unless-stopped
 
   worker:
@@ -100,6 +105,7 @@ services:
       - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
       - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
+      - DNS_UNBOUND_ENABLED=${DNS_UNBOUND_ENABLED:-false}
     restart: unless-stopped
 
   scheduler:
@@ -137,6 +143,7 @@ services:
       - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 5 * * 0}
       - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
+      - DNS_UNBOUND_ENABLED=${DNS_UNBOUND_ENABLED:-false}
     restart: unless-stopped
 
 # Dedicated backups volume: keeps VACUUM INTO/pg_dump backups off the
