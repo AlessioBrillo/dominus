@@ -80,8 +80,8 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     }
 
     const passed: DomainCandidate[] = [...toSkip];
-    let unvalidatedCount = 0;
     let availableCount = 0;
+    let dnssecValidatedCount = 0;
 
     for (let i = 0; i < toFilter.length; i++) {
       const candidate = toFilter[i];
@@ -97,14 +97,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         continue;
       }
 
-      if (result.status === DomainStatus.Available || result.isParked === true) {
-        const dnsStatus = result.isParked ? 'parked' : result.status;
+      // Parked domains (registered with parking page) pass regardless of DNSSEC
+      if (result.isParked === true) {
         const isCloseout = candidate.source === CandidateSource.CloseoutCsv;
-        availableCount++;
-        if ((result.dnssec ?? 'unchecked') !== 'valid') unvalidatedCount++;
         passed.push({
           ...candidate,
-          dnsStatus,
+          dnsStatus: 'parked',
           status: CandidateStatus.Pending,
           ...(isCloseout ? { forceWhoisRecheck: true } : {}),
           ...(result.parkingRegistrar !== undefined
@@ -114,9 +112,6 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
             ...candidate.verdictProvenance,
             dns: {
               resolver: this.dnsProvider.name,
-              // 'native': node:dns speaks plain DNS to the resolver — see
-              // UnboundResolver's class doc comment for why this is the
-              // truthful value regardless of DNS_UNBOUND_TLS.
               transport: 'native',
               dnssec: result.dnssec ?? 'unchecked',
               durationMs: result.durationMs ?? 0,
@@ -125,14 +120,66 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
             timestamp: new Date().toISOString(),
           },
         });
-      } else {
-        filtered.push({
-          ...candidate,
-          dnsStatus: result.status,
-          status: CandidateStatus.DnsFiltered,
-        });
+        continue;
       }
+
+      // Available verdicts: ONLY pass if DNSSEC validation is 'valid'
+      if (result.status === DomainStatus.Available) {
+        availableCount++;
+        const hasValidDnssec = result.dnssec === 'valid';
+
+        if (hasValidDnssec) {
+          dnssecValidatedCount++;
+          const isCloseout = candidate.source === CandidateSource.CloseoutCsv;
+          passed.push({
+            ...candidate,
+            dnsStatus: 'available',
+            status: CandidateStatus.Pending,
+            ...(isCloseout ? { forceWhoisRecheck: true } : {}),
+            verdictProvenance: {
+              ...candidate.verdictProvenance,
+              dns: {
+                resolver: this.dnsProvider.name,
+                transport: 'native',
+                dnssec: result.dnssec ?? 'unchecked',
+                durationMs: result.durationMs ?? 0,
+                fromCache: result.fromCache ?? false,
+              },
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } else {
+          // Available but without valid DNSSEC — filter out (conservative)
+          filtered.push({
+            ...candidate,
+            dnsStatus: 'available',
+            status: CandidateStatus.DnsFiltered,
+            verdictProvenance: {
+              ...candidate.verdictProvenance,
+              dns: {
+                resolver: this.dnsProvider.name,
+                transport: 'native',
+                dnssec: result.dnssec ?? 'unchecked',
+                durationMs: result.durationMs ?? 0,
+                fromCache: result.fromCache ?? false,
+              },
+              timestamp: new Date().toISOString(),
+            },
+          });
+        }
+        continue;
+      }
+
+      // Registered, Premium, Unknown, etc. — filter out
+      filtered.push({
+        ...candidate,
+        dnsStatus: result.status,
+        status: CandidateStatus.DnsFiltered,
+      });
     }
+
+    // Report degradation only for Available verdicts that lacked DNSSEC validation
+    const unvalidatedCount = availableCount - dnssecValidatedCount;
 
     return {
       passed,
@@ -145,7 +192,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
               {
                 stageName: this.name,
                 reason: 'dns-unvalidated' as const,
-                processedCount: availableCount - unvalidatedCount,
+                processedCount: dnssecValidatedCount,
                 expectedCount: availableCount,
                 message: `${unvalidatedCount}/${availableCount} Available verdicts resolved without DNSSEC validation`,
               },

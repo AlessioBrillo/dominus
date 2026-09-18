@@ -35,11 +35,12 @@ describe('DnsPreFilterStage', () => {
     expect(result.filtered[0]!.status).toBe(CandidateStatus.DnsFiltered);
   });
 
-  it('passes through domains that are Available', async () => {
+  it('passes through domains that are Available with valid DNSSEC', async () => {
     const provider = mockDnsProvider('free.io', {
       domain: 'free.io',
       status: DomainStatus.Available,
       checkedAt: '',
+      dnssec: 'valid',
     });
     const stage = new DnsPreFilterStage(provider);
     const candidates = [createMockCandidate({ domain: 'free.io' })];
@@ -144,6 +145,7 @@ describe('DnsPreFilterStage', () => {
       domain: 'closeout.io',
       status: DomainStatus.Available,
       checkedAt: '',
+      dnssec: 'valid',
     });
     const stage = new DnsPreFilterStage(provider);
     const candidates = [
@@ -178,7 +180,12 @@ describe('DnsPreFilterStage', () => {
   it('falls back to per-domain checks when bulk check throws', async () => {
     const checkAvailability = vi
       .fn()
-      .mockResolvedValueOnce({ domain: 'a.io', status: DomainStatus.Available, checkedAt: '' })
+      .mockResolvedValueOnce({
+        domain: 'a.io',
+        status: DomainStatus.Available,
+        checkedAt: '',
+        dnssec: 'valid',
+      })
       .mockResolvedValueOnce({ domain: 'b.io', status: DomainStatus.Registered, checkedAt: '' });
     const checkBulk = vi.fn().mockRejectedValue(new Error('bulk check failed'));
     const provider: DnsProvider = {
@@ -203,14 +210,15 @@ describe('DnsPreFilterStage', () => {
     const checkBulk = vi
       .fn()
       .mockResolvedValue([
-        { domain: 'a.io', status: DomainStatus.Available, checkedAt: '' },
+        { domain: 'a.io', status: DomainStatus.Available, checkedAt: '', dnssec: 'valid' },
         undefined,
-        { domain: 'c.io', status: DomainStatus.Available, checkedAt: '' },
+        { domain: 'c.io', status: DomainStatus.Available, checkedAt: '', dnssec: 'valid' },
       ]);
     const checkAvailability = vi.fn().mockResolvedValue({
       domain: 'b.io',
       status: DomainStatus.Available,
       checkedAt: '',
+      dnssec: 'valid',
     });
     const provider: DnsProvider = {
       name: 'mock',
@@ -254,7 +262,7 @@ describe('DnsPreFilterStage', () => {
     expect(result.degradations).toBeUndefined();
   });
 
-  it('defaults verdictProvenance.dns dnssec/durationMs/fromCache when the provider omits them', async () => {
+  it('filters Available domains when provider omits dnssec (defaults to unchecked)', async () => {
     const provider = mockDnsProvider('free.io', {
       domain: 'free.io',
       status: DomainStatus.Available,
@@ -263,16 +271,13 @@ describe('DnsPreFilterStage', () => {
     const stage = new DnsPreFilterStage(provider);
     const candidates = [createMockCandidate({ domain: 'free.io' })];
     const result = await stage.process(candidates);
-    expect(result.passed[0]!.verdictProvenance?.dns).toEqual({
-      resolver: 'mock',
-      transport: 'native',
-      dnssec: 'unchecked',
-      durationMs: 0,
-      fromCache: false,
-    });
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.dnsStatus).toBe('available');
+    expect(result.filtered[0]!.status).toBe(CandidateStatus.DnsFiltered);
   });
 
-  it('reports a dns-unvalidated degradation when Available verdicts lack DNSSEC validation', async () => {
+  it('filters Available domains without DNSSEC validation and reports degradation', async () => {
     const provider = mockDnsProvider('free.io', {
       domain: 'free.io',
       status: DomainStatus.Available,
@@ -285,7 +290,8 @@ describe('DnsPreFilterStage', () => {
       createMockCandidate({ domain: 'b.free.io' }),
     ];
     const result = await stage.process(candidates);
-    expect(result.passed).toHaveLength(2);
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(2);
     expect(result.degradations).toEqual([
       {
         stageName: 'DnsPreFilterStage',
@@ -312,5 +318,93 @@ describe('DnsPreFilterStage', () => {
     const result = await stage.process(candidates);
     expect(result.passed).toHaveLength(2);
     expect(result.degradations).toBeUndefined();
+  });
+
+  it('filters Available domains without DNSSEC validation (dnssec: unchecked)', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'unchecked',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [createMockCandidate({ domain: 'free.io' })];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.dnsStatus).toBe('available');
+    expect(result.filtered[0]!.status).toBe(CandidateStatus.DnsFiltered);
+  });
+
+  it('filters Available domains with bogus DNSSEC', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'bogus',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [createMockCandidate({ domain: 'free.io' })];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]!.dnsStatus).toBe('available');
+    expect(result.filtered[0]!.status).toBe(CandidateStatus.DnsFiltered);
+  });
+
+  it('passes parked domains even without DNSSEC validation', async () => {
+    const provider = mockDnsProvider('parked.io', {
+      domain: 'parked.io',
+      status: DomainStatus.Registered,
+      checkedAt: '',
+      isParked: true,
+      parkingRegistrar: 'GoDaddy',
+      dnssec: 'unchecked',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const candidates = [createMockCandidate({ domain: 'parked.io' })];
+    const result = await stage.process(candidates);
+    expect(result.passed).toHaveLength(1);
+    expect(result.passed[0]!.dnsStatus).toBe('parked');
+    expect(result.passed[0]!.status).toBe(CandidateStatus.Pending);
+  });
+
+  it('reports dns-unvalidated degradation only for Available verdicts that passed DNSSEC', async () => {
+    const provider = mockDnsProvider('free.io', {
+      domain: 'free.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'valid',
+    });
+    const providerUnchecked = mockDnsProvider('unchecked.io', {
+      domain: 'unchecked.io',
+      status: DomainStatus.Available,
+      checkedAt: '',
+      dnssec: 'unchecked',
+    });
+    const stage = new DnsPreFilterStage(provider);
+    const stageUnchecked = new DnsPreFilterStage(providerUnchecked);
+
+    const resultValid = await stage.process([
+      createMockCandidate({ domain: 'a.valid.io' }),
+      createMockCandidate({ domain: 'b.valid.io' }),
+    ]);
+    expect(resultValid.degradations).toBeUndefined();
+
+    const resultUnchecked = await stageUnchecked.process([
+      createMockCandidate({ domain: 'a.unchecked.io' }),
+      createMockCandidate({ domain: 'b.unchecked.io' }),
+    ]);
+    expect(resultUnchecked.passed).toHaveLength(0);
+    expect(resultUnchecked.filtered).toHaveLength(2);
+    expect(resultUnchecked.degradations).toEqual([
+      {
+        stageName: 'DnsPreFilterStage',
+        reason: 'dns-unvalidated',
+        processedCount: 0,
+        expectedCount: 2,
+        message: '2/2 Available verdicts resolved without DNSSEC validation',
+      },
+    ]);
   });
 });
