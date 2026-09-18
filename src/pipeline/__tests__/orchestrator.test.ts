@@ -487,6 +487,7 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
               domain: d,
               status: DomainStatus.Available,
               checkedAt: '',
+              dnssec: 'valid' as const,
             }));
             const onAbort = (): void => resolve(results);
             signal?.addEventListener('abort', onAbort, { once: true });
@@ -530,7 +531,12 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
       checkAvailability: vi.fn().mockImplementation(() => new Promise(() => {})),
       checkBulk: vi.fn().mockImplementation(async (domains: string[]) => {
         await new Promise((resolve) => setTimeout(resolve, 40));
-        return domains.map((d) => ({ domain: d, status: DomainStatus.Available, checkedAt: '' }));
+        return domains.map((d) => ({
+          domain: d,
+          status: DomainStatus.Available,
+          checkedAt: '',
+          dnssec: 'valid' as const,
+        }));
       }),
       clearCache: vi.fn(),
       pruneCache: vi.fn().mockReturnValue(0),
@@ -570,13 +576,16 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
         status: DomainStatus.Available,
         checkedAt: '',
       }),
-      checkBulk: vi
-        .fn()
-        .mockImplementation((domains: string[]) =>
-          Promise.resolve(
-            domains.map((d) => ({ domain: d, status: DomainStatus.Available, checkedAt: '' })),
-          ),
+      checkBulk: vi.fn().mockImplementation((domains: string[]) =>
+        Promise.resolve(
+          domains.map((d) => ({
+            domain: d,
+            status: DomainStatus.Available,
+            checkedAt: '',
+            dnssec: 'valid' as const,
+          })),
         ),
+      ),
       clearCache: vi.fn(),
       pruneCache: vi.fn().mockReturnValue(0),
     };
