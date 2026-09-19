@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { isIP } from 'node:net';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 
 export type { DnsCheckResult } from '../../types/domain-status.js';
@@ -22,11 +21,8 @@ export interface DnsResolverGroup {
   lookups: DnsLookupSpec[];
   /**
    * Emergency fallback group: only consulted when the main group cannot
-   * answer. Fallback legs are excluded from consensus disjointness checks —
-   * the 2-of-3 gate must be disjoint from the primary's MAIN opinion, not
-   * from its last-resort safety net. A shared fallback is harmless: if the
-   * shared resolver is down the fallback returns undefined, which can never
-   * manufacture an Available verdict (ADR-0002).
+   * answer. Fallback groups provide a last-resort safety net for the
+   * primary resolver (e.g., native resolver fallback when DoH fails).
    */
   fallback?: boolean;
 }
@@ -96,70 +92,6 @@ export function strategyToResolverGroups(
     default:
       return [{ name: 'default', lookups: [{ type: 'native' }] }];
   }
-}
-
-/**
- * Distinct resolver endpoints a set of resolver groups will issue queries
- * against, used to verify that a DNS 2-of-3 consensus secondary does not
- * reuse the same resolvers as the primary — otherwise its opinion is a
- * rubber stamp. Returns a sorted, deduplicated list of endpoint keys:
- *
- * - `doh:<host>` for DoH lookups (the HTTPS endpoint hostname);
- * - `dot:<host-or-ip>` for DoT lookups (the TLS endpoint);
- * - `native:<ip>` for native lookups with pinned nameservers (per-lookup or
- *   shared); `native:system-resolver` when no nameservers are pinned — the
- *   process/OS resolver is part of the verdict path in that case;
- * - `ip:<address>` additionally for every lookup addressed by a bare IP
- *   (DoT IPs, pinned nameservers, IP-form DoH endpoints), exposing overlap across
- *   transports: the same IP over TLS, UDP and HTTPS is the same resolver.
- */
-export interface CollectResolverEndpointsOptions {
-  /**
-   * Skip groups marked `fallback: true` (emergency fallback legs of a
-   * strategy). Used by the consensus disjointness checks: the 2-of-3 gate
-   * must be independent of the primary's MAIN opinion only — a shared
-   * emergency fallback can never manufacture an Available verdict, and
-   * excluding it fixes the documented prod override where the primary's
-   * native fallback and the consensus both point at the same private
-   * recursor, which used to disable the gate at runtime.
-   */
-  excludeFallbacks?: boolean;
-}
-
-export function collectResolverEndpoints(
-  groups: DnsResolverGroup[],
-  defaultNameservers?: string[],
-  options?: CollectResolverEndpointsOptions,
-): string[] {
-  const endpoints = new Set<string>();
-
-  const add = (prefix: string, hostOrIp: string): void => {
-    endpoints.add(`${prefix}:${hostOrIp}`);
-    if (isIP(hostOrIp) !== 0) endpoints.add(`ip:${hostOrIp}`);
-  };
-
-  for (const group of groups) {
-    if (options?.excludeFallbacks && group.fallback === true) continue;
-    for (const lookup of group.lookups) {
-      if (lookup.type === 'doh') {
-        const host = new URL(lookup.endpoint ?? '').hostname;
-        if (host !== '') add('doh', host);
-      } else if (lookup.type === 'dot') {
-        if (lookup.endpoint !== undefined && lookup.endpoint !== '') {
-          add('dot', lookup.endpoint);
-        }
-      } else {
-        const nameservers = lookup.nameservers ?? defaultNameservers;
-        if (nameservers !== undefined && nameservers.length > 0) {
-          for (const ns of nameservers) add('native', ns);
-        } else {
-          endpoints.add('native:system-resolver');
-        }
-      }
-    }
-  }
-
-  return [...endpoints].sort();
 }
 
 export interface DnsCheckOptions {

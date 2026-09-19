@@ -457,7 +457,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       stats.degraded = true;
       degradations.push({
         stageName: this.name,
-        reason: 'consensus-unverified',
+        reason: 'rdap-consensus-unverified',
         processedCount: stats.verified,
         expectedCount: consensusTotal,
         message: `${stats.unverifiable}/${consensusTotal} Available verdicts unconfirmed by the second RDAP provider`,

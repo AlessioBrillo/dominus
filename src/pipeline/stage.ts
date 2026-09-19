@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export type StageDegradationReason =
-  | 'timeout'
-  | 'error'
-  | 'consensus-unverified'
-  | 'consensus-disabled'
-  | 'consensus-disabled-runtime'
-  | 'consensus-runtime-degraded'
-  | 'consensus-anycast-degraded'
-  | 'dns-unvalidated';
+  'timeout' | 'error' | 'dns-unvalidated' | 'rdap-consensus-unverified';
 
 export interface StageDegradation {
   stageName: string;
@@ -17,43 +10,6 @@ export interface StageDegradation {
   /** Number of input candidates the stage was expected to process. */
   expectedCount: number;
   message?: string;
-}
-
-export interface DnsConsensusStats {
-  /** Available verdicts independently confirmed by the secondary provider. */
-  verified: number;
-  /** Definitive disagreements (secondary says Registered) — valid answers. */
-  disagreed: number;
-  /** Domains the secondary could not answer at all (errors, timeouts). */
-  unverifiable: number;
-  /**
-   * Available verdicts the tertiary leg rescued (ADR-0045): the secondary
-   * could not answer and the tertiary confirmed Available. Present only
-   * when > 0.
-   */
-  tertiaryRescued?: number;
-  /**
-   * Domains the tertiary leg could not answer at all (errors, timeouts).
-   * Present only when > 0. (ADR-0066)
-   */
-  tertiaryUnverifiable?: number;
-  /**
-   * Definitive disagreements from the tertiary leg (tertiary says Registered)
-   * — valid answers that veto the domain. Present only when > 0. (ADR-0066)
-   */
-  tertiaryDisagreed?: number;
-  /** True when the run was flagged degraded over consensus (ADR-0039). */
-  degraded: boolean;
-  /** True when the tertiary leg was flagged degraded (ADR-0066). */
-  tertiaryDegraded?: boolean;
-  /**
-   * Domains where consensus was skipped because the verification leg's
-   * resolver endpoints share authoritative nameservers with the primary
-   * for the candidate's TLD — the "independent" opinion would be a rubber
-   * stamp of the same registry infrastructure (Consensus Theater prevention).
-   * Present only when > 0.
-   */
-  originOverlap?: number;
 }
 
 export interface RdapConsensusStats {
@@ -126,8 +82,6 @@ export interface StageResult<T> {
    * the run's `degradedReasons`. Empty/undefined means the stage is clean.
    */
   degradations?: StageDegradation[];
-  /** Per-run 2-of-3 DNS consensus tallies, when the stage ran consensus. */
-  consensusStats?: DnsConsensusStats;
   /** Per-run 2-of-2 RDAP consensus tallies, when the stage ran consensus. */
   rdapConsensusStats?: RdapConsensusStats;
 }

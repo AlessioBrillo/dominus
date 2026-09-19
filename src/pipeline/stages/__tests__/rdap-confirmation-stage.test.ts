@@ -629,7 +629,7 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
     expect(result.filtered).toHaveLength(3);
     expect(result.rdapConsensusStats!.degraded).toBe(true);
     expect(result.degradations).toHaveLength(1);
-    expect(result.degradations![0]!.reason).toBe('consensus-unverified');
+    expect(result.degradations![0]!.reason).toBe('rdap-consensus-unverified');
     expect(result.degradations![0]!.message).toContain('3/4');
   });
 

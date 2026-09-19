@@ -23,7 +23,7 @@ import type { ProviderCacheRepository } from '../../db/repositories/provider-cac
  *   - `native:<nameservers.join(',')>` for pinned native resolvers
  *   - `native:system-resolver` for the system recursor
  *
- * The primary, secondary, and tertiary consensus providers share a single
+ * All DNS providers (UnboundResolver, NodeDnsProvider) share a single
  * registry per run composition, so a failing endpoint is skipped for every
  * leg that uses it — not just the one provider that happened to trip it.
  *

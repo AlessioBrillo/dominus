@@ -26,14 +26,6 @@ export interface PipelineMetricsDelegate {
     errorCodes?: string[],
   ): void;
   recordPipelineRun(totalCandidates: number, recommended: number, durationMs: number): void;
-  /** Records 2-of-3 DNS consensus verdict tallies for a completed run. */
-  recordDnsConsensus?(stats: {
-    verified: number;
-    disagreed: number;
-    unverifiable: number;
-    degraded: boolean;
-    tertiaryRescued?: number;
-  }): void;
   /** Records 2-of-2 RDAP consensus verdict tallies for a completed run (ADR-0058). */
   recordRdapConsensus?(stats: {
     verified: number;
@@ -756,14 +748,9 @@ export class PipelineOrchestrator {
         }
 
         // Merge degradations reported by the stage itself (fail-closed paths
-        // that still produced partial output, e.g. DNS consensus-unverified).
+        // that still produced partial output).
         if (result.degradations !== undefined && result.degradations.length > 0) {
           degradations.push(...result.degradations);
-        }
-
-        // Forward per-run DNS consensus tallies to the metrics delegate.
-        if (result.consensusStats !== undefined) {
-          this.metrics?.recordDnsConsensus?.(result.consensusStats);
         }
 
         // Forward per-run RDAP consensus tallies to the metrics delegate.

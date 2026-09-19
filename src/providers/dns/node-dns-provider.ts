@@ -78,8 +78,8 @@ export interface DnsLegSample {
   endpoint: string;
   verdict: DnsLegVerdict;
   durationMs: number;
-  /** Which opinion this leg belongs to: primary / consensus / tertiary. */
-  role: 'primary' | 'consensus' | 'tertiary';
+  /** Which opinion this leg belongs to. */
+  role: 'primary';
 }
 
 /** Per-leg telemetry hook (SLO observability, ADR-0064). Must never throw. */

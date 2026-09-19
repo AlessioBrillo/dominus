@@ -1168,7 +1168,7 @@ describe('per-leg telemetry (ADR-0064)', () => {
       ],
       cacheTtlMs: 60_000,
       dohAgents: pool,
-      legRole: 'tertiary',
+      legRole: 'primary',
       ...(onLegResult !== undefined ? { onLegResult } : {}),
     });
   }
@@ -1191,7 +1191,7 @@ describe('per-leg telemetry (ADR-0064)', () => {
     expect(samples).toHaveLength(1);
     expect(samples[0]).toMatchObject({
       transport: 'doh',
-      role: 'tertiary',
+      role: 'primary',
       verdict: 'available',
       endpoint: 'doh:cloudflare-dns.com:json',
     });
