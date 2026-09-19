@@ -232,6 +232,111 @@ export class UnboundResolver implements DnsProvider {
     }
   }
 
+  /** Periodic DNSSEC validation revalidation (ADR-0072 hardening).
+   *  Runs the same negative-control probe as healthCheck() to detect
+   *  runtime reconfiguration (e.g., val-permissive-mode: yes via rndc).
+   *  Updates internal #dnssecValidating state and returns the new status.
+   *  Call this periodically (e.g., every 10 minutes via scheduler) or
+   *  on-demand after suspected resolver reconfiguration.
+   */
+  async revalidateDnssecValidation(): Promise<{
+    healthy: boolean;
+    dnssecValid: boolean;
+    details: string;
+  }> {
+    const testDomain = 'cloudflare.com';
+    const timeoutMs = 3000;
+
+    try {
+      const aResult = await Promise.race([
+        this.#resolveWithTimeout(testDomain, 'A', timeoutMs),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('revalidation timeout')), timeoutMs),
+        ),
+      ]);
+      if (!aResult) {
+        this.#dnssecValidating = false;
+        const result = {
+          healthy: false,
+          dnssecValid: false,
+          details: 'A record resolution failed during revalidation',
+        };
+        logger.warn({ details: result.details }, 'Unbound: DNSSEC revalidation failed');
+        return result;
+      }
+
+      const dnssecValid = await this.#probeDnssecValidation(timeoutMs);
+      const previousValidating = this.#dnssecValidating;
+      const validationChanged = previousValidating !== dnssecValid;
+      this.#dnssecValidating = dnssecValid;
+
+      // Invalidate memory cache when DNSSEC validation state changes,
+      // so subsequent lookups get the correct dnssec stamp.
+      if (validationChanged && !this.#cacheDisabled) {
+        this.#cache.clear();
+        logger.info(
+          { previousValidating, dnssecValid },
+          'Unbound: memory cache invalidated due to DNSSEC validation state change',
+        );
+      }
+
+      const result = {
+        healthy: true,
+        dnssecValid,
+        details: dnssecValid
+          ? 'DNSSEC validation confirmed (negative-control signature rejected with SERVFAIL)'
+          : 'DNSSEC validation LOST — resolver accepted a bad signature (possible val-permissive-mode reconfiguration)',
+      };
+
+      if (previousValidating && !dnssecValid) {
+        logger.error(
+          { previousValidating, dnssecValid },
+          'Unbound: DNSSEC validation LOST during revalidation',
+        );
+      } else if (!previousValidating && dnssecValid) {
+        logger.info(
+          { previousValidating, dnssecValid },
+          'Unbound: DNSSEC validation REGAINED during revalidation',
+        );
+      } else {
+        logger.debug({ dnssecValid }, 'Unbound: DNSSEC revalidation completed');
+      }
+
+      return result;
+    } catch (err) {
+      this.#dnssecValidating = false;
+      const result = { healthy: false, dnssecValid: false, details: String(err) };
+      logger.warn({ err, details: result.details }, 'Unbound: DNSSEC revalidation error');
+      return result;
+    }
+  }
+
+  /** Quick runtime health check — returns true if the resolver is reachable
+   *  and DNSSEC validation is currently proven active. This is a lightweight
+   *  check (no full negative-control probe) suitable for frequent polling
+   *  by the soft-fail fallback logic in the provider factory.
+   */
+  isHealthy(): boolean {
+    // A resolver is "healthy" if it has proven DNSSEC validation at some point
+    // and the last revalidation didn't fail catastrophically.
+    // We don't re-run the probe here — just report the last known state.
+    return this.#dnssecValidating;
+  }
+
+  /** Detailed health status for diagnostics and alerting.
+   *  Returns the last known health state without triggering a new probe.
+   *  For a fresh probe, call revalidateDnssecValidation() instead.
+   */
+  getHealthStatus(): { healthy: boolean; dnssecValid: boolean; details: string } {
+    return {
+      healthy: this.#dnssecValidating,
+      dnssecValid: this.#dnssecValidating,
+      details: this.#dnssecValidating
+        ? 'DNSSEC validation active (last revalidation passed)'
+        : 'DNSSEC validation NOT active — resolver may be misconfigured or unreachable',
+    };
+  }
+
   /** Runs the negative-control probe described on healthCheck(). Returns
    *  true only on an explicit, proven rejection — inconclusive results
    *  (timeouts, unreachable test zone) fail closed to false, never true. */

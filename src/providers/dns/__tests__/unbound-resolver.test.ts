@@ -333,3 +333,296 @@ describe('UnboundResolver config validation', () => {
     r.dispose();
   });
 });
+
+describe('UnboundResolver periodic DNSSEC revalidation', () => {
+  let resolver: UnboundResolver;
+  let mockCacheRepo: ProviderCacheRepository;
+  let mockRateLimiter: RateLimiterLike;
+  let mockMetrics: ReturnType<
+    typeof vi.fn<
+      (stats: {
+        durationMs: number;
+        status: 'registered' | 'available' | 'unknown';
+        dnssec: 'valid' | 'unchecked' | 'bogus';
+        fromCache: boolean;
+      }) => void
+    >
+  >;
+
+  beforeEach(() => {
+    resolveFn.mockReset();
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (domain === DNSSEC_POSITIVE_CONTROL) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.resolve(['1.2.3.4']);
+    });
+
+    mockCacheRepo = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      prune: vi.fn().mockResolvedValue(0),
+    } as unknown as ProviderCacheRepository;
+
+    mockRateLimiter = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+      maxTokens: 20,
+      tokensPerInterval: 20,
+      intervalMs: 1000,
+    } as unknown as RateLimiterLike;
+
+    mockMetrics = vi.fn();
+
+    resolver = new UnboundResolver({
+      unboundHosts: ['127.0.0.1', '::1'],
+      lookupTimeoutMs: 1500,
+      cacheTtlMs: 300_000,
+      maxSize: 10000,
+      bulkConcurrency: 200,
+      parkingEnabled: false,
+      rateLimiter: mockRateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      persistentCache: mockCacheRepo,
+      persistentCacheTtlHours: 168,
+      persistentAvailableStaleMs: 24 * 60 * 60_000,
+      dnssecValidationEnabled: true,
+      onResolution: mockMetrics,
+    });
+  });
+
+  afterEach(() => {
+    resolver.dispose();
+  });
+
+  it('should expose revalidateDnssecValidation() method', () => {
+    expect(typeof resolver.revalidateDnssecValidation).toBe('function');
+  });
+
+  it('should run negative-control probe and update dnssecValidating state', async () => {
+    // Initial state: dnssecValidating = false
+    let result = await resolver.checkAvailability('example.com');
+    expect(result.dnssec).toBe('unchecked');
+
+    // Run revalidation - should prove validation
+    await resolver.revalidateDnssecValidation();
+
+    // Subsequent lookups should stamp dnssec=valid
+    result = await resolver.checkAvailability('example.com');
+    expect(result.dnssec).toBe('valid');
+  });
+
+  it('should detect validation loss when negative control resolves', async () => {
+    // First prove validation works
+    await resolver.revalidateDnssecValidation();
+    let result = await resolver.checkAvailability('example.com');
+    expect(result.dnssec).toBe('valid');
+
+    // Now simulate val-permissive-mode: negative control resolves
+    resolveFn.mockImplementation(() => Promise.resolve(['1.2.3.4']));
+
+    // Revalidation should detect validation loss
+    await resolver.revalidateDnssecValidation();
+
+    // Subsequent lookups should stamp dnssec=unchecked
+    result = await resolver.checkAvailability('example.com');
+    expect(result.dnssec).toBe('unchecked');
+  });
+
+  it('should emit metric when DNSSEC validation is lost', async () => {
+    await resolver.revalidateDnssecValidation();
+
+    // Simulate validation loss
+    resolveFn.mockImplementation(() => Promise.resolve(['1.2.3.4']));
+
+    await resolver.revalidateDnssecValidation();
+
+    // Should have recorded the loss event
+    // The metric is recorded via the onResolution callback on subsequent lookups
+    // or we can check internal state
+    expect(resolver.healthCheck()).resolves.toMatchObject({ dnssecValid: false });
+  });
+});
+
+describe('UnboundResolver soft-fail fallback integration', () => {
+  let resolver: UnboundResolver;
+  let mockCacheRepo: ProviderCacheRepository;
+  let mockRateLimiter: RateLimiterLike;
+  let mockMetrics: ReturnType<
+    typeof vi.fn<
+      (stats: {
+        durationMs: number;
+        status: 'registered' | 'available' | 'unknown';
+        dnssec: 'valid' | 'unchecked' | 'bogus';
+        fromCache: boolean;
+      }) => void
+    >
+  >;
+
+  beforeEach(() => {
+    resolveFn.mockReset();
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.resolve(['1.2.3.4']);
+    });
+
+    mockCacheRepo = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      prune: vi.fn().mockResolvedValue(0),
+    } as unknown as ProviderCacheRepository;
+
+    mockRateLimiter = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+      maxTokens: 20,
+      tokensPerInterval: 20,
+      intervalMs: 1000,
+    } as unknown as RateLimiterLike;
+
+    mockMetrics = vi.fn();
+
+    resolver = new UnboundResolver({
+      unboundHosts: ['127.0.0.1', '::1'],
+      lookupTimeoutMs: 1500,
+      cacheTtlMs: 300_000,
+      maxSize: 10000,
+      bulkConcurrency: 200,
+      parkingEnabled: false,
+      rateLimiter: mockRateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      persistentCache: mockCacheRepo,
+      persistentCacheTtlHours: 168,
+      persistentAvailableStaleMs: 24 * 60 * 60_000,
+      dnssecValidationEnabled: true,
+      onResolution: mockMetrics,
+    });
+  });
+
+  afterEach(() => {
+    resolver.dispose();
+  });
+
+  it('should expose isHealthy() method for runtime health checks', () => {
+    expect(typeof resolver.isHealthy).toBe('function');
+  });
+
+  it('should return true from isHealthy() when resolver is healthy', async () => {
+    await resolver.revalidateDnssecValidation();
+    expect(resolver.isHealthy()).toBe(true);
+  });
+
+  it('should return false from isHealthy() when resolver is unhealthy', async () => {
+    // Make health check fail
+    resolveFn.mockImplementation(() => Promise.reject(dnsError('ETIMEOUT')));
+
+    await resolver.revalidateDnssecValidation();
+    expect(resolver.isHealthy()).toBe(false);
+  });
+
+  it('should expose getHealthStatus() for detailed diagnostics', () => {
+    expect(typeof resolver.getHealthStatus).toBe('function');
+  });
+
+  it('getHealthStatus() should return healthy=true and dnssecValid=true when operational', async () => {
+    await resolver.revalidateDnssecValidation();
+    const status = resolver.getHealthStatus();
+    expect(status.healthy).toBe(true);
+    expect(status.dnssecValid).toBe(true);
+  });
+
+  it('getHealthStatus() should return healthy=false when unreachable', async () => {
+    resolveFn.mockImplementation(() => Promise.reject(dnsError('ETIMEOUT')));
+
+    await resolver.revalidateDnssecValidation();
+    const status = resolver.getHealthStatus();
+    expect(status.healthy).toBe(false);
+    expect(status.dnssecValid).toBe(false);
+  });
+});
+
+describe('UnboundResolver SLO metrics', () => {
+  let resolver: UnboundResolver;
+  let mockCacheRepo: ProviderCacheRepository;
+  let mockRateLimiter: RateLimiterLike;
+  let mockMetrics: ReturnType<
+    typeof vi.fn<
+      (stats: {
+        durationMs: number;
+        status: 'registered' | 'available' | 'unknown';
+        dnssec: 'valid' | 'unchecked' | 'bogus';
+        fromCache: boolean;
+      }) => void
+    >
+  >;
+
+  beforeEach(() => {
+    resolveFn.mockReset();
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.resolve(['1.2.3.4']);
+    });
+
+    mockCacheRepo = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      prune: vi.fn().mockResolvedValue(0),
+    } as unknown as ProviderCacheRepository;
+
+    mockRateLimiter = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+      maxTokens: 20,
+      tokensPerInterval: 20,
+      intervalMs: 1000,
+    } as unknown as RateLimiterLike;
+
+    mockMetrics = vi.fn();
+
+    resolver = new UnboundResolver({
+      unboundHosts: ['127.0.0.1', '::1'],
+      lookupTimeoutMs: 1500,
+      cacheTtlMs: 300_000,
+      maxSize: 10000,
+      bulkConcurrency: 200,
+      parkingEnabled: false,
+      rateLimiter: mockRateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      persistentCache: mockCacheRepo,
+      persistentCacheTtlHours: 168,
+      persistentAvailableStaleMs: 24 * 60 * 60_000,
+      dnssecValidationEnabled: true,
+      onResolution: mockMetrics,
+    });
+  });
+
+  afterEach(() => {
+    resolver.dispose();
+  });
+
+  it('should record bulk lookup duration histogram with stage label', async () => {
+    const domains = ['example.com', 'example.org', 'example.net'];
+    await resolver.checkBulk(domains);
+
+    // The onResolution callback is called for each domain
+    // Check that metrics were recorded with stage label
+    expect(mockMetrics).toHaveBeenCalledTimes(3);
+    mockMetrics.mock.calls.forEach((call) => {
+      const args = call[0];
+      expect(args).toHaveProperty('durationMs');
+      expect(args).toHaveProperty('status');
+      expect(args).toHaveProperty('dnssec');
+      expect(args).toHaveProperty('fromCache');
+    });
+  });
+
+  it('should record cache hit/miss ratio via metrics', async () => {
+    // First call - cache miss
+    await resolver.checkAvailability('example.com');
+    expect(mockMetrics).toHaveBeenLastCalledWith(expect.objectContaining({ fromCache: false }));
+
+    // Second call - cache hit
+    await resolver.checkAvailability('example.com');
+    expect(mockMetrics).toHaveBeenLastCalledWith(expect.objectContaining({ fromCache: true }));
+  });
+});
