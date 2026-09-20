@@ -579,6 +579,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_NATIVE_DNSSEC_ENABLED: true,
       DNS_USE_DEDICATED_RESOLVER: true,
       DNS_DOT_POOL_MAX_QUEUED: 4096,
+      DNSSEC_MODE: 'strict' as const,
       RDAP_WHOIS_BUDGET_MS: 15_000,
       STAGE_TIMEOUT_BASE_MS: 30_000,
       STAGE_TIMEOUT_PER_CANDIDATE_MS: 200,

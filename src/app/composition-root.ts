@@ -902,6 +902,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       dnsProvider,
       config.DNS_BULK_CONCURRENCY,
       [], // No sources skipped — closeout CSV candidates now go through DNS with forceRecheck
+      config.DNSSEC_MODE,
     ),
     new RdapConfirmationStage(
       cachedRdapProvider,

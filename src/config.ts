@@ -547,6 +547,15 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
+     * DNSSEC validation mode for Available verdicts (default: 'strict').
+     * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
+     * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
+     * - 'disabled': DNSSEC not required for Available verdicts.
+     * Applies to both UnboundResolver and DnsPreFilterStage when DNS_UNBOUND_ENABLED=true.
+     * When DNS_UNBOUND_ENABLED=false (native fallback), this only affects DnsPreFilterStage.
+     */
+    DNSSEC_MODE: z.enum(['strict', 'permissive', 'disabled']).default('strict'),
+    /**
      * Consecutive resolver failures within the window that open the circuit.
      * Mirrors the RDAP per-server breaker default (ADR-0050). Range: 1-100.
      */
