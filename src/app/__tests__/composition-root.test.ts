@@ -585,6 +585,8 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       STAGE_TIMEOUT_GRACE_MS: 15_000,
       RDAP_CONSENSUS_RESCUE_WHOIS_TLDS: [] as string[],
       RDAP_CONSENSUS_PROBE_TIMEOUT_MS: 15000,
+      RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: 2,
+      RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: 2000,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

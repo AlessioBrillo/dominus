@@ -888,6 +888,22 @@ const configSchema = z
     RDAP_TERTIARY_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
 
     /**
+     * Dedicated WHOIS rate budget for RDAP consensus rescue leg (ADR-0051/ADR-0058).
+     * When the secondary RDAP leg cannot answer, the rescue WHOIS query draws from
+     * this independent budget instead of the shared WHOIS bucket, so a heavy
+     * primary/secondary run never starves the rescue path. Default: 2 tokens
+     * burst / 2000ms (1 req/sec sustained), matching the global WHOIS default.
+     */
+    RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: z.coerce.number().int().min(1).max(100).default(2),
+    /** Rate limiting: refill interval in ms for the RDAP consensus WHOIS rescue budget (default: 2000). */
+    RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(100)
+      .max(60000)
+      .default(2000),
+
+    /**
      * Rate limiting: max tokens (burst capacity) for WHOIS port-43 requests.
      * WHOIS servers are generally more restrictive than RDAP.
      * Default: 2 tokens — burst allows 2 quick lookups, sustained at 1 req/sec

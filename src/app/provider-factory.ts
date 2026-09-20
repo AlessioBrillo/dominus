@@ -35,6 +35,7 @@ import {
   type RdapRequestTelemetry,
 } from '../providers/rdap/index.js';
 import { IanaRdapBootstrap, IANA_RDAP_BOOTSTRAP_URL } from '../providers/rdap/rdap-bootstrap.js';
+import { rdapUrlOrigin } from '../providers/rdap/rdap-consensus-validator.js';
 import { type RdapProvider } from '../providers/rdap/rdap-provider.js';
 import { DomainStatus, type RdapResult } from '../types/domain-status.js';
 import {
@@ -526,6 +527,11 @@ export interface RdapConsensusConfig {
   rescueWhoisEnabled?: boolean;
   rescueWhoisTlds?: Set<string>;
   tldOriginsResolver?: (tld: string) => Promise<string[]>;
+  /** Optional tertiary RDAP provider for 3-leg consensus (ADR-0050 extension). */
+  tertiaryProvider?: RdapProvider;
+  tertiaryOrigin?: string;
+  /** Dedicated WHOIS rate limiter for consensus rescue (ADR-0051/ADR-0058). */
+  whoisRescueRateLimiter?: RateLimiterLike;
 }
 
 function buildRdapConsensusRateLimiter(config: Config, redisClient?: RedisClient): RateLimiterLike {
@@ -552,6 +558,33 @@ function buildRdapConsensusRateLimiter(config: Config, redisClient?: RedisClient
       maxTokens: config.RDAP_CONSENSUS_RATE_LIMIT_TOKENS,
       tokensPerInterval: config.RDAP_CONSENSUS_RATE_LIMIT_TOKENS,
       intervalMs: config.RDAP_CONSENSUS_RATE_LIMIT_INTERVAL_MS,
+    },
+    0,
+  );
+}
+
+function buildRdapConsensusWhoisRescueRateLimiter(
+  config: Config,
+  redisClient?: RedisClient,
+): RateLimiterLike {
+  const fairShare = config.PROVIDER_FAIR_SHARE_ENABLED;
+  if (redisClient?.isConnected) {
+    return new RedisRateLimiter(
+      {
+        tokens: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+        intervalMs: config.RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS,
+        namespace: 'rdap-consensus-whois-rescue',
+        fairShare,
+        perTenantTokens: 1, // minimal per-tenant share for rescue
+      },
+      redisClient,
+    );
+  }
+  return new PriorityRateLimiter(
+    {
+      maxTokens: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+      tokensPerInterval: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+      intervalMs: config.RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS,
     },
     0,
   );
@@ -664,6 +697,157 @@ export async function createRdapConsensusConfig(
     config.RDAP_MAX_RESPONSE_BYTES,
   );
 
+  // Dedicated WHOIS rescue rate limiter for consensus (independent budget, ADR-0051/ADR-0058)
+  const whoisRescueRateLimiter = buildRdapConsensusWhoisRescueRateLimiter(config, redisClient);
+
+  // Optional tertiary leg (ADR-0050 extension): independent third opinion for rescue
+  let tertiaryProvider: RdapProvider | undefined;
+  let tertiaryOrigin: string | undefined;
+  if (config.RDAP_CONSENSUS_TERTIARY_ENABLED && config.RDAP_TERTIARY_ENDPOINT.trim() !== '') {
+    const tertiaryEndpoint = config.RDAP_TERTIARY_ENDPOINT.trim();
+
+    // Validate disjointness: tertiary must not overlap primary authoritative origins or secondary
+    let tertiaryValid = true;
+    if (tldOriginsResolver !== undefined) {
+      try {
+        const tertiaryUrl = new URL(tertiaryEndpoint);
+        const tertiaryHostname = tertiaryUrl.hostname;
+        const { default: dns } = await import('node:dns/promises');
+        const tertiaryIps = new Set<string>();
+        for (const record of await Promise.allSettled([
+          dns.resolve4(tertiaryHostname),
+          dns.resolve6(tertiaryHostname),
+        ])) {
+          if (record.status === 'fulfilled') {
+            for (const ip of record.value) tertiaryIps.add(ip);
+          }
+        }
+
+        // Check against primary authoritative origins
+        const sampleTlds = ['com', 'net', 'org', 'io', 'ai', 'app', 'dev'];
+        let tertiaryOverlapPrimary = 0;
+        let tertiaryAuthoritativePrimary = 0;
+        for (const tld of sampleTlds) {
+          try {
+            const primaryOrigins = await tldOriginsResolver(tld);
+            for (const origin of primaryOrigins) {
+              tertiaryAuthoritativePrimary++;
+              try {
+                const primaryUrl = new URL(origin);
+                const primaryHostname = primaryUrl.hostname;
+                const primaryIps = new Set<string>();
+                for (const record of await Promise.allSettled([
+                  dns.resolve4(primaryHostname),
+                  dns.resolve6(primaryHostname),
+                ])) {
+                  if (record.status === 'fulfilled') {
+                    for (const ip of record.value) primaryIps.add(ip);
+                  }
+                }
+                for (const ip of tertiaryIps) {
+                  if (primaryIps.has(ip)) {
+                    tertiaryOverlapPrimary++;
+                    break;
+                  }
+                }
+              } catch {
+                // Invalid origin URL, skip
+              }
+            }
+          } catch {
+            // Resolver error, skip this TLD
+          }
+        }
+
+        if (tertiaryAuthoritativePrimary > 0) {
+          const overlapRatio = tertiaryOverlapPrimary / tertiaryAuthoritativePrimary;
+          if (overlapRatio > 0.5) {
+            logger.warn(
+              {
+                tertiaryEndpoint,
+                overlapRatio,
+                overlappingOrigins: tertiaryOverlapPrimary,
+                totalAuthoritative: tertiaryAuthoritativePrimary,
+              },
+              'RDAP: tertiary endpoint overlaps with primary authoritative origins — tertiary leg disabled',
+            );
+            tertiaryValid = false;
+          }
+        }
+
+        // Check against secondary origin
+        if (tertiaryValid) {
+          const secondaryOriginUrl = new URL(endpoint).origin;
+          if (rdapUrlOrigin(tertiaryEndpoint) === secondaryOriginUrl) {
+            logger.warn(
+              { tertiaryEndpoint, secondaryEndpoint: endpoint },
+              'RDAP: tertiary endpoint overlaps with secondary origin — tertiary leg disabled',
+            );
+            tertiaryValid = false;
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'RDAP: tertiary disjointness validation failed — continuing without overlap check',
+        );
+      }
+    }
+
+    if (tertiaryValid) {
+      const tertiaryRateLimiter = redisClient?.isConnected
+        ? new RedisRateLimiter(
+            {
+              tokens: config.RDAP_TERTIARY_RATE_LIMIT_TOKENS,
+              intervalMs: config.RDAP_TERTIARY_RATE_LIMIT_INTERVAL_MS,
+              namespace: 'rdap-consensus-tertiary',
+              fairShare: config.PROVIDER_FAIR_SHARE_ENABLED,
+              perTenantTokens: config.RDAP_TERTIARY_RATE_LIMIT_PER_TENANT_TOKENS,
+              ...(config.PROVIDER_FAIR_SHARE_ENABLED &&
+              config.RDAP_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS !==
+                config.RDAP_TERTIARY_RATE_LIMIT_INTERVAL_MS
+                ? { perTenantIntervalMs: config.RDAP_TERTIARY_RATE_LIMIT_PER_TENANT_INTERVAL_MS }
+                : {}),
+            },
+            redisClient,
+          )
+        : new PriorityRateLimiter(
+            {
+              maxTokens: config.RDAP_TERTIARY_RATE_LIMIT_TOKENS,
+              tokensPerInterval: config.RDAP_TERTIARY_RATE_LIMIT_TOKENS,
+              intervalMs: config.RDAP_TERTIARY_RATE_LIMIT_INTERVAL_MS,
+            },
+            0,
+          );
+
+      const tertiaryBreakers = buildRdapCircuitBreakers(redisClient);
+      const tertiaryAgentPool = new RdapAgentPool({
+        maxConnections: config.RDAP_MAX_CONNECTIONS,
+      });
+
+      tertiaryProvider = FailoverRdapProvider.fromConfig(
+        [{ url: tertiaryEndpoint }],
+        tertiaryRateLimiter,
+        undefined,
+        tertiaryBreakers.perServer,
+        tertiaryAgentPool,
+        config.RDAP_TERTIARY_TIMEOUT_MS,
+        config.RDAP_MAX_RESPONSE_BYTES,
+      );
+      tertiaryOrigin = tertiaryEndpoint;
+
+      logger.info(
+        { tertiaryEndpoint },
+        'RDAP: 3-leg consensus enabled — tertiary leg rescues unverifiable verdicts from secondary',
+      );
+    } else {
+      logger.warn(
+        { tertiaryEndpoint: config.RDAP_TERTIARY_ENDPOINT },
+        'RDAP: tertiary leg configured but disabled due to overlap or missing endpoint',
+      );
+    }
+  }
+
   logger.info(
     { endpoint },
     'RDAP: 2-of-2 consensus enabled — Available verdicts are re-confirmed by the second provider',
@@ -684,7 +868,7 @@ export async function createRdapConsensusConfig(
   const rescueWhoisTlds = new Set<string>(
     config.RDAP_CONSENSUS_RESCUE_WHOIS_TLDS.map((t) => t.toLowerCase()),
   );
-  return {
+  const result: RdapConsensusConfig = {
     secondaryProvider,
     secondaryOrigin: endpoint,
     degradedRatio: config.RDAP_CONSENSUS_DEGRADED_RATIO,
@@ -692,8 +876,12 @@ export async function createRdapConsensusConfig(
     consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
     rescueWhoisEnabled: config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED,
     rescueWhoisTlds,
+    whoisRescueRateLimiter,
+    ...(tertiaryProvider !== undefined ? { tertiaryProvider } : {}),
+    ...(tertiaryOrigin !== undefined ? { tertiaryOrigin } : {}),
     ...(tldOriginsResolver !== undefined ? { tldOriginsResolver } : {}),
   };
+  return result;
 }
 
 export async function probeRdapConsensusEndpoint(

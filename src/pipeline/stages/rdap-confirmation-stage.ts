@@ -13,6 +13,7 @@ import {
   hasWinningOriginOverlap,
   rdapUrlOrigin,
 } from '../../providers/rdap/rdap-consensus-validator.js';
+import type { RateLimiterLike } from '../../providers/rate-limiter.js';
 import { getLogger } from '../../logger.js';
 
 const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
@@ -82,6 +83,11 @@ export interface RdapConsensusConfig {
   rescueWhoisEnabled?: boolean;
   rescueWhoisTlds?: Set<string>;
   tldOriginsResolver?: (tld: string) => Promise<string[]>;
+  /** Optional tertiary RDAP provider for 3-leg consensus (ADR-0050 extension). */
+  tertiaryProvider?: RdapProvider;
+  tertiaryOrigin?: string;
+  /** Dedicated WHOIS rate limiter for consensus rescue (ADR-0051/ADR-0058). */
+  whoisRescueRateLimiter?: RateLimiterLike;
 }
 
 const DEFAULT_CONSENSUS_DEGRADED_RATIO = 0.5;
