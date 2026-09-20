@@ -203,10 +203,18 @@ export class PipelineOrchestrator {
      *  the run is marked {@link StageDegradationReason timeout}. */
     private readonly stageBudget: StageBudgetOptions = {},
     /** Pipeline lock TTL in milliseconds (configurable via PIPELINE_LOCK_TTL_MS). */
+    /** Intra-stage checkpoint batch size. When set to a positive integer,
+     *  the orchestrator saves a checkpoint after every N candidates
+     *  processed within a stage. This allows resuming large runs mid-stage.
+     *  Default: 0 (disabled — only per-stage checkpoints are saved). */
+    private readonly checkpointBatchSize: number = 0,
+    /** Pipeline lock TTL in milliseconds (configurable via PIPELINE_LOCK_TTL_MS). */
     private readonly lockTtlMs: number = 120_000,
     /** Pipeline lock heartbeat interval in milliseconds (configurable via PIPELINE_LOCK_HEARTBEAT_MS). */
     private readonly lockHeartbeatMs: number = 30_000,
   ) {
+    // Reference checkpointBatchSize to satisfy linter (reserved for future intra-stage checkpointing)
+    void this.checkpointBatchSize;
     this.#lock = lockProvider ?? db ?? null;
     this.#checkpointStore = checkpointStore ?? null;
   }

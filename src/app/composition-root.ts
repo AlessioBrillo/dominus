@@ -930,9 +930,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       capMs: config.STAGE_TIMEOUT_CAP_MS,
       graceMs: config.STAGE_TIMEOUT_GRACE_MS,
     },
-    // lockTtlMs (12th param): pipeline advisory lock TTL
+    // checkpointBatchSize (12th param): intra-stage checkpoint batch size (0 = disabled)
+    config.PIPELINE_CHECKPOINT_BATCH_SIZE,
+    // lockTtlMs (13th param): pipeline advisory lock TTL
     config.PIPELINE_LOCK_TTL_MS,
-    // lockHeartbeatMs (13th param): pipeline lock heartbeat interval
+    // lockHeartbeatMs (14th param): pipeline lock heartbeat interval
     config.PIPELINE_LOCK_HEARTBEAT_MS,
   );
   const progressService = new PipelineProgressService();

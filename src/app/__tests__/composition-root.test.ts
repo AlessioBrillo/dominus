@@ -527,6 +527,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       SCORING_WEIGHTS_OVERRIDE: undefined,
       PIPELINE_TIMEOUT_MS: 3600000,
       PIPELINE_CHECKPOINTS_ENABLED: true,
+      PIPELINE_CHECKPOINT_BATCH_SIZE: 0,
       WORKER_ENABLED: false,
       USAGE_ENFORCEMENT_ENABLED: false,
       AUTO_PROVISION_TENANTS: false,

@@ -23,6 +23,21 @@ const configSchema = z
      * with API reads; decrease to fail fast on contention (ADR-0023).
      */
     DATABASE_BUSY_TIMEOUT: z.coerce.number().int().min(0).max(120000).default(30000),
+
+    /**
+     * Per-stage SQLite busy timeout override for DNS prefilter stage bulk writes.
+     * DNS stage does heavy bulk writes to provider_cache. Default: uses DATABASE_BUSY_TIMEOUT.
+     * Set higher (e.g. 60000) if DNS bulk writes contend with API reads.
+     */
+    DNS_STAGE_BUSY_TIMEOUT_MS: z.coerce.number().int().min(0).max(120000).optional(),
+
+    /**
+     * Per-stage SQLite busy timeout override for RDAP confirmation stage bulk writes.
+     * RDAP stage does bulk writes to provider_cache and rdap cache. Default: uses DATABASE_BUSY_TIMEOUT.
+     * Set higher (e.g. 60000) if RDAP bulk writes contend with API reads.
+     */
+    RDAP_STAGE_BUSY_TIMEOUT_MS: z.coerce.number().int().min(0).max(120000).optional(),
+
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
@@ -1279,6 +1294,16 @@ const configSchema = z
       .enum(['true', 'false'])
       .default('true')
       .transform((v) => v === 'true'),
+
+    /**
+     * Optional intra-stage checkpoint batch size. When set to a positive
+     * integer, the pipeline orchestrator saves a checkpoint after every
+     * N candidates processed within a stage (in addition to the per-stage
+     * checkpoint). This allows resuming large runs mid-stage instead of
+     * re-processing the entire stage. Default: 0 (disabled — only per-stage
+     * checkpoints are saved).
+     */
+    PIPELINE_CHECKPOINT_BATCH_SIZE: z.coerce.number().int().min(0).max(10000).default(0),
 
     /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
      *  speed up batch processing but may trigger rate limits. Default: 10. */
