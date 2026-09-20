@@ -86,6 +86,13 @@ export interface UnboundResolverOptions {
   breakers?: DnsBreakerRegistryLike | undefined;
   /** Enable DNSSEC validation (default: true). */
   dnssecValidationEnabled?: boolean | undefined;
+  /**
+   * DNSSEC validation mode for available verdicts (default: 'strict').
+   * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
+   * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
+   * - 'disabled': DNSSEC not required for available verdicts.
+   */
+  dnssecMode?: 'strict' | 'permissive' | 'disabled';
   /** Enable parking page detection (default: false). */
   parkingEnabled?: boolean | undefined;
   /** Optional callback for recording resolution metrics (ADR-0072). */
@@ -119,6 +126,7 @@ export class UnboundResolver implements DnsProvider {
   readonly #resolver: Resolver;
   readonly #onResolution: UnboundResolverOptions['onResolution'];
   readonly #dnssecValidationEnabled: boolean;
+  readonly #dnssecMode: 'strict' | 'permissive' | 'disabled';
   /** Set once by healthCheck() at boot: whether the negative-control probe
    *  proved this resolver rejects bogus DNSSEC signatures. Per-domain lookups
    *  stamp this resolver-level fact — node:dns exposes no per-query AD flag. */
@@ -141,6 +149,7 @@ export class UnboundResolver implements DnsProvider {
       options.persistentAvailableStaleMs ?? STALE_AVAILABLE_DEFAULT_MS;
     this.#breakers = options.breakers;
     this.#dnssecValidationEnabled = options.dnssecValidationEnabled ?? true;
+    this.#dnssecMode = options.dnssecMode ?? 'strict';
     this.#onResolution = options.onResolution;
 
     // Create dedicated resolver pointed at Unbound
@@ -493,8 +502,24 @@ export class UnboundResolver implements DnsProvider {
       // zone validated" from "this zone isn't signed". healthCheck() proves
       // validation once at boot via a negative-control probe; we stamp that
       // proof here rather than re-querying. See class doc comment.
-      const dnssecStatus: DnsCheckResult['dnssec'] =
-        this.#dnssecValidationEnabled && this.#dnssecValidating ? 'valid' : 'unchecked';
+      //
+      // dnssecMode controls how Available verdicts are stamped:
+      // - 'strict': Only 'valid' when validation proven active (conservative)
+      // - 'permissive': 'valid' when validation active (treats unsigned zones as acceptable)
+      // - 'disabled': 'unchecked' always (DNSSEC not required)
+      let dnssecStatus: DnsCheckResult['dnssec'];
+      if (!this.#dnssecValidationEnabled || this.#dnssecMode === 'disabled') {
+        dnssecStatus = 'unchecked';
+      } else if (this.#dnssecMode === 'permissive') {
+        // In permissive mode, if the resolver validates DNSSEC, we treat both
+        // validated (valid) and unsigned (insecure) zones as acceptable for
+        // Available verdicts. Since node:dns can't distinguish per-query, we
+        // stamp 'valid' when validation is proven active.
+        dnssecStatus = this.#dnssecValidating ? 'valid' : 'unchecked';
+      } else {
+        // 'strict' mode (default): only stamp 'valid' when validation proven
+        dnssecStatus = this.#dnssecValidating ? 'valid' : 'unchecked';
+      }
 
       if (resolved !== undefined) {
         const status = resolved ? DomainStatus.Registered : DomainStatus.Available;
