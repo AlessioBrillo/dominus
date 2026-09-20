@@ -322,6 +322,7 @@ export async function buildDnsProvider(
       persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
       breakers,
       dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+      dnssecMode: config.DNSSEC_MODE,
       onResolution: metrics?.recordUnboundResolution,
     });
 

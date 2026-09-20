@@ -17,6 +17,11 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
     private readonly dnsProvider: DnsProvider,
     private readonly fallbackConcurrency: number = 10,
     private readonly skipSources: CandidateSource[] = [],
+    /** DNSSEC validation mode for Available verdicts (default: 'strict').
+     * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
+     * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
+     * - 'disabled': DNSSEC not required for Available verdicts. */
+    private readonly dnssecMode: 'strict' | 'permissive' | 'disabled' = 'strict',
   ) {}
 
   async process(
@@ -123,10 +128,10 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         continue;
       }
 
-      // Available verdicts: ONLY pass if DNSSEC validation is 'valid'
+      // Available verdicts: pass based on DNSSEC validation mode
       if (result.status === DomainStatus.Available) {
         availableCount++;
-        const hasValidDnssec = result.dnssec === 'valid';
+        const hasValidDnssec = this.#dnssecPasses(result.dnssec);
 
         if (hasValidDnssec) {
           dnssecValidatedCount++;
@@ -200,6 +205,19 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
           }
         : {}),
     };
+  }
+
+  /** Check if a DNSSEC status passes the configured validation mode. */
+  #dnssecPasses(dnssec: DnsCheckResult['dnssec']): boolean {
+    switch (this.dnssecMode) {
+      case 'disabled':
+        return true;
+      case 'permissive':
+        return dnssec === 'valid' || dnssec === 'insecure';
+      case 'strict':
+      default:
+        return dnssec === 'valid';
+    }
   }
 
   /** Threshold fraction of undefined results that triggers a cross-validation retry. */
