@@ -1,6 +1,5 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
-import type { Config } from '../../config.js';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
@@ -603,7 +602,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: 2,
       RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: 2000,
       COMMERCIAL_SIGNAL_DEGRADATION_ENABLED: true,
-    } as Config;
+    } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);
     const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
