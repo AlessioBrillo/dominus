@@ -335,6 +335,26 @@ export class MetricsCollector {
     else this.#anonTrademarkBlocked++;
   }
 
+  /** Record commercial signal data availability for observability.
+   *  Called from computeCommercialScore when metrics collector is available. */
+  recordCommercialSignal(stats: { dataAvailable: boolean; provider: string }): void {
+    if (stats.dataAvailable) {
+      this.recordHistogram(
+        'dominus_commercial_signal_data_available_total',
+        1,
+        { provider: stats.provider },
+        [1],
+      );
+    } else {
+      this.recordHistogram(
+        'dominus_commercial_signal_data_unavailable_total',
+        1,
+        { provider: stats.provider },
+        [1],
+      );
+    }
+  }
+
   /** Record USPTO WAF stats for alerting (gauge). Called periodically to
    *  expose current block rate to Prometheus. */
   recordUsptoWafStats(stats: {

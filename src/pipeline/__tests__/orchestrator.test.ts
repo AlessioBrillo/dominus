@@ -76,6 +76,12 @@ function makeMockEngine(): ScoringEngine {
       },
       recommended: true,
       scoredAt: '',
+      signalStatus: [
+        { name: 'intrinsic', available: true },
+        { name: 'commercial', available: true },
+        { name: 'market', available: true },
+        { name: 'expiry', available: true },
+      ],
     }),
   } as unknown as ScoringEngine;
 }

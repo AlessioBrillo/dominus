@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export type StageDegradationReason =
-  'timeout' | 'error' | 'dns-unvalidated' | 'rdap-consensus-unverified';
+  | 'timeout'
+  | 'error'
+  | 'dns-unvalidated'
+  | 'rdap-consensus-unverified'
+  | 'commercial-signal-unavailable';
 
 export interface StageDegradation {
   stageName: string;

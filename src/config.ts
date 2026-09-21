@@ -1033,6 +1033,16 @@ const configSchema = z
     SCORING_INTRINSIC_QUALITY_INFLUENCE: z.coerce.number().min(0).max(1).default(0.12),
     /** Absolute cap on confidence score (default: 0.8). */
     SCORING_CONFIDENCE_CAP: z.coerce.number().min(0).max(1).default(0.8),
+    /**
+     * Emit a run degradation when commercial signal has no data for a
+     * significant portion of candidates (default: true). When enabled, if more
+     * than 50% of scored candidates have commercial.dataAvailable=false, the
+     * run is flagged with a 'commercial-signal-unavailable' degradation reason.
+     * This surfaces the silent fallback to intrinsic-only scoring in observability.
+     */
+    COMMERCIAL_SIGNAL_DEGRADATION_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
 
     /**
      * Optional path to a JSON file mapping TLDs to their multiplier bonuses.
