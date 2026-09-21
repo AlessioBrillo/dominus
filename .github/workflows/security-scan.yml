@@ -57,7 +57,7 @@ jobs:
         # GitHub's native secret scanning covers the rest of the history.
         if: github.event_name == 'push'
         # Pinned to the v3.96.0 commit: trufflehog publishes no rolling `v3` tag.
-        uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c
+        uses: trufflesecurity/trufflehog@f714bf454f350590f4a24c3ddb1aef02c35bf5b6
         with:
           # --no-update is already injected by the action itself.
           extra_args: --results=verified,unknown
