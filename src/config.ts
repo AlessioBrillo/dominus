@@ -425,6 +425,19 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
+     * Enable automatic fallback to native node:dns resolver when Unbound becomes
+     * unhealthy or loses DNSSEC validation. When true (default for community
+     * edition), the UnboundResolver will automatically delegate to a
+     * NodeDnsProvider if health check fails or periodic revalidation detects
+     * validation loss (e.g., val-permissive-mode: yes via rndc). This ensures
+     * the community edition works at €0 infra cost without Docker. In cloud
+     * deployments with managed Unbound, set to false to fail fast on resolver
+     * issues. Default: true.
+     */
+    DNS_UNBOUND_FALLBACK_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
      * Enable parking page detection for registered domains via Unbound.
      * When true, registered domains whose A records resolve to known parking
      * IP ranges are NOT filtered — they pass through with `dnsStatus: 'parked'`,

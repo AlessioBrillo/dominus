@@ -111,6 +111,10 @@ export interface UnboundResolverOptions {
   /** Interval in milliseconds for periodic DNSSEC revalidation (default: 600000 = 10 min).
    *  Set to 0 to disable periodic revalidation. */
   dnssecRevalidationIntervalMs?: number;
+  /** Optional fallback DNS provider. When Unbound becomes unhealthy or loses
+   *  DNSSEC validation, the resolver delegates to this provider.
+   *  Used for graceful degradation in community edition without Docker. */
+  fallbackProvider?: DnsProvider | undefined;
 }
 
 export class UnboundResolver implements DnsProvider {
@@ -136,6 +140,10 @@ export class UnboundResolver implements DnsProvider {
   readonly #dnssecRevalidationIntervalMs: number;
   readonly #dnssecValidationEnabled: boolean;
   readonly #dnssecMode: 'strict' | 'permissive' | 'disabled';
+  /** Optional fallback DNS provider for graceful degradation. */
+  #fallbackProvider: DnsProvider | undefined;
+  /** Whether we are currently using the fallback provider. */
+  #usingFallback = false;
   /** Set once by healthCheck() at boot: whether the negative-control probe
    *  proved this resolver rejects bogus DNSSEC signatures. Per-domain lookups
    *  stamp this resolver-level fact — node:dns exposes no per-query AD flag. */
@@ -163,6 +171,8 @@ export class UnboundResolver implements DnsProvider {
     this.#onResolution = options.onResolution;
     this.#onDnssecValidationChange = options.onDnssecValidationChange;
     this.#dnssecRevalidationIntervalMs = options.dnssecRevalidationIntervalMs ?? 600_000;
+    this.#fallbackProvider = options.fallbackProvider;
+    this.#usingFallback = false;
 
     // Create dedicated resolver pointed at Unbound
     this.#resolver = new Resolver();
@@ -177,6 +187,39 @@ export class UnboundResolver implements DnsProvider {
     };
     if (this.#cacheTtlMs > 0) cacheOptions.ttl = this.#cacheTtlMs;
     this.#cache = new LRUCache<string, DnsCheckResult>(cacheOptions);
+  }
+
+  /** Set a fallback DNS provider at runtime. */
+  setFallback(provider: DnsProvider): void {
+    this.#fallbackProvider = provider;
+  }
+
+  /** Check if currently using the fallback provider. */
+  isUsingFallback(): boolean {
+    return this.#usingFallback;
+  }
+
+  /** Activate fallback mode (internal). */
+  #activateFallback(reason: string): void {
+    if (!this.#usingFallback) {
+      this.#usingFallback = true;
+      logger.warn(
+        { fallback: this.#fallbackProvider?.name, reason },
+        'Unbound: activating fallback provider',
+      );
+      // Clear memory cache so subsequent lookups go to fallback
+      if (!this.#cacheDisabled) this.#cache.clear();
+    }
+  }
+
+  /** Deactivate fallback mode (internal). */
+  #deactivateFallback(reason: string): void {
+    if (this.#usingFallback) {
+      this.#usingFallback = false;
+      logger.info({ reason }, 'Unbound: deactivating fallback provider, resuming primary');
+      // Clear memory cache so subsequent lookups go to primary
+      if (!this.#cacheDisabled) this.#cache.clear();
+    }
   }
 
   /** Start periodic DNSSEC validation revalidation (ADR-0072).
@@ -207,6 +250,16 @@ export class UnboundResolver implements DnsProvider {
     this.stopPeriodicRevalidation();
     this.#resolver.cancel();
     this.#pending.clear();
+    // Dispose fallback provider if it exists
+    if (
+      this.#fallbackProvider !== undefined &&
+      typeof this.#fallbackProvider.dispose === 'function'
+    ) {
+      const result = this.#fallbackProvider.dispose();
+      if (result !== undefined) {
+        Promise.resolve(result).catch(() => {});
+      }
+    }
   }
 
   pruneCache(): number {
@@ -243,6 +296,9 @@ export class UnboundResolver implements DnsProvider {
    * is reachable, so the SERVFAIL can't be mistaken for a network failure.
    * The result is cached on the instance and stamped on every subsequent
    * per-domain lookup (see #dnssecValidating).
+   *
+   * If health check fails and a fallback provider is configured, activates
+   * fallback mode for subsequent queries.
    */
   async healthCheck(): Promise<{ healthy: boolean; dnssecValid: boolean; details: string }> {
     const testDomain = 'cloudflare.com';
@@ -257,11 +313,18 @@ export class UnboundResolver implements DnsProvider {
       ]);
       if (!aResult) {
         this.#dnssecValidating = false;
+        this.#activateFallback('health check: A record resolution failed');
         return { healthy: false, dnssecValid: false, details: 'A record resolution failed' };
       }
 
       const dnssecValid = await this.#probeDnssecValidation(timeoutMs);
       this.#dnssecValidating = dnssecValid;
+
+      if (!dnssecValid) {
+        this.#activateFallback('health check: DNSSEC validation not confirmed');
+      } else {
+        this.#deactivateFallback('health check: DNSSEC validation confirmed');
+      }
 
       return {
         healthy: true,
@@ -273,6 +336,7 @@ export class UnboundResolver implements DnsProvider {
       };
     } catch (err) {
       this.#dnssecValidating = false;
+      this.#activateFallback(`health check: ${String(err)}`);
       return { healthy: false, dnssecValid: false, details: String(err) };
     }
   }
@@ -283,6 +347,9 @@ export class UnboundResolver implements DnsProvider {
    *  Updates internal #dnssecValidating state and returns the new status.
    *  Call this periodically (e.g., every 10 minutes via scheduler) or
    *  on-demand after suspected resolver reconfiguration.
+   *
+   * If revalidation fails or validation is lost, and a fallback provider is
+   * configured, activates fallback mode for subsequent queries.
    */
   async revalidateDnssecValidation(): Promise<{
     healthy: boolean;
@@ -301,6 +368,7 @@ export class UnboundResolver implements DnsProvider {
       ]);
       if (!aResult) {
         this.#dnssecValidating = false;
+        this.#activateFallback('revalidation: A record resolution failed');
         const result = {
           healthy: false,
           dnssecValid: false,
@@ -314,6 +382,12 @@ export class UnboundResolver implements DnsProvider {
       const previousValidating = this.#dnssecValidating;
       const validationChanged = previousValidating !== dnssecValid;
       this.#dnssecValidating = dnssecValid;
+
+      if (!dnssecValid) {
+        this.#activateFallback('revalidation: DNSSEC validation lost');
+      } else if (previousValidating === false && dnssecValid === true) {
+        this.#deactivateFallback('revalidation: DNSSEC validation regained');
+      }
 
       // Invalidate memory cache when DNSSEC validation state changes,
       // so subsequent lookups get the correct dnssec stamp.
@@ -350,6 +424,7 @@ export class UnboundResolver implements DnsProvider {
       return result;
     } catch (err) {
       this.#dnssecValidating = false;
+      this.#activateFallback(`revalidation: ${String(err)}`);
       const result = { healthy: false, dnssecValid: false, details: String(err) };
       logger.warn({ err, details: result.details }, 'Unbound: DNSSEC revalidation error');
       return result;
@@ -437,6 +512,11 @@ export class UnboundResolver implements DnsProvider {
     options?: DnsCheckOptions,
   ): Promise<DnsCheckResult> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    // If in fallback mode and fallback provider exists, delegate to it
+    if (this.#usingFallback && this.#fallbackProvider !== undefined) {
+      return this.#fallbackProvider.checkAvailability(domain, signal, options);
+    }
 
     const startTime = Date.now();
 
@@ -736,6 +816,11 @@ export class UnboundResolver implements DnsProvider {
     options?: DnsCheckOptions,
   ): Promise<DnsCheckResult[]> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    // If in fallback mode and fallback provider exists, delegate to it
+    if (this.#usingFallback && this.#fallbackProvider !== undefined) {
+      return this.#fallbackProvider.checkBulk(domains, signal, options);
+    }
 
     const results: DnsCheckResult[] = new Array(domains.length);
     let nextIndex = 0;

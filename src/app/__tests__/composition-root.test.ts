@@ -561,6 +561,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_UNBOUND_TLS: false,
       DNS_UNBOUND_TIMEOUT_MS: 1500,
       DNS_UNBOUND_HEALTH_CHECK_ENABLED: false,
+      DNS_UNBOUND_FALLBACK_ENABLED: false,
       PUBLIC_SCORES_RETENTION_DAYS: 90,
       EVENTS_RETENTION_DAYS: 180,
       REDIS_TLS_ENABLED: false,
