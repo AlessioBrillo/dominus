@@ -26,27 +26,6 @@ export interface ProviderMetrics {
   currentErrors: ProviderErrorMetric[];
 }
 
-export interface DnsConsensusMetrics {
-  /** Available verdicts confirmed by the secondary across all runs. */
-  verifiedTotal: number;
-  /** Definitive disagreements (secondary Registered) across all runs. */
-  disagreedTotal: number;
-  /** Unanswerable domains (errors/timeouts) across all runs. */
-  unverifiableTotal: number;
-  /** Domains rescued by the tertiary leg (ADR-0045) across all runs. */
-  tertiaryRescuedTotal: number;
-  /** Domains where consensus was skipped due to authoritative zone overlap
-   *  with the primary — the verification leg's opinion would be a rubber
-   *  stamp of the same registry infrastructure (Consensus Theater prevention). */
-  originOverlapTotal: number;
-  /** Number of runs flagged degraded over consensus (ADR-0039). */
-  degradedRunsTotal: number;
-  /** Whether the most recent consensus-checked run was degraded. */
-  lastRunDegraded: boolean;
-  /** Whether consensus ran at least once since process start. */
-  observed: boolean;
-}
-
 export interface RdapConsensusMetrics {
   /** Available verdicts confirmed by the second RDAP leg across all runs. */
   verifiedTotal: number;
@@ -116,7 +95,6 @@ export interface PipelineRunSummary {
   lastRunAt: string | null;
   lastRunDurationMs: number | null;
   providerMetrics: Record<string, ProviderMetrics>;
-  dnsConsensus?: DnsConsensusMetrics;
   rdapConsensus?: RdapConsensusMetrics;
   trademarkGate?: TrademarkGateMetrics;
   dnsBreakers?: DnsBreakerMetrics;
@@ -126,6 +104,11 @@ export interface PipelineRunSummary {
   dnsRuntimeConsensus?: DnsRuntimeConsensusMetrics;
   /** DNS operator map version/source for staleness alerting (ADR-0065). */
   dnsOperatorMap?: DnsOperatorMapMetrics;
+  /** Pipeline degradation metrics (for alerting). */
+  pipelineDegraded?: { degradedRunsTotal: number };
+  /** Stage timeout and run counters per stage (for timeout rate alerting). */
+  stageTimeouts?: Record<string, number>;
+  stageRuns?: Record<string, number>;
 }
 
 /** Boot-time DNS consensus disjointness check tallies (ADR-0065).
@@ -235,6 +218,10 @@ export interface UnboundMetrics {
   dnssecValidTotal: number;
   /** Total DNSSEC bogus responses. */
   dnssecBogusTotal: number;
+  /** Total DNSSEC validation loss events (periodic revalidation). */
+  dnssecValidationLostTotal: number;
+  /** Total DNSSEC validation recovery events (periodic revalidation). */
+  dnssecValidationRecoveredTotal: number;
   /** Total cache hits. */
   cacheHitsTotal: number;
   /** Average query duration in ms. */

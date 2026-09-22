@@ -607,10 +607,10 @@ describe('PipelineOrchestrator (stage budget integrity)', () => {
       { baseMs: 10_000, perCandidateMs: 0, capMs: 60_000, graceMs: 0 },
     );
 
-    // Act — consensus is now handled by ConsensusDnsProvider, not the stage
+    // Act — DNS consensus is handled by UnboundResolver (ADR-0072), not the stage
     const result = await orchestrator.run({ brandableNames: ['a.com', 'b.com'] });
 
-    // Assert - with consensus in provider, stage no longer produces consensus degradation
+    // Assert - DNS consensus is in the provider layer; stage no longer produces consensus degradation
     // The run should complete successfully (degraded=false from stage perspective)
     expect(result.degraded).toBe(false);
     // Note: recommended count depends on downstream stages (RDAP, Trademark)

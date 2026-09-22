@@ -56,6 +56,8 @@ minus one run. Sizing rule: `WAL_RETENTION_DAYS <= PG_BASE_RETENTION_DAYS`.
 | Node loss, local backups intact | node-dependent (single disk) | replace node, restore |
 | Node loss + B2 shipping enabled | ≤ 5 min | provision node, pull base + WAL from B2 |
 | Node loss, no B2 | backups lost with the node | PITR not possible — restore from pg_dump of last scheduler run |
+| Unbound DNSSEC validation lost | false Available verdicts | immediate alert, investigate val-permissive-mode, restart Unbound |
+| Unbound resolver down | DNS resolution fails | `DNS_UNBOUND_HEALTH_CHECK_ENABLED` fails fast at boot, restart Unbound sidecar |
 
 B2 offsite shipping (`B2_BASE_REMOTE`, `B2_WAL_REMOTE`) is **strongly
 recommended**; without it, a node failure destroys the recovery data and the

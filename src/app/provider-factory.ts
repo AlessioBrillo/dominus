@@ -427,7 +427,11 @@ function resolveNameservers(raw: string | undefined): string[] | undefined {
 export function buildWhoisProviders(
   config: Config,
   redisClient?: RedisClient,
-): { raw: WhoisProviderInterface; withRetry: WhoisProviderInterface } {
+): {
+  raw: WhoisProviderInterface;
+  withRetry: WhoisProviderInterface;
+  rescue: WhoisProviderInterface;
+} {
   const defaultConfig = {
     maxTokens: config.WHOIS_RATE_LIMIT_TOKENS,
     tokensPerInterval: config.WHOIS_RATE_LIMIT_TOKENS,
@@ -447,7 +451,53 @@ export function buildWhoisProviders(
 
   const withRetry = new RetryingWhoisProvider(raw, {}, breaker);
 
-  return { raw, withRetry };
+  // Dedicated WHOIS provider for RDAP consensus rescue (ADR-0051/ADR-0058).
+  // Uses a separate rate limiter namespace to avoid head-of-line blocking
+  // on slow ccTLD WHOIS servers (.it, .de, .jp, .br) by the main WHOIS traffic.
+  const rescueRateLimiter = redisClient?.isConnected
+    ? new RedisRateLimiter({
+        tokens: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+        intervalMs: config.RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS,
+        namespace: 'dominus:rdap-consensus-whois-rescue:',
+      })
+    : new PriorityRateLimiter(
+        {
+          maxTokens: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+          tokensPerInterval: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+          intervalMs: config.RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS,
+        },
+        0,
+      );
+
+  // Per-TLD rate limiters for rescue: apply WHOIS_RATE_LIMIT_OVERRIDES
+  // merged with rescue defaults so ccTLD-specific limits work for rescue too.
+  const rescueDefaultConfig = {
+    maxTokens: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+    tokensPerInterval: config.RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS,
+    intervalMs: config.RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS,
+  };
+  const rescuePerTldLimiters = buildPerTldWhoisRateLimiters(
+    config.WHOIS_RATE_LIMIT_OVERRIDES,
+    rescueDefaultConfig,
+  );
+
+  const rawRescue = new NodeWhoisProviderWithIanaFallback({
+    timeoutMs: config.WHOIS_LOOKUP_TIMEOUT,
+    defaultRateLimiter: rescueRateLimiter,
+    perTldRateLimiters: rescuePerTldLimiters,
+  });
+
+  const rescueBreaker = redisClient?.isConnected
+    ? new DistributedCircuitBreaker(
+        'rdap-consensus-whois-rescue',
+        WHOIS_CIRCUIT_BREAKER,
+        redisClient,
+      )
+    : new CircuitBreaker(WHOIS_CIRCUIT_BREAKER);
+
+  const rescue = new RetryingWhoisProvider(rawRescue, {}, rescueBreaker);
+
+  return { raw, withRetry, rescue };
 }
 
 export function buildWaybackProvider(

@@ -5,232 +5,68 @@
 # The webhook receiver is configured in alertmanager.yml.
 
 groups:
-  - name: dominus-api
+  - name: dominus-dnssec
     rules:
-      - alert: ApiDown
-        expr: up{job="dominus_api"} == 0
-        for: 5m
+      - alert: UnboundDnssecValidationLost
+        expr: increase(dominus_unbound_dnssec_validation_lost_total[15m]) > 0
+        for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "DOMINUS API is unreachable"
-          description: "Prometheus cannot scrape the API endpoint for 5 minutes."
+          summary: "Unbound DNSSEC validation LOST — val-permissive-mode or misconfiguration detected"
+          description: "Periodic revalidation detected DNSSEC validation is no longer active on the Unbound resolver. This means the resolver may be accepting forged answers (val-permissive-mode: yes via rndc, or upstream forwarder failure). DNS verdicts are no longer trustworthy — investigate Unbound configuration immediately."
 
-      - alert: HighProviderErrorRate
-        expr: |
-          sum(rate(dominus_provider_errors_total[15m])) by (provider)
-            / clamp_min(sum(rate(dominus_provider_calls_total[15m])) by (provider), 1)
-            > 0.25
-        for: 10m
+      - alert: UnboundDnssecValidationRecovered
+        expr: increase(dominus_unbound_dnssec_validation_recovered_total[15m]) > 0
+        for: 1m
         labels:
-          severity: warning
+          severity: info
         annotations:
-          summary: "Provider {{ $labels.provider }} error rate above 25%"
-          description: "The {{ $labels.provider }} provider failed more than 25% of calls over 15 minutes."
+          summary: "Unbound DNSSEC validation REGAINED"
+          description: "DNSSEC validation was previously lost and has now been restored. The resolver is once again rejecting bogus signatures. Monitor for flapping (repeated lost/recovered cycles)."
 
-      - alert: StageErrorsIncreasing
-        expr: increase(dominus_stage_errors_total[30m]) > 0
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Pipeline stage {{ $labels.stage }} is failing"
-          description: "Stage '{{ $labels.stage }}' recorded new errors in the last 30 minutes."
-
-      - alert: TrademarkGateUnverifiedHigh
-        expr: |
-          sum(rate(dominus_trademark_gate_unverified_total[15m]))
-            / clamp_min(
-                sum(
-                  rate(dominus_trademark_gate_clear_total[15m])
-                  + rate(dominus_trademark_gate_blocked_total[15m])
-                  + rate(dominus_trademark_gate_unverified_total[15m])
-                ),
-                1
-              )
-            > 0.5
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "More than half of trademark gate checks are Unverified"
-          description: "{{ $value | humanizePercentage }} of trademark checks returned Unverified over 15 minutes — USPTO/EUIPO sources may be down (strict-TLD domains degrade to Unverified)."
-
-  - name: dominus-queue
+  - name: dominus-rdap-bootstrap
     rules:
-      - alert: QueueStuck
-        expr: dominus_queue_queued > 0 and dominus_queue_running == 0
+      - alert: RdapBootstrapFailuresHigh
+        expr: dominus_rdap_bootstrap_consecutive_failures > 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "IANA RDAP bootstrap refresh failing repeatedly"
+          description: "The IANA RDAP bootstrap has failed {{ $value }} consecutive times. The bootstrap cache is stale — RDAP lookups may route to wrong registries. Check egress to data.iana.org and the bootstrap URL."
+
+      - alert: RdapBootstrapDown
+        expr: dominus_rdap_bootstrap_ok == 0
         for: 15m
         labels:
           severity: critical
         annotations:
-          summary: "Job queue is stuck"
-          description: "{{ $value }} jobs are queued but no worker is running them."
+          summary: "IANA RDAP bootstrap is down"
+          description: "The last bootstrap refresh was unsuccessful. RDAP lookups are falling back to rdap.org routing which may be suboptimal or incorrect for some TLDs. Check network egress and IANA endpoint availability."
 
-      - alert: QueueBacklog
-        expr: dominus_queue_queued > 50
-        for: 30m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Job queue backlog"
-          description: "{{ $value }} jobs are waiting; workers cannot keep up."
-
-      - alert: DeadLetterJobs
-        expr: increase(dominus_queue_dead_letter_total[1h]) > 0
-        for: 1h
-        labels:
-          severity: warning
-        annotations:
-          summary: "Jobs entered the dead-letter queue"
-          description: "One or more jobs exhausted their retries in the last hour."
-
-  - name: dominus-dns-slo
+  - name: dominus-pipeline
     rules:
-      # SLO latency alerts (ADR-0064). The histograms are fed by the per-leg
-      # DNS and per-request RDAP telemetry; quantiles are computed across
-      # the aggregate (role/transport), not per endpoint, to avoid alert
-      # noise on anycast wobble of a single resolver.
-
-      - alert: DnsLegLatencyHigh
-        expr: |
-          histogram_quantile(0.99,
-            sum by (le, role, transport) (
-              rate(dominus_dns_leg_duration_ms_bucket[15m])
-            )
-          ) > 2000
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "DNS {{ $labels.role }} leg p99 above 2s ({{ $labels.transport }})"
-          description: "The p99 resolution time of the {{ $labels.role }} ({{ $labels.transport }}) opinion exceeded 2s for 10 minutes — verdicts are stalling near the 1.5s lookup timeout."
-
-      - alert: RdapRequestLatencyHigh
-        expr: |
-          histogram_quantile(0.99,
-            sum by (le) (
-              rate(dominus_rdap_request_duration_ms_bucket{outcome="ok"}[15m])
-            )
-          ) > 8000
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "RDAP request p99 above 8s"
-          description: "The p99 RDAP request duration exceeded 8s for 10 minutes — registries are slow; consensus downgrades may surface as unverifiable verdicts."
-
-      - alert: DnsBreakerOpen
-        expr: dominus_dns_breaker_open > 0
+      - alert: PipelineRunDegraded
+        expr: increase(dominus_pipeline_degraded_runs_total[15m]) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "DNS resolver endpoint circuit open"
-          description: "{{ $value }} resolver endpoint(s) are being skipped by the circuit breaker — verdicts rely on the remaining legs (fail-closed, no fabricated Available)."
+          summary: "Pipeline run completed in degraded mode"
+          description: "At least one pipeline run was flagged as degraded (stage timeout, error, or consensus unverifiable). Check degradedReasons in the run metadata — common causes: DNS budget exhaustion, RDAP consensus downgrades, Trademark gate failures."
 
-      # Tertiary leg degraded (ADR-0068): one of two dual-redundant operators down
-      # In dual-redundant mode, the tertiary leg has two independent providers.
-      # If exactly one has an open breaker, the leg is degraded but still functional.
-      # If both have open breakers, the tertiary leg is effectively disabled.
-      - alert: DnsTertiaryLegDegraded
+      - alert: PipelineStageTimeoutHigh
         expr: |
-          count(dominus_dns_breaker_open{endpoint=~"opendns|digitale-gesellschaft"} > 0) == 1
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "DNS tertiary consensus leg degraded - only 1 of 2 operators healthy"
-          description: "One of the two dual-redundant tertiary operators (OpenDNS or Digital Society) has its circuit breaker open. The 2-of-3 gate's third opinion is running on a single operator. If both open, the tertiary leg is effectively disabled (ADR-0068)."
-
-      - alert: DnsTertiaryBreakerOpen
-        expr: dominus_dns_breaker_open{endpoint=~"opendns|digitale-gesellschaft"} > 0
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "DNS tertiary leg circuit open (OpenDNS or Digital Society)"
-          description: "One of the two tertiary operators is being skipped by the circuit breaker — the 2-of-3 gate's third opinion is degraded to a single operator. If both open, the tertiary leg is effectively disabled (ADR-0065)."
-
-      - alert: DnsTertiaryLatencyHigh
-        expr: |
-          histogram_quantile(0.99,
-            sum by (le, endpoint) (
-              rate(dominus_dns_leg_duration_ms_bucket{role="tertiary"}[15m])
-            )
-          ) > 2000
+          sum(rate(dominus_stage_timeout_total[15m])) by (stage)
+            / clamp_min(sum(rate(dominus_stage_run_total[15m])) by (stage), 1)
+            > 0.1
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "DNS tertiary leg p99 above 2s ({{ $labels.endpoint }})"
-          description: "The p99 resolution time of the tertiary opinion ({{ $labels.endpoint }}) exceeded 2s for 10 minutes — the rescue leg is stalling near the 1.5s lookup timeout and may fail to confirm Available verdicts."
-
-      - alert: DnsDisjointnessResolutionPartial
-        expr: increase(dominus_dns_disjointness_resolution_partial_total[15m]) > 0
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Boot-time consensus disjointness check ran without full DoH IP resolution"
-          description: "The strongest overlap check (resolved-IP) degraded to hostname/operator hints at boot (ADR-0065) — the consensus gate was decided on partial evidence. A slow system resolver or changed DoH hostnames are the usual causes."
-
-      # DNS Consensus Theater prevention (authoritative zone overlap detection)
-      # These alerts fire when the consensus gate's verification legs share
-      # authoritative nameservers with the primary — their "independent" opinion
-      # is a rubber stamp of the same registry infrastructure (e.g., Verisign
-      # for .com/.net). The gate silently accepts the primary verdict for
-      # affected TLDs but records the overlap for observability.
-
-      - alert: DnsConsensusOriginOverlapHigh
-        expr: |
-          sum(rate(dominus_dns_consensus_origin_overlap_total[15m]))
-            / clamp_min(sum(rate(dominus_dns_consensus_verified_total[15m])), 1)
-            > 0.5
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "DNS consensus origin overlap exceeds 50% of verified domains"
-          description: "More than half of consensus-verified Available domains share authoritative zones with the primary leg — the 2-of-3 gate is ineffective for affected TLDs. Configure DNS_CONSENSUS_NAMESERVERS with a genuinely independent recursor."
-
-      - alert: DnsConsensusOriginOverlapAny
-        expr: increase(dominus_dns_consensus_origin_overlap_total[1h]) > 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "DNS consensus detected authoritative zone overlap"
-          description: "At least one Available verdict had its consensus skipped because the verification leg shares authoritative nameservers with the primary. The gate silently accepted the primary verdict (fail-open) but the consensus is a rubber stamp for affected TLDs. Immediate topology review required."
-
-  - name: dominus-cache
-    rules:
-      - alert: RedisDown
-        expr: up{job="redis"} == 0
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Redis is unreachable"
-          description: "Prometheus cannot scrape redis-exporter for 5 minutes."
-
-      - alert: RedisMemoryHigh
-        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Redis memory above 80%"
-          description: "Redis is using {{ $value | humanizePercentage }} of its maxmemory (volatile-lru eviction will kick in)."
-
-      - alert: RedisEvictionsHigh
-        expr: increase(redis_evicted_keys_total[15m]) > 1000
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High Redis eviction rate"
-          description: "More than 1000 keys evicted in 15 minutes — check cache TTLs and rate-limit window sizes."
+          summary: "Pipeline stage {{ $labels.stage }} timeout rate above 10%"
+          description: "More than 10% of {{ $labels.stage }} executions are hitting their budget timeout. Consider increasing STAGE_TIMEOUT_PER_CANDIDATE_MS or STAGE_TIMEOUT_CAP_MS for this stage."
 
   - name: dominus-backup
     rules:

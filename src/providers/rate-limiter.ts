@@ -207,15 +207,15 @@ export class RateLimiter {
 
 /**
  * Priority-aware RateLimiter that reserves a fraction of tokens for
- * consensus/tertiary DNS legs (ADR-0067). When the shared DNS rate limiter
- * is used, a heavy primary run can exhaust all tokens and starve the
- * verification legs. This subclass reserves tokens based on
- * DNS_CONSENSUS_PRIORITY_RESERVED_RATIO.
+ * high-priority traffic. Used for non-DNS rate limiters (WHOIS, Wayback,
+ * anonymous trademark budget) where a reserved share prevents starvation
+ * of critical paths. The reserved ratio is set to 0 for these callers
+ * (no reservation needed), keeping the subclass for API consistency.
  */
 export class PriorityRateLimiter extends RateLimiter {
   readonly #reservedRatio: number;
 
-  constructor(config: RateLimiterConfig, reservedRatio: number = 0.3) {
+  constructor(config: RateLimiterConfig, reservedRatio: number = 0) {
     super(config);
     this.#reservedRatio = Math.min(Math.max(reservedRatio, 0), 0.5);
   }
@@ -223,19 +223,4 @@ export class PriorityRateLimiter extends RateLimiter {
   protected override getReservedTokens(): number {
     return Math.floor(this.getMaxTokens() * this.#reservedRatio);
   }
-}
-
-/**
- * Creates a priority-aware rate limiter for DNS consensus.
- * Uses DNS_CONSENSUS_RATE_LIMIT_* config and DNS_CONSENSUS_PRIORITY_RESERVED_RATIO.
- */
-export function createDnsConsensusRateLimiter(
-  tokens: number,
-  intervalMs: number,
-  reservedRatio: number = 0.3,
-): PriorityRateLimiter {
-  return new PriorityRateLimiter(
-    { maxTokens: tokens, tokensPerInterval: tokens, intervalMs },
-    reservedRatio,
-  );
 }

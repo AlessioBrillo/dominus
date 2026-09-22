@@ -28,16 +28,24 @@ Additionally, the revalidation lacked Prometheus metrics, making it impossible t
 
 5. **Privacy-mode compliance**: The system-resolver approach works correctly with `DNS_PRIVACY_MODE=true` — the revalidation queries never leave the host except to the system resolver, maintaining the privacy guarantee while still detecting overlap.
 
-### Deprecation Notice (2026-09-08)
+### Completion (2026-09-21)
 
-**The entire 2-of-3 DNS consensus architecture (primary/secondary/tertiary legs) is deprecated** in favor of **Unbound as the single source of truth** (ADR-0072). 
+**The legacy 2-of-3 DNS consensus architecture has been fully removed** in favor of **Unbound as the single source of truth** (ADR-0072):
 
-- **Default changed**: `DNS_UNBOUND_ENABLED=true` (was `false`)
-- **When Unbound is enabled**: The consensus gate is automatically disabled — Unbound provides full DNSSEC validation, DoT/DoH upstream, and anycast-free resolution with a single properly configured recursive resolver cluster.
-- **Legacy path**: `DNS_UNBOUND_ENABLED=false` with `DNS_CONSENSUS_ENABLED=true` still works but emits a deprecation warning at startup. This path is retained only for deployments that cannot run Unbound (e.g., serverless, edge environments without container orchestration).
-- **Migration**: Set `DNS_UNBOUND_ENABLED=true` and `DNS_UNBOUND_HOSTS` (e.g., `unbound:5300` in Docker, `127.0.0.1,::1` on host). The consensus config (`DNS_CONSENSUS_*`) becomes irrelevant and can be removed.
-
-The consensus implementation (`ConsensusDnsProvider`, `buildDnsConsensusConfig`, `buildConsensusDnsProvider`, `consensus-engine.ts`) is marked `@deprecated` and will be removed in a future major version.
+- **Legacy code removed**: `ConsensusDnsProvider`, `consensus-engine.ts`, `createDnsConsensusRateLimiter`, `recordDnsConsensus` from MetricsCollector, `DnsConsensusMetrics` from types, all DNS consensus Prometheus metrics exports
+- **Default confirmed**: `DNS_UNBOUND_ENABLED=true` (was `false`) — the hardened architecture is now the only path
+- **Periodic DNSSEC revalidation added**: UnboundResolver now runs `revalidateDnssecValidation()` every 10 minutes (configurable via `dnssecRevalidationIntervalMs`), invalidates memory cache on validation state change, emits `dominus_unbound_dnssec_validation_lost_total` and `dominus_unbound_dnssec_validation_recovered_total` counters for Prometheus alerting
+- **RDAP consensus WHOIS rescue isolated**: Dedicated rescue provider with separate rate limiter namespace (`rdap-consensus-whois-rescue`) avoids head-of-line blocking on slow ccTLD WHOIS servers (.it, .de, .jp, .br)
+- **Intra-stage checkpointing enabled**: Default `PIPELINE_CHECKPOINT_BATCH_SIZE=500` enables mid-stage resume capability for large pipeline runs
+- **Prometheus alert rules added**:
+  - `UnboundDnssecValidationLost` (critical): DNSSEC validation lost via periodic revalidation
+  - `UnboundDnssecValidationRecovered` (info): DNSSEC validation regained
+  - `RdapBootstrapFailuresHigh` (warning): IANA RDAP bootstrap consecutive failures >3
+  - `RdapBootstrapDown` (critical): Bootstrap refresh unsuccessful
+  - `PipelineRunDegraded` (warning): Pipeline runs completing in degraded mode
+  - `PipelineStageTimeoutHigh` (warning): Stage timeout rate >10%
+- **All tests pass**: 2362 backend + 379 frontend, TypeScript strict, ESLint clean
+- **Migration complete**: The consensus config (`DNS_CONSENSUS_*`, `DNS_TERTIARY_*`) is now dead code and will be removed from config schema in v1.2.0
 
 ## Consequences
 

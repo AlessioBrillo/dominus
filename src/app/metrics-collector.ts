@@ -52,14 +52,6 @@ export class MetricsCollector {
   #totalRecommended = 0;
   #lastRunAt: string | null = null;
   #lastRunDurationMs: number | null = null;
-  #dnsConsensusVerified = 0;
-  #dnsConsensusDisagreed = 0;
-  #dnsConsensusUnverifiable = 0;
-  #dnsConsensusTertiaryRescued = 0;
-  #dnsConsensusOriginOverlap = 0;
-  #dnsConsensusDegradedRuns = 0;
-  #dnsConsensusLastDegraded = false;
-  #dnsConsensusObserved = false;
   #dnsBreakerOpen = 0;
   #dnsBreakerClosed = 0;
   #dnsBreakerHalfOpen = 0;
@@ -70,8 +62,6 @@ export class MetricsCollector {
    *  hostname/operator hints when the system resolver is slow at boot. */
   #dnsDisjointnessResolutionPartial = 0;
   #dnsDisjointnessObserved = false;
-  /** Consensus gate degradation reason counters (ADR-0065/0066). */
-  #dnsConsensusDegradedReason: Map<string, number> = new Map();
   /** DNS operator map version (for staleness alerting). */
   #dnsOperatorMapVersion: string | null = null;
   /** DNS operator map source (embedded/registry). */
@@ -97,6 +87,9 @@ export class MetricsCollector {
   #tmGateUsptoFailures = 0;
   #tmGateEuipoFailures = 0;
   #tmGateObserved = false;
+  /** Unbound DNSSEC validation loss events (ADR-0072). */
+  #unboundDnssecValidationLost = 0;
+  #unboundDnssecValidationRecovered = 0;
   /** USPTO WAF block rate (exposed as gauge for alerting). */
   #usptoWafBlockRate = 0;
   /** USPTO total request count. */
@@ -113,6 +106,11 @@ export class MetricsCollector {
   #unboundDnssecBogus = 0;
   #unboundCacheHits = 0;
   #unboundObserved = false;
+  /** Pipeline run degradation counter (for alerting). */
+  #pipelineDegradedRuns = 0;
+  /** Stage timeout and run counters per stage (for timeout rate alerting). */
+  #stageTimeouts: Map<string, number> = new Map();
+  #stageRuns: Map<string, number> = new Map();
   #backupLastSuccessAtMs: number | null = null;
   #pitrWalLagBytes: number | null = null;
   #pitrBaseBackupAgeHours: number | null = null;
@@ -189,24 +187,6 @@ export class MetricsCollector {
     this.#totalRecommended += recommended;
     this.#lastRunAt = new Date().toISOString();
     this.#lastRunDurationMs = durationMs;
-  }
-
-  recordDnsConsensus(stats: {
-    verified: number;
-    disagreed: number;
-    unverifiable: number;
-    degraded: boolean;
-    tertiaryRescued?: number;
-    originOverlap?: number;
-  }): void {
-    this.#dnsConsensusVerified += stats.verified;
-    this.#dnsConsensusDisagreed += stats.disagreed;
-    this.#dnsConsensusUnverifiable += stats.unverifiable;
-    this.#dnsConsensusTertiaryRescued += stats.tertiaryRescued ?? 0;
-    this.#dnsConsensusOriginOverlap += stats.originOverlap ?? 0;
-    this.#dnsConsensusObserved = true;
-    this.#dnsConsensusLastDegraded = stats.degraded;
-    if (stats.degraded) this.#dnsConsensusDegradedRuns++;
   }
 
   /** Record the current DNS circuit-breaker state counts (fed by the shared
@@ -325,13 +305,6 @@ export class MetricsCollector {
     this.#dnsDisjointnessObserved = true;
   }
 
-  /** Record a DNS consensus degradation reason (ADR-0065/0066).
-   *  Called when the consensus gate is vetoed/disabled at bootstrap. */
-  recordDnsConsensusDegradedReason(reason: string): void {
-    const count = this.#dnsConsensusDegradedReason.get(reason) ?? 0;
-    this.#dnsConsensusDegradedReason.set(reason, count + 1);
-  }
-
   /** Record a successful database backup (fed by BackupService.onSuccess). */
   recordBackupSuccess(timestampMs: number): void {
     this.#backupLastSuccessAtMs = timestampMs;
@@ -396,6 +369,37 @@ export class MetricsCollector {
     if (stats.fromCache) this.#unboundCacheHits++;
   }
 
+  /** Record a DNSSEC validation loss event for the Unbound resolver (ADR-0072).
+   *  Called when periodic revalidation detects validation was lost (e.g., val-permissive-mode).
+   *  Emits a counter metric for Prometheus alerting. */
+  recordUnboundDnssecValidationLost(): void {
+    this.#unboundDnssecValidationLost++;
+  }
+
+  /** Record a DNSSEC validation recovery event for the Unbound resolver (ADR-0072).
+   *  Called when periodic revalidation detects validation was regained after being lost.
+   *  Emits a counter metric for Prometheus alerting. */
+  recordUnboundDnssecValidationRecovered(): void {
+    this.#unboundDnssecValidationRecovered++;
+  }
+
+  /** Record a pipeline run completed in degraded mode (for alerting). */
+  recordPipelineDegraded(): void {
+    this.#pipelineDegradedRuns++;
+  }
+
+  /** Record a stage execution (for timeout rate alerting). */
+  recordStageRun(stageName: string): void {
+    const current = this.#stageRuns.get(stageName) ?? 0;
+    this.#stageRuns.set(stageName, current + 1);
+  }
+
+  /** Record a stage timeout (for timeout rate alerting). */
+  recordStageTimeout(stageName: string): void {
+    const current = this.#stageTimeouts.get(stageName) ?? 0;
+    this.#stageTimeouts.set(stageName, current + 1);
+  }
+
   /** Record DNS operator map version and source for staleness alerting.
    *  Called at startup after operator map initialization. */
   recordDnsOperatorMapInfo(version: string, source: 'embedded' | 'registry'): void {
@@ -433,16 +437,6 @@ export class MetricsCollector {
         lastRunAt: this.#lastRunAt,
         lastRunDurationMs: this.#lastRunDurationMs,
         providerMetrics,
-        dnsConsensus: {
-          verifiedTotal: this.#dnsConsensusVerified,
-          disagreedTotal: this.#dnsConsensusDisagreed,
-          unverifiableTotal: this.#dnsConsensusUnverifiable,
-          tertiaryRescuedTotal: this.#dnsConsensusTertiaryRescued,
-          originOverlapTotal: this.#dnsConsensusOriginOverlap,
-          degradedRunsTotal: this.#dnsConsensusDegradedRuns,
-          lastRunDegraded: this.#dnsConsensusLastDegraded,
-          observed: this.#dnsConsensusObserved,
-        },
         rdapConsensus: {
           verifiedTotal: this.#rdapConsensusVerified,
           disagreedTotal: this.#rdapConsensusDisagreed,
@@ -482,6 +476,11 @@ export class MetricsCollector {
           source: this.#dnsOperatorMapSource,
           observed: this.#dnsOperatorMapVersion !== null,
         },
+        pipelineDegraded: {
+          degradedRunsTotal: this.#pipelineDegradedRuns,
+        },
+        stageTimeouts: Object.fromEntries(this.#stageTimeouts),
+        stageRuns: Object.fromEntries(this.#stageRuns),
       },
       system: {
         uptimeSeconds: Math.floor(process.uptime()),
@@ -510,6 +509,8 @@ export class MetricsCollector {
         unknownTotal: this.#unboundUnknown,
         dnssecValidTotal: this.#unboundDnssecValid,
         dnssecBogusTotal: this.#unboundDnssecBogus,
+        dnssecValidationLostTotal: this.#unboundDnssecValidationLost,
+        dnssecValidationRecoveredTotal: this.#unboundDnssecValidationRecovered,
         cacheHitsTotal: this.#unboundCacheHits,
         avgDurationMs:
           this.#unboundTotalQueries > 0
@@ -536,13 +537,6 @@ export class MetricsCollector {
     this.#totalRecommended = 0;
     this.#lastRunAt = null;
     this.#lastRunDurationMs = null;
-    this.#dnsConsensusVerified = 0;
-    this.#dnsConsensusDisagreed = 0;
-    this.#dnsConsensusUnverifiable = 0;
-    this.#dnsConsensusTertiaryRescued = 0;
-    this.#dnsConsensusDegradedRuns = 0;
-    this.#dnsConsensusLastDegraded = false;
-    this.#dnsConsensusObserved = false;
     this.#dnsBreakerOpen = 0;
     this.#dnsBreakerClosed = 0;
     this.#dnsBreakerHalfOpen = 0;
@@ -550,7 +544,6 @@ export class MetricsCollector {
     this.#dnsBreakersObserved = false;
     this.#dnsDisjointnessResolutionPartial = 0;
     this.#dnsDisjointnessObserved = false;
-    this.#dnsConsensusDegradedReason.clear();
     this.#dnsOperatorMapVersion = null;
     this.#dnsOperatorMapSource = null;
     this.#rdapConsensusVerified = 0;

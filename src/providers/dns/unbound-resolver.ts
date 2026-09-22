@@ -104,6 +104,13 @@ export interface UnboundResolverOptions {
         fromCache: boolean;
       }) => void)
     | undefined;
+  /** Optional callback invoked when DNSSEC validation state changes.
+   *  Receives the new validation state (true = validating, false = lost).
+   *  Used to emit Prometheus metrics for alerting. */
+  onDnssecValidationChange?: ((validating: boolean) => void) | undefined;
+  /** Interval in milliseconds for periodic DNSSEC revalidation (default: 600000 = 10 min).
+   *  Set to 0 to disable periodic revalidation. */
+  dnssecRevalidationIntervalMs?: number;
 }
 
 export class UnboundResolver implements DnsProvider {
@@ -125,12 +132,15 @@ export class UnboundResolver implements DnsProvider {
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
   readonly #resolver: Resolver;
   readonly #onResolution: UnboundResolverOptions['onResolution'];
+  readonly #onDnssecValidationChange: UnboundResolverOptions['onDnssecValidationChange'];
+  readonly #dnssecRevalidationIntervalMs: number;
   readonly #dnssecValidationEnabled: boolean;
   readonly #dnssecMode: 'strict' | 'permissive' | 'disabled';
   /** Set once by healthCheck() at boot: whether the negative-control probe
    *  proved this resolver rejects bogus DNSSEC signatures. Per-domain lookups
    *  stamp this resolver-level fact — node:dns exposes no per-query AD flag. */
   #dnssecValidating = false;
+  #revalidationTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -151,6 +161,8 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecValidationEnabled = options.dnssecValidationEnabled ?? true;
     this.#dnssecMode = options.dnssecMode ?? 'strict';
     this.#onResolution = options.onResolution;
+    this.#onDnssecValidationChange = options.onDnssecValidationChange;
+    this.#dnssecRevalidationIntervalMs = options.dnssecRevalidationIntervalMs ?? 600_000;
 
     // Create dedicated resolver pointed at Unbound
     this.#resolver = new Resolver();
@@ -167,8 +179,32 @@ export class UnboundResolver implements DnsProvider {
     this.#cache = new LRUCache<string, DnsCheckResult>(cacheOptions);
   }
 
+  /** Start periodic DNSSEC validation revalidation (ADR-0072).
+   *  Runs revalidateDnssecValidation() at the configured interval.
+   *  Emits metrics via onDnssecValidationChange callback when state changes. */
+  startPeriodicRevalidation(): void {
+    if (this.#revalidationTimer !== undefined) return; // already running
+    if (this.#dnssecRevalidationIntervalMs <= 0) return; // disabled
+
+    this.#revalidationTimer = setInterval(async () => {
+      const result = await this.revalidateDnssecValidation();
+      if (this.#onDnssecValidationChange && result.dnssecValid !== this.#dnssecValidating) {
+        this.#onDnssecValidationChange(result.dnssecValid);
+      }
+    }, this.#dnssecRevalidationIntervalMs).unref();
+  }
+
+  /** Stop periodic DNSSEC validation revalidation. */
+  stopPeriodicRevalidation(): void {
+    if (this.#revalidationTimer !== undefined) {
+      clearInterval(this.#revalidationTimer);
+      this.#revalidationTimer = undefined;
+    }
+  }
+
   /** Close the resolver and clear pending lookups. */
   dispose(): void {
+    this.stopPeriodicRevalidation();
     this.#resolver.cancel();
     this.#pending.clear();
   }

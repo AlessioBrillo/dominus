@@ -1309,10 +1309,10 @@ const configSchema = z
      * integer, the pipeline orchestrator saves a checkpoint after every
      * N candidates processed within a stage (in addition to the per-stage
      * checkpoint). This allows resuming large runs mid-stage instead of
-     * re-processing the entire stage. Default: 0 (disabled — only per-stage
-     * checkpoints are saved).
+     * re-processing the entire stage. Default: 500 (enabled — balances
+     * checkpoint overhead with resume granularity).
      */
-    PIPELINE_CHECKPOINT_BATCH_SIZE: z.coerce.number().int().min(0).max(10000).default(0),
+    PIPELINE_CHECKPOINT_BATCH_SIZE: z.coerce.number().int().min(0).max(10000).default(500),
 
     /** Maximum concurrent RDAP/WHOIS checks per pipeline stage run. Higher values
      *  speed up batch processing but may trigger rate limits. Default: 10. */

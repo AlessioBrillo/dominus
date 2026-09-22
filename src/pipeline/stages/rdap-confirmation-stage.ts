@@ -110,6 +110,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     private readonly whoisBudgetMs: number = DEFAULT_WHOIS_BUDGET_MS,
     private readonly freshRdapProvider?: RdapProvider,
     private readonly consensusConfig?: RdapConsensusConfig,
+    private readonly whoisRescueProvider?: WhoisProvider,
   ) {}
 
   async process(
@@ -503,11 +504,13 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
 
   async #tryWhoisRescue(candidate: DomainCandidate): Promise<boolean | undefined> {
     const budgetSignal = AbortSignal.any([AbortSignal.timeout(this.whoisBudgetMs)]);
+    // Use dedicated rescue provider if available (separate rate limiter namespace,
+    // avoids head-of-line blocking by main WHOIS traffic on slow ccTLD servers).
+    const rescueProvider = this.whoisRescueProvider ?? this.whoisProvider;
+    if (!rescueProvider) return undefined;
     try {
       const result = await Promise.race([
-        this.whoisProvider!.checkAvailability(candidate.domain, budgetSignal).catch(
-          () => undefined,
-        ),
+        rescueProvider.checkAvailability(candidate.domain, budgetSignal).catch(() => undefined),
         new Promise<undefined>((resolve) =>
           setTimeout(() => resolve(undefined), this.whoisBudgetMs).unref(),
         ),

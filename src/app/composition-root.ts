@@ -710,7 +710,25 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     dnsBreakers,
     metrics,
   );
-  const { withRetry: whoisProvider } = buildWhoisProviders(config, redisClient);
+  // Start periodic DNSSEC revalidation for UnboundResolver (ADR-0072 hardening).
+  // Runs every 10 minutes by default to detect runtime reconfiguration
+  // (e.g., val-permissive-mode: yes via rndc). Emits metrics on state change.
+  if (config.DNS_UNBOUND_ENABLED && 'startPeriodicRevalidation' in dnsProvider) {
+    const unboundResolver = dnsProvider as {
+      startPeriodicRevalidation: (onChange: (validating: boolean) => void) => void;
+    };
+    unboundResolver.startPeriodicRevalidation((validating) => {
+      if (!validating) {
+        metrics.recordUnboundDnssecValidationLost();
+        getLogger().error('Unbound: DNSSEC validation LOST — emitting alert metric');
+      }
+    });
+    getLogger().info({ intervalMs: 600_000 }, 'Unbound: periodic DNSSEC revalidation started');
+  }
+  const { withRetry: whoisProvider, rescue: whoisRescueProvider } = buildWhoisProviders(
+    config,
+    redisClient,
+  );
 
   // --- Wayback Machine (expiry data enrichment) ---
   const waybackProvider = buildWaybackProvider(config, repos.providerCacheRepo);
@@ -912,6 +930,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.RDAP_WHOIS_BUDGET_MS,
       freshRdapProvider,
       rdapConsensusConfig,
+      whoisRescueProvider,
     ),
     new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
