@@ -305,6 +305,46 @@ export async function buildDnsProvider(
       );
     }
 
+    // Create fallback provider if enabled (for community edition without Docker)
+    let fallbackProvider: DnsProvider | undefined;
+    if (config.DNS_UNBOUND_FALLBACK_ENABLED) {
+      const nameservers = resolveNameservers(config.DNS_NAMESERVERS);
+      const parkingRegistry = ParkingIpRegistry.load(
+        config.DNS_PARKING_IPS_PATH,
+        fileURLToPath(new URL('../providers/dns/parking-ips.json', import.meta.url)),
+      );
+      fallbackProvider = new NodeDnsProvider({
+        cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+        maxSize: config.DNS_CACHE_MAX_SIZE,
+        lookupTimeoutMs: config.DNS_LOOKUP_TIMEOUT_MS,
+        lookupStrategy: effectiveDnsLookupStrategy(
+          config,
+          config.DNS_LOOKUP_STRATEGY,
+        ) as DnsLookupStrategy,
+        dohEndpoint: config.DNS_DOH_ENDPOINT,
+        dohMaxConnections: config.DNS_DOH_MAX_CONNECTIONS,
+        bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+        parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
+        parkingRegistry,
+        rateLimiter,
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+        persistentCache:
+          config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
+            ? providerCacheRepo
+            : undefined,
+        persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
+        persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
+        dotPoolMaxQueued: config.DNS_DOT_POOL_MAX_QUEUED,
+        ...(nameservers !== undefined ? { nameservers } : {}),
+        useDedicatedResolver: config.DNS_USE_DEDICATED_RESOLVER,
+        dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
+        dnssecNativeEnabled: config.DNS_NATIVE_DNSSEC_ENABLED && nameservers !== undefined,
+      });
+      getLogger().info(
+        'DNS: Unbound fallback enabled — NodeDnsProvider wired as graceful degradation',
+      );
+    }
+
     const resolver = new UnboundResolver({
       unboundHosts,
       lookupTimeoutMs: config.DNS_UNBOUND_TIMEOUT_MS,
@@ -324,27 +364,42 @@ export async function buildDnsProvider(
       dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
       dnssecMode: config.DNSSEC_MODE,
       onResolution: metrics?.recordUnboundResolution,
+      fallbackProvider,
     });
 
     // Health check at startup (unless disabled for testing)
     if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
       const health = await resolver.healthCheck();
       if (!health.healthy) {
-        throw new Error(
-          'Unbound resolver health check failed: cannot resolve cloudflare.com. ' +
-            'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
-            'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
-        );
+        if (config.DNS_UNBOUND_FALLBACK_ENABLED && fallbackProvider !== undefined) {
+          getLogger().warn(
+            { hosts: unboundHosts, details: health.details },
+            'Unbound resolver health check failed — fallback activated',
+          );
+        } else {
+          throw new Error(
+            'Unbound resolver health check failed: cannot resolve cloudflare.com. ' +
+              'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
+              'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
+          );
+        }
       }
       if (!health.dnssecValid) {
-        throw new Error(
-          'Unbound resolver reachable but DNSSEC validation is not confirmed active: ' +
-            `${health.details}. Verdicts depend on authenticated NXDOMAIN denial-of-existence — ` +
-            'without proven validation a misconfigured Unbound (e.g. val-permissive-mode: yes) ' +
-            'silently accepts forged answers. Fix the Unbound config (validator module + ' +
-            'val-permissive-mode: no), or set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to bypass ' +
-            '(not recommended for production).',
-        );
+        if (config.DNS_UNBOUND_FALLBACK_ENABLED && fallbackProvider !== undefined) {
+          getLogger().warn(
+            { hosts: unboundHosts, details: health.details },
+            'Unbound DNSSEC validation not confirmed — fallback activated',
+          );
+        } else {
+          throw new Error(
+            'Unbound resolver reachable but DNSSEC validation is not confirmed active: ' +
+              `${health.details}. Verdicts depend on authenticated NXDOMAIN denial-of-existence — ` +
+              'without proven validation a misconfigured Unbound (e.g. val-permissive-mode: yes) ' +
+              'silently accepts forged answers. Fix the Unbound config (validator module + ' +
+              'val-permissive-mode: no), or set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to bypass ' +
+              '(not recommended for production).',
+          );
+        }
       }
       getLogger().info(
         { hosts: unboundHosts, dnssecValid: health.dnssecValid, details: health.details },
