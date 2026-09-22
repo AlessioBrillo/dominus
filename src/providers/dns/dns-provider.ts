@@ -133,4 +133,14 @@ export interface DnsProvider {
    * reachable and functional before accepting traffic.
    */
   healthCheck?(): Promise<{ healthy: boolean; dnssecValid: boolean; details: string }>;
+  /**
+   * Set a fallback DNS provider for graceful degradation.
+   * Optional: only implemented by UnboundResolver.
+   */
+  setFallback?(provider: DnsProvider): void;
+  /**
+   * Check if currently using a fallback provider.
+   * Optional: only implemented by UnboundResolver.
+   */
+  isUsingFallback?(): boolean;
 }
