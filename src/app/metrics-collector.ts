@@ -383,6 +383,20 @@ export class MetricsCollector {
     this.#unboundDnssecValidationRecovered++;
   }
 
+  /** Record per-host DNSSEC validation state change for the Unbound resolver (ADR-0072).
+   *  Called when a specific host's DNSSEC validation state changes.
+   *  Emits a gauge metric for Prometheus alerting. */
+  recordUnboundHostDnssecChange(host: string, validating: boolean): void {
+    this.recordHistogram('dominus_unbound_host_dnssec_valid', validating ? 1 : 0, { host }, [0, 1]);
+  }
+
+  /** Record the current count of healthy Unbound hosts (ADR-0072).
+   *  Called when global DNSSEC validation state changes.
+   *  Emits a gauge metric for Prometheus alerting. */
+  recordUnboundHealthyHosts(count: number): void {
+    this.recordHistogram('dominus_unbound_healthy_hosts', count, {}, [0, 1, 2, 3, 4, 5, 10]);
+  }
+
   /** Record a pipeline run completed in degraded mode (for alerting). */
   recordPipelineDegraded(): void {
     this.#pipelineDegradedRuns++;

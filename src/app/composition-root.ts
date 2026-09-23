@@ -708,23 +708,16 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.providerCacheRepo,
     dnsRateLimiter,
     dnsBreakers,
-    metrics,
+    {
+      recordUnboundResolution: (stats) => metrics.recordUnboundResolution(stats),
+      recordUnboundHostDnssecChange: (host, validating) =>
+        metrics.recordUnboundHostDnssecChange(host, validating),
+      recordUnboundHealthyHosts: (count) => metrics.recordUnboundHealthyHosts(count),
+    },
   );
-  // Start periodic DNSSEC revalidation for UnboundResolver (ADR-0072 hardening).
-  // Runs every 10 minutes by default to detect runtime reconfiguration
-  // (e.g., val-permissive-mode: yes via rndc). Emits metrics on state change.
-  if (config.DNS_UNBOUND_ENABLED && 'startPeriodicRevalidation' in dnsProvider) {
-    const unboundResolver = dnsProvider as {
-      startPeriodicRevalidation: (onChange: (validating: boolean) => void) => void;
-    };
-    unboundResolver.startPeriodicRevalidation((validating) => {
-      if (!validating) {
-        metrics.recordUnboundDnssecValidationLost();
-        getLogger().error('Unbound: DNSSEC validation LOST — emitting alert metric');
-      }
-    });
-    getLogger().info({ intervalMs: 600_000 }, 'Unbound: periodic DNSSEC revalidation started');
-  }
+  // Periodic DNSSEC revalidation for UnboundResolver is now started inside buildDnsProvider
+  // with the configured interval (DNS_UNBOUND_REVALIDATION_INTERVAL_MS).
+  // The metrics callbacks are wired above.
   const { withRetry: whoisProvider, rescue: whoisRescueProvider } = buildWhoisProviders(
     config,
     redisClient,

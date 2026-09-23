@@ -438,6 +438,43 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
+     * Interval in milliseconds for periodic DNSSEC revalidation (default: 600000 = 10 min).
+     * Set to 0 to disable periodic revalidation.
+     */
+    DNS_UNBOUND_REVALIDATION_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(86_400_000)
+      .default(600_000),
+    /**
+     * Interval in milliseconds for periodic DNSSEC revalidation while in fallback mode (default: 30000 = 30s).
+     * Accelerated to detect recovery faster when fallback is active.
+     */
+    DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(300_000)
+      .default(30_000),
+    /**
+     * Maximum number of unhealthy hosts before activating fallback (default: 1).
+     * When >= this many hosts are unhealthy, fallback is activated.
+     * Set to 0 to disable (fallback only when ALL hosts unhealthy).
+     */
+    DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK: z.coerce.number().int().min(0).max(10).default(1),
+    /**
+     * Cooldown in ms before retrying an unhealthy host (default: 30000 = 30s).
+     * After a host is marked unhealthy, it will not be selected for queries
+     * until this cooldown expires.
+     */
+    DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(300_000)
+      .default(30_000),
+    /**
      * Enable parking page detection for registered domains via Unbound.
      * When true, registered domains whose A records resolve to known parking
      * IP ranges are NOT filtered — they pass through with `dnsStatus: 'parked'`,

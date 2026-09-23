@@ -292,7 +292,10 @@ export async function buildDnsProvider(
       status: 'registered' | 'available' | 'unknown';
       dnssec: 'valid' | 'unchecked' | 'bogus';
       fromCache: boolean;
+      host?: string;
     }) => void;
+    recordUnboundHostDnssecChange?: (host: string, validating: boolean) => void;
+    recordUnboundHealthyHosts?: (count: number) => void;
   },
 ): Promise<DnsProvider> {
   if (config.DNS_UNBOUND_ENABLED) {
@@ -364,6 +367,16 @@ export async function buildDnsProvider(
       dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
       dnssecMode: config.DNSSEC_MODE,
       onResolution: metrics?.recordUnboundResolution,
+      onHostDnssecValidationChange: metrics?.recordUnboundHostDnssecChange,
+      onDnssecValidationChange: (validating: boolean): void => {
+        if (metrics?.recordUnboundHealthyHosts) {
+          metrics.recordUnboundHealthyHosts(validating ? resolver.getHealthyHostCount() : 0);
+        }
+      },
+      dnssecRevalidationIntervalMs: config.DNS_UNBOUND_REVALIDATION_INTERVAL_MS,
+      dnssecFallbackRevalidationIntervalMs: config.DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS,
+      maxUnhealthyBeforeFallback: config.DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK,
+      unhealthyCooldownMs: config.DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS,
       fallbackProvider,
     });
 
@@ -373,12 +386,12 @@ export async function buildDnsProvider(
       if (!health.healthy) {
         if (config.DNS_UNBOUND_FALLBACK_ENABLED && fallbackProvider !== undefined) {
           getLogger().warn(
-            { hosts: unboundHosts, details: health.details },
+            { hosts: unboundHosts, details: health.details, hostResults: health.hosts },
             'Unbound resolver health check failed — fallback activated',
           );
         } else {
           throw new Error(
-            'Unbound resolver health check failed: cannot resolve cloudflare.com. ' +
+            'Unbound resolver health check failed: no healthy Unbound hosts. ' +
               'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
               'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
           );
@@ -387,12 +400,12 @@ export async function buildDnsProvider(
       if (!health.dnssecValid) {
         if (config.DNS_UNBOUND_FALLBACK_ENABLED && fallbackProvider !== undefined) {
           getLogger().warn(
-            { hosts: unboundHosts, details: health.details },
-            'Unbound DNSSEC validation not confirmed — fallback activated',
+            { hosts: unboundHosts, details: health.details, hostResults: health.hosts },
+            'Unbound DNSSEC validation not confirmed on any host — fallback activated',
           );
         } else {
           throw new Error(
-            'Unbound resolver reachable but DNSSEC validation is not confirmed active: ' +
+            'Unbound resolver reachable but DNSSEC validation is not confirmed active on any host: ' +
               `${health.details}. Verdicts depend on authenticated NXDOMAIN denial-of-existence — ` +
               'without proven validation a misconfigured Unbound (e.g. val-permissive-mode: yes) ' +
               'silently accepts forged answers. Fix the Unbound config (validator module + ' +
@@ -401,11 +414,31 @@ export async function buildDnsProvider(
           );
         }
       }
+      // Log per-host results for observability
+      for (const hostResult of health.hosts) {
+        getLogger().info(
+          {
+            host: hostResult.host,
+            healthy: hostResult.healthy,
+            dnssecValid: hostResult.dnssecValid,
+            consecutiveFailures: hostResult.consecutiveFailures,
+          },
+          'Unbound host health check result',
+        );
+      }
       getLogger().info(
-        { hosts: unboundHosts, dnssecValid: health.dnssecValid, details: health.details },
+        {
+          hosts: unboundHosts,
+          dnssecValid: health.dnssecValid,
+          healthyHosts: health.hosts.filter((h) => h.healthy).length,
+          details: health.details,
+        },
         'Unbound resolver health check passed',
       );
     }
+
+    // Start periodic revalidation
+    resolver.startPeriodicRevalidation();
 
     return resolver;
   }

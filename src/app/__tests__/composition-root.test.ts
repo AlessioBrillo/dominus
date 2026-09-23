@@ -590,6 +590,10 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       RDAP_CONSENSUS_PROBE_TIMEOUT_MS: 15000,
       RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: 2,
       RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: 2000,
+      DNS_UNBOUND_REVALIDATION_INTERVAL_MS: 600_000,
+      DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS: 30_000,
+      DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK: 1,
+      DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

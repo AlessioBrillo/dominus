@@ -19,6 +19,12 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     DNS_DNSSEC_VALIDATION_ENABLED: true,
     DNS_UNBOUND_HEALTH_CHECK_ENABLED: true,
+    DNS_UNBOUND_FALLBACK_ENABLED: true,
+    DNS_UNBOUND_REVALIDATION_INTERVAL_MS: 600_000,
+    DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS: 30_000,
+    DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK: 1,
+    DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
+    DNSSEC_MODE: 'strict',
     DNS_LOOKUP_TIMEOUT_MS: 1500,
     DNS_LOOKUP_STRATEGY: 'native',
     DNS_DOH_ENDPOINT: 'https://cloudflare-dns.com/dns-query',
@@ -43,9 +49,20 @@ describe('buildDnsProvider — boot health check gating', () => {
       healthy: true,
       dnssecValid: false,
       details: 'resolver accepted a bad signature',
+      hosts: [
+        {
+          host: '127.0.0.1',
+          dnssecValid: false,
+          healthy: true,
+          consecutiveFailures: 0,
+          lastCheckAt: Date.now(),
+        },
+      ],
     });
 
-    await expect(buildDnsProvider(makeConfig())).rejects.toThrow(/DNSSEC validation/);
+    await expect(
+      buildDnsProvider(makeConfig({ DNS_UNBOUND_FALLBACK_ENABLED: false })),
+    ).rejects.toThrow(/DNSSEC validation/);
   });
 
   it('rejects boot when the resolver is unreachable', async () => {
@@ -53,9 +70,20 @@ describe('buildDnsProvider — boot health check gating', () => {
       healthy: false,
       dnssecValid: false,
       details: 'A record resolution failed',
+      hosts: [
+        {
+          host: '127.0.0.1',
+          dnssecValid: false,
+          healthy: false,
+          consecutiveFailures: 1,
+          lastCheckAt: Date.now(),
+        },
+      ],
     });
 
-    await expect(buildDnsProvider(makeConfig())).rejects.toThrow(/health check failed/);
+    await expect(
+      buildDnsProvider(makeConfig({ DNS_UNBOUND_FALLBACK_ENABLED: false })),
+    ).rejects.toThrow(/health check failed/);
   });
 
   it('boots when the resolver is reachable and DNSSEC validation is proven', async () => {
@@ -63,6 +91,15 @@ describe('buildDnsProvider — boot health check gating', () => {
       healthy: true,
       dnssecValid: true,
       details: 'DNSSEC validation confirmed',
+      hosts: [
+        {
+          host: '127.0.0.1',
+          dnssecValid: true,
+          healthy: true,
+          consecutiveFailures: 0,
+          lastCheckAt: Date.now(),
+        },
+      ],
     });
 
     const provider = await buildDnsProvider(makeConfig());

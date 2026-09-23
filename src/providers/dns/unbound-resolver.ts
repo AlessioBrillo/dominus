@@ -29,6 +29,12 @@ const STALE_UNKNOWN_WINDOW_MS = 15 * 60_000;
  */
 const STALE_AVAILABLE_DEFAULT_MS = 24 * 60 * 60_000;
 
+/** Default cooldown for unhealthy hosts before retry (ms). */
+const DEFAULT_UNHEALTHY_COOLDOWN_MS = 30_000;
+
+/** Maximum consecutive failures before marking host unhealthy. */
+const MAX_CONSECUTIVE_FAILURES = 3;
+
 type DnsRecordType = 'A' | 'AAAA' | 'NS' | 'SOA';
 
 /** Well-known DNSSEC test zone used as a positive control: proves the test
@@ -43,6 +49,24 @@ export const DNSSEC_NEGATIVE_CONTROL = 'sigfail.verteiltesysteme.net';
 /** Fallback negative control, used only when the primary zone is unreachable
  *  (retired test domain / egress filtering). Exported for test use only. */
 export const DNSSEC_NEGATIVE_CONTROL_FALLBACK = 'dnssec-failed.org';
+
+interface HostHealth {
+  resolver: Resolver;
+  consecutiveFailures: number;
+  lastFailureAt: number;
+  lastCheckAt: number;
+  dnssecValid: boolean;
+  healthy: boolean;
+}
+
+/** Per-host DNSSEC validation result for metrics/observability. */
+export interface UnboundHostDnssecResult {
+  host: string;
+  dnssecValid: boolean;
+  healthy: boolean;
+  consecutiveFailures: number;
+  lastCheckAt: number;
+}
 
 /**
  * UnboundResolver provides DNS resolution via a local Unbound recursive
@@ -60,6 +84,13 @@ export const DNSSEC_NEGATIVE_CONTROL_FALLBACK = 'dnssec-failed.org';
  * This is the SINGLE SOURCE OF TRUTH for DNS in the hardened architecture
  * (ADR-0072). All multi-leg consensus complexity (DoH/DoT/tertiary) is
  * deprecated in favor of one properly configured Unbound cluster.
+ *
+ * Multi-host support (ADR-0072 completion):
+ * - Each host gets its own Resolver instance for isolation
+ * - Round-robin selection with health awareness
+ * - Per-host DNSSEC validation via negative-control probe
+ * - Automatic failover to fallback provider when all hosts unhealthy
+ * - Automatic recovery with accelerated revalidation in fallback mode
  */
 export interface UnboundResolverOptions {
   /** Unbound host(s) — comma-separated, e.g. '127.0.0.1,::1' or 'unbound:5300'. */
@@ -102,15 +133,27 @@ export interface UnboundResolverOptions {
         status: 'registered' | 'available' | 'unknown';
         dnssec: 'valid' | 'unchecked' | 'bogus';
         fromCache: boolean;
+        host?: string;
       }) => void)
     | undefined;
   /** Optional callback invoked when DNSSEC validation state changes.
    *  Receives the new validation state (true = validating, false = lost).
    *  Used to emit Prometheus metrics for alerting. */
   onDnssecValidationChange?: ((validating: boolean) => void) | undefined;
+  /** Optional callback invoked when per-host DNSSEC validation state changes.
+   *  Receives host and new validation state. Used for per-host metrics. */
+  onHostDnssecValidationChange?: ((host: string, validating: boolean) => void) | undefined;
   /** Interval in milliseconds for periodic DNSSEC revalidation (default: 600000 = 10 min).
    *  Set to 0 to disable periodic revalidation. */
   dnssecRevalidationIntervalMs?: number;
+  /** Interval in milliseconds for periodic DNSSEC revalidation while in fallback mode (default: 30000 = 30s).
+   *  Accelerated to detect recovery faster. */
+  dnssecFallbackRevalidationIntervalMs?: number;
+  /** Maximum number of unhealthy hosts before activating fallback (default: 1).
+   *  When >= this many hosts are unhealthy, fallback is activated. */
+  maxUnhealthyBeforeFallback?: number;
+  /** Cooldown in ms before retrying an unhealthy host (default: 30000). */
+  unhealthyCooldownMs?: number;
   /** Optional fallback DNS provider. When Unbound becomes unhealthy or loses
    *  DNSSEC validation, the resolver delegates to this provider.
    *  Used for graceful degradation in community edition without Docker. */
@@ -134,21 +177,25 @@ export class UnboundResolver implements DnsProvider {
   readonly #cacheDisabled: boolean;
   readonly #cache: LRUCache<string, DnsCheckResult>;
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
-  readonly #resolver: Resolver;
+  readonly #hostHealth: Map<string, HostHealth> = new Map();
+  #roundRobinIndex = 0;
   readonly #onResolution: UnboundResolverOptions['onResolution'];
   readonly #onDnssecValidationChange: UnboundResolverOptions['onDnssecValidationChange'];
+  readonly #onHostDnssecValidationChange: UnboundResolverOptions['onHostDnssecValidationChange'];
   readonly #dnssecRevalidationIntervalMs: number;
+  readonly #dnssecFallbackRevalidationIntervalMs: number;
   readonly #dnssecValidationEnabled: boolean;
   readonly #dnssecMode: 'strict' | 'permissive' | 'disabled';
   /** Optional fallback DNS provider for graceful degradation. */
   #fallbackProvider: DnsProvider | undefined;
   /** Whether we are currently using the fallback provider. */
   #usingFallback = false;
-  /** Set once by healthCheck() at boot: whether the negative-control probe
-   *  proved this resolver rejects bogus DNSSEC signatures. Per-domain lookups
-   *  stamp this resolver-level fact — node:dns exposes no per-query AD flag. */
+  /** Global DNSSEC validation state (true if ANY host validates). */
   #dnssecValidating = false;
   #revalidationTimer: ReturnType<typeof setInterval> | undefined;
+  #fallbackRevalidationTimer: ReturnType<typeof setInterval> | undefined;
+  readonly #maxUnhealthyBeforeFallback: number;
+  readonly #unhealthyCooldownMs: number;
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -170,13 +217,28 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecMode = options.dnssecMode ?? 'strict';
     this.#onResolution = options.onResolution;
     this.#onDnssecValidationChange = options.onDnssecValidationChange;
+    this.#onHostDnssecValidationChange = options.onHostDnssecValidationChange;
     this.#dnssecRevalidationIntervalMs = options.dnssecRevalidationIntervalMs ?? 600_000;
+    this.#dnssecFallbackRevalidationIntervalMs =
+      options.dnssecFallbackRevalidationIntervalMs ?? 30_000;
     this.#fallbackProvider = options.fallbackProvider;
     this.#usingFallback = false;
+    this.#maxUnhealthyBeforeFallback = options.maxUnhealthyBeforeFallback ?? 1;
+    this.#unhealthyCooldownMs = options.unhealthyCooldownMs ?? DEFAULT_UNHEALTHY_COOLDOWN_MS;
 
-    // Create dedicated resolver pointed at Unbound
-    this.#resolver = new Resolver();
-    this.#resolver.setServers(this.#unboundHosts);
+    // Create dedicated resolver per host for isolation
+    for (const host of this.#unboundHosts) {
+      const resolver = new Resolver();
+      resolver.setServers([host]);
+      this.#hostHealth.set(host, {
+        resolver,
+        consecutiveFailures: 0,
+        lastFailureAt: 0,
+        lastCheckAt: 0,
+        dnssecValid: false,
+        healthy: true, // Assume healthy until proven otherwise
+      });
+    }
 
     this.#cacheDisabled = this.#maxSize <= 0;
     const cacheOptions: LRUCache.Options<string, DnsCheckResult, unknown> = {
@@ -187,6 +249,35 @@ export class UnboundResolver implements DnsProvider {
     };
     if (this.#cacheTtlMs > 0) cacheOptions.ttl = this.#cacheTtlMs;
     this.#cache = new LRUCache<string, DnsCheckResult>(cacheOptions);
+  }
+
+  /** Get all configured hosts. */
+  getHosts(): string[] {
+    return [...this.#unboundHosts];
+  }
+
+  /** Get per-host health status for observability. */
+  getHostHealth(): UnboundHostDnssecResult[] {
+    const results: UnboundHostDnssecResult[] = [];
+    for (const [host, health] of this.#hostHealth) {
+      results.push({
+        host,
+        dnssecValid: health.dnssecValid,
+        healthy: health.healthy,
+        consecutiveFailures: health.consecutiveFailures,
+        lastCheckAt: health.lastCheckAt,
+      });
+    }
+    return results;
+  }
+
+  /** Get count of healthy hosts. */
+  getHealthyHostCount(): number {
+    let count = 0;
+    for (const health of this.#hostHealth.values()) {
+      if (health.healthy) count++;
+    }
+    return count;
   }
 
   /** Set a fallback DNS provider at runtime. */
@@ -204,11 +295,17 @@ export class UnboundResolver implements DnsProvider {
     if (!this.#usingFallback) {
       this.#usingFallback = true;
       logger.warn(
-        { fallback: this.#fallbackProvider?.name, reason },
+        {
+          fallback: this.#fallbackProvider?.name,
+          reason,
+          healthyHosts: this.getHealthyHostCount(),
+        },
         'Unbound: activating fallback provider',
       );
       // Clear memory cache so subsequent lookups go to fallback
       if (!this.#cacheDisabled) this.#cache.clear();
+      // Start accelerated revalidation timer
+      this.#startFallbackRevalidation();
     }
   }
 
@@ -216,9 +313,45 @@ export class UnboundResolver implements DnsProvider {
   #deactivateFallback(reason: string): void {
     if (this.#usingFallback) {
       this.#usingFallback = false;
-      logger.info({ reason }, 'Unbound: deactivating fallback provider, resuming primary');
+      logger.info(
+        { reason, healthyHosts: this.getHealthyHostCount() },
+        'Unbound: deactivating fallback provider, resuming primary',
+      );
       // Clear memory cache so subsequent lookups go to primary
       if (!this.#cacheDisabled) this.#cache.clear();
+      // Stop accelerated revalidation timer
+      this.#stopFallbackRevalidation();
+      // Resume normal periodic revalidation
+      this.startPeriodicRevalidation();
+    }
+  }
+
+  /** Start accelerated revalidation while in fallback mode. */
+  #startFallbackRevalidation(): void {
+    if (this.#fallbackRevalidationTimer !== undefined) return;
+    if (this.#dnssecFallbackRevalidationIntervalMs <= 0) return;
+
+    this.#fallbackRevalidationTimer = setInterval(async () => {
+      const result = await this.revalidateDnssecValidation();
+      // Check if ANY host is now healthy + DNSSEC valid
+      const anyHealthyValidating = this.getHealthyHostCount() > 0 && result.dnssecValid;
+      if (this.#onDnssecValidationChange && anyHealthyValidating !== this.#dnssecValidating) {
+        this.#onDnssecValidationChange(anyHealthyValidating);
+      }
+      // Auto-recover if we have healthy hosts with DNSSEC validation
+      if (anyHealthyValidating && this.#usingFallback) {
+        this.#deactivateFallback(
+          'fallback revalidation: DNSSEC validation regained on healthy host',
+        );
+      }
+    }, this.#dnssecFallbackRevalidationIntervalMs).unref();
+  }
+
+  /** Stop accelerated revalidation timer. */
+  #stopFallbackRevalidation(): void {
+    if (this.#fallbackRevalidationTimer !== undefined) {
+      clearInterval(this.#fallbackRevalidationTimer);
+      this.#fallbackRevalidationTimer = undefined;
     }
   }
 
@@ -228,6 +361,7 @@ export class UnboundResolver implements DnsProvider {
   startPeriodicRevalidation(): void {
     if (this.#revalidationTimer !== undefined) return; // already running
     if (this.#dnssecRevalidationIntervalMs <= 0) return; // disabled
+    if (this.#usingFallback) return; // fallback mode uses accelerated timer
 
     this.#revalidationTimer = setInterval(async () => {
       const result = await this.revalidateDnssecValidation();
@@ -243,13 +377,19 @@ export class UnboundResolver implements DnsProvider {
       clearInterval(this.#revalidationTimer);
       this.#revalidationTimer = undefined;
     }
+    this.#stopFallbackRevalidation();
   }
 
   /** Close the resolver and clear pending lookups. */
   dispose(): void {
     this.stopPeriodicRevalidation();
-    this.#resolver.cancel();
+    // Clear pending first so in-flight lookups fail fast
     this.#pending.clear();
+    for (const health of this.#hostHealth.values()) {
+      health.resolver.cancel();
+    }
+    // Don't clear hostHealth - in-flight lookups may still need it
+    // The resolvers are cancelled, so new lookups will fail fast
     // Dispose fallback provider if it exists
     if (
       this.#fallbackProvider !== undefined &&
@@ -299,46 +439,103 @@ export class UnboundResolver implements DnsProvider {
    *
    * If health check fails and a fallback provider is configured, activates
    * fallback mode for subsequent queries.
+   *
+   * Runs per-host probes and aggregates results.
    */
-  async healthCheck(): Promise<{ healthy: boolean; dnssecValid: boolean; details: string }> {
+  async healthCheck(): Promise<{
+    healthy: boolean;
+    dnssecValid: boolean;
+    details: string;
+    hosts: UnboundHostDnssecResult[];
+  }> {
     const testDomain = 'cloudflare.com';
     const timeoutMs = 3000;
 
-    try {
-      const aResult = await Promise.race([
-        this.#resolveWithTimeout(testDomain, 'A', timeoutMs),
-        new Promise<boolean>((_, reject) =>
-          setTimeout(() => reject(new Error('health check timeout')), timeoutMs),
-        ),
-      ]);
-      if (!aResult) {
-        this.#dnssecValidating = false;
-        this.#activateFallback('health check: A record resolution failed');
-        return { healthy: false, dnssecValid: false, details: 'A record resolution failed' };
+    const hostResults: UnboundHostDnssecResult[] = [];
+    let anyHealthy = false;
+    let anyDnssecValid = false;
+
+    for (const host of this.#unboundHosts) {
+      const health = this.#hostHealth.get(host)!;
+      try {
+        const aResult = await Promise.race([
+          this.#resolveWithTimeout(host, testDomain, 'A', timeoutMs),
+          new Promise<boolean>((_, reject) =>
+            setTimeout(() => reject(new Error('health check timeout')), timeoutMs),
+          ),
+        ]);
+        if (!aResult) {
+          this.#markHostUnhealthy(host, 'A record resolution failed');
+          hostResults.push({
+            host,
+            dnssecValid: false,
+            healthy: false,
+            consecutiveFailures: health.consecutiveFailures,
+            lastCheckAt: Date.now(),
+          });
+          continue;
+        }
+
+        const dnssecValid = await this.#probeDnssecValidationOnHost(host, timeoutMs);
+        health.dnssecValid = dnssecValid;
+        health.lastCheckAt = Date.now();
+        health.healthy = true;
+        health.consecutiveFailures = 0;
+
+        if (dnssecValid) {
+          anyDnssecValid = true;
+        }
+        anyHealthy = true;
+
+        hostResults.push({
+          host,
+          dnssecValid,
+          healthy: true,
+          consecutiveFailures: 0,
+          lastCheckAt: health.lastCheckAt,
+        });
+
+        if (this.#onHostDnssecValidationChange) {
+          this.#onHostDnssecValidationChange(host, dnssecValid);
+        }
+      } catch (err) {
+        this.#markHostUnhealthy(host, String(err));
+        hostResults.push({
+          host,
+          dnssecValid: false,
+          healthy: false,
+          consecutiveFailures: health.consecutiveFailures,
+          lastCheckAt: Date.now(),
+        });
       }
-
-      const dnssecValid = await this.#probeDnssecValidation(timeoutMs);
-      this.#dnssecValidating = dnssecValid;
-
-      if (!dnssecValid) {
-        this.#activateFallback('health check: DNSSEC validation not confirmed');
-      } else {
-        this.#deactivateFallback('health check: DNSSEC validation confirmed');
-      }
-
-      return {
-        healthy: true,
-        dnssecValid,
-        details: dnssecValid
-          ? 'DNSSEC validation confirmed (negative-control signature rejected with SERVFAIL)'
-          : 'DNSSEC validation NOT confirmed — resolver accepted a bad signature, or the ' +
-            'negative-control probe was inconclusive (network error)',
-      };
-    } catch (err) {
-      this.#dnssecValidating = false;
-      this.#activateFallback(`health check: ${String(err)}`);
-      return { healthy: false, dnssecValid: false, details: String(err) };
     }
+
+    this.#dnssecValidating = anyDnssecValid;
+
+    if (!anyHealthy) {
+      this.#activateFallback('health check: no healthy Unbound hosts');
+      return {
+        healthy: false,
+        dnssecValid: false,
+        details: 'No healthy Unbound hosts',
+        hosts: hostResults,
+      };
+    }
+
+    if (!anyDnssecValid) {
+      this.#activateFallback('health check: DNSSEC validation not confirmed on any host');
+    } else {
+      this.#deactivateFallback('health check: DNSSEC validation confirmed');
+    }
+
+    return {
+      healthy: true,
+      dnssecValid: anyDnssecValid,
+      details: anyDnssecValid
+        ? 'DNSSEC validation confirmed on at least one host (negative-control signature rejected with SERVFAIL)'
+        : 'DNSSEC validation NOT confirmed — all healthy hosts accepted a bad signature, or negative-control probe was inconclusive',
+      hosts: hostResults,
+    };
   }
 
   /** Periodic DNSSEC validation revalidation (ADR-0072 hardening).
@@ -355,83 +552,142 @@ export class UnboundResolver implements DnsProvider {
     healthy: boolean;
     dnssecValid: boolean;
     details: string;
+    hosts: UnboundHostDnssecResult[];
   }> {
     const testDomain = 'cloudflare.com';
     const timeoutMs = 3000;
 
-    try {
-      const aResult = await Promise.race([
-        this.#resolveWithTimeout(testDomain, 'A', timeoutMs),
-        new Promise<boolean>((_, reject) =>
-          setTimeout(() => reject(new Error('revalidation timeout')), timeoutMs),
-        ),
-      ]);
-      if (!aResult) {
-        this.#dnssecValidating = false;
-        this.#activateFallback('revalidation: A record resolution failed');
-        const result = {
+    const hostResults: UnboundHostDnssecResult[] = [];
+    let anyHealthy = false;
+    let anyDnssecValid = false;
+
+    for (const host of this.#unboundHosts) {
+      const health = this.#hostHealth.get(host)!;
+      // Skip hosts that are in cooldown
+      if (!health.healthy && Date.now() - health.lastFailureAt < this.#unhealthyCooldownMs) {
+        hostResults.push({
+          host,
+          dnssecValid: health.dnssecValid,
           healthy: false,
-          dnssecValid: false,
-          details: 'A record resolution failed during revalidation',
-        };
-        logger.warn({ details: result.details }, 'Unbound: DNSSEC revalidation failed');
-        return result;
+          consecutiveFailures: health.consecutiveFailures,
+          lastCheckAt: health.lastCheckAt,
+        });
+        continue;
       }
 
-      const dnssecValid = await this.#probeDnssecValidation(timeoutMs);
-      const previousValidating = this.#dnssecValidating;
-      const validationChanged = previousValidating !== dnssecValid;
-      this.#dnssecValidating = dnssecValid;
+      try {
+        const aResult = await Promise.race([
+          this.#resolveWithTimeout(host, testDomain, 'A', timeoutMs),
+          new Promise<boolean>((_, reject) =>
+            setTimeout(() => reject(new Error('revalidation timeout')), timeoutMs),
+          ),
+        ]);
+        if (!aResult) {
+          this.#markHostUnhealthy(host, 'A record resolution failed');
+          hostResults.push({
+            host,
+            dnssecValid: false,
+            healthy: false,
+            consecutiveFailures: health.consecutiveFailures,
+            lastCheckAt: Date.now(),
+          });
+          continue;
+        }
 
-      if (!dnssecValid) {
-        this.#activateFallback('revalidation: DNSSEC validation lost');
-      } else if (previousValidating === false && dnssecValid === true) {
-        this.#deactivateFallback('revalidation: DNSSEC validation regained');
+        const dnssecValid = await this.#probeDnssecValidationOnHost(host, timeoutMs);
+        const previousDnssecValid = health.dnssecValid;
+        health.dnssecValid = dnssecValid;
+        health.lastCheckAt = Date.now();
+        health.healthy = true;
+        health.consecutiveFailures = 0;
+
+        if (dnssecValid) {
+          anyDnssecValid = true;
+        }
+        anyHealthy = true;
+
+        hostResults.push({
+          host,
+          dnssecValid,
+          healthy: true,
+          consecutiveFailures: 0,
+          lastCheckAt: health.lastCheckAt,
+        });
+
+        if (this.#onHostDnssecValidationChange && dnssecValid !== previousDnssecValid) {
+          this.#onHostDnssecValidationChange(host, dnssecValid);
+        }
+      } catch (err) {
+        this.#markHostUnhealthy(host, String(err));
+        hostResults.push({
+          host,
+          dnssecValid: health.dnssecValid,
+          healthy: false,
+          consecutiveFailures: health.consecutiveFailures,
+          lastCheckAt: Date.now(),
+        });
       }
+    }
 
-      // Invalidate memory cache when DNSSEC validation state changes,
-      // so subsequent lookups get the correct dnssec stamp.
-      if (validationChanged && !this.#cacheDisabled) {
-        this.#cache.clear();
-        logger.info(
-          { previousValidating, dnssecValid },
-          'Unbound: memory cache invalidated due to DNSSEC validation state change',
-        );
-      }
+    const previousValidating = this.#dnssecValidating;
+    const validationChanged = previousValidating !== anyDnssecValid;
+    this.#dnssecValidating = anyDnssecValid;
 
+    if (!anyHealthy) {
+      this.#activateFallback('revalidation: no healthy Unbound hosts');
       const result = {
-        healthy: true,
-        dnssecValid,
-        details: dnssecValid
-          ? 'DNSSEC validation confirmed (negative-control signature rejected with SERVFAIL)'
-          : 'DNSSEC validation LOST — resolver accepted a bad signature (possible val-permissive-mode reconfiguration)',
+        healthy: false,
+        dnssecValid: false,
+        details: 'No healthy Unbound hosts during revalidation',
+        hosts: hostResults,
       };
-
-      if (previousValidating && !dnssecValid) {
-        logger.error(
-          { previousValidating, dnssecValid },
-          'Unbound: DNSSEC validation LOST during revalidation',
-        );
-      } else if (!previousValidating && dnssecValid) {
-        logger.info(
-          { previousValidating, dnssecValid },
-          'Unbound: DNSSEC validation REGAINED during revalidation',
-        );
-      } else {
-        logger.debug({ dnssecValid }, 'Unbound: DNSSEC revalidation completed');
-      }
-
-      return result;
-    } catch (err) {
-      this.#dnssecValidating = false;
-      this.#activateFallback(`revalidation: ${String(err)}`);
-      const result = { healthy: false, dnssecValid: false, details: String(err) };
-      logger.warn({ err, details: result.details }, 'Unbound: DNSSEC revalidation error');
+      logger.warn({ details: result.details }, 'Unbound: DNSSEC revalidation failed');
       return result;
     }
+
+    if (!anyDnssecValid) {
+      this.#activateFallback('revalidation: DNSSEC validation lost on all hosts');
+    } else if (previousValidating === false && anyDnssecValid === true) {
+      this.#deactivateFallback('revalidation: DNSSEC validation regained');
+    }
+
+    // Invalidate memory cache when DNSSEC validation state changes,
+    // so subsequent lookups get the correct dnssec stamp.
+    if (validationChanged && !this.#cacheDisabled) {
+      this.#cache.clear();
+      logger.info(
+        { previousValidating, dnssecValid: anyDnssecValid },
+        'Unbound: memory cache invalidated due to DNSSEC validation state change',
+      );
+    }
+
+    const result = {
+      healthy: true,
+      dnssecValid: anyDnssecValid,
+      details: anyDnssecValid
+        ? 'DNSSEC validation confirmed (negative-control signature rejected with SERVFAIL)'
+        : 'DNSSEC validation LOST — all healthy hosts accepted a bad signature (possible val-permissive-mode reconfiguration)',
+      hosts: hostResults,
+    };
+
+    if (previousValidating && !anyDnssecValid) {
+      logger.error(
+        { previousValidating, dnssecValid: anyDnssecValid },
+        'Unbound: DNSSEC validation LOST during revalidation',
+      );
+    } else if (!previousValidating && anyDnssecValid) {
+      logger.info(
+        { previousValidating, dnssecValid: anyDnssecValid },
+        'Unbound: DNSSEC validation REGAINED during revalidation',
+      );
+    } else {
+      logger.debug({ dnssecValid: anyDnssecValid }, 'Unbound: DNSSEC revalidation completed');
+    }
+
+    return result;
   }
 
-  /** Quick runtime health check — returns true if the resolver is reachable
+  /** Quick runtime health check — returns true if ANY host is healthy
    *  and DNSSEC validation is currently proven active. This is a lightweight
    *  check (no full negative-control probe) suitable for frequent polling
    *  by the soft-fail fallback logic in the provider factory.
@@ -440,44 +696,144 @@ export class UnboundResolver implements DnsProvider {
     // A resolver is "healthy" if it has proven DNSSEC validation at some point
     // and the last revalidation didn't fail catastrophically.
     // We don't re-run the probe here — just report the last known state.
-    return this.#dnssecValidating;
+    return this.#dnssecValidating && this.getHealthyHostCount() > 0;
   }
 
   /** Detailed health status for diagnostics and alerting.
    *  Returns the last known health state without triggering a new probe.
    *  For a fresh probe, call revalidateDnssecValidation() instead.
    */
-  getHealthStatus(): { healthy: boolean; dnssecValid: boolean; details: string } {
+  getHealthStatus(): {
+    healthy: boolean;
+    dnssecValid: boolean;
+    details: string;
+    hosts: UnboundHostDnssecResult[];
+  } {
     return {
-      healthy: this.#dnssecValidating,
+      healthy: this.#dnssecValidating && this.getHealthyHostCount() > 0,
       dnssecValid: this.#dnssecValidating,
       details: this.#dnssecValidating
         ? 'DNSSEC validation active (last revalidation passed)'
         : 'DNSSEC validation NOT active — resolver may be misconfigured or unreachable',
+      hosts: this.getHostHealth(),
     };
   }
 
-  /** Runs the negative-control probe described on healthCheck(). Returns
+  /** Select the next healthy host using round-robin.
+   *  Returns the host string, or undefined if no healthy hosts available. */
+  #selectHealthyHost(): string | undefined {
+    const hosts = this.#unboundHosts;
+    if (hosts.length === 0) return undefined;
+    // If hostHealth is empty (e.g., after dispose), no hosts available
+    if (this.#hostHealth.size === 0) return undefined;
+
+    // Fast path: if only one host, return it if healthy
+    if (hosts.length === 1) {
+      const host = hosts[0]!;
+      const health = this.#hostHealth.get(host)!;
+      if (health.healthy) return host;
+      // Check cooldown
+      if (Date.now() - health.lastFailureAt >= this.#unhealthyCooldownMs) {
+        // Try to revive it
+        health.healthy = true;
+        health.consecutiveFailures = 0;
+        return host;
+      }
+      return undefined;
+    }
+
+    // Multi-host: round-robin with health check
+    let attempts = 0;
+    while (attempts < hosts.length) {
+      const host = hosts[this.#roundRobinIndex]!;
+      this.#roundRobinIndex = (this.#roundRobinIndex + 1) % hosts.length;
+      attempts++;
+
+      const health = this.#hostHealth.get(host);
+      if (!health) continue; // Host was removed (e.g., after dispose)
+      if (health.healthy) return host;
+
+      // Check if cooldown expired — revive host
+      if (Date.now() - health.lastFailureAt >= this.#unhealthyCooldownMs) {
+        health.healthy = true;
+        health.consecutiveFailures = 0;
+        logger.info({ host }, 'Unbound: host revived after cooldown');
+        return host;
+      }
+    }
+
+    return undefined; // No healthy hosts
+  }
+
+  /** Mark a host as unhealthy after a failure. */
+  #markHostUnhealthy(host: string, reason: string): void {
+    const health = this.#hostHealth.get(host);
+    if (!health) return;
+
+    health.consecutiveFailures++;
+    health.lastFailureAt = Date.now();
+
+    if (health.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      health.healthy = false;
+      logger.warn(
+        { host, consecutiveFailures: health.consecutiveFailures, reason },
+        'Unbound: host marked unhealthy',
+      );
+    }
+
+    // Check if we should activate fallback
+    const unhealthyCount = this.getUnhealthyHostCount();
+    if (unhealthyCount >= this.#maxUnhealthyBeforeFallback && !this.#usingFallback) {
+      this.#activateFallback(
+        `${unhealthyCount}/${this.#unboundHosts.length} hosts unhealthy: ${reason}`,
+      );
+    }
+  }
+
+  /** Get count of unhealthy hosts. */
+  getUnhealthyHostCount(): number {
+    let count = 0;
+    for (const health of this.#hostHealth.values()) {
+      if (!health.healthy) count++;
+    }
+    return count;
+  }
+
+  /** Record a successful query on a host. */
+  #recordHostSuccess(host: string): void {
+    const health = this.#hostHealth.get(host);
+    if (health) {
+      health.consecutiveFailures = 0;
+      health.healthy = true;
+    }
+  }
+
+  /** Runs the negative-control probe on a specific host. Returns
    *  true only on an explicit, proven rejection — inconclusive results
    *  (timeouts, unreachable test zone) fail closed to false, never true. */
-  async #probeDnssecValidation(timeoutMs: number): Promise<boolean> {
-    const zoneReachable = await this.#resolvesOk(DNSSEC_POSITIVE_CONTROL, timeoutMs);
+  async #probeDnssecValidationOnHost(host: string, timeoutMs: number): Promise<boolean> {
+    const zoneReachable = await this.#resolvesOkOnHost(host, DNSSEC_POSITIVE_CONTROL, timeoutMs);
     if (zoneReachable) {
-      const rejected = await this.#probeRejectsBogusSignature(DNSSEC_NEGATIVE_CONTROL, timeoutMs);
+      const rejected = await this.#probeRejectsBogusSignatureOnHost(
+        host,
+        DNSSEC_NEGATIVE_CONTROL,
+        timeoutMs,
+      );
       if (rejected !== undefined) return rejected;
     }
     // Primary zone unreachable or inconclusive — try the fallback negative
     // control. Still fail closed (undefined -> false) if that's inconclusive too.
-    const rejected = await this.#probeRejectsBogusSignature(
+    const rejected = await this.#probeRejectsBogusSignatureOnHost(
+      host,
       DNSSEC_NEGATIVE_CONTROL_FALLBACK,
       timeoutMs,
     );
     return rejected ?? false;
   }
 
-  async #resolvesOk(domain: string, timeoutMs: number): Promise<boolean> {
+  async #resolvesOkOnHost(host: string, domain: string, timeoutMs: number): Promise<boolean> {
     try {
-      return await this.#resolveWithTimeout(domain, 'A', timeoutMs);
+      return await this.#resolveWithTimeout(host, domain, 'A', timeoutMs);
     } catch {
       return false;
     }
@@ -488,14 +844,15 @@ export class UnboundResolver implements DnsProvider {
    *  the bad signature — the val-permissive-mode bypass this check exists to
    *  catch), or undefined if inconclusive after retries (any other error —
    *  never treated as proof either way). */
-  async #probeRejectsBogusSignature(
+  async #probeRejectsBogusSignatureOnHost(
+    host: string,
     domain: string,
     timeoutMs: number,
   ): Promise<boolean | undefined> {
     const attempts = 2;
     for (let i = 0; i < attempts; i++) {
       try {
-        await this.#resolveWithTimeout(domain, 'A', timeoutMs);
+        await this.#resolveWithTimeout(host, domain, 'A', timeoutMs);
         return false; // resolved despite the bad signature -> validation bypassed
       } catch (err) {
         if ((err as { code?: string }).code === 'ESERVFAIL') return true; // proven rejection
@@ -525,7 +882,7 @@ export class UnboundResolver implements DnsProvider {
       const memCached = this.#cache.get(domain);
       if (memCached !== undefined) {
         const durationMs = Date.now() - startTime;
-        this.#recordMetrics(memCached, durationMs, true);
+        this.#recordMetrics(memCached, durationMs, true, undefined);
         return { ...memCached, durationMs, fromCache: true };
       }
     }
@@ -548,7 +905,7 @@ export class UnboundResolver implements DnsProvider {
             if (!staleUnknown && !staleAvailable) {
               if (!this.#cacheDisabled) this.#cache.set(domain, parsed);
               const durationMs = Date.now() - startTime;
-              this.#recordMetrics(parsed, durationMs, true);
+              this.#recordMetrics(parsed, durationMs, true, undefined);
               return { ...parsed, durationMs, fromCache: true };
             }
           }
@@ -571,7 +928,12 @@ export class UnboundResolver implements DnsProvider {
     }
   }
 
-  #recordMetrics(result: DnsCheckResult, durationMs: number, fromCache: boolean): void {
+  #recordMetrics(
+    result: DnsCheckResult,
+    durationMs: number,
+    fromCache: boolean,
+    host?: string,
+  ): void {
     if (!this.#onResolution) return;
     let status: 'registered' | 'available' | 'unknown';
     if (result.status === DomainStatus.Registered) status = 'registered';
@@ -579,12 +941,20 @@ export class UnboundResolver implements DnsProvider {
     else status = 'unknown';
     // Map 'insecure' to 'unchecked' as we only track valid/unchecked/bogus
     const dnssec = result.dnssec === 'insecure' ? 'unchecked' : (result.dnssec ?? 'unchecked');
-    this.#onResolution({
+    const stats: {
+      durationMs: number;
+      status: 'registered' | 'available' | 'unknown';
+      dnssec: 'valid' | 'unchecked' | 'bogus';
+      fromCache: boolean;
+      host?: string;
+    } = {
       durationMs,
       status,
       dnssec,
       fromCache,
-    });
+    };
+    if (host !== undefined) stats.host = host;
+    this.#onResolution(stats);
   }
 
   async #lookup(
@@ -595,9 +965,26 @@ export class UnboundResolver implements DnsProvider {
     const checkedAt = new Date().toISOString();
     const lookupStartTime = startTime ?? Date.now();
 
+    // Select healthy host for this lookup
+    const host = this.#selectHealthyHost();
+    if (!host) {
+      // No healthy hosts — this should not happen if fallback is configured,
+      // but if it does, return Unknown
+      const result: DnsCheckResult = {
+        domain,
+        status: DomainStatus.Unknown,
+        checkedAt,
+        dnssec: 'unchecked',
+      };
+      this.#setCaches(domain, result);
+      const durationMs = Date.now() - lookupStartTime;
+      this.#recordMetrics(result, durationMs, false, undefined);
+      return { ...result, durationMs, fromCache: false };
+    }
+
     try {
       const resolveFn = (s?: AbortSignal): Promise<boolean | undefined> =>
-        this.#resolveDomain(domain, s);
+        this.#resolveDomainOnHost(host, domain, s);
 
       let resolved: boolean | undefined;
 
@@ -613,6 +1000,9 @@ export class UnboundResolver implements DnsProvider {
         resolved = await resolveFn(undefined);
       }
 
+      // Record success on host
+      this.#recordHostSuccess(host);
+
       // DNSSEC status is a resolver-level fact, not a per-domain one:
       // node:dns exposes no AD flag, so a per-domain probe can't tell "this
       // zone validated" from "this zone isn't signed". healthCheck() proves
@@ -624,17 +1014,19 @@ export class UnboundResolver implements DnsProvider {
       // - 'permissive': 'valid' when validation active (treats unsigned zones as acceptable)
       // - 'disabled': 'unchecked' always (DNSSEC not required)
       let dnssecStatus: DnsCheckResult['dnssec'];
+      const hostHealth = this.#hostHealth.get(host);
+      const hostDnssecValid = hostHealth?.dnssecValid ?? false;
       if (!this.#dnssecValidationEnabled || this.#dnssecMode === 'disabled') {
         dnssecStatus = 'unchecked';
       } else if (this.#dnssecMode === 'permissive') {
         // In permissive mode, if the resolver validates DNSSEC, we treat both
         // validated (valid) and unsigned (insecure) zones as acceptable for
         // Available verdicts. Since node:dns can't distinguish per-query, we
-        // stamp 'valid' when validation is proven active.
-        dnssecStatus = this.#dnssecValidating ? 'valid' : 'unchecked';
+        // stamp 'valid' when validation is proven active on the host.
+        dnssecStatus = hostDnssecValid ? 'valid' : 'unchecked';
       } else {
         // 'strict' mode (default): only stamp 'valid' when validation proven
-        dnssecStatus = this.#dnssecValidating ? 'valid' : 'unchecked';
+        dnssecStatus = hostDnssecValid ? 'valid' : 'unchecked';
       }
 
       if (resolved !== undefined) {
@@ -648,7 +1040,7 @@ export class UnboundResolver implements DnsProvider {
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;
-        this.#recordMetrics(result, durationMs, false);
+        this.#recordMetrics(result, durationMs, false, host);
         return { ...result, durationMs, fromCache: false };
       }
 
@@ -660,9 +1052,13 @@ export class UnboundResolver implements DnsProvider {
       };
       this.#setCaches(domain, unknown);
       const unknownDurationMs = Date.now() - lookupStartTime;
-      this.#recordMetrics(unknown, unknownDurationMs, false);
+      this.#recordMetrics(unknown, unknownDurationMs, false, host);
       return { ...unknown, durationMs: unknownDurationMs, fromCache: false };
-    } catch (_err: unknown) {
+    } catch (err) {
+      // Mark host unhealthy on error (unless aborted)
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        this.#markHostUnhealthy(host, String(err));
+      }
       const result: DnsCheckResult = {
         domain,
         status: DomainStatus.Unknown,
@@ -671,7 +1067,7 @@ export class UnboundResolver implements DnsProvider {
       };
       this.#setCaches(domain, result);
       const durationMs = Date.now() - lookupStartTime;
-      this.#recordMetrics(result, durationMs, false);
+      this.#recordMetrics(result, durationMs, false, host);
       return { ...result, durationMs, fromCache: false };
     }
   }
@@ -693,12 +1089,22 @@ export class UnboundResolver implements DnsProvider {
     }
   }
 
-  async #resolveDomain(domain: string, signal?: AbortSignal): Promise<boolean | undefined> {
+  async #resolveDomainOnHost(
+    host: string,
+    domain: string,
+    signal?: AbortSignal,
+  ): Promise<boolean | undefined> {
     // With Unbound, we use a simple two-phase resolution: A then NS+SOA
     // This mirrors the conservative approach in NodeDnsProvider
     try {
       // Phase 1: A record only — fastest path
-      const aOutcome = await this.#resolveWithTimeout(domain, 'A', this.#lookupTimeoutMs, signal)
+      const aOutcome = await this.#resolveWithTimeout(
+        host,
+        domain,
+        'A',
+        this.#lookupTimeoutMs,
+        signal,
+      )
         .then(() => true as const)
         .catch((err: unknown) => {
           const e = err as { code?: string; name?: string };
@@ -720,7 +1126,7 @@ export class UnboundResolver implements DnsProvider {
       const fallbackTypes: DnsRecordType[] = ['NS', 'SOA'];
       const fallbackOutcomes = await Promise.all(
         fallbackTypes.map((type) =>
-          this.#resolveWithTimeout(domain, type, this.#lookupTimeoutMs, fallbackSignal)
+          this.#resolveWithTimeout(host, domain, type, this.#lookupTimeoutMs, fallbackSignal)
             .then(() => {
               fallbackAc.abort();
               return {
@@ -756,7 +1162,7 @@ export class UnboundResolver implements DnsProvider {
       }
 
       if (anyTimeout) {
-        logger.warn({ domain }, 'Unbound: A and NS/SOA both timed out');
+        logger.warn({ domain, host }, 'Unbound: A and NS/SOA both timed out');
         return undefined;
       }
 
@@ -765,21 +1171,28 @@ export class UnboundResolver implements DnsProvider {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw err;
       }
-      logger.debug({ domain, err }, 'Unbound resolution error');
+      logger.debug({ domain, host, err }, 'Unbound resolution error');
       return undefined;
     }
   }
 
-  /** Resolve a single record type with timeout and abort support. */
+  /** Resolve a single record type on a specific host with timeout and abort support. */
   #resolveWithTimeout(
+    host: string,
     domain: string,
     recordType: DnsRecordType,
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<boolean> {
+    const health = this.#hostHealth.get(host);
+    if (!health) {
+      return Promise.reject(new Error(`Host ${host} not found`));
+    }
+    const resolver = health.resolver;
+
     return new Promise<boolean>((resolve, reject) => {
       const timer = setTimeout(() => {
-        const err = new Error(`DNS ${recordType} lookup timed out for ${domain}`);
+        const err = new Error(`DNS ${recordType} lookup timed out for ${domain} on ${host}`);
         (err as { code?: string }).code = 'ETIMEOUT';
         reject(err);
       }, timeoutMs);
@@ -796,7 +1209,7 @@ export class UnboundResolver implements DnsProvider {
       };
       signal?.addEventListener('abort', abortHandler, { once: true });
 
-      this.#resolver.resolve(domain, recordType, (err, addresses) => {
+      resolver.resolve(domain, recordType, (err, addresses) => {
         clearTimeout(timer);
         signal?.removeEventListener('abort', abortHandler);
         if (err !== null) {
