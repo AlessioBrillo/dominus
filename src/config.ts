@@ -606,6 +606,24 @@ const configSchema = z
      */
     DNSSEC_MODE: z.enum(['strict', 'permissive', 'disabled']).default('strict'),
     /**
+     * Enable per-query DNSSEC validation using @relaycorp/dnssec (ADR-0073).
+     * When true, each Available verdict triggers a full cryptographic DNSSEC chain
+     * validation (DS -> DNSKEY -> RRSIG) for that specific domain, instead of
+     * relying solely on the resolver-level negative-control probe.
+     * This closes the window where a resolver could be reconfigured to
+     * val-permissive-mode: yes between periodic revalidations.
+     * Default: false (opt-in, adds ~50-200ms per Available domain).
+     */
+    DNS_PER_QUERY_DNSSEC: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
+    /**
+     * Timeout in milliseconds for per-query DNSSEC validation.
+     * Only applies when DNS_PER_QUERY_DNSSEC=true.
+     * Default: 2000ms (2 seconds).
+     */
+    DNS_PER_QUERY_DNSSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(2000),
+    /**
      * Consecutive resolver failures within the window that open the circuit.
      * Mirrors the RDAP per-server breaker default (ADR-0050). Range: 1-100.
      */
@@ -895,6 +913,27 @@ const configSchema = z
      * Separate from query timeout to allow longer startup validation.
      */
     RDAP_CONSENSUS_PROBE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60000).default(15000),
+    /**
+     * Number of retry attempts for the RDAP consensus startup probe.
+     * Default: 3. Set to 0 to disable retries (single attempt).
+     */
+    RDAP_CONSENSUS_PROBE_RETRY: z.coerce.number().int().min(0).max(10).default(3),
+    /**
+     * Backoff base in milliseconds for RDAP consensus probe retries.
+     * Uses exponential backoff: baseMs * 2^(attempt-1).
+     * Default: 5000ms (5 seconds).
+     */
+    RDAP_CONSENSUS_PROBE_BACKOFF_MS: z.coerce.number().int().min(100).max(60000).default(5000),
+    /**
+     * Fail-open behavior for RDAP consensus probe.
+     * When true, a failed probe at startup will log an error but NOT exit the process.
+     * The 2-of-2 consensus gate will be disabled for this run, and a warning metric
+     * will be emitted. When false (default), a failed probe causes process.exit(1).
+     * This allows deployments to survive transient rdap.org outages.
+     */
+    RDAP_CONSENSUS_PROBE_FAIL_OPEN: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
 
     /**
      * Enable an optional THIRD RDAP consensus opinion (tertiary leg).

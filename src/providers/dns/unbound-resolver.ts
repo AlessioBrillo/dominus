@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Resolver } from 'node:dns';
+import { Resolver as NodeResolver } from 'node:dns';
 import { LRUCache } from 'lru-cache';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsCheckOptions } from './dns-provider.js';
@@ -10,6 +10,7 @@ import type { ProviderCacheRepository } from '../../db/repositories/provider-cac
 import { getLogger } from '../../logger.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
 import type { DnsBreakerRegistryLike } from './dns-breaker.js';
+import { validateDnssecPerQuery, type DnssecValidationResult } from './dnssec-validation.js';
 
 const logger = getLogger();
 
@@ -51,7 +52,7 @@ export const DNSSEC_NEGATIVE_CONTROL = 'sigfail.verteiltesysteme.net';
 export const DNSSEC_NEGATIVE_CONTROL_FALLBACK = 'dnssec-failed.org';
 
 interface HostHealth {
-  resolver: Resolver;
+  resolver: NodeResolver;
   consecutiveFailures: number;
   lastFailureAt: number;
   lastCheckAt: number;
@@ -158,6 +159,15 @@ export interface UnboundResolverOptions {
    *  DNSSEC validation, the resolver delegates to this provider.
    *  Used for graceful degradation in community edition without Docker. */
   fallbackProvider?: DnsProvider | undefined;
+  /** Enable per-query DNSSEC validation using @relaycorp/dnssec (ADR-0073).
+   *  When true, each Available verdict triggers a full cryptographic DNSSEC chain
+   *  validation (DS -> DNSKEY -> RRSIG) for that specific domain.
+   *  Default: false (adds latency per Available domain). */
+  dnsPerQueryDnssec?: boolean | undefined;
+  /** Timeout in milliseconds for per-query DNSSEC validation.
+   *  Only applies when dnsPerQueryDnssec=true.
+   *  Default: 2000ms. */
+  dnsPerQueryDnssecTimeoutMs?: number | undefined;
 }
 
 export class UnboundResolver implements DnsProvider {
@@ -196,6 +206,10 @@ export class UnboundResolver implements DnsProvider {
   #fallbackRevalidationTimer: ReturnType<typeof setInterval> | undefined;
   readonly #maxUnhealthyBeforeFallback: number;
   readonly #unhealthyCooldownMs: number;
+  /** Per-query DNSSEC validation enabled (ADR-0073). */
+  readonly #dnsPerQueryDnssec: boolean;
+  /** Timeout for per-query DNSSEC validation in ms. */
+  readonly #dnsPerQueryDnssecTimeoutMs: number;
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -215,6 +229,8 @@ export class UnboundResolver implements DnsProvider {
     this.#breakers = options.breakers;
     this.#dnssecValidationEnabled = options.dnssecValidationEnabled ?? true;
     this.#dnssecMode = options.dnssecMode ?? 'strict';
+    this.#dnsPerQueryDnssec = options.dnsPerQueryDnssec ?? false;
+    this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 2000;
     this.#onResolution = options.onResolution;
     this.#onDnssecValidationChange = options.onDnssecValidationChange;
     this.#onHostDnssecValidationChange = options.onHostDnssecValidationChange;
@@ -228,7 +244,7 @@ export class UnboundResolver implements DnsProvider {
 
     // Create dedicated resolver per host for isolation
     for (const host of this.#unboundHosts) {
-      const resolver = new Resolver();
+      const resolver = new NodeResolver();
       resolver.setServers([host]);
       this.#hostHealth.set(host, {
         resolver,
@@ -1032,11 +1048,65 @@ export class UnboundResolver implements DnsProvider {
       if (resolved !== undefined) {
         const status = resolved ? DomainStatus.Registered : DomainStatus.Available;
 
+        // Per-query DNSSEC validation for Available verdicts (ADR-0073).
+        // Only run when enabled, DNSSEC validation is enabled, mode is not disabled,
+        // and the resolver-level validation is proven active.
+        // This provides cryptographic proof for THIS specific domain, closing the
+        // window between periodic revalidations where a resolver could be
+        // reconfigured to val-permissive-mode: yes.
+        // Explicitly type to include full union for per-query override.
+        let finalDnssecStatus: DnsCheckResult['dnssec'] = dnssecStatus;
+        if (
+          status === DomainStatus.Available &&
+          this.#dnsPerQueryDnssec &&
+          this.#dnssecValidationEnabled &&
+          this.#dnssecMode !== 'disabled' &&
+          hostDnssecValid
+        ) {
+          try {
+            const hostHealth = this.#hostHealth.get(host);
+            const resolver = hostHealth?.resolver;
+            const perQueryResult: DnssecValidationResult = await validateDnssecPerQuery(domain, {
+              timeoutMs: this.#dnsPerQueryDnssecTimeoutMs,
+              resolver: resolver as NodeResolver,
+            });
+
+            // Map per-query result to our dnssec status
+            switch (perQueryResult.status) {
+              case 'valid':
+                finalDnssecStatus = 'valid';
+                break;
+              case 'bogus':
+                finalDnssecStatus = 'bogus';
+                break;
+              case 'insecure':
+                // In strict mode, insecure fails. In permissive mode, it passes.
+                finalDnssecStatus = this.#dnssecMode === 'permissive' ? 'valid' : 'unchecked';
+                break;
+              case 'timeout':
+              case 'error':
+                // On timeout/error, fall back to resolver-level stamp (fail-open for availability)
+                finalDnssecStatus = dnssecStatus;
+                logger.warn(
+                  { domain, perQueryStatus: perQueryResult.status, error: perQueryResult.error },
+                  'Per-query DNSSEC validation failed — falling back to resolver-level stamp',
+                );
+                break;
+            }
+          } catch (err) {
+            // Any unexpected error falls back to resolver-level stamp
+            logger.warn(
+              { domain, err },
+              'Per-query DNSSEC validation threw — falling back to resolver-level stamp',
+            );
+          }
+        }
+
         const result: DnsCheckResult = {
           domain,
           status,
           checkedAt,
-          dnssec: dnssecStatus,
+          dnssec: finalDnssecStatus,
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;

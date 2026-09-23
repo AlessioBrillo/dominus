@@ -1023,28 +1023,72 @@ export async function createRdapConsensusConfig(
   return result;
 }
 
+export interface RdapConsensusProbeResult {
+  success: boolean;
+  wasFailOpen: boolean;
+  attempts: number;
+}
+
 export async function probeRdapConsensusEndpoint(
   config: Config,
   secondaryProvider: RdapProvider,
-): Promise<boolean> {
-  if (!config.RDAP_CONSENSUS_ENABLED) return true;
+): Promise<RdapConsensusProbeResult> {
+  if (!config.RDAP_CONSENSUS_ENABLED) return { success: true, wasFailOpen: false, attempts: 0 };
   const logger = getLogger();
   const endpoint = config.RDAP_CONSENSUS_ENDPOINT;
   const timeoutMs = config.RDAP_CONSENSUS_PROBE_TIMEOUT_MS ?? config.RDAP_CONSENSUS_TIMEOUT_MS;
-  logger.warn({ endpoint, timeoutMs }, 'RDAP: probing consensus second provider at startup');
-  const probeSignal = AbortSignal.timeout(timeoutMs);
-  try {
-    await secondaryProvider.confirm('example.com', probeSignal);
-    logger.info({ endpoint }, 'RDAP: consensus second provider probe succeeded');
-    return true;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.error(
-      { err: message, endpoint },
-      'RDAP: consensus second provider unreachable at startup — the fail-closed 2-of-2 ' +
-        'gate will downgrade unconfirmable Available verdicts. Verify egress to the ' +
-        'consensus endpoint or disable the gate (RDAP_CONSENSUS_ENABLED=false).',
-    );
-    return false;
+  const maxRetries = config.RDAP_CONSENSUS_PROBE_RETRY ?? 3;
+  const backoffMs = config.RDAP_CONSENSUS_PROBE_BACKOFF_MS ?? 5000;
+  const failOpen = config.RDAP_CONSENSUS_PROBE_FAIL_OPEN ?? false;
+
+  logger.warn(
+    { endpoint, timeoutMs, maxRetries, backoffMs, failOpen },
+    'RDAP: probing consensus second provider at startup',
+  );
+
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    const probeSignal = AbortSignal.timeout(timeoutMs);
+    try {
+      await secondaryProvider.confirm('example.com', probeSignal);
+      logger.info({ endpoint, attempt }, 'RDAP: consensus second provider probe succeeded');
+      return { success: true, wasFailOpen: false, attempts: attempt };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isLastAttempt = attempt > maxRetries;
+
+      if (isLastAttempt) {
+        logger.error(
+          { err: message, endpoint, attempts: attempt - 1, maxRetries, failOpen },
+          'RDAP: consensus second provider unreachable at startup — the fail-closed 2-of-2 ' +
+            'gate will downgrade unconfirmable Available verdicts. Verify egress to the ' +
+            'consensus endpoint or disable the gate (RDAP_CONSENSUS_ENABLED=false).',
+        );
+
+        if (failOpen) {
+          logger.warn(
+            { endpoint, attempts: attempt - 1, maxRetries },
+            'RDAP: RDAP_CONSENSUS_PROBE_FAIL_OPEN=true — continuing startup with consensus gate DISABLED. ' +
+              'The 2-of-2 RDAP consensus will be skipped for this run; Available verdicts will not be independently verified. ' +
+              'Set RDAP_CONSENSUS_ENABLED=false to persist this behavior.',
+          );
+          return { success: true, wasFailOpen: true, attempts: attempt };
+        }
+
+        return { success: false, wasFailOpen: false, attempts: attempt };
+      }
+
+      // Exponential backoff with jitter
+      const delay = backoffMs * Math.pow(2, attempt - 1);
+      const jitter = delay * (0.8 + Math.random() * 0.4);
+
+      logger.warn(
+        { err: message, endpoint, attempt, nextRetryInMs: Math.round(jitter) },
+        `RDAP: consensus probe attempt ${attempt} failed — retrying`,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, jitter));
+    }
   }
+
+  return { success: false, wasFailOpen: false, attempts: maxRetries + 1 };
 }

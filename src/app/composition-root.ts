@@ -107,6 +107,7 @@ import {
   buildWaybackProvider,
   createRdapConsensusConfig,
   probeRdapConsensusEndpoint,
+  type RdapConsensusProbeResult,
 } from './provider-factory.js';
 import { DnsBreakerRegistry } from '../providers/dns/dns-breaker.js';
 import type { RdapRequestSample, RdapRequestTelemetry } from '../providers/rdap/index.js';
@@ -866,7 +867,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // second leg is rdap.org and the primary draws its authoritative per-TLD
   // servers from IANA, so the two legs stay independent. The second leg
   // draws from its own rdapConsensus rate-limit budget (ADR-0044 pattern).
-  const rdapConsensusConfig = await createRdapConsensusConfig(
+  let rdapConsensusConfig = await createRdapConsensusConfig(
     config,
     rdapConsensusRateLimiter,
     redisClient,
@@ -893,17 +894,31 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     },
   );
   if (rdapConsensusConfig !== undefined) {
-    // Startup probe of the consensus second leg (ADR-0051): with the
+    // Startup probe of the consensus second leg (ADR-0051/ADR-0074): with the
     // fail-closed 2-of-2 gate a dead endpoint downgrades every unconfirmable
     // Available verdict, so surface egress problems at boot like the DNS
-    // consensus probe does. Fail-fast if probe fails.
-    const probeOk = await probeRdapConsensusEndpoint(config, rdapConsensusConfig.secondaryProvider);
-    if (!probeOk) {
+    // consensus probe does. Retry with exponential backoff; fail-open if
+    // RDAP_CONSENSUS_PROBE_FAIL_OPEN=true to survive transient rdap.org outages.
+    const probeResult: RdapConsensusProbeResult = await probeRdapConsensusEndpoint(
+      config,
+      rdapConsensusConfig.secondaryProvider,
+    );
+    if (!probeResult.success) {
       logger.fatal(
-        'RDAP consensus second provider probe failed at startup. ' +
+        'RDAP consensus second provider probe failed at startup after ' +
+          probeResult.attempts +
+          ' attempts. ' +
           'Set RDAP_CONSENSUS_ENABLED=false or fix RDAP_CONSENSUS_ENDPOINT egress.',
       );
       process.exit(1);
+    }
+    if (probeResult.wasFailOpen) {
+      // Fail-open: consensus gate disabled for this run
+      logger.warn(
+        'RDAP: consensus gate DISABLED for this run due to fail-open. ' +
+          'Available verdicts will not be independently verified by the second RDAP provider.',
+      );
+      rdapConsensusConfig = undefined;
     }
   }
 
