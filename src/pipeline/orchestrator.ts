@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DomainCandidate } from '../types/candidate.js';
+import { DomainStatus } from '../types/domain-status.js';
 import type { CandidateGenerationInput } from './stages/candidate-generation-stage.js';
 import type { CandidateGenerationStage } from './stages/candidate-generation-stage.js';
 import type { DnsPreFilterStage } from './stages/dns-prefilter-stage.js';
@@ -602,8 +603,24 @@ export class PipelineOrchestrator {
       dns.passed.length,
       controller,
     );
-    await this.#releaseStageLock(runId, 'RdapConfirmation', tenantId);
     if (rdap === null) return this.#abortWithError(runId, stageSummary, stageErrors, start);
+    // Short-circuit Unknown candidates before scoring
+    const unknownFiltered = rdap.passed.filter((c) => c.rdapStatus !== DomainStatus.Unknown);
+    if (unknownFiltered.length < rdap.passed.length) {
+      logger.warn(
+        {
+          runId,
+          unknownCount: rdap.passed.length - unknownFiltered.length,
+          total: rdap.passed.length,
+        },
+        'Pipeline: short-circuited Unknown candidates before scoring',
+      );
+    }
+    const rdapResult: typeof rdap = {
+      ...rdap,
+      passed: unknownFiltered,
+    };
+    await this.#releaseStageLock(runId, 'RdapConfirmation', tenantId);
     if (isAborted()) {
       controller.abort();
       throw new PipelineTimeoutError(this.timeoutMs, Date.now() - start);
@@ -614,7 +631,7 @@ export class PipelineOrchestrator {
     const scoring = await this.#runStageWithCheckpoint(
       3,
       'Scoring',
-      (s) => this.scoringStage.process(rdap.passed, s),
+      (s) => this.scoringStage.process(rdapResult.passed, s),
       resumeIndex,
       cpResults,
       runId,
@@ -622,7 +639,7 @@ export class PipelineOrchestrator {
       stageSummary,
       stageErrors,
       degradations,
-      rdap.passed.length,
+      rdapResult.passed.length,
       controller,
     );
     await this.#releaseStageLock(runId, 'Scoring', tenantId);
@@ -661,7 +678,7 @@ export class PipelineOrchestrator {
     const allCandidates: DomainCandidate[] = [
       ...gen.filtered,
       ...dns.filtered,
-      ...rdap.filtered,
+      ...rdapResult.filtered,
       ...scoring.filtered,
       ...trademark.filtered,
       ...trademark.passed,
