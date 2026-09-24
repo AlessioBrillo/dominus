@@ -76,6 +76,7 @@ re-running the original arguments.
 | [0069](0069-dns-secondary-dual-redundancy.md)               | DNS secondary dual-redundancy for consensus gate resilience                                                                   | 2026-09-06 | Accepted                            |
 | [0070](0070-afternic-listing-provider.md)                   | Afternic listing provider and trademark-gated publishing                                                                      | 2026-09-06 | Accepted                            |
 | [0071](0071-sedo-listing-provider.md)                       | Sedo listing provider and sell-side correctness fixes                                                                         | 2026-09-07 | Accepted                            |
+| [0075](0075-dns-unbound-single-source-completion.md)        | DNS: UnboundResolver as Single Source of Truth (ADR-0072 Completion)                                                          | 2026-09-24 | Accepted                            |
 
 ## Conventions
 

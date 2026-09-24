@@ -26,7 +26,7 @@ vi.mock('node:dns', () => {
 
 import {
   UnboundResolver,
-  DNSSEC_POSITIVE_CONTROL,
+  DNSSEC_POSITIVE_CONTROLS,
   DNSSEC_NEGATIVE_CONTROL,
   DNSSEC_NEGATIVE_CONTROL_FALLBACK,
 } from '../unbound-resolver.js';
@@ -34,7 +34,6 @@ import { DomainStatus } from '../../../types/domain-status.js';
 import type { DnsCheckResult } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
 import type { RateLimiterLike } from '../../../providers/rate-limiter.js';
-import type { DnsProvider } from '../dns-provider.js';
 
 /** Build an Error carrying a c-ares style `code`, as node:dns produces. */
 function dnsError(code: string): Error {
@@ -287,8 +286,18 @@ describe('UnboundResolver', () => {
     });
 
     it('falls back to the secondary negative control when the primary zone is unreachable', async () => {
+      let positiveControlAttempt = 0;
       resolveFn.mockImplementation((domain) => {
-        if (domain === DNSSEC_POSITIVE_CONTROL) return Promise.reject(dnsError('ENOTFOUND'));
+        if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) {
+          positiveControlAttempt++;
+          if (positiveControlAttempt === 1) {
+            // First positive control unreachable
+            return Promise.reject(dnsError('ENOTFOUND'));
+          }
+          // Second positive control reachable
+          return Promise.resolve(['1.2.3.4']);
+        }
+        if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
         if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK)
           return Promise.reject(dnsError('ESERVFAIL'));
         return Promise.resolve(['1.2.3.4']);
@@ -355,7 +364,7 @@ describe('UnboundResolver periodic DNSSEC revalidation', () => {
     resolveFn.mockImplementation((domain) => {
       if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
       if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (domain === DNSSEC_POSITIVE_CONTROL) return Promise.resolve(['1.2.3.4']);
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
       if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
       return Promise.resolve(['1.2.3.4']);
     });
@@ -628,176 +637,66 @@ describe('UnboundResolver SLO metrics', () => {
   });
 });
 
-describe('UnboundResolver fallback provider integration', () => {
+describe('UnboundResolver recovery behavior', () => {
   let resolver: UnboundResolver;
   let mockCacheRepo: ProviderCacheRepository;
   let mockRateLimiter: RateLimiterLike;
-  let mockMetrics: ReturnType<
-    typeof vi.fn<
-      (stats: {
-        durationMs: number;
-        status: 'registered' | 'available' | 'unknown';
-        dnssec: 'valid' | 'unchecked' | 'bogus';
-        fromCache: boolean;
-      }) => void
-    >
-  >;
-  let fallbackProvider: DnsProvider;
 
   beforeEach(() => {
     resolveFn.mockReset();
     resolveFn.mockImplementation((domain) => {
       if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
       if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
       return Promise.resolve(['1.2.3.4']);
     });
 
     mockCacheRepo = {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
-      prune: vi.fn().mockResolvedValue(0),
     } as unknown as ProviderCacheRepository;
 
     mockRateLimiter = {
       acquire: vi.fn().mockResolvedValue(undefined),
+      throttle: vi.fn().mockImplementation(async (fn) => fn()),
       maxTokens: 20,
-      tokensPerInterval: 20,
-      intervalMs: 1000,
-    } as unknown as RateLimiterLike;
-
-    mockMetrics = vi.fn();
-
-    fallbackProvider = {
-      name: 'NodeDnsProvider',
-      checkAvailability: vi.fn().mockResolvedValue({
-        domain: 'fallback.example.com',
-        status: DomainStatus.Available,
-        checkedAt: new Date().toISOString(),
-        dnssec: 'unchecked',
-        durationMs: 100,
-        fromCache: false,
-      }),
-      checkBulk: vi.fn().mockImplementation(async (domains: string[]) =>
-        domains.map((d) => ({
-          domain: d,
-          status: DomainStatus.Available,
-          checkedAt: new Date().toISOString(),
-          dnssec: 'unchecked',
-          durationMs: 100,
-          fromCache: false,
-        })),
-      ),
-      clearCache: vi.fn(),
-      pruneCache: vi.fn().mockReturnValue(0),
-      dispose: vi.fn().mockResolvedValue(undefined),
-    } as unknown as DnsProvider;
+    } as RateLimiterLike;
 
     resolver = new UnboundResolver({
-      unboundHosts: ['127.0.0.1', '::1'],
-      lookupTimeoutMs: 1500,
+      unboundHosts: ['127.0.0.1'],
       cacheTtlMs: 300_000,
       maxSize: 10000,
-      bulkConcurrency: 200,
-      parkingEnabled: false,
       rateLimiter: mockRateLimiter,
-      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
       persistentCache: mockCacheRepo,
       persistentCacheTtlHours: 168,
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
-      onResolution: mockMetrics,
-      fallbackProvider,
+      dnssecMode: 'strict',
     });
   });
 
   afterEach(() => {
     resolver.dispose();
+    vi.clearAllMocks();
   });
 
-  it('should accept fallbackProvider in constructor', () => {
-    expect(resolver.name).toBe('UnboundResolver');
-  });
-
-  it('should expose setFallback() and isUsingFallback() methods', () => {
-    expect(typeof resolver.setFallback).toBe('function');
-    expect(typeof resolver.isUsingFallback).toBe('function');
-  });
-
-  it('should return false from isUsingFallback() initially', () => {
-    expect(resolver.isUsingFallback()).toBe(false);
-  });
-
-  it('should delegate to fallback when healthCheck fails', async () => {
-    // Make Unbound health check fail
-    resolveFn.mockImplementation(() => Promise.reject(dnsError('ETIMEOUT')));
-
-    const health = await resolver.healthCheck();
-    expect(health.healthy).toBe(false);
-
-    // Should now use fallback
-    expect(resolver.isUsingFallback()).toBe(true);
-
-    // Subsequent checkAvailability should use fallback
-    const result = await resolver.checkAvailability('example.com');
-    expect(fallbackProvider.checkAvailability).toHaveBeenCalledWith(
-      'example.com',
-      undefined,
-      undefined,
-    );
-    expect(result.domain).toBe('fallback.example.com');
-  });
-
-  it('should delegate to fallback when DNSSEC validation is lost', async () => {
-    // First prove validation works
-    await resolver.revalidateDnssecValidation();
-    expect(resolver.isUsingFallback()).toBe(false);
-
-    // Simulate validation loss (val-permissive-mode)
-    resolveFn.mockImplementation(() => Promise.resolve(['1.2.3.4']));
-
-    // Revalidation should detect validation loss
-    await resolver.revalidateDnssecValidation();
-
-    // Should now use fallback
-    expect(resolver.isUsingFallback()).toBe(true);
-
-    // Subsequent lookups should use fallback
-    const result = await resolver.checkAvailability('example.com');
-    expect(fallbackProvider.checkAvailability).toHaveBeenCalled();
-    expect(result.domain).toBe('fallback.example.com');
-  });
-
-  it('should delegate checkBulk to fallback when using fallback', async () => {
-    resolveFn.mockImplementation(() => Promise.reject(dnsError('ETIMEOUT')));
-    await resolver.healthCheck();
-    expect(resolver.isUsingFallback()).toBe(true);
-
-    const domains = ['example.com', 'example.org'];
-    const results = await resolver.checkBulk(domains);
-
-    expect(fallbackProvider.checkBulk).toHaveBeenCalledWith(domains, undefined, undefined);
-    expect(results).toHaveLength(2);
-  });
-
-  it('should not use fallback when Unbound recovers', async () => {
+  it('recovers when Unbound becomes healthy again', async () => {
     // Make Unbound fail
     resolveFn.mockImplementation(() => Promise.reject(dnsError('ETIMEOUT')));
+
     await resolver.healthCheck();
-    expect(resolver.isUsingFallback()).toBe(true);
 
     // Restore Unbound
     resolveFn.mockImplementation((domain) => {
       if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
       return Promise.resolve(['1.2.3.4']);
     });
 
     // Revalidation should detect recovery
-    await resolver.revalidateDnssecValidation();
-    expect(resolver.isUsingFallback()).toBe(false);
-
-    // Subsequent lookups should use Unbound again
-    (fallbackProvider.checkAvailability as ReturnType<typeof vi.fn>).mockClear();
-    await resolver.checkAvailability('example.com');
-    expect(fallbackProvider.checkAvailability).not.toHaveBeenCalled();
+    const result = await resolver.revalidateDnssecValidation();
+    expect(result.healthy).toBe(true);
+    expect(result.dnssecValid).toBe(true);
   });
 });

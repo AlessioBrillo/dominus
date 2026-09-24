@@ -1,5 +1,6 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect } from 'vitest';
+import type { Config } from '../../config.js';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../db/migrator.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
@@ -561,7 +562,12 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_UNBOUND_TLS: false,
       DNS_UNBOUND_TIMEOUT_MS: 1500,
       DNS_UNBOUND_HEALTH_CHECK_ENABLED: false,
-      DNS_UNBOUND_FALLBACK_ENABLED: false,
+      DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_DEGRADED: 1,
+      DNS_UNBOUND_REVALIDATION_INTERVAL_MS: 600_000,
+      DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
+      DNS_PER_QUERY_DNSEC: false as const,
+      DNS_PER_QUERY_DNSEC_TIMEOUT_MS: 2000 as const,
+      DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
       PUBLIC_SCORES_RETENTION_DAYS: 90,
       EVENTS_RETENTION_DAYS: 180,
       REDIS_TLS_ENABLED: false,
@@ -593,13 +599,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       RDAP_CONSENSUS_PROBE_FAIL_OPEN: false,
       RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: 2,
       RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: 2000,
-      DNS_UNBOUND_REVALIDATION_INTERVAL_MS: 600_000,
-      DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS: 30_000,
-      DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK: 1,
-      DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
-      DNS_PER_QUERY_DNSSEC: false,
-      DNS_PER_QUERY_DNSSEC_TIMEOUT_MS: 2000,
-    } as const;
+    } as Config;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);
     const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);

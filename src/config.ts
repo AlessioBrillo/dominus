@@ -379,11 +379,12 @@ const configSchema = z
     // ── Unbound Resolver (ADR-0072: Single Source of Truth) ──────────────
     /**
      * Enable the Unbound resolver as the single DNS source of truth.
-     * When true (default), all DNS queries route through a local Unbound
+     * When true (required), all DNS queries route through a local Unbound
      * recursive resolver (sidecar or host), providing full DNSSEC validation,
      * DoT/DoH upstream, and anycast-free resolution. This replaces the
      * multi-leg consensus architecture (DoH/DoT/tertiary) with one properly
      * configured resolver cluster.
+     * ADR-0075: Unbound is mandatory; DNS_UNBOUND_ENABLED=false is no longer supported.
      * Default: true — the hardened architecture.
      */
     DNS_UNBOUND_ENABLED: z
@@ -425,19 +426,6 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
-     * Enable automatic fallback to native node:dns resolver when Unbound becomes
-     * unhealthy or loses DNSSEC validation. When true (default for community
-     * edition), the UnboundResolver will automatically delegate to a
-     * NodeDnsProvider if health check fails or periodic revalidation detects
-     * validation loss (e.g., val-permissive-mode: yes via rndc). This ensures
-     * the community edition works at €0 infra cost without Docker. In cloud
-     * deployments with managed Unbound, set to false to fail fast on resolver
-     * issues. Default: true.
-     */
-    DNS_UNBOUND_FALLBACK_ENABLED: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
-    /**
      * Interval in milliseconds for periodic DNSSEC revalidation (default: 600000 = 10 min).
      * Set to 0 to disable periodic revalidation.
      */
@@ -448,21 +436,12 @@ const configSchema = z
       .max(86_400_000)
       .default(600_000),
     /**
-     * Interval in milliseconds for periodic DNSSEC revalidation while in fallback mode (default: 30000 = 30s).
-     * Accelerated to detect recovery faster when fallback is active.
+     * Maximum number of unhealthy hosts before considering the resolver degraded.
+     * When >= this many hosts are unhealthy, the resolver is marked as degraded.
+     * Set to 0 to disable (degraded only when ALL hosts unhealthy).
+     * Default: 1.
      */
-    DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS: z.coerce
-      .number()
-      .int()
-      .min(1000)
-      .max(300_000)
-      .default(30_000),
-    /**
-     * Maximum number of unhealthy hosts before activating fallback (default: 1).
-     * When >= this many hosts are unhealthy, fallback is activated.
-     * Set to 0 to disable (fallback only when ALL hosts unhealthy).
-     */
-    DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK: z.coerce.number().int().min(0).max(10).default(1),
+    DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_DEGRADED: z.coerce.number().int().min(0).max(10).default(1),
     /**
      * Cooldown in ms before retrying an unhealthy host (default: 30000 = 30s).
      * After a host is marked unhealthy, it will not be selected for queries
@@ -474,6 +453,37 @@ const configSchema = z
       .min(1000)
       .max(300_000)
       .default(30_000),
+    /**
+     * Enable per-query DNSSEC validation for Available verdicts (ADR-0073).
+     * When true, each Available verdict triggers a full cryptographic DNSSEC chain
+     * validation (DS -> DNSKEY -> RRSIG) for that specific domain using
+     * @relaycorp/dnssec. This provides cryptographic proof for THIS specific
+     * domain, closing the window between periodic revalidations where a resolver
+     * could be reconfigured to val-permissive-mode: yes.
+     * Default: true (ADR-0075: mandatory per-query validation).
+     */
+    DNS_PER_QUERY_DNSEC: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
+     * Timeout in milliseconds for per-query DNSSEC validation.
+     * Only applies when DNS_PER_QUERY_DNSEC=true.
+     * Default: 2000ms.
+     */
+    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).default(2000),
+    /**
+     * Comma-separated list of positive control domains for DNSSEC validation health checks.
+     * These are known-good DNSSEC-signed zones used to verify that the resolver
+     * can reach signed zones (proving the zone itself is reachable, so a
+     * subsequent SERVFAIL on a sibling "sigfail" name can only mean the resolver
+     * rejected a bad signature — not that the zone is simply unreachable).
+     * Multiple controls provide geographic and topological diversity against
+     * single-zone outages or routing issues.
+     * Default: sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org
+     */
+    DNSSEC_POSITIVE_CONTROLS: z
+      .string()
+      .default('sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org'),
     /**
      * Enable parking page detection for registered domains via Unbound.
      * When true, registered domains whose A records resolve to known parking

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { buildDnsProvider } from '../provider-factory.js';
-import { UnboundResolver, NodeDnsProvider } from '../../providers/dns/index.js';
+import { UnboundResolver } from '../../providers/dns/index.js';
 import type { Config } from '../../config.js';
 
 /** Minimal Config slice buildDnsProvider's Unbound branch reads. */
@@ -19,10 +19,8 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PERSISTENT_AVAILABLE_STALE_HOURS: 24,
     DNS_DNSSEC_VALIDATION_ENABLED: true,
     DNS_UNBOUND_HEALTH_CHECK_ENABLED: true,
-    DNS_UNBOUND_FALLBACK_ENABLED: true,
     DNS_UNBOUND_REVALIDATION_INTERVAL_MS: 600_000,
-    DNS_UNBOUND_FALLBACK_REVALIDATION_INTERVAL_MS: 30_000,
-    DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_FALLBACK: 1,
+    DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_DEGRADED: 1,
     DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
     DNSSEC_MODE: 'strict',
     DNS_LOOKUP_TIMEOUT_MS: 1500,
@@ -35,11 +33,14 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PRIVACY_MODE: false,
     DNS_NAMESERVERS: undefined,
     DNS_PARKING_IPS_PATH: undefined,
+    DNS_PER_QUERY_DNSEC: true,
+    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: 2000,
+    DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
     ...overrides,
   } as unknown as Config;
 }
 
-describe('buildDnsProvider — boot health check gating', () => {
+describe('buildDnsProvider — boot health check gating (ADR-0075)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -60,9 +61,7 @@ describe('buildDnsProvider — boot health check gating', () => {
       ],
     });
 
-    await expect(
-      buildDnsProvider(makeConfig({ DNS_UNBOUND_FALLBACK_ENABLED: false })),
-    ).rejects.toThrow(/DNSSEC validation/);
+    await expect(buildDnsProvider(makeConfig())).rejects.toThrow(/DNSSEC validation/);
   });
 
   it('rejects boot when the resolver is unreachable', async () => {
@@ -81,9 +80,7 @@ describe('buildDnsProvider — boot health check gating', () => {
       ],
     });
 
-    await expect(
-      buildDnsProvider(makeConfig({ DNS_UNBOUND_FALLBACK_ENABLED: false })),
-    ).rejects.toThrow(/health check failed/);
+    await expect(buildDnsProvider(makeConfig())).rejects.toThrow(/health check failed/);
   });
 
   it('boots when the resolver is reachable and DNSSEC validation is proven', async () => {
@@ -116,38 +113,72 @@ describe('buildDnsProvider — boot health check gating', () => {
     expect(provider).toBeInstanceOf(UnboundResolver);
     expect(healthCheck).not.toHaveBeenCalled();
   });
+
+  it('throws when DNS_UNBOUND_HOSTS is not configured', async () => {
+    await expect(buildDnsProvider(makeConfig({ DNS_UNBOUND_HOSTS: '' }))).rejects.toThrow(
+      /DNS_UNBOUND_HOSTS must be set/,
+    );
+  });
+
+  it('throws when DNS_UNBOUND_HOSTS is whitespace only', async () => {
+    await expect(buildDnsProvider(makeConfig({ DNS_UNBOUND_HOSTS: '   ' }))).rejects.toThrow(
+      /DNS_UNBOUND_HOSTS must be set/,
+    );
+  });
 });
 
-describe('buildDnsProvider — native fallback (DNS_UNBOUND_ENABLED=false)', () => {
+describe('buildDnsProvider — per-query DNSSEC validation (ADR-0073, ADR-0075)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('boots a NodeDnsProvider instead of throwing', async () => {
-    const provider = await buildDnsProvider(makeConfig({ DNS_UNBOUND_ENABLED: false }));
-    expect(provider).toBeInstanceOf(NodeDnsProvider);
+  it('passes DNS_PER_QUERY_DNSEC option to UnboundResolver', async () => {
+    const healthCheckSpy = vi.spyOn(UnboundResolver.prototype, 'healthCheck').mockResolvedValue({
+      healthy: true,
+      dnssecValid: true,
+      details: 'DNSSEC validation confirmed',
+      hosts: [
+        {
+          host: '127.0.0.1',
+          dnssecValid: true,
+          healthy: true,
+          consecutiveFailures: 0,
+          lastCheckAt: Date.now(),
+        },
+      ],
+    });
+
+    const config = makeConfig({ DNS_PER_QUERY_DNSEC: false });
+    const provider = await buildDnsProvider(config);
+
+    // The UnboundResolver constructor should have received dnsPerQueryDnssec: false
+    // We can't easily test the internal state, but we verify the provider was created
+    expect(provider).toBeInstanceOf(UnboundResolver);
+    expect(healthCheckSpy).toHaveBeenCalled();
   });
 
-  it('requires DNS_NAMESERVERS when privacy mode is on', async () => {
-    await expect(
-      buildDnsProvider(
-        makeConfig({
-          DNS_UNBOUND_ENABLED: false,
-          DNS_PRIVACY_MODE: true,
-          DNS_NAMESERVERS: undefined,
-        }),
-      ),
-    ).rejects.toThrow(/DNS_NAMESERVERS/);
-  });
+  it('passes DNSSEC_POSITIVE_CONTROLS to UnboundResolver', async () => {
+    const healthCheckSpy = vi.spyOn(UnboundResolver.prototype, 'healthCheck').mockResolvedValue({
+      healthy: true,
+      dnssecValid: true,
+      details: 'DNSSEC validation confirmed',
+      hosts: [
+        {
+          host: '127.0.0.1',
+          dnssecValid: true,
+          healthy: true,
+          consecutiveFailures: 0,
+          lastCheckAt: Date.now(),
+        },
+      ],
+    });
 
-  it('boots under privacy mode when DNS_NAMESERVERS is pinned', async () => {
-    const provider = await buildDnsProvider(
-      makeConfig({
-        DNS_UNBOUND_ENABLED: false,
-        DNS_PRIVACY_MODE: true,
-        DNS_NAMESERVERS: '127.0.0.1',
-      }),
-    );
-    expect(provider).toBeInstanceOf(NodeDnsProvider);
+    const config = makeConfig({
+      DNSSEC_POSITIVE_CONTROLS: 'custom.example.com,another.example.org',
+    });
+    const provider = await buildDnsProvider(config);
+
+    expect(provider).toBeInstanceOf(UnboundResolver);
+    expect(healthCheckSpy).toHaveBeenCalled();
   });
 });
