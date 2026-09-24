@@ -190,15 +190,17 @@ export function buildRdapCircuitBreakers(redisClient?: RedisClient): {
 }
 
 export function buildDnsBreakers(
-  config: Config,
+  _config: Config,
   redisClient?: RedisClient,
 ): DnsBreakerRegistryLike | undefined {
-  if (!config.DNS_CIRCUIT_BREAKER_ENABLED) return undefined;
+  // ADR-0075: Simplified circuit breaker for UnboundResolver hosts.
+  // Uses fixed conservative defaults since per-endpoint breaker config
+  // (DoH/DoT/native) is no longer applicable with single Unbound source.
   return new DnsBreakerRegistry(
     {
-      failureThreshold: config.DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-      windowMs: config.DNS_CIRCUIT_BREAKER_WINDOW_MS,
-      cooldownMs: config.DNS_CIRCUIT_BREAKER_COOLDOWN_MS,
+      failureThreshold: 5,
+      windowMs: 60_000,
+      cooldownMs: 120_000,
     },
     redisClient,
   );
@@ -331,8 +333,8 @@ export async function buildDnsProvider(
     persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
     persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
     breakers,
-    dnssecValidationEnabled: config.DNS_DNSSEC_VALIDATION_ENABLED,
-    dnssecMode: config.DNSSEC_MODE,
+    dnssecValidationEnabled: true,
+    dnssecMode: 'strict',
     onResolution: metrics?.recordUnboundResolution,
     onHostDnssecValidationChange: metrics?.recordUnboundHostDnssecChange,
     onDnssecValidationChange: (validating: boolean): void => {

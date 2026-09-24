@@ -1,15 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-export type { DnsProvider, DnsLookupSpec, DnsResolverGroup } from './dns-provider.js';
-export { strategyToResolverGroups } from './dns-provider.js';
-export { NodeDnsProvider } from './node-dns-provider.js';
-export type {
-  DnsLookupStrategy,
-  DnsLegSample,
-  DnsLegTelemetry,
-  DnsLegVerdict,
-} from './node-dns-provider.js';
-export { DohAgentPool } from './doh-agents.js';
-export type { DohAgentPoolOptions } from './doh-agents.js';
+export type { DnsProvider, DnsCheckOptions, DnsCheckResult } from './dns-provider.js';
 export { ParkingIpRegistry } from './parking-ip-registry.js';
 export type { ParkingRange } from './parking-ip-registry.js';
 export {
@@ -19,4 +9,10 @@ export {
   type DnsBreakerRegistryLike,
   type DnsBreakerStats,
 } from './dns-breaker.js';
-export { UnboundResolver } from './unbound-resolver.js';
+export {
+  UnboundResolver,
+  type UnboundResolverOptions,
+  DNSSEC_POSITIVE_CONTROLS,
+  DNSSEC_NEGATIVE_CONTROL,
+} from './unbound-resolver.js';
+export { validateDnssecPerQuery, type DnssecValidationResult } from './dnssec-validation.js';

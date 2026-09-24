@@ -271,87 +271,11 @@ const configSchema = z
 
     /**
      * Per-domain DNS lookup timeout in milliseconds.
-     * Each individual DNS resolution (A, AAAA, CNAME, NS, SOA) has this timeout.
+     * Each individual DNS resolution (A, AAAA, NS, SOA) has this timeout.
      * Increase for slow resolvers, decrease to fail fast on unresponsive NS.
-     * Default: 1500ms (1.5 seconds) — reduced from 3000ms for faster pipeline.
+     * Default: 1500ms (1.5 seconds).
      */
     DNS_LOOKUP_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).optional().default(1500),
-    /**
-     * DNS lookup strategy for availability checks (legacy NodeDnsProvider fallback only).
-     * When DNS_UNBOUND_ENABLED=true (default), this setting is ignored — Unbound resolver is used.
-     * - 'native': Use Node.js built-in resolver only.
-     * - 'native-with-doh-fallback': Use native resolver; on timeout, fall back to
-     *   DNS-over-HTTPS (Cloudflare by default) for a second attempt.
-     * - 'doh-only': Use DNS-over-HTTPS exclusively (no native fallback).
-     *   Use when the system resolver is unreliable or unavailable.
-     * - 'doh-primary': Try multi-resolver DNS-over-HTTPS (Cloudflare,
-     *   Google, Quad9 in parallel) first, fall back to native Node.js resolver
-     *   on timeout or error.
-     * DoH fallback improves reliability when the system resolver returns
-     * sporadic timeouts, at the cost of one extra HTTPS request per timeout.
-     */
-    DNS_LOOKUP_STRATEGY: z
-      .enum(['native', 'native-with-doh-fallback', 'doh-only', 'doh-primary'])
-      .default('doh-primary'),
-    /**
-     * Privacy mode (ADR-0065): when true, NO DNS query leaves the host except
-     * to the pinned recursor. The default stack sends every candidate domain
-     * name to public resolvers (Cloudflare/Google/Quad9 DoH, AdGuard/Mullvad/
-     * NextDNS DoT, OpenDNS/Digital Society DoH, and the system/ISP resolver on
-     * native legs) — a commercially sensitive investment signal for an
-     * operator watching resolver logs. Privacy mode (ADR-0065) forces the
-     * strategy to 'native', so every leg queries only the DNS_NAMESERVERS pins.
-     * It therefore REQUIRES DNS_NAMESERVERS to be set: boot fails loudly
-     * otherwise, because "private" with the system resolver would still
-     * leak to the ISP. Default: false for both editions.
-     * When DNS_UNBOUND_ENABLED=true (default), Unbound resolver is used instead.
-     */
-    DNS_PRIVACY_MODE: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
-    /**
-     * DNS-over-HTTPS endpoint for the 'native-with-doh-fallback' strategy.
-     * Uses the Google DNS JSON API format: ?name=<domain>&type=<type>.
-     * Default: Cloudflare DNS over HTTPS (privacy-first, no ECS).
-     */
-    DNS_DOH_ENDPOINT: z.string().url().default('https://cloudflare-dns.com/dns-query'),
-    /**
-     * Max keep-alive connections per DoH endpoint origin (ADI-0044). DoH
-     * requests are routed through a pooled undici Agent instead of the default
-     * one-shot global dispatcher: bounded idle connections are reused across
-     * queries, so a bulk run no longer opens a fresh TLS/HTTP handshake per
-     * request. One Agent pool is shared by all endpoints; each origin receives
-     * at most this many concurrent sockets, excess requests queue in undici.
-     * Default: 64. Range: 1–1000.
-     */
-    DNS_DOH_MAX_CONNECTIONS: z.coerce.number().int().min(1).max(1000).default(64),
-
-    /**
-     * Comma-separated list of custom DNS resolver IP addresses for the native
-     * Node.js resolver. When set, each native resolver group creates a dedicated
-     * `dns.Resolver` instance with these servers — NEVER calling the global
-     * `dns.setServers()`, which would mutate the resolver for all modules
-     * in the process (including HTTP clients like `node-fetch`, `undici`).
-     * In containerized environments where the embedded DNS (127.0.0.11) is a
-     * throughput bottleneck, setting this to public resolvers like
-     * `1.1.1.1,8.8.8.8` can dramatically improve bulk lookup performance.
-     * Leave unset to keep the system resolver (default behaviour per group).
-     */
-    DNS_NAMESERVERS: z.string().optional(),
-
-    /**
-     * Use a dedicated `dns.Resolver` instance per resolver group instead of
-     * the process-global `dnsPromises.resolve()`. When true (default), native
-     * lookups create a fresh `dns.Resolver` per group with `setServers()`
-     * scoped to that instance, eliminating any global state mutation risk.
-     * Set to false only for backward compatibility if a third-party module
-     * intercepts `dns.Resolver` instances.
-     * Default: true — the safe default after the `setServers()` global
-     * mutation was identified as a security and correctness risk.
-     */
-    DNS_USE_DEDICATED_RESOLVER: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
 
     /**
      * Enable parking page detection for registered domains.
@@ -472,6 +396,14 @@ const configSchema = z
      */
     DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).default(2000),
     /**
+     * DNSSEC validation mode for Available verdicts (default: 'strict').
+     * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
+     * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
+     * - 'disabled': DNSSEC not required for Available verdicts.
+     * Applies to DnsPreFilterStage when evaluating UnboundResolver results.
+     */
+    DNSSEC_MODE: z.enum(['strict', 'permissive', 'disabled']).default('strict'),
+    /**
      * Comma-separated list of positive control domains for DNSSEC validation health checks.
      * These are known-good DNSSEC-signed zones used to verify that the resolver
      * can reach signed zones (proving the zone itself is reachable, so a
@@ -518,14 +450,7 @@ const configSchema = z
     DNS_PERSISTENT_CACHE_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
-    /**
-     * Max queries buffered in the DoT pool queue while all connections are at
-     * capacity. New queries past this limit fail fast with an EQUEUEFULL error
-     * instead of growing the queue without bound (memory protection during
-     * oversized bulk runs). Default: 4096. Set to 0 for an unbounded queue
-     * (legacy behaviour).
-     */
-    DNS_DOT_POOL_MAX_QUEUED: z.coerce.number().int().min(0).max(1000000).default(4096),
+
     /**
      * TTL for persistent DNS cache entries in hours.
      * Default: 168 (7 days). DNS availability is relatively stable but not
@@ -572,81 +497,7 @@ const configSchema = z
       .min(100)
       .max(60000)
       .default(1000),
-    /**
-     * Per-endpoint circuit breaker for the DNS layer (ADR-0059). DNS is the
-     * last provider without circuit protection: RDAP and WHOIS trip on
-     * repeated failures (global + per-server), while a dead DNS resolver
-     * burned the full lookup timeout on every query, every run. The breaker
-     * opens per resolver endpoint (DoH host, DoT endpoint, native nameserver
-     * set) after DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD consecutive failures,
-     * skipping further queries for the cooldown. Default: true.
-     */
-    DNS_CIRCUIT_BREAKER_ENABLED: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
-    /**
-     * Enable DNSSEC validation on all resolver legs (ADR-0061).
-     * When true, queries include EDNS0 DO=1 bit and responses are checked for
-     * AD flag and bogus status. Bogus responses are treated as Registered
-     * (fail-closed, ADR-0002). When false, DNSSEC validation is skipped.
-     * Default: true.
-     */
-    DNS_DNSSEC_VALIDATION_ENABLED: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
-    /**
-     * Enable DNSSEC validation on native resolver when using pinned recursors
-     * (DNS_NAMESERVERS). In privacy mode (DNS_PRIVACY_MODE=true), the native
-     * resolver path would otherwise skip DNSSEC validation (Node.js built-in
-     * resolver does not validate). This setting enables validation via
-     * @relaycorp/dnssec for those paths.
-     * Requires DNS_DNSSEC_VALIDATION_ENABLED=true and DNS_NAMESERVERS to be configured.
-     * Default: true when DNSSEC validation is enabled and nameservers are pinned.
-     */
-    DNS_NATIVE_DNSSEC_ENABLED: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
-    /**
-     * DNSSEC validation mode for Available verdicts (default: 'strict').
-     * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
-     * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
-     * - 'disabled': DNSSEC not required for Available verdicts.
-     * Applies to both UnboundResolver and DnsPreFilterStage when DNS_UNBOUND_ENABLED=true.
-     * When DNS_UNBOUND_ENABLED=false (native fallback), this only affects DnsPreFilterStage.
-     */
-    DNSSEC_MODE: z.enum(['strict', 'permissive', 'disabled']).default('strict'),
-    /**
-     * Enable per-query DNSSEC validation using @relaycorp/dnssec (ADR-0073).
-     * When true, each Available verdict triggers a full cryptographic DNSSEC chain
-     * validation (DS -> DNSKEY -> RRSIG) for that specific domain, instead of
-     * relying solely on the resolver-level negative-control probe.
-     * This closes the window where a resolver could be reconfigured to
-     * val-permissive-mode: yes between periodic revalidations.
-     * Default: false (opt-in, adds ~50-200ms per Available domain).
-     */
-    DNS_PER_QUERY_DNSSEC: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
-    /**
-     * Timeout in milliseconds for per-query DNSSEC validation.
-     * Only applies when DNS_PER_QUERY_DNSSEC=true.
-     * Default: 2000ms (2 seconds).
-     */
-    DNS_PER_QUERY_DNSSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(2000),
-    /**
-     * Consecutive resolver failures within the window that open the circuit.
-     * Mirrors the RDAP per-server breaker default (ADR-0050). Range: 1-100.
-     */
-    DNS_CIRCUIT_BREAKER_FAILURE_THRESHOLD: z.coerce.number().int().min(1).max(100).default(5),
-    /**
-     * Rolling window (ms) for the failure count. Default: 60000. Range: 1000-600000.
-     */
-    DNS_CIRCUIT_BREAKER_WINDOW_MS: z.coerce.number().int().min(1000).max(600000).default(60_000),
-    /**
-     * Cooldown (ms) the circuit stays open before a half-open probe is allowed.
-     * Default: 120000 (2 minutes). Range: 1000-600000.
-     */
-    DNS_CIRCUIT_BREAKER_COOLDOWN_MS: z.coerce.number().int().min(1000).max(600000).default(120_000),
+
     /**
      * Maximum time (ms) to wait for a WHOIS port-43 response.
      * Increased to 10s to accommodate slow ccTLD WHOIS servers (.it, .de, .jp, .br
@@ -2083,22 +1934,6 @@ const configSchema = z
     PUBLIC_SCORES_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
     EVENTS_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(180),
   })
-  .refine(
-    (data) => {
-      // Enforce DNS_NAMESERVERS when DNS_PRIVACY_MODE=true in ALL editions.
-      if (data.DNS_PRIVACY_MODE === true) {
-        if (data.DNS_NAMESERVERS === undefined || data.DNS_NAMESERVERS.trim() === '') {
-          return false;
-        }
-      }
-      return true;
-    },
-    {
-      message:
-        'DNS_PRIVACY_MODE=true requires DNS_NAMESERVERS to be set (pinned recursor for primary).',
-      path: ['DNS_PRIVACY_MODE'],
-    },
-  )
   .refine(
     (data) => {
       if (data.RDAP_CONSENSUS_TERTIARY_ENABLED === true) {

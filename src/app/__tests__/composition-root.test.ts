@@ -18,7 +18,8 @@ import {
 } from '../../db/index.js';
 import { createKeywordProvider } from '../../providers/keyword/index.js';
 import { createCompsProvider } from '../../providers/comps/index.js';
-import { NodeDnsProvider, type DnsProvider } from '../../providers/dns/index.js';
+import { fileURLToPath } from 'node:url';
+import { UnboundResolver, ParkingIpRegistry, type DnsProvider } from '../../providers/dns/index.js';
 import { RateLimiter } from '../../providers/rate-limiter.js';
 import { PublicRdapProvider } from '../../providers/rdap/index.js';
 import { NodeWhoisProviderWithIanaFallback } from '../../providers/whois/index.js';
@@ -603,7 +604,18 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);
     const alertEngine = new RenewalAlertEngine(portfolioRepo, alertRepo, config, notifiers);
-    const dnsProvider = new NodeDnsProvider();
+    const dnsProvider = new UnboundResolver({
+      unboundHosts: ['127.0.0.1'],
+      lookupTimeoutMs: 1500,
+      cacheTtlMs: 300_000,
+      maxSize: 10000,
+      bulkConcurrency: 10,
+      parkingEnabled: false,
+      parkingRegistry: ParkingIpRegistry.load(
+        undefined,
+        fileURLToPath(new URL('../../providers/dns/parking-ips.json', import.meta.url)),
+      ),
+    });
     const rdapProvider = new PublicRdapProvider(
       undefined,
       undefined,

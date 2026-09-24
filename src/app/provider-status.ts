@@ -112,18 +112,12 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
  * The DNS provider status note. Reflects Unbound as single source of truth (ADR-0072).
  */
 function buildDnsStatusNote(config: Config): string {
-  if (config.DNS_UNBOUND_ENABLED) {
-    return (
-      `Unbound recursive resolver (single source of truth, ADR-0072) at ${config.DNS_UNBOUND_HOSTS}. ` +
-      `DNSSEC validation ${config.DNS_DNSSEC_VALIDATION_ENABLED ? 'enabled' : 'disabled'}. ` +
-      `DoT to Unbound ${config.DNS_UNBOUND_TLS ? 'enabled' : 'disabled'}. ` +
-      `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.`
-    );
-  }
+  // ADR-0075: Unbound is mandatory, DNS_UNBOUND_ENABLED=false no longer supported.
   return (
-    `Native node:dns fallback (${config.DNS_LOOKUP_STRATEGY} strategy, bulk concurrency ${config.DNS_BULK_CONCURRENCY}). ` +
-    `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}. ` +
-    `DNSSEC is NOT validated on this path — set DNS_UNBOUND_ENABLED=true for DNSSEC-validated verdicts.`
+    `Unbound recursive resolver (single source of truth, ADR-0072) at ${config.DNS_UNBOUND_HOSTS}. ` +
+    `Per-query DNSSEC validation ${config.DNS_PER_QUERY_DNSEC ? 'enabled' : 'disabled'}. ` +
+    `DoT to Unbound ${config.DNS_UNBOUND_TLS ? 'enabled' : 'disabled'}. ` +
+    `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.`
   );
 }
 
