@@ -16,3 +16,4 @@ export {
   DNSSEC_NEGATIVE_CONTROL,
 } from './unbound-resolver.js';
 export { validateDnssecPerQuery, type DnssecValidationResult } from './dnssec-validation.js';
+export { NodeDnsFallback, type NodeDnsFallbackOptions } from './node-dns-fallback.js';

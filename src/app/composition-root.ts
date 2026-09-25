@@ -714,6 +714,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       recordUnboundHostDnssecChange: (host, validating) =>
         metrics.recordUnboundHostDnssecChange(host, validating),
       recordUnboundHealthyHosts: (count) => metrics.recordUnboundHealthyHosts(count),
+      recordFallbackActive: (active) => metrics.recordDnsFallbackActive(active),
     },
   );
   // Periodic DNSSEC revalidation for UnboundResolver is now started inside buildDnsProvider

@@ -409,6 +409,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_CACHE_MAX_SIZE: 10000,
       DNS_RATE_LIMIT_TOKENS: 20,
       DNS_RATE_LIMIT_INTERVAL_MS: 1000,
+      DNS_UNBOUND_STRICT: true,
       WHOIS_LOOKUP_TIMEOUT: 10000,
       RDAP_RATE_LIMIT_TOKENS: 10,
       RDAP_RATE_LIMIT_INTERVAL_MS: 1000,
