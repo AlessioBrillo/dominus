@@ -222,6 +222,8 @@ export interface UnboundMetrics {
   dnssecValidationLostTotal: number;
   /** Total DNSSEC validation recovery events (periodic revalidation). */
   dnssecValidationRecoveredTotal: number;
+  /** Total all-hosts-unhealthy events (ADR-0075 multi-host failover). */
+  allHostsUnhealthyTotal: number;
   /** Total cache hits. */
   cacheHitsTotal: number;
   /** Average query duration in ms. */
