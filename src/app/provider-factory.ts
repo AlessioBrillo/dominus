@@ -18,6 +18,7 @@ import {
   DnsBreakerRegistry,
   type DnsBreakerRegistryLike,
   type DnsProvider,
+  type UnboundHostDnssecResult,
 } from '../providers/dns/index.js';
 import { PriorityRateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
 import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
@@ -293,6 +294,7 @@ export async function buildDnsProvider(
     }) => void;
     recordUnboundHostDnssecChange?: (host: string, validating: boolean) => void;
     recordUnboundHealthyHosts?: (count: number) => void;
+    recordUnboundAllHostsUnhealthy?: (hosts: UnboundHostDnssecResult[]) => void;
     recordFallbackActive?: (active: boolean) => void;
   },
 ): Promise<DnsProvider> {
@@ -352,6 +354,14 @@ export async function buildDnsProvider(
       dnsPerQueryDnssec: config.DNS_PER_QUERY_DNSEC,
       dnsPerQueryDnssecTimeoutMs: config.DNS_PER_QUERY_DNSEC_TIMEOUT_MS,
       positiveControls,
+      minHealthyHosts: config.DNS_UNBOUND_MIN_HEALTHY_HOSTS,
+      onAllHostsUnhealthy: (hosts: UnboundHostDnssecResult[]): void => {
+        getLogger().error(
+          { hosts, timestamp: new Date().toISOString() },
+          'ALERT: All Unbound hosts unhealthy — DNS resolution degraded',
+        );
+        metrics?.recordUnboundAllHostsUnhealthy?.(hosts);
+      },
     });
     return resolver;
   };
