@@ -378,6 +378,16 @@ const configSchema = z
       .max(300_000)
       .default(30_000),
     /**
+     * Minimum number of healthy Unbound hosts required for the resolver to be
+     * considered operational (quorum). When the healthy host count drops below
+     * this threshold, DNS lookups fail fast with Unknown instead of attempting
+     * queries on the remaining hosts. This prevents split-brain scenarios where
+     * a single remaining host could return stale or incorrect results.
+     * Default: 1 (at least one healthy host). Set to 0 to disable quorum check
+     * (not recommended for production). Maximum: number of configured hosts.
+     */
+    DNS_UNBOUND_MIN_HEALTHY_HOSTS: z.coerce.number().int().min(0).max(10).default(1),
+    /**
      * Strict Unbound mode (default: true).
      * When true (production/hardened), UnboundResolver is the exclusive DNS provider.
      * DNSSEC validation is mandatory; startup fails if Unbound is unhealthy or

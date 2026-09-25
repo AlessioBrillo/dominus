@@ -561,6 +561,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_PARKING_IPS_PATH: undefined,
       DNS_UNBOUND_ENABLED: false,
       DNS_UNBOUND_HOSTS: '127.0.0.1',
+      DNS_UNBOUND_MIN_HEALTHY_HOSTS: 1,
       DNS_UNBOUND_TLS: false,
       DNS_UNBOUND_TIMEOUT_MS: 1500,
       DNS_UNBOUND_HEALTH_CHECK_ENABLED: false,

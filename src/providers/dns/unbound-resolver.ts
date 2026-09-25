@@ -176,6 +176,15 @@ export interface UnboundResolverOptions {
    *  diversity against single-zone outages or routing issues.
    *  Default: ['sigok.verteiltesysteme.net', 'dnssec.works', 'test.dnssec-tools.org'] */
   positiveControls?: string[];
+  /** Minimum number of healthy hosts required for the resolver to be considered
+   *  operational (quorum). When healthy host count drops below this threshold,
+   *  the resolver is considered degraded and lookups will fail fast.
+   *  Default: 1 (at least one healthy host). Set to 0 to disable quorum check. */
+  minHealthyHosts?: number;
+  /** Optional callback invoked when ALL configured hosts become unhealthy.
+   *  Receives the list of host health statuses for actionable alerting.
+   *  Called once per transition from healthy->unhealthy state. */
+  onAllHostsUnhealthy?: ((hosts: UnboundHostDnssecResult[]) => void) | undefined;
 }
 
 export class UnboundResolver implements DnsProvider {
@@ -214,6 +223,12 @@ export class UnboundResolver implements DnsProvider {
   readonly #dnsPerQueryDnssecTimeoutMs: number;
   /** Positive control domains for DNSSEC validation health checks. */
   readonly #positiveControls: string[];
+  /** Minimum healthy hosts required (quorum). Default: 1. */
+  readonly #minHealthyHosts: number;
+  /** Callback when all hosts become unhealthy. */
+  readonly #onAllHostsUnhealthy: UnboundResolverOptions['onAllHostsUnhealthy'];
+  /** Track whether we've already fired the all-hosts-unhealthy callback. */
+  #allHostsUnhealthyFired = false;
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -236,6 +251,8 @@ export class UnboundResolver implements DnsProvider {
     this.#dnsPerQueryDnssec = options.dnsPerQueryDnssec ?? true;
     this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 2000;
     this.#positiveControls = options.positiveControls ?? DNSSEC_POSITIVE_CONTROLS;
+    this.#minHealthyHosts = options.minHealthyHosts ?? 1;
+    this.#onAllHostsUnhealthy = options.onAllHostsUnhealthy;
     this.#onResolution = options.onResolution;
     this.#onDnssecValidationChange = options.onDnssecValidationChange;
     this.#onHostDnssecValidationChange = options.onHostDnssecValidationChange;
@@ -623,15 +640,15 @@ export class UnboundResolver implements DnsProvider {
   }
 
   /** Quick runtime health check — returns true if ANY host is healthy
-   *  and DNSSEC validation is currently proven active. This is a lightweight
-   *  check (no full negative-control probe) suitable for frequent polling
-   *  by the soft-fail fallback logic in the provider factory.
+   *  and DNSSEC validation is currently proven active, AND quorum is met.
+   *  This is a lightweight check (no full negative-control probe) suitable for
+   *  frequent polling by the soft-fail fallback logic in the provider factory.
    */
   isHealthy(): boolean {
     // A resolver is "healthy" if it has proven DNSSEC validation at some point
-    // and the last revalidation didn't fail catastrophically.
+    // and the last revalidation didn't fail catastrophically, AND quorum is met.
     // We don't re-run the probe here — just report the last known state.
-    return this.#dnssecValidating && this.getHealthyHostCount() > 0;
+    return this.#dnssecValidating && this.getHealthyHostCount() >= this.#minHealthyHosts;
   }
 
   /** Detailed health status for diagnostics and alerting.
@@ -643,41 +660,64 @@ export class UnboundResolver implements DnsProvider {
     dnssecValid: boolean;
     details: string;
     hosts: UnboundHostDnssecResult[];
+    quorumMet: boolean;
+    minHealthyHosts: number;
   } {
+    const healthyCount = this.getHealthyHostCount();
+    const quorumMet = healthyCount >= this.#minHealthyHosts;
     return {
-      healthy: this.#dnssecValidating && this.getHealthyHostCount() > 0,
+      healthy: this.#dnssecValidating && quorumMet,
       dnssecValid: this.#dnssecValidating,
-      details: this.#dnssecValidating
-        ? 'DNSSEC validation active (last revalidation passed)'
-        : 'DNSSEC validation NOT active — resolver may be misconfigured or unreachable',
+      quorumMet,
+      minHealthyHosts: this.#minHealthyHosts,
+      details:
+        this.#dnssecValidating && quorumMet
+          ? 'DNSSEC validation active (last revalidation passed), quorum met'
+          : !this.#dnssecValidating
+            ? 'DNSSEC validation NOT active — resolver may be misconfigured or unreachable'
+            : `Quorum not met: ${healthyCount}/${this.#minHealthyHosts} healthy hosts`,
       hosts: this.getHostHealth(),
     };
   }
 
-  /** Select the next healthy host using round-robin.
-   *  Returns the host string, or undefined if no healthy hosts available. */
-  #selectHealthyHost(): string | undefined {
+  /** Select the next healthy host using round-robin with quorum enforcement.
+   *  Returns the host string, or undefined if no healthy hosts available
+   *  or quorum not met. Attempts proactive revival of unhealthy hosts
+   *  before giving up to reduce failover latency from 30s to <5s. */
+  async #selectHealthyHost(): Promise<string | undefined> {
     const hosts = this.#unboundHosts;
     if (hosts.length === 0) return undefined;
     // If hostHealth is empty (e.g., after dispose), no hosts available
     if (this.#hostHealth.size === 0) return undefined;
 
+    // Check quorum: require minimum healthy hosts
+    const healthyCount = this.getHealthyHostCount();
+    if (healthyCount < this.#minHealthyHosts) {
+      logger.warn(
+        { healthyCount, minRequired: this.#minHealthyHosts, totalHosts: hosts.length },
+        'Unbound: quorum not met — insufficient healthy hosts',
+      );
+      this.#maybeFireAllHostsUnhealthy();
+      return undefined;
+    }
+
     // Fast path: if only one host, return it if healthy
     if (hosts.length === 1) {
       const host = hosts[0]!;
       const health = this.#hostHealth.get(host)!;
-      if (health.healthy) return host;
-      // Check cooldown
-      if (Date.now() - health.lastFailureAt >= this.#unhealthyCooldownMs) {
-        // Try to revive it
-        health.healthy = true;
-        health.consecutiveFailures = 0;
+      if (health.healthy) {
+        this.#allHostsUnhealthyFired = false; // Reset on recovery
+        return host;
+      }
+      // Proactive revival attempt: try a quick health check before giving up
+      if (await this.#attemptHostRevival(host)) {
+        this.#allHostsUnhealthyFired = false;
         return host;
       }
       return undefined;
     }
 
-    // Multi-host: round-robin with health check
+    // Multi-host: round-robin with health check and proactive revival
     let attempts = 0;
     while (attempts < hosts.length) {
       const host = hosts[this.#roundRobinIndex]!;
@@ -686,18 +726,74 @@ export class UnboundResolver implements DnsProvider {
 
       const health = this.#hostHealth.get(host);
       if (!health) continue; // Host was removed (e.g., after dispose)
-      if (health.healthy) return host;
+      if (health.healthy) {
+        this.#allHostsUnhealthyFired = false; // Reset on recovery
+        return host;
+      }
+
+      // Proactive revival: attempt quick health check before waiting for cooldown
+      if (await this.#attemptHostRevival(host)) {
+        this.#allHostsUnhealthyFired = false;
+        return host;
+      }
 
       // Check if cooldown expired — revive host
       if (Date.now() - health.lastFailureAt >= this.#unhealthyCooldownMs) {
         health.healthy = true;
         health.consecutiveFailures = 0;
         logger.info({ host }, 'Unbound: host revived after cooldown');
+        this.#allHostsUnhealthyFired = false;
         return host;
       }
     }
 
+    // No healthy hosts found after proactive revival attempts
+    this.#maybeFireAllHostsUnhealthy();
     return undefined; // No healthy hosts
+  }
+
+  /** Attempt proactive revival of an unhealthy host with a quick A record check.
+   *  Returns true if host is revived, false otherwise. */
+  async #attemptHostRevival(host: string): Promise<boolean> {
+    const health = this.#hostHealth.get(host);
+    if (!health || health.healthy) return false;
+
+    const testDomain = 'cloudflare.com';
+    const timeoutMs = 1000; // Short timeout for revival probe
+    try {
+      const aResult = await Promise.race([
+        this.#resolveWithTimeout(host, testDomain, 'A', timeoutMs),
+        new Promise<boolean>((_, reject) =>
+          setTimeout(() => reject(new Error('revival probe timeout')), timeoutMs),
+        ),
+      ]);
+      if (aResult) {
+        health.healthy = true;
+        health.consecutiveFailures = 0;
+        logger.info({ host }, 'Unbound: host proactively revived via quick health check');
+        return true;
+      }
+    } catch {
+      // Revival failed — host stays unhealthy
+    }
+    return false;
+  }
+
+  /** Fire the onAllHostsUnhealthy callback once per unhealthy transition. */
+  #maybeFireAllHostsUnhealthy(): void {
+    if (this.#allHostsUnhealthyFired) return;
+    if (!this.#onAllHostsUnhealthy) return;
+    const healthyCount = this.getHealthyHostCount();
+    if (healthyCount > 0) return; // Still have healthy hosts
+
+    this.#allHostsUnhealthyFired = true;
+    const hosts = this.getHostHealth();
+    logger.error({ hosts }, 'Unbound: ALL hosts unhealthy — firing alert callback');
+    try {
+      this.#onAllHostsUnhealthy(hosts);
+    } catch (err) {
+      logger.error({ err }, 'Unbound: onAllHostsUnhealthy callback threw');
+    }
   }
 
   /** Mark a host as unhealthy after a failure. */
@@ -908,7 +1004,7 @@ export class UnboundResolver implements DnsProvider {
     const lookupStartTime = startTime ?? Date.now();
 
     // Select healthy host for this lookup
-    const host = this.#selectHealthyHost();
+    const host = await this.#selectHealthyHost();
     if (!host) {
       // No healthy hosts — this should not happen if fallback is configured,
       // but if it does, return Unknown

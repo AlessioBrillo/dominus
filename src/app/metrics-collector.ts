@@ -11,6 +11,7 @@ import type {
   HistogramSample,
 } from '../types/metrics.js';
 import type { DnsBreakerStats } from '../providers/dns/dns-breaker.js';
+import type { UnboundHostDnssecResult } from '../providers/dns/unbound-resolver.js';
 
 /**
  * Default latency buckets (ms) for the SLO histograms (ADR-0064): span the
@@ -90,6 +91,8 @@ export class MetricsCollector {
   /** Unbound DNSSEC validation loss events (ADR-0072). */
   #unboundDnssecValidationLost = 0;
   #unboundDnssecValidationRecovered = 0;
+  /** Unbound all hosts unhealthy events (ADR-0075 multi-host failover). */
+  #unboundAllHostsUnhealthy = 0;
   /** USPTO WAF block rate (exposed as gauge for alerting). */
   #usptoWafBlockRate = 0;
   /** USPTO total request count. */
@@ -397,6 +400,17 @@ export class MetricsCollector {
     this.recordHistogram('dominus_unbound_healthy_hosts', count, {}, [0, 1, 2, 3, 4, 5, 10]);
   }
 
+  /** Record an "all Unbound hosts unhealthy" event (ADR-0075 multi-host failover).
+   *  Called when quorum is lost and no healthy hosts remain.
+   *  Emits a counter metric for Prometheus alerting. */
+  recordUnboundAllHostsUnhealthy(hosts: UnboundHostDnssecResult[]): void {
+    this.#unboundAllHostsUnhealthy++;
+    // Could also emit per-host details via labels if needed
+    for (const host of hosts) {
+      this.recordHistogram('dominus_unbound_host_unhealthy_total', 1, { host: host.host }, [1]);
+    }
+  }
+
   /** Record whether DNS fallback mode is active (ADR-0075 completion).
    *  When true, NodeDnsFallback is in use instead of UnboundResolver.
    *  Emits a gauge metric for Prometheus alerting. */
@@ -532,6 +546,7 @@ export class MetricsCollector {
         dnssecBogusTotal: this.#unboundDnssecBogus,
         dnssecValidationLostTotal: this.#unboundDnssecValidationLost,
         dnssecValidationRecoveredTotal: this.#unboundDnssecValidationRecovered,
+        allHostsUnhealthyTotal: this.#unboundAllHostsUnhealthy,
         cacheHitsTotal: this.#unboundCacheHits,
         avgDurationMs:
           this.#unboundTotalQueries > 0

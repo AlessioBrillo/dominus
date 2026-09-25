@@ -12,6 +12,7 @@ export {
 export {
   UnboundResolver,
   type UnboundResolverOptions,
+  type UnboundHostDnssecResult,
   DNSSEC_POSITIVE_CONTROLS,
   DNSSEC_NEGATIVE_CONTROL,
 } from './unbound-resolver.js';
