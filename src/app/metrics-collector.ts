@@ -397,6 +397,13 @@ export class MetricsCollector {
     this.recordHistogram('dominus_unbound_healthy_hosts', count, {}, [0, 1, 2, 3, 4, 5, 10]);
   }
 
+  /** Record whether DNS fallback mode is active (ADR-0075 completion).
+   *  When true, NodeDnsFallback is in use instead of UnboundResolver.
+   *  Emits a gauge metric for Prometheus alerting. */
+  recordDnsFallbackActive(active: boolean): void {
+    this.recordHistogram('dominus_dns_fallback_active', active ? 1 : 0, {}, [0, 1]);
+  }
+
   /** Record a pipeline run completed in degraded mode (for alerting). */
   recordPipelineDegraded(): void {
     this.#pipelineDegradedRuns++;
