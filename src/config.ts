@@ -378,6 +378,21 @@ const configSchema = z
       .max(300_000)
       .default(30_000),
     /**
+     * Strict Unbound mode (default: true).
+     * When true (production/hardened), UnboundResolver is the exclusive DNS provider.
+     * DNSSEC validation is mandatory; startup fails if Unbound is unhealthy or
+     * DNSSEC validation is not confirmed.
+     * When false (community/development fallback), a native Node.js DNS resolver
+     * is used as a fallback when Unbound is unavailable. The fallback does NOT
+     * perform DNSSEC validation and stamps results with `dnssec: 'unchecked'`.
+     * This enables zero-dependency onboarding for community edition users who
+     * cannot run Unbound locally. Cloud edition MUST keep this true.
+     * Default: true (ADR-0075 hardened architecture).
+     */
+    DNS_UNBOUND_STRICT: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
      * Enable per-query DNSSEC validation for Available verdicts (ADR-0073).
      * When true, each Available verdict triggers a full cryptographic DNSSEC chain
      * validation (DS -> DNSKEY -> RRSIG) for that specific domain using
