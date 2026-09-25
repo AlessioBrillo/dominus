@@ -49,6 +49,8 @@ export interface NodeDnsFallbackOptions {
   parkingEnabled?: boolean;
   /** Parking IP registry (accepted for API compatibility, not implemented in fallback). */
   parkingRegistry?: unknown;
+  /** Test-only: inject a mock resolver for testing. */
+  testResolver?: NodeResolver;
 }
 
 export class NodeDnsFallback implements DnsProvider {
@@ -82,7 +84,7 @@ export class NodeDnsFallback implements DnsProvider {
       options.persistentAvailableStaleMs ?? STALE_AVAILABLE_DEFAULT_MS;
     this.#onResolution = options.onResolution;
 
-    this.#resolver = new NodeResolver();
+    this.#resolver = options.testResolver ?? new NodeResolver();
 
     this.#cacheDisabled = this.#maxSize <= 0;
     const cacheOptions: LRUCache.Options<string, DnsCheckResult, unknown> = {
