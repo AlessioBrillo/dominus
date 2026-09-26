@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { loadConfig, resetConfig } from '../../config.js';
-import { buildDnsProvider } from '../../app/provider-factory.js';
-import { NodeDnsFallback } from '../../providers/dns/node-dns-fallback.js';
 import { UnboundResolver } from '../../providers/dns/unbound-resolver.js';
-import { PriorityRateLimiter } from '../../providers/rate-limiter.js';
 
 const originalEnv = { ...process.env };
 
@@ -106,15 +103,6 @@ describe('DNS Community Edition Fallback', () => {
     process.env.RDAP_STAGE_BUSY_TIMEOUT_MS = '60000';
 
     const config = loadConfig();
-    const rateLimiter = new PriorityRateLimiter({ maxTokens: 20, tokensPerInterval: 20, intervalMs: 1000 }, 0);
-    
-    // Mock the UnboundResolver healthCheck to return unhealthy
-    const mockHealthCheck = vi.fn().mockResolvedValue({
-      healthy: false,
-      dnssecValid: false,
-      details: 'No healthy Unbound hosts',
-      hosts: [],
-    });
     
     // We can't easily mock the internal UnboundResolver creation, so we test the config logic
     // The actual fallback behavior is tested in integration tests

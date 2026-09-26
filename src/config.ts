@@ -9,7 +9,7 @@ import { ConfigError } from './types/errors.js';
  * Cloud mode is inferred from DATABASE_URL (PostgreSQL) or AUTH_PROVIDER !== 'env'.
  * Community edition uses SQLite (no DATABASE_URL) and AUTH_PROVIDER=env.
  */
-function detectCloudMode(env: NodeJS.ProcessEnv): boolean {
+function detectCloudMode(env: Record<string, string | undefined>): boolean {
   return !!env.DATABASE_URL || (env.AUTH_PROVIDER !== undefined && env.AUTH_PROVIDER !== 'env');
 }
 
@@ -19,7 +19,7 @@ function detectCloudMode(env: NodeJS.ProcessEnv): boolean {
  * - Community edition: defaults to false (allows NodeDnsFallback for zero-dependency onboarding)
  * If DNS_UNBOUND_STRICT is explicitly set via env var, that value takes precedence.
  */
-function getDefaultDnsUnboundStrict(env: NodeJS.ProcessEnv): boolean {
+function getDefaultDnsUnboundStrict(env: Record<string, string | undefined>): boolean {
   const explicit = env.DNS_UNBOUND_STRICT;
   if (explicit !== undefined) {
     return explicit === 'true';
