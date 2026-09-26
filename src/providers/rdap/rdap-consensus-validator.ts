@@ -8,6 +8,35 @@ export interface OriginDisjointnessResult {
 }
 
 /**
+ * Normalize an RDAP origin URL for comparison.
+ * - Strips trailing slash
+ * - Removes default port (443 for https)
+ * - Normalizes IPv6 bracket notation
+ * - Lowercases hostname
+ * This ensures that 'https://rdap.verisign.com', 'https://rdap.verisign.com/',
+ * 'https://rdap.verisign.com:443', and 'https://[2001:db8::1]:443/' all
+ * compare as equal.
+ */
+export function normalizeRdapOrigin(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    // URL.origin already gives us 'protocol://host:port' but with some quirks:
+    // - IPv6 hosts are bracketed: 'https://[::1]:5300'
+    // - Default ports (443 for https, 80 for http) are omitted
+    // - Trailing slashes in path are not part of origin
+    let origin = parsed.origin;
+
+    // Normalize IPv6: ensure brackets are present for IPv6 literals
+    // URL.origin already does this correctly for standard IPv6
+
+    // Ensure lowercase for case-insensitive hostname comparison
+    return origin.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Canonical origin of an RDAP endpoint URL (protocol + host), used to compare
  * "are these two servers the same place?" without being fooled by path
  * differences (https://rdap.org/ vs https://rdap.org/domain/). Unparsable
@@ -15,19 +44,11 @@ export interface OriginDisjointnessResult {
  * than failing closed on a typo.
  */
 export function rdapUrlOrigin(url: string): string | undefined {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return undefined;
-  }
+  return normalizeRdapOrigin(url);
 }
 
 /**
- * Unique origins of the operator-configured authoritative RDAP servers
- * (RDAP_BOOTSTRAP_URLS, ADR-0035). The IANA bootstrap (RFC 7484) registers
- * are resolved at runtime from dns.json, so they are not enumerable at
- * startup; this validates the statically known set plus the optional second
- * opinion endpoint.
+ * Collect and normalize RDAP origins from bootstrap entries.
  */
 export function collectRdapOrigins(entries: readonly RdapBootstrapUrlEntry[]): string[] {
   const origins = new Set<string>();
@@ -57,7 +78,9 @@ export function validateRdapConsensusOriginDisjointness(
   if (secondaryOrigin === undefined) {
     return { ok: false, overlap: secondaryEndpoint };
   }
-  const overlap = primaryOrigins.find((origin) => origin === secondaryOrigin);
+  // Normalize primary origins for comparison (they may come from config directly)
+  const normalizedPrimaryOrigins = primaryOrigins.map((o) => rdapUrlOrigin(o)).filter((o): o is string => o !== undefined);
+  const overlap = normalizedPrimaryOrigins.find((origin) => origin === secondaryOrigin);
   if (overlap !== undefined) {
     return { ok: false, overlap: secondaryOrigin };
   }
@@ -82,8 +105,8 @@ export function hasAuthoritativeOriginOverlap(
 ): boolean {
   const secondaryOrigin = rdapUrlOrigin(secondaryEndpoint);
   if (secondaryOrigin === undefined) return false;
-  // Normalize both sides to canonical origins so trailing slashes or path
-  // differences on the authoritative entries cannot mask an overlap.
+  // Normalize both sides to canonical origins so trailing slashes, default ports,
+  // or IPv6 bracket differences on the authoritative entries cannot mask an overlap.
   return authoritativeOrigins.some((origin) => rdapUrlOrigin(origin) === secondaryOrigin);
 }
 

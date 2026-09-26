@@ -173,6 +173,8 @@ export class PipelineOrchestrator {
 
   #lock: LockProvider | null = null;
   #checkpointStore: CheckpointStore | null = null;
+  #dbProvider: DatabaseProvider | null = null;
+  #stageBusyTimeouts: Record<string, number> = {};
 
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -203,6 +205,10 @@ export class PipelineOrchestrator {
      *  partial results, otherwise the stage degrades with empty results and
      *  the run is marked {@link StageDegradationReason timeout}. */
     private readonly stageBudget: StageBudgetOptions = {},
+    /** Stage-specific SQLite busy timeout overrides (ms).
+     *  Applied before each stage's bulk write operations to reduce contention
+     *  with API reads. Only affects SQLite; no-op on PostgreSQL. */
+    stageBusyTimeouts: Record<string, number> = {},
     /** Pipeline lock TTL in milliseconds (configurable via PIPELINE_LOCK_TTL_MS). */
     /** Intra-stage checkpoint batch size. When set to a positive integer,
      *  the orchestrator saves a checkpoint after every N candidates
@@ -216,6 +222,10 @@ export class PipelineOrchestrator {
   ) {
     this.#lock = lockProvider ?? db ?? null;
     this.#checkpointStore = checkpointStore ?? null;
+    // Ensure provider is stored for busy timeout management
+    this.#dbProvider = db ?? null;
+    // Store stage-specific busy timeouts for SQLite contention reduction
+    this.#stageBusyTimeouts = stageBusyTimeouts ?? {};
   }
 
   setOnStageProgress(
@@ -1027,6 +1037,21 @@ export class PipelineOrchestrator {
       return { result: await fn(signal), timedOut: false };
     }
 
+    // Apply stage-specific busy timeout for SQLite to reduce contention with API reads
+    const stageBusyTimeoutMs = this.#stageBusyTimeouts[label];
+    let previousBusyTimeoutMs: number | undefined;
+    if (stageBusyTimeoutMs !== undefined && this.#dbProvider !== null && typeof this.#dbProvider.setBusyTimeout === 'function') {
+      // Store current timeout (we can't easily read it, so we'll restore to default 30s)
+      // The default is 30000ms as set in SqliteProvider.create
+      previousBusyTimeoutMs = 30000;
+      try {
+        await this.#dbProvider.setBusyTimeout(stageBusyTimeoutMs);
+        logger.debug({ label, busyTimeoutMs: stageBusyTimeoutMs }, 'Applied stage-specific busy timeout');
+      } catch (err) {
+        logger.warn({ label, err }, 'Failed to set stage busy timeout');
+      }
+    }
+
     const stageController = new AbortController();
     const stageSignal = signal
       ? AbortSignal.any([signal, stageController.signal])
@@ -1041,6 +1066,12 @@ export class PipelineOrchestrator {
         settled = true;
         clearTimeout(budgetTimer);
         clearTimeout(graceTimer);
+        // Restore previous busy timeout
+        if (previousBusyTimeoutMs !== undefined && this.#dbProvider !== null && typeof this.#dbProvider.setBusyTimeout === 'function') {
+          this.#dbProvider.setBusyTimeout(previousBusyTimeoutMs).catch((err) => {
+            logger.warn({ label, err }, 'Failed to restore busy timeout');
+          });
+        }
         action();
       };
 

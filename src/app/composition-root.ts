@@ -717,6 +717,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       recordFallbackActive: (active) => metrics.recordDnsFallbackActive(active),
     },
   );
+  // Log explicit readiness confirmation for observability
+  if (config.DNS_UNBOUND_ENABLED && config.DNS_UNBOUND_STRICT) {
+    getLogger().info(
+      { hosts: config.DNS_UNBOUND_HOSTS },
+      'Unbound resolver ready — accepting traffic',
+    );
+  }
   // Periodic DNSSEC revalidation for UnboundResolver is now started inside buildDnsProvider
   // with the configured interval (DNS_UNBOUND_REVALIDATION_INTERVAL_MS).
   // The metrics callbacks are wired above.
@@ -960,11 +967,16 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       capMs: config.STAGE_TIMEOUT_CAP_MS,
       graceMs: config.STAGE_TIMEOUT_GRACE_MS,
     },
-    // checkpointBatchSize (12th param): intra-stage checkpoint batch size (0 = disabled)
+    // stageBusyTimeouts (12th param): stage-specific SQLite busy timeout overrides
+    {
+      DnsPreFilter: config.DNS_STAGE_BUSY_TIMEOUT_MS ?? 60_000,
+      RdapConfirmation: config.RDAP_STAGE_BUSY_TIMEOUT_MS ?? 60_000,
+    },
+    // checkpointBatchSize (13th param): intra-stage checkpoint batch size (0 = disabled)
     config.PIPELINE_CHECKPOINT_BATCH_SIZE,
-    // lockTtlMs (13th param): pipeline advisory lock TTL
+    // lockTtlMs (14th param): pipeline advisory lock TTL
     config.PIPELINE_LOCK_TTL_MS,
-    // lockHeartbeatMs (14th param): pipeline lock heartbeat interval
+    // lockHeartbeatMs (15th param): pipeline lock heartbeat interval
     config.PIPELINE_LOCK_HEARTBEAT_MS,
   );
   const progressService = new PipelineProgressService();

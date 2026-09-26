@@ -93,6 +93,7 @@ describe('UnboundResolver', () => {
       persistentCacheTtlHours: 168,
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
+      skipSocketCheck: true,
       onResolution: mockMetrics,
     });
   });
@@ -103,7 +104,7 @@ describe('UnboundResolver', () => {
 
   describe('constructor', () => {
     it('should create resolver with default options', () => {
-      const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'] });
+      const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'], skipSocketCheck: true });
       expect(r.name).toBe('UnboundResolver');
       r.dispose();
     });
@@ -113,7 +114,7 @@ describe('UnboundResolver', () => {
     });
 
     it('should set cache disabled when maxSize <= 0', () => {
-      const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'], maxSize: 0 });
+      const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'], maxSize: 0, skipSocketCheck: true });
       r.clearCache(); // Should not throw
       r.dispose();
     });
@@ -329,17 +330,17 @@ describe('UnboundResolver', () => {
 
 describe('UnboundResolver config validation', () => {
   it('should accept valid unboundHosts', () => {
-    const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'] });
+    const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'], skipSocketCheck: true });
     r.dispose();
   });
 
   it('should accept IPv6 hosts', () => {
-    const r = new UnboundResolver({ unboundHosts: ['::1'] });
+    const r = new UnboundResolver({ unboundHosts: ['::1'], skipSocketCheck: true });
     r.dispose();
   });
 
   it('should accept hosts with ports', () => {
-    const r = new UnboundResolver({ unboundHosts: ['127.0.0.1:5300', '[::1]:5300'] });
+    const r = new UnboundResolver({ unboundHosts: ['127.0.0.1:5300', '[::1]:5300'], skipSocketCheck: true });
     r.dispose();
   });
 });
@@ -397,6 +398,7 @@ describe('UnboundResolver periodic DNSSEC revalidation', () => {
       persistentCacheTtlHours: 168,
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
+      skipSocketCheck: true,
       onResolution: mockMetrics,
     });
   });
@@ -505,6 +507,7 @@ describe('UnboundResolver soft-fail fallback integration', () => {
       persistentCacheTtlHours: 168,
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
+      skipSocketCheck: true,
       onResolution: mockMetrics,
     });
   });
@@ -602,6 +605,7 @@ describe('UnboundResolver SLO metrics', () => {
       persistentCacheTtlHours: 168,
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
+      skipSocketCheck: true,
       onResolution: mockMetrics,
     });
   });
@@ -673,6 +677,7 @@ describe('UnboundResolver recovery behavior', () => {
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
       dnssecMode: 'strict',
+      skipSocketCheck: true,
     });
   });
 

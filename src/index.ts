@@ -424,6 +424,9 @@ async function main(): Promise<void> {
 
   const server = app.listen(config.PORT, config.HOST, () => {
     logger.info({ port: config.PORT, host: config.HOST }, 'DOMINUS server started');
+    if (deps.dnsProvider && config.DNS_UNBOUND_ENABLED && config.DNS_UNBOUND_STRICT) {
+      logger.info('Unbound resolver ready — accepting traffic');
+    }
     const warmupMs = config.SCHEDULER_WARMUP_MS;
     if (deps.scheduler) {
       setTimeout(() => {

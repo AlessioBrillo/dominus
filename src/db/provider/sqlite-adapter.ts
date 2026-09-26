@@ -253,6 +253,11 @@ export class SqliteProvider implements DatabaseProvider {
     return this.#open;
   }
 
+  /** Set the SQLite busy timeout (pragma busy_timeout) for the current connection. */
+  async setBusyTimeout(timeoutMs: number): Promise<void> {
+    this.#db.pragma(`busy_timeout = ${timeoutMs}`);
+  }
+
   #workerId(lockName: string): string {
     return `${lockName}:worker:${hostname()}:${process.pid}`;
   }

@@ -355,6 +355,8 @@ export async function buildDnsProvider(
       dnsPerQueryDnssecTimeoutMs: config.DNS_PER_QUERY_DNSEC_TIMEOUT_MS,
       positiveControls,
       minHealthyHosts: config.DNS_UNBOUND_MIN_HEALTHY_HOSTS,
+      readinessTimeoutMs: config.DNS_UNBOUND_READINESS_TIMEOUT_MS,
+      skipSocketCheck: config.DNS_UNBOUND_SKIP_READINESS,
       onAllHostsUnhealthy: (hosts: UnboundHostDnssecResult[]): void => {
         getLogger().error(
           { hosts, timestamp: new Date().toISOString() },
@@ -370,8 +372,25 @@ export async function buildDnsProvider(
   if (config.DNS_UNBOUND_STRICT) {
     const resolver = createUnboundResolver();
 
-    // Health check at startup (unless disabled for testing)
-    if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
+    // Wait for resolver readiness (health + DNSSEC validation) with retries and backoff.
+    // This replaces the single healthCheck() call with a more robust readiness gate
+    // that handles transient startup delays (e.g., Unbound sidecar still initializing).
+    // Skip in test environments via DNS_UNBOUND_SKIP_READINESS.
+    if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED && !config.DNS_UNBOUND_SKIP_READINESS) {
+      try {
+        await resolver.waitForReady(config.DNS_UNBOUND_READINESS_TIMEOUT_MS);
+      } catch (err) {
+        throw new Error(
+          `Unbound resolver readiness check failed: ${err instanceof Error ? err.message : String(err)}. ` +
+            'Check: 1) Unbound sidecar/container is running and reachable at DNS_UNBOUND_HOSTS. ' +
+            '2) unbound.conf has validator module and val-permissive-mode: no. ' +
+            '3) Network policy allows UDP/TCP 53 to Unbound. ' +
+            '4) Upstream DNS (forward-zone) is reachable and DNSSEC-capable.',
+          { cause: err },
+        );
+      }
+    } else if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
+      // Health check only (no readiness wait) - for test environments
       const health = await resolver.healthCheck();
       if (!health.healthy) {
         throw new Error(
@@ -390,27 +409,6 @@ export async function buildDnsProvider(
             '(not recommended for production).',
         );
       }
-      // Log per-host results for observability
-      for (const hostResult of health.hosts) {
-        getLogger().info(
-          {
-            host: hostResult.host,
-            healthy: hostResult.healthy,
-            dnssecValid: hostResult.dnssecValid,
-            consecutiveFailures: hostResult.consecutiveFailures,
-          },
-          'Unbound host health check result',
-        );
-      }
-      getLogger().info(
-        {
-          hosts: unboundHosts,
-          dnssecValid: health.dnssecValid,
-          healthyHosts: health.hosts.filter((h) => h.healthy).length,
-          details: health.details,
-        },
-        'Unbound resolver health check passed',
-      );
     }
 
     // Start periodic revalidation

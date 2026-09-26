@@ -37,6 +37,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PER_QUERY_DNSEC: true,
     DNS_PER_QUERY_DNSEC_TIMEOUT_MS: 2000,
     DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
+    DNS_UNBOUND_UPSTREAM_TLS: false,
+    DNS_UNBOUND_READINESS_TIMEOUT_MS: 30_000,
+    DNS_UNBOUND_SKIP_READINESS: true,
     ...overrides,
   } as unknown as Config;
 }

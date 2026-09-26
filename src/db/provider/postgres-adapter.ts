@@ -487,6 +487,11 @@ export class PostgresAdapter implements DatabaseProvider {
   isOpen(): boolean {
     return this.#open;
   }
+
+  /** Set busy timeout — no-op on PostgreSQL (no busy_timeout concept). */
+  async setBusyTimeout(_timeoutMs: number): Promise<void> {
+    // PostgreSQL doesn't have a busy_timeout pragma; lock contention is handled differently.
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
