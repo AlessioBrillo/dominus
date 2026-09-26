@@ -77,6 +77,8 @@ export interface UnboundHostDnssecResult {
   healthy: boolean;
   consecutiveFailures: number;
   lastCheckAt: number;
+  /** Exponentially weighted moving average of query latency in ms (for SLO alerting). */
+  ewmaLatencyMs?: number | undefined;
 }
 
 /**
@@ -189,6 +191,12 @@ export interface UnboundResolverOptions {
    *  Receives the list of host health statuses for actionable alerting.
    *  Called once per transition from healthy->unhealthy state. */
   onAllHostsUnhealthy?: ((hosts: UnboundHostDnssecResult[]) => void) | undefined;
+  /** Maximum time in milliseconds to wait for resolver readiness (health + DNSSEC).
+   *  Used by waitForReady() at startup. Default: 30000ms. */
+  readinessTimeoutMs?: number;
+  /** Enable pre-binding socket connectivity check in healthCheck (default: true).
+   *  Can be disabled in test environments where Unbound is not actually running. */
+  skipSocketCheck?: boolean;
 }
 
 export class UnboundResolver implements DnsProvider {
@@ -232,6 +240,10 @@ export class UnboundResolver implements DnsProvider {
   readonly #onAllHostsUnhealthy: UnboundResolverOptions['onAllHostsUnhealthy'];
   /** Track whether we've already fired the all-hosts-unhealthy callback. */
   #allHostsUnhealthyFired = false;
+  /** Maximum time to wait for readiness (health + DNSSEC validation). */
+  readonly #readinessTimeoutMs: number;
+  /** Skip socket connectivity check in healthCheck (for tests). */
+  readonly #skipSocketCheck: boolean;
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -262,6 +274,8 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecRevalidationIntervalMs = options.dnssecRevalidationIntervalMs ?? 600_000;
     this.#maxUnhealthyBeforeFallback = options.maxUnhealthyBeforeFallback ?? 1;
     this.#unhealthyCooldownMs = options.unhealthyCooldownMs ?? DEFAULT_UNHEALTHY_COOLDOWN_MS;
+    this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
+    this.#skipSocketCheck = options.skipSocketCheck ?? false;
 
     // Create dedicated resolver per host for isolation
     for (const host of this.#unboundHosts) {
@@ -305,6 +319,7 @@ export class UnboundResolver implements DnsProvider {
         healthy: health.healthy,
         consecutiveFailures: health.consecutiveFailures,
         lastCheckAt: health.lastCheckAt,
+        ewmaLatencyMs: health.latencySamples > 0 ? Math.round(health.ewmaLatencyMs) : undefined,
       });
     }
     return results;
@@ -398,6 +413,19 @@ export class UnboundResolver implements DnsProvider {
     details: string;
     hosts: UnboundHostDnssecResult[];
   }> {
+    // Pre-binding socket check: verify TCP/UDP connectivity to Unbound on port 53
+    // before attempting DNS resolution. This catches container networking issues
+    // (missing service, wrong port, network policy) early with actionable errors.
+    // Pre-binding socket check: verify TCP/UDP connectivity to Unbound on port 53
+    // before attempting DNS resolution. This catches container networking issues
+    // (missing service, wrong port, network policy) early with actionable errors.
+    // Skip in test environments where Unbound is not actually running.
+    if (!this.#skipSocketCheck) {
+      for (const host of this.#unboundHosts) {
+        await this.#checkSocketConnectivity(host);
+      }
+    }
+
     const testDomain = 'cloudflare.com';
     const timeoutMs = 3000;
 
@@ -422,6 +450,7 @@ export class UnboundResolver implements DnsProvider {
             healthy: false,
             consecutiveFailures: health.consecutiveFailures,
             lastCheckAt: Date.now(),
+            ewmaLatencyMs: health.latencySamples > 0 ? Math.round(health.ewmaLatencyMs) : undefined,
           });
           continue;
         }
@@ -443,6 +472,7 @@ export class UnboundResolver implements DnsProvider {
           healthy: true,
           consecutiveFailures: 0,
           lastCheckAt: health.lastCheckAt,
+          ewmaLatencyMs: health.latencySamples > 0 ? Math.round(health.ewmaLatencyMs) : undefined,
         });
 
         if (this.#onHostDnssecValidationChange) {
@@ -545,6 +575,7 @@ export class UnboundResolver implements DnsProvider {
             healthy: false,
             consecutiveFailures: health.consecutiveFailures,
             lastCheckAt: Date.now(),
+            ewmaLatencyMs: health.latencySamples > 0 ? Math.round(health.ewmaLatencyMs) : undefined,
           });
           continue;
         }
@@ -567,6 +598,7 @@ export class UnboundResolver implements DnsProvider {
           healthy: true,
           consecutiveFailures: 0,
           lastCheckAt: health.lastCheckAt,
+          ewmaLatencyMs: health.latencySamples > 0 ? Math.round(health.ewmaLatencyMs) : undefined,
         });
 
         if (this.#onHostDnssecValidationChange && dnssecValid !== previousDnssecValid) {
@@ -580,6 +612,7 @@ export class UnboundResolver implements DnsProvider {
           healthy: false,
           consecutiveFailures: health.consecutiveFailures,
           lastCheckAt: Date.now(),
+          ewmaLatencyMs: health.latencySamples > 0 ? Math.round(health.ewmaLatencyMs) : undefined,
         });
       }
     }
@@ -683,6 +716,59 @@ export class UnboundResolver implements DnsProvider {
             : `Quorum not met: ${healthyCount}/${this.#minHealthyHosts} healthy hosts`,
       hosts: this.getHostHealth(),
     };
+  }
+
+  /**
+   * Wait for the resolver to become ready (healthy + DNSSEC validation confirmed).
+   * This is used at startup to block until Unbound is fully operational.
+   * Polls healthCheck() with exponential backoff until readiness is achieved
+   * or the timeout is reached.
+   *
+   * @param timeoutMs - Maximum time to wait for readiness (default: constructor option or 30s)
+   * @throws Error if readiness is not achieved within timeout
+   */
+  async waitForReady(timeoutMs?: number): Promise<void> {
+    const timeout = timeoutMs ?? this.#readinessTimeoutMs;
+    const startTime = Date.now();
+    let attempt = 0;
+    const baseDelayMs = 500;
+
+    while (Date.now() - startTime < timeout) {
+      attempt++;
+      try {
+        const health = await this.healthCheck();
+        if (health.healthy && health.dnssecValid) {
+          logger.info(
+            { attempts: attempt, elapsedMs: Date.now() - startTime, hosts: health.hosts.length },
+            'Unbound resolver readiness achieved — healthy and DNSSEC validation confirmed',
+          );
+          return;
+        }
+        logger.warn(
+          { attempt, healthy: health.healthy, dnssecValid: health.dnssecValid, elapsedMs: Date.now() - startTime },
+          'Unbound resolver not ready — retrying',
+        );
+      } catch (err) {
+        logger.warn({ attempt, err, elapsedMs: Date.now() - startTime }, 'Unbound readiness check failed — retrying');
+      }
+
+      // Exponential backoff with jitter: 500ms, 1000ms, 2000ms, 4000ms... capped at 5s
+      const delay = Math.min(baseDelayMs * 2 ** (attempt - 1), 5_000);
+      const jitter = delay * (0.8 + Math.random() * 0.4);
+      await new Promise((resolve) => setTimeout(resolve, jitter));
+    }
+
+    // Final attempt with detailed error
+    const finalHealth = await this.healthCheck().catch((e) => ({ healthy: false, dnssecValid: false, details: String(e), hosts: [] }));
+    throw new Error(
+      `Unbound resolver failed to become ready within ${timeout}ms (${attempt} attempts). ` +
+        `Last state: healthy=${finalHealth.healthy}, dnssecValid=${finalHealth.dnssecValid}, ` +
+        `details: ${finalHealth.details}. ` +
+        `Check: 1) Unbound sidecar/container is running and reachable at DNS_UNBOUND_HOSTS. ` +
+        `2) unbound.conf has 'validator:' module and 'val-permissive-mode: no'. ` +
+        `3) Network policy allows UDP/TCP 53 to Unbound. ` +
+        `4) Upstream DNS (forward-zone) is reachable and DNSSEC-capable.`,
+    );
   }
 
   /** Select the next healthy host using latency-aware selection with jitter.
@@ -832,6 +918,100 @@ export class UnboundResolver implements DnsProvider {
       if (!health.healthy) count++;
     }
     return count;
+  }
+
+  /** Check TCP and UDP socket connectivity to an Unbound host on port 53.
+   *  This validates container networking (service existence, port, network policy)
+   *  before attempting DNS resolution, providing actionable errors on failure. */
+  async #checkSocketConnectivity(host: string): Promise<void> {
+    // Parse host:port (default 53)
+    let hostname: string = host;
+    let port = 53;
+    if (host.includes(':')) {
+      // Handle IPv6 [::1]:5300 format
+      const match = host.match(/^\[(.+)\]:(\d+)$/);
+      if (match) {
+        hostname = match[1]!;
+        port = parseInt(match[2]!, 10);
+      } else if (!host.startsWith('[')) {
+        // IPv4 or hostname with port: host:port
+        const parts = host.split(':');
+        hostname = parts[0]!;
+        port = parseInt(parts[1]!, 10);
+      }
+    }
+
+    const timeoutMs = 2000;
+
+    // Check TCP connectivity
+    await this.#trySocketConnect(hostname, port, 'tcp', timeoutMs);
+    // Check UDP connectivity (DNS primarily uses UDP)
+    await this.#trySocketConnect(hostname, port, 'udp', timeoutMs);
+  }
+
+  /** Attempt a single socket connection (TCP or UDP). */
+  async #trySocketConnect(hostname: string, port: number, type: 'tcp' | 'udp', timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const net = require('net');
+      let socket: {
+        connect: (opts: { host: string; port: number; timeout: number }) => void;
+        destroy: () => void;
+        on: (event: string, listener: (...args: unknown[]) => void) => void;
+        bind?: (port: number, callback: () => void) => void;
+        send?: (msg: Buffer, offset: number, length: number, port: number, address: string) => void;
+      };
+      if (type === 'tcp') {
+        socket = new net.Socket();
+        socket.connect({ host: hostname, port, timeout: timeoutMs });
+      } else {
+        // UDP: use dgram socket
+        const dgram = require('dgram');
+        const udpSocket = dgram.createSocket('udp4');
+        socket = udpSocket;
+        // bind is always available on dgram sockets
+        (udpSocket as { bind: (port: number, callback: () => void) => void }).bind(0, () => {
+          // Send a minimal DNS query (header only) to test UDP path
+          const query = Buffer.alloc(12);
+          query.writeUInt16BE(0x1234, 0); // Transaction ID
+          query.writeUInt16BE(0x0100, 2); // Flags: standard query
+          query.writeUInt16BE(1, 4); // QDCOUNT = 1
+          // No questions, just testing reachability
+          // send is always available on dgram sockets
+          (udpSocket as { send: (msg: Buffer, offset: number, length: number, port: number, address: string) => void }).send(query, 0, query.length, port, hostname);
+        });
+      }
+
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error(`${type.toUpperCase()} connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      socket.on('connect', () => {
+        clearTimeout(timer);
+        socket.destroy();
+        resolve();
+      });
+
+      socket.on('error', (err: unknown) => {
+        clearTimeout(timer);
+        // For UDP, 'error' may fire on ICMP port unreachable
+        const message = err instanceof Error ? err.message : String(err);
+        reject(new Error(`${type.toUpperCase()} connection to ${hostname}:${port} failed: ${message}`));
+      });
+
+      socket.on('close', () => {
+        clearTimeout(timer);
+      });
+
+      // For UDP, also listen for 'message' (response) as success indicator
+      if (type === 'udp') {
+        socket.on('message', () => {
+          clearTimeout(timer);
+          socket.destroy();
+          resolve();
+        });
+      }
+    });
   }
 
   /** Record a successful query on a host with latency for EWMA tracking. */

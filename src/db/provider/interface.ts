@@ -79,4 +79,11 @@ export interface DatabaseProvider {
    * Only succeeds if the fenceToken matches the current lock holder.
    */
   unlockWithFence(lockName: string, fenceToken: string): Promise<void>;
+
+  /**
+   * Set the SQLite busy timeout (pragma busy_timeout) for the current connection.
+   * Only implemented by SQLite provider; no-op on PostgreSQL.
+   * Useful for stage-specific bulk write operations that need different timeout behavior.
+   */
+  setBusyTimeout?(timeoutMs: number): Promise<void>;
 }

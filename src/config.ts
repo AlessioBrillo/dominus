@@ -323,16 +323,20 @@ const configSchema = z
      */
     DNS_UNBOUND_HOSTS: z.string().default('127.0.0.1'),
     /**
-     * Reserved for a future DoT transport between the application and
-     * Unbound. NOT currently wired: `UnboundResolver` uses node:dns
-     * `Resolver`, which speaks plain DNS only — this flag has no effect on
-     * the app-to-Unbound hop today. The encrypted hop that actually exists
-     * is Unbound-to-upstream (`forward-tls-upstream: yes` in
-     * deploy/unbound/unbound.conf), which is unaffected by this setting.
+     * Enable DNS-over-TLS between Unbound and its upstream recursive resolvers.
+     * This controls `forward-tls-upstream: yes` in deploy/unbound/unbound.conf.
+     * The application-to-Unbound hop (node:dns Resolver) ALWAYS uses plain DNS
+     * over the container/host network — this setting does NOT affect that hop.
+     * Default: true (encrypted upstream, ADR-0072 hardened architecture).
      */
-    DNS_UNBOUND_TLS: z
+    DNS_UNBOUND_UPSTREAM_TLS: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
+    /** @deprecated Use DNS_UNBOUND_UPSTREAM_TLS instead. Kept for backward compatibility. */
+    DNS_UNBOUND_TLS: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true)
+      .optional(),
     /**
      * Per-query timeout in milliseconds for Unbound resolution.
      * Each individual DNS resolution (A, AAAA, NS, SOA) has this timeout.
@@ -349,6 +353,24 @@ const configSchema = z
     DNS_UNBOUND_HEALTH_CHECK_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
+    /**
+     * Maximum time in milliseconds to wait for Unbound resolver readiness at startup.
+     * When DNS_UNBOUND_STRICT=true and DNS_UNBOUND_HEALTH_CHECK_ENABLED=true, the
+     * application will wait up to this duration for the resolver to become healthy
+     * and confirm DNSSEC validation (negative-control probe). If readiness is not
+     * achieved within this timeout, startup fails with actionable error message.
+     * Default: 30000 (30 seconds).
+     */
+    DNS_UNBOUND_READINESS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(30_000),
+    /**
+     * Skip the Unbound resolver readiness wait at startup (test-only).
+     * When true, the application will not call waitForReady() and will proceed
+     * after a single healthCheck(). FOR TEST USE ONLY — do not set in production.
+     * Default: false.
+     */
+    DNS_UNBOUND_SKIP_READINESS: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
     /**
      * Interval in milliseconds for periodic DNSSEC revalidation (default: 600000 = 10 min).
      * Set to 0 to disable periodic revalidation.
@@ -417,9 +439,12 @@ const configSchema = z
     /**
      * Timeout in milliseconds for per-query DNSSEC validation.
      * Only applies when DNS_PER_QUERY_DNSEC=true.
-     * Default: 2000ms.
+     * The @relaycorp/dnssec library applies this timeout to the full validation
+     * chain (DS -> DNSKEY -> RRSIG). For slow ccTLDs (.it, .de, .jp, .br) with
+     * deep delegation chains, increase to 5000-10000ms.
+     * Default: 5000ms (increased from 2000ms to accommodate slow TLDs).
      */
-    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(10000).default(2000),
+    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
     /**
      * DNSSEC validation mode for Available verdicts (default: 'strict').
      * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
@@ -1996,6 +2021,24 @@ const configSchema = z
       message:
         'WHOIS_LOOKUP_TIMEOUT must be <= RDAP_WHOIS_BUDGET_MS to avoid race condition where rescue timeout fires before WHOIS query completes.',
       path: ['WHOIS_LOOKUP_TIMEOUT'],
+    },
+  )
+  .refine(
+    (data) => {
+      // DNS_UNBOUND_STRICT=true (hardened mode) requires:
+      // 1. DNS_UNBOUND_HOSTS must be non-empty (enforced in buildDnsProvider but validate early)
+      // 2. DNS_UNBOUND_HEALTH_CHECK_ENABLED must be true (otherwise no validation of DNSSEC)
+      if (data.DNS_UNBOUND_STRICT === true) {
+        const hosts = data.DNS_UNBOUND_HOSTS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
+        if (hosts.length === 0) return false;
+        if (data.DNS_UNBOUND_HEALTH_CHECK_ENABLED !== true) return false;
+      }
+      return true;
+    },
+    {
+      message:
+        'DNS_UNBOUND_STRICT=true requires DNS_UNBOUND_HOSTS to be set and DNS_UNBOUND_HEALTH_CHECK_ENABLED=true for DNSSEC validation proof.',
+      path: ['DNS_UNBOUND_STRICT'],
     },
   );
 
