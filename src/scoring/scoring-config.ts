@@ -7,6 +7,8 @@ export interface IntrinsicSignalConfig {
 export interface CommercialSignalConfig {
   maxVolume: number;
   maxCpc: number;
+  /** Enable run degradation when commercial signal has no data for many candidates. */
+  degradationEnabled?: boolean;
 }
 
 export interface MarketSignalConfig {
@@ -66,6 +68,7 @@ export const DEFAULT_INTRINSIC_CONFIG: IntrinsicSignalConfig = {
 export const DEFAULT_COMMERCIAL_CONFIG: CommercialSignalConfig = {
   maxVolume: 1_000_000,
   maxCpc: 50,
+  degradationEnabled: true,
 };
 
 export const DEFAULT_MARKET_CONFIG: MarketSignalConfig = {

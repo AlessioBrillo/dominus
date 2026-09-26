@@ -64,6 +64,10 @@ interface HostHealth {
   lastCheckAt: number;
   dnssecValid: boolean;
   healthy: boolean;
+  /** Exponentially weighted moving average of query latency in ms. */
+  ewmaLatencyMs: number;
+  /** Number of samples used for EWMA. */
+  latencySamples: number;
 }
 
 /** Per-host DNSSEC validation result for metrics/observability. */
@@ -205,7 +209,6 @@ export class UnboundResolver implements DnsProvider {
   readonly #cache: LRUCache<string, DnsCheckResult>;
   readonly #pending: Map<string, Promise<DnsCheckResult>> = new Map();
   readonly #hostHealth: Map<string, HostHealth> = new Map();
-  #roundRobinIndex = 0;
   readonly #onResolution: UnboundResolverOptions['onResolution'];
   readonly #onDnssecValidationChange: UnboundResolverOptions['onDnssecValidationChange'];
   readonly #onHostDnssecValidationChange: UnboundResolverOptions['onHostDnssecValidationChange'];
@@ -271,6 +274,8 @@ export class UnboundResolver implements DnsProvider {
         lastCheckAt: 0,
         dnssecValid: false,
         healthy: true, // Assume healthy until proven otherwise
+        ewmaLatencyMs: 0,
+        latencySamples: 0,
       });
     }
 
@@ -680,7 +685,7 @@ export class UnboundResolver implements DnsProvider {
     };
   }
 
-  /** Select the next healthy host using round-robin with quorum enforcement.
+  /** Select the next healthy host using latency-aware selection with jitter.
    *  Returns the host string, or undefined if no healthy hosts available
    *  or quorum not met. Attempts proactive revival of unhealthy hosts
    *  before giving up to reduce failover latency from 30s to <5s. */
@@ -717,39 +722,37 @@ export class UnboundResolver implements DnsProvider {
       return undefined;
     }
 
-    // Multi-host: round-robin with health check and proactive revival
-    let attempts = 0;
-    while (attempts < hosts.length) {
-      const host = hosts[this.#roundRobinIndex]!;
-      this.#roundRobinIndex = (this.#roundRobinIndex + 1) % hosts.length;
-      attempts++;
-
+    // Multi-host: latency-aware selection with jitter
+    // Collect healthy hosts with their EWMA latency
+    const healthyHosts: Array<{ host: string; ewmaLatencyMs: number }> = [];
+    for (const host of hosts) {
       const health = this.#hostHealth.get(host);
       if (!health) continue; // Host was removed (e.g., after dispose)
       if (health.healthy) {
-        this.#allHostsUnhealthyFired = false; // Reset on recovery
-        return host;
-      }
-
-      // Proactive revival: attempt quick health check before waiting for cooldown
-      if (await this.#attemptHostRevival(host)) {
-        this.#allHostsUnhealthyFired = false;
-        return host;
-      }
-
-      // Check if cooldown expired — revive host
-      if (Date.now() - health.lastFailureAt >= this.#unhealthyCooldownMs) {
-        health.healthy = true;
-        health.consecutiveFailures = 0;
-        logger.info({ host }, 'Unbound: host revived after cooldown');
-        this.#allHostsUnhealthyFired = false;
-        return host;
+        healthyHosts.push({ host, ewmaLatencyMs: health.ewmaLatencyMs });
       }
     }
 
-    // No healthy hosts found after proactive revival attempts
-    this.#maybeFireAllHostsUnhealthy();
-    return undefined; // No healthy hosts
+    if (healthyHosts.length === 0) {
+      // No healthy hosts found — try proactive revival on all
+      for (const host of hosts) {
+        if (await this.#attemptHostRevival(host)) {
+          this.#allHostsUnhealthyFired = false;
+          return host;
+        }
+      }
+      this.#maybeFireAllHostsUnhealthy();
+      return undefined;
+    }
+
+    // Select host with lowest EWMA latency (with jitter to prevent thundering herd)
+    // Add small random jitter (±10%) to prevent always selecting the same "fastest" host
+    const jitterFactor = 0.9 + Math.random() * 0.2; // 0.9 to 1.1
+    healthyHosts.sort((a, b) => a.ewmaLatencyMs * jitterFactor - b.ewmaLatencyMs * jitterFactor);
+    const selectedHost = healthyHosts[0]!.host;
+
+    this.#allHostsUnhealthyFired = false; // Reset on recovery
+    return selectedHost;
   }
 
   /** Attempt proactive revival of an unhealthy host with a quick A record check.
@@ -831,12 +834,20 @@ export class UnboundResolver implements DnsProvider {
     return count;
   }
 
-  /** Record a successful query on a host. */
-  #recordHostSuccess(host: string): void {
+  /** Record a successful query on a host with latency for EWMA tracking. */
+  #recordHostSuccess(host: string, durationMs: number): void {
     const health = this.#hostHealth.get(host);
     if (health) {
       health.consecutiveFailures = 0;
       health.healthy = true;
+      // Update EWMA latency (alpha = 0.3 for moderate responsiveness)
+      const alpha = 0.3;
+      if (health.latencySamples === 0) {
+        health.ewmaLatencyMs = durationMs;
+      } else {
+        health.ewmaLatencyMs = alpha * durationMs + (1 - alpha) * health.ewmaLatencyMs;
+      }
+      health.latencySamples++;
     }
   }
 
@@ -1039,7 +1050,8 @@ export class UnboundResolver implements DnsProvider {
       }
 
       // Record success on host
-      this.#recordHostSuccess(host);
+      const durationMs = Date.now() - lookupStartTime;
+      this.#recordHostSuccess(host, durationMs);
 
       // DNSSEC status is a resolver-level fact, not a per-domain one:
       // node:dns exposes no AD flag, so a per-domain probe can't tell "this

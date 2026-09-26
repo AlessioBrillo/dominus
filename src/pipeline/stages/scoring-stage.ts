@@ -29,6 +29,8 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
 
     const passed: ScoredCandidate[] = [];
     const filtered: ScoredCandidate[] = [];
+    let commercialUnavailableCount = 0;
+    let totalScored = 0;
 
     const batches = toBatches(candidates, this.concurrency);
     for (const batch of batches) {
@@ -54,6 +56,18 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
             const status = scoreResult.recommended
               ? CandidateStatus.Recommended
               : CandidateStatus.Scored;
+
+            // Track commercial signal availability for degradation detection
+            if (scoreResult !== null) {
+              totalScored++;
+              const commercialSignal = scoreResult.signalStatus.find(
+                (s) => s.name === 'commercial',
+              );
+              if (commercialSignal && commercialSignal.available === false) {
+                commercialUnavailableCount++;
+              }
+            }
+
             return { candidate, status, scoreResult } as const;
           } catch {
             return { candidate, status: CandidateStatus.Unscored, scoreResult: null } as const;
@@ -74,7 +88,25 @@ export class ScoringStage implements Stage<DomainCandidate, ScoredCandidate> {
       }
     }
 
-    return { passed, filtered, stageName: this.name, durationMs: Date.now() - start };
+    // Emit degradation if commercial signal unavailable for >50% of scored candidates
+    const degradations = [];
+    if (totalScored > 0 && commercialUnavailableCount / totalScored > 0.5) {
+      degradations.push({
+        stageName: this.name,
+        reason: 'commercial-signal-unavailable' as const,
+        processedCount: totalScored - commercialUnavailableCount,
+        expectedCount: totalScored,
+        message: `${commercialUnavailableCount}/${totalScored} candidates scored without commercial signal data — falling back to intrinsic-only scoring`,
+      });
+    }
+
+    return {
+      passed,
+      filtered,
+      stageName: this.name,
+      durationMs: Date.now() - start,
+      ...(degradations.length > 0 ? { degradations } : {}),
+    };
   }
 
   /**

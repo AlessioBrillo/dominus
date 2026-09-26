@@ -16,6 +16,7 @@ import { DEFAULT_WEIGHTS, DEFAULT_TLD_BONUS, type ScoringWeights } from './weigh
 import type { ScoringConfig } from './scoring-config.js';
 import { DEFAULT_SCORING_CONFIG } from './scoring-config.js';
 import { resolveEffectiveWeights, computeEffectiveThresholds } from './weights-loader.js';
+import type { MetricsCollector } from '../app/metrics-collector.js';
 
 export class ScoringEngine {
   #weights: ScoringWeights;
@@ -28,6 +29,7 @@ export class ScoringEngine {
     private readonly buyMaxAbsoluteCap: number = 0,
     private readonly scoringConfig: ScoringConfig = DEFAULT_SCORING_CONFIG,
     tldBonuses: Record<string, number> = DEFAULT_TLD_BONUS,
+    private readonly metrics?: MetricsCollector,
   ) {
     this.#weights = weights;
     this.#tldBonuses = tldBonuses;
@@ -75,6 +77,7 @@ export class ScoringEngine {
         this.#weights.commercial,
         this.scoringConfig.commercial,
         signal,
+        this.metrics,
       ),
       computeMarketScore(
         inputWithSld,

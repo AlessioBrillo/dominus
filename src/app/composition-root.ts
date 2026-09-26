@@ -764,6 +764,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     cachedKeywordProvider,
     cachedCompsProvider,
     config,
+    metrics,
   );
 
   // --- File watcher for SCORING_WEIGHTS_OVERRIDE hot-reload ---

@@ -9,11 +9,13 @@ import {
   type ScoringWeights,
   type ScoringConfig,
 } from '../scoring/index.js';
+import type { MetricsCollector } from '../app/metrics-collector.js';
 
 export function buildScoringEngine(
   keywordProvider: KeywordProvider,
   compsProvider: CompsProvider,
   config: Config,
+  metrics?: MetricsCollector,
 ): { currentWeights: ScoringWeights; engine: ScoringEngine } {
   const weightsOverridePath =
     config.SCORING_WEIGHTS_OVERRIDE ||
@@ -29,6 +31,7 @@ export function buildScoringEngine(
     commercial: {
       maxVolume: config.SCORING_MAX_VOLUME,
       maxCpc: config.SCORING_MAX_CPC,
+      degradationEnabled: config.COMMERCIAL_SIGNAL_DEGRADATION_ENABLED,
     },
     market: {
       floorValue: config.SCORING_FLOOR_VALUE,
@@ -57,6 +60,7 @@ export function buildScoringEngine(
     config.BUY_MAX_ABSOLUTE_CAP,
     scoringConfig,
     tldBonuses,
+    metrics,
   );
 
   return { currentWeights, engine };
