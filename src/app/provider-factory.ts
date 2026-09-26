@@ -379,6 +379,29 @@ export async function buildDnsProvider(
     if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED && !config.DNS_UNBOUND_SKIP_READINESS) {
       try {
         await resolver.waitForReady(config.DNS_UNBOUND_READINESS_TIMEOUT_MS);
+        
+        // Validate Unbound configuration (validator module, val-permissive-mode, etc.)
+        if (typeof resolver.validateUnboundConfig === 'function') {
+          try {
+            const validation = await resolver.validateUnboundConfig();
+            if (!validation.valid) {
+              throw new Error(
+                `Unbound configuration validation failed: ${validation.reason}. ` +
+                `Details: ${JSON.stringify(validation.details)}. ` +
+                'Fix unbound.conf: ensure validator: yes, val-permissive-mode: no, and forward-tls-upstream: yes.'
+              );
+            }
+          } catch (validationErr) {
+            if (validationErr instanceof Error && validationErr.message.includes('Unbound configuration validation failed')) {
+              throw validationErr;
+            }
+            // Control interface not accessible - log warning but continue
+            getLogger().warn(
+              { err: validationErr instanceof Error ? validationErr.message : String(validationErr) },
+              'Unbound config validation skipped (control interface not accessible)'
+            );
+          }
+        }
       } catch (err) {
         throw new Error(
           `Unbound resolver readiness check failed: ${err instanceof Error ? err.message : String(err)}. ` +

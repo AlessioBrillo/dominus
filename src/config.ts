@@ -4,6 +4,29 @@ import { existsSync } from 'node:fs';
 import { z } from 'zod';
 import { ConfigError } from './types/errors.js';
 
+/**
+ * Determines if the application is running in cloud mode (managed multi-tenant).
+ * Cloud mode is inferred from DATABASE_URL (PostgreSQL) or AUTH_PROVIDER !== 'env'.
+ * Community edition uses SQLite (no DATABASE_URL) and AUTH_PROVIDER=env.
+ */
+function detectCloudMode(env: NodeJS.ProcessEnv): boolean {
+  return !!env.DATABASE_URL || (env.AUTH_PROVIDER !== undefined && env.AUTH_PROVIDER !== 'env');
+}
+
+/**
+ * Determines the default for DNS_UNBOUND_STRICT based on deployment mode.
+ * - Cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'): defaults to true (hardened, mandatory Unbound)
+ * - Community edition: defaults to false (allows NodeDnsFallback for zero-dependency onboarding)
+ * If DNS_UNBOUND_STRICT is explicitly set via env var, that value takes precedence.
+ */
+function getDefaultDnsUnboundStrict(env: NodeJS.ProcessEnv): boolean {
+  const explicit = env.DNS_UNBOUND_STRICT;
+  if (explicit !== undefined) {
+    return explicit === 'true';
+  }
+  return detectCloudMode(env);
+}
+
 const configSchema = z
   .object({
     DATABASE_PATH: z.string().min(1).default('./data/dominus.db'),
@@ -410,7 +433,7 @@ const configSchema = z
      */
     DNS_UNBOUND_MIN_HEALTHY_HOSTS: z.coerce.number().int().min(0).max(10).default(1),
     /**
-     * Strict Unbound mode (default: true).
+     * Strict Unbound mode (default: cloud=true, community=false).
      * When true (production/hardened), UnboundResolver is the exclusive DNS provider.
      * DNSSEC validation is mandatory; startup fails if Unbound is unhealthy or
      * DNSSEC validation is not confirmed.
@@ -419,11 +442,11 @@ const configSchema = z
      * perform DNSSEC validation and stamps results with `dnssec: 'unchecked'`.
      * This enables zero-dependency onboarding for community edition users who
      * cannot run Unbound locally. Cloud edition MUST keep this true.
-     * Default: true (ADR-0075 hardened architecture).
+     * Default: true in cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'), false in community edition.
      */
     DNS_UNBOUND_STRICT: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
+      .default(() => getDefaultDnsUnboundStrict(process.env)),
     /**
      * Enable per-query DNSSEC validation for Available verdicts (ADR-0073).
      * When true, each Available verdict triggers a full cryptographic DNSSEC chain
@@ -2042,7 +2065,10 @@ const configSchema = z
     },
   );
 
-export type Config = z.infer<typeof configSchema>;
+export type Config = z.infer<typeof configSchema> & {
+  /** True when running in cloud mode (managed multi-tenant: PostgreSQL + managed auth). */
+  readonly IS_CLOUD_MODE: boolean;
+};
 
 let _config: Config | null = null;
 
@@ -2054,7 +2080,12 @@ export function loadConfig(): Config {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
     throw new ConfigError(`Invalid environment configuration: ${issues}`);
   }
-  _config = result.data;
+  const parsed = result.data;
+  const isCloudMode = detectCloudMode(process.env);
+  _config = {
+    ...parsed,
+    IS_CLOUD_MODE: isCloudMode,
+  } as Config;
 
   // Startup validation: warn if configured data file paths do not exist.
   // File-based providers (keyword, comps, weights, TLD bonuses) will fail

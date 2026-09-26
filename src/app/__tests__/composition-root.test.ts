@@ -604,6 +604,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: 2,
       RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: 2000,
       COMMERCIAL_SIGNAL_DEGRADATION_ENABLED: true,
+      IS_CLOUD_MODE: false,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);
