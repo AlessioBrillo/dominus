@@ -225,6 +225,22 @@ export class MetricsCollector {
     if (stats.degraded) this.#rdapConsensusDegradedRuns++;
   }
 
+  /** Record the outcome of the RDAP consensus probe at startup (ADR-0077).
+   *  Called when the consensus second provider is probed for readiness. */
+  recordRdapConsensusProbe(stats: {
+    success: boolean;
+    failOpen: boolean;
+    probedTlds: string[];
+  }): void {
+    this.recordHistogram('dominus_rdap_consensus_probe_total', 1, {
+      success: String(stats.success),
+      fail_open: String(stats.failOpen),
+    }, [1]);
+    for (const tld of stats.probedTlds) {
+      this.recordHistogram('dominus_rdap_consensus_probe_tld_total', 1, { tld }, [1]);
+    }
+  }
+
   /** Record the latest IANA RDAP bootstrap refresh outcome (fed by the
    *  bootstrap's subscribeStatus listener, ADR-0058). */
   recordRdapBootstrap(status: {

@@ -903,31 +903,39 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     },
   );
   if (rdapConsensusConfig !== undefined) {
-    // Startup probe of the consensus second leg (ADR-0051/ADR-0074): with the
+    // Startup probe of the consensus second leg (ADR-0077): with the
     // fail-closed 2-of-2 gate a dead endpoint downgrades every unconfirmable
-    // Available verdict, so surface egress problems at boot like the DNS
-    // consensus probe does. Retry with exponential backoff; fail-open if
-    // RDAP_CONSENSUS_PROBE_FAIL_OPEN=true to survive transient rdap.org outages.
+    // Available verdict, so surface egress problems at boot. Fail-open is the
+    // default in cloud mode (RDAP_CONSENSUS_PROBE_FAIL_OPEN defaults to true
+    // when DATABASE_URL or AUTH_PROVIDER !== 'env') to survive transient
+    // rdap.org outages without manual intervention.
     const probeResult: RdapConsensusProbeResult = await probeRdapConsensusEndpoint(
       config,
-      rdapConsensusConfig.secondaryProvider,
+      rdapConsensusConfig,
     );
     if (!probeResult.success) {
+      // In cloud mode with fail-open default, this path should not be reached
+      // because probe returns success=true with wasFailOpen=true.
+      // This only triggers if failOpen=false explicitly set.
       logger.fatal(
         'RDAP consensus second provider probe failed at startup after ' +
           probeResult.attempts +
           ' attempts. ' +
-          'Set RDAP_CONSENSUS_ENABLED=false or fix RDAP_CONSENSUS_ENDPOINT egress.',
+          'Set RDAP_CONSENSUS_ENABLED=false or fix consensus endpoint egress.',
       );
       process.exit(1);
     }
     if (probeResult.wasFailOpen) {
       // Fail-open: consensus gate disabled for this run
       logger.warn(
+        { probedTlds: probeResult.probedTlds, attempts: probeResult.attempts },
         'RDAP: consensus gate DISABLED for this run due to fail-open. ' +
           'Available verdicts will not be independently verified by the second RDAP provider.',
       );
+      metrics.recordRdapConsensusProbe?.({ success: false, failOpen: true, probedTlds: probeResult.probedTlds });
       rdapConsensusConfig = undefined;
+    } else {
+      metrics.recordRdapConsensusProbe?.({ success: true, failOpen: false, probedTlds: probeResult.probedTlds });
     }
   }
 

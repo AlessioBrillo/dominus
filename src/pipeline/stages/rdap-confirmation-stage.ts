@@ -11,10 +11,9 @@ import type { RdapConsensusStats, Stage, StageDegradation, StageResult } from '.
 import {
   hasAuthoritativeOriginOverlap,
   hasWinningOriginOverlap,
-  rdapUrlOrigin,
 } from '../../providers/rdap/rdap-consensus-validator.js';
-import type { RateLimiterLike } from '../../providers/rate-limiter.js';
 import { getLogger } from '../../logger.js';
+import type { RdapConsensusConfig } from '../../app/provider-factory.js';
 
 const DEFAULT_ENRICH_TIMEOUT_MS = 10_000;
 
@@ -72,22 +71,6 @@ function buildWhoisMeta(result: AvailabilityResult): WhoisMeta | undefined {
   if (result.createdDate !== undefined) meta.createdDate = result.createdDate;
   if (result.expiresAt !== undefined) meta.expiryDate = result.expiresAt;
   return Object.keys(meta).length > 0 ? meta : undefined;
-}
-
-export interface RdapConsensusConfig {
-  secondaryProvider: RdapProvider;
-  secondaryOrigin: string;
-  degradedRatio?: number;
-  degradedMin?: number;
-  consensusConcurrency?: number;
-  rescueWhoisEnabled?: boolean;
-  rescueWhoisTlds?: Set<string>;
-  tldOriginsResolver?: (tld: string) => Promise<string[]>;
-  /** Optional tertiary RDAP provider for 3-leg consensus (ADR-0050 extension). */
-  tertiaryProvider?: RdapProvider;
-  tertiaryOrigin?: string;
-  /** Dedicated WHOIS rate limiter for consensus rescue (ADR-0051/ADR-0058). */
-  whoisRescueRateLimiter?: RateLimiterLike;
 }
 
 const DEFAULT_CONSENSUS_DEGRADED_RATIO = 0.5;
@@ -237,20 +220,23 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     const concurrency = cfg.consensusConcurrency ?? DEFAULT_CONSENSUS_CONCURRENCY;
 
     const survivor = new Set<string>();
-    const secondaryOrigin = rdapUrlOrigin(cfg.secondaryOrigin);
+    // Per-TLD secondary providers (ADR-0077)
+    const secondaryProviders = cfg.secondaryProviders ?? new Map();
+    const secondaryOrigins = cfg.secondaryOrigins ?? new Map();
+    // Legacy single provider fallback
+    const legacySecondaryProvider = cfg.secondaryProvider;
+    const legacySecondaryOrigin = cfg.secondaryOrigin;
+
     const consensusProvenance = new Map<string, RdapConsensusProvenance>();
-    // First write wins: the overlap/guard-unavailable branches below don't
-    // `continue` (mirroring the pre-existing stats.unverifiable++ double
-    // count on those paths) and fall through to the generic unverifiable
-    // recordConsensus call at the end of the loop — without this guard that
-    // call would clobber the more specific outcome already recorded.
     const recordConsensus = (
       domain: string,
+      tld: string,
       outcome: Omit<RdapConsensusProvenance, 'secondServer'>,
     ): void => {
       if (consensusProvenance.has(domain)) return;
+      const secondServer = secondaryOrigins.get(`.${tld.toLowerCase()}`) ?? legacySecondaryOrigin ?? '';
       consensusProvenance.set(domain, {
-        secondServer: secondaryOrigin ?? cfg.secondaryOrigin,
+        secondServer,
         ...outcome,
       });
     };
@@ -297,6 +283,22 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             };
           }
 
+          // Get per-TLD secondary provider and origin (ADR-0077)
+          const tldKey = `.${candidate.tld.toLowerCase()}`;
+          let secondaryProvider = secondaryProviders.get(tldKey);
+          let secondaryOrigin = secondaryOrigins.get(tldKey);
+          
+          // Fallback to wildcard provider if no per-TLD provider
+          if (!secondaryProvider) {
+            secondaryProvider = secondaryProviders.get('*');
+            secondaryOrigin = secondaryOrigins.get('*');
+          }
+          // Final fallback to legacy single provider
+          if (!secondaryProvider) {
+            secondaryProvider = legacySecondaryProvider;
+            secondaryOrigin = legacySecondaryOrigin;
+          }
+
           let secondaryResult: RdapResult | undefined;
           let secondaryOverlap = false;
           let secondaryGuardUnavailable = false;
@@ -305,16 +307,19 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           try {
             const authoritativeOverlap =
               authoritativeOrigins !== undefined &&
-              hasAuthoritativeOriginOverlap(authoritativeOrigins, cfg.secondaryOrigin);
-            const winnerOverlap = hasWinningOriginOverlap(
-              winningOrigins.get(candidate.domain),
-              cfg.secondaryOrigin,
-            );
+              secondaryOrigin !== undefined &&
+              hasAuthoritativeOriginOverlap(authoritativeOrigins, secondaryOrigin);
+            const winnerOverlap = secondaryOrigin !== undefined
+              ? hasWinningOriginOverlap(
+                  winningOrigins.get(candidate.domain),
+                  secondaryOrigin,
+                )
+              : false;
             if (authoritativeOverlap || winnerOverlap) {
               secondaryOverlap = true;
               secondaryWinnerOverlap = winnerOverlap;
-            } else {
-              secondaryResult = await cfg.secondaryProvider.confirm(candidate.domain, signal);
+            } else if (secondaryProvider) {
+              secondaryResult = await secondaryProvider.confirm(candidate.domain, signal);
             }
           } catch {
             // Ignore secondary provider errors — treated as unverifiable
@@ -342,10 +347,12 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         secondaryWinnerOverlap,
         secondaryConfirmed,
       } of results) {
+        const tldKey = `.${candidate.tld.toLowerCase()}`;
+        const tldOrigin = secondaryOrigins.get(tldKey) ?? legacySecondaryOrigin ?? '';
         if (secondaryGuardUnavailable) {
           stats.unverifiable++;
           stats.originGuardUnavailable = (stats.originGuardUnavailable ?? 0) + 1;
-          recordConsensus(candidate.domain, {
+          recordConsensus(candidate.domain, candidate.tld, {
             verified: false,
             vetoed: false,
             originOverlap: false,
@@ -354,14 +361,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         } else if (secondaryOverlap) {
           stats.unverifiable++;
           stats.originOverlap = (stats.originOverlap ?? 0) + 1;
-          recordConsensus(candidate.domain, {
+          recordConsensus(candidate.domain, candidate.tld, {
             verified: false,
             vetoed: false,
             originOverlap: true,
             whoisRescued: false,
           });
           logger.warn(
-            { domain: candidate.domain, origin: secondaryOrigin },
+            { domain: candidate.domain, origin: tldOrigin },
             secondaryWinnerOverlap === true
               ? 'RDAP: 2-of-2 consensus skipped — the primary verdict was served by the ' +
                   'second leg origin (same server, rubber-stamp guard, ADR-0050) — ' +
@@ -370,11 +377,12 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
                   'for the candidate TLD (rubber-stamp guard, ADR-0058) — downgraded as ' +
                   'unverifiable',
           );
+          continue;
         } else if (secondaryResult !== undefined) {
           if (secondaryResult.status === DomainStatus.Available && !secondaryResult.isPremium) {
             survivor.add(candidate.domain);
             stats.verified++;
-            recordConsensus(candidate.domain, {
+            recordConsensus(candidate.domain, candidate.tld, {
               verified: true,
               vetoed: false,
               originOverlap: false,
@@ -384,7 +392,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           }
           if (secondaryResult.status === DomainStatus.Registered || secondaryResult.isPremium) {
             stats.disagreed++;
-            recordConsensus(candidate.domain, {
+            recordConsensus(candidate.domain, candidate.tld, {
               verified: false,
               vetoed: true,
               originOverlap: false,
@@ -417,7 +425,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
             } else {
               stats.whoisRescued = (stats.whoisRescued ?? 0) + 1;
             }
-            recordConsensus(candidate.domain, {
+            recordConsensus(candidate.domain, candidate.tld, {
               verified: true,
               vetoed: false,
               originOverlap: false,
@@ -427,7 +435,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           }
           if (rescued === false) {
             stats.disagreed++;
-            recordConsensus(candidate.domain, {
+            recordConsensus(candidate.domain, candidate.tld, {
               verified: false,
               vetoed: true,
               originOverlap: false,
@@ -444,7 +452,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         }
 
         stats.unverifiable++;
-        recordConsensus(candidate.domain, {
+        recordConsensus(candidate.domain, candidate.tld, {
           verified: false,
           vetoed: false,
           originOverlap: false,

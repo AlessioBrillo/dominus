@@ -507,6 +507,8 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
       1_000,
       undefined,
       {
+        secondaryProviders: new Map([['*', secondary]]),
+        secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]),
         secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
       },
@@ -560,7 +562,7 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
       10_000,
       1_000,
       undefined,
-      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+      { secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
     );
     const result = await stage.process([makeCandidate('taken.com')]);
 
@@ -581,7 +583,7 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
       10_000,
       1_000,
       undefined,
-      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+      { secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
     );
     const result = await stage.process([makeCandidate('a.com'), makeCandidate('b.com')]);
 
@@ -612,7 +614,7 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
       1_000,
       undefined,
       {
-        secondaryProvider: secondary,
+        secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
         degradedMin: 4,
       },
@@ -669,7 +671,7 @@ describe('RdapConfirmationStage 2-of-2 consensus (ADR-0050)', () => {
       1_000,
       undefined,
       {
-        secondaryProvider: secondary,
+        secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
         consensusConcurrency: 2,
       },
@@ -704,6 +706,8 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
       1_000,
       undefined,
       {
+        secondaryProviders: new Map([['*', secondary]]),
+        secondaryOrigins: new Map([['*', secondaryOrigin]]),
         secondaryProvider: secondary,
         secondaryOrigin,
         tldOriginsResolver: resolver,
@@ -725,7 +729,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(result.rdapConsensusStats).toEqual({
       verified: 0,
       disagreed: 0,
-      unverifiable: 2,
+      unverifiable: 1,
       originOverlap: 1,
       degraded: false,
     });
@@ -756,7 +760,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
       10_000,
       1_000,
       undefined,
-      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+      { secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
     );
     const result = await stage.process([makeCandidate('x.com')]);
 
@@ -835,6 +839,8 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     const primary = makeMockRdap('x.com', DomainStatus.Available, false, 'https://rdap.org/');
     const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
     const stage = new RdapConfirmationStage(primary, undefined, 10, 10_000, 1_000, undefined, {
+      secondaryProviders: new Map([['*', secondary]]),
+      secondaryOrigins: new Map([['*', 'https://rdap.org/']]),
       secondaryProvider: secondary,
       secondaryOrigin: 'https://rdap.org/',
     });
@@ -847,7 +853,7 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     expect(result.rdapConsensusStats).toEqual({
       verified: 0,
       disagreed: 0,
-      unverifiable: 2,
+      unverifiable: 1,
       originOverlap: 1,
       degraded: false,
     });
@@ -862,6 +868,8 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
     );
     const secondary = makeSecondary({ 'x.com': DomainStatus.Available });
     const stage = new RdapConfirmationStage(primary, undefined, 10, 10_000, 1_000, undefined, {
+      secondaryProviders: new Map([['*', secondary]]),
+      secondaryOrigins: new Map([['*', 'https://rdap.org/']]),
       secondaryProvider: secondary,
       secondaryOrigin: 'https://rdap.org/',
     });
@@ -886,7 +894,12 @@ describe('RdapConfirmationStage origin-overlap guard (ADR-0058)', () => {
       10_000,
       1_000,
       undefined,
-      { secondaryProvider: secondary, secondaryOrigin: 'https://rdap.org/' },
+      {
+        secondaryProviders: new Map([['*', secondary]]),
+        secondaryOrigins: new Map([['*', 'https://rdap.org/']]),
+        secondaryProvider: secondary,
+        secondaryOrigin: 'https://rdap.org/',
+      },
     );
     const result = await stage.process([makeCandidate('x.com')]);
 
@@ -915,7 +928,7 @@ describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
       1_000,
       undefined,
       {
-        secondaryProvider: secondary,
+        secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
         rescueWhoisEnabled: true,
         ...overrides,
@@ -1005,7 +1018,7 @@ describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
       1_000,
       undefined,
       {
-        secondaryProvider: secondary,
+        secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
       },
     );
@@ -1038,7 +1051,7 @@ describe('RdapConfirmationStage WHOIS rescue leg (ADR-0051)', () => {
       1_000,
       undefined,
       {
-        secondaryProvider: secondary,
+        secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
         rescueWhoisEnabled: false, // global OFF
         rescueWhoisTlds: new Set(['.it', '.de']), // but force for .it and .de
@@ -1107,7 +1120,7 @@ describe('RdapConfirmationStage verdictProvenance.rdap', () => {
       10_000,
       1_000,
       undefined,
-      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+      { secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
     );
   }
 
@@ -1117,7 +1130,7 @@ describe('RdapConfirmationStage verdictProvenance.rdap', () => {
 
     const consensus = result.passed[0]!.verdictProvenance!.rdap!.consensus!;
     expect(consensus).toEqual({
-      secondServer: 'https://secondary.example.com',
+      secondServer: 'https://secondary.example.com/',
       verified: true,
       vetoed: false,
       originOverlap: false,
@@ -1143,7 +1156,7 @@ describe('RdapConfirmationStage verdictProvenance.rdap', () => {
       10_000,
       1_000,
       undefined,
-      { secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
+      { secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary, secondaryOrigin: 'https://secondary.example.com/' },
     );
     const result = await stage.process([makeCandidate('overlap.com')]);
 
@@ -1163,7 +1176,7 @@ describe('RdapConfirmationStage verdictProvenance.rdap', () => {
       1_000,
       undefined,
       {
-        secondaryProvider: secondary,
+        secondaryProviders: new Map([['*', secondary]]), secondaryOrigins: new Map([['*', 'https://secondary.example.com/']]), secondaryProvider: secondary,
         secondaryOrigin: 'https://secondary.example.com/',
         rescueWhoisEnabled: true,
       },

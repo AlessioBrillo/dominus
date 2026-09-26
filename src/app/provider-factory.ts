@@ -165,6 +165,23 @@ export function parseRdapBootstrapUrls(raw: string | undefined): RdapBootstrapUr
   }
 }
 
+/** Parse per-TLD RDAP consensus endpoint overrides (ADR-0077). */
+export function parseRdapConsensusEndpointOverrides(raw: string | undefined): Map<string, string> {
+  const overrides = new Map<string, string>();
+  if (!raw || raw.trim() === '') return overrides;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    for (const [tld, url] of Object.entries(parsed)) {
+      if (typeof tld === 'string' && tld.startsWith('.') && typeof url === 'string' && url.startsWith('https://')) {
+        overrides.set(tld.toLowerCase(), url);
+      }
+    }
+  } catch {
+    // Invalid JSON or structure — return empty map
+  }
+  return overrides;
+}
+
 export function buildRdapCircuitBreakers(redisClient?: RedisClient): {
   global: ICircuitBreaker;
   perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker;
@@ -674,8 +691,14 @@ export function buildAnonBudgetGate(config: Config, redisClient?: RedisClient): 
 }
 
 export interface RdapConsensusConfig {
-  secondaryProvider: RdapProvider;
-  secondaryOrigin: string;
+  /** Per-TLD secondary RDAP providers for authoritative consensus (ADR-0077). */
+  secondaryProviders: Map<string, RdapProvider>;
+  /** Per-TLD secondary origin URLs for provenance. */
+  secondaryOrigins: Map<string, string>;
+  /** Legacy single secondary provider (fallback for backward compat). */
+  secondaryProvider?: RdapProvider;
+  /** Legacy single secondary origin (fallback for backward compat). */
+  secondaryOrigin?: string;
   degradedRatio?: number;
   degradedMin?: number;
   consensusConcurrency?: number;
@@ -745,6 +768,125 @@ function buildRdapConsensusWhoisRescueRateLimiter(
   );
 }
 
+/** Build per-TLD secondary RDAP providers for consensus (ADR-0077). */
+async function buildPerTldSecondaryProviders(
+  config: Config,
+  rateLimiter: RateLimiterLike,
+  _redisClient: RedisClient | undefined,
+  rdapAgentPool: RdapAgentPool,
+  breakers: { global: ICircuitBreaker; perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker },
+  overrides: Map<string, string>,
+): Promise<{ providers: Map<string, RdapProvider>; origins: Map<string, string> }> {
+  const providers = new Map<string, RdapProvider>();
+  const origins = new Map<string, string>();
+
+  // Better approach: Create a single provider that wraps the IANA bootstrap
+  // and applies overrides per-TLD.
+  const { IanaRdapBootstrap } = await import('../providers/rdap/rdap-bootstrap.js');
+  const bootstrap = new IanaRdapBootstrap(
+    config.RDAP_BOOTSTRAP_URL?.trim() || 'https://data.iana.org/rdap/dns.json',
+    undefined,
+    {
+      getDispatcher: (): Promise<Dispatcher> => rdapAgentPool.getDispatcher(),
+      retryBaseMs: config.RDAP_BOOTSTRAP_RETRY_BASE_MS,
+      retryMaxMs: config.RDAP_BOOTSTRAP_RETRY_MAX_MS,
+    },
+  );
+
+  // Custom provider that uses IANA bootstrap + overrides per TLD
+  class PerTldConsensusProvider implements RdapProvider {
+    readonly name = 'PerTldConsensusProvider';
+
+    constructor(
+      private readonly bootstrap: IanaRdapBootstrap,
+      private readonly overrides: Map<string, string>,
+      private readonly rateLimiter: RateLimiterLike,
+      private readonly breakers: { perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker },
+      private readonly agentPool: RdapAgentPool,
+      private readonly timeoutMs: number,
+      private readonly maxResponseBytes: number,
+    ) {}
+
+    async confirm(domain: string, signal?: AbortSignal): Promise<RdapResult> {
+      const tld = domain.split('.').pop()?.toLowerCase() ?? '';
+      const tldKey = `.${tld}`;
+
+      // Check for override
+      if (this.overrides.has(tldKey)) {
+        const overrideUrl = this.overrides.get(tldKey)!;
+        // Create a one-off provider for this override
+        const overrideProvider = FailoverRdapProvider.fromConfig(
+          [{ url: overrideUrl }],
+          this.rateLimiter,
+          undefined,
+          this.breakers.perServer,
+          this.agentPool,
+          this.timeoutMs,
+          this.maxResponseBytes,
+        );
+        return overrideProvider.confirm(domain, signal);
+      }
+
+      // Use IANA bootstrap to get authoritative servers for this TLD
+      const servers = await this.bootstrap.getServers(tld);
+      if (servers.length === 0) {
+        throw new Error(`No RDAP servers found for TLD: ${tld}`);
+      }
+
+      const failoverProvider = FailoverRdapProvider.fromConfig(
+        servers.map((s) => ({ url: s.baseUrl })),
+        this.rateLimiter,
+        undefined,
+        this.breakers.perServer,
+        this.agentPool,
+        this.timeoutMs,
+        this.maxResponseBytes,
+      );
+      return failoverProvider.confirm(domain, signal);
+    }
+
+    /** Get the origin URL for a given domain (for provenance). */
+    async getOrigin(domain: string): Promise<string> {
+      const tld = domain.split('.').pop()?.toLowerCase() ?? '';
+      const tldKey = `.${tld}`;
+
+      if (this.overrides.has(tldKey)) {
+        return this.overrides.get(tldKey)!;
+      }
+
+      const servers = await this.bootstrap.getServers(tld);
+      return servers[0]?.baseUrl ?? `https://rdap.org/${tld}/domain/`;
+    }
+  }
+
+  const perTldProvider = new PerTldConsensusProvider(
+    bootstrap,
+    overrides,
+    rateLimiter,
+    breakers,
+    rdapAgentPool,
+    config.RDAP_CONSENSUS_TIMEOUT_MS,
+    config.RDAP_MAX_RESPONSE_BYTES,
+  );
+
+  // Return a map with a single provider that handles all TLDs
+  // The provider internally routes to the correct authoritative server per TLD
+  providers.set('*', perTldProvider);
+
+  // Pre-resolve origins for default TLDs for logging/provenance
+  const defaultTlds = ['com', 'net', 'org', 'io', 'ai', 'app', 'dev', 'co', 'xyz', 'online'];
+  for (const tld of defaultTlds) {
+    try {
+      const origin = await perTldProvider.getOrigin(`example.${tld}`);
+      origins.set(`.${tld}`, origin);
+    } catch {
+      // Ignore resolution errors for provenance
+    }
+  }
+
+  return { providers, origins };
+}
+
 export async function createRdapConsensusConfig(
   config: Config,
   rdapConsensusRateLimiter?: RateLimiterLike,
@@ -754,58 +896,49 @@ export async function createRdapConsensusConfig(
   if (!config.RDAP_CONSENSUS_ENABLED) return undefined;
   const logger = getLogger();
 
-  const endpoint = config.RDAP_CONSENSUS_ENDPOINT.trim();
-  if (!endpoint) {
-    logger.error(
-      'RDAP: consensus enabled but RDAP_CONSENSUS_ENDPOINT is empty — 2-of-2 gate disabled. ' +
-        'Set the independent second-leg origin to harden availability verdicts (ADR-0050).',
-    );
-    return undefined;
-  }
+  // Parse per-TLD endpoint overrides (ADR-0077)
+  const endpointOverrides = parseRdapConsensusEndpointOverrides(config.RDAP_CONSENSUS_ENDPOINT_OVERRIDES);
 
-  if (tldOriginsResolver !== undefined) {
+  const rateLimiter =
+    rdapConsensusRateLimiter ?? buildRdapConsensusRateLimiter(config, redisClient);
+  const breakers = buildRdapCircuitBreakers(redisClient);
+  const rdapAgentPool = new RdapAgentPool({
+    maxConnections: config.RDAP_MAX_CONNECTIONS,
+  });
+
+  // Build per-TLD secondary providers
+  const { providers, origins } = await buildPerTldSecondaryProviders(
+    config,
+    rateLimiter,
+    redisClient,
+    rdapAgentPool,
+    breakers,
+    endpointOverrides,
+  );
+
+  // Dedicated WHOIS rescue rate limiter for consensus (independent budget, ADR-0051/ADR-0058)
+  const whoisRescueRateLimiter = buildRdapConsensusWhoisRescueRateLimiter(config, redisClient);
+
+  // Static disjointness validation: check if secondary endpoint overlaps primary authoritative origins
+  // For per-TLD providers, we check a sample of TLDs
+  if (tldOriginsResolver !== undefined && endpointOverrides.size === 0) {
+    // Only validate if no overrides (overrides are explicitly chosen by operator)
     try {
-      const consensusUrl = new URL(endpoint);
-      const consensusHostname = consensusUrl.hostname;
-      const { default: dns } = await import('node:dns/promises');
-      const consensusIps = new Set<string>();
-      for (const record of await Promise.allSettled([
-        dns.resolve4(consensusHostname),
-        dns.resolve6(consensusHostname),
-      ])) {
-        if (record.status === 'fulfilled') {
-          for (const ip of record.value) consensusIps.add(ip);
-        }
-      }
-
       const sampleTlds = ['com', 'net', 'org', 'io', 'ai', 'app', 'dev'];
       let totalOverlap = 0;
       let totalAuthoritative = 0;
       for (const tld of sampleTlds) {
         try {
           const primaryOrigins = await tldOriginsResolver(tld);
+          // Get secondary origin for this TLD
+          const secondaryOrigin = origins.get(`.${tld}`);
+          if (!secondaryOrigin) continue;
+
           for (const origin of primaryOrigins) {
             totalAuthoritative++;
-            try {
-              const primaryUrl = new URL(origin);
-              const primaryHostname = primaryUrl.hostname;
-              const primaryIps = new Set<string>();
-              for (const record of await Promise.allSettled([
-                dns.resolve4(primaryHostname),
-                dns.resolve6(primaryHostname),
-              ])) {
-                if (record.status === 'fulfilled') {
-                  for (const ip of record.value) primaryIps.add(ip);
-                }
-              }
-              for (const ip of consensusIps) {
-                if (primaryIps.has(ip)) {
-                  totalOverlap++;
-                  break;
-                }
-              }
-            } catch {
-              // Invalid origin URL, skip
+            if (rdapUrlOrigin(origin) === rdapUrlOrigin(secondaryOrigin)) {
+              totalOverlap++;
+              break;
             }
           }
         } catch {
@@ -818,12 +951,11 @@ export async function createRdapConsensusConfig(
         if (overlapRatio > 0.5) {
           logger.warn(
             {
-              consensusEndpoint: endpoint,
               overlapRatio,
               overlappingOrigins: totalOverlap,
               totalAuthoritative,
             },
-            'RDAP: consensus endpoint overlaps with primary authoritative origins — 2-of-2 gate may be a rubber stamp',
+            'RDAP: consensus secondary overlaps with primary authoritative origins for majority of sampled TLDs — 2-of-2 gate may be a rubber stamp',
           );
         }
       }
@@ -834,26 +966,6 @@ export async function createRdapConsensusConfig(
       );
     }
   }
-
-  const rateLimiter =
-    rdapConsensusRateLimiter ?? buildRdapConsensusRateLimiter(config, redisClient);
-  const breakers = buildRdapCircuitBreakers(redisClient);
-  const rdapAgentPool = new RdapAgentPool({
-    maxConnections: config.RDAP_MAX_CONNECTIONS,
-  });
-
-  const secondaryProvider = FailoverRdapProvider.fromConfig(
-    [{ url: endpoint }],
-    rateLimiter,
-    undefined,
-    breakers.perServer,
-    rdapAgentPool,
-    config.RDAP_CONSENSUS_TIMEOUT_MS,
-    config.RDAP_MAX_RESPONSE_BYTES,
-  );
-
-  // Dedicated WHOIS rescue rate limiter for consensus (independent budget, ADR-0051/ADR-0058)
-  const whoisRescueRateLimiter = buildRdapConsensusWhoisRescueRateLimiter(config, redisClient);
 
   // Optional tertiary leg (ADR-0050 extension): independent third opinion for rescue
   let tertiaryProvider: RdapProvider | undefined;
@@ -930,15 +1042,17 @@ export async function createRdapConsensusConfig(
           }
         }
 
-        // Check against secondary origin
+        // Check against secondary origins (per-TLD)
         if (tertiaryValid) {
-          const secondaryOriginUrl = new URL(endpoint).origin;
-          if (rdapUrlOrigin(tertiaryEndpoint) === secondaryOriginUrl) {
-            logger.warn(
-              { tertiaryEndpoint, secondaryEndpoint: endpoint },
-              'RDAP: tertiary endpoint overlaps with secondary origin — tertiary leg disabled',
-            );
-            tertiaryValid = false;
+          for (const [tldKey, secondaryOrigin] of origins) {
+            if (rdapUrlOrigin(tertiaryEndpoint) === rdapUrlOrigin(secondaryOrigin)) {
+              logger.warn(
+                { tertiaryEndpoint, secondaryOrigin, tld: tldKey },
+                'RDAP: tertiary endpoint overlaps with secondary origin for TLD — tertiary leg disabled',
+              );
+              tertiaryValid = false;
+              break;
+            }
           }
         }
       } catch (err) {
@@ -1003,9 +1117,31 @@ export async function createRdapConsensusConfig(
     }
   }
 
+  // For backward compatibility, also provide a single legacy secondary provider
+  // using the old RDAP_CONSENSUS_ENDPOINT (if set and not default rdap.org)
+  let legacySecondaryProvider: RdapProvider | undefined;
+  let legacySecondaryOrigin: string | undefined;
+  const legacyEndpoint = config.RDAP_CONSENSUS_ENDPOINT.trim();
+  if (legacyEndpoint && legacyEndpoint !== 'https://rdap.org/') {
+    legacySecondaryProvider = FailoverRdapProvider.fromConfig(
+      [{ url: legacyEndpoint }],
+      rateLimiter,
+      undefined,
+      breakers.perServer,
+      rdapAgentPool,
+      config.RDAP_CONSENSUS_TIMEOUT_MS,
+      config.RDAP_MAX_RESPONSE_BYTES,
+    );
+    legacySecondaryOrigin = legacyEndpoint;
+    logger.info(
+      { legacyEndpoint },
+      'RDAP: legacy single-endpoint consensus mode also available as fallback',
+    );
+  }
+
   logger.info(
-    { endpoint },
-    'RDAP: 2-of-2 consensus enabled — Available verdicts are re-confirmed by the second provider',
+    { overrideCount: endpointOverrides.size, defaultTlds: 10 },
+    'RDAP: 2-of-2 consensus enabled with per-TLD authoritative secondary providers (ADR-0077)',
   );
   if (config.RDAP_CONSENSUS_RESCUE_WHOIS_ENABLED) {
     logger.warn(
@@ -1023,9 +1159,12 @@ export async function createRdapConsensusConfig(
   const rescueWhoisTlds = new Set<string>(
     config.RDAP_CONSENSUS_RESCUE_WHOIS_TLDS.map((t) => t.toLowerCase()),
   );
-  const result: RdapConsensusConfig = {
-    secondaryProvider,
-    secondaryOrigin: endpoint,
+
+  return {
+    secondaryProviders: providers,
+    secondaryOrigins: origins,
+    ...(legacySecondaryProvider !== undefined ? { secondaryProvider: legacySecondaryProvider } : {}),
+    ...(legacySecondaryOrigin !== undefined ? { secondaryOrigin: legacySecondaryOrigin } : {}),
     degradedRatio: config.RDAP_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
     consensusConcurrency: config.RDAP_CONSENSUS_BULK_CONCURRENCY,
@@ -1036,75 +1175,97 @@ export async function createRdapConsensusConfig(
     ...(tertiaryOrigin !== undefined ? { tertiaryOrigin } : {}),
     ...(tldOriginsResolver !== undefined ? { tldOriginsResolver } : {}),
   };
-  return result;
 }
 
 export interface RdapConsensusProbeResult {
   success: boolean;
   wasFailOpen: boolean;
   attempts: number;
+  probedTlds: string[];
 }
 
 export async function probeRdapConsensusEndpoint(
   config: Config,
-  secondaryProvider: RdapProvider,
+  consensusConfig: RdapConsensusConfig,
 ): Promise<RdapConsensusProbeResult> {
-  if (!config.RDAP_CONSENSUS_ENABLED) return { success: true, wasFailOpen: false, attempts: 0 };
+  if (!config.RDAP_CONSENSUS_ENABLED) return { success: true, wasFailOpen: false, attempts: 0, probedTlds: [] };
   const logger = getLogger();
-  const endpoint = config.RDAP_CONSENSUS_ENDPOINT;
   const timeoutMs = config.RDAP_CONSENSUS_PROBE_TIMEOUT_MS ?? config.RDAP_CONSENSUS_TIMEOUT_MS;
   const maxRetries = config.RDAP_CONSENSUS_PROBE_RETRY ?? 3;
   const backoffMs = config.RDAP_CONSENSUS_PROBE_BACKOFF_MS ?? 5000;
   const failOpen = config.RDAP_CONSENSUS_PROBE_FAIL_OPEN ?? false;
 
+  // Probe a sample of TLDs to verify the consensus infrastructure
+  const sampleTlds = ['com', 'net', 'org', 'io'];
+  const primaryProvider = consensusConfig.secondaryProviders?.get('*');
+  const legacyProvider = consensusConfig.secondaryProvider;
+
+  const providerToProbe = primaryProvider ?? legacyProvider;
+  if (!providerToProbe) {
+    logger.error('RDAP: no consensus secondary provider available for probe');
+    return { success: false, wasFailOpen: false, attempts: 0, probedTlds: [] };
+  }
+
   logger.warn(
-    { endpoint, timeoutMs, maxRetries, backoffMs, failOpen },
-    'RDAP: probing consensus second provider at startup',
+    { timeoutMs, maxRetries, backoffMs, failOpen, sampleTlds },
+    'RDAP: probing consensus second provider at startup (per-TLD)',
   );
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
-    const probeSignal = AbortSignal.timeout(timeoutMs);
-    try {
-      await secondaryProvider.confirm('example.com', probeSignal);
-      logger.info({ endpoint, attempt }, 'RDAP: consensus second provider probe succeeded');
-      return { success: true, wasFailOpen: false, attempts: attempt };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const isLastAttempt = attempt > maxRetries;
+    let allSucceeded = true;
+    const probedTlds: string[] = [];
 
-      if (isLastAttempt) {
-        logger.error(
-          { err: message, endpoint, attempts: attempt - 1, maxRetries, failOpen },
-          'RDAP: consensus second provider unreachable at startup — the fail-closed 2-of-2 ' +
-            'gate will downgrade unconfirmable Available verdicts. Verify egress to the ' +
-            'consensus endpoint or disable the gate (RDAP_CONSENSUS_ENABLED=false).',
-        );
-
-        if (failOpen) {
-          logger.warn(
-            { endpoint, attempts: attempt - 1, maxRetries },
-            'RDAP: RDAP_CONSENSUS_PROBE_FAIL_OPEN=true — continuing startup with consensus gate DISABLED. ' +
-              'The 2-of-2 RDAP consensus will be skipped for this run; Available verdicts will not be independently verified. ' +
-              'Set RDAP_CONSENSUS_ENABLED=false to persist this behavior.',
-          );
-          return { success: true, wasFailOpen: true, attempts: attempt };
-        }
-
-        return { success: false, wasFailOpen: false, attempts: attempt };
+    for (const tld of sampleTlds) {
+      const probeSignal = AbortSignal.timeout(timeoutMs);
+      try {
+        await providerToProbe.confirm(`example.${tld}`, probeSignal);
+        probedTlds.push(tld);
+      } catch (err) {
+        allSucceeded = false;
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn({ err: message, tld, attempt }, `RDAP: consensus probe failed for .${tld}`);
       }
+    }
 
-      // Exponential backoff with jitter
-      const delay = backoffMs * Math.pow(2, attempt - 1);
-      const jitter = delay * (0.8 + Math.random() * 0.4);
+    if (allSucceeded) {
+      logger.info({ sampleTlds: probedTlds, attempt }, 'RDAP: consensus second provider probe succeeded for all sampled TLDs');
+      return { success: true, wasFailOpen: false, attempts: attempt, probedTlds };
+    }
 
-      logger.warn(
-        { err: message, endpoint, attempt, nextRetryInMs: Math.round(jitter) },
-        `RDAP: consensus probe attempt ${attempt} failed — retrying`,
+    const isLastAttempt = attempt > maxRetries;
+
+    if (isLastAttempt) {
+      logger.error(
+        { probedTlds, attempts: attempt - 1, maxRetries, failOpen },
+        'RDAP: consensus second provider unreachable for one or more TLDs at startup — the fail-closed 2-of-2 ' +
+          'gate will downgrade unconfirmable Available verdicts. Verify egress to the ' +
+          'consensus endpoints or disable the gate (RDAP_CONSENSUS_ENABLED=false).',
       );
 
-      await new Promise((resolve) => setTimeout(resolve, jitter));
+      if (failOpen) {
+        logger.warn(
+          { probedTlds, attempts: attempt - 1, maxRetries },
+          'RDAP: RDAP_CONSENSUS_PROBE_FAIL_OPEN=true — continuing startup with consensus gate DISABLED. ' +
+            'The 2-of-2 RDAP consensus will be skipped for this run; Available verdicts will not be independently verified. ' +
+            'Set RDAP_CONSENSUS_ENABLED=false to persist this behavior.',
+        );
+        return { success: true, wasFailOpen: true, attempts: attempt, probedTlds };
+      }
+
+      return { success: false, wasFailOpen: false, attempts: attempt, probedTlds };
     }
+
+    // Exponential backoff with jitter
+    const delay = backoffMs * Math.pow(2, attempt - 1);
+    const jitter = delay * (0.8 + Math.random() * 0.4);
+
+    logger.warn(
+      { probedTlds, attempt, nextRetryInMs: Math.round(jitter) },
+      `RDAP: consensus probe attempt ${attempt} partially failed — retrying`,
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, jitter));
   }
 
-  return { success: false, wasFailOpen: false, attempts: maxRetries + 1 };
+  return { success: false, wasFailOpen: false, attempts: maxRetries + 1, probedTlds: [] };
 }

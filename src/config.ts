@@ -783,6 +783,33 @@ const configSchema = z
       .default('https://rdap.org/'),
 
     /**
+     * Optional per-TLD override for RDAP consensus secondary endpoint (ADR-0077).
+     * When set, overrides the IANA bootstrap authoritative server for specific TLDs.
+     * Format: JSON object mapping TLD (with leading dot) to HTTPS URL.
+     * Example: '{"com":"https://rdap.verisign.com/com/domain/","net":"https://rdap.verisign.com/net/domain/"}'
+     * If not set or empty, the IANA bootstrap authoritative servers are used for all TLDs.
+     */
+    RDAP_CONSENSUS_ENDPOINT_OVERRIDES: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (val === undefined || val.trim() === '') return true;
+          try {
+            const parsed = JSON.parse(val) as Record<string, unknown>;
+            return Object.entries(parsed).every(([tld, url]) =>
+              typeof tld === 'string' && tld.startsWith('.') && typeof url === 'string' && url.startsWith('https://')
+            );
+          } catch {
+            return false;
+          }
+        },
+        {
+          message: 'Must be a JSON object mapping TLDs (e.g. ".com") to https URLs',
+        },
+      ),
+
+    /**
      * Fraction of consensus-confirmed Available domains that may be unverifiable
      * before the run is flagged degraded (rdap-consensus-unverified, ADR-0039
      * pattern). Default: 0.5 (50%). Range: 0.01-1.
@@ -859,15 +886,16 @@ const configSchema = z
      */
     RDAP_CONSENSUS_PROBE_BACKOFF_MS: z.coerce.number().int().min(100).max(60000).default(5000),
     /**
-     * Fail-open behavior for RDAP consensus probe.
+     * Fail-open behavior for RDAP consensus probe (ADR-0077).
      * When true, a failed probe at startup will log an error but NOT exit the process.
      * The 2-of-2 consensus gate will be disabled for this run, and a warning metric
-     * will be emitted. When false (default), a failed probe causes process.exit(1).
-     * This allows deployments to survive transient rdap.org outages.
+     * will be emitted. When false, a failed probe causes process.exit(1).
+     * Default: true in cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'), false in community.
+     * Cloud deployments prioritize availability; community edition defaults to conservative fail-fast.
      */
     RDAP_CONSENSUS_PROBE_FAIL_OPEN: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
+      .default(() => detectCloudMode(process.env)),
 
     /**
      * Enable an optional THIRD RDAP consensus opinion (tertiary leg).
