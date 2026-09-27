@@ -59,7 +59,7 @@ services:
           memory: 64M
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
-    command: ['-d', '-c', '/opt/unbound/unbound.conf']
+    command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
     healthcheck:
       test: ['CMD', 'unbound-control', 'status']
       interval: 15s
