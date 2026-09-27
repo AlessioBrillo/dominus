@@ -174,8 +174,16 @@ export interface UnboundResolverOptions {
   dnsPerQueryDnssec?: boolean | undefined;
   /** Timeout in milliseconds for per-query DNSSEC validation.
    *  Only applies when dnsPerQueryDnssec=true.
-   *  Default: 2000ms. */
+   *  The @relaycorp/dnssec library applies this timeout to the full validation
+   *  chain (DS -> DNSKEY -> RRSIG). For slow ccTLDs (.it, .de, .jp, .br) with
+   *  deep delegation chains, increase to 10000-15000ms.
+   *  Default: 10000ms. */
   dnsPerQueryDnssecTimeoutMs?: number | undefined;
+  /** Per-TLD timeout overrides for per-query DNSSEC validation.
+   *  Maps TLD (with leading dot, e.g. ".it") to timeout in milliseconds.
+   *  Default: {} (uses dnsPerQueryDnssecTimeoutMs for all TLDs).
+   *  Example: { ".it": 15000, ".de": 10000, ".br": 15000, ".jp": 12000 } */
+  dnsPerQueryDnssecTimeoutOverrides?: Record<string, number> | undefined;
   /** List of positive control domains for DNSSEC validation health checks.
    *  These are known-good DNSSEC-signed zones used to verify that the resolver
    *  can reach signed zones. Multiple controls provide geographic and topological
@@ -232,6 +240,8 @@ export class UnboundResolver implements DnsProvider {
   readonly #dnsPerQueryDnssec: boolean;
   /** Timeout for per-query DNSSEC validation in ms. */
   readonly #dnsPerQueryDnssecTimeoutMs: number;
+  /** Per-TLD timeout overrides for per-query DNSSEC validation. */
+  readonly #dnsPerQueryDnssecTimeoutOverrides: Record<string, number>;
   /** Positive control domains for DNSSEC validation health checks. */
   readonly #positiveControls: string[];
   /** Minimum healthy hosts required (quorum). Default: 1. */
@@ -264,7 +274,8 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecValidationEnabled = options.dnssecValidationEnabled ?? true;
     this.#dnssecMode = options.dnssecMode ?? 'strict';
     this.#dnsPerQueryDnssec = options.dnsPerQueryDnssec ?? true;
-    this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 2000;
+    this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 10000;
+    this.#dnsPerQueryDnssecTimeoutOverrides = options.dnsPerQueryDnssecTimeoutOverrides ?? {};
     this.#positiveControls = options.positiveControls ?? DNSSEC_POSITIVE_CONTROLS;
     this.#minHealthyHosts = options.minHealthyHosts ?? 1;
     this.#onAllHostsUnhealthy = options.onAllHostsUnhealthy;
@@ -1314,8 +1325,15 @@ export class UnboundResolver implements DnsProvider {
           try {
             const hostHealth = this.#hostHealth.get(host);
             const resolver = hostHealth?.resolver;
+            // Use per-TLD timeout override if available
+            const tld = domain.split('.').pop()?.toLowerCase() ?? '';
+            const tldKey = tld ? `.${tld}` : '';
+            const perQueryTimeoutMs =
+              tldKey && this.#dnsPerQueryDnssecTimeoutOverrides[tldKey]
+                ? this.#dnsPerQueryDnssecTimeoutOverrides[tldKey]!
+                : this.#dnsPerQueryDnssecTimeoutMs;
             const perQueryResult: DnssecValidationResult = await validateDnssecPerQuery(domain, {
-              timeoutMs: this.#dnsPerQueryDnssecTimeoutMs,
+              timeoutMs: perQueryTimeoutMs,
               resolver: resolver as NodeResolver,
             });
 

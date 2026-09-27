@@ -375,6 +375,7 @@ export async function buildDnsProvider(
       unhealthyCooldownMs: config.DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS,
       dnsPerQueryDnssec: config.DNS_PER_QUERY_DNSEC,
       dnsPerQueryDnssecTimeoutMs: config.DNS_PER_QUERY_DNSEC_TIMEOUT_MS,
+      dnsPerQueryDnssecTimeoutOverrides: config.DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES,
       positiveControls,
       minHealthyHosts: config.DNS_UNBOUND_MIN_HEALTHY_HOSTS,
       readinessTimeoutMs: config.DNS_UNBOUND_READINESS_TIMEOUT_MS,

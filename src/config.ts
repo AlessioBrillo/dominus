@@ -13,20 +13,6 @@ function detectCloudMode(env: Record<string, string | undefined>): boolean {
   return !!env.DATABASE_URL || (env.AUTH_PROVIDER !== undefined && env.AUTH_PROVIDER !== 'env');
 }
 
-/**
- * Determines the default for DNS_UNBOUND_STRICT based on deployment mode.
- * - Cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'): defaults to true (hardened, mandatory Unbound)
- * - Community edition: defaults to false (allows NodeDnsFallback for zero-dependency onboarding)
- * If DNS_UNBOUND_STRICT is explicitly set via env var, that value takes precedence.
- */
-function getDefaultDnsUnboundStrict(env: Record<string, string | undefined>): boolean {
-  const explicit = env.DNS_UNBOUND_STRICT;
-  if (explicit !== undefined) {
-    return explicit === 'true';
-  }
-  return detectCloudMode(env);
-}
-
 const configSchema = z
   .object({
     DATABASE_PATH: z.string().min(1).default('./data/dominus.db'),
@@ -438,20 +424,16 @@ const configSchema = z
      */
     DNS_UNBOUND_MIN_HEALTHY_HOSTS: z.coerce.number().int().min(0).max(10).default(1),
     /**
-     * Strict Unbound mode (default: cloud=true, community=false).
+     * Strict Unbound mode (default: true for ALL editions).
      * When true (production/hardened), UnboundResolver is the exclusive DNS provider.
      * DNSSEC validation is mandatory; startup fails if Unbound is unhealthy or
      * DNSSEC validation is not confirmed.
-     * When false (community/development fallback), a native Node.js DNS resolver
-     * is used as a fallback when Unbound is unavailable. The fallback does NOT
-     * perform DNSSEC validation and stamps results with `dnssec: 'unchecked'`.
-     * This enables zero-dependency onboarding for community edition users who
-     * cannot run Unbound locally. Cloud edition MUST keep this true.
-     * Default: true in cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'), false in community edition.
+     * ADR-0075: Unbound is mandatory; there is no Node.js DNS fallback.
+     * Default: true — the hardened architecture.
      */
     DNS_UNBOUND_STRICT: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(() => getDefaultDnsUnboundStrict(process.env)),
+      .default(true),
     /**
      * Enable per-query DNSSEC validation for Available verdicts (ADR-0073).
      * When true, each Available verdict triggers a full cryptographic DNSSEC chain
@@ -469,10 +451,50 @@ const configSchema = z
      * Only applies when DNS_PER_QUERY_DNSEC=true.
      * The @relaycorp/dnssec library applies this timeout to the full validation
      * chain (DS -> DNSKEY -> RRSIG). For slow ccTLDs (.it, .de, .jp, .br) with
-     * deep delegation chains, increase to 5000-10000ms.
-     * Default: 5000ms (increased from 2000ms to accommodate slow TLDs).
+     * deep delegation chains, increase to 10000-15000ms.
+     * Default: 10000ms (increased from 5000ms to accommodate slow TLDs).
+     * Per-TLD override: DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES='{"it":15000,"de":10000,"br":15000}'
      */
-    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(5000),
+    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(10000),
+    /**
+     * Per-TLD timeout overrides for per-query DNSSEC validation (JSON object).
+     * Maps TLD (with leading dot) to timeout in milliseconds.
+     * Example: '{"it":15000,"de":10000,"jp":12000,"br":15000,"cn":10000,"ru":10000,"fr":8000,"uk":8000}'
+     * These TLDs have historically slow DNSSEC validation due to deep delegation chains.
+     */
+    DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES: z
+      .string()
+      .optional()
+      .refine(
+        (val) => {
+          if (!val || val.trim() === '') return true;
+          try {
+            const parsed = JSON.parse(val) as Record<string, unknown>;
+            return Object.entries(parsed).every(
+              ([tld, ms]) =>
+                typeof tld === 'string' &&
+                tld.startsWith('.') &&
+                typeof ms === 'number' &&
+                ms >= 500 &&
+                ms <= 30000,
+            );
+          } catch {
+            return false;
+          }
+        },
+        {
+          message: 'Must be a JSON object mapping TLDs (e.g. ".it") to timeout ms (500-30000)',
+        },
+      )
+      .transform((val) => {
+        if (!val || val.trim() === '') return {};
+        try {
+          return JSON.parse(val) as Record<string, number>;
+        } catch {
+          return {};
+        }
+      })
+      .default({}),
     /**
      * DNSSEC validation mode for Available verdicts (default: 'strict').
      * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
