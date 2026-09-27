@@ -15,7 +15,9 @@ describe('RDAP consensus origin normalization', () => {
     });
 
     it('removes default port 443 for https', () => {
-      expect(normalizeRdapOrigin('https://rdap.verisign.com:443')).toBe('https://rdap.verisign.com');
+      expect(normalizeRdapOrigin('https://rdap.verisign.com:443')).toBe(
+        'https://rdap.verisign.com',
+      );
     });
 
     it('removes default port 80 for http', () => {
@@ -23,7 +25,9 @@ describe('RDAP consensus origin normalization', () => {
     });
 
     it('preserves non-default ports', () => {
-      expect(normalizeRdapOrigin('https://rdap.example.com:8443')).toBe('https://rdap.example.com:8443');
+      expect(normalizeRdapOrigin('https://rdap.example.com:8443')).toBe(
+        'https://rdap.example.com:8443',
+      );
     });
 
     it('normalizes IPv6 bracket notation', () => {
@@ -33,7 +37,9 @@ describe('RDAP consensus origin normalization', () => {
 
     it('lowercases hostname', () => {
       expect(normalizeRdapOrigin('https://RDAP.VERISIGN.COM')).toBe('https://rdap.verisign.com');
-      expect(normalizeRdapOrigin('https://RdAp.VeRiSiGn.CoM:443')).toBe('https://rdap.verisign.com');
+      expect(normalizeRdapOrigin('https://RdAp.VeRiSiGn.CoM:443')).toBe(
+        'https://rdap.verisign.com',
+      );
     });
 
     it('handles mixed case with trailing slash and default port', () => {
@@ -46,8 +52,12 @@ describe('RDAP consensus origin normalization', () => {
     });
 
     it('handles URLs with path', () => {
-      expect(normalizeRdapOrigin('https://rdap.verisign.com/domain/')).toBe('https://rdap.verisign.com');
-      expect(normalizeRdapOrigin('https://rdap.verisign.com/domain/example.com')).toBe('https://rdap.verisign.com');
+      expect(normalizeRdapOrigin('https://rdap.verisign.com/domain/')).toBe(
+        'https://rdap.verisign.com',
+      );
+      expect(normalizeRdapOrigin('https://rdap.verisign.com/domain/example.com')).toBe(
+        'https://rdap.verisign.com',
+      );
     });
   });
 
@@ -92,15 +102,21 @@ describe('RDAP consensus origin normalization', () => {
 
   describe('hasWinningOriginOverlap', () => {
     it('detects overlap with trailing slash difference', () => {
-      expect(hasWinningOriginOverlap('https://rdap.verisign.com/', 'https://rdap.verisign.com')).toBe(true);
+      expect(
+        hasWinningOriginOverlap('https://rdap.verisign.com/', 'https://rdap.verisign.com'),
+      ).toBe(true);
     });
 
     it('detects overlap with explicit default port', () => {
-      expect(hasWinningOriginOverlap('https://rdap.verisign.com:443', 'https://rdap.verisign.com')).toBe(true);
+      expect(
+        hasWinningOriginOverlap('https://rdap.verisign.com:443', 'https://rdap.verisign.com'),
+      ).toBe(true);
     });
 
     it('detects overlap with case difference', () => {
-      expect(hasWinningOriginOverlap('https://RDAP.VERISIGN.COM', 'https://rdap.verisign.com')).toBe(true);
+      expect(
+        hasWinningOriginOverlap('https://RDAP.VERISIGN.COM', 'https://rdap.verisign.com'),
+      ).toBe(true);
     });
 
     it('returns false for no overlap', () => {

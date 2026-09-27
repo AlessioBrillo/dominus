@@ -21,7 +21,7 @@ describe('DNS Community Edition Fallback', () => {
     process.env.AUTH_PROVIDER = 'env';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
     process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'false';
-    
+
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(false);
     expect(config.DNS_UNBOUND_STRICT).toBe(false);
@@ -32,7 +32,7 @@ describe('DNS Community Edition Fallback', () => {
     process.env.AUTH_PROVIDER = 'env';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
     process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
-    
+
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(true);
     expect(config.DNS_UNBOUND_STRICT).toBe(true);
@@ -43,7 +43,7 @@ describe('DNS Community Edition Fallback', () => {
     process.env.AUTH_PROVIDER = 'auth0';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
     process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
-    
+
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(true);
     expect(config.DNS_UNBOUND_STRICT).toBe(true);
@@ -55,7 +55,7 @@ describe('DNS Community Edition Fallback', () => {
     process.env.DNS_UNBOUND_STRICT = 'true';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
     process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
-    
+
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(false);
     expect(config.DNS_UNBOUND_STRICT).toBe(true);
@@ -67,7 +67,7 @@ describe('DNS Community Edition Fallback', () => {
     process.env.DNS_UNBOUND_STRICT = 'false';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
     process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'false';
-    
+
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(true);
     expect(config.DNS_UNBOUND_STRICT).toBe(false);
@@ -95,7 +95,8 @@ describe('DNS Community Edition Fallback', () => {
     process.env.DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS = '30000';
     process.env.DNS_UNBOUND_MIN_HEALTHY_HOSTS = '1';
     process.env.DNS_UNBOUND_READINESS_TIMEOUT_MS = '30000';
-    process.env.DNSSEC_POSITIVE_CONTROLS = 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org';
+    process.env.DNSSEC_POSITIVE_CONTROLS =
+      'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org';
     process.env.DNS_PER_QUERY_DNSEC = 'false';
     process.env.DNS_PER_QUERY_DNSEC_TIMEOUT_MS = '5000';
     process.env.DNSSEC_MODE = 'strict';
@@ -103,7 +104,7 @@ describe('DNS Community Edition Fallback', () => {
     process.env.RDAP_STAGE_BUSY_TIMEOUT_MS = '60000';
 
     const config = loadConfig();
-    
+
     // We can't easily mock the internal UnboundResolver creation, so we test the config logic
     // The actual fallback behavior is tested in integration tests
     expect(config.DNS_UNBOUND_STRICT).toBe(false);
@@ -122,9 +123,9 @@ describe('UnboundResolver validateUnboundConfig', () => {
       skipSocketCheck: true,
       readinessTimeoutMs: 5000,
     });
-    
+
     expect(typeof resolver.validateUnboundConfig).toBe('function');
-    
+
     resolver.dispose();
   });
 });

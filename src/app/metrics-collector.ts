@@ -232,10 +232,15 @@ export class MetricsCollector {
     failOpen: boolean;
     probedTlds: string[];
   }): void {
-    this.recordHistogram('dominus_rdap_consensus_probe_total', 1, {
-      success: String(stats.success),
-      fail_open: String(stats.failOpen),
-    }, [1]);
+    this.recordHistogram(
+      'dominus_rdap_consensus_probe_total',
+      1,
+      {
+        success: String(stats.success),
+        fail_open: String(stats.failOpen),
+      },
+      [1],
+    );
     for (const tld of stats.probedTlds) {
       this.recordHistogram('dominus_rdap_consensus_probe_tld_total', 1, { tld }, [1]);
     }

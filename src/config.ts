@@ -384,7 +384,12 @@ const configSchema = z
      * achieved within this timeout, startup fails with actionable error message.
      * Default: 30000 (30 seconds).
      */
-    DNS_UNBOUND_READINESS_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(30_000),
+    DNS_UNBOUND_READINESS_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(300_000)
+      .default(30_000),
     /**
      * Skip the Unbound resolver readiness wait at startup (test-only).
      * When true, the application will not call waitForReady() and will proceed
@@ -797,8 +802,12 @@ const configSchema = z
           if (val === undefined || val.trim() === '') return true;
           try {
             const parsed = JSON.parse(val) as Record<string, unknown>;
-            return Object.entries(parsed).every(([tld, url]) =>
-              typeof tld === 'string' && tld.startsWith('.') && typeof url === 'string' && url.startsWith('https://')
+            return Object.entries(parsed).every(
+              ([tld, url]) =>
+                typeof tld === 'string' &&
+                tld.startsWith('.') &&
+                typeof url === 'string' &&
+                url.startsWith('https://'),
             );
           } catch {
             return false;
@@ -2080,7 +2089,10 @@ const configSchema = z
       // 1. DNS_UNBOUND_HOSTS must be non-empty (enforced in buildDnsProvider but validate early)
       // 2. DNS_UNBOUND_HEALTH_CHECK_ENABLED must be true (otherwise no validation of DNSSEC)
       if (data.DNS_UNBOUND_STRICT === true) {
-        const hosts = data.DNS_UNBOUND_HOSTS?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
+        const hosts =
+          data.DNS_UNBOUND_HOSTS?.split(',')
+            .map((s) => s.trim())
+            .filter(Boolean) ?? [];
         if (hosts.length === 0) return false;
         if (data.DNS_UNBOUND_HEALTH_CHECK_ENABLED !== true) return false;
       }

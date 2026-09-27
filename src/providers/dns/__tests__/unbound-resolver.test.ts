@@ -114,7 +114,11 @@ describe('UnboundResolver', () => {
     });
 
     it('should set cache disabled when maxSize <= 0', () => {
-      const r = new UnboundResolver({ unboundHosts: ['127.0.0.1'], maxSize: 0, skipSocketCheck: true });
+      const r = new UnboundResolver({
+        unboundHosts: ['127.0.0.1'],
+        maxSize: 0,
+        skipSocketCheck: true,
+      });
       r.clearCache(); // Should not throw
       r.dispose();
     });
@@ -340,7 +344,10 @@ describe('UnboundResolver config validation', () => {
   });
 
   it('should accept hosts with ports', () => {
-    const r = new UnboundResolver({ unboundHosts: ['127.0.0.1:5300', '[::1]:5300'], skipSocketCheck: true });
+    const r = new UnboundResolver({
+      unboundHosts: ['127.0.0.1:5300', '[::1]:5300'],
+      skipSocketCheck: true,
+    });
     r.dispose();
   });
 });

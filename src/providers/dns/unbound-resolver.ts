@@ -745,11 +745,19 @@ export class UnboundResolver implements DnsProvider {
           return;
         }
         logger.warn(
-          { attempt, healthy: health.healthy, dnssecValid: health.dnssecValid, elapsedMs: Date.now() - startTime },
+          {
+            attempt,
+            healthy: health.healthy,
+            dnssecValid: health.dnssecValid,
+            elapsedMs: Date.now() - startTime,
+          },
           'Unbound resolver not ready — retrying',
         );
       } catch (err) {
-        logger.warn({ attempt, err, elapsedMs: Date.now() - startTime }, 'Unbound readiness check failed — retrying');
+        logger.warn(
+          { attempt, err, elapsedMs: Date.now() - startTime },
+          'Unbound readiness check failed — retrying',
+        );
       }
 
       // Exponential backoff with jitter: 500ms, 1000ms, 2000ms, 4000ms... capped at 5s
@@ -759,7 +767,12 @@ export class UnboundResolver implements DnsProvider {
     }
 
     // Final attempt with detailed error
-    const finalHealth = await this.healthCheck().catch((e) => ({ healthy: false, dnssecValid: false, details: String(e), hosts: [] }));
+    const finalHealth = await this.healthCheck().catch((e) => ({
+      healthy: false,
+      dnssecValid: false,
+      details: String(e),
+      hosts: [],
+    }));
     throw new Error(
       `Unbound resolver failed to become ready within ${timeout}ms (${attempt} attempts). ` +
         `Last state: healthy=${finalHealth.healthy}, dnssecValid=${finalHealth.dnssecValid}, ` +
@@ -950,7 +963,12 @@ export class UnboundResolver implements DnsProvider {
   }
 
   /** Attempt a single socket connection (TCP or UDP). */
-  async #trySocketConnect(hostname: string, port: number, type: 'tcp' | 'udp', timeoutMs: number): Promise<void> {
+  async #trySocketConnect(
+    hostname: string,
+    port: number,
+    type: 'tcp' | 'udp',
+    timeoutMs: number,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const net = require('net');
       let socket: {
@@ -977,13 +995,27 @@ export class UnboundResolver implements DnsProvider {
           query.writeUInt16BE(1, 4); // QDCOUNT = 1
           // No questions, just testing reachability
           // send is always available on dgram sockets
-          (udpSocket as { send: (msg: Buffer, offset: number, length: number, port: number, address: string) => void }).send(query, 0, query.length, port, hostname);
+          (
+            udpSocket as {
+              send: (
+                msg: Buffer,
+                offset: number,
+                length: number,
+                port: number,
+                address: string,
+              ) => void;
+            }
+          ).send(query, 0, query.length, port, hostname);
         });
       }
 
       const timer = setTimeout(() => {
         socket.destroy();
-        reject(new Error(`${type.toUpperCase()} connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+        reject(
+          new Error(
+            `${type.toUpperCase()} connection to ${hostname}:${port} timed out after ${timeoutMs}ms`,
+          ),
+        );
       }, timeoutMs);
 
       socket.on('connect', () => {
@@ -996,7 +1028,9 @@ export class UnboundResolver implements DnsProvider {
         clearTimeout(timer);
         // For UDP, 'error' may fire on ICMP port unreachable
         const message = err instanceof Error ? err.message : String(err);
-        reject(new Error(`${type.toUpperCase()} connection to ${hostname}:${port} failed: ${message}`));
+        reject(
+          new Error(`${type.toUpperCase()} connection to ${hostname}:${port} failed: ${message}`),
+        );
       });
 
       socket.on('close', () => {
@@ -1579,35 +1613,43 @@ export class UnboundResolver implements DnsProvider {
    * This is called during readiness check to catch misconfigurations early.
    * Returns { valid: true } on success, or { valid: false, reason: string } on failure.
    */
-  async validateUnboundConfig(): Promise<{ valid: boolean; reason?: string; details?: Record<string, unknown> }> {
+  async validateUnboundConfig(): Promise<{
+    valid: boolean;
+    reason?: string;
+    details?: Record<string, unknown>;
+  }> {
     for (const host of this.#unboundHosts) {
       try {
         // Query unbound-control status via DNS TXT record on port 8953 (default control port)
         // This is a best-effort check; if control interface is not exposed, we skip detailed validation
         const controlPort = 8953;
         const parsedHost = host.includes(':') ? host.split(':')[0]! : host;
-        
+
         // Try to query the control interface via a special DNS query
         // We use the unbound-control "list_local_zones" command over DNS
         // This requires unbound-control to be configured with control-enable: yes and control-port
         const result = await this.#queryUnboundControl(parsedHost, controlPort);
-        
+
         if (!result.valid) {
-          const errorResult: { valid: boolean; reason: string; details?: Record<string, unknown> } = { 
-            valid: false, 
-            reason: `Unbound config validation failed on ${host}` 
-          };
+          const errorResult: { valid: boolean; reason: string; details?: Record<string, unknown> } =
+            {
+              valid: false,
+              reason: `Unbound config validation failed on ${host}`,
+            };
           if (result.details !== undefined) {
             errorResult.details = result.details;
           }
           return errorResult;
         }
-        
+
         logger.info({ host, validation: result.details }, 'Unbound config validation passed');
       } catch (err) {
         // Control interface not available - this is OK for basic deployments
         // We log a warning but don't fail the validation
-        logger.debug({ host, err: err instanceof Error ? err.message : String(err) }, 'Unbound control interface not accessible, skipping detailed config validation');
+        logger.debug(
+          { host, err: err instanceof Error ? err.message : String(err) },
+          'Unbound control interface not accessible, skipping detailed config validation',
+        );
       }
     }
     return { valid: true };
@@ -1618,7 +1660,10 @@ export class UnboundResolver implements DnsProvider {
    * Uses unbound-control protocol over TCP on the control port.
    * This is a simplified check - in production, consider using the unbound-control binary directly.
    */
-  async #queryUnboundControl(host: string, port: number): Promise<{ valid: boolean; details?: Record<string, unknown> }> {
+  async #queryUnboundControl(
+    host: string,
+    port: number,
+  ): Promise<{ valid: boolean; details?: Record<string, unknown> }> {
     return new Promise((resolve, reject) => {
       const net = require('net');
       const socket = new net.Socket();
@@ -1646,21 +1691,21 @@ export class UnboundResolver implements DnsProvider {
             clearTimeout(timeout);
             const response = buffer.subarray(4, 4 + msgLen).toString();
             socket.destroy();
-            
+
             // Check for validator and permissive mode in status
             // This is a basic check - full validation would parse unbound-control output
             const hasValidator = response.includes('validator');
             const permissiveOk = !response.includes('val-permissive-mode: yes');
-            
+
             if (!hasValidator) {
-              resolve({ 
-                valid: false, 
-                details: { response, issue: 'validator module not detected in local zones' } 
+              resolve({
+                valid: false,
+                details: { response, issue: 'validator module not detected in local zones' },
               });
             } else if (!permissiveOk) {
-              resolve({ 
-                valid: false, 
-                details: { response, issue: 'val-permissive-mode appears to be yes (insecure)' } 
+              resolve({
+                valid: false,
+                details: { response, issue: 'val-permissive-mode appears to be yes (insecure)' },
               });
             } else {
               resolve({ valid: true, details: { response, hasValidator, permissiveOk } });

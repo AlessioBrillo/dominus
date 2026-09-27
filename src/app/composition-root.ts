@@ -932,10 +932,18 @@ export async function createDependencies(config: Config): Promise<DominusDepende
         'RDAP: consensus gate DISABLED for this run due to fail-open. ' +
           'Available verdicts will not be independently verified by the second RDAP provider.',
       );
-      metrics.recordRdapConsensusProbe?.({ success: false, failOpen: true, probedTlds: probeResult.probedTlds });
+      metrics.recordRdapConsensusProbe?.({
+        success: false,
+        failOpen: true,
+        probedTlds: probeResult.probedTlds,
+      });
       rdapConsensusConfig = undefined;
     } else {
-      metrics.recordRdapConsensusProbe?.({ success: true, failOpen: false, probedTlds: probeResult.probedTlds });
+      metrics.recordRdapConsensusProbe?.({
+        success: true,
+        failOpen: false,
+        probedTlds: probeResult.probedTlds,
+      });
     }
   }
 

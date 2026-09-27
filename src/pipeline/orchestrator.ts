@@ -1040,13 +1040,20 @@ export class PipelineOrchestrator {
     // Apply stage-specific busy timeout for SQLite to reduce contention with API reads
     const stageBusyTimeoutMs = this.#stageBusyTimeouts[label];
     let previousBusyTimeoutMs: number | undefined;
-    if (stageBusyTimeoutMs !== undefined && this.#dbProvider !== null && typeof this.#dbProvider.setBusyTimeout === 'function') {
+    if (
+      stageBusyTimeoutMs !== undefined &&
+      this.#dbProvider !== null &&
+      typeof this.#dbProvider.setBusyTimeout === 'function'
+    ) {
       // Store current timeout (we can't easily read it, so we'll restore to default 30s)
       // The default is 30000ms as set in SqliteProvider.create
       previousBusyTimeoutMs = 30000;
       try {
         await this.#dbProvider.setBusyTimeout(stageBusyTimeoutMs);
-        logger.debug({ label, busyTimeoutMs: stageBusyTimeoutMs }, 'Applied stage-specific busy timeout');
+        logger.debug(
+          { label, busyTimeoutMs: stageBusyTimeoutMs },
+          'Applied stage-specific busy timeout',
+        );
       } catch (err) {
         logger.warn({ label, err }, 'Failed to set stage busy timeout');
       }
@@ -1067,7 +1074,11 @@ export class PipelineOrchestrator {
         clearTimeout(budgetTimer);
         clearTimeout(graceTimer);
         // Restore previous busy timeout
-        if (previousBusyTimeoutMs !== undefined && this.#dbProvider !== null && typeof this.#dbProvider.setBusyTimeout === 'function') {
+        if (
+          previousBusyTimeoutMs !== undefined &&
+          this.#dbProvider !== null &&
+          typeof this.#dbProvider.setBusyTimeout === 'function'
+        ) {
           this.#dbProvider.setBusyTimeout(previousBusyTimeoutMs).catch((err) => {
             logger.warn({ label, err }, 'Failed to restore busy timeout');
           });

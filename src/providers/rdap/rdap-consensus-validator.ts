@@ -79,7 +79,9 @@ export function validateRdapConsensusOriginDisjointness(
     return { ok: false, overlap: secondaryEndpoint };
   }
   // Normalize primary origins for comparison (they may come from config directly)
-  const normalizedPrimaryOrigins = primaryOrigins.map((o) => rdapUrlOrigin(o)).filter((o): o is string => o !== undefined);
+  const normalizedPrimaryOrigins = primaryOrigins
+    .map((o) => rdapUrlOrigin(o))
+    .filter((o): o is string => o !== undefined);
   const overlap = normalizedPrimaryOrigins.find((origin) => origin === secondaryOrigin);
   if (overlap !== undefined) {
     return { ok: false, overlap: secondaryOrigin };

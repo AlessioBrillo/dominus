@@ -172,7 +172,12 @@ export function parseRdapConsensusEndpointOverrides(raw: string | undefined): Ma
   try {
     const parsed = JSON.parse(raw) as Record<string, string>;
     for (const [tld, url] of Object.entries(parsed)) {
-      if (typeof tld === 'string' && tld.startsWith('.') && typeof url === 'string' && url.startsWith('https://')) {
+      if (
+        typeof tld === 'string' &&
+        tld.startsWith('.') &&
+        typeof url === 'string' &&
+        url.startsWith('https://')
+      ) {
         overrides.set(tld.toLowerCase(), url);
       }
     }
@@ -396,7 +401,7 @@ export async function buildDnsProvider(
     if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED && !config.DNS_UNBOUND_SKIP_READINESS) {
       try {
         await resolver.waitForReady(config.DNS_UNBOUND_READINESS_TIMEOUT_MS);
-        
+
         // Validate Unbound configuration (validator module, val-permissive-mode, etc.)
         if (typeof resolver.validateUnboundConfig === 'function') {
           try {
@@ -404,18 +409,23 @@ export async function buildDnsProvider(
             if (!validation.valid) {
               throw new Error(
                 `Unbound configuration validation failed: ${validation.reason}. ` +
-                `Details: ${JSON.stringify(validation.details)}. ` +
-                'Fix unbound.conf: ensure validator: yes, val-permissive-mode: no, and forward-tls-upstream: yes.'
+                  `Details: ${JSON.stringify(validation.details)}. ` +
+                  'Fix unbound.conf: ensure validator: yes, val-permissive-mode: no, and forward-tls-upstream: yes.',
               );
             }
           } catch (validationErr) {
-            if (validationErr instanceof Error && validationErr.message.includes('Unbound configuration validation failed')) {
+            if (
+              validationErr instanceof Error &&
+              validationErr.message.includes('Unbound configuration validation failed')
+            ) {
               throw validationErr;
             }
             // Control interface not accessible - log warning but continue
             getLogger().warn(
-              { err: validationErr instanceof Error ? validationErr.message : String(validationErr) },
-              'Unbound config validation skipped (control interface not accessible)'
+              {
+                err: validationErr instanceof Error ? validationErr.message : String(validationErr),
+              },
+              'Unbound config validation skipped (control interface not accessible)',
             );
           }
         }
@@ -774,7 +784,10 @@ async function buildPerTldSecondaryProviders(
   rateLimiter: RateLimiterLike,
   _redisClient: RedisClient | undefined,
   rdapAgentPool: RdapAgentPool,
-  breakers: { global: ICircuitBreaker; perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker },
+  breakers: {
+    global: ICircuitBreaker;
+    perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker;
+  },
   overrides: Map<string, string>,
 ): Promise<{ providers: Map<string, RdapProvider>; origins: Map<string, string> }> {
   const providers = new Map<string, RdapProvider>();
@@ -801,7 +814,9 @@ async function buildPerTldSecondaryProviders(
       private readonly bootstrap: IanaRdapBootstrap,
       private readonly overrides: Map<string, string>,
       private readonly rateLimiter: RateLimiterLike,
-      private readonly breakers: { perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker },
+      private readonly breakers: {
+        perServer: (name: string, policy: Partial<CircuitBreakerPolicy>) => ICircuitBreaker;
+      },
       private readonly agentPool: RdapAgentPool,
       private readonly timeoutMs: number,
       private readonly maxResponseBytes: number,
@@ -897,7 +912,9 @@ export async function createRdapConsensusConfig(
   const logger = getLogger();
 
   // Parse per-TLD endpoint overrides (ADR-0077)
-  const endpointOverrides = parseRdapConsensusEndpointOverrides(config.RDAP_CONSENSUS_ENDPOINT_OVERRIDES);
+  const endpointOverrides = parseRdapConsensusEndpointOverrides(
+    config.RDAP_CONSENSUS_ENDPOINT_OVERRIDES,
+  );
 
   const rateLimiter =
     rdapConsensusRateLimiter ?? buildRdapConsensusRateLimiter(config, redisClient);
@@ -1163,7 +1180,9 @@ export async function createRdapConsensusConfig(
   return {
     secondaryProviders: providers,
     secondaryOrigins: origins,
-    ...(legacySecondaryProvider !== undefined ? { secondaryProvider: legacySecondaryProvider } : {}),
+    ...(legacySecondaryProvider !== undefined
+      ? { secondaryProvider: legacySecondaryProvider }
+      : {}),
     ...(legacySecondaryOrigin !== undefined ? { secondaryOrigin: legacySecondaryOrigin } : {}),
     degradedRatio: config.RDAP_CONSENSUS_DEGRADED_RATIO,
     degradedMin: config.RDAP_CONSENSUS_DEGRADED_MIN,
@@ -1188,7 +1207,8 @@ export async function probeRdapConsensusEndpoint(
   config: Config,
   consensusConfig: RdapConsensusConfig,
 ): Promise<RdapConsensusProbeResult> {
-  if (!config.RDAP_CONSENSUS_ENABLED) return { success: true, wasFailOpen: false, attempts: 0, probedTlds: [] };
+  if (!config.RDAP_CONSENSUS_ENABLED)
+    return { success: true, wasFailOpen: false, attempts: 0, probedTlds: [] };
   const logger = getLogger();
   const timeoutMs = config.RDAP_CONSENSUS_PROBE_TIMEOUT_MS ?? config.RDAP_CONSENSUS_TIMEOUT_MS;
   const maxRetries = config.RDAP_CONSENSUS_PROBE_RETRY ?? 3;
@@ -1228,7 +1248,10 @@ export async function probeRdapConsensusEndpoint(
     }
 
     if (allSucceeded) {
-      logger.info({ sampleTlds: probedTlds, attempt }, 'RDAP: consensus second provider probe succeeded for all sampled TLDs');
+      logger.info(
+        { sampleTlds: probedTlds, attempt },
+        'RDAP: consensus second provider probe succeeded for all sampled TLDs',
+      );
       return { success: true, wasFailOpen: false, attempts: attempt, probedTlds };
     }
 

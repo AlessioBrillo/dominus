@@ -234,7 +234,8 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
       outcome: Omit<RdapConsensusProvenance, 'secondServer'>,
     ): void => {
       if (consensusProvenance.has(domain)) return;
-      const secondServer = secondaryOrigins.get(`.${tld.toLowerCase()}`) ?? legacySecondaryOrigin ?? '';
+      const secondServer =
+        secondaryOrigins.get(`.${tld.toLowerCase()}`) ?? legacySecondaryOrigin ?? '';
       consensusProvenance.set(domain, {
         secondServer,
         ...outcome,
@@ -287,7 +288,7 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
           const tldKey = `.${candidate.tld.toLowerCase()}`;
           let secondaryProvider = secondaryProviders.get(tldKey);
           let secondaryOrigin = secondaryOrigins.get(tldKey);
-          
+
           // Fallback to wildcard provider if no per-TLD provider
           if (!secondaryProvider) {
             secondaryProvider = secondaryProviders.get('*');
@@ -309,12 +310,10 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
               authoritativeOrigins !== undefined &&
               secondaryOrigin !== undefined &&
               hasAuthoritativeOriginOverlap(authoritativeOrigins, secondaryOrigin);
-            const winnerOverlap = secondaryOrigin !== undefined
-              ? hasWinningOriginOverlap(
-                  winningOrigins.get(candidate.domain),
-                  secondaryOrigin,
-                )
-              : false;
+            const winnerOverlap =
+              secondaryOrigin !== undefined
+                ? hasWinningOriginOverlap(winningOrigins.get(candidate.domain), secondaryOrigin)
+                : false;
             if (authoritativeOverlap || winnerOverlap) {
               secondaryOverlap = true;
               secondaryWinnerOverlap = winnerOverlap;
