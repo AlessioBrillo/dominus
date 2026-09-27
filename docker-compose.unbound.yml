@@ -61,7 +61,7 @@ services:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
     command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
     healthcheck:
-      test: ['CMD', 'unbound-control', '-c', '/opt/unbound/unbound.conf', 'status']
+      test: ['CMD', '/usr/sbin/unbound-control', '-c', '/opt/unbound/unbound.conf', 'status']
       interval: 15s
       timeout: 5s
       retries: 5
