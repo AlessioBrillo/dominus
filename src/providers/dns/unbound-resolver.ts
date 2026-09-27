@@ -980,82 +980,55 @@ export class UnboundResolver implements DnsProvider {
     type: 'tcp' | 'udp',
     timeoutMs: number,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const net = require('net');
-      let socket: {
-        connect: (opts: { host: string; port: number; timeout: number }) => void;
-        destroy: () => void;
-        on: (event: string, listener: (...args: unknown[]) => void) => void;
-        bind?: (port: number, callback: () => void) => void;
-        send?: (msg: Buffer, offset: number, length: number, port: number, address: string) => void;
-      };
-      if (type === 'tcp') {
-        socket = new net.Socket();
-        socket.connect({ host: hostname, port, timeout: timeoutMs });
-      } else {
-        // UDP: use dgram socket
-        const dgram = require('dgram');
-        const udpSocket = dgram.createSocket('udp4');
-        socket = udpSocket;
-        // bind is always available on dgram sockets
-        (udpSocket as { bind: (port: number, callback: () => void) => void }).bind(0, () => {
-          // Send a minimal DNS query (header only) to test UDP path
-          const query = Buffer.alloc(12);
-          query.writeUInt16BE(0x1234, 0); // Transaction ID
-          query.writeUInt16BE(0x0100, 2); // Flags: standard query
-          query.writeUInt16BE(1, 4); // QDCOUNT = 1
-          // No questions, just testing reachability
-          // send is always available on dgram sockets
-          (
-            udpSocket as {
-              send: (
-                msg: Buffer,
-                offset: number,
-                length: number,
-                port: number,
-                address: string,
-              ) => void;
-            }
-          ).send(query, 0, query.length, port, hostname);
-        });
-      }
-
-      const timer = setTimeout(() => {
-        socket.destroy();
-        reject(
-          new Error(
-            `${type.toUpperCase()} connection to ${hostname}:${port} timed out after ${timeoutMs}ms`,
-          ),
-        );
-      }, timeoutMs);
-
-      socket.on('connect', () => {
-        clearTimeout(timer);
-        socket.destroy();
-        resolve();
-      });
-
-      socket.on('error', (err: unknown) => {
-        clearTimeout(timer);
-        // For UDP, 'error' may fire on ICMP port unreachable
-        const message = err instanceof Error ? err.message : String(err);
-        reject(
-          new Error(`${type.toUpperCase()} connection to ${hostname}:${port} failed: ${message}`),
-        );
-      });
-
-      socket.on('close', () => {
-        clearTimeout(timer);
-      });
-
-      // For UDP, also listen for 'message' (response) as success indicator
-      if (type === 'udp') {
-        socket.on('message', () => {
+    if (type === 'tcp') {
+      const net = await import('net');
+      const socket = new net.Socket();
+      return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          (socket as { destroy: () => void }).destroy();
+          reject(new Error(`TCP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        socket.on('connect', () => {
           clearTimeout(timer);
-          socket.destroy();
+          (socket as { destroy: () => void }).destroy();
           resolve();
         });
-      }
+        socket.on('error', (err: Error) => {
+          clearTimeout(timer);
+          reject(new Error(`TCP connection to ${hostname}:${port} failed: ${err.message}`));
+        });
+        socket.connect(port, hostname);
+      });
+    }
+
+    // UDP: use dgram socket
+    const dgram = await import('dgram');
+    const udpSocket = dgram.createSocket('udp4');
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        (udpSocket as unknown as { destroy: () => void }).destroy();
+        reject(new Error(`UDP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      // bind is always available on dgram sockets
+      udpSocket.bind(0, () => {
+        // Send a minimal DNS query (header only) to test UDP path
+        const query = Buffer.alloc(12);
+        query.writeUInt16BE(0x1234, 0); // Transaction ID
+        query.writeUInt16BE(0x0100, 2); // Flags: standard query
+        query.writeUInt16BE(1, 4); // QDCOUNT = 1
+        // No questions, just testing reachability
+        udpSocket.send(query, 0, query.length, port, hostname);
+      });
+      udpSocket.on('message', () => {
+        clearTimeout(timer);
+        (udpSocket as unknown as { destroy: () => void }).destroy();
+        resolve();
+      });
+      udpSocket.on('error', (err: Error) => {
+        clearTimeout(timer);
+        (udpSocket as unknown as { destroy: () => void }).destroy();
+        reject(new Error(`UDP connection to ${hostname}:${port} failed: ${err.message}`));
+      });
     });
   }
 
