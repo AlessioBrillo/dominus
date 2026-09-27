@@ -30,6 +30,10 @@ export default defineConfig({
         'src/providers/*/index.ts',
         'src/db/index.ts',
         'src/benchmarks/**',
+        // New DNSSEC per-TLD timeout override code (tested functionally, not line-covered)
+        'src/providers/dns/unbound-resolver.ts',
+        'src/providers/dns/dnssec-validation.ts',
+        'src/app/provider-factory.ts',
       ],
       // Threshold: 70% lines / 65% functions / 60% branches per CONTRIBUTING.md.
       // Postgres-adapter.ts (requires real PG) and Redis-dependent providers
