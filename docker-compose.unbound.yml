@@ -53,15 +53,15 @@ services:
       resources:
         limits:
           cpus: '0.25'
-          memory: 256M
+          memory: 512M
         reservations:
           cpus: '0.1'
-          memory: 64M
+          memory: 128M
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
     command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
     healthcheck:
-      test: ['CMD-SHELL', 'netstat -tuln | grep :5300 || ss -tuln | grep :5300']
+      test: ['CMD-SHELL', 'pgrep -f unbound']
       interval: 15s
       timeout: 5s
       retries: 5
