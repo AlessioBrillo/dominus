@@ -59,9 +59,9 @@ services:
           memory: 64M
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
-    command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
+    command: ['-d', '-c', '/opt/unbound/unbound.conf']
     healthcheck:
-      test: ['CMD-SHELL', 'ps aux | grep unbound | grep -v grep']
+      test: ['CMD-SHELL', 'pgrep unbound']
       interval: 15s
       timeout: 5s
       retries: 5
