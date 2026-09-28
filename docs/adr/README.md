@@ -77,6 +77,9 @@ re-running the original arguments.
 | [0070](0070-afternic-listing-provider.md)                   | Afternic listing provider and trademark-gated publishing                                                                      | 2026-09-06 | Accepted                            |
 | [0071](0071-sedo-listing-provider.md)                       | Sedo listing provider and sell-side correctness fixes                                                                         | 2026-09-07 | Accepted                            |
 | [0075](0075-dns-unbound-single-source-completion.md)        | DNS: UnboundResolver as Single Source of Truth (ADR-0072 Completion)                                                          | 2026-09-24 | Accepted                            |
+| [0076](0076-dns-community-fallback.md)                      | DNS community fallback — NodeDnsFallback for onboarding without Unbound                                                         | 2026-09-24 | Accepted                            |
+| [0077](0077-rdap-consensus-per-tld-authoritative-secondary.md) | RDAP consensus per-TLD authoritative secondary providers — IANA bootstrap routed second leg                                  | 2026-09-25 | Accepted                            |
+| [0078](0078-dns-resolver-resilience-hardening.md)           | DNS Resolver Resilience Hardening — Quorum, DNSSEC State Persistence, Cache Purge on Validation Loss                         | 2026-09-28 | Proposed                            |
 
 ## Conventions
 
