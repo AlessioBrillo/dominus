@@ -289,6 +289,12 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
         signal,
         options,
       );
+      // Defensive: handle undefined/null return from provider (should not happen
+      // per DnsProvider interface but can occur with buggy implementations or tests)
+      if (!results) {
+        logger.warn('DNS bulk check returned undefined/null — falling back to per-domain checks');
+        return [false, null];
+      }
       if (results.length === domains.length) return [true, results];
       logger.warn(
         { expected: domains.length, got: results.length },
