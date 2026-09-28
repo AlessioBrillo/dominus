@@ -52,12 +52,13 @@ const defaultValidateFn = async (
  * - 'insecure': Zone is not signed (no DS record in parent) -> SecurityStatus.INSECURE
  * - 'timeout': Validation exceeded timeoutMs
  * - 'error': Network error, NXDOMAIN, or other resolution failure -> SecurityStatus.INDETERMINATE
+ * Default timeout: 10000ms (increased from 5000ms to accommodate slow ccTLDs).
  */
 export async function validateDnssecPerQuery(
   domain: string,
   options: ValidationOptions = {},
 ): Promise<DnssecValidationResult> {
-  const timeoutMs = options.timeoutMs ?? 5000;
+  const timeoutMs = options.timeoutMs ?? 10000;
   const resolver = options.resolver ?? new NodeResolver();
   const validateFn = options._validateFn ?? defaultValidateFn;
 

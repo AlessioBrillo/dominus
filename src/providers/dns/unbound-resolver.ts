@@ -174,8 +174,16 @@ export interface UnboundResolverOptions {
   dnsPerQueryDnssec?: boolean | undefined;
   /** Timeout in milliseconds for per-query DNSSEC validation.
    *  Only applies when dnsPerQueryDnssec=true.
-   *  Default: 2000ms. */
+   *  The @relaycorp/dnssec library applies this timeout to the full validation
+   *  chain (DS -> DNSKEY -> RRSIG). For slow ccTLDs (.it, .de, .jp, .br) with
+   *  deep delegation chains, increase to 10000-15000ms.
+   *  Default: 10000ms. */
   dnsPerQueryDnssecTimeoutMs?: number | undefined;
+  /** Per-TLD timeout overrides for per-query DNSSEC validation.
+   *  Maps TLD (with leading dot, e.g. ".it") to timeout in milliseconds.
+   *  Default: {} (uses dnsPerQueryDnssecTimeoutMs for all TLDs).
+   *  Example: { ".it": 15000, ".de": 10000, ".br": 15000, ".jp": 12000 } */
+  dnsPerQueryDnssecTimeoutOverrides?: Record<string, number> | undefined;
   /** List of positive control domains for DNSSEC validation health checks.
    *  These are known-good DNSSEC-signed zones used to verify that the resolver
    *  can reach signed zones. Multiple controls provide geographic and topological
@@ -232,6 +240,8 @@ export class UnboundResolver implements DnsProvider {
   readonly #dnsPerQueryDnssec: boolean;
   /** Timeout for per-query DNSSEC validation in ms. */
   readonly #dnsPerQueryDnssecTimeoutMs: number;
+  /** Per-TLD timeout overrides for per-query DNSSEC validation. */
+  readonly #dnsPerQueryDnssecTimeoutOverrides: Record<string, number>;
   /** Positive control domains for DNSSEC validation health checks. */
   readonly #positiveControls: string[];
   /** Minimum healthy hosts required (quorum). Default: 1. */
@@ -264,7 +274,8 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecValidationEnabled = options.dnssecValidationEnabled ?? true;
     this.#dnssecMode = options.dnssecMode ?? 'strict';
     this.#dnsPerQueryDnssec = options.dnsPerQueryDnssec ?? true;
-    this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 2000;
+    this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 10000;
+    this.#dnsPerQueryDnssecTimeoutOverrides = options.dnsPerQueryDnssecTimeoutOverrides ?? {};
     this.#positiveControls = options.positiveControls ?? DNSSEC_POSITIVE_CONTROLS;
     this.#minHealthyHosts = options.minHealthyHosts ?? 1;
     this.#onAllHostsUnhealthy = options.onAllHostsUnhealthy;
@@ -969,82 +980,55 @@ export class UnboundResolver implements DnsProvider {
     type: 'tcp' | 'udp',
     timeoutMs: number,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const net = require('net');
-      let socket: {
-        connect: (opts: { host: string; port: number; timeout: number }) => void;
-        destroy: () => void;
-        on: (event: string, listener: (...args: unknown[]) => void) => void;
-        bind?: (port: number, callback: () => void) => void;
-        send?: (msg: Buffer, offset: number, length: number, port: number, address: string) => void;
-      };
-      if (type === 'tcp') {
-        socket = new net.Socket();
-        socket.connect({ host: hostname, port, timeout: timeoutMs });
-      } else {
-        // UDP: use dgram socket
-        const dgram = require('dgram');
-        const udpSocket = dgram.createSocket('udp4');
-        socket = udpSocket;
-        // bind is always available on dgram sockets
-        (udpSocket as { bind: (port: number, callback: () => void) => void }).bind(0, () => {
-          // Send a minimal DNS query (header only) to test UDP path
-          const query = Buffer.alloc(12);
-          query.writeUInt16BE(0x1234, 0); // Transaction ID
-          query.writeUInt16BE(0x0100, 2); // Flags: standard query
-          query.writeUInt16BE(1, 4); // QDCOUNT = 1
-          // No questions, just testing reachability
-          // send is always available on dgram sockets
-          (
-            udpSocket as {
-              send: (
-                msg: Buffer,
-                offset: number,
-                length: number,
-                port: number,
-                address: string,
-              ) => void;
-            }
-          ).send(query, 0, query.length, port, hostname);
-        });
-      }
-
-      const timer = setTimeout(() => {
-        socket.destroy();
-        reject(
-          new Error(
-            `${type.toUpperCase()} connection to ${hostname}:${port} timed out after ${timeoutMs}ms`,
-          ),
-        );
-      }, timeoutMs);
-
-      socket.on('connect', () => {
-        clearTimeout(timer);
-        socket.destroy();
-        resolve();
-      });
-
-      socket.on('error', (err: unknown) => {
-        clearTimeout(timer);
-        // For UDP, 'error' may fire on ICMP port unreachable
-        const message = err instanceof Error ? err.message : String(err);
-        reject(
-          new Error(`${type.toUpperCase()} connection to ${hostname}:${port} failed: ${message}`),
-        );
-      });
-
-      socket.on('close', () => {
-        clearTimeout(timer);
-      });
-
-      // For UDP, also listen for 'message' (response) as success indicator
-      if (type === 'udp') {
-        socket.on('message', () => {
+    if (type === 'tcp') {
+      const net = await import('net');
+      const socket = new net.Socket();
+      return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          (socket as { destroy: () => void }).destroy();
+          reject(new Error(`TCP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        socket.on('connect', () => {
           clearTimeout(timer);
-          socket.destroy();
+          (socket as { destroy: () => void }).destroy();
           resolve();
         });
-      }
+        socket.on('error', (err: Error) => {
+          clearTimeout(timer);
+          reject(new Error(`TCP connection to ${hostname}:${port} failed: ${err.message}`));
+        });
+        socket.connect(port, hostname);
+      });
+    }
+
+    // UDP: use dgram socket
+    const dgram = await import('dgram');
+    const udpSocket = dgram.createSocket('udp4');
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        (udpSocket as unknown as { destroy: () => void }).destroy();
+        reject(new Error(`UDP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      // bind is always available on dgram sockets
+      udpSocket.bind(0, () => {
+        // Send a minimal DNS query (header only) to test UDP path
+        const query = Buffer.alloc(12);
+        query.writeUInt16BE(0x1234, 0); // Transaction ID
+        query.writeUInt16BE(0x0100, 2); // Flags: standard query
+        query.writeUInt16BE(1, 4); // QDCOUNT = 1
+        // No questions, just testing reachability
+        udpSocket.send(query, 0, query.length, port, hostname);
+      });
+      udpSocket.on('message', () => {
+        clearTimeout(timer);
+        (udpSocket as unknown as { destroy: () => void }).destroy();
+        resolve();
+      });
+      udpSocket.on('error', (err: Error) => {
+        clearTimeout(timer);
+        (udpSocket as unknown as { destroy: () => void }).destroy();
+        reject(new Error(`UDP connection to ${hostname}:${port} failed: ${err.message}`));
+      });
     });
   }
 
@@ -1314,8 +1298,15 @@ export class UnboundResolver implements DnsProvider {
           try {
             const hostHealth = this.#hostHealth.get(host);
             const resolver = hostHealth?.resolver;
+            // Use per-TLD timeout override if available
+            const tld = domain.split('.').pop()?.toLowerCase() ?? '';
+            const tldKey = tld ? `.${tld}` : '';
+            const perQueryTimeoutMs =
+              tldKey && this.#dnsPerQueryDnssecTimeoutOverrides[tldKey]
+                ? this.#dnsPerQueryDnssecTimeoutOverrides[tldKey]!
+                : this.#dnsPerQueryDnssecTimeoutMs;
             const perQueryResult: DnssecValidationResult = await validateDnssecPerQuery(domain, {
-              timeoutMs: this.#dnsPerQueryDnssecTimeoutMs,
+              timeoutMs: perQueryTimeoutMs,
               resolver: resolver as NodeResolver,
             });
 

@@ -15,16 +15,16 @@ afterEach(() => {
   process.env = { ...originalEnv };
 });
 
-describe('DNS Community Edition Fallback', () => {
-  it('should default DNS_UNBOUND_STRICT to false in community edition (no DATABASE_URL, AUTH_PROVIDER=env)', () => {
+describe('DNS Community Edition — Unbound Mandatory (ADR-0075)', () => {
+  it('should default DNS_UNBOUND_STRICT to true in community edition (no DATABASE_URL, AUTH_PROVIDER=env)', () => {
     delete process.env.DATABASE_URL;
     process.env.AUTH_PROVIDER = 'env';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
-    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'false';
+    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
 
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(false);
-    expect(config.DNS_UNBOUND_STRICT).toBe(false);
+    expect(config.DNS_UNBOUND_STRICT).toBe(true);
   });
 
   it('should default DNS_UNBOUND_STRICT to true in cloud mode (DATABASE_URL set)', () => {
@@ -73,42 +73,16 @@ describe('DNS Community Edition Fallback', () => {
     expect(config.DNS_UNBOUND_STRICT).toBe(false);
   });
 
-  it('should return NodeDnsFallback when DNS_UNBOUND_STRICT=false and Unbound health check fails', async () => {
+  it('should require DNS_UNBOUND_HOSTS and health check when DNS_UNBOUND_STRICT=true', () => {
     delete process.env.DATABASE_URL;
     process.env.AUTH_PROVIDER = 'env';
-    process.env.DNS_UNBOUND_STRICT = 'false';
-    process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
-    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
-    process.env.DNS_UNBOUND_SKIP_READINESS = 'true';
-    process.env.DNS_UNBOUND_TIMEOUT_MS = '1500';
-    process.env.DNS_CACHE_TTL_SECONDS = '300';
-    process.env.DNS_CACHE_MAX_SIZE = '10000';
-    process.env.DNS_BULK_CONCURRENCY = '200';
-    process.env.DNS_PARKING_CHECK_ENABLED = 'false';
-    process.env.DNS_PERSISTENT_CACHE_ENABLED = 'false';
-    process.env.DNS_PERSISTENT_CACHE_TTL_HOURS = '168';
-    process.env.DNS_PERSISTENT_AVAILABLE_STALE_HOURS = '24';
-    process.env.DNS_RATE_LIMIT_TOKENS = '20';
-    process.env.DNS_RATE_LIMIT_INTERVAL_MS = '1000';
-    process.env.DNS_UNBOUND_REVALIDATION_INTERVAL_MS = '600000';
-    process.env.DNS_UNBOUND_MAX_UNHEALTHY_BEFORE_DEGRADED = '1';
-    process.env.DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS = '30000';
-    process.env.DNS_UNBOUND_MIN_HEALTHY_HOSTS = '1';
-    process.env.DNS_UNBOUND_READINESS_TIMEOUT_MS = '30000';
-    process.env.DNSSEC_POSITIVE_CONTROLS =
-      'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org';
-    process.env.DNS_PER_QUERY_DNSEC = 'false';
-    process.env.DNS_PER_QUERY_DNSEC_TIMEOUT_MS = '5000';
-    process.env.DNSSEC_MODE = 'strict';
-    process.env.DNS_STAGE_BUSY_TIMEOUT_MS = '60000';
-    process.env.RDAP_STAGE_BUSY_TIMEOUT_MS = '60000';
+    process.env.DNS_UNBOUND_STRICT = 'true';
+    // Missing DNS_UNBOUND_HOSTS and DNS_UNBOUND_HEALTH_CHECK_ENABLED
+    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'false';
 
-    const config = loadConfig();
-
-    // We can't easily mock the internal UnboundResolver creation, so we test the config logic
-    // The actual fallback behavior is tested in integration tests
-    expect(config.DNS_UNBOUND_STRICT).toBe(false);
-    expect(config.IS_CLOUD_MODE).toBe(false);
+    expect(() => loadConfig()).toThrow(
+      /DNS_UNBOUND_STRICT=true requires DNS_UNBOUND_HOSTS to be set and DNS_UNBOUND_HEALTH_CHECK_ENABLED=true/,
+    );
   });
 });
 

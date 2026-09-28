@@ -571,6 +571,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
       DNS_PER_QUERY_DNSEC: false as const,
       DNS_PER_QUERY_DNSEC_TIMEOUT_MS: 2000 as const,
+      DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES: {},
       DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
       PUBLIC_SCORES_RETENTION_DAYS: 90,
       EVENTS_RETENTION_DAYS: 180,

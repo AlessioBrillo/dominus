@@ -35,6 +35,19 @@ import type { DnsCheckResult } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
 import type { RateLimiterLike } from '../../../providers/rate-limiter.js';
 
+const mockValidateDnssecPerQuery = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    status: 'valid',
+    chainValidated: true,
+    durationMs: 100,
+    validatedAt: new Date().toISOString(),
+  }),
+);
+
+vi.mock('../dnssec-validation.js', () => ({
+  validateDnssecPerQuery: mockValidateDnssecPerQuery,
+}));
+
 /** Build an Error carrying a c-ares style `code`, as node:dns produces. */
 function dnsError(code: string): Error {
   const err = new Error(code) as Error & { code?: string };
@@ -710,5 +723,195 @@ describe('UnboundResolver recovery behavior', () => {
     const result = await resolver.revalidateDnssecValidation();
     expect(result.healthy).toBe(true);
     expect(result.dnssecValid).toBe(true);
+  });
+});
+
+describe('UnboundResolver per-TLD timeout overrides', () => {
+  let resolver: UnboundResolver;
+  let mockCacheRepo: ProviderCacheRepository;
+  let mockRateLimiter: RateLimiterLike;
+  let mockMetrics: ReturnType<
+    typeof vi.fn<
+      (stats: {
+        durationMs: number;
+        status: 'registered' | 'available' | 'unknown';
+        dnssec: 'valid' | 'unchecked' | 'bogus';
+        fromCache: boolean;
+      }) => void
+    >
+  >;
+
+  beforeEach(() => {
+    resolveFn.mockReset();
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.resolve(['1.2.3.4']);
+    });
+
+    mockCacheRepo = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue(undefined),
+      prune: vi.fn().mockResolvedValue(0),
+    } as unknown as ProviderCacheRepository;
+
+    mockRateLimiter = {
+      acquire: vi.fn().mockResolvedValue(undefined),
+      maxTokens: 20,
+      tokensPerInterval: 20,
+      intervalMs: 1000,
+    } as unknown as RateLimiterLike;
+
+    mockMetrics = vi.fn();
+
+    resolver = new UnboundResolver({
+      unboundHosts: ['127.0.0.1', '::1'],
+      lookupTimeoutMs: 1500,
+      cacheTtlMs: 300_000,
+      maxSize: 10000,
+      bulkConcurrency: 200,
+      parkingEnabled: false,
+      rateLimiter: mockRateLimiter,
+      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+      persistentCache: mockCacheRepo,
+      persistentCacheTtlHours: 168,
+      persistentAvailableStaleMs: 24 * 60 * 60_000,
+      dnssecValidationEnabled: true,
+      skipSocketCheck: true,
+      dnsPerQueryDnssec: true,
+      dnsPerQueryDnssecTimeoutMs: 5000,
+      dnsPerQueryDnssecTimeoutOverrides: { '.it': 15000, '.de': 10000, '.br': 15000 },
+      onResolution: mockMetrics,
+    });
+  });
+
+  afterEach(() => {
+    resolver.dispose();
+    vi.clearAllMocks();
+  });
+
+  it('should use per-TLD timeout override for slow TLDs (.it)', async () => {
+    // Prove DNSSEC validation first
+    await resolver.healthCheck();
+    expect(resolver.getHealthStatus().dnssecValid).toBe(true);
+
+    // Override resolveFn to return no A record (Available)
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    // Query a .it domain - should use 15000ms override
+    mockValidateDnssecPerQuery.mockClear();
+
+    await resolver.checkAvailability('slowdomain.it');
+
+    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
+      'slowdomain.it',
+      expect.objectContaining({ timeoutMs: 15000 }),
+    );
+  });
+
+  it('should use per-TLD timeout override for slow TLDs (.de)', async () => {
+    await resolver.healthCheck();
+
+    // Override resolveFn to return no A record (Available)
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockClear();
+
+    await resolver.checkAvailability('slowdomain.de');
+
+    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
+      'slowdomain.de',
+      expect.objectContaining({ timeoutMs: 10000 }),
+    );
+  });
+
+  it('should use per-TLD timeout override for slow TLDs (.br)', async () => {
+    await resolver.healthCheck();
+
+    // Override resolveFn to return no A record (Available)
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockClear();
+
+    await resolver.checkAvailability('slowdomain.br');
+
+    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
+      'slowdomain.br',
+      expect.objectContaining({ timeoutMs: 15000 }),
+    );
+  });
+
+  it('should use default timeout for TLDs without override', async () => {
+    await resolver.healthCheck();
+
+    // Override resolveFn to return no A record (Available)
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockClear();
+
+    await resolver.checkAvailability('example.com');
+
+    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
+      'example.com',
+      expect.objectContaining({ timeoutMs: 5000 }),
+    );
+  });
+
+  it('should handle empty overrides object', async () => {
+    const r = new UnboundResolver({
+      unboundHosts: ['127.0.0.1'],
+      skipSocketCheck: true,
+      dnsPerQueryDnssecTimeoutOverrides: {},
+    });
+    expect(r).toBeDefined();
+    r.dispose();
+  });
+
+  it('should ignore override for TLD not in map', async () => {
+    await resolver.healthCheck();
+
+    // Override resolveFn to return no A record (Available)
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockClear();
+
+    await resolver.checkAvailability('example.xyz');
+
+    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
+      'example.xyz',
+      expect.objectContaining({ timeoutMs: 5000 }),
+    );
   });
 });
