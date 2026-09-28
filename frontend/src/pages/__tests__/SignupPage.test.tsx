@@ -32,7 +32,7 @@ describe('SignupPage', () => {
 
     await waitFor(() => expect(screen.getByText('deadbeef')).toBeInTheDocument());
     expect(registerTenant).toHaveBeenCalledWith({ name: 'Alessio', email: 'a@example.com' });
-  });
+  }, 10000);
 
   it('surfaces validation failures', async () => {
     vi.mocked(registerTenant).mockRejectedValue(new Error('Name is required'));

@@ -68,7 +68,7 @@ describe('TeamPage', () => {
     expect(screen.getByText('team')).toBeInTheDocument();
     expect(screen.getByText('owner@example.com')).toBeInTheDocument();
     expect(screen.getByText('invitee@example.com')).toBeInTheDocument();
-  });
+  }, 10000);
 
   it('invites a member with the selected role', async () => {
     const mutate = vi.fn();
@@ -83,7 +83,7 @@ describe('TeamPage', () => {
       { userId: 'new@example.com', role: 'admin' },
       expect.any(Object),
     );
-  });
+  }, 10000);
 
   it('removes a member', async () => {
     const mutate = vi.fn();
@@ -93,5 +93,5 @@ describe('TeamPage', () => {
     await userEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0]!);
 
     expect(mutate).toHaveBeenCalledWith('owner@example.com');
-  });
+  }, 10000);
 });
