@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DnsCheckResult } from '../../types/domain-status.js';
+import type { UnboundHostDnssecResult } from './unbound-resolver.js';
 
 export type { DnsCheckResult } from '../../types/domain-status.js';
 
@@ -143,4 +144,17 @@ export interface DnsProvider {
    * Optional: only implemented by UnboundResolver.
    */
   isUsingFallback?(): boolean;
+  /**
+   * Detailed health status including quorum and DNSSEC state (ADR-0078).
+   * Optional: only implemented by UnboundResolver.
+   */
+  getHealthStatus?(): {
+    healthy: boolean;
+    dnssecValid: boolean;
+    quorumMet: boolean;
+    requiredHealthyHosts: number;
+    quorumMode: string;
+    details: string;
+    hosts: UnboundHostDnssecResult[];
+  };
 }

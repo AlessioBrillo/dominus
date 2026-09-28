@@ -208,8 +208,8 @@ async function main(): Promise<void> {
   app.get('/robots.txt', createRobotsTxtHandler(publicAppUrlOption(config)));
 
   app.use('/api/v1/docs', createDocsRouter());
-  app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics));
-  app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics));
+  app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics, deps.dnsProvider));
+  app.use('/api/v1/health', createHealthRouter(deps.healthCheck, deps.metrics, deps.dnsProvider));
   const metricsRouterOptions =
     config.METRICS_TOKEN !== undefined ? { token: config.METRICS_TOKEN } : {};
   app.use(

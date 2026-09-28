@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import type { ProviderHealthCheck } from '../../providers/provider-health.js';
 import type { MetricsCollector } from '../../app/metrics-collector.js';
+import type { DnsProvider } from '../../providers/dns/dns-provider.js';
 
 let cachedVersion: string | undefined;
 
@@ -26,6 +27,7 @@ function readVersion(): string {
 export function createHealthRouter(
   healthCheck?: ProviderHealthCheck,
   metrics?: MetricsCollector,
+  dnsProvider?: DnsProvider,
 ): Router {
   const router = Router();
 
@@ -38,6 +40,18 @@ export function createHealthRouter(
     };
     if (metrics) {
       payload.metrics = metrics.snapshot();
+    }
+    if (dnsProvider?.getHealthStatus) {
+      const dnsHealth = dnsProvider.getHealthStatus();
+      payload.dns = {
+        healthy: dnsHealth.healthy,
+        dnssecValid: dnsHealth.dnssecValid,
+        quorumMet: dnsHealth.quorumMet,
+        requiredHealthyHosts: dnsHealth.requiredHealthyHosts,
+        quorumMode: dnsHealth.quorumMode,
+        details: dnsHealth.details,
+        hosts: dnsHealth.hosts,
+      };
     }
     res.json(payload);
   });
