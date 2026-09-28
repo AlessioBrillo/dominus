@@ -1359,6 +1359,7 @@ export class UnboundResolver implements DnsProvider {
         status: DomainStatus.Unknown,
         checkedAt,
         dnssec: 'unchecked',
+        dnssecSource: 'unchecked',
       };
       this.#setCaches(domain, result);
       const durationMs = Date.now() - lookupStartTime;
@@ -1483,6 +1484,16 @@ export class UnboundResolver implements DnsProvider {
           status,
           checkedAt,
           dnssec: finalDnssecStatus,
+          dnssecSource:
+            status === DomainStatus.Available &&
+            this.#dnsPerQueryDnssec &&
+            this.#dnssecValidationEnabled &&
+            this.#dnssecMode !== 'disabled' &&
+            hostDnssecValid
+              ? 'per-query'
+              : dnssecStatus === 'valid'
+                ? 'resolver-level'
+                : 'unchecked',
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;
@@ -1495,6 +1506,7 @@ export class UnboundResolver implements DnsProvider {
         status: DomainStatus.Unknown,
         checkedAt,
         dnssec: dnssecStatus,
+        dnssecSource: dnssecStatus === 'valid' ? 'resolver-level' : 'unchecked',
       };
       this.#setCaches(domain, unknown);
       const unknownDurationMs = Date.now() - lookupStartTime;
@@ -1510,6 +1522,7 @@ export class UnboundResolver implements DnsProvider {
         status: DomainStatus.Unknown,
         checkedAt,
         dnssec: 'unchecked',
+        dnssecSource: 'unchecked',
       };
       this.#setCaches(domain, result);
       const durationMs = Date.now() - lookupStartTime;
