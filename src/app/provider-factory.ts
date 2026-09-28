@@ -318,6 +318,15 @@ export async function buildDnsProvider(
     recordUnboundHealthyHosts?: (count: number) => void;
     recordUnboundAllHostsUnhealthy?: (hosts: UnboundHostDnssecResult[]) => void;
     recordFallbackActive?: (active: boolean) => void;
+    // ADR-0078 metrics
+    recordUnboundDnssecStateRestored?: (host: string, ageMs: number) => void;
+    recordUnboundCachePurged?: (entryCount: number) => void;
+    recordUnboundQuorumEvaluated?: (
+      quorumMet: boolean,
+      healthyHosts: number,
+      requiredHosts: number,
+      mode: string,
+    ) => void;
   },
 ): Promise<DnsProvider> {
   // ADR-0075: UnboundResolver is the single DNS source of truth.
@@ -391,6 +400,21 @@ export async function buildDnsProvider(
           'ALERT: All Unbound hosts unhealthy — DNS resolution degraded',
         );
         metrics?.recordUnboundAllHostsUnhealthy?.(hosts);
+      },
+      // ADR-0078: DNSSEC state persistence & cache purge metrics
+      onDnssecStateRestored: (host: string, ageMs: number): void => {
+        metrics?.recordUnboundDnssecStateRestored?.(host, ageMs);
+      },
+      onCachePurged: (entryCount: number): void => {
+        metrics?.recordUnboundCachePurged?.(entryCount);
+      },
+      onQuorumEvaluated: (
+        quorumMet: boolean,
+        healthyHosts: number,
+        requiredHosts: number,
+        mode: string,
+      ): void => {
+        metrics?.recordUnboundQuorumEvaluated?.(quorumMet, healthyHosts, requiredHosts, mode);
       },
     });
     return resolver;

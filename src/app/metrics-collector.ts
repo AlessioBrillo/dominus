@@ -93,6 +93,12 @@ export class MetricsCollector {
   #unboundDnssecValidationRecovered = 0;
   /** Unbound all hosts unhealthy events (ADR-0075 multi-host failover). */
   #unboundAllHostsUnhealthy = 0;
+  /** Unbound DNSSEC state restored from persistent cache at startup (ADR-0078). */
+  #unboundDnssecStateRestored = 0;
+  /** Unbound persistent cache purges on DNSSEC validation loss (ADR-0078). */
+  #unboundCachePurged = 0;
+  /** Unbound quorum evaluations (ADR-0078). */
+  #unboundQuorumEvaluated = 0;
   /** USPTO WAF block rate (exposed as gauge for alerting). */
   #usptoWafBlockRate = 0;
   /** USPTO total request count. */
@@ -452,6 +458,55 @@ export class MetricsCollector {
     }
   }
 
+  /** Record a DNSSEC state restoration from persistent cache at startup (ADR-0078).
+   *  Called when UnboundResolver.loadDnssecState() successfully restores a host's
+   *  validation state from the provider_cache. Emits a counter metric for audit trail. */
+  recordUnboundDnssecStateRestored(host: string, ageMs: number): void {
+    this.#unboundDnssecStateRestored++;
+    this.recordHistogram(
+      'dominus_unbound_dnssec_state_restored_ms',
+      ageMs,
+      { host },
+      [100, 500, 1000, 5000, 10_000, 60_000, 300_000, 3_600_000],
+    );
+  }
+
+  /** Record a persistent cache purge on DNSSEC validation loss (ADR-0078).
+   *  Called when UnboundResolver.revalidateDnssecValidation() detects global
+   *  validation loss and purges the provider_cache. Emits a counter metric for
+   *  alerting — this should remain 0 in steady state. */
+  recordUnboundCachePurged(entryCount: number): void {
+    this.#unboundCachePurged++;
+    this.recordHistogram(
+      'dominus_unbound_cache_purged_total',
+      entryCount,
+      {},
+      [1, 10, 100, 1000, 10_000],
+    );
+  }
+
+  /** Record a quorum evaluation (ADR-0078).
+   *  Called periodically to track quorum health. Emits a gauge-like counter. */
+  recordUnboundQuorumEvaluated(
+    quorumMet: boolean,
+    healthyHosts: number,
+    requiredHosts: number,
+    mode: string,
+  ): void {
+    this.#unboundQuorumEvaluated++;
+    this.recordHistogram(
+      'dominus_unbound_quorum_evaluated_total',
+      1,
+      {
+        quorum_met: String(quorumMet),
+        mode,
+        healthy: String(healthyHosts),
+        required: String(requiredHosts),
+      },
+      [1],
+    );
+  }
+
   /** Record whether DNS fallback mode is active (ADR-0075 completion).
    *  When true, NodeDnsFallback is in use instead of UnboundResolver.
    *  Emits a gauge metric for Prometheus alerting. */
@@ -588,6 +643,9 @@ export class MetricsCollector {
         dnssecValidationLostTotal: this.#unboundDnssecValidationLost,
         dnssecValidationRecoveredTotal: this.#unboundDnssecValidationRecovered,
         allHostsUnhealthyTotal: this.#unboundAllHostsUnhealthy,
+        dnssecStateRestoredTotal: this.#unboundDnssecStateRestored,
+        cachePurgedTotal: this.#unboundCachePurged,
+        quorumEvaluatedTotal: this.#unboundQuorumEvaluated,
         cacheHitsTotal: this.#unboundCacheHits,
         avgDurationMs:
           this.#unboundTotalQueries > 0
@@ -659,6 +717,10 @@ export class MetricsCollector {
     this.#unboundUnknown = 0;
     this.#unboundDnssecValid = 0;
     this.#unboundDnssecBogus = 0;
+    this.#unboundAllHostsUnhealthy = 0;
+    this.#unboundDnssecStateRestored = 0;
+    this.#unboundCachePurged = 0;
+    this.#unboundQuorumEvaluated = 0;
     this.#unboundCacheHits = 0;
     this.#unboundObserved = false;
     this.#histograms.clear();

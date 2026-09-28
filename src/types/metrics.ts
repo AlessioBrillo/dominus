@@ -202,7 +202,7 @@ export interface AnonTrademarkBudgetMetrics {
   observed: boolean;
 }
 
-/** Unbound resolver metrics (ADR-0072). */
+/** Unbound resolver metrics (ADR-0072, ADR-0078). */
 export interface UnboundMetrics {
   /** Total DNS queries made since process start. */
   totalQueries: number;
@@ -226,6 +226,12 @@ export interface UnboundMetrics {
   allHostsUnhealthyTotal: number;
   /** Total cache hits. */
   cacheHitsTotal: number;
+  /** Total DNSSEC state restorations from persistent cache at startup (ADR-0078). */
+  dnssecStateRestoredTotal: number;
+  /** Total persistent cache purges on DNSSEC validation loss (ADR-0078). */
+  cachePurgedTotal: number;
+  /** Total quorum evaluations (ADR-0078). */
+  quorumEvaluatedTotal: number;
   /** Average query duration in ms. */
   avgDurationMs: number;
   /** Whether any query was recorded since process start. */

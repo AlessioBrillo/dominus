@@ -199,6 +199,20 @@ export interface UnboundResolverOptions {
    *  Receives the list of host health statuses for actionable alerting.
    *  Called once per transition from healthy->unhealthy state. */
   onAllHostsUnhealthy?: ((hosts: UnboundHostDnssecResult[]) => void) | undefined;
+  /** Optional callback invoked when DNSSEC validation state is restored from
+   *  persistent cache at startup (ADR-0078). Receives host and age in ms. */
+  onDnssecStateRestored?: ((host: string, ageMs: number) => void) | undefined;
+  /** Optional callback invoked when persistent cache is purged due to
+   *  DNSSEC validation loss (ADR-0078). Receives number of purged entries. */
+  onCachePurged?: ((entryCount: number) => void) | undefined;
+  /** Optional callback invoked when quorum is evaluated (ADR-0078).
+   *  Receives quorumMet, healthyHosts, requiredHosts, and quorumMode. */
+  onQuorumEvaluated?: (
+    quorumMet: boolean,
+    healthyHosts: number,
+    requiredHosts: number,
+    mode: string,
+  ) => void;
   /** Maximum time in milliseconds to wait for resolver readiness (health + DNSSEC).
    *  Used by waitForReady() at startup. Default: 30000ms. */
   readinessTimeoutMs?: number;
@@ -273,6 +287,12 @@ export class UnboundResolver implements DnsProvider {
   readonly #minHealthyHosts: number;
   /** Callback when all hosts become unhealthy. */
   readonly #onAllHostsUnhealthy: UnboundResolverOptions['onAllHostsUnhealthy'];
+  /** Callback when DNSSEC state is restored from cache (ADR-0078). */
+  readonly #onDnssecStateRestored: UnboundResolverOptions['onDnssecStateRestored'];
+  /** Callback when cache is purged on validation loss (ADR-0078). */
+  readonly #onCachePurged: UnboundResolverOptions['onCachePurged'];
+  /** Callback when quorum is evaluated (ADR-0078). */
+  readonly #onQuorumEvaluated: UnboundResolverOptions['onQuorumEvaluated'];
   /** Track whether we've already fired the all-hosts-unhealthy callback. */
   #allHostsUnhealthyFired = false;
   /** Maximum time to wait for readiness (health + DNSSEC validation). */
@@ -314,6 +334,9 @@ export class UnboundResolver implements DnsProvider {
     this.#positiveControls = options.positiveControls ?? DNSSEC_POSITIVE_CONTROLS;
     this.#minHealthyHosts = options.minHealthyHosts ?? 1;
     this.#onAllHostsUnhealthy = options.onAllHostsUnhealthy;
+    this.#onDnssecStateRestored = options.onDnssecStateRestored;
+    this.#onCachePurged = options.onCachePurged;
+    this.#onQuorumEvaluated = options.onQuorumEvaluated;
     this.#onResolution = options.onResolution;
     this.#onDnssecValidationChange = options.onDnssecValidationChange;
     this.#onHostDnssecValidationChange = options.onHostDnssecValidationChange;
@@ -602,6 +625,7 @@ export class UnboundResolver implements DnsProvider {
                 { host, ageMs: age, dnssecValid: state.dnssecValid },
                 'Unbound: restored DNSSEC validation state from persistent cache',
               );
+              this.#onDnssecStateRestored?.(host, age);
             }
           }
         } catch {
@@ -774,11 +798,12 @@ export class UnboundResolver implements DnsProvider {
     // potentially corrupted 'valid' DNSSEC verdicts from the compromised period.
     if (validationChanged && !anyDnssecValid && this.#purgeCacheOnDnssecLoss) {
       if (this.#persistentCache !== undefined) {
-        await this.#persistentCache.clearProvider(this.name).catch(() => {});
+        const purgedCount = await this.#persistentCache.clearProvider(this.name).catch(() => 0);
         logger.warn(
-          { provider: this.name },
+          { provider: this.name, purgedCount },
           'Unbound: purged persistent DNS cache due to DNSSEC validation loss',
         );
+        this.#onCachePurged?.(purgedCount);
       }
     }
 
@@ -850,6 +875,7 @@ export class UnboundResolver implements DnsProvider {
     const healthyCount = this.getHealthyHostCount();
     const requiredHealthyHosts = this.computeRequiredHealthyHosts();
     const quorumMet = healthyCount >= requiredHealthyHosts;
+    this.#onQuorumEvaluated?.(quorumMet, healthyCount, requiredHealthyHosts, this.#quorumMode);
     return {
       healthy: this.#dnssecValidating && quorumMet,
       dnssecValid: this.#dnssecValidating,
