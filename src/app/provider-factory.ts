@@ -380,6 +380,11 @@ export async function buildDnsProvider(
       minHealthyHosts: config.DNS_UNBOUND_MIN_HEALTHY_HOSTS,
       readinessTimeoutMs: config.DNS_UNBOUND_READINESS_TIMEOUT_MS,
       skipSocketCheck: config.DNS_UNBOUND_SKIP_READINESS,
+      // ADR-0078: Quorum, DNSSEC state persistence, cache purge
+      quorumMode: config.DNS_UNBOUND_QUORUM_MODE,
+      persistDnssecState: config.DNS_UNBOUND_PERSIST_DNSSEC_STATE,
+      dnssecStateMaxAgeMs: config.DNS_UNBOUND_DNSSEC_STATE_MAX_AGE_MS,
+      purgeCacheOnDnssecLoss: config.DNS_UNBOUND_PURGE_CACHE_ON_DNSSEC_LOSS,
       onAllHostsUnhealthy: (hosts: UnboundHostDnssecResult[]): void => {
         getLogger().error(
           { hosts, timestamp: new Date().toISOString() },
@@ -394,6 +399,10 @@ export async function buildDnsProvider(
   // In strict mode (default), Unbound is mandatory — fail fast on health check failure
   if (config.DNS_UNBOUND_STRICT) {
     const resolver = createUnboundResolver();
+
+    // Load persisted DNSSEC state BEFORE healthCheck (ADR-0078).
+    // This avoids the cold-start window where we must re-prove validation.
+    await resolver.loadDnssecState();
 
     // Wait for resolver readiness (health + DNSSEC validation) with retries and backoff.
     // This replaces the single healthCheck() call with a more robust readiness gate
