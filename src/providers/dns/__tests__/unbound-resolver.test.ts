@@ -82,6 +82,7 @@ describe('UnboundResolver', () => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
       prune: vi.fn().mockResolvedValue(0),
+      clearProvider: vi.fn().mockResolvedValue(0),
     } as unknown as ProviderCacheRepository;
 
     mockRateLimiter = {
@@ -394,6 +395,7 @@ describe('UnboundResolver periodic DNSSEC revalidation', () => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
       prune: vi.fn().mockResolvedValue(0),
+      clearProvider: vi.fn().mockResolvedValue(0),
     } as unknown as ProviderCacheRepository;
 
     mockRateLimiter = {
@@ -503,6 +505,7 @@ describe('UnboundResolver soft-fail fallback integration', () => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
       prune: vi.fn().mockResolvedValue(0),
+      clearProvider: vi.fn().mockResolvedValue(0),
     } as unknown as ProviderCacheRepository;
 
     mockRateLimiter = {
@@ -601,6 +604,7 @@ describe('UnboundResolver SLO metrics', () => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
       prune: vi.fn().mockResolvedValue(0),
+      clearProvider: vi.fn().mockResolvedValue(0),
     } as unknown as ProviderCacheRepository;
 
     mockRateLimiter = {
@@ -755,6 +759,7 @@ describe('UnboundResolver per-TLD timeout overrides', () => {
       get: vi.fn().mockResolvedValue(null),
       set: vi.fn().mockResolvedValue(undefined),
       prune: vi.fn().mockResolvedValue(0),
+      clearProvider: vi.fn().mockResolvedValue(0),
     } as unknown as ProviderCacheRepository;
 
     mockRateLimiter = {

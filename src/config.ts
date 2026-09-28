@@ -424,6 +424,48 @@ const configSchema = z
      */
     DNS_UNBOUND_MIN_HEALTHY_HOSTS: z.coerce.number().int().min(0).max(10).default(1),
     /**
+     * Quorum mode for multi-host Unbound deployments (ADR-0078).
+     * - 'simple': Uses DNS_UNBOUND_MIN_HEALTHY_HOSTS directly (legacy behavior).
+     * - 'majority': Requires ceil(configuredHosts / 2) healthy hosts — true quorum.
+     * - 'all': All configured hosts must be healthy.
+     * Default: 'majority' for production safety. Community edition can set 'simple'.
+     */
+    DNS_UNBOUND_QUORUM_MODE: z.enum(['simple', 'majority', 'all']).default('majority'),
+    /**
+     * Enable automatic DNSSEC validation state persistence to database (ADR-0078).
+     * When true, the resolver writes its proven DNSSEC validation state
+     * (per-host) to provider_cache on every revalidation. On startup,
+     * this state is loaded to avoid the "validation unknown" window
+     * before the first healthCheck completes.
+     * Default: true (hardened).
+     */
+    DNS_UNBOUND_PERSIST_DNSSEC_STATE: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
+     * Maximum age in milliseconds of persisted DNSSEC validation state before
+     * it is considered stale and requires revalidation (ADR-0078).
+     * Prevents trusting a validation state from a previous Unbound incarnation
+     * that may have been reconfigured.
+     * Default: 3600000 (1 hour).
+     */
+    DNS_UNBOUND_DNSSEC_STATE_MAX_AGE_MS: z.coerce
+      .number()
+      .int()
+      .min(60_000)
+      .max(86_400_000)
+      .default(3_600_000),
+    /**
+     * Enable persistent cache purge on DNSSEC validation loss (ADR-0078).
+     * When DNSSEC validation is lost on a host, purge ALL persistent
+     * cache entries that were stamped with 'valid' DNSSEC from that host.
+     * Conservative: better to re-resolve than serve potentially corrupted
+     * Available verdicts. Default: true (conservative, ADR-0002).
+     */
+    DNS_UNBOUND_PURGE_CACHE_ON_DNSSEC_LOSS: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
      * Strict Unbound mode (default: true for ALL editions).
      * When true (production/hardened), UnboundResolver is the exclusive DNS provider.
      * DNSSEC validation is mandatory; startup fails if Unbound is unhealthy or

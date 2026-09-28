@@ -605,6 +605,10 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       RDAP_CONSENSUS_WHOIS_RESCUE_TOKENS: 2,
       RDAP_CONSENSUS_WHOIS_RESCUE_INTERVAL_MS: 2000,
       COMMERCIAL_SIGNAL_DEGRADATION_ENABLED: true,
+      DNS_UNBOUND_QUORUM_MODE: 'majority' as const,
+      DNS_UNBOUND_PERSIST_DNSSEC_STATE: true,
+      DNS_UNBOUND_DNSSEC_STATE_MAX_AGE_MS: 3_600_000,
+      DNS_UNBOUND_PURGE_CACHE_ON_DNSSEC_LOSS: true,
       IS_CLOUD_MODE: false,
     } as const;
 

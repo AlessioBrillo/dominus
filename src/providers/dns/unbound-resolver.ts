@@ -205,6 +205,31 @@ export interface UnboundResolverOptions {
   /** Enable pre-binding socket connectivity check in healthCheck (default: true).
    *  Can be disabled in test environments where Unbound is not actually running. */
   skipSocketCheck?: boolean;
+  /** Quorum mode for multi-host deployments (ADR-0078).
+   *  - 'simple': Use minHealthyHosts directly (legacy behavior).
+   *  - 'majority': Require ceil(configuredHosts / 2) healthy hosts — true quorum.
+   *  - 'all': All configured hosts must be healthy.
+   *  Default: 'majority' for production safety. */
+  quorumMode?: 'simple' | 'majority' | 'all';
+  /** Enable automatic DNSSEC validation state persistence to database (ADR-0078).
+   *  When true, the resolver writes its proven DNSSEC validation state
+   *  (per-host) to provider_cache on every revalidation. On startup,
+   *  this state is loaded to avoid the "validation unknown" window
+   *  before the first healthCheck completes.
+   *  Default: true (hardened). */
+  persistDnssecState?: boolean;
+  /** Maximum age in milliseconds of persisted DNSSEC validation state before
+   *  it is considered stale and requires revalidation (ADR-0078).
+   *  Prevents trusting a validation state from a previous Unbound incarnation
+   *  that may have been reconfigured.
+   *  Default: 3600000 (1 hour). */
+  dnssecStateMaxAgeMs?: number;
+  /** Enable persistent cache purge on DNSSEC validation loss (ADR-0078).
+   *  When DNSSEC validation is lost globally, purge ALL persistent
+   *  cache entries for this provider. Conservative: better to re-resolve
+   *  than serve potentially corrupted Available verdicts.
+   *  Default: true (conservative, ADR-0002). */
+  purgeCacheOnDnssecLoss?: boolean;
 }
 
 export class UnboundResolver implements DnsProvider {
@@ -254,6 +279,16 @@ export class UnboundResolver implements DnsProvider {
   readonly #readinessTimeoutMs: number;
   /** Skip socket connectivity check in healthCheck (for tests). */
   readonly #skipSocketCheck: boolean;
+  /** Quorum mode for multi-host deployments (ADR-0078). */
+  readonly #quorumMode: 'simple' | 'majority' | 'all';
+  /** Enable DNSSEC validation state persistence (ADR-0078). */
+  readonly #persistDnssecState: boolean;
+  /** Maximum age of persisted DNSSEC state before requiring revalidation (ADR-0078). */
+  readonly #dnssecStateMaxAgeMs: number;
+  /** Enable persistent cache purge on DNSSEC validation loss (ADR-0078). */
+  readonly #purgeCacheOnDnssecLoss: boolean;
+  /** Key prefix for persisted DNSSEC state in provider_cache. */
+  readonly #dnssecStateKeyPrefix = 'dominus:unbound:dnssec-state:';
 
   constructor(options: UnboundResolverOptions) {
     if (!options.unboundHosts || options.unboundHosts.length === 0) {
@@ -287,6 +322,10 @@ export class UnboundResolver implements DnsProvider {
     this.#unhealthyCooldownMs = options.unhealthyCooldownMs ?? DEFAULT_UNHEALTHY_COOLDOWN_MS;
     this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
     this.#skipSocketCheck = options.skipSocketCheck ?? false;
+    this.#quorumMode = options.quorumMode ?? 'majority';
+    this.#persistDnssecState = options.persistDnssecState ?? true;
+    this.#dnssecStateMaxAgeMs = options.dnssecStateMaxAgeMs ?? 3_600_000;
+    this.#purgeCacheOnDnssecLoss = options.purgeCacheOnDnssecLoss ?? true;
 
     // Create dedicated resolver per host for isolation
     for (const host of this.#unboundHosts) {
@@ -534,6 +573,50 @@ export class UnboundResolver implements DnsProvider {
     };
   }
 
+  /** Load persisted DNSSEC validation state from provider_cache (ADR-0078).
+   *  Called at startup to restore validation proof and avoid cold-start health check blocking.
+   *  Only restores state that is fresh (< dnssecStateMaxAgeMs) and has dnssecValid=true. */
+  async loadDnssecState(): Promise<void> {
+    if (!this.#persistDnssecState || !this.#persistentCache) return;
+
+    for (const host of this.#unboundHosts) {
+      const stateKey = `${this.#dnssecStateKeyPrefix}${host}`;
+      const raw = await this.#persistentCache.get(stateKey, this.name).catch(() => null);
+      if (raw) {
+        try {
+          const state = JSON.parse(raw) as {
+            dnssecValid: boolean;
+            healthy: boolean;
+            lastCheckAt: number;
+            consecutiveFailures: number;
+          };
+          const age = Date.now() - state.lastCheckAt;
+          if (age < this.#dnssecStateMaxAgeMs && state.dnssecValid) {
+            const health = this.#hostHealth.get(host);
+            if (health) {
+              health.dnssecValid = state.dnssecValid;
+              health.healthy = state.healthy;
+              health.consecutiveFailures = state.consecutiveFailures;
+              health.lastCheckAt = state.lastCheckAt;
+              logger.info(
+                { host, ageMs: age, dnssecValid: state.dnssecValid },
+                'Unbound: restored DNSSEC validation state from persistent cache',
+              );
+            }
+          }
+        } catch {
+          // Corrupted state — ignore, will re-prove on healthCheck
+        }
+      }
+    }
+    // Recompute global validation state
+    let anyValid = false;
+    for (const health of this.#hostHealth.values()) {
+      if (health.dnssecValid) anyValid = true;
+    }
+    this.#dnssecValidating = anyValid;
+  }
+
   /** Periodic DNSSEC validation revalidation (ADR-0072 hardening).
    *  Runs the same negative-control probe as healthCheck() to detect
    *  runtime reconfiguration (e.g., val-permissive-mode: yes via rndc).
@@ -632,6 +715,27 @@ export class UnboundResolver implements DnsProvider {
     const validationChanged = previousValidating !== anyDnssecValid;
     this.#dnssecValidating = anyDnssecValid;
 
+    // Persist per-host DNSSEC state to DB (ADR-0078)
+    if (this.#persistDnssecState && this.#persistentCache !== undefined) {
+      for (const hostResult of hostResults) {
+        const stateKey = `${this.#dnssecStateKeyPrefix}${hostResult.host}`;
+        const state = {
+          dnssecValid: hostResult.dnssecValid,
+          healthy: hostResult.healthy,
+          lastCheckAt: hostResult.lastCheckAt,
+          consecutiveFailures: hostResult.consecutiveFailures,
+        };
+        await this.#persistentCache
+          .set(
+            stateKey,
+            this.name,
+            JSON.stringify(state),
+            this.#dnssecStateMaxAgeMs / (24 * 60 * 60_000), // TTL in days
+          )
+          .catch(() => {});
+      }
+    }
+
     if (!anyHealthy) {
       const result = {
         healthy: false,
@@ -665,6 +769,19 @@ export class UnboundResolver implements DnsProvider {
       );
     }
 
+    // Purge persistent cache entries when DNSSEC validation is lost (ADR-0078).
+    // Conservative: purge ALL entries for this provider to avoid serving
+    // potentially corrupted 'valid' DNSSEC verdicts from the compromised period.
+    if (validationChanged && !anyDnssecValid && this.#purgeCacheOnDnssecLoss) {
+      if (this.#persistentCache !== undefined) {
+        await this.#persistentCache.clearProvider(this.name).catch(() => {});
+        logger.warn(
+          { provider: this.name },
+          'Unbound: purged persistent DNS cache due to DNSSEC validation loss',
+        );
+      }
+    }
+
     const result = {
       healthy: true,
       dnssecValid: anyDnssecValid,
@@ -688,6 +805,21 @@ export class UnboundResolver implements DnsProvider {
     return result;
   }
 
+  /** Compute required healthy hosts based on quorum mode (ADR-0078). */
+  computeRequiredHealthyHosts(): number {
+    const total = this.#unboundHosts.length;
+    switch (this.#quorumMode) {
+      case 'simple':
+        return this.#minHealthyHosts;
+      case 'majority':
+        return Math.ceil(total / 2);
+      case 'all':
+        return total;
+      default:
+        return this.#minHealthyHosts;
+    }
+  }
+
   /** Quick runtime health check — returns true if ANY host is healthy
    *  and DNSSEC validation is currently proven active, AND quorum is met.
    *  This is a lightweight check (no full negative-control probe) suitable for
@@ -697,7 +829,9 @@ export class UnboundResolver implements DnsProvider {
     // A resolver is "healthy" if it has proven DNSSEC validation at some point
     // and the last revalidation didn't fail catastrophically, AND quorum is met.
     // We don't re-run the probe here — just report the last known state.
-    return this.#dnssecValidating && this.getHealthyHostCount() >= this.#minHealthyHosts;
+    return (
+      this.#dnssecValidating && this.getHealthyHostCount() >= this.computeRequiredHealthyHosts()
+    );
   }
 
   /** Detailed health status for diagnostics and alerting.
@@ -710,21 +844,24 @@ export class UnboundResolver implements DnsProvider {
     details: string;
     hosts: UnboundHostDnssecResult[];
     quorumMet: boolean;
-    minHealthyHosts: number;
+    requiredHealthyHosts: number;
+    quorumMode: 'simple' | 'majority' | 'all';
   } {
     const healthyCount = this.getHealthyHostCount();
-    const quorumMet = healthyCount >= this.#minHealthyHosts;
+    const requiredHealthyHosts = this.computeRequiredHealthyHosts();
+    const quorumMet = healthyCount >= requiredHealthyHosts;
     return {
       healthy: this.#dnssecValidating && quorumMet,
       dnssecValid: this.#dnssecValidating,
       quorumMet,
-      minHealthyHosts: this.#minHealthyHosts,
+      requiredHealthyHosts,
+      quorumMode: this.#quorumMode,
       details:
         this.#dnssecValidating && quorumMet
           ? 'DNSSEC validation active (last revalidation passed), quorum met'
           : !this.#dnssecValidating
             ? 'DNSSEC validation NOT active — resolver may be misconfigured or unreachable'
-            : `Quorum not met: ${healthyCount}/${this.#minHealthyHosts} healthy hosts`,
+            : `Quorum not met: ${healthyCount}/${requiredHealthyHosts} healthy hosts (mode: ${this.#quorumMode})`,
       hosts: this.getHostHealth(),
     };
   }
@@ -1222,6 +1359,7 @@ export class UnboundResolver implements DnsProvider {
         status: DomainStatus.Unknown,
         checkedAt,
         dnssec: 'unchecked',
+        dnssecSource: 'unchecked',
       };
       this.#setCaches(domain, result);
       const durationMs = Date.now() - lookupStartTime;
@@ -1346,6 +1484,16 @@ export class UnboundResolver implements DnsProvider {
           status,
           checkedAt,
           dnssec: finalDnssecStatus,
+          dnssecSource:
+            status === DomainStatus.Available &&
+            this.#dnsPerQueryDnssec &&
+            this.#dnssecValidationEnabled &&
+            this.#dnssecMode !== 'disabled' &&
+            hostDnssecValid
+              ? 'per-query'
+              : dnssecStatus === 'valid'
+                ? 'resolver-level'
+                : 'unchecked',
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;
@@ -1358,6 +1506,7 @@ export class UnboundResolver implements DnsProvider {
         status: DomainStatus.Unknown,
         checkedAt,
         dnssec: dnssecStatus,
+        dnssecSource: dnssecStatus === 'valid' ? 'resolver-level' : 'unchecked',
       };
       this.#setCaches(domain, unknown);
       const unknownDurationMs = Date.now() - lookupStartTime;
@@ -1373,6 +1522,7 @@ export class UnboundResolver implements DnsProvider {
         status: DomainStatus.Unknown,
         checkedAt,
         dnssec: 'unchecked',
+        dnssecSource: 'unchecked',
       };
       this.#setCaches(domain, result);
       const durationMs = Date.now() - lookupStartTime;

@@ -46,4 +46,13 @@ export class ProviderCacheRepository {
     const row = await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM provider_cache');
     return row!.n;
   }
+
+  /** Delete all cache entries for a specific provider (ADR-0078).
+   *  Used when DNSSEC validation is lost — purge all potentially corrupted entries. */
+  async clearProvider(providerName: string): Promise<number> {
+    const result = await this.db.exec('DELETE FROM provider_cache WHERE provider_name = ?', [
+      providerName,
+    ]);
+    return Number(result.changes);
+  }
 }

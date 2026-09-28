@@ -255,6 +255,7 @@ describe('DnsPreFilterStage', () => {
       resolver: 'mock',
       transport: 'native',
       dnssec: 'valid',
+      dnssecSource: 'unchecked',
       durationMs: 12,
       fromCache: false,
     });
