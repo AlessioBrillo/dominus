@@ -907,10 +907,34 @@ export class UnboundResolver implements DnsProvider {
     let attempt = 0;
     const baseDelayMs = 500;
 
+    // Fast-fail: check if we have enough configured hosts to ever meet quorum
+    // before entering the healthCheck loop. This avoids wasting 30s on a
+    // misconfigured deployment that can never achieve quorum.
+    const requiredHealthy = this.computeRequiredHealthyHosts();
+    if (this.#unboundHosts.length < requiredHealthy) {
+      throw new Error(
+        `Unbound resolver cannot achieve quorum: ${this.#unboundHosts.length} configured host(s) ` +
+          `but ${requiredHealthy} required for QUORUM_MODE=${this.#quorumMode}. ` +
+          `Configure at least ${requiredHealthy} hosts in DNS_UNBOUND_HOSTS.`,
+      );
+    }
+
     while (Date.now() - startTime < timeout) {
       attempt++;
       try {
         const health = await this.healthCheck();
+        // Fast-fail: if healthy host count < required quorum, no point retrying
+        const healthyCount = health.hosts.filter((h) => h.healthy).length;
+        if (healthyCount < requiredHealthy) {
+          logger.warn(
+            { attempt, healthyCount, requiredHealthy, quorumMode: this.#quorumMode },
+            'Unbound: quorum not met — insufficient healthy hosts, failing fast',
+          );
+          throw new Error(
+            `Unbound resolver quorum not met: ${healthyCount}/${requiredHealthy} healthy hosts ` +
+              `(QUORUM_MODE=${this.#quorumMode}). Cannot proceed.`,
+          );
+        }
         if (health.healthy && health.dnssecValid) {
           logger.info(
             { attempts: attempt, elapsedMs: Date.now() - startTime, hosts: health.hosts.length },
