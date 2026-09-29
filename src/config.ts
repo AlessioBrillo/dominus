@@ -428,9 +428,10 @@ const configSchema = z
      * - 'simple': Uses DNS_UNBOUND_MIN_HEALTHY_HOSTS directly (legacy behavior).
      * - 'majority': Requires ceil(configuredHosts / 2) healthy hosts — true quorum.
      * - 'all': All configured hosts must be healthy.
-     * Default: 'majority' for production safety. Community edition can set 'simple'.
+     * Default: 'simple' — compatible with single-host default (127.0.0.1).
+     * Production deployments with 3+ Unbound hosts should explicitly set 'majority'.
      */
-    DNS_UNBOUND_QUORUM_MODE: z.enum(['simple', 'majority', 'all']).default('majority'),
+    DNS_UNBOUND_QUORUM_MODE: z.enum(['simple', 'majority', 'all']).default('simple'),
     /**
      * Enable automatic DNSSEC validation state persistence to database (ADR-0078).
      * When true, the resolver writes its proven DNSSEC validation state
@@ -962,13 +963,14 @@ const configSchema = z
      * Fail-open behavior for RDAP consensus probe (ADR-0077).
      * When true, a failed probe at startup will log an error but NOT exit the process.
      * The 2-of-2 consensus gate will be disabled for this run, and a warning metric
-     * will be emitted. When false, a failed probe causes process.exit(1).
-     * Default: true in cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'), false in community.
-     * Cloud deployments prioritize availability; community edition defaults to conservative fail-fast.
+     * will be emitted. When false, a failed probe causes the application to fail startup.
+     * Default: false (always fail-closed). The 2-of-2 consensus gate is a safety-critical
+     * guarantee (ADR-0050); silent degradation to single-leg RDAP defeats its purpose.
+     * Set to true ONLY for non-production environments where rdap.org egress is unreliable.
      */
     RDAP_CONSENSUS_PROBE_FAIL_OPEN: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(() => detectCloudMode(process.env)),
+      .default(false),
 
     /**
      * Enable an optional THIRD RDAP consensus opinion (tertiary leg).
@@ -2166,6 +2168,40 @@ const configSchema = z
       message:
         'DNS_UNBOUND_STRICT=true requires DNS_UNBOUND_HOSTS to be set and DNS_UNBOUND_HEALTH_CHECK_ENABLED=true for DNSSEC validation proof.',
       path: ['DNS_UNBOUND_STRICT'],
+    },
+  )
+  .refine(
+    (data) => {
+      // DNS_UNBOUND_STRICT + QUORUM_MODE validation:
+      // When using 'majority' or 'all' quorum mode with strict mode, we need enough hosts
+      // to actually achieve quorum. With 'majority', ceil(N/2) hosts must be healthy.
+      // For production safety, require at least 3 configured hosts for majority/all modes.
+      if (data.DNS_UNBOUND_STRICT === true) {
+        const quorumMode = data.DNS_UNBOUND_QUORUM_MODE;
+        if (quorumMode === 'majority' || quorumMode === 'all') {
+          const hosts =
+            data.DNS_UNBOUND_HOSTS?.split(',')
+              .map((s) => s.trim())
+              .filter(Boolean) ?? [];
+          // For majority quorum: need at least 3 hosts to tolerate 1 failure
+          // For 'all' quorum: need at least 2 hosts (1 failure = total outage)
+          const minHosts = quorumMode === 'majority' ? 3 : 2;
+          if (hosts.length < minHosts) {
+            return false;
+          }
+          // Also validate MIN_HEALTHY_HOSTS is set appropriately
+          const minHealthy = data.DNS_UNBOUND_MIN_HEALTHY_HOSTS;
+          if (quorumMode === 'majority' && minHealthy < 2) {
+            return false;
+          }
+        }
+      }
+      return true;
+    },
+    {
+      message:
+        'DNS_UNBOUND_STRICT with QUORUM_MODE=majority requires at least 3 configured hosts and MIN_HEALTHY_HOSTS >= 2. QUORUM_MODE=all requires at least 2 hosts.',
+      path: ['DNS_UNBOUND_QUORUM_MODE'],
     },
   );
 
