@@ -428,10 +428,11 @@ const configSchema = z
      * - 'simple': Uses DNS_UNBOUND_MIN_HEALTHY_HOSTS directly (legacy behavior).
      * - 'majority': Requires ceil(configuredHosts / 2) healthy hosts — true quorum.
      * - 'all': All configured hosts must be healthy.
-     * Default: 'simple' — compatible with single-host default (127.0.0.1).
-     * Production deployments with 3+ Unbound hosts should explicitly set 'majority'.
+     * Default: 'majority' — true quorum for production safety (ADR-0078).
+     * Single-host deployments (community edition) are unaffected: ceil(1/2)=1.
+     * Production deployments with 3+ Unbound hosts get automatic majority quorum.
      */
-    DNS_UNBOUND_QUORUM_MODE: z.enum(['simple', 'majority', 'all']).default('simple'),
+    DNS_UNBOUND_QUORUM_MODE: z.enum(['simple', 'majority', 'all']).default('majority'),
     /**
      * Enable automatic DNSSEC validation state persistence to database (ADR-0078).
      * When true, the resolver writes its proven DNSSEC validation state
@@ -467,16 +468,18 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(true),
     /**
-     * Strict Unbound mode (default: true for ALL editions).
+     * Strict Unbound mode (default: context-aware).
      * When true (production/hardened), UnboundResolver is the exclusive DNS provider.
      * DNSSEC validation is mandatory; startup fails if Unbound is unhealthy or
      * DNSSEC validation is not confirmed.
      * ADR-0075: Unbound is mandatory; there is no Node.js DNS fallback.
-     * Default: true — the hardened architecture.
+     * ADR-0076: Community edition defaults to false (allows NodeDnsFallback);
+     * Cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env') defaults to true.
+     * Explicit env var always wins over detected default.
      */
     DNS_UNBOUND_STRICT: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
+      .default(() => detectCloudMode(process.env)),
     /**
      * Enable per-query DNSSEC validation for Available verdicts (ADR-0073).
      * When true, each Available verdict triggers a full cryptographic DNSSEC chain
@@ -999,13 +1002,14 @@ const configSchema = z
      * When true, a failed probe at startup will log an error but NOT exit the process.
      * The 2-of-2 consensus gate will be disabled for this run, and a warning metric
      * will be emitted. When false, a failed probe causes the application to fail startup.
-     * Default: false (always fail-closed). The 2-of-2 consensus gate is a safety-critical
+     * Default: context-aware — true in cloud mode (DATABASE_URL or AUTH_PROVIDER !== 'env'),
+     * false in community edition. The 2-of-2 consensus gate is a safety-critical
      * guarantee (ADR-0050); silent degradation to single-leg RDAP defeats its purpose.
-     * Set to true ONLY for non-production environments where rdap.org egress is unreliable.
+     * Cloud mode defaults to fail-open for operational resilience against rdap.org outages.
      */
     RDAP_CONSENSUS_PROBE_FAIL_OPEN: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
+      .default(() => detectCloudMode(process.env)),
 
     /**
      * Enable an optional THIRD RDAP consensus opinion (tertiary leg).
@@ -2210,7 +2214,8 @@ const configSchema = z
       // DNS_UNBOUND_STRICT + QUORUM_MODE validation:
       // When using 'majority' or 'all' quorum mode with strict mode, we need enough hosts
       // to actually achieve quorum. With 'majority', ceil(N/2) hosts must be healthy.
-      // For production safety, require at least 3 configured hosts for majority/all modes.
+      // For production safety, require at least 3 configured hosts for majority/all modes
+      // UNLESS it's a single-host deployment (community edition), where majority=1 is valid.
       if (data.DNS_UNBOUND_STRICT === true) {
         const quorumMode = data.DNS_UNBOUND_QUORUM_MODE;
         if (quorumMode === 'majority' || quorumMode === 'all') {
@@ -2218,15 +2223,19 @@ const configSchema = z
             data.DNS_UNBOUND_HOSTS?.split(',')
               .map((s) => s.trim())
               .filter(Boolean) ?? [];
-          // For majority quorum: need at least 3 hosts to tolerate 1 failure
-          // For 'all' quorum: need at least 2 hosts (1 failure = total outage)
-          const minHosts = quorumMode === 'majority' ? 3 : 2;
-          if (hosts.length < minHosts) {
+          // For majority quorum: ceil(N/2) healthy hosts required.
+          // Single host (community): ceil(1/2)=1 — valid.
+          // Two hosts: ceil(2/2)=1 — no failure tolerance, but mathematically valid.
+          // Three+ hosts: ceil(3/2)=2 — tolerates 1 failure (production standard).
+          // For 'all' quorum: all hosts must be healthy.
+          // Single host: valid but no redundancy.
+          // Two+ hosts: valid but any failure = total outage.
+          if (quorumMode === 'all' && hosts.length < 2) {
             return false;
           }
-          // Also validate MIN_HEALTHY_HOSTS is set appropriately
+          // Also validate MIN_HEALTHY_HOSTS is set appropriately for multi-host
           const minHealthy = data.DNS_UNBOUND_MIN_HEALTHY_HOSTS;
-          if (quorumMode === 'majority' && minHealthy < 2) {
+          if (hosts.length >= 3 && quorumMode === 'majority' && minHealthy < 2) {
             return false;
           }
         }
@@ -2235,7 +2244,7 @@ const configSchema = z
     },
     {
       message:
-        'DNS_UNBOUND_STRICT with QUORUM_MODE=majority requires at least 3 configured hosts and MIN_HEALTHY_HOSTS >= 2. QUORUM_MODE=all requires at least 2 hosts.',
+        'DNS_UNBOUND_STRICT with QUORUM_MODE=all requires at least 2 hosts. For QUORUM_MODE=majority with 3+ hosts, MIN_HEALTHY_HOSTS must be >= 2.',
       path: ['DNS_UNBOUND_QUORUM_MODE'],
     },
   );
