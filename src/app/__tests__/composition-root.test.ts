@@ -609,6 +609,9 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_UNBOUND_PERSIST_DNSSEC_STATE: true,
       DNS_UNBOUND_DNSSEC_STATE_MAX_AGE_MS: 3_600_000,
       DNS_UNBOUND_PURGE_CACHE_ON_DNSSEC_LOSS: true,
+      DNS_FALLBACK_ENABLED: true,
+      DNS_FALLBACK_PROVIDER: 'node-dns' as const,
+      DNS_FALLBACK_ONLY_FOR_NON_AVAILABLE: true,
       IS_CLOUD_MODE: false,
     } as const;
 

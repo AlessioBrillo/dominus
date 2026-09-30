@@ -5,6 +5,7 @@ import type { ProviderCacheRepository } from '../../db/repositories/provider-cac
 import type { RateLimiterLike } from '../../providers/rate-limiter.js';
 import type { Config } from '../../config.js';
 import type { DnsProvider } from '../../providers/dns/dns-provider.js';
+import { FallbackResolver } from '../../providers/dns/fallback-resolver.js';
 
 /** Type-safe wrapper for buildDnsProvider in tests. */
 async function createDnsProvider(
@@ -48,6 +49,10 @@ const createTestConfig = (overrides: Partial<Config> = {}): Config =>
     DNS_UNBOUND_PERSIST_DNSSEC_STATE: true,
     DNS_UNBOUND_DNSSEC_STATE_MAX_AGE_MS: 3_600_000,
     DNS_UNBOUND_PURGE_CACHE_ON_DNSSEC_LOSS: true,
+    // ADR-0076 DNS Fallback options
+    DNS_FALLBACK_ENABLED: true,
+    DNS_FALLBACK_PROVIDER: 'node-dns',
+    DNS_FALLBACK_ONLY_FOR_NON_AVAILABLE: true,
     ...overrides,
   }) as Config;
 
@@ -73,35 +78,39 @@ describe('buildDnsProvider with ADR-0078 config (provider-factory)', () => {
     config = createTestConfig();
   });
 
-  it('should pass quorumMode to UnboundResolver', async () => {
+  it('should wrap UnboundResolver with FallbackResolver', async () => {
     const provider = await createDnsProvider(config, mockCacheRepo, mockRateLimiter);
 
     expect(provider).toBeDefined();
-    expect(provider.name).toBe('UnboundResolver');
+    expect(provider.name).toBe('FallbackResolver');
+    expect(provider).toBeInstanceOf(FallbackResolver);
     // @ts-expect-error - TypeScript false positive: provider is definitely assigned
     provider.dispose();
   });
 
-  it('should pass persistDnssecState to UnboundResolver', async () => {
+  it('should pass persistDnssecState to UnboundResolver via FallbackResolver', async () => {
     const provider = await createDnsProvider(config, mockCacheRepo, mockRateLimiter);
 
     expect(provider).toBeDefined();
+    expect(provider).toBeInstanceOf(FallbackResolver);
     // @ts-expect-error - TypeScript false positive: provider is definitely assigned
     provider.dispose();
   });
 
-  it('should pass dnssecStateMaxAgeMs to UnboundResolver', async () => {
+  it('should pass dnssecStateMaxAgeMs to UnboundResolver via FallbackResolver', async () => {
     const provider = await createDnsProvider(config, mockCacheRepo, mockRateLimiter);
 
     expect(provider).toBeDefined();
+    expect(provider).toBeInstanceOf(FallbackResolver);
     // @ts-expect-error - TypeScript false positive: provider is definitely assigned
     provider.dispose();
   });
 
-  it('should pass purgeCacheOnDnssecLoss to UnboundResolver', async () => {
+  it('should pass purgeCacheOnDnssecLoss to UnboundResolver via FallbackResolver', async () => {
     const provider = await createDnsProvider(config, mockCacheRepo, mockRateLimiter);
 
     expect(provider).toBeDefined();
+    expect(provider).toBeInstanceOf(FallbackResolver);
     // @ts-expect-error - TypeScript false positive: provider is definitely assigned
     provider.dispose();
   });
@@ -112,6 +121,7 @@ describe('buildDnsProvider with ADR-0078 config (provider-factory)', () => {
     const provider = await createDnsProvider(config, mockCacheRepo, mockRateLimiter);
 
     expect(provider).toBeDefined();
+    expect(provider).toBeInstanceOf(FallbackResolver);
     // @ts-expect-error - TypeScript false positive: provider is definitely assigned
     provider.dispose();
   });

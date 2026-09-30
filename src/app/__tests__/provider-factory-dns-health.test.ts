@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { buildDnsProvider } from '../provider-factory.js';
-import { UnboundResolver } from '../../providers/dns/index.js';
+import { UnboundResolver, FallbackResolver } from '../../providers/dns/index.js';
 import type { Config } from '../../config.js';
 
 /** Minimal Config slice buildDnsProvider's Unbound branch reads. */
@@ -40,6 +40,15 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_UNBOUND_UPSTREAM_TLS: false,
     DNS_UNBOUND_READINESS_TIMEOUT_MS: 30_000,
     DNS_UNBOUND_SKIP_READINESS: true,
+    // ADR-0078 new options
+    DNS_UNBOUND_QUORUM_MODE: 'majority',
+    DNS_UNBOUND_PERSIST_DNSSEC_STATE: true,
+    DNS_UNBOUND_DNSSEC_STATE_MAX_AGE_MS: 3_600_000,
+    DNS_UNBOUND_PURGE_CACHE_ON_DNSSEC_LOSS: true,
+    // ADR-0076 DNS Fallback options
+    DNS_FALLBACK_ENABLED: true,
+    DNS_FALLBACK_PROVIDER: 'node-dns',
+    DNS_FALLBACK_ONLY_FOR_NON_AVAILABLE: true,
     ...overrides,
   } as unknown as Config;
 }
@@ -104,7 +113,7 @@ describe('buildDnsProvider — boot health check gating (ADR-0075)', () => {
     });
 
     const provider = await buildDnsProvider(makeConfig());
-    expect(provider).toBeInstanceOf(UnboundResolver);
+    expect(provider).toBeInstanceOf(FallbackResolver);
   });
 
   it('skips the health check entirely when disabled', async () => {
@@ -114,7 +123,7 @@ describe('buildDnsProvider — boot health check gating (ADR-0075)', () => {
       makeConfig({ DNS_UNBOUND_HEALTH_CHECK_ENABLED: false }),
     );
 
-    expect(provider).toBeInstanceOf(UnboundResolver);
+    expect(provider).toBeInstanceOf(FallbackResolver);
     expect(healthCheck).not.toHaveBeenCalled();
   });
 
@@ -157,7 +166,7 @@ describe('buildDnsProvider — per-query DNSSEC validation (ADR-0073, ADR-0075)'
 
     // The UnboundResolver constructor should have received dnsPerQueryDnssec: false
     // We can't easily test the internal state, but we verify the provider was created
-    expect(provider).toBeInstanceOf(UnboundResolver);
+    expect(provider).toBeInstanceOf(FallbackResolver);
     expect(healthCheckSpy).toHaveBeenCalled();
   });
 
@@ -182,7 +191,7 @@ describe('buildDnsProvider — per-query DNSSEC validation (ADR-0073, ADR-0075)'
     });
     const provider = await buildDnsProvider(config);
 
-    expect(provider).toBeInstanceOf(UnboundResolver);
+    expect(provider).toBeInstanceOf(FallbackResolver);
     expect(healthCheckSpy).toHaveBeenCalled();
   });
 });
