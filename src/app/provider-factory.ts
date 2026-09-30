@@ -16,6 +16,8 @@ import {
   NodeDnsFallback,
   ParkingIpRegistry,
   DnsBreakerRegistry,
+  FallbackResolver,
+  createFallbackProvider,
   type DnsBreakerRegistryLike,
   type DnsProvider,
   type UnboundHostDnssecResult,
@@ -327,11 +329,13 @@ export async function buildDnsProvider(
       requiredHosts: number,
       mode: string,
     ) => void;
+    // Fallback metrics
+    recordDnsFallbackActive?: (active: boolean, reason?: string) => void;
   },
 ): Promise<DnsProvider> {
   // ADR-0075: UnboundResolver is the single DNS source of truth.
   // DNS_UNBOUND_ENABLED=false is no longer supported.
-  // DNS_UNBOUND_STRICT=false enables a Node.js native DNS fallback for community onboarding.
+  // DNS_UNBOUND_STRICT=false enables graceful degradation with fallback (community onboarding).
   const unboundHosts = config.DNS_UNBOUND_HOSTS.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -351,6 +355,11 @@ export async function buildDnsProvider(
   const positiveControls = config.DNSSEC_POSITIVE_CONTROLS.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+
+  // Fallback configuration (ADR-0076: DNS community fallback)
+  const fallbackEnabled = config.DNS_FALLBACK_ENABLED ?? true;
+  const fallbackProviderType = config.DNS_FALLBACK_PROVIDER ?? 'node-dns';
+  const fallbackOnlyForNonAvailable = config.DNS_FALLBACK_ONLY_FOR_NON_AVAILABLE ?? true;
 
   const createUnboundResolver = (): UnboundResolver => {
     const resolver = new UnboundResolver({
@@ -420,50 +429,61 @@ export async function buildDnsProvider(
     return resolver;
   };
 
-  // In strict mode (default), Unbound is mandatory — fail fast on health check failure
-  if (config.DNS_UNBOUND_STRICT) {
-    const resolver = createUnboundResolver();
+  // Create the primary UnboundResolver
+  const resolver = createUnboundResolver();
 
-    // Load persisted DNSSEC state BEFORE healthCheck (ADR-0078).
-    // This avoids the cold-start window where we must re-prove validation.
-    await resolver.loadDnssecState();
+  // Load persisted DNSSEC state BEFORE healthCheck (ADR-0078).
+  // This avoids the cold-start window where we must re-prove validation.
+  await resolver.loadDnssecState();
 
-    // Wait for resolver readiness (health + DNSSEC validation) with retries and backoff.
-    // This replaces the single healthCheck() call with a more robust readiness gate
-    // that handles transient startup delays (e.g., Unbound sidecar still initializing).
-    // Skip in test environments via DNS_UNBOUND_SKIP_READINESS.
-    if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED && !config.DNS_UNBOUND_SKIP_READINESS) {
-      try {
-        await resolver.waitForReady(config.DNS_UNBOUND_READINESS_TIMEOUT_MS);
+  // Wait for resolver readiness (health + DNSSEC validation) with retries and backoff.
+  // This replaces the single healthCheck() call with a more robust readiness gate
+  // that handles transient startup delays (e.g., Unbound sidecar still initializing).
+  // Skip in test environments via DNS_UNBOUND_SKIP_READINESS.
+  // eslint-disable-next-line no-useless-assignment
+  let primaryHealthy = false;
+  // eslint-disable-next-line no-useless-assignment
+  let primaryDnssecValid = false;
 
-        // Validate Unbound configuration (validator module, val-permissive-mode, etc.)
-        if (typeof resolver.validateUnboundConfig === 'function') {
-          try {
-            const validation = await resolver.validateUnboundConfig();
-            if (!validation.valid) {
-              throw new Error(
-                `Unbound configuration validation failed: ${validation.reason}. ` +
-                  `Details: ${JSON.stringify(validation.details)}. ` +
-                  'Fix unbound.conf: ensure validator: yes, val-permissive-mode: no, and forward-tls-upstream: yes.',
-              );
-            }
-          } catch (validationErr) {
-            if (
-              validationErr instanceof Error &&
-              validationErr.message.includes('Unbound configuration validation failed')
-            ) {
-              throw validationErr;
-            }
-            // Control interface not accessible - log warning but continue
-            getLogger().warn(
-              {
-                err: validationErr instanceof Error ? validationErr.message : String(validationErr),
-              },
-              'Unbound config validation skipped (control interface not accessible)',
+  if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED && !config.DNS_UNBOUND_SKIP_READINESS) {
+    try {
+      await resolver.waitForReady(config.DNS_UNBOUND_READINESS_TIMEOUT_MS);
+
+      // Validate Unbound configuration (validator module, val-permissive-mode, etc.)
+      if (typeof resolver.validateUnboundConfig === 'function') {
+        try {
+          const validation = await resolver.validateUnboundConfig();
+          if (!validation.valid) {
+            throw new Error(
+              `Unbound configuration validation failed: ${validation.reason}. ` +
+                `Details: ${JSON.stringify(validation.details)}. ` +
+                'Fix unbound.conf: ensure validator: yes, val-permissive-mode: no, and forward-tls-upstream: yes.',
             );
           }
+        } catch (validationErr) {
+          if (
+            validationErr instanceof Error &&
+            validationErr.message.includes('Unbound configuration validation failed')
+          ) {
+            throw validationErr;
+          }
+          // Control interface not accessible - log warning but continue
+          getLogger().warn(
+            {
+              err: validationErr instanceof Error ? validationErr.message : String(validationErr),
+            },
+            'Unbound config validation skipped (control interface not accessible)',
+          );
         }
-      } catch (err) {
+      }
+
+      // Check health after waitForReady
+      const health = await resolver.healthCheck();
+      primaryHealthy = health.healthy;
+      primaryDnssecValid = health.dnssecValid;
+    } catch (err) {
+      // In strict mode, fail fast. In non-strict mode, we'll wrap with fallback.
+      if (config.DNS_UNBOUND_STRICT) {
         throw new Error(
           `Unbound resolver readiness check failed: ${err instanceof Error ? err.message : String(err)}. ` +
             'Check: 1) Unbound sidecar/container is running and reachable at DNS_UNBOUND_HOSTS. ' +
@@ -473,120 +493,180 @@ export async function buildDnsProvider(
           { cause: err },
         );
       }
-    } else if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
-      // Health check only (no readiness wait) - for test environments
+      getLogger().warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Unbound resolver readiness check failed — will use fallback if enabled',
+      );
+      primaryHealthy = false;
+      primaryDnssecValid = false;
+    }
+  } else if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
+    // Health check only (no readiness wait) - for test environments
+    try {
       const health = await resolver.healthCheck();
+      primaryHealthy = health.healthy;
+      primaryDnssecValid = health.dnssecValid;
+      getLogger().debug({ primaryHealthy, primaryDnssecValid }, 'Unbound health check result');
+
       if (!health.healthy) {
-        throw new Error(
+        getLogger().warn(
           'Unbound resolver health check failed: no healthy Unbound hosts. ' +
-            'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
-            'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
+            'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable.',
         );
+        if (config.DNS_UNBOUND_STRICT) {
+          throw new Error(
+            'Unbound resolver health check failed: no healthy Unbound hosts. ' +
+              'Check DNS_UNBOUND_HOSTS and ensure Unbound sidecar/container is running and reachable. ' +
+              'Set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to skip (not recommended for production).',
+          );
+        }
       }
       if (!health.dnssecValid) {
-        throw new Error(
+        getLogger().warn(
           'Unbound resolver reachable but DNSSEC validation is not confirmed active on any host: ' +
             `${health.details}. Verdicts depend on authenticated NXDOMAIN denial-of-existence — ` +
             'without proven validation a misconfigured Unbound (e.g. val-permissive-mode: yes) ' +
             'silently accepts forged answers. Fix the Unbound config (validator module + ' +
-            'val-permissive-mode: no), or set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to bypass ' +
-            '(not recommended for production).',
+            'val-permissive-mode: no), or set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to bypass.',
         );
-      }
-    }
-
-    // Start periodic revalidation
-    resolver.startPeriodicRevalidation();
-
-    return resolver;
-  }
-
-  // Non-strict mode: try Unbound, fall back to NodeDnsFallback on failure
-  const resolver = createUnboundResolver();
-  let useFallback = false;
-
-  if (config.DNS_UNBOUND_HEALTH_CHECK_ENABLED) {
-    try {
-      const health = await resolver.healthCheck();
-      if (!health.healthy || !health.dnssecValid) {
-        getLogger().warn(
-          { healthy: health.healthy, dnssecValid: health.dnssecValid, details: health.details },
-          'Unbound health check failed — falling back to NodeDnsFallback (DNSSEC validation disabled)',
-        );
-        useFallback = true;
-        resolver.dispose();
-      } else {
-        // Log per-host results for observability
-        for (const hostResult of health.hosts) {
-          getLogger().info(
-            {
-              host: hostResult.host,
-              healthy: hostResult.healthy,
-              dnssecValid: hostResult.dnssecValid,
-              consecutiveFailures: hostResult.consecutiveFailures,
-            },
-            'Unbound host health check result',
+        if (config.DNS_UNBOUND_STRICT) {
+          throw new Error(
+            'Unbound resolver reachable but DNSSEC validation is not confirmed active on any host: ' +
+              `${health.details}. Verdicts depend on authenticated NXDOMAIN denial-of-existence — ` +
+              'without proven validation a misconfigured Unbound (e.g. val-permissive-mode: yes) ' +
+              'silently accepts forged answers. Fix the Unbound config (validator module + ' +
+              'val-permissive-mode: no), or set DNS_UNBOUND_HEALTH_CHECK_ENABLED=false to bypass ' +
+              '(not recommended for production).',
           );
         }
-        getLogger().info(
-          {
-            hosts: unboundHosts,
-            dnssecValid: health.dnssecValid,
-            healthyHosts: health.hosts.filter((h) => h.healthy).length,
-            details: health.details,
-          },
-          'Unbound resolver health check passed',
-        );
       }
     } catch (err) {
-      getLogger().warn(
-        { err },
-        'Unbound health check error — falling back to NodeDnsFallback (DNSSEC validation disabled)',
-      );
-      useFallback = true;
-      resolver.dispose();
+      if (config.DNS_UNBOUND_STRICT) {
+        throw new Error(
+          `Unbound resolver health check failed: ${err instanceof Error ? err.message : String(err)}. ` +
+            'Check: 1) Unbound sidecar/container is running and reachable at DNS_UNBOUND_HOSTS. ' +
+            '2) unbound.conf has validator module and val-permissive-mode: no. ' +
+            '3) Network policy allows UDP/TCP 53 to Unbound. ' +
+            '4) Upstream DNS (forward-zone) is reachable and DNSSEC-capable.',
+          { cause: err },
+        );
+      }
+      getLogger().warn({ err }, 'Unbound health check error');
+      primaryHealthy = false;
+      primaryDnssecValid = false;
     }
   } else {
-    // Health check disabled — assume Unbound might not be available, use fallback
+    // Health check disabled — assume Unbound might not be available
     getLogger().warn(
-      'DNS_UNBOUND_HEALTH_CHECK_ENABLED=false — skipping Unbound health check, using NodeDnsFallback',
+      'DNS_UNBOUND_HEALTH_CHECK_ENABLED=false — skipping Unbound health check, fallback will handle degradation',
     );
-    useFallback = true;
-    resolver.dispose();
+    primaryHealthy = false;
+    primaryDnssecValid = false;
   }
 
-  if (useFallback) {
-    metrics?.recordFallbackActive?.(true);
-    const fallback = new NodeDnsFallback({
+  // Create fallback provider if enabled
+  let fallbackProvider: DnsProvider | undefined;
+  if (fallbackEnabled) {
+    const fallbackOptions: {
+      rateLimiter?: RateLimiterLike;
+      breakers?: DnsBreakerRegistryLike;
+      lookupTimeoutMs?: number;
+      cacheTtlMs?: number;
+      maxSize?: number;
+    } = {
+      rateLimiter: rateLimiter as RateLimiterLike,
       lookupTimeoutMs: config.DNS_UNBOUND_TIMEOUT_MS,
       cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
       maxSize: config.DNS_CACHE_MAX_SIZE,
-      bulkConcurrency: config.DNS_BULK_CONCURRENCY,
-      parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
-      parkingRegistry,
-      rateLimiter: rateLimiter as RateLimiterLike,
-      retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
-      persistentCache:
-        config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
-          ? providerCacheRepo
-          : undefined,
-      persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
-      persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
-      onResolution: (stats): void => {
-        // Transform NodeDnsFallback metrics to match Unbound format for consistency
-        metrics?.recordUnboundResolution?.({
-          ...stats,
-          host: 'node-dns-fallback',
-        });
-      },
-    });
-    return fallback;
+    };
+    if (breakers !== undefined) {
+      fallbackOptions.breakers = breakers;
+    }
+    fallbackProvider = await createFallbackProvider(fallbackProviderType, fallbackOptions);
   }
 
-  // Start periodic revalidation
+  // Wrap with FallbackResolver for graceful degradation
+  // In strict mode, we still wrap but the fallback is only for non-Available verdicts
+  // when primary loses quorum/DNSSEC validation at runtime
+  const fallbackResolverOptions: {
+    primary: DnsProvider & {
+      isHealthy?: () => boolean;
+      getHealthStatus?: () => {
+        healthy: boolean;
+        dnssecValid: boolean;
+        quorumMet: boolean;
+        hosts: Array<{ healthy: boolean; dnssecValid: boolean }>;
+      };
+    };
+    fallback: DnsProvider;
+    enabled: boolean;
+    onlyForNonAvailable: boolean;
+    fallbackRateLimiter?: RateLimiterLike;
+    breakers?: DnsBreakerRegistryLike;
+    onFallbackActive?: (active: boolean, reason: string) => void;
+  } = {
+    primary: resolver,
+    fallback:
+      fallbackProvider ??
+      new NodeDnsFallback({
+        lookupTimeoutMs: config.DNS_UNBOUND_TIMEOUT_MS,
+        cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
+        maxSize: config.DNS_CACHE_MAX_SIZE,
+        bulkConcurrency: config.DNS_BULK_CONCURRENCY,
+        parkingEnabled: config.DNS_PARKING_CHECK_ENABLED,
+        parkingRegistry,
+        rateLimiter: rateLimiter as RateLimiterLike,
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxDelayMs: 500 },
+        persistentCache:
+          config.DNS_PERSISTENT_CACHE_ENABLED && providerCacheRepo !== undefined
+            ? providerCacheRepo
+            : undefined,
+        persistentCacheTtlHours: config.DNS_PERSISTENT_CACHE_TTL_HOURS,
+        persistentAvailableStaleMs: config.DNS_PERSISTENT_AVAILABLE_STALE_HOURS * 60 * 60_000,
+        onResolution: (stats): void => {
+          metrics?.recordUnboundResolution?.({
+            ...stats,
+            host: 'node-dns-fallback',
+          });
+        },
+      }),
+    enabled: fallbackEnabled,
+    onlyForNonAvailable: fallbackOnlyForNonAvailable,
+    fallbackRateLimiter: rateLimiter as RateLimiterLike,
+    onFallbackActive: (active, reason) => {
+      getLogger().info({ active, reason }, 'DNS fallback mode changed');
+      metrics?.recordFallbackActive?.(active);
+      metrics?.recordDnsFallbackActive?.(active, reason);
+    },
+  };
+  if (breakers !== undefined) {
+    fallbackResolverOptions.breakers = breakers;
+  }
+  const fallbackResolver = new FallbackResolver(fallbackResolverOptions);
+
+  // Start periodic revalidation on the primary resolver
   resolver.startPeriodicRevalidation();
 
-  return resolver;
+  // Log startup mode
+  if (config.DNS_UNBOUND_STRICT) {
+    getLogger().info(
+      { fallbackEnabled, fallbackProvider: fallbackProviderType, strict: true },
+      'DNS: UnboundResolver in STRICT mode with FallbackResolver wrapper (ADR-0076)',
+    );
+  } else {
+    getLogger().info(
+      {
+        fallbackEnabled,
+        fallbackProvider: fallbackProviderType,
+        strict: false,
+        primaryHealthy,
+        primaryDnsValidated: primaryDnssecValid,
+      },
+      'DNS: UnboundResolver in NON-STRICT mode with FallbackResolver (ADR-0076)',
+    );
+  }
+
+  return fallbackResolver;
 }
 
 export function buildWhoisProviders(

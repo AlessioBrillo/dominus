@@ -18,3 +18,8 @@ export {
 } from './unbound-resolver.js';
 export { validateDnssecPerQuery, type DnssecValidationResult } from './dnssec-validation.js';
 export { NodeDnsFallback, type NodeDnsFallbackOptions } from './node-dns-fallback.js';
+export {
+  FallbackResolver,
+  type FallbackResolverOptions,
+  createFallbackProvider,
+} from './fallback-resolver.js';

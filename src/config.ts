@@ -641,6 +641,41 @@ const configSchema = z
       .max(60000)
       .default(1000),
 
+    // ── DNS Fallback Resolver (ADR-0076) ────────────────────────────────
+
+    /**
+     * Enable DNS fallback resolver for graceful degradation when Unbound
+     * loses quorum, DNSSEC validation, or becomes unreachable.
+     * When enabled (default), a FallbackResolver wraps UnboundResolver and
+     * delegates non-Available verdicts to a secondary provider (Node.js DNS,
+     * Cloudflare DoH, Google DoH) when primary is degraded.
+     * CRITICAL: The fallback is NEVER used for "Available" verdicts —
+     * those require DNSSEC validation from Unbound (conservative, ADR-0002).
+     * Default: true (enabled for resilience).
+     */
+    DNS_FALLBACK_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+    /**
+     * Fallback DNS provider type.
+     * - 'node-dns': Node.js native DNS resolver (systemd-resolved, /etc/resolv.conf)
+     * - 'cloudflare-doh': Cloudflare DNS-over-HTTPS (1.1.1.1) — not yet implemented
+     * - 'google-doh': Google DNS-over-HTTPS (8.8.8.8) — not yet implemented
+     * Default: 'node-dns' (works everywhere, no external dependency).
+     */
+    DNS_FALLBACK_PROVIDER: z.enum(['node-dns', 'cloudflare-doh', 'google-doh']).default('node-dns'),
+    /**
+     * Only use fallback for non-Available verdicts (SAFETY GATE).
+     * When true (default), the fallback provider is ONLY consulted for
+     * Registered/Unknown/Parked verdicts. If primary is degraded and returns
+     * Available, we return Unknown instead of delegating to fallback.
+     * This prevents false-positive Available verdicts from non-DNSSEC-validating resolvers.
+     * Default: true (conservative, ADR-0002). Set to false ONLY for testing.
+     */
+    DNS_FALLBACK_ONLY_FOR_NON_AVAILABLE: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+
     /**
      * Maximum time (ms) to wait for a WHOIS port-43 response.
      * Increased to 10s to accommodate slow ccTLD WHOIS servers (.it, .de, .jp, .br
