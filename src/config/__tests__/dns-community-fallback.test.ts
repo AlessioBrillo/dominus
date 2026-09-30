@@ -15,8 +15,8 @@ afterEach(() => {
   process.env = { ...originalEnv };
 });
 
-describe('DNS Community Edition — Unbound Mandatory (ADR-0075)', () => {
-  it('should default DNS_UNBOUND_STRICT to true in community edition (no DATABASE_URL, AUTH_PROVIDER=env)', () => {
+describe('DNS Community Edition — Unbound Fallback (ADR-0076)', () => {
+  it('should default DNS_UNBOUND_STRICT to false in community edition (no DATABASE_URL, AUTH_PROVIDER=env)', () => {
     delete process.env.DATABASE_URL;
     process.env.AUTH_PROVIDER = 'env';
     process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
@@ -24,7 +24,7 @@ describe('DNS Community Edition — Unbound Mandatory (ADR-0075)', () => {
 
     const config = loadConfig();
     expect(config.IS_CLOUD_MODE).toBe(false);
-    expect(config.DNS_UNBOUND_STRICT).toBe(true);
+    expect(config.DNS_UNBOUND_STRICT).toBe(false);
   });
 
   it('should default DNS_UNBOUND_STRICT to true in cloud mode (DATABASE_URL set)', () => {
@@ -101,5 +101,42 @@ describe('UnboundResolver validateUnboundConfig', () => {
     expect(typeof resolver.validateUnboundConfig).toBe('function');
 
     resolver.dispose();
+  });
+});
+
+describe('DNS_UNBOUND_QUORUM_MODE default (ADR-0078)', () => {
+  it('should default to majority', () => {
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_PROVIDER = 'env';
+    process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
+    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
+    process.env.DNS_UNBOUND_STRICT = 'true'; // Force strict to test quorum validation
+
+    const config = loadConfig();
+    expect(config.DNS_UNBOUND_QUORUM_MODE).toBe('majority');
+  });
+
+  it('should allow single host with majority quorum (community edition)', () => {
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_PROVIDER = 'env';
+    process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
+    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
+    process.env.DNS_UNBOUND_STRICT = 'true';
+    process.env.DNS_UNBOUND_QUORUM_MODE = 'majority';
+
+    // Should not throw - single host with majority is valid (ceil(1/2)=1)
+    const config = loadConfig();
+    expect(config.DNS_UNBOUND_QUORUM_MODE).toBe('majority');
+  });
+
+  it('should reject all quorum with single host', () => {
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_PROVIDER = 'env';
+    process.env.DNS_UNBOUND_HOSTS = '127.0.0.1';
+    process.env.DNS_UNBOUND_HEALTH_CHECK_ENABLED = 'true';
+    process.env.DNS_UNBOUND_STRICT = 'true';
+    process.env.DNS_UNBOUND_QUORUM_MODE = 'all';
+
+    expect(() => loadConfig()).toThrow(/QUORUM_MODE=all requires at least 2 hosts/);
   });
 });
