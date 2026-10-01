@@ -919,4 +919,53 @@ describe('UnboundResolver per-TLD timeout overrides', () => {
       expect.objectContaining({ timeoutMs: 5000 }),
     );
   });
+
+  it('stamps resolver-level (not per-query) when per-query validation times out', async () => {
+    await resolver.healthCheck();
+
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockResolvedValueOnce({
+      status: 'timeout',
+      chainValidated: false,
+      error: 'Validation timeout',
+      durationMs: 5000,
+      validatedAt: new Date().toISOString(),
+    });
+
+    const result = await resolver.checkAvailability('available-timeout.com');
+    expect(result.status).toBe(DomainStatus.Available);
+    expect(result.dnssec).toBe('valid');
+    expect(result.dnssecSource).toBe('resolver-level');
+  });
+
+  it('stamps per-query only when per-query validation cryptographically validates', async () => {
+    await resolver.healthCheck();
+
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockResolvedValueOnce({
+      status: 'valid',
+      chainValidated: true,
+      durationMs: 100,
+      validatedAt: new Date().toISOString(),
+    });
+
+    const result = await resolver.checkAvailability('available-validated.com');
+    expect(result.status).toBe(DomainStatus.Available);
+    expect(result.dnssec).toBe('valid');
+    expect(result.dnssecSource).toBe('per-query');
+  });
 });

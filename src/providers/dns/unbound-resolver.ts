@@ -1476,6 +1476,11 @@ export class UnboundResolver implements DnsProvider {
         // reconfigured to val-permissive-mode: yes.
         // Explicitly type to include full union for per-query override.
         let finalDnssecStatus: DnsCheckResult['dnssec'] = dnssecStatus;
+        // Tracks whether per-query validation produced a real cryptographic
+        // verdict for this domain. Only then is dnssecSource stamped
+        // 'per-query'; timeout/error/throw falls back to the resolver-level
+        // proof and must not claim per-query provenance.
+        let perQueryValidated = false;
         if (
           status === DomainStatus.Available &&
           this.#dnsPerQueryDnssec &&
@@ -1502,13 +1507,16 @@ export class UnboundResolver implements DnsProvider {
             switch (perQueryResult.status) {
               case 'valid':
                 finalDnssecStatus = 'valid';
+                perQueryValidated = true;
                 break;
               case 'bogus':
                 finalDnssecStatus = 'bogus';
+                perQueryValidated = true;
                 break;
               case 'insecure':
                 // In strict mode, insecure fails. In permissive mode, it passes.
                 finalDnssecStatus = this.#dnssecMode === 'permissive' ? 'valid' : 'unchecked';
+                perQueryValidated = this.#dnssecMode === 'permissive';
                 break;
               case 'timeout':
               case 'error':
@@ -1534,16 +1542,11 @@ export class UnboundResolver implements DnsProvider {
           status,
           checkedAt,
           dnssec: finalDnssecStatus,
-          dnssecSource:
-            status === DomainStatus.Available &&
-            this.#dnsPerQueryDnssec &&
-            this.#dnssecValidationEnabled &&
-            this.#dnssecMode !== 'disabled' &&
-            hostDnssecValid
-              ? 'per-query'
-              : dnssecStatus === 'valid'
-                ? 'resolver-level'
-                : 'unchecked',
+          dnssecSource: perQueryValidated
+            ? 'per-query'
+            : dnssecStatus === 'valid'
+              ? 'resolver-level'
+              : 'unchecked',
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;
