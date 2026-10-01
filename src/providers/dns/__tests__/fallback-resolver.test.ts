@@ -426,21 +426,63 @@ describe('createFallbackProvider', () => {
     provider.dispose?.();
   });
 
-  it('creates cloudflare-doh fallback (falls back to node-dns with warning)', async () => {
-    const provider = await createFallbackProvider('cloudflare-doh');
-    expect(provider).toBeDefined();
-    provider.dispose?.();
+  it('fails closed for cloudflare-doh (not implemented)', async () => {
+    await expect(createFallbackProvider('cloudflare-doh')).rejects.toThrow(
+      "'cloudflare-doh' is not implemented",
+    );
   });
 
-  it('creates google-doh fallback (falls back to node-dns with warning)', async () => {
-    const provider = await createFallbackProvider('google-doh');
-    expect(provider).toBeDefined();
-    provider.dispose?.();
+  it('fails closed for google-doh (not implemented)', async () => {
+    await expect(createFallbackProvider('google-doh')).rejects.toThrow(
+      "'google-doh' is not implemented",
+    );
   });
 
   it('throws for unknown type', async () => {
     await expect(
       createFallbackProvider('unknown' as 'node-dns' | 'cloudflare-doh' | 'google-doh'),
     ).rejects.toThrow('Unknown fallback provider type');
+  });
+
+  it('resolves duplicate domains independently in bulk (index-based merge)', async () => {
+    const primary = createMockPrimary();
+    primary.isHealthy.mockReturnValue(false);
+    primary.checkBulk.mockResolvedValue([
+      {
+        domain: 'dup.com',
+        status: DomainStatus.Registered,
+        checkedAt: new Date().toISOString(),
+        isParked: false,
+        dnssec: 'valid' as const,
+        dnssecSource: 'resolver-level' as const,
+        durationMs: 10,
+        fromCache: false,
+      },
+      {
+        domain: 'dup.com',
+        status: DomainStatus.Registered,
+        checkedAt: new Date().toISOString(),
+        isParked: false,
+        dnssec: 'valid' as const,
+        dnssecSource: 'resolver-level' as const,
+        durationMs: 10,
+        fromCache: false,
+      },
+    ]);
+    const fallback = createMockFallback();
+    const resolver = new FallbackResolver({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      primary: primary as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fallback: fallback as any,
+      enabled: true,
+      onlyForNonAvailable: true,
+    });
+
+    const results = await resolver.checkBulk(['dup.com', 'dup.com']);
+    expect(results).toHaveLength(2);
+    expect(results[0]!.domain).toBe('dup.com');
+    expect(results[1]!.domain).toBe('dup.com');
+    expect(fallback.checkBulk).toHaveBeenCalledWith(['dup.com', 'dup.com'], undefined, undefined);
   });
 });
