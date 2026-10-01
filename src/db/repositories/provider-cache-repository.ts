@@ -55,4 +55,14 @@ export class ProviderCacheRepository {
     ]);
     return Number(result.changes);
   }
+
+  /** Delete all cache entries matching a key prefix.
+   *  Used for cross-process cache invalidation when a provider's data changes.
+   *  Returns the number of deleted entries. */
+  async invalidatePrefix(prefix: string): Promise<number> {
+    const result = await this.db.exec('DELETE FROM provider_cache WHERE cache_key LIKE ?', [
+      `${prefix}%`,
+    ]);
+    return Number(result.changes);
+  }
 }
