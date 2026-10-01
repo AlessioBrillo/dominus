@@ -262,30 +262,66 @@ interface BuiltRepositories {
   customPriceRepo: CustomPriceRepository;
 }
 
-function buildRepositories(provider: DatabaseProvider): BuiltRepositories {
+/** Build repositories for read-optimized paths (API lookups, candidate/scoring/portfolio reads). */
+function buildReadRepositories(
+  readProvider: DatabaseProvider,
+): Pick<
+  BuiltRepositories,
+  | 'candidateRepo'
+  | 'scoringRepo'
+  | 'trademarkRepo'
+  | 'outcomeRepo'
+  | 'portfolioRepo'
+  | 'alertRepo'
+  | 'watchlistRepo'
+  | 'acquisitionRepo'
+  | 'listingRepo'
+  | 'subscriptionRepo'
+  | 'teamSeatsRepo'
+  | 'publicScoreRepo'
+  | 'customPriceRepo'
+> {
   return {
-    provider,
+    candidateRepo: new CandidateRepository(readProvider),
+    scoringRepo: new ScoringRepository(readProvider),
+    trademarkRepo: new TrademarkRepository(readProvider),
+    outcomeRepo: new OutcomeRepository(readProvider),
+    portfolioRepo: new PortfolioRepository(readProvider),
+    alertRepo: new RenewalAlertRepository(readProvider),
+    watchlistRepo: new WatchlistRepository(readProvider),
+    acquisitionRepo: new AcquisitionRepository(readProvider),
+    listingRepo: new ListingRepository(readProvider),
+    subscriptionRepo: new SubscriptionRepository(readProvider),
+    teamSeatsRepo: new TeamSeatsRepository(readProvider),
+    publicScoreRepo: new PublicScoreRepository(readProvider),
+    customPriceRepo: new CustomPriceRepository(readProvider),
+  };
+}
+
+/** Build repositories for write-optimized paths (pipeline persistence, provider_cache, job queue). */
+function buildWriteRepositories(
+  writeProvider: DatabaseProvider,
+): Pick<
+  BuiltRepositories,
+  'providerCacheRepo' | 'pipelineRunsRepo' | 'metricsRepo' | 'jobQueueRepo' | 'webhookEventsRepo'
+> {
+  return {
+    providerCacheRepo: new ProviderCacheRepository(writeProvider),
+    pipelineRunsRepo: new PipelineRunsRepository(writeProvider),
+    metricsRepo: new MetricsRepository(writeProvider),
+    jobQueueRepo: new JobQueueRepository(writeProvider),
+    webhookEventsRepo: new WebhookEventsRepository(writeProvider),
+  };
+}
+
+/** Build repositories that use the main provider (admin, usage, api keys). */
+function buildMainRepositories(
+  provider: DatabaseProvider,
+): Pick<BuiltRepositories, 'apiKeyRepo' | 'usageRepo' | 'adminRepo'> {
+  return {
     apiKeyRepo: new ApiKeyRepository(provider),
-    candidateRepo: new CandidateRepository(provider),
-    scoringRepo: new ScoringRepository(provider),
-    trademarkRepo: new TrademarkRepository(provider),
-    providerCacheRepo: new ProviderCacheRepository(provider),
-    outcomeRepo: new OutcomeRepository(provider),
-    portfolioRepo: new PortfolioRepository(provider),
-    alertRepo: new RenewalAlertRepository(provider),
-    pipelineRunsRepo: new PipelineRunsRepository(provider),
-    metricsRepo: new MetricsRepository(provider),
-    jobQueueRepo: new JobQueueRepository(provider),
-    watchlistRepo: new WatchlistRepository(provider),
-    acquisitionRepo: new AcquisitionRepository(provider),
-    listingRepo: new ListingRepository(provider),
-    subscriptionRepo: new SubscriptionRepository(provider),
-    teamSeatsRepo: new TeamSeatsRepository(provider),
     usageRepo: new UsageRepository(provider),
     adminRepo: new AdminRepository(provider),
-    publicScoreRepo: new PublicScoreRepository(provider),
-    webhookEventsRepo: new WebhookEventsRepository(provider),
-    customPriceRepo: new CustomPriceRepository(provider),
   };
 }
 
@@ -549,8 +585,26 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   warnEuipoIfMissing(config);
 
+  // --- Read/Write Provider Separation ---
+  // Create read-optimized and write-optimized connections to reduce contention.
+  // - Read provider: busy_timeout=5s (SQLite) / pool=10 (PG) — fast fail for API reads
+  // - Write provider: busy_timeout=60s (SQLite) / pool=3 (PG) — wait for locks on bulk writes
+  const [readProvider, writeProvider] = await Promise.all([
+    provider.createReadReplica!(),
+    provider.createWriteConnection!(),
+  ]);
+
   // --- Database & Repositories ---
-  const repos = buildRepositories(provider);
+  // Split repositories by access pattern to minimize write contention on read paths.
+  const readRepos = buildReadRepositories(readProvider);
+  const writeRepos = buildWriteRepositories(writeProvider);
+  const mainRepos = buildMainRepositories(provider);
+  const repos: BuiltRepositories = {
+    provider,
+    ...readRepos,
+    ...writeRepos,
+    ...mainRepos,
+  };
 
   // --- Auth Provider ---
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
@@ -984,17 +1038,22 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       graceMs: config.STAGE_TIMEOUT_GRACE_MS,
     },
     // stageBusyTimeouts (12th param): stage-specific SQLite busy timeout overrides
+    // These are applied via writeProvider.setBusyTimeout() for bulk write stages.
     {
       DnsPreFilter: config.DNS_STAGE_BUSY_TIMEOUT_MS ?? 60_000,
       RdapConfirmation: config.RDAP_STAGE_BUSY_TIMEOUT_MS ?? 60_000,
     },
-    // checkpointBatchSize (13th param): intra-stage checkpoint batch size (0 = disabled)
+    // writeProvider (13th param): write-optimized provider for bulk-write stages
+    // (DnsPreFilter, RdapConfirmation) to isolate write contention from API reads.
+    writeProvider,
+    // checkpointBatchSize (14th param): intra-stage checkpoint batch size (0 = disabled)
     config.PIPELINE_CHECKPOINT_BATCH_SIZE,
-    // lockTtlMs (14th param): pipeline advisory lock TTL
+    // lockTtlMs (15th param): pipeline advisory lock TTL
     config.PIPELINE_LOCK_TTL_MS,
-    // lockHeartbeatMs (15th param): pipeline lock heartbeat interval
+    // lockHeartbeatMs (16th param): pipeline lock heartbeat interval
     config.PIPELINE_LOCK_HEARTBEAT_MS,
   );
+
   const progressService = new PipelineProgressService();
 
   // Evict expired entries from in-memory caches before each pipeline run.
