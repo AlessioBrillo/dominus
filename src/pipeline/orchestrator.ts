@@ -174,7 +174,10 @@ export class PipelineOrchestrator {
   #lock: LockProvider | null = null;
   #checkpointStore: CheckpointStore | null = null;
   #dbProvider: DatabaseProvider | null = null;
+  #writeProvider: DatabaseProvider | null = null;
   #stageBusyTimeouts: Record<string, number> = {};
+  /** Stages that perform bulk writes and should use writeProvider for busy timeout. */
+  #bulkWriteStages = new Set(['DnsPreFilter', 'RdapConfirmation']);
 
   constructor(
     private readonly generationStage: CandidateGenerationStage,
@@ -209,7 +212,11 @@ export class PipelineOrchestrator {
      *  Applied before each stage's bulk write operations to reduce contention
      *  with API reads. Only affects SQLite; no-op on PostgreSQL. */
     stageBusyTimeouts: Record<string, number> = {},
-    /** Pipeline lock TTL in milliseconds (configurable via PIPELINE_LOCK_TTL_MS). */
+    /** Optional write-optimized DatabaseProvider for bulk-write stages
+     *  (DnsPreFilter, RdapConfirmation). When provided, this provider is
+     *  used for stage-specific busy timeout management instead of the main
+     *  db provider. This enables read/write separation to reduce contention. */
+    writeProvider?: DatabaseProvider,
     /** Intra-stage checkpoint batch size. When set to a positive integer,
      *  the orchestrator saves a checkpoint after every N candidates
      *  processed within a stage. This allows resuming large runs mid-stage.
@@ -222,8 +229,10 @@ export class PipelineOrchestrator {
   ) {
     this.#lock = lockProvider ?? db ?? null;
     this.#checkpointStore = checkpointStore ?? null;
-    // Ensure provider is stored for busy timeout management
+    // Main provider for locking and general operations
     this.#dbProvider = db ?? null;
+    // Write-optimized provider for bulk-write stages (DnsPreFilter, RdapConfirmation)
+    this.#writeProvider = writeProvider ?? null;
     // Store stage-specific busy timeouts for SQLite contention reduction
     this.#stageBusyTimeouts = stageBusyTimeouts ?? {};
   }
@@ -1038,20 +1047,30 @@ export class PipelineOrchestrator {
     }
 
     // Apply stage-specific busy timeout for SQLite to reduce contention with API reads
+    // Use writeProvider for bulk-write stages (DnsPreFilter, RdapConfirmation) to isolate
+    // long-running write transactions from API read paths.
     const stageBusyTimeoutMs = this.#stageBusyTimeouts[label];
+    const isBulkWriteStage = this.#bulkWriteStages.has(label);
+    const providerForTimeout =
+      isBulkWriteStage && this.#writeProvider !== null ? this.#writeProvider : this.#dbProvider;
+
     let previousBusyTimeoutMs: number | undefined;
     if (
       stageBusyTimeoutMs !== undefined &&
-      this.#dbProvider !== null &&
-      typeof this.#dbProvider.setBusyTimeout === 'function'
+      providerForTimeout !== null &&
+      typeof providerForTimeout.setBusyTimeout === 'function'
     ) {
       // Store current timeout (we can't easily read it, so we'll restore to default 30s)
       // The default is 30000ms as set in SqliteProvider.create
       previousBusyTimeoutMs = 30000;
       try {
-        await this.#dbProvider.setBusyTimeout(stageBusyTimeoutMs);
+        await providerForTimeout.setBusyTimeout(stageBusyTimeoutMs);
         logger.debug(
-          { label, busyTimeoutMs: stageBusyTimeoutMs },
+          {
+            label,
+            busyTimeoutMs: stageBusyTimeoutMs,
+            provider: isBulkWriteStage ? 'write' : 'main',
+          },
           'Applied stage-specific busy timeout',
         );
       } catch (err) {
@@ -1076,10 +1095,10 @@ export class PipelineOrchestrator {
         // Restore previous busy timeout
         if (
           previousBusyTimeoutMs !== undefined &&
-          this.#dbProvider !== null &&
-          typeof this.#dbProvider.setBusyTimeout === 'function'
+          providerForTimeout !== null &&
+          typeof providerForTimeout.setBusyTimeout === 'function'
         ) {
-          this.#dbProvider.setBusyTimeout(previousBusyTimeoutMs).catch((err) => {
+          providerForTimeout.setBusyTimeout(previousBusyTimeoutMs).catch((err) => {
             logger.warn({ label, err }, 'Failed to restore busy timeout');
           });
         }
