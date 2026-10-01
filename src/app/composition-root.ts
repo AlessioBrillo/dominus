@@ -769,6 +769,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
         metrics.recordUnboundHostDnssecChange(host, validating),
       recordUnboundHealthyHosts: (count) => metrics.recordUnboundHealthyHosts(count),
       recordFallbackActive: (active) => metrics.recordDnsFallbackActive(active),
+      recordDnsFallbackActive: (active, reason) => {
+        metrics.recordDnsFallbackActive(active);
+        getLogger().info({ active, reason }, 'DNS fallback mode changed (composition-root)');
+      },
     },
   );
   // Log explicit readiness confirmation for observability

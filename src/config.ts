@@ -661,10 +661,12 @@ const configSchema = z
       .default(true),
     /**
      * Fallback DNS provider type.
-     * - 'node-dns': Node.js native DNS resolver (systemd-resolved, /etc/resolv.conf)
-     * - 'cloudflare-doh': Cloudflare DNS-over-HTTPS (1.1.1.1) — not yet implemented
-     * - 'google-doh': Google DNS-over-HTTPS (8.8.8.8) — not yet implemented
-     * Default: 'node-dns' (works everywhere, no external dependency).
+     * - 'node-dns': Node.js native DNS resolver (systemd-resolved, /etc/resolv.conf).
+     *   The only implemented fallback. Works everywhere, no external dependency.
+     * - 'cloudflare-doh' / 'google-doh': reserved for future DoH redundancy
+     *   (ADR-0069/0065). Selecting either fails closed at startup with an
+     *   actionable error instead of silently running on node-dns.
+     * Default: 'node-dns'.
      */
     DNS_FALLBACK_PROVIDER: z.enum(['node-dns', 'cloudflare-doh', 'google-doh']).default('node-dns'),
     /**
