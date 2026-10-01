@@ -86,4 +86,20 @@ export interface DatabaseProvider {
    * Useful for stage-specific bulk write operations that need different timeout behavior.
    */
   setBusyTimeout?(timeoutMs: number): Promise<void>;
+
+  /**
+   * Create a read-optimized replica connection/pool.
+   * - SQLite: Returns a new SqliteProvider with busy_timeout=5000, synchronous=FULL for consistency.
+   * - PostgreSQL: Returns a new PostgresAdapter with a dedicated read pool (max=10).
+   * The caller owns the lifecycle and must call close() on the returned provider.
+   */
+  createReadReplica?(): Promise<DatabaseProvider>;
+
+  /**
+   * Create a write-optimized connection/pool for bulk operations.
+   * - SQLite: Returns a new SqliteProvider with busy_timeout=60000, synchronous=NORMAL for throughput.
+   * - PostgreSQL: Returns a new PostgresAdapter with a dedicated write pool (max=3).
+   * The caller owns the lifecycle and must call close() on the returned provider.
+   */
+  createWriteConnection?(): Promise<DatabaseProvider>;
 }

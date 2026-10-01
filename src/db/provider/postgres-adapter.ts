@@ -293,6 +293,30 @@ export class PostgresAdapter implements DatabaseProvider {
     return PostgresAdapter.create(connectionString, { ...options, max: options.max ?? 3 });
   }
 
+  /**
+   * Create a read-optimized replica with a dedicated connection pool.
+   * - Pool size: 10 (default) for read concurrency
+   * - Intended for API read paths, candidate/scoring/portfolio lookups.
+   */
+  static async createReadReplica(
+    connectionString: string,
+    options: { max?: number; schema?: string } = {},
+  ): Promise<PostgresAdapter> {
+    return PostgresAdapter.create(connectionString, { ...options, max: options.max ?? 10 });
+  }
+
+  /**
+   * Create a write-optimized connection pool for bulk operations.
+   * - Pool size: 3 (smaller to avoid starving read pool)
+   * - Intended for pipeline persistence, provider_cache writes, job queue.
+   */
+  static async createWriteConnection(
+    connectionString: string,
+    options: { max?: number; schema?: string } = {},
+  ): Promise<PostgresAdapter> {
+    return PostgresAdapter.create(connectionString, { ...options, max: options.max ?? 3 });
+  }
+
   get pool(): Pool {
     return this.#pool;
   }
@@ -491,6 +515,20 @@ export class PostgresAdapter implements DatabaseProvider {
   /** Set busy timeout — no-op on PostgreSQL (no busy_timeout concept). */
   async setBusyTimeout(_timeoutMs: number): Promise<void> {
     // PostgreSQL doesn't have a busy_timeout pragma; lock contention is handled differently.
+  }
+
+  /** Instance method to create a read-optimized replica (uses same connection string). */
+  async createReadReplica(): Promise<DatabaseProvider> {
+    const options: { max?: number; schema?: string } = { max: 10 };
+    if (this.#schema !== undefined) options.schema = this.#schema;
+    return PostgresAdapter.createReadReplica(this.#connectionString, options);
+  }
+
+  /** Instance method to create a write-optimized connection (uses same connection string). */
+  async createWriteConnection(): Promise<DatabaseProvider> {
+    const options: { max?: number; schema?: string } = { max: 3 };
+    if (this.#schema !== undefined) options.schema = this.#schema;
+    return PostgresAdapter.createWriteConnection(this.#connectionString, options);
   }
 }
 

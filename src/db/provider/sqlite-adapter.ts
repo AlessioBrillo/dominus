@@ -18,6 +18,18 @@ import { DatabaseError } from './interface.js';
 import { runMigrations as runSqliteMigrations } from '../migrator.js';
 const logger = getLogger();
 
+/**
+ * Default busy timeout for read connections (5 seconds).
+ * Fast fail for read queries to avoid blocking on write contention.
+ */
+const READ_BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * Default busy timeout for write connections (60 seconds).
+ * Allows bulk writes to wait for locks instead of failing fast.
+ */
+const WRITE_BUSY_TIMEOUT_MS = 60000;
+
 /** File-based cross-process lock using atomic O_EXCL create (POSIX).
  *  Works on shared volumes and network filesystems where SQLite locking may be unreliable.
  *  The lock file lives next to the SQLite database: <db-path>.lock/<lock-name>.lock
@@ -132,6 +144,8 @@ export class SqliteProvider implements DatabaseProvider {
    * busy_timeout (5s) so bulk operations fail fast instead of blocking the
    * main connection for 30s. WAL mode is enabled so concurrent reads on the
    * main connection are still served while a bulk-write transaction runs.
+   *
+   * @deprecated Use createWriteConnection() instead for write-optimized settings.
    */
   static createBulkWrite(path: string, options: { busyTimeout?: number } = {}): SqliteProvider {
     const dir = dirname(path);
@@ -144,6 +158,44 @@ export class SqliteProvider implements DatabaseProvider {
     const busyTimeout = options.busyTimeout ?? 5000;
     db.pragma(`busy_timeout = ${busyTimeout}`);
     return new SqliteProvider(db, busyTimeout, false, path);
+  }
+
+  /**
+   * Create a read-optimized connection.
+   * - busy_timeout: 5000ms (fast fail on contention)
+   * - synchronous: FULL (maximum consistency for reads)
+   * - Intended for API read paths, candidate/scoring/portfolio lookups.
+   */
+  static createReadReplica(path: string): SqliteProvider {
+    const dir = dirname(path);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const db = new Database(path, { readonly: false });
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.pragma('synchronous = FULL');
+    db.pragma(`busy_timeout = ${READ_BUSY_TIMEOUT_MS}`);
+    return new SqliteProvider(db, READ_BUSY_TIMEOUT_MS, false, path);
+  }
+
+  /**
+   * Create a write-optimized connection for bulk operations.
+   * - busy_timeout: 60000ms (wait for locks instead of failing fast)
+   * - synchronous: NORMAL (better throughput for bulk writes)
+   * - Intended for pipeline persistence, provider_cache writes, job queue.
+   */
+  static createWriteConnection(path: string): SqliteProvider {
+    const dir = dirname(path);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const db = new Database(path);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.pragma('synchronous = NORMAL');
+    db.pragma(`busy_timeout = ${WRITE_BUSY_TIMEOUT_MS}`);
+    return new SqliteProvider(db, WRITE_BUSY_TIMEOUT_MS, false, path);
   }
 
   static openInMemory(): SqliteProvider {
@@ -435,5 +487,15 @@ export class SqliteProvider implements DatabaseProvider {
       dbErr.stack = err.stack;
     }
     return dbErr;
+  }
+
+  /** Instance method to create a read-optimized replica (uses same DB path). */
+  async createReadReplica(): Promise<DatabaseProvider> {
+    return SqliteProvider.createReadReplica(this.#dbPath);
+  }
+
+  /** Instance method to create a write-optimized connection (uses same DB path). */
+  async createWriteConnection(): Promise<DatabaseProvider> {
+    return SqliteProvider.createWriteConnection(this.#dbPath);
   }
 }
