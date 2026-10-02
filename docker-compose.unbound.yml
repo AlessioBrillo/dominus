@@ -64,12 +64,16 @@ services:
     # The anchor bootstrap is reproduced here explicitly: without a root
     # trust anchor the validator treats every zone as insecure and the app's
     # negative-control probe cannot prove DNSSEC validation — strict boot
-    # fails closed. `&&` keeps the container crash-looping (visible, healthy=0)
-    # instead of serving unvalidated answers when the fetch fails.
+    # fails closed. The anchor path is chroot-relative (`var/root.key` under
+    # /opt/unbound/etc/unbound): an absolute /tmp path fails checkconf
+    # because unbound resolves it inside the chroot. The fetch is best-effort
+    # (`|| true`): unbound itself performs RFC 5011 tracking from the initial
+    # key once it has egress, and a missing key fails visibly at the app
+    # readiness probe instead of wedging container startup on exit codes.
     command:
       - sh
       - -c
-      - /opt/unbound/sbin/unbound-anchor -a /tmp/root.key && exec unbound -d -c /opt/unbound/unbound.conf
+      - mkdir -p /opt/unbound/etc/unbound/var && /opt/unbound/sbin/unbound-anchor -a /opt/unbound/etc/unbound/var/root.key || true; exec unbound -d -c /opt/unbound/unbound.conf
     # Liveness probe via a bash TCP connect to the plain-DNS listener.
     # The previous `ps aux | grep unbound` probe always failed: the
     # mvance/unbound image ships no `ps` binary (exit 127), so the service
