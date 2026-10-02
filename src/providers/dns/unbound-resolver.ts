@@ -350,10 +350,22 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecStateMaxAgeMs = options.dnssecStateMaxAgeMs ?? 3_600_000;
     this.#purgeCacheOnDnssecLoss = options.purgeCacheOnDnssecLoss ?? true;
 
-    // Create dedicated resolver per host for isolation
+    // Create dedicated resolver per host for isolation.
+    // Entries must be IP literals (`host`, `host:port`, `[ipv6]:port`):
+    // node:dns setServers rejects hostnames with ERR_INVALID_IP_ADDRESS.
+    // Resolve service names (e.g. `unbound:5300`) to IPs before
+    // constructing — see resolveUnboundHosts().
     for (const host of this.#unboundHosts) {
       const resolver = new NodeResolver();
-      resolver.setServers([host]);
+      try {
+        resolver.setServers([host]);
+      } catch (err) {
+        throw new Error(
+          `UnboundResolver: invalid host entry '${host}' — entries must be IP literals ` +
+            '(resolve hostnames first via resolveUnboundHosts).',
+          { cause: err },
+        );
+      }
       this.#hostHealth.set(host, {
         resolver,
         consecutiveFailures: 0,

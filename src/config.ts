@@ -340,6 +340,8 @@ const configSchema = z
      * Comma-separated Unbound host(s) for the resolver.
      * Examples: '127.0.0.1,::1' (host), 'unbound:5300' (Docker service name),
      * '10.0.0.1:5300,[::1]:5300' (explicit ports).
+     * Hostnames are resolved to IPs once at startup via the system resolver
+     * (compose embedded DNS); node:dns setServers accepts IP literals only.
      * When DNS_UNBOUND_ENABLED=true, this is REQUIRED.
      * Default: '127.0.0.1' (localhost Unbound on standard port 53).
      */
