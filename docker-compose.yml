@@ -67,13 +67,14 @@ services:
       - SCHEDULER_ENABLED=false
       - REDIS_URL=${REDIS_URL:-}
       - PURCHASE_AUTO_APPROVAL=${PURCHASE_AUTO_APPROVAL:-never}
-      # Unbound is MANDATORY for all editions (ADR-0072/0075).
-      # The docker-compose.unbound.yml overlay provides the Unbound sidecar
-      # and injects DNS_UNBOUND_HOSTS=unbound:5300.
-      # Without the overlay, the operator MUST provide an external Unbound
-      # resolver via DNS_UNBOUND_HOSTS. There is no Node.js DNS fallback.
+      # Unbound via the docker-compose.unbound.yml overlay (ADR-0072/0075).
+      # The overlay provides the Unbound sidecar and injects
+      # DNS_UNBOUND_HOSTS=unbound:5300 plus DNS_UNBOUND_STRICT=true.
+      # Without the overlay, DNS_UNBOUND_STRICT falls back to its
+      # context-aware default (ADR-0076): community edition uses the
+      # Node.js fallback for non-Available verdicts, cloud stays strict.
+      # Fallback never serves Available verdicts (ADR-0002 conservatism).
       - DNS_UNBOUND_ENABLED=true
-      - DNS_UNBOUND_STRICT=true
       - DNS_PER_QUERY_DNSEC=true
       - DNSSEC_MODE=strict
     restart: unless-stopped
@@ -113,11 +114,14 @@ services:
       - JOB_QUEUE_POLL_INTERVAL_MS=${JOB_QUEUE_POLL_INTERVAL_MS:-1000}
       - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
-      # Unbound is MANDATORY for all editions (ADR-0072/0075).
-      # The docker-compose.unbound.yml overlay provides the Unbound sidecar
-      # and injects DNS_UNBOUND_HOSTS=unbound:5300.
+      # Unbound via the docker-compose.unbound.yml overlay (ADR-0072/0075).
+      # The overlay provides the Unbound sidecar and injects
+      # DNS_UNBOUND_HOSTS=unbound:5300 plus DNS_UNBOUND_STRICT=true.
+      # Without the overlay, DNS_UNBOUND_STRICT falls back to its
+      # context-aware default (ADR-0076): community edition uses the
+      # Node.js fallback for non-Available verdicts, cloud stays strict.
+      # Fallback never serves Available verdicts (ADR-0002 conservatism).
       - DNS_UNBOUND_ENABLED=true
-      - DNS_UNBOUND_STRICT=true
       - DNS_PER_QUERY_DNSEC=true
       - DNSSEC_MODE=strict
     restart: unless-stopped
@@ -157,11 +161,14 @@ services:
       - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 5 * * 0}
       - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
-      # Unbound is MANDATORY for all editions (ADR-0072/0075).
-      # The docker-compose.unbound.yml overlay provides the Unbound sidecar
-      # and injects DNS_UNBOUND_HOSTS=unbound:5300.
+      # Unbound via the docker-compose.unbound.yml overlay (ADR-0072/0075).
+      # The overlay provides the Unbound sidecar and injects
+      # DNS_UNBOUND_HOSTS=unbound:5300 plus DNS_UNBOUND_STRICT=true.
+      # Without the overlay, DNS_UNBOUND_STRICT falls back to its
+      # context-aware default (ADR-0076): community edition uses the
+      # Node.js fallback for non-Available verdicts, cloud stays strict.
+      # Fallback never serves Available verdicts (ADR-0002 conservatism).
       - DNS_UNBOUND_ENABLED=true
-      - DNS_UNBOUND_STRICT=true
       - DNS_PER_QUERY_DNSEC=true
       - DNSSEC_MODE=strict
     restart: unless-stopped

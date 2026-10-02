@@ -34,6 +34,11 @@
 x-unbound-env: &unbound-env
   DNS_UNBOUND_ENABLED: 'true'
   DNS_UNBOUND_HOSTS: 'unbound:5300'
+  # The sidecar provides validated resolution, so strict mode is safe and
+  # desired here on both editions (ADR-0075 hardened path). The base file
+  # leaves STRICT unset for the context-aware default (ADR-0076); this
+  # overlay opts into the hardened posture explicitly.
+  DNS_UNBOUND_STRICT: 'true'
   # Reserved for a future app-to-Unbound DoT transport; currently a no-op
   # (see JSDoc in src/config.ts). Left false to not overclaim encryption.
   DNS_UNBOUND_TLS: 'false'
