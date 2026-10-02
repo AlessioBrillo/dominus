@@ -58,14 +58,29 @@ export async function resolveUnboundHosts(entries: string[]): Promise<string[]> 
       resolved.push(joinHostPort(host, port));
       continue;
     }
-    let address: string;
-    try {
-      ({ address } = await lookup(host));
-    } catch (err) {
+    // Retry transient embedded-DNS races (EAI_AGAIN on fresh compose
+    // networks): the name may resolve a second later. Permanent failures
+    // (ENOTFOUND) still fail closed after the last attempt.
+    const attempts = 3;
+    let address: string | undefined;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        ({ address } = await lookup(host));
+        lastErr = undefined;
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < attempts) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+    if (address === undefined) {
       throw new Error(
-        `Cannot resolve Unbound host '${host}' (from '${entry}'): ` +
+        `Cannot resolve Unbound host '${host}' (from '${entry}') after ${attempts} attempts: ` +
           'set DNS_UNBOUND_HOSTS to reachable IPs or fix service discovery.',
-        { cause: err },
+        { cause: lastErr },
       );
     }
     logger.info({ host, address, port }, 'Resolved Unbound hostname to IP');

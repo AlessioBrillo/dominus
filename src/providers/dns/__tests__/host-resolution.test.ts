@@ -70,5 +70,15 @@ describe('resolveUnboundHosts', () => {
     await expect(resolveUnboundHosts(['unbound:5300'])).rejects.toThrow(
       /Cannot resolve Unbound host 'unbound'/,
     );
+    expect(mockLookup).toHaveBeenCalledTimes(3);
+  });
+
+  it('retries transient resolution failures before failing closed', async () => {
+    mockLookup
+      .mockRejectedValueOnce(Object.assign(new Error('EAI_AGAIN unbound'), { code: 'EAI_AGAIN' }))
+      .mockResolvedValueOnce({ address: '172.21.0.10', family: 4 });
+    const resolved = await resolveUnboundHosts(['unbound:5300']);
+    expect(resolved).toEqual(['172.21.0.10:5300']);
+    expect(mockLookup).toHaveBeenCalledTimes(2);
   });
 });

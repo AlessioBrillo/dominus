@@ -227,6 +227,9 @@ jobs:
 
           echo "healthcheck never succeeded" >&2
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs api >&2 || true
+          # Unbound's own log carries the SERVFAIL/validation reason when the
+          # API readiness probe fails — capture it before tearing down.
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs unbound >&2 || true
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml down -v
           exit 1
 
