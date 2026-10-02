@@ -13,6 +13,22 @@ function detectCloudMode(env: Record<string, string | undefined>): boolean {
   return !!env.DATABASE_URL || (env.AUTH_PROVIDER !== undefined && env.AUTH_PROVIDER !== 'env');
 }
 
+/**
+ * URL schema with a default that treats an empty string as unset.
+ * Container runtimes (compose `${VAR:-}`, `docker -e VAR=`, k8s `value: ""`)
+ * materialize an unset optional as an empty string, which a plain
+ * `z.string().url()` rejects — crashing boot on a field the operator never
+ * set. Empty means "no override": fall back to the default instead.
+ */
+function urlWithDefault(defaultUrl: string): z.ZodType<string, string | undefined> {
+  return z
+    .string()
+    .url()
+    .or(z.literal(''))
+    .default(defaultUrl)
+    .transform((v) => (v === '' ? defaultUrl : v));
+}
+
 const configSchema = z
   .object({
     DATABASE_PATH: z.string().min(1).default('./data/dominus.db'),
@@ -133,7 +149,7 @@ const configSchema = z
      * Accepts POST with an ES-style query body; fields: WM (word mark), ST (status),
      * ON (owner name), SN (serial number), RN (registration number).
      */
-    USPTO_SEARCH_URL: z.string().url().default('https://tmsearch.uspto.gov/tmsearch'),
+    USPTO_SEARCH_URL: urlWithDefault('https://tmsearch.uspto.gov/tmsearch'),
     /**
      * EUIPO OAuth2 credentials (free registration at https://euipo.europa.eu/ohimportal/en/open-data).
      * The same `EUIPO_CLIENT_ID` is reused as the `X-IBM-Client-Id` header on the
@@ -151,16 +167,13 @@ const configSchema = z
      * by overriding this variable. If EUIPO rotates the endpoint in the
      * future, check https://www.tmdn.org/ for the current URL.
      */
-    EUIPO_AUTH_URL: z.string().url().default('https://auth.tmdn.org/oidc/access_token'),
+    EUIPO_AUTH_URL: urlWithDefault('https://auth.tmdn.org/oidc/access_token'),
     /**
      * EUIPO Trademark Search 1.1.0 endpoint (RSQL-based, `X-IBM-Client-Id` required).
      * The legacy COPLA endpoint (`copla/trademark/data-capture/V1/trademarks`) was
      * retired and silently returns zero hits; see ADR-0014 for the migration context.
      */
-    EUIPO_API_URL: z
-      .string()
-      .url()
-      .default('https://api.euipo.europa.eu/trademark-search/trademarks'),
+    EUIPO_API_URL: urlWithDefault('https://api.euipo.europa.eu/trademark-search/trademarks'),
     /**
      * Number of days that a cached trademark result remains valid.
      * Avoids re-hitting rate-limited free APIs on repeat pipeline runs.
@@ -173,7 +186,7 @@ const configSchema = z
      * The TSDR data endpoint returns JSON but has a different response shape
      * from the ES backend. Defaults to the public TSDR search data endpoint.
      */
-    USPTO_TSDR_SEARCH_URL: z.string().url().default('https://tsdr.uspto.gov/tsdr/tmsearch/data'),
+    USPTO_TSDR_SEARCH_URL: urlWithDefault('https://tsdr.uspto.gov/tsdr/tmsearch/data'),
     /**
      * Rate limiting: max tokens (burst capacity) for USPTO trademark requests.
      * Token bucket refills at USPTO_RATE_LIMIT_TOKENS per USPTO_RATE_LIMIT_INTERVAL_MS.
