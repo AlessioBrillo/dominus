@@ -18,6 +18,7 @@ import {
   DnsBreakerRegistry,
   FallbackResolver,
   createFallbackProvider,
+  resolveUnboundHosts,
   type DnsBreakerRegistryLike,
   type DnsProvider,
   type UnboundHostDnssecResult,
@@ -346,6 +347,12 @@ export async function buildDnsProvider(
     );
   }
 
+  // Hostnames (e.g. the compose service name `unbound`) are resolved to IPs
+  // here: node:dns setServers accepts IP literals only and throws
+  // ERR_INVALID_IP_ADDRESS at construction otherwise. Resolution happens
+  // once at startup via the system resolver (compose embedded DNS).
+  const resolvedUnboundHosts = await resolveUnboundHosts(unboundHosts);
+
   const parkingRegistry = ParkingIpRegistry.load(
     config.DNS_PARKING_IPS_PATH,
     fileURLToPath(new URL('../providers/dns/parking-ips.json', import.meta.url)),
@@ -363,7 +370,7 @@ export async function buildDnsProvider(
 
   const createUnboundResolver = (): UnboundResolver => {
     const resolver = new UnboundResolver({
-      unboundHosts,
+      unboundHosts: resolvedUnboundHosts,
       lookupTimeoutMs: config.DNS_UNBOUND_TIMEOUT_MS,
       cacheTtlMs: config.DNS_CACHE_TTL_SECONDS * 1000,
       maxSize: config.DNS_CACHE_MAX_SIZE,

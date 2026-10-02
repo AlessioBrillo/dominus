@@ -350,10 +350,22 @@ export class UnboundResolver implements DnsProvider {
     this.#dnssecStateMaxAgeMs = options.dnssecStateMaxAgeMs ?? 3_600_000;
     this.#purgeCacheOnDnssecLoss = options.purgeCacheOnDnssecLoss ?? true;
 
-    // Create dedicated resolver per host for isolation
+    // Create dedicated resolver per host for isolation.
+    // Entries must be IP literals (`host`, `host:port`, `[ipv6]:port`):
+    // node:dns setServers rejects hostnames with ERR_INVALID_IP_ADDRESS.
+    // Resolve service names (e.g. `unbound:5300`) to IPs before
+    // constructing — see resolveUnboundHosts().
     for (const host of this.#unboundHosts) {
       const resolver = new NodeResolver();
-      resolver.setServers([host]);
+      try {
+        resolver.setServers([host]);
+      } catch (err) {
+        throw new Error(
+          `UnboundResolver: invalid host entry '${host}' — entries must be IP literals ` +
+            '(resolve hostnames first via resolveUnboundHosts).',
+          { cause: err },
+        );
+      }
       this.#hostHealth.set(host, {
         resolver,
         consecutiveFailures: 0,
@@ -1188,13 +1200,28 @@ export class UnboundResolver implements DnsProvider {
       });
     }
 
-    // UDP: use dgram socket
+    // UDP: use dgram socket. Note: dgram.Socket has close(), not destroy() —
+    // calling destroy() throws TypeError and crashes the process from the
+    // event handler. Guard teardown so each path runs exactly once.
     const dgram = await import('dgram');
     const udpSocket = dgram.createSocket('udp4');
     return new Promise<void>((resolve, reject) => {
+      let done = false;
+      const finish = (fn: () => void): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try {
+          udpSocket.close();
+        } catch {
+          // Already closed — teardown is idempotent from here.
+        }
+        fn();
+      };
       const timer = setTimeout(() => {
-        (udpSocket as unknown as { destroy: () => void }).destroy();
-        reject(new Error(`UDP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+        finish(() =>
+          reject(new Error(`UDP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`)),
+        );
       }, timeoutMs);
       // bind is always available on dgram sockets
       udpSocket.bind(0, () => {
@@ -1207,14 +1234,12 @@ export class UnboundResolver implements DnsProvider {
         udpSocket.send(query, 0, query.length, port, hostname);
       });
       udpSocket.on('message', () => {
-        clearTimeout(timer);
-        (udpSocket as unknown as { destroy: () => void }).destroy();
-        resolve();
+        finish(() => resolve());
       });
       udpSocket.on('error', (err: Error) => {
-        clearTimeout(timer);
-        (udpSocket as unknown as { destroy: () => void }).destroy();
-        reject(new Error(`UDP connection to ${hostname}:${port} failed: ${err.message}`));
+        finish(() =>
+          reject(new Error(`UDP connection to ${hostname}:${port} failed: ${err.message}`)),
+        );
       });
     });
   }
@@ -1476,6 +1501,11 @@ export class UnboundResolver implements DnsProvider {
         // reconfigured to val-permissive-mode: yes.
         // Explicitly type to include full union for per-query override.
         let finalDnssecStatus: DnsCheckResult['dnssec'] = dnssecStatus;
+        // Tracks whether per-query validation produced a real cryptographic
+        // verdict for this domain. Only then is dnssecSource stamped
+        // 'per-query'; timeout/error/throw falls back to the resolver-level
+        // proof and must not claim per-query provenance.
+        let perQueryValidated = false;
         if (
           status === DomainStatus.Available &&
           this.#dnsPerQueryDnssec &&
@@ -1502,13 +1532,16 @@ export class UnboundResolver implements DnsProvider {
             switch (perQueryResult.status) {
               case 'valid':
                 finalDnssecStatus = 'valid';
+                perQueryValidated = true;
                 break;
               case 'bogus':
                 finalDnssecStatus = 'bogus';
+                perQueryValidated = true;
                 break;
               case 'insecure':
                 // In strict mode, insecure fails. In permissive mode, it passes.
                 finalDnssecStatus = this.#dnssecMode === 'permissive' ? 'valid' : 'unchecked';
+                perQueryValidated = this.#dnssecMode === 'permissive';
                 break;
               case 'timeout':
               case 'error':
@@ -1534,16 +1567,11 @@ export class UnboundResolver implements DnsProvider {
           status,
           checkedAt,
           dnssec: finalDnssecStatus,
-          dnssecSource:
-            status === DomainStatus.Available &&
-            this.#dnsPerQueryDnssec &&
-            this.#dnssecValidationEnabled &&
-            this.#dnssecMode !== 'disabled' &&
-            hostDnssecValid
-              ? 'per-query'
-              : dnssecStatus === 'valid'
-                ? 'resolver-level'
-                : 'unchecked',
+          dnssecSource: perQueryValidated
+            ? 'per-query'
+            : dnssecStatus === 'valid'
+              ? 'resolver-level'
+              : 'unchecked',
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;

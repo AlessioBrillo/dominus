@@ -65,7 +65,7 @@ Candidates → DNS pre-filter → RDAP confirmation → Scoring → Trademark ga
 Five sequential stages, each feeding the next:
 
 1. **Candidate generation** — keyword combos, brandable names, closeout CSV imports
-2. **DNS pre-filter** — fast bulk check via Node `dns` module
+2. **DNS pre-filter** — fast bulk check via local Unbound recursive resolver (DNSSEC-validated; Node.js DNS fallback for non-Available verdicts only)
 3. **RDAP confirmation** — precise availability + premium detection via public RDAP
 4. **Scoring** — heuristic engine using intrinsic/commercial/market/expiry signals
 5. **Trademark gate** — mandatory USPTO + EUIPO check (non-negotiable)
@@ -93,6 +93,8 @@ Or with Docker:
 
 ```bash
 docker build -t dominus .
+mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
+               # ./data would be root-owned and SQLite cannot open it there
 docker run -d -p 3000:3000 -v ./data:/app/data dominus
 ```
 

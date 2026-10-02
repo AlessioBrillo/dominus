@@ -212,8 +212,10 @@ export class FallbackResolver implements DnsProvider {
       return primaryResults;
     }
 
-    // Determine which domains need fallback
-    const needsFallback: string[] = [];
+    // Determine which domains need fallback. Track original indices
+    // (not domain strings) so duplicate domains in one bulk request
+    // resolve independently instead of collapsing onto the first index.
+    const needsFallback: Array<{ domain: string; index: number }> = [];
     const results: (DnsCheckResult | undefined)[] = new Array(domains.length);
 
     if (primaryResults !== undefined) {
@@ -222,7 +224,7 @@ export class FallbackResolver implements DnsProvider {
         if (!domain) continue;
         const result = primaryResults[i];
         if (this.#shouldUseFallback(result)) {
-          needsFallback.push(domain);
+          needsFallback.push({ domain, index: i });
         } else {
           // shouldUseFallback returns false when:
           // 1. Primary is healthy (handled above)
@@ -242,7 +244,7 @@ export class FallbackResolver implements DnsProvider {
         const domain = domains[i];
         if (!domain) continue;
         if (this.#shouldUseFallback(undefined)) {
-          needsFallback.push(domain);
+          needsFallback.push({ domain, index: i });
         } else {
           results[i] = this.#createUnknownResult(domain);
         }
@@ -261,13 +263,8 @@ export class FallbackResolver implements DnsProvider {
         await this.#fallbackRateLimiter.acquire();
       } catch {
         logger.warn({ count: needsFallback.length }, 'Fallback bulk rate limit exceeded');
-        for (let i = 0; i < needsFallback.length; i++) {
-          const domain = needsFallback[i];
-          if (!domain) continue;
-          const idx = domains.findIndex((d) => d === domain);
-          if (idx !== -1) {
-            results[idx] = this.#createUnknownResult(domain);
-          }
+        for (const { domain, index } of needsFallback) {
+          results[index] = this.#createUnknownResult(domain);
         }
         return results as DnsCheckResult[];
       }
@@ -276,23 +273,24 @@ export class FallbackResolver implements DnsProvider {
     // Execute fallback bulk check
     let fallbackResults: DnsCheckResult[];
     try {
-      fallbackResults = await this.#fallback.checkBulk(needsFallback, signal, options);
+      fallbackResults = await this.#fallback.checkBulk(
+        needsFallback.map((entry) => entry.domain),
+        signal,
+        options,
+      );
     } catch (err) {
       logger.error({ err, count: needsFallback.length }, 'Fallback bulk check failed');
-      fallbackResults = needsFallback.map((domain) => this.#createUnknownResult(domain));
+      fallbackResults = needsFallback.map(({ domain }) => this.#createUnknownResult(domain));
     }
 
     // Merge results
     for (let i = 0; i < needsFallback.length; i++) {
-      const domain = needsFallback[i];
-      if (!domain) continue;
-      // Find the original index in domains array
-      const idx = domains.findIndex((d) => d === domain);
-      if (idx === -1) continue;
+      const entry = needsFallback[i];
+      if (!entry) continue;
       const result = fallbackResults[i];
-      results[idx] = result
+      results[entry.index] = result
         ? { ...result, dnssec: 'unchecked', dnssecSource: 'unchecked', fromCache: false }
-        : this.#createUnknownResult(domain);
+        : this.#createUnknownResult(entry.domain);
     }
 
     return results as DnsCheckResult[];
@@ -338,6 +336,11 @@ export class FallbackResolver implements DnsProvider {
 
 /**
  * Factory function to create the appropriate fallback provider based on config.
+ *
+ * Fail-closed: only 'node-dns' is implemented. DoH options are reserved
+ * for future use (ADR-0069/0065) and throw with an actionable message
+ * instead of silently degrading to node-dns — an operator selecting
+ * 'cloudflare-doh' must never unknowingly run on the system resolver.
  */
 export async function createFallbackProvider(
   type: 'node-dns' | 'cloudflare-doh' | 'google-doh',
@@ -360,14 +363,15 @@ export async function createFallbackProvider(
     case 'node-dns':
       return new NodeDnsFallback(baseOptions);
     case 'cloudflare-doh':
-      // TODO: Implement Cloudflare DoH provider (ADR-0069/0065)
-      // For now, fall back to node-dns with warning
-      logger.warn('Cloudflare DoH fallback not yet implemented, using node-dns');
-      return new NodeDnsFallback(baseOptions);
+      throw new Error(
+        "DNS fallback provider 'cloudflare-doh' is not implemented (ADR-0069/0065). " +
+          'Set DNS_FALLBACK_PROVIDER=node-dns.',
+      );
     case 'google-doh':
-      // TODO: Implement Google DoH provider (ADR-0069/0065)
-      logger.warn('Google DoH fallback not yet implemented, using node-dns');
-      return new NodeDnsFallback(baseOptions);
+      throw new Error(
+        "DNS fallback provider 'google-doh' is not implemented (ADR-0069/0065). " +
+          'Set DNS_FALLBACK_PROVIDER=node-dns.',
+      );
     default:
       throw new Error(`Unknown fallback provider type: ${type}`);
   }

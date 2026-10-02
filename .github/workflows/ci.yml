@@ -200,8 +200,21 @@ jobs:
           # 3. The API must boot and answer /api/health (unauthenticated).
           #    Use docker-compose with unbound overlay to start Unbound + API together.
           #    This validates the full production stack (ADR-0075: Unbound mandatory).
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
+          #    Pre-create ./data first: otherwise the daemon creates the bind
+          #    mount root-owned and the non-root `dominus` user gets
+          #    SQLITE_CANTOPEN on /app/data/dominus.db (same step operators
+          #    must run on a fresh clone — see README quick start).
+          #    777 is CI-only pragmatism: the files the runner creates are owned
+          #    by the runner UID, which differs from the image `dominus` UID,
+          #    so a plain mkdir stays unwritable. Ephemeral runner, no secrets
+          #    in ./data at this stage — never use 777 on a real deployment
+          #    (see the UID note in docs/deployment/README.md).
+          mkdir -p data && chmod 777 data
+          # Boot with authentication active: HOST=0.0.0.0 in compose refuses
+          # to start unauthenticated (fail-closed). /api/health stays public,
+          # so the polled endpoint is unaffected by the dummy key.
+          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
+          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
           LOGS_PID=$!
           
@@ -217,6 +230,9 @@ jobs:
 
           echo "healthcheck never succeeded" >&2
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs api >&2 || true
+          # Unbound's own log carries the SERVFAIL/validation reason when the
+          # API readiness probe fails — capture it before tearing down.
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs unbound >&2 || true
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml down -v
           exit 1
 
@@ -515,7 +531,16 @@ jobs:
 
       - name: Start services with Unbound (ADR-0075)
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+          # Pre-create ./data (see smoke job): the daemon would otherwise
+          # create the bind mount root-owned and the API crashes with
+          # SQLITE_CANTOPEN as the non-root `dominus` user. 777 is CI-only
+          # (runner-owned files stay unwritable to the image user);
+          # never on a real host.
+          mkdir -p data && chmod 777 data
+          # Dummy key: HOST=0.0.0.0 refuses to boot unauthenticated
+          # (fail-closed); without it the composed API crash-loops and the
+          # readiness gate below is meaningless.
+          API_KEYS=ci-e2e-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
           # Wait for API to be ready
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then

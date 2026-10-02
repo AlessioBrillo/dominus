@@ -140,3 +140,37 @@ describe('DNS_UNBOUND_QUORUM_MODE default (ADR-0078)', () => {
     expect(() => loadConfig()).toThrow(/QUORUM_MODE=all requires at least 2 hosts/);
   });
 });
+
+describe('Trademark endpoint URLs — empty string means unset (compose ${VAR:-})', () => {
+  it('should fall back to defaults when URL vars are empty strings', () => {
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_PROVIDER = 'env';
+    process.env.USPTO_SEARCH_URL = '';
+    process.env.EUIPO_AUTH_URL = '';
+    process.env.EUIPO_API_URL = '';
+    process.env.USPTO_TSDR_SEARCH_URL = '';
+
+    const config = loadConfig();
+    expect(config.USPTO_SEARCH_URL).toBe('https://tmsearch.uspto.gov/tmsearch');
+    expect(config.EUIPO_AUTH_URL).toBe('https://auth.tmdn.org/oidc/access_token');
+    expect(config.EUIPO_API_URL).toBe('https://api.euipo.europa.eu/trademark-search/trademarks');
+    expect(config.USPTO_TSDR_SEARCH_URL).toBe('https://tsdr.uspto.gov/tsdr/tmsearch/data');
+  });
+
+  it('should honor explicit non-empty URL overrides', () => {
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_PROVIDER = 'env';
+    process.env.USPTO_SEARCH_URL = 'https://mirror.example.com/tmsearch';
+
+    const config = loadConfig();
+    expect(config.USPTO_SEARCH_URL).toBe('https://mirror.example.com/tmsearch');
+  });
+
+  it('should still reject malformed non-empty URLs', () => {
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_PROVIDER = 'env';
+    process.env.USPTO_SEARCH_URL = 'not-a-url';
+
+    expect(() => loadConfig()).toThrow();
+  });
+});

@@ -58,10 +58,12 @@ WORKDIR /app
 
 # Alpine v3.24's own package repo already carries the fix for 10 libssl3/
 # libcrypto3 CVEs (incl. CVE-2026-14456, HIGH) that shipped baked into
-# NODE_IMAGE's libssl3-3.5.7-r0. Pin the patched version explicitly rather
-# than a floating `apk upgrade` (ADR-0046: no untracked package drift) —
+# NODE_IMAGE's libssl3-3.5.7-r0. Require at least the patched release via a
+# version floor (not an exact pin): exact pins rot when Alpine drops the old
+# minor from the repo (3.5.8-r0 broke the build once 3.5.9-r0 landed) while a
+# floor keeps the CVE guarantee and survives repo updates (ADR-0046) —
 # drop this once a NODE_IMAGE digest bump picks up libssl3 >= 3.5.8-r0 baked in.
-RUN apk add --no-cache --upgrade libssl3=3.5.8-r0
+RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0'
 
 # Runtime strip (ADR-0046): the base image bundles the npm CLI with its own
 # dependency tree (/usr/local/lib/node_modules/npm). The runtime never
@@ -103,8 +105,8 @@ CMD ["dist/index.js"]
 FROM ${NODE_IMAGE} AS worker
 WORKDIR /app
 
-# Patched libssl3/libcrypto3 — see the comment in the api stage.
-RUN apk add --no-cache --upgrade libssl3=3.5.8-r0
+# Patched libssl3/libcrypto3 floor — see the comment in the api stage.
+RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0'
 
 # Runtime strip (ADR-0046): npm/corepack are unused at runtime — see the
 # comment in the api stage. Removes the bundled-npm CVE surface class from
@@ -148,8 +150,8 @@ CMD ["dist/worker-entrypoint.js"]
 FROM ${NODE_IMAGE} AS scheduler
 WORKDIR /app
 
-# Patched libssl3/libcrypto3 — see the comment in the api stage.
-RUN apk add --no-cache --upgrade libssl3=3.5.8-r0
+# Patched libssl3/libcrypto3 floor — see the comment in the api stage.
+RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0'
 
 # Runtime strip (ADR-0046): npm/corepack/npx are never used at runtime —
 # see the comment in the api stage.

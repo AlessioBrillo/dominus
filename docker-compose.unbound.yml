@@ -59,9 +59,32 @@ services:
           memory: 128M
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
-    command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
+    # NOTE: `command` replaces the image CMD (`/unbound.sh`), so the image
+    # entrypoint's config generation and `unbound-anchor` bootstrap never run.
+    # The anchor bootstrap is reproduced here explicitly: without a root
+    # trust anchor the validator treats every zone as insecure and the app's
+    # negative-control probe cannot prove DNSSEC validation — strict boot
+    # fails closed. The anchor path is chroot-relative (`var/root.key` under
+    # /opt/unbound/etc/unbound): an absolute /tmp path fails checkconf
+    # because unbound resolves it inside the chroot. Ownership mirrors the
+    # image entrypoint (_unbound) so RFC 5011 auto-updates keep working on
+    # long-lived deployments. The fetch is best-effort (`|| true`): unbound
+    # itself performs RFC 5011 tracking from the initial key once it has
+    # egress, and a missing key fails visibly at the app readiness probe
+    # instead of wedging container startup on exit codes.
+    command:
+      - sh
+      - -c
+      - mkdir -p /opt/unbound/etc/unbound/var && chown _unbound:_unbound /opt/unbound/etc/unbound/var && /opt/unbound/sbin/unbound-anchor -a /opt/unbound/etc/unbound/var/root.key || true; exec unbound -d -c /opt/unbound/unbound.conf
+    # Liveness probe via a bash TCP connect to the plain-DNS listener.
+    # The previous `ps aux | grep unbound` probe always failed: the
+    # mvance/unbound image ships no `ps` binary (exit 127), so the service
+    # never became healthy and every compose profile depending on it
+    # (E2E, smoke) failed at startup. A TCP connect proves the accept
+    # loop is alive without requiring upstream egress (a `drill` query
+    # would couple container health to external network/DNSSEC state).
     healthcheck:
-      test: ['CMD-SHELL', 'ps aux | grep -v grep | grep unbound']
+      test: ['CMD-SHELL', 'bash -c "</dev/tcp/127.0.0.1/5300"']
       interval: 15s
       timeout: 5s
       retries: 5

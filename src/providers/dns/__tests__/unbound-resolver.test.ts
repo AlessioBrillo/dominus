@@ -19,7 +19,23 @@ vi.mock('node:dns', () => {
       );
     }
     cancel(): void {}
-    setServers(_servers: string[]): void {}
+    /** Mirror real setServers: IP literals (with optional port) only —
+     *  hostnames throw ERR_INVALID_IP_ADDRESS like node:cares does. */
+    setServers(servers: string[]): void {
+      for (const entry of servers) {
+        const colonCount = (entry.match(/:/g) ?? []).length;
+        const host = entry.startsWith('[')
+          ? entry.slice(1, entry.indexOf(']'))
+          : colonCount === 1
+            ? entry.slice(0, entry.indexOf(':'))
+            : entry;
+        if (/[a-zA-Z]/.test(host)) {
+          const err = new Error(`Invalid IP address: ${entry}`) as Error & { code?: string };
+          err.code = 'ERR_INVALID_IP_ADDRESS';
+          throw err;
+        }
+      }
+    }
   }
   return { Resolver: MockResolver };
 });
@@ -125,6 +141,12 @@ describe('UnboundResolver', () => {
 
     it('should throw when unboundHosts is empty', () => {
       expect(() => new UnboundResolver({ unboundHosts: [] })).toThrow();
+    });
+
+    it('should throw an actionable error for hostname entries', () => {
+      expect(() => new UnboundResolver({ unboundHosts: ['unbound:5300'] })).toThrow(
+        /resolveUnboundHosts/,
+      );
     });
 
     it('should set cache disabled when maxSize <= 0', () => {
@@ -918,5 +940,98 @@ describe('UnboundResolver per-TLD timeout overrides', () => {
       'example.xyz',
       expect.objectContaining({ timeoutMs: 5000 }),
     );
+  });
+
+  it('stamps resolver-level (not per-query) when per-query validation times out', async () => {
+    await resolver.healthCheck();
+
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockResolvedValueOnce({
+      status: 'timeout',
+      chainValidated: false,
+      error: 'Validation timeout',
+      durationMs: 5000,
+      validatedAt: new Date().toISOString(),
+    });
+
+    const result = await resolver.checkAvailability('available-timeout.com');
+    expect(result.status).toBe(DomainStatus.Available);
+    expect(result.dnssec).toBe('valid');
+    expect(result.dnssecSource).toBe('resolver-level');
+  });
+
+  it('stamps per-query only when per-query validation cryptographically validates', async () => {
+    await resolver.healthCheck();
+
+    resolveFn.mockImplementation((domain) => {
+      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
+      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
+      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
+      return Promise.reject(dnsError('ENOTFOUND'));
+    });
+
+    mockValidateDnssecPerQuery.mockResolvedValueOnce({
+      status: 'valid',
+      chainValidated: true,
+      durationMs: 100,
+      validatedAt: new Date().toISOString(),
+    });
+
+    const result = await resolver.checkAvailability('available-validated.com');
+    expect(result.status).toBe(DomainStatus.Available);
+    expect(result.dnssec).toBe('valid');
+    expect(result.dnssecSource).toBe('per-query');
+  });
+});
+
+describe('UnboundResolver pre-binding socket check (live loopback sockets)', () => {
+  it('passes healthCheck over real TCP+UDP loopback sockets without crashing', async () => {
+    const { createServer } = await import('node:net');
+    const { createSocket } = await import('node:dgram');
+
+    // TCP acceptor on an ephemeral port; UDP echo on the SAME port number
+    // (TCP and UDP have separate number spaces, like the real resolver).
+    const tcpServer = createServer((socket) => socket.end());
+    await new Promise<void>((resolve) => tcpServer.listen(0, '127.0.0.1', () => resolve()));
+    const port = (tcpServer.address() as { port: number }).port;
+    const udpServer = createSocket('udp4');
+    udpServer.on('message', (msg, rinfo) => {
+      udpServer.send(msg, rinfo.port, rinfo.address);
+    });
+    await new Promise<void>((resolve) => udpServer.bind(port, '127.0.0.1', () => resolve()));
+
+    try {
+      resolveFn.mockImplementation((domain) => {
+        if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
+        return Promise.resolve(['1.2.3.4']);
+      });
+
+      // skipSocketCheck:false exercises the real TCP/UDP pre-binding probe:
+      // the UDP reply path previously called dgram destroy() (nonexistent)
+      // and crashed the process with an uncaught TypeError.
+      const r = new UnboundResolver({
+        unboundHosts: [`127.0.0.1:${port}`],
+        skipSocketCheck: false,
+        dnsPerQueryDnssec: false,
+      });
+      try {
+        const health = await r.healthCheck();
+        expect(health.healthy).toBe(true);
+        expect(health.dnssecValid).toBe(true);
+      } finally {
+        r.dispose();
+      }
+    } finally {
+      tcpServer.close();
+      udpServer.close();
+    }
   });
 });
