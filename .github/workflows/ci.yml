@@ -204,7 +204,12 @@ jobs:
           #    mount root-owned and the non-root `dominus` user gets
           #    SQLITE_CANTOPEN on /app/data/dominus.db (same step operators
           #    must run on a fresh clone — see README quick start).
-          mkdir -p data
+          #    777 is CI-only pragmatism: the files the runner creates are owned
+          #    by the runner UID, which differs from the image `dominus` UID,
+          #    so a plain mkdir stays unwritable. Ephemeral runner, no secrets
+          #    in ./data at this stage — never use 777 on a real deployment
+          #    (see the UID note in docs/deployment/README.md).
+          mkdir -p data && chmod 777 data
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
@@ -522,8 +527,10 @@ jobs:
         run: |
           # Pre-create ./data (see smoke job): the daemon would otherwise
           # create the bind mount root-owned and the API crashes with
-          # SQLITE_CANTOPEN as the non-root `dominus` user.
-          mkdir -p data
+          # SQLITE_CANTOPEN as the non-root `dominus` user. 777 is CI-only
+          # (runner-owned files stay unwritable to the image user);
+          # never on a real host.
+          mkdir -p data && chmod 777 data
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
           # Wait for API to be ready
           for i in $(seq 1 60); do

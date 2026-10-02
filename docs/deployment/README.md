@@ -7,7 +7,10 @@ DOMINUS is designed to run anywhere — from a laptop to a Kubernetes cluster. C
 ```bash
 # Create the SQLite bind-mount dir FIRST as your own user. The services run
 # as the non-root `dominus` user: if the daemon auto-creates ./data it is
-# root-owned and the API crashes with SQLITE_CANTOPEN on startup.
+# root-owned and the API crashes with SQLITE_CANTOPEN. If the container
+# still cannot write (your host UID differs from the image user), grant
+# write access explicitly (e.g. `chmod 775 data` with a shared group) —
+# never 777 on a machine holding a real portfolio.
 mkdir -p data
 
 # Build and run (api + worker + scheduler — the full application)
