@@ -1200,13 +1200,28 @@ export class UnboundResolver implements DnsProvider {
       });
     }
 
-    // UDP: use dgram socket
+    // UDP: use dgram socket. Note: dgram.Socket has close(), not destroy() —
+    // calling destroy() throws TypeError and crashes the process from the
+    // event handler. Guard teardown so each path runs exactly once.
     const dgram = await import('dgram');
     const udpSocket = dgram.createSocket('udp4');
     return new Promise<void>((resolve, reject) => {
+      let done = false;
+      const finish = (fn: () => void): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try {
+          udpSocket.close();
+        } catch {
+          // Already closed — teardown is idempotent from here.
+        }
+        fn();
+      };
       const timer = setTimeout(() => {
-        (udpSocket as unknown as { destroy: () => void }).destroy();
-        reject(new Error(`UDP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`));
+        finish(() =>
+          reject(new Error(`UDP connection to ${hostname}:${port} timed out after ${timeoutMs}ms`)),
+        );
       }, timeoutMs);
       // bind is always available on dgram sockets
       udpSocket.bind(0, () => {
@@ -1219,14 +1234,12 @@ export class UnboundResolver implements DnsProvider {
         udpSocket.send(query, 0, query.length, port, hostname);
       });
       udpSocket.on('message', () => {
-        clearTimeout(timer);
-        (udpSocket as unknown as { destroy: () => void }).destroy();
-        resolve();
+        finish(() => resolve());
       });
       udpSocket.on('error', (err: Error) => {
-        clearTimeout(timer);
-        (udpSocket as unknown as { destroy: () => void }).destroy();
-        reject(new Error(`UDP connection to ${hostname}:${port} failed: ${err.message}`));
+        finish(() =>
+          reject(new Error(`UDP connection to ${hostname}:${port} failed: ${err.message}`)),
+        );
       });
     });
   }
