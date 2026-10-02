@@ -519,16 +519,30 @@ async function main(): Promise<void> {
       deps.anonScoringService.dispose();
       logger.info('Anon scoring service disposed');
 
-      // Step 6: Close the database provider (SqliteProvider or PostgresAdapter).
-      // This tears down the connection pool managed by the provider.
+      // Step 6: Close the database providers (ADR-0080 explicit lifecycle).
+      // Order: write first (drain bulk writes), then read, then main.
+      // This tears down the pools/connections managed by each provider.
+      if (deps.writeProvider && deps.writeProvider !== deps.provider) {
+        await deps.writeProvider.close();
+        logger.info('Write database provider closed');
+      }
+
+      if (deps.readProvider && deps.readProvider !== deps.provider) {
+        await deps.readProvider.close();
+        logger.info('Read database provider closed');
+      }
+
       if (deps.provider) {
         await deps.provider.close();
       }
 
-      // Step 7: Close the bulk-write provider (separate WAL connection for SQLite,
-      // or secondary pg.Pool for PostgreSQL). Must happen after the main provider
-      // to avoid orphaned write transactions.
-      if (deps.bulkWriteProvider) {
+      // Step 7: Close the deprecated bulk-write alias (ADR-0080). It points
+      // at writeProvider, so skip when identical to avoid double-close.
+      if (
+        deps.bulkWriteProvider &&
+        deps.bulkWriteProvider !== deps.writeProvider &&
+        deps.bulkWriteProvider !== deps.provider
+      ) {
         await deps.bulkWriteProvider.close();
       }
 

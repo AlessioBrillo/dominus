@@ -65,6 +65,17 @@ async function main(): Promise<void> {
       deps.dnsProvider.dispose();
       logger.info('Worker entrypoint: DNS provider disposed');
     }
+    // ADR-0080 explicit lifecycle: close write, read, then main.
+    if (deps.writeProvider && deps.writeProvider !== deps.provider) {
+      await deps.writeProvider.close().catch(() => {});
+    }
+    if (deps.readProvider && deps.readProvider !== deps.provider) {
+      await deps.readProvider.close().catch(() => {});
+    }
+    if (deps.provider) {
+      await deps.provider.close().catch(() => {});
+    }
+    logger.info('Worker entrypoint: database providers closed');
     shutdownComplete();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
