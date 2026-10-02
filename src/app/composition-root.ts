@@ -4,13 +4,7 @@ import type { Config } from '../config.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { ensureSchemaUpToDate } from '../db/migrator.js';
 import { getLogger } from '../logger.js';
-import {
-  openDatabase,
-  createDatabaseProvider,
-  createSqliteProvider,
-  createBulkWriteDatabaseProvider,
-} from '../db/index.js';
-import { PostgresAdapter } from '../db/provider/postgres-adapter.js';
+import { openDatabase, createDatabaseProvider, createSqliteProvider } from '../db/index.js';
 import {
   CandidateRepository,
   ScoringRepository,
@@ -160,6 +154,10 @@ const logger = getLogger();
 export interface DominusDependencies {
   db: Database.Database | null;
   provider: DatabaseProvider;
+  /** Read-optimized provider for API lookups (ADR-0080). Tracked for shutdown lifecycle. */
+  readProvider: DatabaseProvider;
+  /** Single write-optimized provider for all bulk writes (ADR-0080). Tracked for shutdown lifecycle. */
+  writeProvider: DatabaseProvider;
   config: Config;
 
   candidateRepo: CandidateRepository;
@@ -219,6 +217,10 @@ export interface DominusDependencies {
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
+  /**
+   * Deprecated alias for writeProvider (ADR-0080). Retained for one release
+   * to avoid breaking external consumers. New code must use writeProvider.
+   */
   bulkWriteProvider: DatabaseProvider | undefined;
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
@@ -585,13 +587,27 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   warnEuipoIfMissing(config);
 
-  // --- Read/Write Provider Separation ---
+  // --- Read/Write Provider Separation (ADR-0080) ---
   // Create read-optimized and write-optimized connections to reduce contention.
   // - Read provider: busy_timeout=5s (SQLite) / pool=10 (PG) — fast fail for API reads
   // - Write provider: busy_timeout=60s (SQLite) / pool=3 (PG) — wait for locks on bulk writes
+  // Single writer: writeProvider serves both orchestrator busy-timeout policy
+  // AND run-service persistence. No separate bulkWrite pool.
+  if (typeof provider.createReadReplica !== 'function') {
+    throw new Error(
+      'DatabaseProvider.createReadReplica() is required (ADR-0080). ' +
+        'The configured provider does not implement it.',
+    );
+  }
+  if (typeof provider.createWriteConnection !== 'function') {
+    throw new Error(
+      'DatabaseProvider.createWriteConnection() is required (ADR-0080). ' +
+        'The configured provider does not implement it.',
+    );
+  }
   const [readProvider, writeProvider] = await Promise.all([
-    provider.createReadReplica!(),
-    provider.createWriteConnection!(),
+    provider.createReadReplica(),
+    provider.createWriteConnection(),
   ]);
 
   // --- Database & Repositories ---
@@ -665,13 +681,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.adminRepo,
   );
 
-  // Dedicated bulk-write pool for pipeline persistence.
-  // SQLite: separate WAL connection with shorter busy_timeout (5s) for write transactions.
-  // PostgreSQL: secondary pg.Pool with fewer connections (3) so large pipeline
-  // transactions don't starve read queries on the main pool.
-  const bulkWriteProvider = config.DATABASE_URL
-    ? await PostgresAdapter.createBulkWrite(config.DATABASE_URL)
-    : createBulkWriteDatabaseProvider(config.DATABASE_PATH, 5000);
+  // Single write provider (ADR-0080): orchestrator busy-timeout policy and
+  // run-service persistence share writeProvider. The legacy bulkWriteProvider
+  // field is retained as a deprecated alias below.
+  const bulkWriteProvider = writeProvider;
 
   // --- Redis (distributed rate limiting, caching, locking) ---
   // When REDIS_URL is configured, create a shared Redis client and pass it
@@ -1333,6 +1346,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     db,
     config,
     ...repos,
+    readProvider,
+    writeProvider,
     dnsProvider,
     keywordProvider: cachedKeywordProvider,
     compsProvider: cachedCompsProvider,

@@ -51,6 +51,17 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Scheduler entrypoint: received shutdown signal');
     healthcheck.close();
     scheduler.stop();
+    // ADR-0080 explicit lifecycle: close write, read, then main.
+    if (deps.writeProvider && deps.writeProvider !== deps.provider) {
+      await deps.writeProvider.close().catch(() => {});
+    }
+    if (deps.readProvider && deps.readProvider !== deps.provider) {
+      await deps.readProvider.close().catch(() => {});
+    }
+    if (deps.provider) {
+      await deps.provider.close().catch(() => {});
+    }
+    logger.info('Scheduler entrypoint: database providers closed');
     shutdownComplete();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
