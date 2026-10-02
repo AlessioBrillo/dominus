@@ -59,7 +59,17 @@ services:
           memory: 128M
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
-    command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
+    # NOTE: `command` replaces the image CMD (`/unbound.sh`), so the image
+    # entrypoint's config generation and `unbound-anchor` bootstrap never run.
+    # The anchor bootstrap is reproduced here explicitly: without a root
+    # trust anchor the validator treats every zone as insecure and the app's
+    # negative-control probe cannot prove DNSSEC validation — strict boot
+    # fails closed. `&&` keeps the container crash-looping (visible, healthy=0)
+    # instead of serving unvalidated answers when the fetch fails.
+    command:
+      - sh
+      - -c
+      - /opt/unbound/sbin/unbound-anchor -a /tmp/root.key && exec unbound -d -c /opt/unbound/unbound.conf
     # Liveness probe via a bash TCP connect to the plain-DNS listener.
     # The previous `ps aux | grep unbound` probe always failed: the
     # mvance/unbound image ships no `ps` binary (exit 127), so the service
