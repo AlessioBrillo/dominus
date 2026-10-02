@@ -57,6 +57,10 @@ services:
       - BUY_MAX_ABSOLUTE_CAP=${BUY_MAX_ABSOLUTE_CAP:-0}
       - TRUST_PROXY_DEPTH=${TRUST_PROXY_DEPTH:-0}
       - FRONTEND_DIST_PATH=./frontend/dist
+      # Boot-required: HOST below is 0.0.0.0, so the API refuses to start
+      # without authentication (fail-closed guard in src/index.ts). Generate
+      # one with `openssl rand -hex 32` and export API_KEYS before `up -d`.
+      - API_KEYS=${API_KEYS:-}
       - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
       - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
       - WORKER_ENABLED=false

@@ -13,6 +13,10 @@ DOMINUS is designed to run anywhere — from a laptop to a Kubernetes cluster. C
 # never 777 on a machine holding a real portfolio.
 mkdir -p data
 
+# Generate an API key: the compose stack binds 0.0.0.0 and refuses to boot
+# without authentication (fail-closed — bypassing it is not supported).
+export API_KEYS="$(openssl rand -hex 32)"
+
 # Build and run (api + worker + scheduler — the full application)
 docker compose up -d
 

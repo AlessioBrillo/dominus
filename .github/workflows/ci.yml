@@ -210,8 +210,11 @@ jobs:
           #    in ./data at this stage — never use 777 on a real deployment
           #    (see the UID note in docs/deployment/README.md).
           mkdir -p data && chmod 777 data
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
+          # Boot with authentication active: HOST=0.0.0.0 in compose refuses
+          # to start unauthenticated (fail-closed). /api/health stays public,
+          # so the polled endpoint is unaffected by the dummy key.
+          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
+          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
           LOGS_PID=$!
           
@@ -534,7 +537,10 @@ jobs:
           # (runner-owned files stay unwritable to the image user);
           # never on a real host.
           mkdir -p data && chmod 777 data
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+          # Dummy key: HOST=0.0.0.0 refuses to boot unauthenticated
+          # (fail-closed); without it the composed API crash-loops and the
+          # readiness gate below is meaningless.
+          API_KEYS=ci-e2e-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
           # Wait for API to be ready
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
