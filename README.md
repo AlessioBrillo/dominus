@@ -93,6 +93,8 @@ Or with Docker:
 
 ```bash
 docker build -t dominus .
+mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
+               # ./data would be root-owned and SQLite cannot open it there
 docker run -d -p 3000:3000 -v ./data:/app/data dominus
 ```
 

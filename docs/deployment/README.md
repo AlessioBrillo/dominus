@@ -5,6 +5,11 @@ DOMINUS is designed to run anywhere — from a laptop to a Kubernetes cluster. C
 ## Quick Start (Docker)
 
 ```bash
+# Create the SQLite bind-mount dir FIRST as your own user. The services run
+# as the non-root `dominus` user: if the daemon auto-creates ./data it is
+# root-owned and the API crashes with SQLITE_CANTOPEN on startup.
+mkdir -p data
+
 # Build and run (api + worker + scheduler — the full application)
 docker compose up -d
 

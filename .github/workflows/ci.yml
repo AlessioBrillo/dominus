@@ -200,6 +200,11 @@ jobs:
           # 3. The API must boot and answer /api/health (unauthenticated).
           #    Use docker-compose with unbound overlay to start Unbound + API together.
           #    This validates the full production stack (ADR-0075: Unbound mandatory).
+          #    Pre-create ./data first: otherwise the daemon creates the bind
+          #    mount root-owned and the non-root `dominus` user gets
+          #    SQLITE_CANTOPEN on /app/data/dominus.db (same step operators
+          #    must run on a fresh clone — see README quick start).
+          mkdir -p data
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
@@ -515,6 +520,10 @@ jobs:
 
       - name: Start services with Unbound (ADR-0075)
         run: |
+          # Pre-create ./data (see smoke job): the daemon would otherwise
+          # create the bind mount root-owned and the API crashes with
+          # SQLITE_CANTOPEN as the non-root `dominus` user.
+          mkdir -p data
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
           # Wait for API to be ready
           for i in $(seq 1 60); do
