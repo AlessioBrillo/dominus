@@ -66,14 +66,16 @@ services:
     # negative-control probe cannot prove DNSSEC validation — strict boot
     # fails closed. The anchor path is chroot-relative (`var/root.key` under
     # /opt/unbound/etc/unbound): an absolute /tmp path fails checkconf
-    # because unbound resolves it inside the chroot. The fetch is best-effort
-    # (`|| true`): unbound itself performs RFC 5011 tracking from the initial
-    # key once it has egress, and a missing key fails visibly at the app
-    # readiness probe instead of wedging container startup on exit codes.
+    # because unbound resolves it inside the chroot. Ownership mirrors the
+    # image entrypoint (_unbound) so RFC 5011 auto-updates keep working on
+    # long-lived deployments. The fetch is best-effort (`|| true`): unbound
+    # itself performs RFC 5011 tracking from the initial key once it has
+    # egress, and a missing key fails visibly at the app readiness probe
+    # instead of wedging container startup on exit codes.
     command:
       - sh
       - -c
-      - mkdir -p /opt/unbound/etc/unbound/var && /opt/unbound/sbin/unbound-anchor -a /opt/unbound/etc/unbound/var/root.key || true; exec unbound -d -c /opt/unbound/unbound.conf
+      - mkdir -p /opt/unbound/etc/unbound/var && chown _unbound:_unbound /opt/unbound/etc/unbound/var && /opt/unbound/sbin/unbound-anchor -a /opt/unbound/etc/unbound/var/root.key || true; exec unbound -d -c /opt/unbound/unbound.conf
     # Liveness probe via a bash TCP connect to the plain-DNS listener.
     # The previous `ps aux | grep unbound` probe always failed: the
     # mvance/unbound image ships no `ps` binary (exit 127), so the service
