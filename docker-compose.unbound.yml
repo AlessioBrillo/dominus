@@ -60,8 +60,15 @@ services:
     volumes:
       - ./deploy/unbound/unbound.conf:/opt/unbound/unbound.conf:ro
     command: ['unbound', '-d', '-c', '/opt/unbound/unbound.conf']
+    # Liveness probe via a bash TCP connect to the plain-DNS listener.
+    # The previous `ps aux | grep unbound` probe always failed: the
+    # mvance/unbound image ships no `ps` binary (exit 127), so the service
+    # never became healthy and every compose profile depending on it
+    # (E2E, smoke) failed at startup. A TCP connect proves the accept
+    # loop is alive without requiring upstream egress (a `drill` query
+    # would couple container health to external network/DNSSEC state).
     healthcheck:
-      test: ['CMD-SHELL', 'ps aux | grep -v grep | grep unbound']
+      test: ['CMD-SHELL', 'bash -c "</dev/tcp/127.0.0.1/5300"']
       interval: 15s
       timeout: 5s
       retries: 5
