@@ -81,6 +81,7 @@ re-running the original arguments.
 | [0077](0077-rdap-consensus-per-tld-authoritative-secondary.md) | RDAP consensus per-TLD authoritative secondary providers — IANA bootstrap routed second leg                                  | 2026-09-25 | Accepted                            |
 | [0078](0078-dns-resolver-resilience-hardening.md)           | DNS Resolver Resilience Hardening — Quorum, DNSSEC State Persistence, Cache Purge on Validation Loss                         | 2026-09-28 | Proposed                            |
 | [0079](0079-dns-fallback-fail-closed-hardening.md)           | DNS fallback fail-closed hardening — DoH config honesty, per-query provenance truth, index-based bulk merge                    | 2026-10-01 | Accepted                            |
+| [0080](0080-db-connection-topology.md)                     | DB connection topology — single writer, explicit lifecycle, read-your-write                                                    | 2026-10-02 | Proposed                            |
 
 ## Conventions
 
