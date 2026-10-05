@@ -8,7 +8,6 @@ import { getLogger } from '../../logger.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
 import type { RetryPolicy } from '../retry-policy.js';
-import { withRetry } from '../retry-utils.js';
 
 const logger = getLogger();
 
@@ -202,20 +201,33 @@ export class NodeDnsFallback implements DnsProvider {
     const lookupStartTime = startTime ?? Date.now();
 
     try {
-      const resolveFn = (): Promise<boolean | undefined> => this.#resolveDomain(domain);
+      const resolveFn = async (attempt: number = 1): Promise<boolean | undefined> => {
+        const timeout = Math.round(this.#lookupTimeoutMs * Math.pow(1.5, attempt - 1));
+        return this.#resolveDomain(domain, timeout);
+      };
 
       let resolved: boolean | undefined;
 
-      if (this.#rateLimiter && this.#retryPolicy) {
-        await this.#rateLimiter.acquire();
-        resolved = await withRetry(resolveFn, `node-dns:${domain}`, this.#retryPolicy, undefined);
-      } else if (this.#rateLimiter) {
-        await this.#rateLimiter.acquire();
-        resolved = await resolveFn();
-      } else if (this.#retryPolicy) {
-        resolved = await withRetry(resolveFn, `node-dns:${domain}`, this.#retryPolicy, undefined);
-      } else {
-        resolved = await resolveFn();
+      const maxAttempts = this.#retryPolicy?.maxAttempts ?? 3;
+      const baseDelayMs = this.#retryPolicy?.baseDelayMs ?? 200;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          if (_signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+          if (this.#rateLimiter) await this.#rateLimiter.acquire();
+
+          resolved = await resolveFn(attempt);
+          if (resolved !== undefined) break;
+        } catch (err) {
+          if (
+            attempt >= maxAttempts ||
+            (err instanceof DOMException && err.name === 'AbortError')
+          ) {
+            throw err;
+          }
+          const delay = baseDelayMs * Math.pow(2, attempt - 1);
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
 
       // NodeDnsFallback does NOT perform DNSSEC validation.
@@ -278,12 +290,13 @@ export class NodeDnsFallback implements DnsProvider {
     }
   }
 
-  async #resolveDomain(domain: string): Promise<boolean | undefined> {
+  async #resolveDomain(domain: string, timeoutMs?: number): Promise<boolean | undefined> {
+    const timeout = timeoutMs ?? this.#lookupTimeoutMs;
     // Two-phase resolution: A then NS+SOA
     // Mirrors the conservative approach in UnboundResolver
     try {
       // Phase 1: A record only — fastest path
-      const aOutcome = await this.#resolveWithTimeout(domain, 'A', this.#lookupTimeoutMs)
+      const aOutcome = await this.#resolveWithTimeout(domain, 'A', timeout)
         .then(() => true as const)
         .catch((err: unknown) => {
           const e = err as { code?: string; name?: string };
@@ -303,7 +316,7 @@ export class NodeDnsFallback implements DnsProvider {
       const fallbackTypes: DnsRecordType[] = ['NS', 'SOA'];
       const fallbackOutcomes = await Promise.all(
         fallbackTypes.map((type) =>
-          this.#resolveWithTimeout(domain, type, this.#lookupTimeoutMs, fallbackSignal)
+          this.#resolveWithTimeout(domain, type, timeout, fallbackSignal)
             .then(() => {
               fallbackAc.abort();
               return {

@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { getLogger } from '../../logger.js';
+import { LRUCache } from 'lru-cache';
 
 const logger = getLogger();
+
+// Cache for DNSSEC validation results
+const dnssecCache = new LRUCache<string, DnssecValidationResult>({
+  max: 1000,
+  ttl: 600_000, // 10 minutes
+});
 
 /**
  * DNSSEC validation result.
@@ -237,13 +244,24 @@ export async function validateDnssecChain(
   queryType: number,
   _trustedAnchors: Map<string, DnsRecord[]> = new Map(),
 ): Promise<DnssecValidationResult> {
+  const cacheKey = `${queryName}:${queryType}:${responseMsg.toString('hex')}`;
+  const cached = dnssecCache.get(cacheKey);
+  if (cached) return cached;
+
   const parsed = parseDnsMessage(responseMsg);
   const adFlag = hasAdFlag(parsed.header.flags);
   const edns0 = extractEdns0(parsed.additional);
   const doBit = edns0?.doBit ?? false;
 
   if (!doBit) {
-    return { status: 'unchecked', reason: 'DO bit not set in query', adFlag, doBit: false };
+    const result: DnssecValidationResult = {
+      status: 'unchecked',
+      reason: 'DO bit not set in query',
+      adFlag,
+      doBit: false,
+    };
+    dnssecCache.set(cacheKey, result);
+    return result;
   }
 
   // If AD flag is set, the resolver claims validation passed
@@ -251,7 +269,14 @@ export async function validateDnssecChain(
     // Additional local validation would go here
     // For now, trust the resolver's AD flag but log for audit
     logger.debug({ queryName, queryType }, 'DNSSEC: AD flag set, trusting resolver validation');
-    return { status: 'valid', reason: 'AD flag set by resolver', adFlag, doBit };
+    const result: DnssecValidationResult = {
+      status: 'valid',
+      reason: 'AD flag set by resolver',
+      adFlag,
+      doBit,
+    };
+    dnssecCache.set(cacheKey, result);
+    return result;
   }
 
   // No AD flag - need to validate locally
@@ -261,7 +286,14 @@ export async function validateDnssecChain(
   // Find the zone apex (simplified: use query name's parent)
   const zoneParts = queryName.split('.');
   if (zoneParts.length < 2) {
-    return { status: 'insecure', reason: 'Root zone or TLD not validated', adFlag, doBit };
+    const result: DnssecValidationResult = {
+      status: 'insecure',
+      reason: 'Root zone or TLD not validated',
+      adFlag,
+      doBit,
+    };
+    dnssecCache.set(cacheKey, result);
+    return result;
   }
   const zone = zoneParts.slice(1).join('.') + '.';
 
@@ -269,19 +301,40 @@ export async function validateDnssecChain(
   const dsRecords = findDsRecords(parsed.authority, zone);
   if (dsRecords.length === 0) {
     // No DS at parent = zone not signed
-    return { status: 'insecure', reason: 'No DS records at parent zone', adFlag, doBit };
+    const result: DnssecValidationResult = {
+      status: 'insecure',
+      reason: 'No DS records at parent zone',
+      adFlag,
+      doBit,
+    };
+    dnssecCache.set(cacheKey, result);
+    return result;
   }
 
   // Find DNSKEY in authority or additional
   const dnskeyRecords = findDnskeyRecords(allRecords, zone);
   if (dnskeyRecords.length === 0) {
-    return { status: 'bogus', reason: 'DS present but no DNSKEY in response', adFlag, doBit };
+    const result: DnssecValidationResult = {
+      status: 'bogus',
+      reason: 'DS present but no DNSKEY in response',
+      adFlag,
+      doBit,
+    };
+    dnssecCache.set(cacheKey, result);
+    return result;
   }
 
   // Find RRSIGs covering the answer RRset
   const answerRrsigs = findRrsigRecords(allRecords, queryName, queryType);
   if (answerRrsigs.length === 0) {
-    return { status: 'bogus', reason: 'No RRSIG covering answer RRset', adFlag, doBit };
+    const result: DnssecValidationResult = {
+      status: 'bogus',
+      reason: 'No RRSIG covering answer RRset',
+      adFlag,
+      doBit,
+    };
+    dnssecCache.set(cacheKey, result);
+    return result;
   }
 
   // Validate each RRSIG against DNSKEY
@@ -290,12 +343,26 @@ export async function validateDnssecChain(
     for (const dnskey of dnskeyRecords) {
       const valid = await validateRrsig(rrsig, answerRrset, dnskey);
       if (!valid) {
-        return { status: 'bogus', reason: 'RRSIG validation failed', adFlag, doBit };
+        const result: DnssecValidationResult = {
+          status: 'bogus',
+          reason: 'RRSIG validation failed',
+          adFlag,
+          doBit,
+        };
+        dnssecCache.set(cacheKey, result);
+        return result;
       }
     }
   }
 
-  return { status: 'valid', reason: 'Local validation passed', adFlag, doBit };
+  const result: DnssecValidationResult = {
+    status: 'valid',
+    reason: 'Local validation passed',
+    adFlag,
+    doBit,
+  };
+  dnssecCache.set(cacheKey, result);
+  return result;
 }
 
 /**
