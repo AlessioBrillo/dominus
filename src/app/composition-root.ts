@@ -148,6 +148,7 @@ import {
   HANDLERS,
 } from '../jobs/index.js';
 import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
+import { DnsMonitor } from '../services/dns-monitor.js';
 
 const logger = getLogger();
 
@@ -185,6 +186,7 @@ export interface DominusDependencies {
   compsProvider: CompsProvider;
   whoisProvider: WhoisProvider;
   dnsProvider: DnsProvider;
+  dnsMonitor: DnsMonitor;
 
   currentWeights: ScoringWeights;
   engine: ScoringEngine;
@@ -771,13 +773,28 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     await dnsBreakers.loadState(repos.providerCacheRepo);
   }
 
+  const dnsMonitor = new DnsMonitor();
+
   const dnsProvider = await buildDnsProvider(
     config,
     repos.providerCacheRepo,
     dnsRateLimiter,
     dnsBreakers,
     {
-      recordUnboundResolution: (stats) => metrics.recordUnboundResolution(stats),
+      recordUnboundResolution: (stats) => {
+        metrics.recordUnboundResolution(stats);
+        const errType =
+          stats.dnssec === 'bogus'
+            ? 'dnssec_bogus'
+            : stats.status === 'unknown'
+              ? 'unknown_status'
+              : undefined;
+        dnsMonitor.recordProbe({
+          durationMs: stats.durationMs,
+          success: stats.status !== 'unknown' && stats.dnssec !== 'bogus',
+          ...(errType !== undefined ? { errorType: errType } : {}),
+        });
+      },
       recordUnboundHostDnssecChange: (host, validating) =>
         metrics.recordUnboundHostDnssecChange(host, validating),
       recordUnboundHealthyHosts: (count) => metrics.recordUnboundHealthyHosts(count),
@@ -1025,6 +1042,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.DNS_BULK_CONCURRENCY,
       [], // No sources skipped — closeout CSV candidates now go through DNS with forceRecheck
       config.DNSSEC_MODE,
+      dnsMonitor,
     ),
     new RdapConfirmationStage(
       cachedRdapProvider,
@@ -1349,6 +1367,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     readProvider,
     writeProvider,
     dnsProvider,
+    dnsMonitor,
     keywordProvider: cachedKeywordProvider,
     compsProvider: cachedCompsProvider,
     whoisProvider,

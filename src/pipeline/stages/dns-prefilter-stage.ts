@@ -7,6 +7,7 @@ import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { Stage, StageResult } from '../stage.js';
 import { isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
+import type { DnsMonitor } from '../../services/dns-monitor.js';
 
 const logger = getLogger();
 
@@ -22,6 +23,7 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
      * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
      * - 'disabled': DNSSEC not required for Available verdicts. */
     private readonly dnssecMode: 'strict' | 'permissive' | 'disabled' = 'strict',
+    private readonly dnsMonitor?: DnsMonitor,
   ) {}
 
   async process(
@@ -30,6 +32,13 @@ export class DnsPreFilterStage implements Stage<DomainCandidate> {
   ): Promise<StageResult<DomainCandidate>> {
     const start = Date.now();
     if (signal?.aborted) return { passed: [], filtered: [], stageName: this.name, durationMs: 0 };
+
+    if (this.dnsMonitor?.getMetrics().isDegraded) {
+      logger.warn(
+        { stage: this.name, metrics: this.dnsMonitor.getMetrics() },
+        'DnsMonitor reports degraded DNS performance — adaptive load shedding active',
+      );
+    }
 
     const toFilter: DomainCandidate[] = [];
     const toSkip: DomainCandidate[] = [];
