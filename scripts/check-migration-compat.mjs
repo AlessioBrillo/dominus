@@ -192,6 +192,7 @@ export function scanMigrationContent(content, file) {
     findings.push(`${file}: DELETE FROM — irreversible data deletion`);
   }
 
+
   return findings;
 }
 
