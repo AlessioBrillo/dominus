@@ -96,14 +96,14 @@ export class TeamSeatsRepository {
          role = excluded.role,
          invited_by = excluded.invited_by,
          status = 'pending',
-         invited_at = datetime('now')`,
+         invited_at = CURRENT_TIMESTAMP`,
       [tenantId, userId, role, invitedBy],
     );
   }
 
   async acceptInvite(tenantId: string, userId: string): Promise<void> {
     await this.#db.exec(
-      "UPDATE team_seats SET status = 'active', joined_at = datetime('now') WHERE tenant_id = ? AND user_id = ?",
+      "UPDATE team_seats SET status = 'active', joined_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND user_id = ?",
       [tenantId, userId],
     );
   }

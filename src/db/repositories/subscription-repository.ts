@@ -54,7 +54,7 @@ export class SubscriptionRepository {
          current_period_start = excluded.current_period_start,
          current_period_end = excluded.current_period_end,
          trial_end = excluded.trial_end,
-         updated_at = datetime('now')`,
+         updated_at = CURRENT_TIMESTAMP`,
       [
         sub.tenantId,
         sub.plan,
@@ -70,7 +70,7 @@ export class SubscriptionRepository {
 
   async updateStatus(tenantId: string, status: SubscriptionStatus): Promise<void> {
     await this.#db.exec(
-      "UPDATE tenant_subscriptions SET status = ?, updated_at = datetime('now') WHERE tenant_id = ?",
+      'UPDATE tenant_subscriptions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?',
       [status, tenantId],
     );
   }
@@ -86,7 +86,7 @@ export class SubscriptionRepository {
     await this.#db.exec(
       `UPDATE tenant_subscriptions
        SET stripe_subscription_id = ?, status = ?, current_period_start = ?, current_period_end = ?,
-           plan = COALESCE(?, plan), updated_at = datetime('now')
+           plan = COALESCE(?, plan), updated_at = CURRENT_TIMESTAMP
        WHERE tenant_id = ?`,
       [stripeSubscriptionId, status, periodStart, periodEnd, plan ?? null, tenantId],
     );
@@ -94,7 +94,7 @@ export class SubscriptionRepository {
 
   async cancel(tenantId: string, canceledAt: string): Promise<void> {
     await this.#db.exec(
-      "UPDATE tenant_subscriptions SET status = 'canceled', canceled_at = ?, updated_at = datetime('now') WHERE tenant_id = ?",
+      "UPDATE tenant_subscriptions SET status = 'canceled', canceled_at = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?",
       [canceledAt, tenantId],
     );
   }

@@ -51,9 +51,16 @@ export class MetricsRepository {
     await this.db.transaction(async () => {
       for (const row of stages) {
         await this.db.exec(
-          `INSERT OR REPLACE INTO pipeline_metrics
+          `INSERT INTO pipeline_metrics
             (pipeline_run_id, stage_name, passed, filtered, duration_ms, error, retries, error_codes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(pipeline_run_id, stage_name) DO UPDATE SET
+            passed = excluded.passed,
+            filtered = excluded.filtered,
+            duration_ms = excluded.duration_ms,
+            error = excluded.error,
+            retries = excluded.retries,
+            error_codes = excluded.error_codes`,
           [
             runId,
             row.stageName,

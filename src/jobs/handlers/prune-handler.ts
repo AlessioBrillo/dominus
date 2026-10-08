@@ -8,6 +8,7 @@ import type { JobQueueRepository } from '../../db/repositories/job-queue-reposit
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { PrunePayload, PruneResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
+import { sqlTimestamp } from '../../db/sql-timestamp.js';
 
 const logger = getLogger();
 
@@ -42,8 +43,9 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
     const deletedPipelineRuns = await this.deps.pipelineRunsRepo.pruneBefore(cutoff);
     const deletedProviderCache = await this.deps.providerCacheRepo.pruneExpired();
     const deletedJobQueue = await this.deps.jobQueueRepo.deleteCompleted(7);
+    // Raw better-sqlite3 handle; absent (0) on PostgreSQL deployments.
     const deletedWaybackCache = this.deps.db
-      ? this.deps.db.prepare("DELETE FROM wayback_cache WHERE expires_at < datetime('now')").run()
+      ? this.deps.db.prepare('DELETE FROM wayback_cache WHERE expires_at < ?').run(sqlTimestamp())
           .changes
       : 0;
 

@@ -58,11 +58,44 @@ function lastResult<T>(result: T | T[]): T {
   return Array.isArray(result) ? result[result.length - 1]! : result;
 }
 
+/** table name → has an `id` column. Schema is fixed per process, so cache for life. */
+const idColumnCache = new Map<string, boolean>();
+
+const INSERT_TARGET = /^\s*INSERT\s+INTO\s+"?([A-Za-z_][\w]*)"?/i;
+
 function createPgExecutor(queryFn: QueryFn): PgExecutor {
+  /**
+   * `lastInsertRowid` parity with SQLite needs `RETURNING id`, but appending it
+   * blindly makes every INSERT into an id-less table (auth_rate_limits,
+   * onboarding_state, tenant_admin_flags, ...) fail with "column id does not
+   * exist". Only ask for it when the target table actually has one.
+   */
+  async function wantsReturningId(sql: string): Promise<boolean> {
+    if (!/^\s*INSERT\s/i.test(sql) || hasReturning(sql)) return false;
+    const table = INSERT_TARGET.exec(sql)?.[1]?.toLowerCase();
+    if (!table) return false;
+    const cached = idColumnCache.get(table);
+    if (cached !== undefined) return cached;
+    // to_regclass resolves through search_path (incl. pg_temp) like the INSERT will.
+    const probe = lastResult(
+      await queryFn(
+        `SELECT (SELECT 1 FROM pg_attribute
+                  WHERE attrelid = to_regclass($1) AND attname = 'id' AND NOT attisdropped) AS has_id,
+                to_regclass($1) IS NOT NULL AS found`,
+        [table],
+      ),
+    );
+    const row = probe.rows[0] as { has_id: number | null; found: boolean } | undefined;
+    const has = row?.has_id != null;
+    if (row?.found) idColumnCache.set(table, has);
+    return has;
+  }
+
   async function exec(sql: string, params?: unknown[]): Promise<ExecResult> {
     try {
-      const isInsert = /^\s*INSERT\s/i.test(sql) && !hasReturning(sql);
-      const text = isInsert ? `${convertPlaceholders(sql)} RETURNING id` : convertPlaceholders(sql);
+      const text = (await wantsReturningId(sql))
+        ? `${convertPlaceholders(sql)} RETURNING id`
+        : convertPlaceholders(sql);
       const result = lastResult(await queryFn(text, params ?? []));
       return {
         changes: result.rowCount ?? 0,
@@ -259,6 +292,12 @@ export class PostgresAdapter implements DatabaseProvider {
     options: { max?: number; schema?: string } = {},
   ): Promise<PostgresAdapter> {
     const { default: Pg } = await import('pg');
+    // SQLite hands back JS numbers for COUNT(*) and REAL columns; node-postgres
+    // returns int8 (COUNT, bigserial) and numeric as strings. Repositories are
+    // dialect-agnostic, so normalise here. Safe: counts and money amounts stay
+    // far below 2^53.
+    Pg.types.setTypeParser(20, (v: string) => Number(v));
+    Pg.types.setTypeParser(1700, (v: string) => Number(v));
     const pool = new Pg.Pool({
       connectionString,
       max: options.max ?? 10,

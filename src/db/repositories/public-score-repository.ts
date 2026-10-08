@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
+import { sqlTimestampAgo } from '../sql-timestamp.js';
 
 export interface PublicScoreRow {
   slug: string;
@@ -69,8 +70,8 @@ export class PublicScoreRepository {
 
   async listRecentScores(days: number, limit: number): Promise<PublicScoreSitemapRow[]> {
     return this.db.query<PublicScoreSitemapRow>(
-      `SELECT slug, domain, created_at FROM public_scores WHERE created_at > datetime('now', ? || ' days') ORDER BY created_at DESC LIMIT ?`,
-      [`-${days}`, limit],
+      `SELECT slug, domain, created_at FROM public_scores WHERE created_at > ? ORDER BY created_at DESC LIMIT ?`,
+      [sqlTimestampAgo(days * 86_400_000), limit],
     );
   }
 

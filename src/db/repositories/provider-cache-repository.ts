@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
+import { sqlTimestamp } from '../sql-timestamp.js';
 
 export interface ProviderCacheRow {
   id: number;
@@ -24,21 +25,22 @@ export class ProviderCacheRepository {
   }
 
   async set(cacheKey: string, providerName: string, value: string, ttlDays: number): Promise<void> {
-    const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .replace('T', ' ')
-      .replace(/\.\d{3}Z$/, '');
+    const expiresAt = sqlTimestamp(new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000));
     await this.db.exec(
-      `INSERT OR REPLACE INTO provider_cache (cache_key, provider_name, value, expires_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO provider_cache (cache_key, provider_name, value, expires_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(cache_key, provider_name) DO UPDATE SET
+         value = excluded.value,
+         expires_at = excluded.expires_at,
+         created_at = CURRENT_TIMESTAMP`,
       [cacheKey, providerName, value, expiresAt],
     );
   }
 
   async pruneExpired(): Promise<number> {
-    const result = await this.db.exec(
-      `DELETE FROM provider_cache WHERE expires_at < CURRENT_TIMESTAMP`,
-    );
+    const result = await this.db.exec(`DELETE FROM provider_cache WHERE expires_at < ?`, [
+      sqlTimestamp(),
+    ]);
     return Number(result.changes);
   }
 

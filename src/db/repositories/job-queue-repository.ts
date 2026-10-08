@@ -3,6 +3,10 @@
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { JobQueueRow, JobQueueStats, DeadLetterJobRow } from '../../types/job-queue.js';
 
+/** First retry waits 5s, doubling per attempt up to 5 minutes. */
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 5 * 60_000;
+
 export class JobQueueRepository {
   #db: DatabaseProvider;
 
@@ -182,21 +186,25 @@ export class JobQueueRepository {
     const job = await this.getById(jobId);
     if (!job) return false;
 
-    const nextAttempt = job.attempts + 1;
-    const isDeadLetter = nextAttempt > job.maxAttempts;
-
-    if (isDeadLetter) {
-      await this.moveToDeadLetter(jobId, error, nextAttempt);
+    // dequeue() already counted this execution in `attempts`, so it is both
+    // the number of runs so far and what the dead-letter row should record.
+    if (job.attempts >= job.maxAttempts) {
+      await this.moveToDeadLetter(jobId, error, job.attempts);
       return true;
     }
 
+    // Exponential backoff with jitter: an immediate requeue would hot-loop a
+    // job that fails on a down dependency and burn all its attempts in seconds.
+    const backoffMs = Math.min(RETRY_BASE_MS * 2 ** Math.max(0, job.attempts - 1), RETRY_MAX_MS);
+    const runAt = this.#ts(new Date(Date.now() + backoffMs * (1 + Math.random() * 0.1)));
     await this.#db.exec(
       `UPDATE job_queue
        SET status = 'queued',
            error = ?,
+           scheduled_at = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [error, jobId],
+      [error, runAt, jobId],
     );
     return false;
   }

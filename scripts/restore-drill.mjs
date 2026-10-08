@@ -40,9 +40,7 @@ function checkPgBase(baseDir) {
   }
   const version = String(readFileSyncSafe(join(baseDir, 'PG_VERSION')) ?? '?').trim();
   const size = dirSize(baseDir);
-  console.log(
-    `restore-drill: OK - postgres base backup ${baseDir} (PG ${version}, ${size} bytes)`,
-  );
+  console.log(`restore-drill: OK - postgres base backup ${baseDir} (PG ${version}, ${size} bytes)`);
 }
 
 function readFileSyncSafe(path) {

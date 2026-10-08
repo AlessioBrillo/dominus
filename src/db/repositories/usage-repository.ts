@@ -39,8 +39,8 @@ export class UsageRepository {
       `INSERT INTO usage_records (tenant_id, feature, amount, period_start)
        VALUES (?, ?, ?, ?)
        ON CONFLICT(tenant_id, feature, period_start) DO UPDATE SET
-         amount = amount + excluded.amount,
-         recorded_at = datetime('now')`,
+         amount = usage_records.amount + excluded.amount,
+         recorded_at = CURRENT_TIMESTAMP`,
       [tenantId, feature, amount, periodStart],
     );
   }
@@ -77,7 +77,7 @@ export class UsageRepository {
        WHERE ? <= ?
        ON CONFLICT(tenant_id, feature, period_start) DO UPDATE SET
          amount = usage_records.amount + excluded.amount,
-         recorded_at = datetime('now')
+         recorded_at = CURRENT_TIMESTAMP
        WHERE usage_records.amount + excluded.amount <= ?`,
       [tenantId, feature, amount, periodStart, amount, limitValue, limitValue],
     );
@@ -105,8 +105,9 @@ export class UsageRepository {
          WHERE tenant_id = ? AND feature = ? AND period_start = ?
        )
        ON CONFLICT(tenant_id, feature, period_start) DO UPDATE SET
-         amount = MAX(0, usage_records.amount - excluded.amount),
-         recorded_at = datetime('now')`,
+         amount = CASE WHEN usage_records.amount - excluded.amount < 0 THEN 0
+                       ELSE usage_records.amount - excluded.amount END,
+         recorded_at = CURRENT_TIMESTAMP`,
       [tenantId, feature, amount, periodStart, tenantId, feature, periodStart],
     );
   }

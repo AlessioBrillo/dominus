@@ -62,6 +62,9 @@ jobs:
       - name: Migration sync check
         run: npm run db:sync:check
 
+      - name: SQL portability check
+        run: npm run check:sql-portability
+
       - name: Native bindings load check
         shell: bash
         run: |
@@ -121,6 +124,45 @@ jobs:
         with:
           files: ./coverage/lcov.info
           fail_ci_if_error: false
+
+  # The Postgres-gated suites (adapter, RLS, importer, repository dialect
+  # parity) skip themselves without DATABASE_URL, so the matrix above never ran
+  # them. This job migrates a real PostgreSQL and runs the whole suite against
+  # it, so a SQLite-only query or a tenant-isolation regression fails CI.
+  test-pg:
+    name: Tests on PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dominus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dominus
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations to PostgreSQL
+        run: npx tsx src/db/migrate-cli.ts
+
+      - name: Test suite against PostgreSQL
+        run: npx vitest run src/db src/__tests__ src/services src/api
 
   docker-smoke:
     name: Docker runtime smoke test
@@ -183,7 +225,7 @@ jobs:
           migrate_out=$(docker run --rm -e DATABASE_PATH=/tmp/migrate-smoke.db \
             --entrypoint node dominus-api:test dist/db/migrate-cli.js)
           echo "$migrate_out"
-          grep -q "migrations applied: 57" <<<"$migrate_out" || {
+          grep -q "migrations applied: 59" <<<"$migrate_out" || {
             echo "FATAL: migrate CLI must migrate a fresh SQLite database to the full manifest inside the image"
             exit 1
           }
@@ -217,7 +259,7 @@ jobs:
           API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
           LOGS_PID=$!
-          
+
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
               echo "healthcheck OK (attempt $i)"

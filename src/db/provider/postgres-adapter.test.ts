@@ -49,6 +49,31 @@ describe.runIf(PG_URL)('PostgresAdapter', () => {
       ).toBe(true);
     });
 
+    it('inserts into tables that have no id column (no implicit RETURNING id)', async () => {
+      adapter = await PostgresAdapter.create(PG_URL);
+      await adapter.exec('DROP TABLE IF EXISTS no_id_probe');
+      await adapter.exec('CREATE TABLE no_id_probe (k TEXT PRIMARY KEY, v TEXT)');
+      try {
+        const res = await adapter.exec('INSERT INTO no_id_probe (k, v) VALUES (?, ?)', ['a', 'b']);
+        expect(res.changes).toBe(1);
+        expect(res.lastInsertRowid).toBeUndefined();
+      } finally {
+        await adapter.exec('DROP TABLE no_id_probe');
+      }
+    });
+
+    it('still reports lastInsertRowid for tables with an id column', async () => {
+      adapter = await PostgresAdapter.create(PG_URL);
+      await adapter.exec('DROP TABLE IF EXISTS with_id_probe');
+      await adapter.exec('CREATE TABLE with_id_probe (id SERIAL PRIMARY KEY, v TEXT)');
+      try {
+        const res = await adapter.exec('INSERT INTO with_id_probe (v) VALUES (?)', ['x']);
+        expect(res.lastInsertRowid).toBe(1);
+      } finally {
+        await adapter.exec('DROP TABLE with_id_probe');
+      }
+    });
+
     it('exposes the underlying pool', async () => {
       adapter = await PostgresAdapter.create(PG_URL);
       expect(adapter.pool).toBeDefined();

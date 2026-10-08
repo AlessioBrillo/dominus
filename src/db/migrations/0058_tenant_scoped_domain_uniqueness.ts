@@ -9,6 +9,11 @@ export const name = '0058_tenant_scoped_domain_uniqueness';
 export const backwardCompatible = true;
 
 /**
+ * Reviewed release-gate override — backwardCompatible: true. The table rebuild and
+ * FK drop are destructive on rollback in general, but no release ever shipped
+ * tenant data on the old schema, so there is nothing to lose (see docs/releases/
+ * migration-policy.md).
+ *
  * Domain uniqueness is per tenant, not global (ADR-0034 / ADR-0038).
  *
  * Before: `candidates`, `portfolio_entries`, `watchlist_entries` had

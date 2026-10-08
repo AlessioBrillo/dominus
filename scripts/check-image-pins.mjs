@@ -56,7 +56,7 @@ export function checkDockerfile(content, file) {
     const fromMatch = line.match(/^\s*FROM\s+(\S+)/);
     if (fromMatch) {
       const ref = fromMatch[1];
-      const digest = ref.includes('@') ? ref.split('@')[1] ?? '' : '';
+      const digest = ref.includes('@') ? (ref.split('@')[1] ?? '') : '';
       if (!ref.includes('${') && !SHA256_RE.test(digest)) {
         findings.push(
           `${file}:${i + 1}: FROM ${ref} is not pinned — use @sha256:<64-hex> or an ARG (${line.trim()})`,
@@ -95,7 +95,7 @@ export const composePolicy = (ref) =>
   `image ${ref} is not pinned — add @sha256:<64-hex>, use a \${VAR} ref, or a locally built dominus-* image`;
 
 export const k8sPolicy = (ref) => {
-  const tag = ref.includes(':') ? ref.split(':').at(-1) ?? '' : '';
+  const tag = ref.includes(':') ? (ref.split(':').at(-1) ?? '') : '';
   if (tag !== '' && (SEMVER_TAG_RE.test(tag) || SHA_TAG_RE.test(tag))) return undefined;
   return `image ${ref} uses a floating tag in a Kubernetes manifest — pin to @sha256:<64-hex>, vX.Y.Z or sha-<commit>`;
 };
@@ -110,7 +110,12 @@ function collectFiles(root) {
         continue;
       }
       const dirBase = dir.split(/[\\/]/).pop() ?? '';
-      if (isDockerfile(entry) || isCompose(entry) || isKubernetes(dirBase, entry) || isTerraformTemplate(entry)) {
+      if (
+        isDockerfile(entry) ||
+        isCompose(entry) ||
+        isKubernetes(dirBase, entry) ||
+        isTerraformTemplate(entry)
+      ) {
         files.push(full);
       }
     }
