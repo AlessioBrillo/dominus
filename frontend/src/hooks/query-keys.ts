@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export const queryKeys = {
+  me: {
+    current: () => ['me'] as const,
+  },
+  apiKeys: {
+    all: ['api-keys'] as const,
+    list: () => [...queryKeys.apiKeys.all, 'list'] as const,
+  },
   dashboard: {
     all: ['dashboard'] as const,
     stats: () => [...queryKeys.dashboard.all, 'stats'] as const,

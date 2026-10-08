@@ -5,6 +5,7 @@ import { Play, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
 import { useDashboardStats } from '@/hooks/useDashboard';
 import { useRunPipeline } from '@/hooks/useCandidates';
+import { useAcknowledgeAlert, useAcknowledgeAllAlerts } from '@/hooks/useAlerts';
 import { getOnboardingState } from '@/api/onboarding';
 import { RunProgress } from '@/components/RunProgress';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,8 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const { data: result, isLoading, error, refetch } = useDashboardStats();
   const runPipeline = useRunPipeline();
+  const ackAlert = useAcknowledgeAlert();
+  const ackAll = useAcknowledgeAllAlerts();
   const [runId, setRunId] = useState<string | null>(null);
   const [_onboardingCheckDone, setOnboardingCheckDone] = useState(false);
 
@@ -140,8 +143,8 @@ export function DashboardPage() {
               </>
             )}
           </Button>
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4" />
+          <Button variant="outline" aria-label="Refresh dashboard" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -185,8 +188,16 @@ export function DashboardPage() {
 
       {stats?.recentAlerts && stats.recentAlerts.length > 0 && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Active Alerts</CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={ackAll.isPending}
+              onClick={() => ackAll.mutate()}
+            >
+              Dismiss all
+            </Button>
           </CardHeader>
           <CardContent className="space-y-2">
             {stats.recentAlerts.map((alert) => (
@@ -202,11 +213,22 @@ export function DashboardPage() {
                   <span className="font-medium text-text-primary">{alert.domain}</span>
                   <span className="text-text-secondary ml-2">{alert.message}</span>
                 </div>
-                <span
-                  className={`text-xs font-medium ${alert.severity === 'critical' ? 'text-danger' : 'text-warning'}`}
-                >
-                  {alert.severity}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-xs font-medium ${alert.severity === 'critical' ? 'text-danger' : 'text-warning'}`}
+                  >
+                    {alert.severity}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={ackAlert.isPending}
+                    aria-label={`Dismiss alert for ${alert.domain}`}
+                    onClick={() => ackAlert.mutate(alert.id)}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
               </div>
             ))}
           </CardContent>

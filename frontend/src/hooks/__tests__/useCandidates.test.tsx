@@ -5,16 +5,10 @@ vi.mock('@/api/candidates', () => ({
   fetchCandidates: vi.fn(),
   fetchRuns: vi.fn(),
   runPipeline: vi.fn(),
-  deleteCandidate: vi.fn(),
 }));
 
-import {
-  useCandidatesList,
-  useRunsList,
-  useRunPipeline,
-  useDeleteCandidate,
-} from '../useCandidates';
-import { fetchCandidates, fetchRuns, runPipeline, deleteCandidate } from '@/api/candidates';
+import { useCandidatesList, useRunsList, useRunPipeline } from '../useCandidates';
+import { fetchCandidates, fetchRuns, runPipeline } from '@/api/candidates';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockCandidates = [
@@ -111,18 +105,5 @@ describe('useRunPipeline', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(runPipeline).toHaveBeenCalledWith({});
-  });
-});
-
-describe('useDeleteCandidate', () => {
-  it('deletes a candidate', async () => {
-    vi.mocked(deleteCandidate).mockResolvedValueOnce(undefined);
-
-    const { result } = renderHook(() => useDeleteCandidate(), { wrapper: createWrapper() });
-
-    result.current.mutate('test.com');
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(deleteCandidate).toHaveBeenCalledWith('test.com');
   });
 });

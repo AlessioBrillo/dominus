@@ -3,6 +3,7 @@ import eslint from '@eslint/js';
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import globals from 'globals';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 const globalIgnores = { ignores: ['dist/', 'node_modules/', 'vitest.config.ts'] };
 
@@ -27,8 +28,11 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tsPlugin,
+      'jsx-a11y': jsxA11y,
     },
     rules: {
+      // WCAG 2.1 AA groundwork: label, role, keyboard and alt-text rules.
+      ...jsxA11y.flatConfigs.recommended.rules,
       'no-undef': 'off',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-explicit-any': 'error',

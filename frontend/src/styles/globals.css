@@ -6,8 +6,10 @@
   --color-brand-50: #ecfeff;
   --color-brand-100: #cffafe;
   --color-brand-200: #a5f3fc;
-  --color-brand-300: #67e8f9;
-  --color-brand-400: #22d3ee;
+  /* brand-300/400 are used as TEXT colours; they follow the theme so they keep
+     WCAG AA contrast on both the light and the dark surface. */
+  --color-brand-300: var(--c-brand-text-2);
+  --color-brand-400: var(--c-brand-text);
   --color-brand-500: #06b6d4;
   --color-brand-600: #0891b2;
   --color-brand-700: #0e7490;
@@ -15,11 +17,16 @@
   --color-brand-900: #164e63;
   --color-brand-950: #083344;
 
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-info: #3b82f6;
-  --color-accent: #8b5cf6;
+  /* Semantic colours used as text/tint follow the theme (see :root.light/.dark). */
+  --color-success: var(--c-success);
+  --color-warning: var(--c-warning);
+  --color-danger: var(--c-danger);
+  --color-info: var(--c-info);
+  --color-accent: var(--c-accent);
+  /* Solid backgrounds that carry white text: dark enough for 4.5:1 in either theme. */
+  --color-success-solid: #047857;
+  --color-warning-solid: #b45309;
+  --color-danger-solid: #b91c1c;
 
   --font-mono: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
 
@@ -39,9 +46,16 @@
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
   --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-muted: #566377;
   --text-inverse: #f8fafc;
-  --text-accent: #0891b2;
+  --text-accent: #0e7490;
+  --c-brand-text: #0e7490;
+  --c-brand-text-2: #155e75;
+  --c-success: #065f46;
+  --c-warning: #92400e;
+  --c-danger: #b91c1c;
+  --c-info: #1d4ed8;
+  --c-accent: #6d28d9;
 }
 
 :root.dark {
@@ -54,9 +68,16 @@
   --border-strong: #374151;
   --text-primary: #f3f4f6;
   --text-secondary: #d1d5db;
-  --text-muted: #6b7280;
+  --text-muted: #9ca3af;
   --text-inverse: #0f172a;
   --text-accent: #22d3ee;
+  --c-brand-text: #22d3ee;
+  --c-brand-text-2: #67e8f9;
+  --c-success: #10b981;
+  --c-warning: #f59e0b;
+  --c-danger: #f87171;
+  --c-info: #60a5fa;
+  --c-accent: #a78bfa;
 }
 
 * {

@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { fetchTeamSummary, inviteMember, updateMemberRole, removeMember } from '@/api/team';
+import {
+  fetchTeamSummary,
+  inviteByEmail,
+  revokeInvitation,
+  updateMemberRole,
+  removeMember,
+} from '@/api/team';
 import { queryKeys } from './query-keys';
 
 export function useTeamSummary() {
@@ -20,10 +26,18 @@ function useInvalidateTeam() {
 export function useInviteMember() {
   const invalidate = useInvalidateTeam();
   return useMutation({
-    mutationFn: (input: { userId: string; role: 'admin' | 'member' }) =>
-      inviteMember(input.userId, input.role),
+    mutationFn: (input: { email: string; role: 'admin' | 'member' }) =>
+      inviteByEmail(input.email, input.role),
     onSuccess: invalidate,
-    onError: () => toast.error('Failed to invite member'),
+  });
+}
+
+export function useRevokeInvitation() {
+  const invalidate = useInvalidateTeam();
+  return useMutation({
+    mutationFn: (id: number) => revokeInvitation(id),
+    onSuccess: invalidate,
+    onError: () => toast.error('Failed to revoke invitation'),
   });
 }
 

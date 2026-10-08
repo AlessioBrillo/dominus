@@ -26,6 +26,7 @@ import { SchedulerPage } from '@/pages/SchedulerPage';
 import { ProvidersPage } from '@/pages/ProvidersPage';
 import { BillingPage } from '@/pages/BillingPage';
 import { TeamPage } from '@/pages/TeamPage';
+import { InvitePage } from '@/pages/InvitePage';
 import { UsagePage } from '@/pages/UsagePage';
 import { AdminPage } from '@/pages/AdminPage';
 import { SettingsPage } from '@/pages/SettingsPage';
@@ -75,6 +76,7 @@ createRoot(document.getElementById('root')!).render(
                     <Route path="providers" element={<ProvidersPage />} />
                     <Route path="billing" element={<BillingPage />} />
                     <Route path="team" element={<TeamPage />} />
+                    <Route path="invite/:token" element={<InvitePage />} />
                     <Route path="usage" element={<UsagePage />} />
                     <Route path="admin" element={<AdminPage />} />
                     <Route path="settings" element={<SettingsPage />} />

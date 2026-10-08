@@ -4,8 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ApiKeysCard } from '@/components/ApiKeysCard';
 
 export function SettingsPage() {
   const { logout } = useAuth();
@@ -19,10 +19,9 @@ export function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Authentication</CardTitle>
-          <CardDescription>Update your API key or sign out</CardDescription>
+          <CardDescription>Sign out of this browser</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input type="password" placeholder="New API Key" />
           <div className="flex gap-2">
             <Button variant="outline" onClick={logout}>
               Sign Out
@@ -30,6 +29,8 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ApiKeysCard />
 
       <Card>
         <CardHeader>

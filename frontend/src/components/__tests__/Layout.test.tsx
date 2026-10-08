@@ -3,16 +3,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from '../Layout.js';
+import { takeInvite } from '@/lib/pending-invite';
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => authState,
+}));
+
+vi.mock('@/hooks/useMe', () => ({
+  useMe: () => meState,
 }));
 
 vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => themeState,
 }));
 
-const { authState, themeState } = vi.hoisted(() => ({
+const { authState, themeState, meState } = vi.hoisted(() => ({
+  meState: { isOperator: false },
   authState: { isAuthenticated: true, isLoading: false, logout: vi.fn(), login: vi.fn() },
   themeState: { theme: 'dark', toggleTheme: vi.fn() },
 }));
@@ -23,6 +29,7 @@ function renderLayout(initialPath = '/') {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<div>Home content</div>} />
+          <Route path="invite/:token" element={<div>Invite content</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -33,6 +40,7 @@ beforeEach(() => {
   authState.isAuthenticated = true;
   authState.isLoading = false;
   themeState.theme = 'dark';
+  meState.isOperator = false;
   vi.clearAllMocks();
 });
 
@@ -42,6 +50,7 @@ const NAV_LABELS = [
   'Runs',
   'Score',
   'Portfolio',
+  'Buy',
   'Listings',
   'Bids',
   'Outcomes',
@@ -75,6 +84,45 @@ describe('Layout', () => {
     expect(screen.getByText('Home content')).toBeInTheDocument();
     expect(screen.getByText('Light Mode')).toBeInTheDocument();
     expect(screen.getByText('Logout')).toBeInTheDocument();
+  });
+
+  describe('invitation links', () => {
+    const TOKEN = 'b'.repeat(43);
+
+    it('remembers the token while signed out, then routes there after sign-in', () => {
+      authState.isAuthenticated = false;
+      const { unmount } = renderLayout(`/invite/${TOKEN}`);
+      unmount();
+
+      authState.isAuthenticated = true;
+      renderLayout('/');
+      expect(screen.getByText('Invite content')).toBeInTheDocument();
+      expect(takeInvite()).toBeNull(); // consumed exactly once
+    });
+
+    it('lets a signed-in user leave the invite page (no redirect trap)', () => {
+      authState.isAuthenticated = true;
+      sessionStorage.clear();
+      renderLayout(`/invite/${TOKEN}`);
+      expect(takeInvite()).toBeNull(); // nothing re-parked while signed in
+    });
+
+    it('does not redirect when no invitation is pending', () => {
+      sessionStorage.clear();
+      renderLayout('/');
+      expect(screen.getByText('Home content')).toBeInTheDocument();
+    });
+  });
+
+  it('hides the cross-tenant Admin link from regular users', () => {
+    renderLayout();
+    expect(screen.queryByText('Admin')).not.toBeInTheDocument();
+  });
+
+  it('shows the Admin link to platform operators', () => {
+    meState.isOperator = true;
+    renderLayout();
+    expect(screen.getByText('Admin')).toBeInTheDocument();
   });
 
   it('renders dark mode label when the theme is dark', () => {

@@ -29,10 +29,6 @@ export async function runPipeline(input: RunPipelineRequest): Promise<RunPipelin
   return api.post<RunPipelineResponse>('/candidates/run', input);
 }
 
-export async function deleteCandidate(domain: string): Promise<void> {
-  await api.delete(`/candidates/${encodeURIComponent(domain)}`);
-}
-
 export async function fetchRuns(): Promise<PipelineRun[]> {
   const data = await api.get<{ runs: PipelineRun[] }>('/runs');
   return data.runs;

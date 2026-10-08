@@ -24,6 +24,7 @@ import {
   createBillingRouter,
   createAdminRouter,
   createTeamRouter,
+  createMeRouter,
   createCandidatesRouter,
   createPortfolioRouter,
   createRunsRouter,
@@ -417,6 +418,7 @@ async function main(): Promise<void> {
   protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/admin', createAdminRouter(deps.adminService));
+  protectedRouter.use('/me', createMeRouter());
   protectedRouter.use('/team', createTeamRouter(deps.config, deps.teamService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));

@@ -6,6 +6,9 @@ vi.mock('@/api/client', () => ({
   api: { get: vi.fn() },
 }));
 
+// The keys card has its own tests; keep this file's sequential api.get mocks stable.
+vi.mock('@/components/ApiKeysCard', () => ({ ApiKeysCard: () => null }));
+
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ logout: vi.fn() }),
 }));
