@@ -269,6 +269,30 @@ describe('BillingService webhook handling', () => {
     expect(sub?.stripeSubscriptionId).toBe('sub_1');
   });
 
+  it('re-processes a redelivery when the first attempt failed (claim is released)', async () => {
+    stubWebhookEvent({
+      id: 'evt_retry',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'pro' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+      },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+    const upsert = vi.spyOn(subRepo, 'upsert').mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.handleWebhookEvent(RAW, 'sig')).rejects.toThrow('db down');
+    expect(await webhookRepo.isProcessed('stripe', 'evt_retry')).toBe(false);
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect((await subRepo.findByTenantId('tenant-1'))?.stripeSubscriptionId).toBe('sub_1');
+    expect(await webhookRepo.isProcessed('stripe', 'evt_retry')).toBe(true);
+  });
+
   it('derives the plan from the price on customer.subscription.updated', async () => {
     await subRepo.upsert({
       tenantId: 'tenant-1',

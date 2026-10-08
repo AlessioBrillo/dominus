@@ -11,6 +11,7 @@ import {
 } from '../../providers/auth/session-jwt.js';
 import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
+import { isTrustedRequestOrigin } from '../middleware/csrf.js';
 
 const logger = getLogger();
 
@@ -36,6 +37,8 @@ export interface OidcRouterDeps {
   appOrigin: string;
   sessionTtlMs: number;
   sessionVerifier: SessionJwtVerifier;
+  /** Origins allowed to POST the session cookie (CSRF guard on /logout). */
+  trustedOrigins: ReadonlySet<string>;
   mintSession(sub: string, tenantId: string | undefined, role: string | undefined): Promise<string>;
 }
 
@@ -105,9 +108,18 @@ export function createOidcRouter(deps: OidcRouterDeps): Router {
     }
   });
 
-  router.post('/logout', (_req: Request, res: Response) => {
+  // Clears the local session and hands the SPA the IdP logout URL so it can
+  // end the single-sign-on session too; otherwise the next "Sign in with SSO"
+  // would silently log the same user straight back in.
+  router.post('/logout', (req: Request, res: Response) => {
+    if (!isTrustedRequestOrigin(req, deps.trustedOrigins)) {
+      res
+        .status(403)
+        .json({ error: { code: 'CSRF_REJECTED', message: 'Untrusted request origin' } });
+      return;
+    }
     res.clearCookie(SESSION_COOKIE, { path: '/' });
-    res.status(204).end();
+    res.json({ logoutUrl: deps.provider.logoutUrl(appBase) });
   });
 
   router.get('/me', async (req: Request, res: Response) => {

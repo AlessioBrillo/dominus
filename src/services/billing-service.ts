@@ -339,6 +339,31 @@ export class BillingService {
     const claimed = await this.#claimEvent(event.id, event.type);
     if (!claimed) return;
 
+    try {
+      await this.#processEvent(event);
+    } catch (err) {
+      // The claim is what makes redelivery a no-op, so a failed handler must
+      // give it back — otherwise Stripe's retry is dropped as a duplicate and
+      // the subscription change is lost for good.
+      await this.#releaseEvent(event.id);
+      throw err;
+    }
+  }
+
+  async #releaseEvent(eventId: string): Promise<void> {
+    this.#processedEventIds.delete(eventId);
+    try {
+      await this.#webhookRepo?.release('stripe', eventId);
+    } catch (err) {
+      logger.error({ err, eventId }, 'Failed to release webhook claim after handler error');
+    }
+  }
+
+  async #processEvent(event: {
+    id: string;
+    type: string;
+    data: { object: unknown };
+  }): Promise<void> {
     logger.info({ type: event.type, eventId: event.id }, 'Stripe webhook event');
 
     switch (event.type) {

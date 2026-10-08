@@ -111,9 +111,17 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+  // Origins allowed to make cookie-authenticated, state-changing requests (CSRF guard).
+  const trustedOrigins = new Set<string>(
+    config.CORS_ORIGIN.split(',')
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0 && o !== '*'),
+  );
+  if (deps.oidcDeps) trustedOrigins.add(new URL(deps.oidcDeps.callbackUrl).origin);
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
     operatorSubjects: parseOperatorSubjects(config.OPERATOR_SUBJECTS),
+    trustedOrigins,
     // Browser sessions via the SSO cookie (ADR-0062): only consulted when
     // the interactive login flow is configured (auth0 + client credentials).
     ...(deps.oidcDeps ? { sessionVerifier: deps.sessionJwt } : {}),
@@ -188,7 +196,15 @@ async function main(): Promise<void> {
           res.json({ received: true });
         } catch (err) {
           logger.error({ err }, 'Stripe webhook error');
-          res.status(400).json({ error: 'Webhook signature verification failed' });
+          // Bad signatures are the sender's fault (400, no retry value); a handler
+          // failure is ours (500) and must be redelivered by Stripe.
+          const badSignature =
+            err instanceof Error && err.name === 'StripeSignatureVerificationError';
+          res.status(badSignature ? 400 : 500).json({
+            error: badSignature
+              ? 'Webhook signature verification failed'
+              : 'Webhook processing failed',
+          });
         }
       },
     );
@@ -268,6 +284,7 @@ async function main(): Promise<void> {
         appOrigin: callbackUrl.origin + '/',
         sessionTtlMs: deps.oidcDeps.sessionTtlMs,
         sessionVerifier: deps.sessionJwt,
+        trustedOrigins,
         mintSession: (sub, tenantId, role) => deps.sessionJwt.mint({ sub, tenantId, role }),
       }),
     );

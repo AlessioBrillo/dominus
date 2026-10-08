@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function buildApp(requireTenant = false): Application {
+function buildApp(requireTenant = false, trustedOrigins?: ReadonlySet<string>): Application {
   const sessionJwt = createSessionJwtMinter(SECRET, 8);
   const app = express();
   app.use(
@@ -37,8 +37,12 @@ function buildApp(requireTenant = false): Application {
     createAuthMiddleware(makeAuthProvider(), db, {
       requireTenant,
       sessionVerifier: sessionJwt,
+      ...(trustedOrigins ? { trustedOrigins } : {}),
     }),
   );
+  app.post('/api/v1/auth/protected/route', (_req, res) => {
+    res.json({ ok: true });
+  });
   app.get('/api/v1/auth/protected/route', (req, res) => {
     res.json({ ok: true, tenantId: req.tenantId, userId: req.auth?.userId });
   });
@@ -81,5 +85,61 @@ describe('createAuthMiddleware — SSO session cookie fallback (ADR-0062)', () =
   it('still requires a Bearer token when no cookie is present', async () => {
     const res = await request(buildApp()).get('/api/v1/auth/protected/route');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('createAuthMiddleware — CSRF guard on the session cookie', () => {
+  const TRUSTED = new Set(['https://app.example.com']);
+
+  async function cookie(): Promise<string> {
+    const session = await createSessionJwtMinter(SECRET, 8).mint({ sub: 'user-1', tenantId: 't' });
+    return `dominus_session=${session}`;
+  }
+
+  it('accepts a cookie-authenticated POST from a trusted origin', async () => {
+    const res = await request(buildApp(false, TRUSTED))
+      .post('/api/v1/auth/protected/route')
+      .set('Origin', 'https://app.example.com')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a cookie-authenticated POST from a foreign origin', async () => {
+    const res = await request(buildApp(false, TRUSTED))
+      .post('/api/v1/auth/protected/route')
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('CSRF_REJECTED');
+  });
+
+  it('rejects a cookie-authenticated POST with neither Origin nor Referer', async () => {
+    const res = await request(buildApp(false, TRUSTED))
+      .post('/api/v1/auth/protected/route')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(403);
+  });
+
+  it('falls back to the Referer origin when Origin is absent', async () => {
+    const res = await request(buildApp(false, TRUSTED))
+      .post('/api/v1/auth/protected/route')
+      .set('Referer', 'https://app.example.com/team')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(200);
+  });
+
+  it('never blocks safe methods', async () => {
+    const res = await request(buildApp(false, TRUSTED))
+      .get('/api/v1/auth/protected/route')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(200);
+  });
+
+  it('refuses all cookie mutations when no trusted origin is configured', async () => {
+    const res = await request(buildApp())
+      .post('/api/v1/auth/protected/route')
+      .set('Origin', 'https://app.example.com')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(403);
   });
 });

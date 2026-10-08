@@ -59,6 +59,7 @@ function buildApp(overrides: Partial<OidcRouterDeps> = {}): {
     appOrigin: APP_ORIGIN,
     sessionTtlMs: 8 * 60 * 60 * 1000,
     sessionVerifier: sessionJwt,
+    trustedOrigins: new Set([new URL(APP_ORIGIN).origin]),
     mintSession: (sub, tenantId, role) => sessionJwt.mint({ sub, tenantId, role }),
     ...overrides,
   };
@@ -213,14 +214,27 @@ describe('API: /api/v1/auth/oidc/me', () => {
 });
 
 describe('API: /api/v1/auth/oidc/logout', () => {
-  it('clears the session cookie', async () => {
+  it('clears the session cookie and returns the IdP logout URL', async () => {
     const { app } = buildApp();
     const res = await request(app)
       .post('/api/v1/auth/oidc/logout')
+      .set('Origin', new URL(APP_ORIGIN).origin)
       .set('Cookie', 'dominus_session=anything');
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    expect(res.body.logoutUrl).toBe('https://idp.example.com/v2/logout');
     const cleared = res.headers['set-cookie']?.[0] as string;
     expect(cleared).toContain('dominus_session=');
     expect(cleared).toMatch(/Expires=Thu, 01 Jan 1970/i);
+  });
+
+  it('rejects a logout POST from an untrusted origin (CSRF)', async () => {
+    const { app } = buildApp();
+    const res = await request(app)
+      .post('/api/v1/auth/oidc/logout')
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', 'dominus_session=anything');
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('CSRF_REJECTED');
+    expect(res.headers['set-cookie']).toBeUndefined();
   });
 });

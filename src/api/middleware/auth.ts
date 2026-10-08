@@ -7,6 +7,7 @@ import type { DatabaseProvider } from '../../db/provider/interface.js';
 import { runWithTenant } from '../../utils/tenant-context.js';
 import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
+import { isTrustedRequestOrigin } from './csrf.js';
 
 const logger = getLogger();
 
@@ -64,6 +65,9 @@ export interface AuthMiddlewareOptions {
    *  surface). Any `operator` role asserted by a key row or token claim is
    *  ignored — tenants can mint their own roles, they must not self-promote. */
   operatorSubjects?: ReadonlySet<string>;
+  /** Origins allowed to make state-changing requests with the session cookie
+   *  (CSRF guard). Empty/unset = no cookie-authenticated mutation is accepted. */
+  trustedOrigins?: ReadonlySet<string>;
 }
 
 export function parseOperatorSubjects(raw: string | undefined): ReadonlySet<string> {
@@ -146,6 +150,16 @@ export function createAuthMiddleware(
         if (session) {
           const claims = await options.sessionVerifier.verify(session);
           if (claims) {
+            if (!isTrustedRequestOrigin(req, options.trustedOrigins ?? new Set())) {
+              logger.warn(
+                { ip: clientIp, origin: req.headers.origin },
+                'Cookie-authenticated request from untrusted origin — rejecting (CSRF)',
+              );
+              res.status(403).json({
+                error: { code: 'CSRF_REJECTED', message: 'Untrusted request origin' },
+              });
+              return;
+            }
             if (options.requireTenant && !claims.tenantId) {
               logger.warn(
                 { ip: clientIp },
