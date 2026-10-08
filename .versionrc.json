@@ -1,0 +1,10 @@
+{
+  "bumpFiles": [
+    { "filename": "package.json", "type": "json" },
+    { "filename": "package-lock.json", "type": "json" },
+    { "filename": "frontend/package.json", "type": "json" },
+    { "filename": "frontend/package-lock.json", "type": "json" },
+    { "filename": "README.md", "updater": "scripts/readme-version-updater.cjs" }
+  ],
+  "packageFiles": [{ "filename": "package.json", "type": "json" }]
+}

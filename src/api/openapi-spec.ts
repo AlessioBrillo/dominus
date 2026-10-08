@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { APP_VERSION } from '../version.js';
+import { withTableOperations } from './openapi-operations.js';
+
 export const OPENAPI_SPEC: Record<string, unknown> = {
   openapi: '3.1.0',
   info: {
     title: 'DOMINUS API',
-    version: '0.5.0-dev',
+    version: APP_VERSION,
     description: `REST API for the DOMINUS domain investment decision-support engine.
 
 Authentication via \`Authorization: Bearer <api-key>\` header.
@@ -15,7 +18,7 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
     { url: '/api/v1', description: 'API v1 (protected)' },
     { url: '/public', description: 'Public endpoints' },
   ],
-  paths: {
+  paths: withTableOperations({
     '/api/v1/candidates': {
       get: {
         tags: ['Candidates'],
@@ -47,6 +50,8 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
           },
         },
       },
+    },
+    '/api/v1/candidates/run': {
       post: {
         tags: ['Candidates'],
         summary: 'Run pipeline for candidates',
@@ -260,15 +265,6 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
-    '/api/v1/providers': {
-      get: {
-        tags: ['System'],
-        summary: 'List provider statuses',
-        responses: {
-          '200': { description: 'Provider health statuses' },
-        },
-      },
-    },
     '/api/v1/outcomes': {
       get: {
         tags: ['Portfolio'],
@@ -426,13 +422,6 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
           '200': { description: 'Renewal alerts' },
         },
       },
-      post: {
-        tags: ['Portfolio'],
-        summary: 'Trigger renewal check',
-        responses: {
-          '200': { description: 'Check completed' },
-        },
-      },
     },
     '/api/v1/scheduler': {
       get: {
@@ -477,41 +466,6 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
           '400': { $ref: '#/components/responses/ValidationError' },
         },
       },
-      delete: {
-        tags: ['Watchlist'],
-        summary: 'Remove from watchlist',
-        parameters: [{ name: 'id', in: 'query', schema: { type: 'integer' } }],
-        responses: {
-          '200': { description: 'Removed from watchlist' },
-          '404': { $ref: '#/components/responses/NotFound' },
-        },
-      },
-    },
-    '/api/v1/purchase': {
-      post: {
-        tags: ['Purchases'],
-        summary: 'Purchase a domain',
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  domain: { type: 'string' },
-                  price: { type: 'number' },
-                  registrar: { type: 'string' },
-                },
-                required: ['domain', 'price'],
-              },
-            },
-          },
-        },
-        responses: {
-          '200': { description: 'Purchase completed' },
-          '400': { $ref: '#/components/responses/ValidationError' },
-        },
-      },
     },
     '/api/v1/bids': {
       get: {
@@ -528,15 +482,6 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         summary: 'Portfolio report',
         responses: {
           '200': { description: 'Portfolio report' },
-        },
-      },
-    },
-    '/api/v1/analytics': {
-      get: {
-        tags: ['Analytics'],
-        summary: 'Prediction accuracy analytics',
-        responses: {
-          '200': { description: 'Analytics data' },
         },
       },
     },
@@ -570,31 +515,6 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         responses: {
           '201': { description: 'Listing created' },
           '400': { $ref: '#/components/responses/ValidationError' },
-        },
-      },
-    },
-    '/api/v1/onboarding': {
-      post: {
-        tags: ['System'],
-        summary: 'Run sample pipeline for onboarding',
-        responses: {
-          '200': { description: 'Sample run result' },
-        },
-      },
-    },
-    '/api/v1/backtest': {
-      get: {
-        tags: ['Scoring'],
-        summary: 'Backtest results',
-        responses: {
-          '200': { description: 'Backtest data' },
-        },
-      },
-      post: {
-        tags: ['Scoring'],
-        summary: 'Suggest weight adjustments',
-        responses: {
-          '200': { description: 'Weight suggestions' },
         },
       },
     },
@@ -876,7 +796,7 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
-  },
+  }),
   components: {
     schemas: {
       Candidate: {

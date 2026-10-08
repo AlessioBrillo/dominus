@@ -89,13 +89,26 @@ COMPS_DATA_PATH=examples/comps-sample.csv \
 node dist/cli.js run --closeout-csv examples/closeout-sample.csv
 ```
 
-Or with Docker:
+Or with Docker Compose (recommended — includes the validating Unbound resolver
+that "available" verdicts depend on):
+
+```bash
+export API_KEYS="admin=$(openssl rand -hex 32)"   # the API refuses to start exposed without auth
+echo "$API_KEYS"                                  # keep this: the part after "admin=" is your login key
+mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
+               # ./data would be root-owned and SQLite cannot open it there
+docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+```
+
+Then open <http://localhost:3000> and sign in with the key.
+
+A bare `docker run` also works, but without an Unbound resolver the first start
+waits ~30 s for it and DNS runs in degraded mode (it never reports a domain as
+available):
 
 ```bash
 docker build -t dominus .
-mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
-               # ./data would be root-owned and SQLite cannot open it there
-docker run -d -p 3000:3000 -v ./data:/app/data dominus
+docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 ```
 
 ## Current Stack
