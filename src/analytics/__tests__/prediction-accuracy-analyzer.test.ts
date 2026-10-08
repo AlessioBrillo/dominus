@@ -11,7 +11,7 @@ function createTestDb(): SqliteProvider {
   provider.rawDb.exec(`
     CREATE TABLE IF NOT EXISTS candidates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      domain TEXT NOT NULL UNIQUE,
+      domain TEXT NOT NULL,
       tld TEXT NOT NULL,
       source TEXT NOT NULL DEFAULT 'manual',
       status TEXT NOT NULL DEFAULT 'pending',
@@ -37,7 +37,7 @@ function createTestDb(): SqliteProvider {
     );
     CREATE TABLE IF NOT EXISTS portfolio_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      domain TEXT NOT NULL UNIQUE,
+      domain TEXT NOT NULL,
       tld TEXT NOT NULL,
       acquired_at TEXT NOT NULL DEFAULT (datetime('now')),
       renewal_date TEXT NOT NULL DEFAULT (datetime('now', '+1 year')),
@@ -53,7 +53,7 @@ function createTestDb(): SqliteProvider {
     );
     CREATE TABLE IF NOT EXISTS outcomes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      domain TEXT NOT NULL REFERENCES portfolio_entries(domain) ON DELETE CASCADE,
+      domain TEXT NOT NULL,
       type TEXT NOT NULL,
       occurred_at TEXT NOT NULL,
       sale_price_eur REAL,
@@ -77,7 +77,7 @@ function createTestDb(): SqliteProvider {
       expiry_score REAL NOT NULL DEFAULT 0,
       tenant_id TEXT NOT NULL DEFAULT 'default',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(domain, occurred_at)
+      UNIQUE(tenant_id, domain, occurred_at)
     );
   `);
   return provider;

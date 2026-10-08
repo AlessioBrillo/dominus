@@ -133,6 +133,75 @@ describe('tenant isolation (SQLite)', () => {
     expect(portfolioCount).toHaveLength(1);
   });
 
+  describe('same domain held by two tenants', () => {
+    const entry = (domain: string): Parameters<PortfolioRepository['insert']>[0] => ({
+      domain,
+      tld: '.com',
+      acquiredAt: new Date().toISOString(),
+      renewalDate: new Date(Date.now() + 365 * 86400000).toISOString(),
+      acquisitionCost: 10,
+      renewalCost: 12,
+      registrar: 'test',
+    });
+
+    it('candidate upsert by tenant B never overwrites tenant A', async () => {
+      await runWithTenant('alice', () =>
+        repo.upsert(makeCandidate('shared.com', { status: CandidateStatus.Scored })),
+      );
+      await runWithTenant('bob', () =>
+        repo.upsert(makeCandidate('shared.com', { status: CandidateStatus.TrademarkBlocked })),
+      );
+
+      const a = await runWithTenant('alice', () => repo.findByDomain('shared.com'));
+      const b = await runWithTenant('bob', () => repo.findByDomain('shared.com'));
+      expect(a?.status).toBe(CandidateStatus.Scored);
+      expect(b?.status).toBe(CandidateStatus.TrademarkBlocked);
+      expect(a?.id).not.toBe(b?.id);
+    });
+
+    it('re-upserting inside one tenant still updates in place', async () => {
+      await runWithTenant('alice', () => repo.upsert(makeCandidate('same.com')));
+      await runWithTenant('alice', () =>
+        repo.upsert(makeCandidate('same.com', { status: CandidateStatus.Scored })),
+      );
+      const all = await runWithTenant('alice', () => repo.findAll(100));
+      expect(all).toHaveLength(1);
+      expect(all[0]!.status).toBe(CandidateStatus.Scored);
+    });
+
+    it('two tenants can both own the same portfolio domain; duplicates within one tenant are rejected', async () => {
+      const portfolioRepo = new PortfolioRepository(provider);
+      await runWithTenant('alice', () => portfolioRepo.insert(entry('twins.com')));
+      await runWithTenant('bob', () => portfolioRepo.insert(entry('twins.com')));
+
+      await expect(
+        runWithTenant('alice', () => portfolioRepo.insert(entry('twins.com'))),
+      ).rejects.toThrow(/twins\.com/);
+    });
+
+    it('deleting a portfolio entry removes only that tenant outcomes', async () => {
+      const portfolioRepo = new PortfolioRepository(provider);
+      await runWithTenant('alice', () => portfolioRepo.insert(entry('gone.com')));
+      await runWithTenant('bob', () => portfolioRepo.insert(entry('gone.com')));
+      for (const tid of ['alice', 'bob']) {
+        await provider.exec(
+          `INSERT INTO outcomes (domain, type, occurred_at, tenant_id) VALUES (?, 'sold', ?, ?)`,
+          ['gone.com', new Date().toISOString(), tid],
+        );
+      }
+
+      await runWithTenant('alice', () => portfolioRepo.delete('gone.com'));
+
+      const rows = await provider.query<{ tenant_id: string }>(
+        `SELECT tenant_id FROM outcomes WHERE domain = 'gone.com'`,
+      );
+      expect(rows.map((r) => r.tenant_id)).toEqual(['bob']);
+      expect(
+        await runWithTenant('bob', () => portfolioRepo.findByDomain('gone.com')),
+      ).not.toBeNull();
+    });
+  });
+
   it('resolveTenantId returns explicit override', () => {
     expect(resolveTenantId('custom-override')).toBe('custom-override');
   });

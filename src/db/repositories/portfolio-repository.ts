@@ -199,9 +199,13 @@ export class PortfolioRepository {
   async delete(domain: string): Promise<void> {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
+    const tid = resolveTenantId();
+    // outcomes.domain no longer carries a FK (domain uniqueness is per tenant),
+    // so the former ON DELETE CASCADE is performed here, scoped to the tenant.
+    await this.db.exec('DELETE FROM outcomes WHERE domain = ? AND tenant_id = ?', [domain, tid]);
     await this.db.exec('DELETE FROM portfolio_entries WHERE domain = ? AND tenant_id = ?', [
       domain,
-      resolveTenantId(),
+      tid,
     ]);
   }
 }

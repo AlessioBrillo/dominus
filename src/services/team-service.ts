@@ -131,9 +131,12 @@ export class TeamService {
       throw new DuplicateSeatError(userId);
     }
 
-    const activeCount = await this.#seatsRepo.countActiveSeats(tenantId);
-    if (activeCount >= limits.seats) {
-      throw new TeamSeatLimitError(activeCount, limits.seats);
+    // Pending invitations hold a seat, otherwise N invites could be issued
+    // and accepted past the plan limit.
+    const occupied = await this.#seatsRepo.countOccupiedSeats(tenantId);
+    const isReinvite = existing?.status === 'pending';
+    if (!isReinvite && occupied >= limits.seats) {
+      throw new TeamSeatLimitError(occupied, limits.seats);
     }
 
     await this.#seatsRepo.invite(tenantId, userId, role, invitedBy);
@@ -143,6 +146,14 @@ export class TeamService {
     const seat = await this.#seatsRepo.findByTenantAndUser(tenantId, userId);
     if (!seat) {
       throw new SeatNotFoundError(userId);
+    }
+    if (seat.status !== 'active') {
+      const sub = await this.#subRepo.findByTenantId(tenantId);
+      const limits = TEAM_PLAN_LIMITS[await this.#resolvePlan(tenantId, sub)];
+      const active = await this.#seatsRepo.countActiveSeats(tenantId);
+      if (active >= limits.seats) {
+        throw new TeamSeatLimitError(active, limits.seats);
+      }
     }
     await this.#seatsRepo.acceptInvite(tenantId, userId);
   }
@@ -170,7 +181,7 @@ export class TeamService {
 
     if (limits.seats === 0) return false;
 
-    const activeCount = await this.#seatsRepo.countActiveSeats(tenantId);
-    return activeCount < limits.seats;
+    const occupied = await this.#seatsRepo.countOccupiedSeats(tenantId);
+    return occupied < limits.seats;
   }
 }

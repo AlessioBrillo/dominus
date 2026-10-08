@@ -48,7 +48,7 @@ export class RenewalAlertRepository {
       `INSERT INTO renewal_alerts
          (domain, portfolio_entry_id, alert_type, severity, message, details, notified_channels, tenant_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(domain, alert_type) DO UPDATE SET
+       ON CONFLICT(tenant_id, domain, alert_type) DO UPDATE SET
          severity          = excluded.severity,
          message           = excluded.message,
          details           = COALESCE(excluded.details, renewal_alerts.details),

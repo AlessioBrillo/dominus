@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { execPg } from '../pg-ddl.js';
 import type { DatabaseProvider } from '../provider/interface.js';
 
-export const name = '0054_create_tenant_custom_prices';
+export const name = '0057_create_tenant_custom_prices';
 export const backwardCompatible = true;
 
 const TENANT_CUSTOM_PRICES_DDL = `

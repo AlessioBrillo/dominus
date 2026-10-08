@@ -118,6 +118,45 @@ describe('TeamService', () => {
     });
   });
 
+  describe('pending invitations hold a seat', () => {
+    it('rejects invites beyond the plan limit even when none were accepted yet', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'pro', status: 'active' });
+      await service.inviteMember('tenant-1', 'u1', 'member', 'owner');
+      await service.inviteMember('tenant-1', 'u2', 'member', 'owner');
+      await service.inviteMember('tenant-1', 'u3', 'member', 'owner');
+
+      await expect(service.inviteMember('tenant-1', 'u4', 'member', 'owner')).rejects.toThrow(
+        TeamSeatLimitError,
+      );
+    });
+
+    it('allows re-inviting a user whose invitation is already pending', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'pro', status: 'active' });
+      await service.inviteMember('tenant-1', 'u1', 'member', 'owner');
+      await service.inviteMember('tenant-1', 'u2', 'member', 'owner');
+      await service.inviteMember('tenant-1', 'u3', 'member', 'owner');
+
+      await expect(
+        service.inviteMember('tenant-1', 'u3', 'admin', 'owner'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('refuses to activate an invite when active seats already fill the plan', async () => {
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'pro', status: 'active' });
+      await service.inviteMember('tenant-1', 'u1', 'member', 'owner');
+      await service.acceptInvite('tenant-1', 'u1');
+      await service.inviteMember('tenant-1', 'u2', 'member', 'owner');
+      await service.acceptInvite('tenant-1', 'u2');
+      await service.inviteMember('tenant-1', 'u3', 'member', 'owner');
+      await service.acceptInvite('tenant-1', 'u3');
+      // Plan downgraded after the invite was issued.
+      await subRepo.upsert({ tenantId: 'tenant-1', plan: 'free', status: 'active' });
+      await seatsRepo.invite('tenant-1', 'late', 'member', 'owner');
+
+      await expect(service.acceptInvite('tenant-1', 'late')).rejects.toThrow(TeamSeatLimitError);
+    });
+  });
+
   describe('status-aware plan resolution (ADR-0053)', () => {
     it('downgrades past_due subscriptions to free seat limits', async () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });

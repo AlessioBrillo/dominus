@@ -71,6 +71,15 @@ export class TeamSeatsRepository {
     return row?.count ?? 0;
   }
 
+  /** Seats held by active members plus outstanding invitations. */
+  async countOccupiedSeats(tenantId: string): Promise<number> {
+    const row = await this.#db.queryOne<{ count: number }>(
+      "SELECT COUNT(*) as count FROM team_seats WHERE tenant_id = ? AND status IN ('active', 'pending')",
+      [tenantId],
+    );
+    return row?.count ?? 0;
+  }
+
   async findByTenantAndUser(tenantId: string, userId: string): Promise<TeamSeat | undefined> {
     const row = await this.#db.queryOne<TeamSeatRow>(
       'SELECT * FROM team_seats WHERE tenant_id = ? AND user_id = ?',
