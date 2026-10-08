@@ -131,16 +131,8 @@ async function uniqueConstraintNames(
 }
 
 export async function upPg(db: DatabaseProvider): Promise<void> {
-  for (const { table, index } of DOMAIN_UNIQUE_TABLES) {
-    // A UNIQUE constraint on (tenant_id, domain) already exists on re-run, in
-    // which case the old (domain) constraint is gone and this is a no-op.
-    for (const conname of await uniqueConstraintNames(db, table, 'domain')) {
-      await db.exec(`ALTER TABLE ${table} DROP CONSTRAINT "${conname}"`);
-    }
-    await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${index} ON ${table}(tenant_id, domain)`);
-  }
-
   // outcomes.domain -> portfolio_entries(domain) FK (needs a global unique parent).
+  // Must go first: it depends on portfolio_entries_domain_key.
   const fks = await db.query<{ conname: string }>(
     `SELECT conname FROM pg_constraint
       WHERE conrelid = 'outcomes'::regclass AND contype = 'f'
@@ -148,6 +140,15 @@ export async function upPg(db: DatabaseProvider): Promise<void> {
   );
   for (const { conname } of fks) {
     await db.exec(`ALTER TABLE outcomes DROP CONSTRAINT "${conname}"`);
+  }
+
+  for (const { table, index } of DOMAIN_UNIQUE_TABLES) {
+    // A UNIQUE constraint on (tenant_id, domain) already exists on re-run, in
+    // which case the old (domain) constraint is gone and this is a no-op.
+    for (const conname of await uniqueConstraintNames(db, table, 'domain')) {
+      await db.exec(`ALTER TABLE ${table} DROP CONSTRAINT "${conname}"`);
+    }
+    await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${index} ON ${table}(tenant_id, domain)`);
   }
 
   for (const conname of await uniqueConstraintNames(db, 'outcome_scores', 'domain,occurred_at')) {

@@ -104,6 +104,13 @@ async function main(): Promise<void> {
       logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
     }
   }
+  if (config.IS_CLOUD_MODE && !config.METRICS_TOKEN) {
+    logger.fatal(
+      'FATAL: METRICS_TOKEN is required in cloud mode. /api/v1/metrics/* exposes run history ' +
+        'and queue internals across all tenants and must not be reachable unauthenticated.',
+    );
+    process.exit(1);
+  }
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
     operatorSubjects: parseOperatorSubjects(config.OPERATOR_SUBJECTS),

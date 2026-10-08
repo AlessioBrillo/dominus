@@ -12,6 +12,7 @@ import { CandidateSource, CandidateStatus } from '../../types/candidate.js';
 import { createRunsRouter } from '../routes/runs.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { UsageLimitExceededError } from '../../types/errors.js';
+import { runWithTenant } from '../../utils/tenant-context.js';
 import type { PipelineRunService } from '../../app/pipeline-run-service.js';
 import type { JobQueueService } from '../../app/job-queue-service.js';
 import type { PipelineProgressService } from '../../app/pipeline-progress-service.js';
@@ -46,7 +47,10 @@ function openTestDb(): SqliteProvider {
   return provider;
 }
 
-function buildApp(provider: SqliteProvider): {
+function buildApp(
+  provider: SqliteProvider,
+  role: string = 'admin',
+): {
   app: express.Express;
   runsRepo: PipelineRunsRepository;
   candidateRepo: CandidateRepository;
@@ -57,6 +61,10 @@ function buildApp(provider: SqliteProvider): {
 
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => {
+    req.auth = { role };
+    next();
+  });
   app.use('/api/v1/runs', createRunsRouter(runsRepo, candidateRepo, scoringRepo, provider.rawDb));
   app.use(errorHandler);
   return { app, runsRepo, candidateRepo };
@@ -315,6 +323,56 @@ describe('Runs API', () => {
       expect(body.remaining).toBe(1);
       expect(await runsRepo.findById('r-expired')).toBeNull();
       expect(await runsRepo.findById('r-kept')).not.toBeNull();
+    });
+  });
+
+  describe('tenant scoping and admin gates', () => {
+    const run = (runId: string): Parameters<PipelineRunsRepository['insert']>[0] => ({
+      runId,
+      startedAt: '2025-01-01T00:00:00.000Z',
+      hostVersion: '0.1.0',
+      retainedUntil: '2025-06-30T00:00:00.000Z',
+    });
+
+    it("a tenant's prune never deletes another tenant's runs", async () => {
+      const { app, runsRepo } = buildApp(provider);
+      await runWithTenant('alice', () => runsRepo.insert(run('alice-run')));
+      await runWithTenant('bob', () => runsRepo.insert(run('bob-run')));
+
+      await runWithTenant('alice', async () => {
+        const res = await request(app).post('/api/v1/runs/prune');
+        expect((res.body as PruneBody).deleted).toBe(1);
+      });
+
+      expect(await runWithTenant('bob', () => runsRepo.findById('bob-run'))).not.toBeNull();
+      expect(await runWithTenant('alice', () => runsRepo.findById('alice-run'))).toBeNull();
+    });
+
+    it('GET / lists only the current tenant runs', async () => {
+      const { app, runsRepo } = buildApp(provider);
+      await runWithTenant('alice', () => runsRepo.insert(run('alice-run')));
+      await runWithTenant('bob', () => runsRepo.insert(run('bob-run')));
+
+      const res = await runWithTenant('bob', () => request(app).get('/api/v1/runs'));
+      expect((res.body.runs as RunRow[]).map((r) => r.runId)).toEqual(['bob-run']);
+    });
+
+    it("DELETE /:runId removes the caller's run, 404 for another tenant's", async () => {
+      const { app, runsRepo } = buildApp(provider);
+      await runWithTenant('alice', () => runsRepo.insert(run('alice-run')));
+
+      const foreign = await runWithTenant('bob', () =>
+        request(app).delete('/api/v1/runs/alice-run'),
+      );
+      expect(foreign.status).toBe(404);
+      const own = await runWithTenant('alice', () => request(app).delete('/api/v1/runs/alice-run'));
+      expect(own.status).toBe(204);
+    });
+
+    it('prune and delete require the admin role', async () => {
+      const { app } = buildApp(provider, 'member');
+      expect((await request(app).post('/api/v1/runs/prune')).status).toBe(403);
+      expect((await request(app).delete('/api/v1/runs/x')).status).toBe(403);
     });
   });
 

@@ -154,7 +154,7 @@ export function registerRunsCommand(program: Command, deps: RunsCommandDeps): vo
         );
         return;
       }
-      const deleted = await deps.runsRepo.prune();
+      const deleted = await deps.runsRepo.pruneInTenant();
       const after = await deps.runsRepo.count();
       process.stdout.write(`Pruned ${deleted} pipeline run(s). ${after} row(s) remain.\n`);
     });

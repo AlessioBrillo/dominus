@@ -335,21 +335,28 @@ export class PostgresAdapter implements DatabaseProvider {
     const executor = createPgExecutor((text: string, values: unknown[]) =>
       client.query({ text, values }),
     );
+    // True while the session-level tenant GUC may still be set on this
+    // connection. The reset runs in `finally` so a failing query cannot hand
+    // a tenant-scoped connection back to the pool; if the reset itself fails
+    // the connection is destroyed instead of recycled.
+    let tenantMayBeSet = false;
     try {
       const tenantId = getTenantId();
       if (tenantId) {
+        tenantMayBeSet = true;
         await client.query('SELECT set_config($1, $2, false)', ['app.tenant_id', tenantId]);
       }
-      const result = await fn(executor);
-      if (tenantId) {
-        // Reset tenant to default before releasing the connection
-        await client
-          .query('SELECT set_config($1, $2, false)', ['app.tenant_id', 'default'])
-          .catch(() => {});
-      }
-      return result;
+      return await fn(executor);
     } finally {
-      client.release();
+      if (tenantMayBeSet) {
+        try {
+          await client.query('SELECT set_config($1, $2, false)', ['app.tenant_id', 'default']);
+          tenantMayBeSet = false;
+        } catch {
+          // keep tenantMayBeSet: the connection is destroyed below
+        }
+      }
+      client.release(tenantMayBeSet ? true : undefined);
     }
   }
 

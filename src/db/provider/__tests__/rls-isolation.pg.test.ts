@@ -99,13 +99,13 @@ describe.runIf(PG_URL)('RLS tenant isolation', () => {
       'public_scores',
     ];
 
-    const rows = await adapter.query<{ tableName: string; forced: boolean }>(
+    const rows = await adapter.query<{ table_name: string; forced: boolean }>(
       `SELECT c.relname AS table_name, c.relforcerowsecurity AS forced
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = current_schema() AND c.relkind = 'r'`,
     );
-    const byName = new Map(rows.map((r) => [r.tableName, r.forced]));
+    const byName = new Map(rows.map((r) => [r.table_name, r.forced]));
 
     const absent = tables.filter((t) => !byName.has(t));
     expect(absent).toEqual([]);
