@@ -62,8 +62,8 @@ describe('createTenantStatusMiddleware (ADR-0057)', () => {
     expect(res.status).toBe(200);
   });
 
-  it('always allows admin-role callers (operator keys)', async () => {
-    const res = await request(buildApp(makeStubRepo(true), { role: 'admin' })).get('/protected');
+  it('always allows operator-role callers', async () => {
+    const res = await request(buildApp(makeStubRepo(true), { role: 'operator' })).get('/protected');
     expect(res.status).toBe(200);
   });
 

@@ -59,6 +59,32 @@ export interface AuthMiddlewareOptions {
    *  alternative to a Bearer token. Browser flows authenticate via the
    *  cookie; API/CLI clients keep using Authorization headers. */
   sessionVerifier?: SessionJwtVerifier;
+  /** Allowlist of platform operators: OIDC/JWT subjects and `key:<id>` DB key
+   *  ids. Only these callers get the `operator` role (cross-tenant admin
+   *  surface). Any `operator` role asserted by a key row or token claim is
+   *  ignored — tenants can mint their own roles, they must not self-promote. */
+  operatorSubjects?: ReadonlySet<string>;
+}
+
+export function parseOperatorSubjects(raw: string | undefined): ReadonlySet<string> {
+  return new Set(
+    (raw ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
+function resolveRole(
+  role: string | undefined,
+  identity: { userId?: string | undefined; keyId?: number | undefined },
+  operators: ReadonlySet<string> | undefined,
+): string | undefined {
+  const isOperator =
+    (identity.userId !== undefined && operators?.has(identity.userId)) ||
+    (identity.keyId !== undefined && operators?.has(`key:${identity.keyId}`));
+  if (isOperator) return 'operator';
+  return role === 'operator' ? 'admin' : role;
 }
 
 /**
@@ -134,7 +160,7 @@ export function createAuthMiddleware(
             req.auth = {
               userId: claims.sub,
               tenantId: claims.tenantId,
-              role: claims.role,
+              role: resolveRole(claims.role, { userId: claims.sub }, options.operatorSubjects),
             };
             runWithTenant(req.tenantId, () => next());
             return;
@@ -195,8 +221,9 @@ export function createAuthMiddleware(
     req.auth = {
       userId: result.userId,
       tenantId: result.tenantId,
-      role: result.role,
+      role: resolveRole(result.role, result, options.operatorSubjects),
       keyName: result.keyName,
+      keyId: result.keyId,
     };
     runWithTenant(req.tenantId, () => next());
   };

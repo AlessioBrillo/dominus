@@ -2,6 +2,8 @@
 export interface AuthResult {
   authenticated: boolean;
   keyName?: string | undefined;
+  /** Database id of the API key that authenticated the request (DB keys only). */
+  keyId?: number | undefined;
   userId?: string | undefined;
   tenantId?: string | undefined;
   role?: string | undefined;

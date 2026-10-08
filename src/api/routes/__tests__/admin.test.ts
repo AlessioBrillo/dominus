@@ -85,7 +85,7 @@ function makeStubService(): AdminService {
   } as unknown as AdminService;
 }
 
-function buildApp(service?: AdminService, role: string = 'admin'): Application {
+function buildApp(service?: AdminService, role: string = 'operator'): Application {
   const app = express();
   app.use(express.json());
 
@@ -241,6 +241,11 @@ describe('API: /api/v1/admin', () => {
       );
       expect(res.status).toBe(403);
       expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('rejects a tenant admin (not a platform operator) with 403', async () => {
+      const res = await request(buildApp(makeStubService(), 'admin')).get('/api/v1/admin/overview');
+      expect(res.status).toBe(403);
     });
 
     it('rejects callers without a role with 403', async () => {

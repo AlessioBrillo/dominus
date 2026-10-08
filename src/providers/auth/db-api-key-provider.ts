@@ -86,6 +86,7 @@ export class DbApiKeyProvider implements KeyManager {
     return {
       authenticated: true,
       keyName: stored.name,
+      keyId: stored.id,
       tenantId: stored.tenantId,
       role: stored.role,
     };

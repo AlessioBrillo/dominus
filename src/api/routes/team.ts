@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { TeamService } from '../../services/team-service.js';
 import type { Config } from '../../config.js';
+import { requireRole } from '../middleware/require-role.js';
 
 const inviteSchema = z.object({
   userId: z.string().min(1),
@@ -27,32 +28,36 @@ export function createTeamRouter(_config: Config, teamService: TeamService): Rou
     }
   });
 
-  router.post('/invite', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const tenantId = req.tenantId ?? 'default';
-      const parsed = inviteSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid invite request',
-            issues: parsed.error.issues,
-          },
-        });
-        return;
-      }
+  router.post(
+    '/invite',
+    requireRole('admin'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tenantId = req.tenantId ?? 'default';
+        const parsed = inviteSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid invite request',
+              issues: parsed.error.issues,
+            },
+          });
+          return;
+        }
 
-      await teamService.inviteMember(
-        tenantId,
-        parsed.data.userId,
-        parsed.data.role,
-        req.auth?.userId ?? 'system',
-      );
-      res.status(201).json({ status: 'invited' });
-    } catch (err) {
-      next(err);
-    }
-  });
+        await teamService.inviteMember(
+          tenantId,
+          parsed.data.userId,
+          parsed.data.role,
+          req.auth?.userId ?? 'system',
+        );
+        res.status(201).json({ status: 'invited' });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   router.post('/accept', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -65,37 +70,45 @@ export function createTeamRouter(_config: Config, teamService: TeamService): Rou
     }
   });
 
-  router.patch('/:userId/role', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const tenantId = req.tenantId ?? 'default';
-      const parsed = roleSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({
-          error: {
-            code: 'VALIDATION_ERROR',
-            message: 'Invalid role update',
-            issues: parsed.error.issues,
-          },
-        });
-        return;
+  router.patch(
+    '/:userId/role',
+    requireRole('admin'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tenantId = req.tenantId ?? 'default';
+        const parsed = roleSchema.safeParse(req.body);
+        if (!parsed.success) {
+          res.status(400).json({
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Invalid role update',
+              issues: parsed.error.issues,
+            },
+          });
+          return;
+        }
+
+        await teamService.updateMemberRole(tenantId, req.params.userId as string, parsed.data.role);
+        res.json({ status: 'updated' });
+      } catch (err) {
+        next(err);
       }
+    },
+  );
 
-      await teamService.updateMemberRole(tenantId, req.params.userId as string, parsed.data.role);
-      res.json({ status: 'updated' });
-    } catch (err) {
-      next(err);
-    }
-  });
-
-  router.delete('/:userId', async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const tenantId = req.tenantId ?? 'default';
-      await teamService.removeMember(tenantId, req.params.userId as string);
-      res.json({ status: 'removed' });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.delete(
+    '/:userId',
+    requireRole('admin'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tenantId = req.tenantId ?? 'default';
+        await teamService.removeMember(tenantId, req.params.userId as string);
+        res.json({ status: 'removed' });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   return router;
 }

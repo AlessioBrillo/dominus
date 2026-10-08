@@ -11,7 +11,7 @@ import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
 import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
-import { createAuthMiddleware } from './api/middleware/auth.js';
+import { createAuthMiddleware, parseOperatorSubjects } from './api/middleware/auth.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
@@ -106,6 +106,7 @@ async function main(): Promise<void> {
   }
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
+    operatorSubjects: parseOperatorSubjects(config.OPERATOR_SUBJECTS),
     // Browser sessions via the SSO cookie (ADR-0062): only consulted when
     // the interactive login flow is configured (auth0 + client credentials).
     ...(deps.oidcDeps ? { sessionVerifier: deps.sessionJwt } : {}),

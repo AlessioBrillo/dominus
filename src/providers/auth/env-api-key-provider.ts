@@ -97,7 +97,9 @@ export class EnvApiKeyProvider implements AuthProvider {
       }
     }
     if (matchedName !== undefined) {
-      return { authenticated: true, keyName: matchedName, tenantId: 'default' };
+      // Static env keys are full-access for the single-tenant community edition;
+      // `admin` is tenant-scoped and never grants the cross-tenant operator surface.
+      return { authenticated: true, keyName: matchedName, tenantId: 'default', role: 'admin' };
     }
     return { authenticated: false };
   }

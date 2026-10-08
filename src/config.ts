@@ -1695,6 +1695,14 @@ const configSchema = z
      * should not be readable from the public interface.
      */
     METRICS_TOKEN: z.string().optional(),
+    /**
+     * Platform operators (cross-tenant /api/v1/admin surface). Comma-separated
+     * allowlist of OIDC/JWT subjects and/or DB API key ids written as
+     * `key:<id>`. Only matching callers receive the `operator` role; the
+     * `admin` role is scoped to the caller's own tenant. Unset = nobody can
+     * reach the operator panel (fail closed).
+     */
+    OPERATOR_SUBJECTS: z.string().optional(),
 
     // ── Auto-weight-tuning config ────────────────────────────────────
 
