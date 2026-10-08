@@ -12,6 +12,7 @@ import { closeDatabase } from './db/database.js';
 import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware, parseOperatorSubjects } from './api/middleware/auth.js';
+import { sessionRoleFor } from './services/identity-tenant-resolver.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
@@ -111,6 +112,7 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+  const operatorSubjects = parseOperatorSubjects(config.OPERATOR_SUBJECTS);
   // Origins allowed to make cookie-authenticated, state-changing requests (CSRF guard).
   const trustedOrigins = new Set<string>(
     config.CORS_ORIGIN.split(',')
@@ -120,7 +122,7 @@ async function main(): Promise<void> {
   if (deps.oidcDeps) trustedOrigins.add(new URL(deps.oidcDeps.callbackUrl).origin);
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
-    operatorSubjects: parseOperatorSubjects(config.OPERATOR_SUBJECTS),
+    operatorSubjects,
     trustedOrigins,
     // Browser sessions via the SSO cookie (ADR-0062): only consulted when
     // the interactive login flow is configured (auth0 + client credentials).
@@ -285,7 +287,25 @@ async function main(): Promise<void> {
         sessionTtlMs: deps.oidcDeps.sessionTtlMs,
         sessionVerifier: deps.sessionJwt,
         trustedOrigins,
-        mintSession: (sub, tenantId, role) => deps.sessionJwt.mint({ sub, tenantId, role }),
+        operatorSubjects,
+        // The tenant/role in the session come from the user's team seat, not
+        // from whatever the IdP claims (see IdentityTenantResolver).
+        mintSession: async (sub, tenantId, role) => {
+          const resolved = await deps.identityResolver.resolve({
+            sub,
+            orgId: tenantId,
+            claimedRole: role,
+          });
+          return deps.sessionJwt.mint({
+            sub,
+            ...(resolved.tenantId !== undefined ? { tenantId: resolved.tenantId } : {}),
+            ...(resolved.role !== undefined ? { role: resolved.role } : {}),
+          });
+        },
+        acceptInvitation: async (token, userId) => {
+          const joined = await deps.teamService.acceptInvitation(token, userId);
+          return { tenantId: joined.tenantId, role: sessionRoleFor(joined.role) };
+        },
       }),
     );
   }

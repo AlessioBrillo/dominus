@@ -79,7 +79,7 @@ export function parseOperatorSubjects(raw: string | undefined): ReadonlySet<stri
   );
 }
 
-function resolveRole(
+export function resolveRole(
   role: string | undefined,
   identity: { userId?: string | undefined; keyId?: number | undefined },
   operators: ReadonlySet<string> | undefined,

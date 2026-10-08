@@ -12,6 +12,8 @@ import {
 import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
 import { isTrustedRequestOrigin } from '../middleware/csrf.js';
+import { resolveRole } from '../middleware/auth.js';
+import { InvitationInvalidError, TeamSeatLimitError } from '../../services/team-service.js';
 
 const logger = getLogger();
 
@@ -40,6 +42,13 @@ export interface OidcRouterDeps {
   /** Origins allowed to POST the session cookie (CSRF guard on /logout). */
   trustedOrigins: ReadonlySet<string>;
   mintSession(sub: string, tenantId: string | undefined, role: string | undefined): Promise<string>;
+  /** Platform-operator allowlist; the SPA must see the role the API will enforce. */
+  operatorSubjects?: ReadonlySet<string> | undefined;
+  /**
+   * Redeem a team invitation for the signed-in user. Resolves to the tenant
+   * and session role they now belong to. Omitted = invitations are disabled.
+   */
+  acceptInvitation?(token: string, userId: string): Promise<{ tenantId: string; role: string }>;
 }
 
 export function createOidcRouter(deps: OidcRouterDeps): Router {
@@ -137,8 +146,54 @@ export function createOidcRouter(deps: OidcRouterDeps): Router {
       authenticated: true,
       sub: claims.sub,
       tenantId: claims.tenantId ?? null,
-      role: claims.role ?? null,
+      role: resolveRole(claims.role, { userId: claims.sub }, deps.operatorSubjects) ?? null,
     });
+  });
+
+  // Join a team from an invitation link. The caller must already hold a
+  // session (signed in via SSO); on success the session is re-issued for the
+  // team's tenant, because tenant and role live inside the session JWT.
+  router.post('/accept-invitation', async (req: Request, res: Response) => {
+    if (!deps.acceptInvitation) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Invitations are disabled' } });
+      return;
+    }
+    if (!isTrustedRequestOrigin(req, deps.trustedOrigins)) {
+      res
+        .status(403)
+        .json({ error: { code: 'CSRF_REJECTED', message: 'Untrusted request origin' } });
+      return;
+    }
+    const session = parseCookies(req)[SESSION_COOKIE];
+    const claims = session ? await deps.sessionVerifier.verify(session) : null;
+    if (!claims) {
+      res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Sign in first' } });
+      return;
+    }
+    const token = (req.body as { token?: unknown } | undefined)?.token;
+    if (typeof token !== 'string' || token.length < 16 || token.length > 256) {
+      res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'token is required' } });
+      return;
+    }
+    try {
+      const joined = await deps.acceptInvitation(token, claims.sub);
+      const renewed = await deps.mintSession(claims.sub, joined.tenantId, joined.role);
+      res.cookie(SESSION_COOKIE, renewed, cookieOptions(deps.sessionTtlMs));
+      res.json({ tenantId: joined.tenantId, role: joined.role });
+    } catch (err) {
+      if (err instanceof InvitationInvalidError) {
+        res.status(400).json({ error: { code: 'INVITATION_INVALID', message: err.message } });
+        return;
+      }
+      if (err instanceof TeamSeatLimitError) {
+        res.status(409).json({ error: { code: 'SEAT_LIMIT_EXCEEDED', message: err.message } });
+        return;
+      }
+      logger.warn({ err }, 'Accepting invitation failed');
+      res
+        .status(500)
+        .json({ error: { code: 'INTERNAL_ERROR', message: 'Could not accept invitation' } });
+    }
   });
 
   return router;

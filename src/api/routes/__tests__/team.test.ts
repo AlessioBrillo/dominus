@@ -7,6 +7,7 @@ import { createTeamRouter } from '../team.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import type { TeamService } from '../../../services/team-service.js';
 import type { TeamSummary } from '../../../services/team-service.js';
+import { TeamSeatLimitError } from '../../../services/team-service.js';
 
 function makeStubService(): TeamService {
   return {
@@ -41,13 +42,13 @@ function makeStubService(): TeamService {
   } as unknown as TeamService;
 }
 
-function buildApp(service?: TeamService): Application {
+function buildApp(service?: TeamService, role = 'admin'): Application {
   const app = express();
   app.use(express.json());
 
   app.use((req: Request, _res: Response, next: NextFunction) => {
     req.tenantId = 'tenant-1';
-    req.auth = { role: 'admin', tenantId: 'tenant-1', userId: 'owner-1' };
+    req.auth = { role, tenantId: 'tenant-1', userId: 'owner-1' };
     next();
   });
 
@@ -139,5 +140,91 @@ describe('API: /api/v1/team', () => {
       expect(res.body.status).toBe('removed');
       expect(service.removeMember).toHaveBeenCalledWith('tenant-1', 'user-2');
     });
+  });
+});
+
+describe('API: /api/v1/team — email invitations', () => {
+  const created = {
+    invitation: {
+      id: 7,
+      email: 'new@example.com',
+      role: 'member',
+      expiresAt: '2026-10-15T00:00:00Z',
+    },
+    link: 'https://app.example.com/invite/tok',
+    emailed: false,
+  };
+
+  function stub(overrides: Record<string, unknown> = {}): TeamService {
+    return {
+      createInvitation: vi.fn().mockResolvedValue(created),
+      revokeInvitation: vi.fn().mockResolvedValue(true),
+      inviteMember: vi.fn().mockResolvedValue(undefined),
+      ...overrides,
+    } as unknown as TeamService;
+  }
+
+  it('creates an invitation and returns the one-time link', async () => {
+    const service = stub();
+    const res = await request(buildApp(service))
+      .post('/api/v1/team/invite')
+      .send({ email: 'New@Example.com', role: 'member' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.link).toBe(created.link);
+    expect(res.body.emailed).toBe(false);
+    expect(res.body.invitation.id).toBe(7);
+    expect(service.createInvitation).toHaveBeenCalledWith(
+      'tenant-1',
+      'New@Example.com',
+      'member',
+      'owner-1',
+    );
+    expect(service.inviteMember).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed email with 400', async () => {
+    const res = await request(buildApp(stub())).post('/api/v1/team/invite').send({ email: 'nope' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('refuses to invite the owner role via the API', async () => {
+    const res = await request(buildApp(stub()))
+      .post('/api/v1/team/invite')
+      .send({ email: 'a@example.com', role: 'owner' });
+    expect(res.status).toBe(400);
+  });
+
+  it('answers 403 SEAT_LIMIT_EXCEEDED when the plan is full', async () => {
+    const service = stub({
+      createInvitation: vi.fn().mockRejectedValue(new TeamSeatLimitError(3, 3)),
+    });
+    const res = await request(buildApp(service))
+      .post('/api/v1/team/invite')
+      .send({ email: 'a@example.com' });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('SEAT_LIMIT_EXCEEDED');
+  });
+
+  it('revokes an invitation, 404 when it is not found', async () => {
+    const ok = await request(buildApp(stub())).delete('/api/v1/team/invitations/7');
+    expect(ok.status).toBe(204);
+
+    const missing = await request(
+      buildApp(stub({ revokeInvitation: vi.fn().mockResolvedValue(false) })),
+    ).delete('/api/v1/team/invitations/9');
+    expect(missing.status).toBe(404);
+
+    const bad = await request(buildApp(stub())).delete('/api/v1/team/invitations/abc');
+    expect(bad.status).toBe(400);
+  });
+
+  it('only admins can invite or revoke', async () => {
+    const app = buildApp(stub(), 'member');
+    expect(
+      (await request(app).post('/api/v1/team/invite').send({ email: 'a@example.com' })).status,
+    ).toBe(403);
+    expect((await request(app).delete('/api/v1/team/invitations/7')).status).toBe(403);
   });
 });

@@ -63,6 +63,19 @@ export class TeamSeatsRepository {
     return rows.map(teamSeatFromRow);
   }
 
+  /**
+   * Active seats of a user across tenants, most recently joined first. A user
+   * who accepted an invitation lands in that team on the next login (there is
+   * no tenant switcher yet).
+   */
+  async findActiveByUserId(userId: string): Promise<TeamSeat[]> {
+    const rows = await this.#db.query<TeamSeatRow>(
+      "SELECT * FROM team_seats WHERE user_id = ? AND status = 'active' ORDER BY joined_at DESC, id DESC",
+      [userId],
+    );
+    return rows.map(teamSeatFromRow);
+  }
+
   async countActiveSeats(tenantId: string): Promise<number> {
     const row = await this.#db.queryOne<{ count: number }>(
       "SELECT COUNT(*) as count FROM team_seats WHERE tenant_id = ? AND status = 'active'",

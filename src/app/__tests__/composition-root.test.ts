@@ -571,6 +571,8 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30_000,
       DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
       PUBLIC_SCORES_RETENTION_DAYS: 90,
+      SMTP_FROM: 'DOMINUS <noreply@localhost>',
+      OIDC_AUTO_PROVISION_TENANTS: true,
       EVENTS_RETENTION_DAYS: 180,
       REDIS_TLS_ENABLED: false,
       REDIS_KEY_PREFIX: 'dominus:',

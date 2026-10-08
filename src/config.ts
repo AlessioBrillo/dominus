@@ -1295,6 +1295,27 @@ const configSchema = z
     /** Telegram chat/group ID to receive alerts. */
     NOTIFIER_TELEGRAM_CHAT_ID: z.string().optional(),
 
+    /**
+     * Outbound email (optional): SMTP connection URL, e.g.
+     * smtp://user:pass@smtp.example.com:587 (smtps:// for implicit TLS).
+     * Used for team invitations and the email alert channel. Unset = email is
+     * disabled and invitations return a copyable link instead.
+     */
+    SMTP_URL: z.string().optional(),
+    /** From header for outbound email. */
+    SMTP_FROM: z.string().default('DOMINUS <noreply@localhost>'),
+    /** Comma-separated recipients of renewal/system alerts on the email channel. */
+    NOTIFIER_EMAIL_TO: z.string().optional(),
+
+    /**
+     * Create a tenant (free plan, user as admin) the first time an OIDC user
+     * with no team seat signs in. Disable for private SSO deployments where
+     * tenants are provisioned by an operator.
+     */
+    OIDC_AUTO_PROVISION_TENANTS: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+
     // ── Scheduler config ──────────────────────────────────────────────
 
     /** Enable the in-process scheduler when the API server starts. */

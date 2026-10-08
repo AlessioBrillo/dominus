@@ -8,7 +8,10 @@ import {
   TeamSeatLimitError,
   DuplicateSeatError,
   SeatNotFoundError,
+  InvitationInvalidError,
 } from '../team-service.js';
+import { TeamInvitationsRepository } from '../../db/repositories/team-invitations-repository.js';
+import type { Mailer } from '../../providers/email/mailer.js';
 import type { SubscriptionPlan } from '../../types/subscription.js';
 
 describe('TeamService', () => {
@@ -284,5 +287,162 @@ describe('TeamService', () => {
       const summary = await service.getTeamSummary('tenant-1');
       expect(summary.activeSeats).toBe(0);
     });
+  });
+});
+
+describe('TeamService email invitations', () => {
+  let db: SqliteProvider;
+  let seatsRepo: TeamSeatsRepository;
+  let subRepo: SubscriptionRepository;
+  let invRepo: TeamInvitationsRepository;
+  const sent: { to: string | string[]; text: string }[] = [];
+  let mailerConfigured = true;
+  let mailerFails = false;
+
+  const mailer: Mailer = {
+    get configured() {
+      return mailerConfigured;
+    },
+    async send(msg) {
+      if (mailerFails) throw new Error('smtp down');
+      sent.push({ to: msg.to, text: msg.text });
+    },
+  };
+
+  const build = (): TeamService =>
+    new TeamService(seatsRepo, subRepo, {
+      invitations: { repo: invRepo, mailer, appUrl: 'https://app.example.com/', ttlHours: 1 },
+    });
+
+  beforeEach(async () => {
+    db = SqliteProvider.openInMemory();
+    await db.runMigrations();
+    seatsRepo = new TeamSeatsRepository(db);
+    subRepo = new SubscriptionRepository(db);
+    invRepo = new TeamInvitationsRepository(db);
+    sent.length = 0;
+    mailerConfigured = true;
+    mailerFails = false;
+    await subRepo.upsert({ tenantId: 't1', plan: 'pro', status: 'active' }); // 3 seats
+    await seatsRepo.invite('t1', 'owner', 'admin', 'owner');
+    await seatsRepo.acceptInvite('t1', 'owner');
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  const tokenOf = (link: string): string => link.split('/invite/')[1]!;
+
+  it('returns a one-time link, stores only the hash and emails the invitee', async () => {
+    const { invitation, link, emailed } = await build().createInvitation(
+      't1',
+      '  New.User@Example.com ',
+      'member',
+      'owner',
+    );
+
+    expect(link.startsWith('https://app.example.com/invite/')).toBe(true);
+    expect(invitation.email).toBe('new.user@example.com');
+    expect(emailed).toBe(true);
+    expect(sent[0]?.to).toBe('new.user@example.com');
+    expect(sent[0]?.text).toContain(link);
+
+    const stored = await db.query<{ token_hash: string }>(
+      'SELECT token_hash FROM team_invitations',
+    );
+    expect(stored[0]?.token_hash).not.toContain(tokenOf(link));
+    expect(stored[0]?.token_hash).toHaveLength(64);
+  });
+
+  it('still returns the link when email is not configured or fails', async () => {
+    mailerConfigured = false;
+    const off = await build().createInvitation('t1', 'a@example.com', 'member', 'owner');
+    expect(off.emailed).toBe(false);
+    expect(off.link).toContain('/invite/');
+
+    mailerConfigured = true;
+    mailerFails = true;
+    const failed = await build().createInvitation('t1', 'b@example.com', 'member', 'owner');
+    expect(failed.emailed).toBe(false);
+    expect(await invRepo.countPending('t1')).toBe(2);
+  });
+
+  it('counts outstanding invitations against the plan seat limit', async () => {
+    const service = build();
+    await service.createInvitation('t1', 'a@example.com', 'member', 'owner');
+    await service.createInvitation('t1', 'b@example.com', 'member', 'owner');
+    // owner + 2 invitations = 3 seats on the pro plan
+
+    await expect(
+      service.createInvitation('t1', 'c@example.com', 'member', 'owner'),
+    ).rejects.toThrow(TeamSeatLimitError);
+    expect(await service.canAddSeat('t1')).toBe(false);
+  });
+
+  it('activates a seat on accept and rejects a second use of the same link', async () => {
+    const service = build();
+    const { link } = await service.createInvitation('t1', 'a@example.com', 'admin', 'owner');
+
+    const joined = await service.acceptInvitation(tokenOf(link), 'auth0|new');
+    expect(joined).toEqual({ tenantId: 't1', role: 'admin' });
+    expect((await seatsRepo.findByTenantAndUser('t1', 'auth0|new'))?.status).toBe('active');
+
+    await expect(service.acceptInvitation(tokenOf(link), 'auth0|other')).rejects.toThrow(
+      InvitationInvalidError,
+    );
+  });
+
+  it('rejects unknown, revoked and expired tokens alike', async () => {
+    const service = build();
+    await expect(service.acceptInvitation('nope', 'u')).rejects.toThrow(InvitationInvalidError);
+
+    const { invitation, link } = await service.createInvitation(
+      't1',
+      'a@example.com',
+      'member',
+      'owner',
+    );
+    expect(await service.revokeInvitation('t1', invitation.id)).toBe(true);
+    await expect(service.acceptInvitation(tokenOf(link), 'u')).rejects.toThrow(
+      InvitationInvalidError,
+    );
+
+    const second = await service.createInvitation('t1', 'b@example.com', 'member', 'owner');
+    await db.exec("UPDATE team_invitations SET expires_at = '2000-01-01 00:00:00' WHERE id = ?", [
+      second.invitation.id,
+    ]);
+    await expect(service.acceptInvitation(tokenOf(second.link), 'u')).rejects.toThrow(
+      InvitationInvalidError,
+    );
+  });
+
+  it('cannot revoke another tenant invitation', async () => {
+    const service = build();
+    const { invitation } = await service.createInvitation('t1', 'a@example.com', 'member', 'owner');
+    expect(await service.revokeInvitation('other-tenant', invitation.id)).toBe(false);
+    expect(await invRepo.countPending('t1')).toBe(1);
+  });
+
+  it('releases the claim when the plan no longer has room, so the link can be retried', async () => {
+    const service = build();
+    const { link } = await service.createInvitation('t1', 'a@example.com', 'member', 'owner');
+    // Plan lapses after the invite was issued: free = 1 seat, already taken by the owner.
+    await subRepo.upsert({ tenantId: 't1', plan: 'free', status: 'active' });
+
+    await expect(service.acceptInvitation(tokenOf(link), 'u2')).rejects.toThrow(TeamSeatLimitError);
+
+    await subRepo.upsert({ tenantId: 't1', plan: 'pro', status: 'active' });
+    await expect(service.acceptInvitation(tokenOf(link), 'u2')).resolves.toMatchObject({
+      tenantId: 't1',
+    });
+  });
+
+  it('lists pending invitations in the team summary without token material', async () => {
+    const service = build();
+    await service.createInvitation('t1', 'a@example.com', 'member', 'owner');
+    const summary = await service.getTeamSummary('t1');
+    expect(summary.invitations).toHaveLength(1);
+    expect(JSON.stringify(summary.invitations)).not.toMatch(/token/i);
   });
 });

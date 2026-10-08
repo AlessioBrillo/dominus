@@ -22,7 +22,7 @@ export class TenantProvisioningService {
   constructor(
     private readonly subscriptionRepo: SubscriptionRepository,
     private readonly teamSeatsRepo: TeamSeatsRepository,
-    private readonly keyManager: KeyManager,
+    private readonly keyManager: KeyManager | undefined,
   ) {}
 
   async provisionTenant(input: {
@@ -36,6 +36,7 @@ export class TenantProvisioningService {
     await this.teamSeatsRepo.invite(tenantId, ownerId, 'admin', ownerId);
     await this.teamSeatsRepo.acceptInvite(tenantId, ownerId);
 
+    if (!this.keyManager) throw new Error('API key management is not available');
     const apiKey = await this.keyManager.generate({
       tenantId,
       name: input.name,
@@ -43,5 +44,19 @@ export class TenantProvisioningService {
     });
 
     return { tenantId, apiKey };
+  }
+
+  /**
+   * First sign-in of an OIDC user who belongs to no team: create their tenant
+   * (free plan) with them as the active admin seat. No API key is minted —
+   * the user authenticates through the SSO session; keys are created later
+   * from Settings if they want machine access.
+   */
+  async provisionTenantForUser(userId: string): Promise<{ tenantId: string }> {
+    const tenantId = `tenant-${randomBytes(8).toString('hex')}`;
+    await this.subscriptionRepo.ensureDefault(tenantId);
+    await this.teamSeatsRepo.invite(tenantId, userId, 'admin', userId);
+    await this.teamSeatsRepo.acceptInvite(tenantId, userId);
+    return { tenantId };
   }
 }

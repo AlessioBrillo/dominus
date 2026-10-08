@@ -14,6 +14,7 @@ import { PortfolioRepository } from '../portfolio-repository.js';
 import { PipelineRunsRepository } from '../pipeline-runs-repository.js';
 import { CandidateRepository } from '../candidate-repository.js';
 import { TldCostRepository } from '../tld-cost-repository.js';
+import { TeamInvitationsRepository } from '../team-invitations-repository.js';
 import { CandidateSource, CandidateStatus } from '../../../types/candidate.js';
 import { runWithTenant } from '../../../utils/tenant-context.js';
 
@@ -191,6 +192,54 @@ describe.each(dialects)('repository SQL parity ($name)', ({ open }) => {
     const b = await runWithTenant(tenant('cb'), () => repo.findByDomain(domain));
     expect(a?.status).toBe(CandidateStatus.Scored);
     expect(b?.status).toBe(CandidateStatus.TrademarkBlocked);
+  });
+
+  it('team invitations: create, list pending, single-use claim, revoke', async () => {
+    const repo = new TeamInvitationsRepository(db);
+    const t = tenant('inv');
+    const soon = new Date(Date.now() + 3_600_000);
+    const a = await repo.create({
+      tenantId: t,
+      email: 'a@example.com',
+      role: 'member',
+      tokenHash: `h1-${RUN}`,
+      invitedBy: 'owner',
+      expiresAt: soon,
+    });
+    const b = await repo.create({
+      tenantId: t,
+      email: 'b@example.com',
+      role: 'admin',
+      tokenHash: `h2-${RUN}`,
+      invitedBy: 'owner',
+      expiresAt: soon,
+    });
+    await repo.create({
+      tenantId: t,
+      email: 'old@example.com',
+      role: 'member',
+      tokenHash: `h3-${RUN}`,
+      invitedBy: 'owner',
+      expiresAt: new Date(Date.now() - 1000),
+    });
+
+    expect(await repo.countPending(t)).toBe(2);
+    expect((await repo.listPending(t)).map((i) => i.email).sort()).toEqual([
+      'a@example.com',
+      'b@example.com',
+    ]);
+
+    expect(await repo.claim(a.id, 'u1')).toBe(true);
+    expect(await repo.claim(a.id, 'u2')).toBe(false); // single use
+    expect(await repo.countPending(t)).toBe(1);
+    expect((await repo.findByTokenHash(`h1-${RUN}`))?.acceptedAt).not.toBeNull();
+    expect(
+      new Date((await repo.findByTokenHash(`h2-${RUN}`))!.expiresAt).getTime(),
+    ).toBeGreaterThan(Date.now());
+
+    expect(await repo.revoke('someone-else', b.id)).toBe(false);
+    expect(await repo.revoke(t, b.id)).toBe(true);
+    expect(await repo.countPending(t)).toBe(0);
   });
 
   it('inserts into tables without an id column succeed (auth_rate_limits)', async () => {
