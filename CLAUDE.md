@@ -34,7 +34,7 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 | **API** | Express REST (18 route modules) |
 | **Frontend** | React 19 + Vite 6 + Tailwind CSS 4 + Recharts + TanStack Table |
 | **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
-| **Infrastructure** | Docker, Docker Compose, GitHub Actions, K8s manifests |
+| **Infrastructure** | Docker, Docker Compose, Terraform (Hetzner), GitHub Actions |
 
 See [ADR-0001](docs/adr/0001-project-architecture.md) for the original rationale
 behind the technology choices. ADR-0025 through ADR-0028 document the SaaS

@@ -4,7 +4,6 @@ about: Suggest an idea for DOMINUS
 title: ''
 labels: enhancement
 assignees: ''
-
 ---
 
 ## Problem
@@ -22,6 +21,7 @@ What alternatives have you considered?
 ## Provider / Data Source
 
 If this involves a new data source or provider:
+
 - Provider name:
 - API documentation URL:
 - Authentication required? <!-- free / API key / OAuth2 -->

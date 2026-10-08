@@ -14,8 +14,6 @@
 //   - docker-compose*.yml      — external `image:` refs must carry
 //                                `@sha256:`. Locally built `dominus-*`
 //                                images and `${VAR}`-driven refs are exempt.
-//   - deploy/*.yaml (k8s)      — image tags must be `vX.Y.Z` / `sha-<hex>` /
-//                                `${VAR}` / `@sha256:`; `:latest` rejected.
 //   - deploy/terraform/**/*.tftpl — the cloud-init docker-compose template:
 //                                same policy as compose files (ADR-0046
 //                                covers the rendered node, not just the

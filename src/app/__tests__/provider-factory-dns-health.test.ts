@@ -34,8 +34,6 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     DNS_PRIVACY_MODE: false,
     DNS_NAMESERVERS: undefined,
     DNS_PARKING_IPS_PATH: undefined,
-    DNS_PER_QUERY_DNSEC: true,
-    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: 2000,
     DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
     DNS_UNBOUND_UPSTREAM_TLS: false,
     DNS_UNBOUND_READINESS_TIMEOUT_MS: 30_000,
@@ -140,34 +138,9 @@ describe('buildDnsProvider — boot health check gating (ADR-0075)', () => {
   });
 });
 
-describe('buildDnsProvider — per-query DNSSEC validation (ADR-0073, ADR-0075)', () => {
+describe('buildDnsProvider — DNSSEC health configuration', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it('passes DNS_PER_QUERY_DNSEC option to UnboundResolver', async () => {
-    const healthCheckSpy = vi.spyOn(UnboundResolver.prototype, 'healthCheck').mockResolvedValue({
-      healthy: true,
-      dnssecValid: true,
-      details: 'DNSSEC validation confirmed',
-      hosts: [
-        {
-          host: '127.0.0.1',
-          dnssecValid: true,
-          healthy: true,
-          consecutiveFailures: 0,
-          lastCheckAt: Date.now(),
-        },
-      ],
-    });
-
-    const config = makeConfig({ DNS_PER_QUERY_DNSEC: false });
-    const provider = await buildDnsProvider(config);
-
-    // The UnboundResolver constructor should have received dnsPerQueryDnssec: false
-    // We can't easily test the internal state, but we verify the provider was created
-    expect(provider).toBeInstanceOf(FallbackResolver);
-    expect(healthCheckSpy).toHaveBeenCalled();
   });
 
   it('passes DNSSEC_POSITIVE_CONTROLS to UnboundResolver', async () => {

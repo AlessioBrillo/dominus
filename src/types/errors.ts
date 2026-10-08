@@ -28,13 +28,6 @@ export class ProviderError extends DominusError {
   }
 }
 
-export class ProviderNotImplementedError extends ProviderError {
-  constructor(provider: string, method: string) {
-    super(`${method} not implemented in ${provider}`, provider, 'PROVIDER_NOT_IMPLEMENTED');
-    this.name = 'ProviderNotImplementedError';
-  }
-}
-
 export class ScoringError extends DominusError {
   constructor(message: string) {
     super(message, 'SCORING_ERROR');

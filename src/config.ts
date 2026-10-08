@@ -496,67 +496,6 @@ const configSchema = z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
       .default(() => detectCloudMode(process.env)),
     /**
-     * Enable per-query DNSSEC validation for Available verdicts (ADR-0073).
-     * When true, each Available verdict triggers a full cryptographic DNSSEC chain
-     * validation (DS -> DNSKEY -> RRSIG) for that specific domain using
-     * @relaycorp/dnssec. This provides cryptographic proof for THIS specific
-     * domain, closing the window between periodic revalidations where a resolver
-     * could be reconfigured to val-permissive-mode: yes.
-     * Default: true (ADR-0075: mandatory per-query validation).
-     */
-    DNS_PER_QUERY_DNSEC: z
-      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
-    /**
-     * Timeout in milliseconds for per-query DNSSEC validation.
-     * Only applies when DNS_PER_QUERY_DNSEC=true.
-     * The @relaycorp/dnssec library applies this timeout to the full validation
-     * chain (DS -> DNSKEY -> RRSIG). For slow ccTLDs (.it, .de, .jp, .br) with
-     * deep delegation chains, increase to 10000-15000ms.
-     * Default: 10000ms (increased from 5000ms to accommodate slow TLDs).
-     * Per-TLD override: DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES='{"it":15000,"de":10000,"br":15000}'
-     */
-    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: z.coerce.number().int().min(500).max(30000).default(10000),
-    /**
-     * Per-TLD timeout overrides for per-query DNSSEC validation (JSON object).
-     * Maps TLD (with leading dot) to timeout in milliseconds.
-     * Example: '{"it":15000,"de":10000,"jp":12000,"br":15000,"cn":10000,"ru":10000,"fr":8000,"uk":8000}'
-     * These TLDs have historically slow DNSSEC validation due to deep delegation chains.
-     */
-    DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES: z
-      .string()
-      .optional()
-      .refine(
-        (val) => {
-          if (!val || val.trim() === '') return true;
-          try {
-            const parsed = JSON.parse(val) as Record<string, unknown>;
-            return Object.entries(parsed).every(
-              ([tld, ms]) =>
-                typeof tld === 'string' &&
-                tld.startsWith('.') &&
-                typeof ms === 'number' &&
-                ms >= 500 &&
-                ms <= 30000,
-            );
-          } catch {
-            return false;
-          }
-        },
-        {
-          message: 'Must be a JSON object mapping TLDs (e.g. ".it") to timeout ms (500-30000)',
-        },
-      )
-      .transform((val) => {
-        if (!val || val.trim() === '') return {};
-        try {
-          return JSON.parse(val) as Record<string, number>;
-        } catch {
-          return {};
-        }
-      })
-      .default({}),
-    /**
      * DNSSEC validation mode for Available verdicts (default: 'strict').
      * - 'strict': Only 'valid' DNSSEC passes (conservative, ADR-0002).
      * - 'permissive': 'valid' OR 'insecure' (unsigned zones) pass.
@@ -678,12 +617,9 @@ const configSchema = z
      * Fallback DNS provider type.
      * - 'node-dns': Node.js native DNS resolver (systemd-resolved, /etc/resolv.conf).
      *   The only implemented fallback. Works everywhere, no external dependency.
-     * - 'cloudflare-doh' / 'google-doh': reserved for future DoH redundancy
-     *   (ADR-0069/0065). Selecting either fails closed at startup with an
-     *   actionable error instead of silently running on node-dns.
      * Default: 'node-dns'.
      */
-    DNS_FALLBACK_PROVIDER: z.enum(['node-dns', 'cloudflare-doh', 'google-doh']).default('node-dns'),
+    DNS_FALLBACK_PROVIDER: z.enum(['node-dns']).default('node-dns'),
     /**
      * Only use fallback for non-Available verdicts (SAFETY GATE).
      * When true (default), the fallback provider is ONLY consulted for
@@ -1903,53 +1839,11 @@ const configSchema = z
     // ── Listing / Sales Pipeline config ────────────────────────────────
 
     /**
-     * Listing provider implementation to use for marketplace integration.
-     * Supported values:
-     *   'manual'   — local-only tracking, no external API calls (default)
-     *   'dan'      — Dan.com Marketplace API (requires DAN_API_KEY)
-     *   'afternic' — Afternic Marketplace API (requires AFTERNIC_API_KEY)
-     *   'sedo'     — Sedo Marketplace API (requires SEDO_API_KEY)
-     * Adding a new provider requires:
-     *   1. Creating a new implementation of ListingProvider interface
-     *   2. Adding the type to the union below
-     *   3. Adding the factory case in src/providers/listing/index.ts
+     * Listing provider implementation. Only 'manual' (local-only tracking, no
+     * external API calls) is implemented; marketplace adapters were removed
+     * until verified API access exists (see ADR-0004 for how to add one).
      */
-    LISTING_PROVIDER: z.enum(['manual', 'dan', 'afternic', 'sedo']).default('manual'),
-
-    /**
-     * Dan.com API key for marketplace listing management.
-     * Required when LISTING_PROVIDER=dan.
-     * Obtain from https://dan.com/settings/api
-     */
-    DAN_API_KEY: z.string().optional(),
-
-    /**
-     * Afternic API key for marketplace listing management.
-     * Required when LISTING_PROVIDER=afternic.
-     * Without a key the provider reports isAvailable=false and the
-     * ListingManager degrades to local-only tracking (manual mode).
-     */
-    AFTERNIC_API_KEY: z.string().optional(),
-
-    /**
-     * Afternic API base URL override (tests, future API versioning).
-     * Defaults to https://api.afternic.com/v1.
-     */
-    AFTERNIC_API_URL: z.string().url().optional(),
-
-    /**
-     * Sedo API key for marketplace listing management.
-     * Required when LISTING_PROVIDER=sedo.
-     * Without a key the provider reports isAvailable=false and the
-     * ListingManager degrades to local-only tracking (manual mode).
-     */
-    SEDO_API_KEY: z.string().optional(),
-
-    /**
-     * Sedo API base URL override (tests, future API versioning).
-     * Defaults to https://api.sedo.com/v1.
-     */
-    SEDO_API_URL: z.string().url().optional(),
+    LISTING_PROVIDER: z.enum(['manual']).default('manual'),
 
     /**
      * Default marketplace for listings when none is specified.

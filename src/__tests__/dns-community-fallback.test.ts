@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadConfig, resetConfig } from '../../config.js';
-import { UnboundResolver } from '../../providers/dns/unbound-resolver.js';
+import { loadConfig, resetConfig } from '../config.js';
+import { UnboundResolver } from '../providers/dns/unbound-resolver.js';
 
 const originalEnv = { ...process.env };
 

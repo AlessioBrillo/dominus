@@ -4,7 +4,6 @@ about: Report a problem to help improve DOMINUS
 title: ''
 labels: bug
 assignees: ''
-
 ---
 
 ## Description
@@ -14,6 +13,7 @@ A clear and concise description of the bug.
 ## To Reproduce
 
 Steps to reproduce the behaviour:
+
 1. Run `...`
 2. With config `...`
 3. See error

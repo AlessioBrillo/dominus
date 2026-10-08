@@ -67,8 +67,8 @@ write_files:
           restart: unless-stopped
           env_file: /opt/dominus/.env
           environment:
-            - DNS_CONSENSUS_ENABLED=true
-            - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+            - DNS_UNBOUND_ENABLED=true
+            - DNS_UNBOUND_HOSTS=172.20.0.10:5300
           ports: ["127.0.0.1:3000:3000"]
           depends_on: [redis, consensus-dns]
           networks: [default, dns-consensus-net]
@@ -82,8 +82,8 @@ write_files:
           restart: unless-stopped
           env_file: /opt/dominus/.env
           environment:
-            - DNS_CONSENSUS_ENABLED=true
-            - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+            - DNS_UNBOUND_ENABLED=true
+            - DNS_UNBOUND_HOSTS=172.20.0.10:5300
           volumes:
             - backups:/backups
           depends_on: [redis, consensus-dns]
@@ -93,8 +93,8 @@ write_files:
           restart: unless-stopped
           env_file: /opt/dominus/.env
           environment:
-            - DNS_CONSENSUS_ENABLED=true
-            - DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300
+            - DNS_UNBOUND_ENABLED=true
+            - DNS_UNBOUND_HOSTS=172.20.0.10:5300
           volumes:
             - backups:/backups
           depends_on: [redis, consensus-dns]

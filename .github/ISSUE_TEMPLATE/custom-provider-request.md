@@ -4,12 +4,12 @@ about: Request a new provider implementation (registrar, keyword source, tradema
 title: ''
 labels: provider
 assignees: ''
-
 ---
 
 ## Provider Type
 
 <!-- Which interface would this implement? See src/providers/ for existing patterns -->
+
 - [ ] DnsProvider
 - [ ] RdapProvider
 - [ ] TrademarkProvider

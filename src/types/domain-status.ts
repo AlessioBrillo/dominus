@@ -24,10 +24,9 @@ export interface VerdictProvenance {
     /** DNSSEC validation status as reported by the resolver. */
     dnssec: 'valid' | 'bogus' | 'insecure' | 'unchecked';
     /** Source of the DNSSEC validation status (ADR-0078).
-     *  - 'per-query': Full cryptographic validation via @relaycorp/dnssec for this domain
      *  - 'resolver-level': Resolver-level proof from negative-control probe at boot/revalidation
      *  - 'unchecked': DNSSEC validation not performed or not required */
-    dnssecSource?: 'per-query' | 'resolver-level' | 'unchecked';
+    dnssecSource?: 'resolver-level' | 'unchecked';
     /** Query duration in milliseconds. */
     durationMs: number;
     /** Whether the result was served from cache. */
@@ -122,12 +121,10 @@ export interface DnsCheckResult {
    *  `VerdictProvenance.dns.fromCache`. */
   fromCache?: boolean | undefined;
   /** Source of the DNSSEC validation status (ADR-0078).
-   *  - 'per-query': Full cryptographic validation via @relaycorp/dnssec for this domain
    *  - 'resolver-level': Resolver-level proof from negative-control probe at boot/revalidation
    *  - 'unchecked': DNSSEC validation not performed or not required
-   *  Only set by providers that distinguish the source (e.g., UnboundResolver with
-   *  DNS_PER_QUERY_DNSEC enabled). */
-  dnssecSource?: 'per-query' | 'resolver-level' | 'unchecked';
+   *  Only set by providers that distinguish the source (UnboundResolver). */
+  dnssecSource?: 'resolver-level' | 'unchecked';
 }
 
 export interface RdapResult {

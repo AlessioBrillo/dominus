@@ -54,7 +54,7 @@ Every aspect of DOMINUS is transparent, forkable, and customizable:
 - **No vendor lock-in**: you own your data (portable database), your configuration (`.env`), and your fork. Migrate from DOMINUS Cloud to self-hosted with a single database dump.
 - **No black-box algorithms**: the scoring engine is heuristic — every weight, threshold, and signal is visible and tunable.
 - **No paid APIs required**: all data sources are free (public RDAP, USPTO, EUIPO) or file-based (keyword CSVs, comparable sales). The tool itself never requires a paid subscription.
-- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a Kubernetes cluster.
+- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a dedicated cloud node.
 
 ## Pipeline Architecture
 
@@ -162,13 +162,13 @@ See [Customization Guide](docs/customization/README.md) for step-by-step example
 
 DOMINUS scales from a personal CLI tool to a containerized service managing thousands of domains:
 
-| Scenario                    | Stack                   | Command                                                   |
-| --------------------------- | ----------------------- | --------------------------------------------------------- |
-| **Personal** (1-50 domains) | CLI only                | `npx dominus run --closeout-csv ./candidates.csv`         |
-| **Growing** (50-500)        | Docker (SQLite)         | `docker compose up -d`                                    |
-| **Large** (500+)            | Docker + PostgreSQL     | `docker compose -f compose.yml -f compose.prod.yml up -d` |
-| **Enterprise** (5000+)      | Kubernetes + PostgreSQL | `kubectl apply -f deploy/`                                |
-| **Managed**                 | DOMINUS Cloud           | Sign up at [dominus.cloud](#)                             |
+| Scenario                    | Stack                            | Command                                                                 |
+| --------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
+| **Personal** (1-50 domains) | CLI only                         | `npx dominus run --closeout-csv ./candidates.csv`                       |
+| **Growing** (50-500)        | Docker (SQLite)                  | `docker compose up -d`                                                  |
+| **Large** (500+)            | Docker + PostgreSQL              | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` |
+| **Enterprise** (5000+)      | Terraform (Hetzner) + PostgreSQL | see `deploy/terraform/`                                                 |
+| **Managed**                 | DOMINUS Cloud                    | Sign up at [dominus.cloud](#)                                           |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -256,7 +256,7 @@ A two-stage gate: a fast DNS pre-filter (bulk, DoH/DoT with 2-of-3 resolver cons
 Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
 
 **Can I self-host DOMINUS?**
-Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to Kubernetes. See the [Deployment Guide](docs/deployment/README.md).
+Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to a Terraform-provisioned node. See the [Deployment Guide](docs/deployment/README.md).
 
 ## License
 

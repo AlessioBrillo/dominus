@@ -39,9 +39,6 @@ const createTestConfig = (overrides: Partial<Config> = {}): Config =>
     DNS_UNBOUND_UNHEALTHY_COOLDOWN_MS: 30000,
     DNS_UNBOUND_MIN_HEALTHY_HOSTS: 1,
     DNS_UNBOUND_STRICT: true,
-    DNS_PER_QUERY_DNSEC: true,
-    DNS_PER_QUERY_DNSEC_TIMEOUT_MS: 10000,
-    DNS_PER_QUERY_DNSEC_TIMEOUT_OVERRIDES: {},
     DNSSEC_MODE: 'strict',
     DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
     // ADR-0078 new options

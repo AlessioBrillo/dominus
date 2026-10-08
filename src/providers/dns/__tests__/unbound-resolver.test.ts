@@ -51,19 +51,6 @@ import type { DnsCheckResult } from '../../../types/domain-status.js';
 import type { ProviderCacheRepository } from '../../../db/repositories/provider-cache-repository.js';
 import type { RateLimiterLike } from '../../../providers/rate-limiter.js';
 
-const mockValidateDnssecPerQuery = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({
-    status: 'valid',
-    chainValidated: true,
-    durationMs: 100,
-    validatedAt: new Date().toISOString(),
-  }),
-);
-
-vi.mock('../dnssec-validation.js', () => ({
-  validateDnssecPerQuery: mockValidateDnssecPerQuery,
-}));
-
 /** Build an Error carrying a c-ares style `code`, as node:dns produces. */
 function dnsError(code: string): Error {
   const err = new Error(code) as Error & { code?: string };
@@ -752,7 +739,7 @@ describe('UnboundResolver recovery behavior', () => {
   });
 });
 
-describe('UnboundResolver per-TLD timeout overrides', () => {
+describe('UnboundResolver DNSSEC provenance', () => {
   let resolver: UnboundResolver;
   let mockCacheRepo: ProviderCacheRepository;
   let mockRateLimiter: RateLimiterLike;
@@ -807,9 +794,6 @@ describe('UnboundResolver per-TLD timeout overrides', () => {
       persistentAvailableStaleMs: 24 * 60 * 60_000,
       dnssecValidationEnabled: true,
       skipSocketCheck: true,
-      dnsPerQueryDnssec: true,
-      dnsPerQueryDnssecTimeoutMs: 5000,
-      dnsPerQueryDnssecTimeoutOverrides: { '.it': 15000, '.de': 10000, '.br': 15000 },
       onResolution: mockMetrics,
     });
   });
@@ -819,130 +803,7 @@ describe('UnboundResolver per-TLD timeout overrides', () => {
     vi.clearAllMocks();
   });
 
-  it('should use per-TLD timeout override for slow TLDs (.it)', async () => {
-    // Prove DNSSEC validation first
-    await resolver.healthCheck();
-    expect(resolver.getHealthStatus().dnssecValid).toBe(true);
-
-    // Override resolveFn to return no A record (Available)
-    resolveFn.mockImplementation((domain) => {
-      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
-      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
-      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
-      return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    // Query a .it domain - should use 15000ms override
-    mockValidateDnssecPerQuery.mockClear();
-
-    await resolver.checkAvailability('slowdomain.it');
-
-    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
-      'slowdomain.it',
-      expect.objectContaining({ timeoutMs: 15000 }),
-    );
-  });
-
-  it('should use per-TLD timeout override for slow TLDs (.de)', async () => {
-    await resolver.healthCheck();
-
-    // Override resolveFn to return no A record (Available)
-    resolveFn.mockImplementation((domain) => {
-      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
-      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
-      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
-      return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    mockValidateDnssecPerQuery.mockClear();
-
-    await resolver.checkAvailability('slowdomain.de');
-
-    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
-      'slowdomain.de',
-      expect.objectContaining({ timeoutMs: 10000 }),
-    );
-  });
-
-  it('should use per-TLD timeout override for slow TLDs (.br)', async () => {
-    await resolver.healthCheck();
-
-    // Override resolveFn to return no A record (Available)
-    resolveFn.mockImplementation((domain) => {
-      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
-      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
-      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
-      return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    mockValidateDnssecPerQuery.mockClear();
-
-    await resolver.checkAvailability('slowdomain.br');
-
-    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
-      'slowdomain.br',
-      expect.objectContaining({ timeoutMs: 15000 }),
-    );
-  });
-
-  it('should use default timeout for TLDs without override', async () => {
-    await resolver.healthCheck();
-
-    // Override resolveFn to return no A record (Available)
-    resolveFn.mockImplementation((domain) => {
-      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
-      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
-      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
-      return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    mockValidateDnssecPerQuery.mockClear();
-
-    await resolver.checkAvailability('example.com');
-
-    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
-      'example.com',
-      expect.objectContaining({ timeoutMs: 5000 }),
-    );
-  });
-
-  it('should handle empty overrides object', async () => {
-    const r = new UnboundResolver({
-      unboundHosts: ['127.0.0.1'],
-      skipSocketCheck: true,
-      dnsPerQueryDnssecTimeoutOverrides: {},
-    });
-    expect(r).toBeDefined();
-    r.dispose();
-  });
-
-  it('should ignore override for TLD not in map', async () => {
-    await resolver.healthCheck();
-
-    // Override resolveFn to return no A record (Available)
-    resolveFn.mockImplementation((domain) => {
-      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
-      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
-      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
-      return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    mockValidateDnssecPerQuery.mockClear();
-
-    await resolver.checkAvailability('example.xyz');
-
-    expect(mockValidateDnssecPerQuery).toHaveBeenCalledWith(
-      'example.xyz',
-      expect.objectContaining({ timeoutMs: 5000 }),
-    );
-  });
-
-  it('stamps resolver-level (not per-query) when per-query validation times out', async () => {
+  it('stamps resolver-level provenance for an Available verdict', async () => {
     await resolver.healthCheck();
 
     resolveFn.mockImplementation((domain) => {
@@ -951,44 +812,12 @@ describe('UnboundResolver per-TLD timeout overrides', () => {
       if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
       if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
       return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    mockValidateDnssecPerQuery.mockResolvedValueOnce({
-      status: 'timeout',
-      chainValidated: false,
-      error: 'Validation timeout',
-      durationMs: 5000,
-      validatedAt: new Date().toISOString(),
     });
 
     const result = await resolver.checkAvailability('available-timeout.com');
     expect(result.status).toBe(DomainStatus.Available);
     expect(result.dnssec).toBe('valid');
     expect(result.dnssecSource).toBe('resolver-level');
-  });
-
-  it('stamps per-query only when per-query validation cryptographically validates', async () => {
-    await resolver.healthCheck();
-
-    resolveFn.mockImplementation((domain) => {
-      if (domain === 'nonexistent.invalid') return Promise.reject(dnsError('ECONNREFUSED'));
-      if (domain === DNSSEC_NEGATIVE_CONTROL) return Promise.reject(dnsError('ESERVFAIL'));
-      if (DNSSEC_POSITIVE_CONTROLS.includes(domain)) return Promise.resolve(['1.2.3.4']);
-      if (domain === DNSSEC_NEGATIVE_CONTROL_FALLBACK) return Promise.reject(dnsError('ESERVFAIL'));
-      return Promise.reject(dnsError('ENOTFOUND'));
-    });
-
-    mockValidateDnssecPerQuery.mockResolvedValueOnce({
-      status: 'valid',
-      chainValidated: true,
-      durationMs: 100,
-      validatedAt: new Date().toISOString(),
-    });
-
-    const result = await resolver.checkAvailability('available-validated.com');
-    expect(result.status).toBe(DomainStatus.Available);
-    expect(result.dnssec).toBe('valid');
-    expect(result.dnssecSource).toBe('per-query');
   });
 });
 
@@ -1020,7 +849,6 @@ describe('UnboundResolver pre-binding socket check (live loopback sockets)', () 
       const r = new UnboundResolver({
         unboundHosts: [`127.0.0.1:${port}`],
         skipSocketCheck: false,
-        dnsPerQueryDnssec: false,
       });
       try {
         const health = await r.healthCheck();

@@ -11,7 +11,6 @@ import { getLogger } from '../../logger.js';
 import type { RateLimiterLike } from '../rate-limiter.js';
 import type { DnsBreakerRegistryLike } from './dns-breaker.js';
 import type { ParkingIpRegistry } from './parking-ip-registry.js';
-import { validateDnssecPerQuery, type DnssecValidationResult } from './dnssec-validation.js';
 
 const logger = getLogger();
 
@@ -167,23 +166,6 @@ export interface UnboundResolverOptions {
   maxUnhealthyBeforeFallback?: number;
   /** Cooldown in ms before retrying an unhealthy host (default: 30000). */
   unhealthyCooldownMs?: number;
-  /** Enable per-query DNSSEC validation using @relaycorp/dnssec (ADR-0073).
-   *  When true, each Available verdict triggers a full cryptographic DNSSEC chain
-   *  validation (DS -> DNSKEY -> RRSIG) for that specific domain.
-   *  Default: true (ADR-0075: mandatory per-query validation). */
-  dnsPerQueryDnssec?: boolean | undefined;
-  /** Timeout in milliseconds for per-query DNSSEC validation.
-   *  Only applies when dnsPerQueryDnssec=true.
-   *  The @relaycorp/dnssec library applies this timeout to the full validation
-   *  chain (DS -> DNSKEY -> RRSIG). For slow ccTLDs (.it, .de, .jp, .br) with
-   *  deep delegation chains, increase to 10000-15000ms.
-   *  Default: 10000ms. */
-  dnsPerQueryDnssecTimeoutMs?: number | undefined;
-  /** Per-TLD timeout overrides for per-query DNSSEC validation.
-   *  Maps TLD (with leading dot, e.g. ".it") to timeout in milliseconds.
-   *  Default: {} (uses dnsPerQueryDnssecTimeoutMs for all TLDs).
-   *  Example: { ".it": 15000, ".de": 10000, ".br": 15000, ".jp": 12000 } */
-  dnsPerQueryDnssecTimeoutOverrides?: Record<string, number> | undefined;
   /** List of positive control domains for DNSSEC validation health checks.
    *  These are known-good DNSSEC-signed zones used to verify that the resolver
    *  can reach signed zones. Multiple controls provide geographic and topological
@@ -275,12 +257,6 @@ export class UnboundResolver implements DnsProvider {
   #revalidationTimer: ReturnType<typeof setInterval> | undefined;
   readonly #maxUnhealthyBeforeFallback: number;
   readonly #unhealthyCooldownMs: number;
-  /** Per-query DNSSEC validation enabled (ADR-0073). Default: true (ADR-0075). */
-  readonly #dnsPerQueryDnssec: boolean;
-  /** Timeout for per-query DNSSEC validation in ms. */
-  readonly #dnsPerQueryDnssecTimeoutMs: number;
-  /** Per-TLD timeout overrides for per-query DNSSEC validation. */
-  readonly #dnsPerQueryDnssecTimeoutOverrides: Record<string, number>;
   /** Positive control domains for DNSSEC validation health checks. */
   readonly #positiveControls: string[];
   /** Minimum healthy hosts required (quorum). Default: 1. */
@@ -328,9 +304,6 @@ export class UnboundResolver implements DnsProvider {
     this.#breakers = options.breakers;
     this.#dnssecValidationEnabled = options.dnssecValidationEnabled ?? true;
     this.#dnssecMode = options.dnssecMode ?? 'strict';
-    this.#dnsPerQueryDnssec = options.dnsPerQueryDnssec ?? true;
-    this.#dnsPerQueryDnssecTimeoutMs = options.dnsPerQueryDnssecTimeoutMs ?? 10000;
-    this.#dnsPerQueryDnssecTimeoutOverrides = options.dnsPerQueryDnssecTimeoutOverrides ?? {};
     this.#positiveControls = options.positiveControls ?? DNSSEC_POSITIVE_CONTROLS;
     this.#minHealthyHosts = options.minHealthyHosts ?? 1;
     this.#onAllHostsUnhealthy = options.onAllHostsUnhealthy;
@@ -1493,85 +1466,12 @@ export class UnboundResolver implements DnsProvider {
       if (resolved !== undefined) {
         const status = resolved ? DomainStatus.Registered : DomainStatus.Available;
 
-        // Per-query DNSSEC validation for Available verdicts (ADR-0073).
-        // Only run when enabled, DNSSEC validation is enabled, mode is not disabled,
-        // and the resolver-level validation is proven active.
-        // This provides cryptographic proof for THIS specific domain, closing the
-        // window between periodic revalidations where a resolver could be
-        // reconfigured to val-permissive-mode: yes.
-        // Explicitly type to include full union for per-query override.
-        let finalDnssecStatus: DnsCheckResult['dnssec'] = dnssecStatus;
-        // Tracks whether per-query validation produced a real cryptographic
-        // verdict for this domain. Only then is dnssecSource stamped
-        // 'per-query'; timeout/error/throw falls back to the resolver-level
-        // proof and must not claim per-query provenance.
-        let perQueryValidated = false;
-        if (
-          status === DomainStatus.Available &&
-          this.#dnsPerQueryDnssec &&
-          this.#dnssecValidationEnabled &&
-          this.#dnssecMode !== 'disabled' &&
-          hostDnssecValid
-        ) {
-          try {
-            const hostHealth = this.#hostHealth.get(host);
-            const resolver = hostHealth?.resolver;
-            // Use per-TLD timeout override if available
-            const tld = domain.split('.').pop()?.toLowerCase() ?? '';
-            const tldKey = tld ? `.${tld}` : '';
-            const perQueryTimeoutMs =
-              tldKey && this.#dnsPerQueryDnssecTimeoutOverrides[tldKey]
-                ? this.#dnsPerQueryDnssecTimeoutOverrides[tldKey]!
-                : this.#dnsPerQueryDnssecTimeoutMs;
-            const perQueryResult: DnssecValidationResult = await validateDnssecPerQuery(domain, {
-              timeoutMs: perQueryTimeoutMs,
-              resolver: resolver as NodeResolver,
-            });
-
-            // Map per-query result to our dnssec status
-            switch (perQueryResult.status) {
-              case 'valid':
-                finalDnssecStatus = 'valid';
-                perQueryValidated = true;
-                break;
-              case 'bogus':
-                finalDnssecStatus = 'bogus';
-                perQueryValidated = true;
-                break;
-              case 'insecure':
-                // In strict mode, insecure fails. In permissive mode, it passes.
-                finalDnssecStatus = this.#dnssecMode === 'permissive' ? 'valid' : 'unchecked';
-                perQueryValidated = this.#dnssecMode === 'permissive';
-                break;
-              case 'timeout':
-              case 'error':
-                // On timeout/error, fall back to resolver-level stamp (fail-open for availability)
-                finalDnssecStatus = dnssecStatus;
-                logger.warn(
-                  { domain, perQueryStatus: perQueryResult.status, error: perQueryResult.error },
-                  'Per-query DNSSEC validation failed — falling back to resolver-level stamp',
-                );
-                break;
-            }
-          } catch (err) {
-            // Any unexpected error falls back to resolver-level stamp
-            logger.warn(
-              { domain, err },
-              'Per-query DNSSEC validation threw — falling back to resolver-level stamp',
-            );
-          }
-        }
-
         const result: DnsCheckResult = {
           domain,
           status,
           checkedAt,
-          dnssec: finalDnssecStatus,
-          dnssecSource: perQueryValidated
-            ? 'per-query'
-            : dnssecStatus === 'valid'
-              ? 'resolver-level'
-              : 'unchecked',
+          dnssec: dnssecStatus,
+          dnssecSource: dnssecStatus === 'valid' ? 'resolver-level' : 'unchecked',
         };
         this.#setCaches(domain, result);
         const durationMs = Date.now() - lookupStartTime;
