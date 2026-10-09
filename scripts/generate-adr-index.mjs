@@ -34,7 +34,9 @@ const rows = readdirSync(DIR)
     const title = /^#\s*ADR-\d{4}:\s*(.+)$/m.exec(src)?.[1]?.trim() ?? file;
     const date = field(src, 'Date').replace(/\s.*$/, '');
     const status = cap(stripLinks(field(src, 'Status')));
-    return `| [${num}](${file}) | ${title.replace(/\|/g, '\\|')} | ${date} | ${status} |`;
+    // Escape backslashes first, otherwise a title ending in "\" would swallow the cell pipe.
+    const cell = title.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+    return `| [${num}](${file}) | ${cell} | ${date} | ${status} |`;
   });
 
 const table = ['| ADR | Title | Date | Status |', '| --- | --- | --- | --- |', ...rows].join('\n');
