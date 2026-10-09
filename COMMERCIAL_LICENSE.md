@@ -14,15 +14,15 @@ a **commercial license** is available. This license permits:
   service without publishing source code changes
 - **Warranty**: commercial licenses include standard warranty disclaimers
   and, where negotiated, indemnification terms
-- **Support**: priority technical support with defined SLAs
+- **Support**: priority technical support with defined SLAs (see the [draft SLA](docs/operations/sla.md))
 
 ## Pricing
 
-| License Type | Scope | Price |
-|-------------|-------|-------|
-| Per-instance annual | Single production deployment | Contact for pricing |
+| License Type         | Scope                                 | Price               |
+| -------------------- | ------------------------------------- | ------------------- |
+| Per-instance annual  | Single production deployment          | Contact for pricing |
 | Per-developer annual | Unlimited instances, named developers | Contact for pricing |
-| Enterprise OEM | Embedding in third-party products | Contact for pricing |
+| Enterprise OEM       | Embedding in third-party products     | Contact for pricing |
 
 ## How to Purchase
 
@@ -37,6 +37,6 @@ internal tooling), and approximate number of users or instances.
 
 ---
 
-*The commercial license and AGPL v3 cover the same codebase. The commercial
+_The commercial license and AGPL v3 cover the same codebase. The commercial
 license does not grant any additional features beyond AGPL v3 — it provides
-different legal terms for organisations that require them.*
+different legal terms for organisations that require them._

@@ -26,15 +26,15 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 
 ## Current stack
 
-| Layer | Technology |
-|-------|-----------|
-| **Backend** | Node.js 22+, Express 5 |
-| **Database** | SQLite (community) / PostgreSQL (cloud) |
-| **CLI** | Commander (18 commands) |
-| **API** | Express REST (18 route modules) |
-| **Frontend** | React 19 + Vite 6 + Tailwind CSS 4 + Recharts + TanStack Table |
-| **Trademark** | USPTO public API (no key) + EUIPO OAuth2 |
-| **Infrastructure** | Docker, Docker Compose, Terraform (Hetzner), GitHub Actions |
+| Layer              | Technology                                                     |
+| ------------------ | -------------------------------------------------------------- |
+| **Backend**        | Node.js 22+, Express 5                                         |
+| **Database**       | SQLite (community) / PostgreSQL (cloud)                        |
+| **CLI**            | Commander (20 commands)                                        |
+| **API**            | Express REST (29 route modules)                                |
+| **Frontend**       | React 19 + Vite 8 + Tailwind CSS 4 + Recharts + TanStack Table |
+| **Trademark**      | USPTO public API (no key) + EUIPO OAuth2                       |
+| **Infrastructure** | Docker, Docker Compose, Terraform (Hetzner), GitHub Actions    |
 
 See [ADR-0001](docs/adr/0001-project-architecture.md) for the original rationale
 behind the technology choices. ADR-0025 through ADR-0028 document the SaaS
@@ -69,7 +69,9 @@ All five stages are implemented and running. See [ADR-0003](docs/adr/0003-pipeli
 - **Intrinsic**: length, pronounceability, hyphens/numbers (penalty), TLD
 - **Commercial**: keyword search volume × CPC from Google Keyword Planner
 - **Market**: comparables from NameBio sales for similar names
-- **For expired/closeout domains**: domain age, backlinks, Wayback history
+- **For expired/closeout domains**: domain age, backlinks, Wayback history.
+  Wayback is fetched automatically (CDX provider); age and backlinks come from
+  the imported closeout CSV — there is no backlink provider.
 
 Weights are tuned manually against real comparable sales. ML is out of scope
 at this scale — heuristic only. See [ADR-0002](docs/adr/0002-scoring-engine-design.md)
@@ -78,8 +80,8 @@ for the backtest-driven tuning loop.
 
 ## Key design decisions
 
-- **Decision-first UX**: one question per candidate — *buy / pass*. One question
-  per portfolio domain — *keep / drop / reprice*.
+- **Decision-first UX**: one question per candidate — _buy / pass_. One question
+  per portfolio domain — _keep / drop / reprice_.
 - **Trademark gate is non-negotiable** — it runs on every candidate before any
   buy recommendation. See [ADR-0006](docs/adr/0006-trademark-gate-mandate.md).
 - **Provider abstraction is non-negotiable** — never hardcode a specific API
@@ -106,9 +108,10 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.0.0 — DOMINUS Cloud MVP (managed hosting, released).
-Next: v1.1.0 — Release Engineering Safety (rollback-safe migrations, hardened
-DNS consensus).
+DOMINUS v1.1.0 — release hardening: tenant isolation fixes, operator role,
+email team invitations, PostgreSQL parity tested in CI, WCAG 2.1 AA gate,
+Unbound as the single DNS source of truth. v1.0.0 introduced the DOMINUS Cloud
+MVP. Next: v1.2.0 — post-1.0 features.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
@@ -120,15 +123,15 @@ Resolved design decisions:
 2. **Interface: CLI + Dashboard** — the React dashboard is the primary UI for
    DOMINUS Cloud; the CLI remains fully functional for automation.
    See [ADR-0028](docs/adr/0028-frontend-architecture-professional-dashboard.md).
-3. **Registrar**: manual purchases. A [RegistrarProvider]
-   (src/providers/registrar/registrar-provider.ts) interface is available for
-   future API integration with Namecheap, GoDaddy, or Cloudflare.
+3. **Registrar**: manual purchases by default. The [RegistrarProvider]
+   (src/providers/registrar/registrar-provider.ts) interface has one real
+   implementation, Cloudflare; other registrars are not implemented.
    See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
 4. **Drop policy** — defaults live in config (`DROP_SCORE_THRESHOLD`,
    `DROP_RENEWAL_HORIZON_DAYS`); thresholds are tuned via backtest feedback.
 5. **Async-default execution** — pipeline runs enqueue to job_queue by default;
    call `--sync` for immediate synchronous execution. The worker is enabled
-   by default (`WORKER_ENABLED=true`). See [ADR-0023](docs/adr/0023-async-default-execution.md).
+   by default (`WORKER_ENABLED=true`). See [ADR-0023](docs/adr/0023-job-queue-worker-pool-architecture.md).
 6. **License**: AGPL v3 + commercial option. Community edition is free forever.
    See [ADR-0025](docs/adr/0025-license-change-agpl-commercial.md).
 7. **SaaS model**: hosting-only monetisation — no feature gating.
@@ -136,8 +139,11 @@ Resolved design decisions:
 8. **Database abstraction**: SQLite for community, PostgreSQL for cloud.
    See [ADR-0027](docs/adr/0027-saas-architecture-multi-tenant.md).
 
-Providers remain on free/manual data by design: `KeywordProvider` and
-`CompsProvider` read optional local files (`KEYWORD_DATA_PATH`,
-`COMPS_DATA_PATH`). A future upgrade to paid API providers requires only
-a new implementation file swapping in — no core logic changes.
+Providers default to free/manual data: `KeywordProvider` reads an optional
+local file (`KEYWORD_DATA_PATH`) or uses Google Suggest; `CompsProvider` reads
+an optional local file (`COMPS_DATA_PATH`). Google Ads (keywords) and NameBio
+(comparables) are optional API implementations. Adding a provider means one new
+implementation file — no core logic changes. Providers that cannot be verified
+against the real service are not shipped (see
+[ADR-0082](docs/adr/0082-removal-of-unimplemented-features.md)).
 See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).

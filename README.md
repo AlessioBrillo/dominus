@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -46,6 +46,13 @@ flowchart LR
     Pipeline --> Cloud
     Portfolio --> Cloud
 ```
+
+### Screenshots
+
+|                                         |                                           |
+| --------------------------------------- | ----------------------------------------- |
+| ![Dashboard](docs/assets/dashboard.png) | ![Candidates](docs/assets/candidates.png) |
+| ![Portfolio](docs/assets/portfolio.png) |                                           |
 
 ## Why Open-Source?
 
@@ -117,9 +124,9 @@ docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 | ------------------ | ----------------------------------------------- | ---------------------------------------------------------- |
 | **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
-| **CLI**            | Commander (18 commands)                         | Full functionality without a browser                       |
-| **API**            | Express REST (18 route modules)                 | Dashboard-ready, swappable frontend                        |
-| **Frontend**       | React 19 + Vite 6 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
+| **CLI**            | Commander (20 commands)                         | Full functionality without a browser                       |
+| **API**            | Express REST (29 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
 | **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |
 
@@ -135,7 +142,7 @@ docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 | **CLI (18 commands)** | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
-| **Auth**              | Static API key (`.env`)               | JWT + Auth0/Clerk, team accounts  |
+| **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
 | **Multi-tenancy**     | —                                     | ✓ Managed                         |
 | **Backups**           | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
 | **Support**           | GitHub Issues                         | Email/Slack (4h response)         |
@@ -237,16 +244,22 @@ Commands:
 
 ## Documentation
 
+- Guides: [closeouts to a buy decision](docs/guides/closeouts-to-buy-decision.md),
+  [portfolio keep/drop](docs/guides/portfolio-keep-drop.md),
+  [self-hosting](docs/guides/self-hosting.md),
+  [Cloud teams, SSO and operators](docs/guides/cloud-team-sso.md)
 - [Architecture Decision Records](docs/adr/README.md) — full architectural rationale
 - [Customization Guide](docs/customization/README.md) — how to adapt for your needs
 - [Deployment Guide](docs/deployment/README.md) — infrastructure options
 - [Contributing Guide](CONTRIBUTING.md) — how to contribute
 - [Security Policy](SECURITY.md) — vulnerability reporting
 - [Roadmap](ROADMAP.md) — planned features and releases
+- [Upgrading to 1.1.0](docs/releases/upgrade-1.1.0.md) — breaking changes and removals
+- [Service level agreement (draft)](docs/operations/sla.md)
 
 ## Project Status
 
-DOMINUS v0.11.0 — DNS/RDAP/WHOIS consensus hardening and reliability polish. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker with renewal clock and keep/drop verdicts, outcomes, backtest engine, and the professional React dashboard are implemented and tested. The community edition is fully functional and production-ready.
+DOMINUS v1.1.0 — all five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers with caching), the portfolio tracker with renewal clock and keep/drop verdicts, outcomes, the backtest engine and the React dashboard are implemented and tested. The community edition is fully functional; DOMINUS Cloud adds multi-tenancy, team accounts with email invitations, SSO and Stripe billing. This release fixes tenant-isolation and PostgreSQL-parity bugs found in the pre-release audit, adds a WCAG 2.1 AA accessibility gate, and removes features that were declared but never worked (see [docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)).
 
 ## FAQ
 

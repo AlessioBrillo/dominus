@@ -2,84 +2,127 @@
 
 ## Supported Versions
 
+Security fixes are released for the latest minor version of the current major
+release. Upgrade to the latest `1.x` release to receive them.
+
 | Version | Supported          |
-|---------|--------------------|
-| 0.4.x   | :white_check_mark: |
-| 0.3.x   | :white_check_mark: |
-| < 0.3.0 | :x:                |
+| ------- | ------------------ |
+| 1.1.x   | :white_check_mark: |
+| < 1.1.0 | :x:                |
 
 ## Reporting a Vulnerability
 
-DOMINUS Community is a self-hosted tool with no multi-tenancy, no user
-authentication, and no network-exposed attack surface beyond the REST API
-bound to localhost by default. DOMINUS Cloud is a managed multi-tenant service
-with authenticated access.
+DOMINUS has two editions with different exposure:
+
+- **Community** is self-hosted. It authenticates with static API keys from the
+  environment and runs as a single tenant.
+- **DOMINUS Cloud** is multi-tenant: API keys stored hashed in the database,
+  optional single sign-on (OIDC), team seats, billing and an operator panel.
 
 If you discover a security issue in either edition:
 
 1. **Do not open a public GitHub issue.**
-2. Send details to the repository owner via a [private vulnerability report]
-   on GitHub.
+2. Send details through a private vulnerability report on GitHub
+   (the repository's **Security** tab).
 3. You should receive a response within 7 days.
 
 ## Security Design
 
-DOMINUS follows these security principles:
-
 ### No Secrets in Code
-- All API keys and credentials are read from environment variables (`.env`
-  file, gitignored).
-- The `.env.example` file documents every variable without real values.
-- No tokens, keys, or passwords are hardcoded or committed.
+
+- API keys and credentials are read from environment variables (`.env`,
+  gitignored) or from files named by `FILE_*` variables.
+- `.env.example` documents every variable without real values, and a test keeps
+  it in sync with the configuration schema.
+- NameBio's API key is sent in the query string (the vendor's format); it is
+  redacted from error logs.
 
 ### SQL Injection Prevention
-- Every SQL query uses parameterised statements via `better-sqlite3.prepare()`
-  or parameterised PostgreSQL queries.
-- No string concatenation or template literals are used in SQL queries.
+
+- Queries are parameterised on both SQLite and PostgreSQL. Dynamic identifiers
+  (table names in migrations) never come from user input.
+- A CI check keeps SQLite-only SQL out of code that also runs on PostgreSQL.
 
 ### Input Validation
-- Domain names are validated against RFC-1123 rules before any provider call.
+
+- Domain names are validated against RFC 1123 rules before any provider call.
 - CSV imports are validated for schema compliance before processing.
-- File paths are resolved safely (no directory traversal).
-- All API inputs are validated with Zod schemas.
+- API bodies are validated with Zod.
 
 ### Network Exposure
-- The Express API binds to `127.0.0.1` by default (localhost only).
-- In Docker, `HOST=0.0.0.0` is required for container ingress — access
-  should be restricted by reverse proxy or firewall.
-- All standard HTTP security headers are set (`X-Content-Type-Options`,
-  `X-Frame-Options`, `X-XSS-Protection`, `Strict-Transport-Security`).
 
-### Authentication (Community Edition)
-- Static API key from environment variable — single-key, single-user.
-- No session management, password hashing, or user registration.
-- API key should be treated as a secret and rotated periodically.
+- The server binds to `127.0.0.1` by default. The Docker image sets
+  `HOST=0.0.0.0` for container ingress, and **the server refuses to start on an
+  exposed interface without API authentication configured.**
+- Standard HTTP security headers and a strict CSP are set.
+- In Cloud mode the server refuses to start without `METRICS_TOKEN`, so
+  `/api/v1/metrics/*` is never public.
 
-### Authentication (DOMINUS Cloud)
-- JWT-based authentication with short-lived access tokens (15 minutes) and
-  refresh tokens (7 days).
-- Auth0/Clerk managed identity provider for OAuth, password hashing, and
-  brute-force protection.
-- API keys for CLI access are hashed with bcrypt (never stored in plaintext).
-- Row-Level Security on PostgreSQL enforces tenant isolation at the database
-  level.
+### Authentication
 
-### Dependency Management
-- Dependencies are scanned for known vulnerabilities before addition.
-- Dependabot is configured for weekly npm updates.
-- Only well-maintained, widely-used libraries are selected.
+**API keys** (CLI, scripts, Community edition)
 
-### Database Safety
-- Community edition: SQLite WAL mode for safe concurrent access. The database
-  file is stored in a gitignored `data/` directory. Automatic backups via
-  `dominus maintenance backup` (VACUUM INTO).
-- DOMINUS Cloud: Managed PostgreSQL with automated daily backups, point-in-time
-  recovery, and encrypted storage at rest.
+- Community: static keys from `API_KEYS` / `FILE_API_KEYS`, compared in constant
+  time. They act as the admin of the single tenant.
+- Cloud: keys are generated server-side, shown once, and stored only as a salted
+  scrypt hash. Keys carry a role (`admin` or `member`) and can be revoked.
+- Failed authentication is rate limited per IP.
+
+**Single sign-on** (Cloud, `AUTH_PROVIDER=auth0` with OIDC client credentials)
+
+- Authorization Code flow with PKCE and `state`; the ID token is verified against
+  the IdP's JWKS (issuer and audience).
+- The browser session is an `HttpOnly`, `Secure`, `SameSite=Lax` cookie holding
+  a signed JWT (8 hours by default). There are no refresh tokens: a session ends
+  at expiry or at logout, and logout also ends the identity-provider session.
+- State-changing requests authenticated by the cookie must come from a trusted
+  `Origin`/`Referer` (CSRF guard). Bearer-token callers are unaffected.
+- The tenant and role in a session come from the user's team seat, not from IdP
+  claims.
+
+**Roles**
+
+- `member` and `admin` are scoped to one tenant; `admin` manages that tenant's
+  team, keys and billing.
+- `operator` is the cross-tenant platform role (operator panel, suspend, plan
+  override). It is granted only through the `OPERATOR_SUBJECTS` allowlist; no key
+  row or token claim can grant it, and an empty allowlist means nobody has it.
+
+### Billing
+
+- Stripe webhooks are verified with the signing secret on the raw body and
+  de-duplicated durably; a failed handler releases its claim so Stripe's retry is
+  processed. Custom-price grants cross-check tenant and amount.
 
 ### Multi-Tenant Isolation (DOMINUS Cloud)
-- Tenant isolation is enforced at three layers:
-  1. **Application**: all queries filter by `tenant_id` column
-  2. **Database**: PostgreSQL Row-Level Security policies on every table
-  3. **Network**: tenants are isolated at the application layer (no direct
-     database access)
-- Cross-tenant data access is validated in CI with integration tests.
+
+Isolation is enforced in layers:
+
+1. **Application:** repositories scope queries by `tenant_id`, and domain
+   uniqueness is per tenant.
+2. **Database:** PostgreSQL Row-Level Security (forced, for a non-superuser
+   application role) on the entity tables (candidates, scoring runs, portfolio,
+   outcomes, listings, bids, alerts, watchlist, events, onboarding, public
+   scores, ...). The tenant context is reset on every pooled connection, and a
+   connection whose reset fails is destroyed.
+3. **Control-plane tables** (API keys, subscriptions, usage, team seats,
+   invitations, tenant flags) are scoped by the application, not by RLS: they are
+   read before a tenant is known (key validation, webhooks) or across tenants (the
+   operator panel). Extending RLS to them needs a dedicated bypass design and is
+   tracked as follow-up work.
+
+Cross-tenant behaviour is covered by tests that run against SQLite and, in CI,
+against a real PostgreSQL.
+
+### Dependency and Image Supply Chain
+
+- Dependencies are audited in CI (`npm audit`, secret scanning, CodeQL, image
+  scanning) and Dependabot proposes updates.
+- Container images are pinned by digest; runtime images drop the npm CLI and run
+  as a non-root user.
+
+### Database Safety
+
+- Community: SQLite in WAL mode; automatic daily backups (`VACUUM INTO`).
+- Cloud: PostgreSQL with WAL archiving and point-in-time recovery
+  (see `docs/operations/rto-rpo.md`).

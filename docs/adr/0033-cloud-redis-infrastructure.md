@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Date** | 2026-06-26 |
 | **Authors** | AlessioBrillo |
 | **Deciders** | AlessioBrillo |

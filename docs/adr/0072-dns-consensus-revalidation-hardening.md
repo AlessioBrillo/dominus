@@ -2,7 +2,7 @@
 
 **Status**: Accepted  
 **Date**: 2026-09-07  
-**Supersedes**: None  
+**Supersedes**: ADR-0039, 0040, 0042, 0044, 0045, 0047, 0048, 0059, 0063, 0065, 0068, 0069 (legacy consensus topology)  
 **Related**: ADR-0002, ADR-0039, ADR-0044, ADR-0045, ADR-0059, ADR-0063, ADR-0064, ADR-0065, ADR-0066, ADR-0068, ADR-0069
 
 ## Context

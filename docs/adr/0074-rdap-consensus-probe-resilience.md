@@ -1,6 +1,6 @@
 # ADR-0074: RDAP Consensus Probe Resilience with Retry and Fail-Open
 
-**Status**: Accepted  
+**Status**: Superseded by [ADR-0077](0077-rdap-consensus-per-tld-authoritative-secondary.md)  
 **Date**: 2026-09-23  
 **Supersedes**: None  
 **Related**: ADR-0050, ADR-0051, ADR-0058

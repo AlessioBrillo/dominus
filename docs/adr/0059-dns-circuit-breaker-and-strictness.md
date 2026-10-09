@@ -4,7 +4,7 @@
 
 | Field          | Value                          |
 | -------------- | ------------------------------ |
-| **Status**     | Accepted                       |
+| **Status**     | Superseded by [ADR-0072](0072-dns-consensus-revalidation-hardening.md) and [ADR-0075](0075-dns-unbound-single-source-completion.md)                       |
 | **Date**       | 2026-08-16                     |
 | **Authors**    | AlessioBrillo                  |
 | **Deciders**   | AlessioBrillo                  |
