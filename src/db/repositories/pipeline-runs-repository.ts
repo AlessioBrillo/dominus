@@ -274,6 +274,15 @@ export class PipelineRunsRepository {
    * Delete the current tenant's runs whose `retained_until` has passed.
    * Tenant-facing prune (API / `runs prune`); never touches other tenants.
    */
+  /** Expired runs of the current tenant, without deleting them (prune preview). */
+  async countExpiredInTenant(now: string = new Date().toISOString()): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pipeline_runs WHERE retained_until < ? AND tenant_id = ?',
+      [now, resolveTenantId()],
+    );
+    return row?.n ?? 0;
+  }
+
   async pruneInTenant(now: string = new Date().toISOString()): Promise<number> {
     const result = await this.db.exec(
       'DELETE FROM pipeline_runs WHERE retained_until < ? AND tenant_id = ?',

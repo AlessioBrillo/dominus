@@ -13,7 +13,11 @@ import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
 import { isTrustedRequestOrigin } from '../middleware/csrf.js';
 import { resolveRole } from '../middleware/auth.js';
-import { InvitationInvalidError, TeamSeatLimitError } from '../../services/team-service.js';
+import {
+  InvitationEmailMismatchError,
+  InvitationInvalidError,
+  TeamSeatLimitError,
+} from '../../services/team-service.js';
 
 const logger = getLogger();
 
@@ -41,14 +45,23 @@ export interface OidcRouterDeps {
   sessionVerifier: SessionJwtVerifier;
   /** Origins allowed to POST the session cookie (CSRF guard on /logout). */
   trustedOrigins: ReadonlySet<string>;
-  mintSession(sub: string, tenantId: string | undefined, role: string | undefined): Promise<string>;
+  mintSession(
+    sub: string,
+    tenantId: string | undefined,
+    role: string | undefined,
+    email?: string,
+  ): Promise<string>;
   /** Platform-operator allowlist; the SPA must see the role the API will enforce. */
   operatorSubjects?: ReadonlySet<string> | undefined;
   /**
    * Redeem a team invitation for the signed-in user. Resolves to the tenant
    * and session role they now belong to. Omitted = invitations are disabled.
    */
-  acceptInvitation?(token: string, userId: string): Promise<{ tenantId: string; role: string }>;
+  acceptInvitation?(
+    token: string,
+    userId: string,
+    verifiedEmail?: string,
+  ): Promise<{ tenantId: string; role: string }>;
 }
 
 export function createOidcRouter(deps: OidcRouterDeps): Router {
@@ -106,7 +119,12 @@ export function createOidcRouter(deps: OidcRouterDeps): Router {
       const validated = await deps.provider.validateIdToken(tokens.idToken);
       if (!validated.authenticated || !validated.userId) return fail();
 
-      const session = await deps.mintSession(validated.userId, validated.tenantId, validated.role);
+      const session = await deps.mintSession(
+        validated.userId,
+        validated.tenantId,
+        validated.role,
+        validated.email,
+      );
 
       res.clearCookie(OIDC_COOKIE, { path: '/' });
       res.cookie(SESSION_COOKIE, session, cookieOptions(deps.sessionTtlMs));
@@ -176,13 +194,24 @@ export function createOidcRouter(deps: OidcRouterDeps): Router {
       return;
     }
     try {
-      const joined = await deps.acceptInvitation(token, claims.sub);
-      const renewed = await deps.mintSession(claims.sub, joined.tenantId, joined.role);
+      const joined = await deps.acceptInvitation(token, claims.sub, claims.email);
+      const renewed = await deps.mintSession(
+        claims.sub,
+        joined.tenantId,
+        joined.role,
+        claims.email,
+      );
       res.cookie(SESSION_COOKIE, renewed, cookieOptions(deps.sessionTtlMs));
       res.json({ tenantId: joined.tenantId, role: joined.role });
     } catch (err) {
       if (err instanceof InvitationInvalidError) {
         res.status(400).json({ error: { code: 'INVITATION_INVALID', message: err.message } });
+        return;
+      }
+      if (err instanceof InvitationEmailMismatchError) {
+        res
+          .status(403)
+          .json({ error: { code: 'INVITATION_EMAIL_MISMATCH', message: err.message } });
         return;
       }
       if (err instanceof TeamSeatLimitError) {

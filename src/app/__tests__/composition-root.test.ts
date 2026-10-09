@@ -572,7 +572,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNSSEC_POSITIVE_CONTROLS: 'sigok.verteiltesysteme.net,dnssec.works,test.dnssec-tools.org',
       PUBLIC_SCORES_RETENTION_DAYS: 90,
       SMTP_FROM: 'DOMINUS <noreply@localhost>',
-      OIDC_AUTO_PROVISION_TENANTS: true,
+      OIDC_AUTO_PROVISION_TENANTS: false,
       EVENTS_RETENTION_DAYS: 180,
       REDIS_TLS_ENABLED: false,
       REDIS_KEY_PREFIX: 'dominus:',

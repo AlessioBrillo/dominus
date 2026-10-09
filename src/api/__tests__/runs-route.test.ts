@@ -326,6 +326,39 @@ describe('Runs API', () => {
     });
   });
 
+  describe('POST /api/v1/runs/prune with dryRun', () => {
+    it('reports what would be deleted and deletes nothing', async () => {
+      const { app, runsRepo } = buildApp(provider);
+      runsRepo.insert({
+        runId: 'r-expired',
+        startedAt: '2025-01-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2025-06-30T00:00:00.000Z',
+      });
+
+      const res = await request(app).post('/api/v1/runs/prune').send({ dryRun: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ deleted: 1, remaining: 1, dryRun: true });
+      expect(await runsRepo.findById('r-expired')).not.toBeNull();
+    });
+
+    it('deletes when dryRun is false or absent', async () => {
+      const { app, runsRepo } = buildApp(provider);
+      runsRepo.insert({
+        runId: 'r-expired',
+        startedAt: '2025-01-01T00:00:00.000Z',
+        hostVersion: '0.1.0',
+        retainedUntil: '2025-06-30T00:00:00.000Z',
+      });
+
+      const res = await request(app).post('/api/v1/runs/prune').send({ dryRun: false });
+
+      expect(res.body).toMatchObject({ deleted: 1, dryRun: false });
+      expect(await runsRepo.findById('r-expired')).toBeNull();
+    });
+  });
+
   describe('tenant scoping and admin gates', () => {
     const run = (runId: string): Parameters<PipelineRunsRepository['insert']>[0] => ({
       runId,

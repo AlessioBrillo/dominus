@@ -85,9 +85,53 @@ describe('IdentityTenantResolver', () => {
     expect(second.tenantId).toBe(first.tenantId);
   });
 
+  it('concurrent first sign-ins converge on one tenant', async () => {
+    const r = resolver();
+    const results = await Promise.all([
+      r.resolve({ sub: 'auth0|race' }),
+      r.resolve({ sub: 'auth0|race' }),
+      r.resolve({ sub: 'auth0|race' }),
+    ]);
+    expect(new Set(results.map((x) => x.tenantId)).size).toBe(1);
+    expect(await seats.findActiveByUserId('auth0|race')).toHaveLength(1);
+  });
+
   it('does not provision when auto-provisioning is off', async () => {
     const r = await resolver(false).resolve({ sub: 'auth0|new', claimedRole: 'admin' });
     expect(r).toEqual({ tenantId: undefined, role: 'admin' });
     expect(await seats.findActiveByUserId('auth0|new')).toHaveLength(0);
+  });
+
+  describe('validateSession (live check of an 8-hour session)', () => {
+    it('passes an active seat and returns the current role', async () => {
+      await join('team-a', 'auth0|u1', 'admin');
+      expect(await resolver().validateSession({ sub: 'auth0|u1', tenantId: 'team-a' })).toEqual({
+        role: 'admin',
+      });
+    });
+
+    it('applies a demotion immediately', async () => {
+      await join('team-a', 'auth0|u1', 'admin');
+      await seats.updateRole('team-a', 'auth0|u1', 'member');
+      expect(await resolver().validateSession({ sub: 'auth0|u1', tenantId: 'team-a' })).toEqual({
+        role: 'member',
+      });
+    });
+
+    it('rejects a removed member', async () => {
+      await join('team-a', 'auth0|u1', 'member');
+      await seats.remove('team-a', 'auth0|u1');
+      expect(await resolver().validateSession({ sub: 'auth0|u1', tenantId: 'team-a' })).toBeNull();
+    });
+
+    it('rejects a seat that is not active yet', async () => {
+      await seats.invite('team-a', 'auth0|u1', 'member', 'owner');
+      expect(await resolver().validateSession({ sub: 'auth0|u1', tenantId: 'team-a' })).toBeNull();
+    });
+
+    it('trusts sessions that have no seat (IdP organization claim) or no tenant', async () => {
+      expect(await resolver().validateSession({ sub: 'auth0|org', tenantId: 'org-9' })).toEqual({});
+      expect(await resolver().validateSession({ sub: 'auth0|x' })).toEqual({});
+    });
   });
 });

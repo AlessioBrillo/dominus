@@ -38,6 +38,18 @@ export class InvitationInvalidError extends Error {
   }
 }
 
+/** The signed-in user's verified email is not the one the invitation was sent to. */
+export class InvitationEmailMismatchError extends Error {
+  constructor(public readonly reason: 'no-verified-email' | 'different-email') {
+    super(
+      reason === 'no-verified-email'
+        ? 'Your identity provider did not return a verified email address'
+        : 'This invitation was sent to a different email address',
+    );
+    this.name = 'InvitationEmailMismatchError';
+  }
+}
+
 export class SeatNotFoundError extends Error {
   constructor(public readonly userId: string) {
     super(`Seat not found for user ${userId}`);
@@ -282,7 +294,15 @@ export class TeamService {
     const link = `${base}/invite/${token}`;
 
     let emailed = false;
-    if (inv.mailer?.configured) {
+    // A relative link is useless in an email, and reporting `emailed: true` would
+    // hide the copyable link from the admin. Without PUBLIC_APP_URL, don't send.
+    if (inv.mailer?.configured && base === '') {
+      logger.warn(
+        { tenantId },
+        'SMTP is configured but PUBLIC_APP_URL is not: invitation not emailed, link returned instead',
+      );
+    }
+    if (inv.mailer?.configured && base !== '') {
       try {
         await inv.mailer.send({
           to: invitation.email,
@@ -313,6 +333,7 @@ export class TeamService {
   async acceptInvitation(
     token: string,
     userId: string,
+    verifiedEmail?: string,
   ): Promise<{ tenantId: string; role: TeamRole }> {
     const inv = this.#invitations;
     if (!inv) throw new InvitationInvalidError();
@@ -324,6 +345,14 @@ export class TeamService {
       new Date(invitation.expiresAt).getTime() <= Date.now()
     ) {
       throw new InvitationInvalidError();
+    }
+    // The link is a bearer secret: forwarded, kept in a shared mailbox or opened by
+    // a link scanner it would otherwise admit whoever signs in first. Require the
+    // verified email of the signed-in user to be the invited one, and check it
+    // BEFORE claiming so a wrong person cannot burn the invitation.
+    if (!verifiedEmail) throw new InvitationEmailMismatchError('no-verified-email');
+    if (verifiedEmail.trim().toLowerCase() !== invitation.email) {
+      throw new InvitationEmailMismatchError('different-email');
     }
     if (!(await inv.repo.claim(invitation.id, userId))) throw new InvitationInvalidError();
 

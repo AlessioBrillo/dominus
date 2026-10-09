@@ -30,6 +30,24 @@ export class IdentityTenantResolver {
     private readonly autoProvision: boolean,
   ) {}
 
+  /**
+   * Live check of a session against the user's team seat in the session's tenant.
+   * - active seat: valid, with the CURRENT role (a demotion applies immediately)
+   * - removed or pending seat: invalid (a removed member loses access at once)
+   * - no seat at all: sessions minted from an IdP organization claim have none, so
+   *   the claims are trusted as before
+   */
+  async validateSession(claims: {
+    sub: string;
+    tenantId?: string | undefined;
+  }): Promise<{ role?: string | undefined } | null> {
+    if (!claims.tenantId) return {};
+    const seat = await this.seats.findByTenantAndUser(claims.tenantId, claims.sub);
+    if (!seat) return {};
+    if (seat.status !== 'active') return null;
+    return { role: sessionRoleFor(seat.role) };
+  }
+
   async resolve(input: {
     sub: string;
     orgId?: string | undefined;

@@ -44,7 +44,7 @@ See [ADR-0082](../adr/0082-removal-of-unimplemented-features.md).
   ([ADR-0081](../adr/0081-operator-role-and-team-invitations.md)).
 - Optional SMTP (`SMTP_URL`, `SMTP_FROM`) and an email alert channel
   (`NOTIFIER_EMAIL_TO`).
-- `OIDC_AUTO_PROVISION_TENANTS` (default `true`).
+- `OIDC_AUTO_PROVISION_TENANTS` (default `false`): set it to `true` for self-serve Cloud signup; otherwise a user with no team seat is rejected until invited.
 - `GET /api/v1/me`.
 - PostgreSQL portability checks and a CI job that runs the suite on PostgreSQL.
 - WCAG 2.1 AA gate (axe) in the E2E suite; accessible colour tokens.
@@ -54,6 +54,6 @@ See [ADR-0082](../adr/0082-removal-of-unimplemented-features.md).
 ## Known limits
 
 - No tenant switcher: a user in several teams lands in the most recently joined.
-- An invitation link is a bearer secret (anyone who opens it first joins).
+- Accepting an invitation needs an identity provider that returns a verified `email` claim.
 - Row-level security covers the entity tables; control-plane tables (keys,
   subscriptions, usage, seats, invitations) are scoped by the application.

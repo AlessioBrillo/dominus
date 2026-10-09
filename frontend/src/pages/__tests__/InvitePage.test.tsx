@@ -65,6 +65,17 @@ describe('InvitePage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/single sign-on/i);
   });
 
+  it('explains an email mismatch', async () => {
+    vi.mocked(acceptInvitation).mockRejectedValue(
+      new ApiError(403, 'INVITATION_EMAIL_MISMATCH', 'x'),
+    );
+    renderPage();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Accept invitation' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/different email address/i);
+  });
+
   it('reports a full team', async () => {
     vi.mocked(acceptInvitation).mockRejectedValue(new ApiError(409, 'SEAT_LIMIT_EXCEEDED', 'x'));
     renderPage();

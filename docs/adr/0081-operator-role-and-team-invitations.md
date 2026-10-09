@@ -89,11 +89,14 @@ Chosen option: **B**.
 - OIDC sign-in resolves the tenant from the user's most recently joined active
   team seat and derives the role from the seat (`owner`/`admin` -> `admin`).
   Without a seat, an IdP `org_id` is honoured; otherwise a tenant is created
-  with the user as admin when `OIDC_AUTO_PROVISION_TENANTS` is on.
+  with the user as admin when `OIDC_AUTO_PROVISION_TENANTS` is on (opt-in; the
+  tenant id derives from the user so concurrent first sign-ins converge).
 - Invitations are email-addressed single-use bearer links (`team_invitations`,
   only the SHA-256 stored, 7-day default lifetime). A pending invitation holds a
-  seat. Acceptance claims the token atomically, creates the seat, and re-issues
-  the session for the team's tenant (`POST /auth/oidc/accept-invitation`).
+  seat. Acceptance requires the signed-in user's **verified** ID-token email to
+  equal the invited address (checked before the token is claimed, so a wrong
+  person cannot burn it), then claims the token atomically, creates the seat and
+  re-issues the session for the team's tenant (`POST /auth/oidc/accept-invitation`).
 - Email is a `Mailer` provider (ADR-0004): `SmtpMailer` (nodemailer, loaded only
   when `SMTP_URL` is set) or `NullMailer`. Without SMTP the API returns the link
   for the admin to share.
@@ -109,10 +112,11 @@ plan says; invitations work with or without SMTP.
 
 - No tenant switcher: a user in several teams lands in the most recently joined
   one at the next sign-in. A switcher is a follow-up.
-- The invitation link is a bearer secret: whoever opens it first joins. Binding
-  acceptance to the invited email needs the `email` claim in the session and is
-  a follow-up.
+- Acceptance needs an identity provider that returns a verified `email` claim
+  (Auth0 does with the default scope). A session without one cannot accept.
 - Existing deployments must set `OPERATOR_SUBJECTS` to keep using `/admin`
   (documented in the 1.1.0 upgrade notes).
-- Session roles are fixed at sign-in; a role change takes effect at the next
-  sign-in (session lifetime, 8 hours by default).
+- Sessions are re-checked against the team seat on every request: a removed or
+  pending seat ends the session at once and a role change applies immediately.
+  Sessions that came from an IdP `org_id` claim have no seat and keep trusting
+  the JWT until it expires (8 hours by default).

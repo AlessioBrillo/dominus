@@ -37,6 +37,11 @@ describe('createSessionJwtMinter', () => {
     });
   });
 
+  it('round-trips the verified email', async () => {
+    const token = await mint({ sub: 'u', tenantId: 't', email: 'bob@example.com' });
+    await expect(verify(token)).resolves.toMatchObject({ email: 'bob@example.com' });
+  });
+
   it('accepts claims without tenant/role', async () => {
     const token = await mint({ sub: 'user-2' });
     await expect(verify(token)).resolves.toEqual({ sub: 'user-2' });

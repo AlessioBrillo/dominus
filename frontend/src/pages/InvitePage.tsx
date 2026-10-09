@@ -13,6 +13,8 @@ function describe(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.code === 'INVITATION_INVALID')
       return 'This invitation is invalid, expired or has already been used. Ask for a new one.';
+    if (err.code === 'INVITATION_EMAIL_MISMATCH')
+      return 'This invitation was sent to a different email address. Sign in with the invited address (it must be verified at your identity provider).';
     if (err.code === 'SEAT_LIMIT_EXCEEDED')
       return 'The team has no free seat right now. Ask an admin to free one, then try again.';
     if (err.status === 401 || err.status === 404)

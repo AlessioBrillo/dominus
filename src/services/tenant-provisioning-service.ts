@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
 import type { TeamSeatsRepository } from '../db/repositories/team-seats-repository.js';
 import type { KeyManager, GeneratedKeyResult } from '../providers/auth/auth-provider.js';
@@ -53,7 +53,11 @@ export class TenantProvisioningService {
    * from Settings if they want machine access.
    */
   async provisionTenantForUser(userId: string): Promise<{ tenantId: string }> {
-    const tenantId = `tenant-${randomBytes(8).toString('hex')}`;
+    // Derived from the user, not random: two concurrent first callbacks (a
+    // double-clicked login) converge on the same tenant instead of creating two.
+    const tenantId = `tenant-${createHash('sha256').update(userId).digest('hex').slice(0, 16)}`;
+    const existing = await this.teamSeatsRepo.findByTenantAndUser(tenantId, userId);
+    if (existing?.status === 'active') return { tenantId };
     await this.subscriptionRepo.ensureDefault(tenantId);
     await this.teamSeatsRepo.invite(tenantId, userId, 'admin', userId);
     await this.teamSeatsRepo.acceptInvite(tenantId, userId);

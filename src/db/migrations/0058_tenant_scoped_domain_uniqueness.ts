@@ -77,42 +77,48 @@ export function up(db: Database.Database): void {
   const fkWasOn = db.pragma('foreign_keys', { simple: true }) === 1;
   db.pragma('foreign_keys = OFF');
   try {
-    for (const { table, index } of DOMAIN_UNIQUE_TABLES) {
-      rebuildTable(db, table, (ddl) =>
-        ddl.replace(/(\bdomain\s+TEXT\s+NOT\s+NULL)\s+UNIQUE\b/i, '$1'),
+    // One transaction: a rebuild is DROP + RENAME, so a crash or error between
+    // the two would otherwise leave the only copy of the rows in `<table>__rebuild`.
+    // SQLite DDL is transactional; foreign_keys was switched off above because the
+    // pragma is a no-op once a transaction is open.
+    db.transaction(() => {
+      for (const { table, index } of DOMAIN_UNIQUE_TABLES) {
+        rebuildTable(db, table, (ddl) =>
+          ddl.replace(/(\bdomain\s+TEXT\s+NOT\s+NULL)\s+UNIQUE\b/i, '$1'),
+        );
+        db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${index} ON ${table}(tenant_id, domain)`);
+      }
+
+      rebuildTable(db, 'outcomes', (ddl) =>
+        ddl.replace(
+          /\s+REFERENCES\s+portfolio_entries\s*\(\s*domain\s*\)(\s+ON\s+DELETE\s+CASCADE)?/i,
+          '',
+        ),
       );
-      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${index} ON ${table}(tenant_id, domain)`);
-    }
 
-    rebuildTable(db, 'outcomes', (ddl) =>
-      ddl.replace(
-        /\s+REFERENCES\s+portfolio_entries\s*\(\s*domain\s*\)(\s+ON\s+DELETE\s+CASCADE)?/i,
-        '',
-      ),
-    );
+      rebuildTable(db, 'outcome_scores', (ddl) =>
+        ddl.replace(
+          /UNIQUE\s*\(\s*domain\s*,\s*occurred_at\s*\)/i,
+          'UNIQUE(tenant_id, domain, occurred_at)',
+        ),
+      );
 
-    rebuildTable(db, 'outcome_scores', (ddl) =>
-      ddl.replace(
-        /UNIQUE\s*\(\s*domain\s*,\s*occurred_at\s*\)/i,
-        'UNIQUE(tenant_id, domain, occurred_at)',
-      ),
-    );
+      db.exec('DROP INDEX IF EXISTS uq_renewal_alerts_domain_type');
+      db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS uq_renewal_alerts_tenant_domain_type
+           ON renewal_alerts(tenant_id, domain, alert_type)`,
+      );
+      db.exec('DROP INDEX IF EXISTS idx_listings_domain_marketplace');
+      db.exec(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_tenant_domain_marketplace
+           ON listings(tenant_id, domain, marketplace)`,
+      );
 
-    db.exec('DROP INDEX IF EXISTS uq_renewal_alerts_domain_type');
-    db.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS uq_renewal_alerts_tenant_domain_type
-         ON renewal_alerts(tenant_id, domain, alert_type)`,
-    );
-    db.exec('DROP INDEX IF EXISTS idx_listings_domain_marketplace');
-    db.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_listings_tenant_domain_marketplace
-         ON listings(tenant_id, domain, marketplace)`,
-    );
-
-    const violations = db.pragma('foreign_key_check') as unknown[];
-    if (violations.length > 0) {
-      throw new Error(`foreign_key_check failed after rebuild: ${JSON.stringify(violations)}`);
-    }
+      const violations = db.pragma('foreign_key_check') as unknown[];
+      if (violations.length > 0) {
+        throw new Error(`foreign_key_check failed after rebuild: ${JSON.stringify(violations)}`);
+      }
+    })();
   } finally {
     if (fkWasOn) db.pragma('foreign_keys = ON');
   }

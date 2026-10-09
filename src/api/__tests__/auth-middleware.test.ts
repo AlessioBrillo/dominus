@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createAuthMiddleware, parseOperatorSubjects } from '../middleware/auth.js';
+import { requireRole } from '../middleware/require-role.js';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
 import type { DatabaseProvider, ExecResult } from '../../db/provider/interface.js';
 import { createKeyManagementRouter } from '../routes/api-keys.js';
@@ -397,5 +398,37 @@ describe('operator role allowlist', () => {
       'auth0|op',
     );
     expect(role).toBe('admin');
+  });
+});
+
+describe('open mode (no auth provider active)', () => {
+  it('runs the caller as the default tenant admin so role-gated routes still work', async () => {
+    const provider = makeAuthProvider(vi.fn(), false);
+    const app = express();
+    app.use(
+      '/p',
+      createAuthMiddleware(provider, makeMockDb()),
+      requireRole('admin'),
+      (req, res) => {
+        res.json({ tenant: req.tenantId, role: req.auth?.role });
+      },
+    );
+    const res = await request(app).get('/p');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tenant: 'default', role: 'admin' });
+  });
+
+  it('is not the operator: the cross-tenant surface stays closed', async () => {
+    const provider = makeAuthProvider(vi.fn(), false);
+    const app = express();
+    app.use(
+      '/p',
+      createAuthMiddleware(provider, makeMockDb()),
+      requireRole('operator'),
+      (_r, res) => {
+        res.json({ ok: true });
+      },
+    );
+    expect((await request(app).get('/p')).status).toBe(403);
   });
 });

@@ -1309,12 +1309,15 @@ const configSchema = z
 
     /**
      * Create a tenant (free plan, user as admin) the first time an OIDC user
-     * with no team seat signs in. Disable for private SSO deployments where
-     * tenants are provisioned by an operator.
+     * with no team seat signs in. Opt-in: anyone who can authenticate with the
+     * identity provider would otherwise get their own tenant, which a private
+     * SSO deployment must not do. Without it such a user is rejected (403, the
+     * session is not scoped to a tenant) until an admin invites them. Enable it
+     * for a self-serve DOMINUS Cloud.
      */
     OIDC_AUTO_PROVISION_TENANTS: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(true),
+      .default(false),
 
     // ── Scheduler config ──────────────────────────────────────────────
 

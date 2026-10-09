@@ -129,11 +129,17 @@ export function createRunsRouter(
   router.post(
     '/prune',
     requireRole('admin'),
-    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
         const before = await runsRepo.count();
+        // `dryRun: true` reports what would go without deleting anything.
+        if ((req.body as { dryRun?: unknown } | undefined)?.dryRun === true) {
+          const wouldDelete = await runsRepo.countExpiredInTenant();
+          res.json({ deleted: wouldDelete, remaining: before, dryRun: true });
+          return;
+        }
         const deleted = await runsRepo.pruneInTenant();
-        res.json({ deleted, remaining: before - deleted });
+        res.json({ deleted, remaining: before - deleted, dryRun: false });
       } catch (err: unknown) {
         next(err);
       }

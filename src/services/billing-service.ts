@@ -67,6 +67,20 @@ type StripeSdk = {
   };
 };
 
+/**
+ * True for the error stripe-node throws when a webhook signature does not
+ * verify. stripe-node sets `type` on its errors, not `name` (which stays
+ * "Error"), so `type` is what identifies it.
+ */
+export function isStripeSignatureError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    ((err as { type?: unknown }).type === 'StripeSignatureVerificationError' ||
+      (err as { name?: unknown }).name === 'StripeSignatureVerificationError')
+  );
+}
+
 export class BillingService {
   readonly #config: Config;
   readonly #subRepo: SubscriptionRepository;

@@ -9,6 +9,7 @@ import {
   DuplicateSeatError,
   SeatNotFoundError,
   InvitationInvalidError,
+  InvitationEmailMismatchError,
 } from '../team-service.js';
 import { TeamInvitationsRepository } from '../../db/repositories/team-invitations-repository.js';
 import type { Mailer } from '../../providers/email/mailer.js';
@@ -355,6 +356,21 @@ describe('TeamService email invitations', () => {
     expect(stored[0]?.token_hash).toHaveLength(64);
   });
 
+  it('does not email a relative link when PUBLIC_APP_URL is unset', async () => {
+    const service = new TeamService(seatsRepo, subRepo, {
+      invitations: { repo: invRepo, mailer, ttlHours: 1 }, // no appUrl
+    });
+    const { link, emailed } = await service.createInvitation(
+      't1',
+      'a@example.com',
+      'member',
+      'owner',
+    );
+    expect(emailed).toBe(false);
+    expect(sent).toHaveLength(0);
+    expect(link.startsWith('/invite/')).toBe(true);
+  });
+
   it('still returns the link when email is not configured or fails', async () => {
     mailerConfigured = false;
     const off = await build().createInvitation('t1', 'a@example.com', 'member', 'owner');
@@ -384,18 +400,48 @@ describe('TeamService email invitations', () => {
     const service = build();
     const { link } = await service.createInvitation('t1', 'a@example.com', 'admin', 'owner');
 
-    const joined = await service.acceptInvitation(tokenOf(link), 'auth0|new');
+    const joined = await service.acceptInvitation(tokenOf(link), 'auth0|new', 'a@example.com');
     expect(joined).toEqual({ tenantId: 't1', role: 'admin' });
     expect((await seatsRepo.findByTenantAndUser('t1', 'auth0|new'))?.status).toBe('active');
 
-    await expect(service.acceptInvitation(tokenOf(link), 'auth0|other')).rejects.toThrow(
-      InvitationInvalidError,
-    );
+    await expect(
+      service.acceptInvitation(tokenOf(link), 'auth0|other', 'a@example.com'),
+    ).rejects.toThrow(InvitationInvalidError);
+  });
+
+  describe('email binding', () => {
+    it('refuses a different verified email and leaves the invitation usable', async () => {
+      const service = build();
+      const { link } = await service.createInvitation('t1', 'bob@example.com', 'admin', 'owner');
+
+      await expect(
+        service.acceptInvitation(tokenOf(link), 'auth0|mallory', 'mallory@example.com'),
+      ).rejects.toThrow(InvitationEmailMismatchError);
+      expect(await seatsRepo.findByTenantAndUser('t1', 'auth0|mallory')).toBeUndefined();
+
+      // The wrong person could not burn the link: the real invitee can still join.
+      await expect(
+        service.acceptInvitation(tokenOf(link), 'auth0|bob', 'BOB@Example.com'),
+      ).resolves.toEqual({ tenantId: 't1', role: 'admin' });
+    });
+
+    it('refuses a session with no verified email', async () => {
+      const service = build();
+      const { link } = await service.createInvitation('t1', 'bob@example.com', 'member', 'owner');
+
+      const err = await service
+        .acceptInvitation(tokenOf(link), 'auth0|bob')
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InvitationEmailMismatchError);
+      expect((err as InvitationEmailMismatchError).reason).toBe('no-verified-email');
+    });
   });
 
   it('rejects unknown, revoked and expired tokens alike', async () => {
     const service = build();
-    await expect(service.acceptInvitation('nope', 'u')).rejects.toThrow(InvitationInvalidError);
+    await expect(service.acceptInvitation('nope', 'u', 'a@example.com')).rejects.toThrow(
+      InvitationInvalidError,
+    );
 
     const { invitation, link } = await service.createInvitation(
       't1',
@@ -404,7 +450,7 @@ describe('TeamService email invitations', () => {
       'owner',
     );
     expect(await service.revokeInvitation('t1', invitation.id)).toBe(true);
-    await expect(service.acceptInvitation(tokenOf(link), 'u')).rejects.toThrow(
+    await expect(service.acceptInvitation(tokenOf(link), 'u', 'a@example.com')).rejects.toThrow(
       InvitationInvalidError,
     );
 
@@ -412,9 +458,9 @@ describe('TeamService email invitations', () => {
     await db.exec("UPDATE team_invitations SET expires_at = '2000-01-01 00:00:00' WHERE id = ?", [
       second.invitation.id,
     ]);
-    await expect(service.acceptInvitation(tokenOf(second.link), 'u')).rejects.toThrow(
-      InvitationInvalidError,
-    );
+    await expect(
+      service.acceptInvitation(tokenOf(second.link), 'u', 'b@example.com'),
+    ).rejects.toThrow(InvitationInvalidError);
   });
 
   it('cannot revoke another tenant invitation', async () => {
@@ -430,10 +476,14 @@ describe('TeamService email invitations', () => {
     // Plan lapses after the invite was issued: free = 1 seat, already taken by the owner.
     await subRepo.upsert({ tenantId: 't1', plan: 'free', status: 'active' });
 
-    await expect(service.acceptInvitation(tokenOf(link), 'u2')).rejects.toThrow(TeamSeatLimitError);
+    await expect(service.acceptInvitation(tokenOf(link), 'u2', 'a@example.com')).rejects.toThrow(
+      TeamSeatLimitError,
+    );
 
     await subRepo.upsert({ tenantId: 't1', plan: 'pro', status: 'active' });
-    await expect(service.acceptInvitation(tokenOf(link), 'u2')).resolves.toMatchObject({
+    await expect(
+      service.acceptInvitation(tokenOf(link), 'u2', 'a@example.com'),
+    ).resolves.toMatchObject({
       tenantId: 't1',
     });
   });

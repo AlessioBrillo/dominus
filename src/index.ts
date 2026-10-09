@@ -13,6 +13,7 @@ import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware, parseOperatorSubjects } from './api/middleware/auth.js';
 import { sessionRoleFor } from './services/identity-tenant-resolver.js';
+import { isStripeSignatureError } from './services/billing-service.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
@@ -125,6 +126,9 @@ async function main(): Promise<void> {
     requireTenant: isMultiTenantAuth(config),
     operatorSubjects,
     trustedOrigins,
+    // A session outlives seat changes (8h): re-check the seat on every request so a
+    // removed or demoted member loses access immediately, not at JWT expiry.
+    validateSession: (claims) => deps.identityResolver.validateSession(claims),
     // Browser sessions via the SSO cookie (ADR-0062): only consulted when
     // the interactive login flow is configured (auth0 + client credentials).
     ...(deps.oidcDeps ? { sessionVerifier: deps.sessionJwt } : {}),
@@ -201,8 +205,7 @@ async function main(): Promise<void> {
           logger.error({ err }, 'Stripe webhook error');
           // Bad signatures are the sender's fault (400, no retry value); a handler
           // failure is ours (500) and must be redelivered by Stripe.
-          const badSignature =
-            err instanceof Error && err.name === 'StripeSignatureVerificationError';
+          const badSignature = isStripeSignatureError(err);
           res.status(badSignature ? 400 : 500).json({
             error: badSignature
               ? 'Webhook signature verification failed'
@@ -291,7 +294,7 @@ async function main(): Promise<void> {
         operatorSubjects,
         // The tenant/role in the session come from the user's team seat, not
         // from whatever the IdP claims (see IdentityTenantResolver).
-        mintSession: async (sub, tenantId, role) => {
+        mintSession: async (sub, tenantId, role, email) => {
           const resolved = await deps.identityResolver.resolve({
             sub,
             orgId: tenantId,
@@ -301,10 +304,11 @@ async function main(): Promise<void> {
             sub,
             ...(resolved.tenantId !== undefined ? { tenantId: resolved.tenantId } : {}),
             ...(resolved.role !== undefined ? { role: resolved.role } : {}),
+            ...(email !== undefined ? { email } : {}),
           });
         },
-        acceptInvitation: async (token, userId) => {
-          const joined = await deps.teamService.acceptInvitation(token, userId);
+        acceptInvitation: async (token, userId, verifiedEmail) => {
+          const joined = await deps.teamService.acceptInvitation(token, userId, verifiedEmail);
           return { tenantId: joined.tenantId, role: sessionRoleFor(joined.role) };
         },
       }),

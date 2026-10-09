@@ -13,6 +13,8 @@ export interface SessionClaims {
   sub: string;
   tenantId?: string | undefined;
   role?: string | undefined;
+  /** Verified email from the ID token, when the IdP supplied one. */
+  email?: string | undefined;
 }
 
 export const SESSION_COOKIE = 'dominus_session';
@@ -40,7 +42,7 @@ export function createSessionJwtMinter(
   const key = deriveSessionKey(clientSecret, 'session-jwt');
 
   const mint = (claims: SessionClaims): Promise<string> =>
-    new SignJWT({ tenant_id: claims.tenantId, role: claims.role })
+    new SignJWT({ tenant_id: claims.tenantId, role: claims.role, email: claims.email })
       .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
       .setSubject(claims.sub)
       .setIssuedAt()
@@ -56,6 +58,7 @@ export function createSessionJwtMinter(
       const claims: SessionClaims = { sub: payload.sub };
       if (typeof payload.tenant_id === 'string') claims.tenantId = payload.tenant_id;
       if (typeof payload.role === 'string') claims.role = payload.role;
+      if (typeof payload.email === 'string') claims.email = payload.email;
       return claims;
     } catch {
       return null;

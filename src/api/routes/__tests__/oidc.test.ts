@@ -6,7 +6,11 @@ import request from 'supertest';
 import { createOidcRouter, type OidcRouterDeps } from '../oidc.js';
 import { createSessionJwtMinter } from '../../../providers/auth/session-jwt.js';
 import type { OidcProvider } from '../../../providers/auth/oidc-provider.js';
-import { InvitationInvalidError, TeamSeatLimitError } from '../../../services/team-service.js';
+import {
+  InvitationEmailMismatchError,
+  InvitationInvalidError,
+  TeamSeatLimitError,
+} from '../../../services/team-service.js';
 
 interface TestResponse {
   status: number;
@@ -61,7 +65,8 @@ function buildApp(overrides: Partial<OidcRouterDeps> = {}): {
     sessionTtlMs: 8 * 60 * 60 * 1000,
     sessionVerifier: sessionJwt,
     trustedOrigins: new Set([new URL(APP_ORIGIN).origin]),
-    mintSession: (sub, tenantId, role) => sessionJwt.mint({ sub, tenantId, role }),
+    mintSession: (sub, tenantId, role, email) =>
+      sessionJwt.mint({ sub, tenantId, role, ...(email !== undefined ? { email } : {}) }),
     ...overrides,
   };
   const app = express();
@@ -305,7 +310,7 @@ describe('API: /api/v1/auth/oidc/accept-invitation', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ tenantId: 'team-7', role: 'member' });
-    expect(acceptInvitation).toHaveBeenCalledWith(TOKEN, 'user-9');
+    expect(acceptInvitation).toHaveBeenCalledWith(TOKEN, 'user-9', undefined);
 
     // The new cookie carries the team tenant, minted by the same signer.
     const renewed = cookieValueOf(res, 'dominus_session');
@@ -313,6 +318,35 @@ describe('API: /api/v1/auth/oidc/accept-invitation', () => {
       .get('/api/v1/auth/oidc/me')
       .set('Cookie', `dominus_session=${renewed}`);
     expect(me.body).toMatchObject({ sub: 'user-9', tenantId: 'team-7', role: 'member' });
+  });
+
+  it('passes the verified email from the session and keeps it in the renewed session', async () => {
+    const acceptInvitation = vi.fn().mockResolvedValue({ tenantId: 'team-7', role: 'member' });
+    const { app } = buildApp({ acceptInvitation });
+    const session = await createSessionJwtMinter(CLIENT_SECRET, 8).mint({
+      sub: 'user-9',
+      tenantId: 'personal-tenant',
+      role: 'admin',
+      email: 'bob@example.com',
+    });
+
+    const res = await post(app, { cookie: `dominus_session=${session}` });
+
+    expect(acceptInvitation).toHaveBeenCalledWith(TOKEN, 'user-9', 'bob@example.com');
+    const renewed = cookieValueOf(res, 'dominus_session');
+    const verified = await createSessionJwtMinter(CLIENT_SECRET, 8).verify(renewed);
+    expect(verified).toMatchObject({ sub: 'user-9', tenantId: 'team-7', email: 'bob@example.com' });
+  });
+
+  it('answers 403 INVITATION_EMAIL_MISMATCH when the identity is not the invited one', async () => {
+    const { app } = buildApp({
+      acceptInvitation: vi
+        .fn()
+        .mockRejectedValue(new InvitationEmailMismatchError('different-email')),
+    });
+    const res = await post(app, { cookie: await sessionCookie() });
+    expect(res.status).toBe(403);
+    expect((res.body as { error: { code: string } }).error.code).toBe('INVITATION_EMAIL_MISMATCH');
   });
 
   it('requires a session', async () => {

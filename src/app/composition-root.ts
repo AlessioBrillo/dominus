@@ -646,16 +646,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // (multi-tenant) identity mode, where tenants and API keys are real
   // rows. The community edition has no tenant concept and no route.
   const keyManager = authProvider.asKeyManager();
+  const tenantProvisioner = new TenantProvisioningService(
+    repos.subscriptionRepo,
+    repos.teamSeatsRepo,
+    keyManager,
+  );
   const provisioningService =
-    isMultiTenantAuth(config) && keyManager
-      ? new TenantProvisioningService(repos.subscriptionRepo, repos.teamSeatsRepo, keyManager)
-      : undefined;
+    isMultiTenantAuth(config) && keyManager ? tenantProvisioner : undefined;
 
   // OIDC sign-in → tenant. Needs no API key manager: SSO users authenticate
   // with the session cookie, not a key.
   const identityResolver = new IdentityTenantResolver(
     repos.teamSeatsRepo,
-    new TenantProvisioningService(repos.subscriptionRepo, repos.teamSeatsRepo, keyManager),
+    tenantProvisioner,
     config.OIDC_AUTO_PROVISION_TENANTS,
   );
 

@@ -219,7 +219,7 @@ estimates and subject to change.
 - **Marketplace integrations** — Afternic, Sedo, Dan.com, GoDaddy Auctions. Adapters
   shipped in 1.0.x were removed in 1.1.0 because they were never verified against the
   vendors' APIs (ADR-0082); they return once API access exists
-- **Tenant switcher and email-bound invitations** — follow-ups to ADR-0081
+- **Tenant switcher** — follow-up to ADR-0081
 - **Row-level security on control-plane tables** — needs a dedicated bypass design
 - **Mobile app** — Native notifications for renewal alerts and bid updates
 

@@ -143,10 +143,19 @@ describe('usePruneRuns', () => {
     mockedPrune.mockResolvedValueOnce({ deleted: 3 });
     const { result } = renderHook(() => usePruneRuns(), { wrapper: createWrapper() });
 
+    act(() => result.current.mutate(false));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(pruneRuns).toHaveBeenCalledWith(false);
+    expect(toast.success).toHaveBeenCalledWith('Pruned 3 runs');
+  });
+
+  it('words a dry run as a preview, not a deletion', async () => {
+    mockedPrune.mockResolvedValueOnce({ deleted: 2, dryRun: true });
+    const { result } = renderHook(() => usePruneRuns(), { wrapper: createWrapper() });
+
     act(() => result.current.mutate(true));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(pruneRuns).toHaveBeenCalledWith(true);
-    expect(toast.success).toHaveBeenCalledWith('Pruned 3 runs');
+    expect(toast.success).toHaveBeenCalledWith('2 runs would be pruned');
   });
 
   it('notifies an error on failure', async () => {

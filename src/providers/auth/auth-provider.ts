@@ -5,6 +5,8 @@ export interface AuthResult {
   /** Database id of the API key that authenticated the request (DB keys only). */
   keyId?: number | undefined;
   userId?: string | undefined;
+  /** Lower-cased email, only when the identity provider marked it verified. */
+  email?: string | undefined;
   tenantId?: string | undefined;
   role?: string | undefined;
 }

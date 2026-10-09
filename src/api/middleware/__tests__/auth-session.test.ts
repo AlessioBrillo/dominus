@@ -29,7 +29,11 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-function buildApp(requireTenant = false, trustedOrigins?: ReadonlySet<string>): Application {
+function buildApp(
+  requireTenant = false,
+  trustedOrigins?: ReadonlySet<string>,
+  validateSession?: NonNullable<Parameters<typeof createAuthMiddleware>[2]>['validateSession'],
+): Application {
   const sessionJwt = createSessionJwtMinter(SECRET, 8);
   const app = express();
   app.use(
@@ -38,13 +42,14 @@ function buildApp(requireTenant = false, trustedOrigins?: ReadonlySet<string>): 
       requireTenant,
       sessionVerifier: sessionJwt,
       ...(trustedOrigins ? { trustedOrigins } : {}),
+      ...(validateSession ? { validateSession } : {}),
     }),
   );
   app.post('/api/v1/auth/protected/route', (_req, res) => {
     res.json({ ok: true });
   });
   app.get('/api/v1/auth/protected/route', (req, res) => {
-    res.json({ ok: true, tenantId: req.tenantId, userId: req.auth?.userId });
+    res.json({ ok: true, tenantId: req.tenantId, userId: req.auth?.userId, role: req.auth?.role });
   });
   return app;
 }
@@ -141,5 +146,42 @@ describe('createAuthMiddleware — CSRF guard on the session cookie', () => {
       .set('Origin', 'https://app.example.com')
       .set('Cookie', await cookie());
     expect(res.status).toBe(403);
+  });
+});
+
+describe('createAuthMiddleware — live session validation', () => {
+  async function cookie(role = 'admin'): Promise<string> {
+    const session = await createSessionJwtMinter(SECRET, 8).mint({
+      sub: 'user-1',
+      tenantId: 'team-a',
+      role,
+    });
+    return `dominus_session=${session}`;
+  }
+
+  it('rejects a valid JWT whose seat was removed (401), without waiting for expiry', async () => {
+    const validate = vi.fn().mockResolvedValue(null);
+    const res = await request(buildApp(false, undefined, validate))
+      .get('/api/v1/auth/protected/route')
+      .set('Cookie', await cookie());
+    expect(res.status).toBe(401);
+    expect(validate).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'user-1', tenantId: 'team-a' }),
+    );
+  });
+
+  it('uses the current role instead of the one baked into the JWT', async () => {
+    const res = await request(buildApp(false, undefined, async () => ({ role: 'member' })))
+      .get('/api/v1/auth/protected/route')
+      .set('Cookie', await cookie('admin'));
+    expect(res.status).toBe(200);
+    expect(res.body.role).toBe('member');
+  });
+
+  it('keeps the JWT role when the validator has no opinion', async () => {
+    const res = await request(buildApp(false, undefined, async () => ({})))
+      .get('/api/v1/auth/protected/route')
+      .set('Cookie', await cookie('admin'));
+    expect(res.body.role).toBe('admin');
   });
 });

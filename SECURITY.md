@@ -78,7 +78,10 @@ If you discover a security issue in either edition:
 - State-changing requests authenticated by the cookie must come from a trusted
   `Origin`/`Referer` (CSRF guard). Bearer-token callers are unaffected.
 - The tenant and role in a session come from the user's team seat, not from IdP
-  claims.
+  claims, and the seat is re-checked on every request: removing or demoting a
+  member takes effect immediately, not at session expiry.
+- Team invitations are single-use links bound to the invited email: the signed-in
+  user's verified email must match.
 
 **Roles**
 

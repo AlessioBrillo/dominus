@@ -51,16 +51,19 @@ link stays hidden for everyone.
 
 ## 3. How people get a tenant
 
-- **First sign-in** with no team: DOMINUS creates a new tenant on the free plan
-  with the user as admin (`OIDC_AUTO_PROVISION_TENANTS=true`, the default). Set
-  it to `false` if you provision tenants yourself.
+- **First sign-in** with no team: with `OIDC_AUTO_PROVISION_TENANTS=true`
+  DOMINUS creates a tenant on the free plan with the user as admin. This is
+  **off by default**: without it a user who is not on a team (and has no IdP
+  `org_id`) is rejected until an admin invites them. Turn it on for self-serve
+  Cloud signup, leave it off for a private SSO deployment.
 - **By invitation:** an admin opens **Team**, enters an email and a role. DOMINUS
   creates a single-use link (valid 7 days) and:
   - emails it, if `SMTP_URL` is set (`SMTP_FROM` sets the sender), or
   - shows it once so the admin can send it. This is the default with no SMTP.
 - The invitee opens the link, signs in with SSO and accepts. Their session is
-  re-issued for the team's tenant. Anyone holding the link can join, so treat it
-  like a password and revoke it from **Team** if it leaks.
+  re-issued for the team's tenant. The identity provider must report a
+  **verified** email equal to the invited one, so a forwarded link is useless to
+  anyone else. Revoke an invitation from **Team** at any time.
 
 A user who belongs to several teams lands in the one they joined most recently;
 there is no tenant switcher yet.

@@ -58,6 +58,10 @@ export class Auth0Provider implements AuthProvider {
         userId: payload.sub,
         tenantId: payload.org_id as string | undefined,
         role: payload.role as string | undefined,
+        // An unverified email proves nothing about who owns the address.
+        ...(typeof payload.email === 'string' && payload.email_verified === true
+          ? { email: payload.email.toLowerCase() }
+          : {}),
         keyName: payload.sub,
       };
     } catch {
