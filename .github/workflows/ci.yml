@@ -62,6 +62,9 @@ jobs:
       - name: Migration sync check
         run: npm run db:sync:check
 
+      - name: SQL portability check
+        run: npm run check:sql-portability
+
       - name: Native bindings load check
         shell: bash
         run: |
@@ -121,6 +124,45 @@ jobs:
         with:
           files: ./coverage/lcov.info
           fail_ci_if_error: false
+
+  # The Postgres-gated suites (adapter, RLS, importer, repository dialect
+  # parity) skip themselves without DATABASE_URL, so the matrix above never ran
+  # them. This job migrates a real PostgreSQL and runs the whole suite against
+  # it, so a SQLite-only query or a tenant-isolation regression fails CI.
+  test-pg:
+    name: Tests on PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dominus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dominus
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations to PostgreSQL
+        run: npx tsx src/db/migrate-cli.ts
+
+      - name: Test suite against PostgreSQL
+        run: npx vitest run src/db src/__tests__ src/services src/api
 
   docker-smoke:
     name: Docker runtime smoke test
@@ -183,7 +225,7 @@ jobs:
           migrate_out=$(docker run --rm -e DATABASE_PATH=/tmp/migrate-smoke.db \
             --entrypoint node dominus-api:test dist/db/migrate-cli.js)
           echo "$migrate_out"
-          grep -q "migrations applied: 57" <<<"$migrate_out" || {
+          grep -q "migrations applied: 60" <<<"$migrate_out" || {
             echo "FATAL: migrate CLI must migrate a fresh SQLite database to the full manifest inside the image"
             exit 1
           }
@@ -217,7 +259,7 @@ jobs:
           API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
           LOGS_PID=$!
-          
+
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
               echo "healthcheck OK (attempt $i)"
@@ -287,44 +329,6 @@ jobs:
             }
           done
 
-      # The optional DNS-consensus override (ADR-0042) must merge cleanly on
-      # top of the prod profile and pin the recursor to its fixed address.
-      - name: Validate DNS-consensus override compose config
-        run: |
-          set -euo pipefail
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml config --quiet
-          services=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml config --services)
-          for expected in api worker scheduler postgres redis consensus-dns; do
-            echo "$services" | grep -qx "$expected" || {
-              echo "FATAL: dns-consensus override is missing service '$expected'"; exit 1
-            }
-          done
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dns-consensus.yml config --format json \
-            | grep -q '"172.20.0.10"' || {
-              echo "FATAL: consensus-dns must be pinned to 172.20.0.10"; exit 1
-            }
-          # The app services must receive the pinned recursor and the enabled
-          # gate — otherwise the override is documented-only and silently
-          # inert (ADR-0042 regression guard). jq checks per-service env.
-          MERGED_JSON=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-            -f docker-compose.dns-consensus.yml config --format json)
-          for svc in api worker scheduler; do
-            echo "$MERGED_JSON" | jq -e \
-              ".services.$svc.environment[\"DNS_CONSENSUS_NAMESERVERS\"] == \"172.20.0.10:5300\"" >/dev/null || {
-                echo "FATAL: service '$svc' must set DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300"; exit 1
-              }
-            echo "$MERGED_JSON" | jq -e \
-              ".services.$svc.environment[\"DNS_CONSENSUS_ENABLED\"] == \"true\"" >/dev/null || {
-                echo "FATAL: service '$svc' must enable DNS_CONSENSUS_ENABLED=true"; exit 1
-              }
-            # Native leg pin: the primary resolver must also use the private
-            # recursor, never Docker's embedded DNS / host resolv.conf.
-            echo "$MERGED_JSON" | jq -e \
-              ".services.$svc.environment[\"DNS_NAMESERVERS\"] == \"172.20.0.10:5300\"" >/dev/null || {
-                echo "FATAL: service '$svc' must set DNS_NAMESERVERS=172.20.0.10:5300 (native leg pin)"; exit 1
-              }
-          done
-
       - name: Validate Prometheus config and rules
         run: |
           set -euo pipefail
@@ -350,7 +354,7 @@ jobs:
         run: |
           set -euo pipefail
           refs=$(grep -hoE 'image: [^ ]+@sha256:[0-9a-f]{64}' \
-            docker-compose.prod.yml docker-compose.dns-consensus.yml | awk '{print $2}' | sort -u)
+            docker-compose.prod.yml docker-compose.unbound.yml | awk '{print $2}' | sort -u)
           for ref in $refs; do
             docker buildx imagetools inspect "$ref" >/dev/null 2>&1 || {
               echo "FATAL: pinned image not found in registry: $ref"; exit 1

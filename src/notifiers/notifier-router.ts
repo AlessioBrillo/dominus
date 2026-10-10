@@ -4,6 +4,8 @@ import { ConsoleNotifier } from './console-notifier.js';
 import { DesktopNotifier } from './desktop-notifier.js';
 import { WebhookNotifier } from './webhook-notifier.js';
 import { TelegramNotifier } from './telegram-notifier.js';
+import { EmailNotifier } from './email-notifier.js';
+import { createMailer } from '../providers/email/index.js';
 import type { Config } from '../config.js';
 import { AlertType, AlertSeverity } from '../types/alert.js';
 
@@ -27,6 +29,15 @@ export function buildNotifiers(config: Config): Notifier[] {
         chatId: config.NOTIFIER_TELEGRAM_CHAT_ID,
       }),
     );
+  }
+
+  const mailer = createMailer(config);
+  const emailTo = (config.NOTIFIER_EMAIL_TO ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (mailer.configured && emailTo.length > 0) {
+    notifiers.push(new EmailNotifier({ mailer, to: emailTo }));
   }
 
   return notifiers;

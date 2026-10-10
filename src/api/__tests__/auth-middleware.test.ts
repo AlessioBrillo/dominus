@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createAuthMiddleware } from '../middleware/auth.js';
+import { createAuthMiddleware, parseOperatorSubjects } from '../middleware/auth.js';
+import { requireRole } from '../middleware/require-role.js';
 import type { AuthProvider } from '../../providers/auth/auth-provider.js';
 import type { DatabaseProvider, ExecResult } from '../../db/provider/interface.js';
 import { createKeyManagementRouter } from '../routes/api-keys.js';
@@ -342,5 +343,92 @@ describe('API key management endpoints', () => {
     const res = await request(app).get('/api/v1/keys');
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('UNAUTHORIZED');
+  });
+});
+
+describe('operator role allowlist', () => {
+  function roleFor(
+    result: Awaited<ReturnType<AuthProvider['validate']>>,
+    operators: string,
+  ): Promise<string | undefined> {
+    const provider = makeAuthProvider(vi.fn().mockResolvedValue(result));
+    const app = express();
+    app.use(
+      '/p',
+      createAuthMiddleware(provider, makeMockDb(), {
+        operatorSubjects: parseOperatorSubjects(operators),
+      }),
+      (req, res) => {
+        res.json({ role: req.auth?.role });
+      },
+    );
+    return request(app)
+      .get('/p')
+      .set('Authorization', 'Bearer k')
+      .then((r) => r.body.role as string | undefined);
+  }
+
+  it('downgrades an operator role claimed by a key row or token (no self-promotion)', async () => {
+    const role = await roleFor(
+      { authenticated: true, tenantId: 't1', role: 'operator', keyId: 7 },
+      '',
+    );
+    expect(role).toBe('admin');
+  });
+
+  it('grants operator to an allowlisted DB key id', async () => {
+    const role = await roleFor(
+      { authenticated: true, tenantId: 't1', role: 'admin', keyId: 7 },
+      'key:7',
+    );
+    expect(role).toBe('operator');
+  });
+
+  it('grants operator to an allowlisted OIDC subject', async () => {
+    const role = await roleFor(
+      { authenticated: true, tenantId: 't1', role: 'admin', userId: 'auth0|op' },
+      'auth0|op, key:9',
+    );
+    expect(role).toBe('operator');
+  });
+
+  it('does not match a key whose name merely equals an allowlisted subject', async () => {
+    const role = await roleFor(
+      { authenticated: true, tenantId: 't1', role: 'admin', keyName: 'auth0|op', keyId: 3 },
+      'auth0|op',
+    );
+    expect(role).toBe('admin');
+  });
+});
+
+describe('open mode (no auth provider active)', () => {
+  it('runs the caller as the default tenant admin so role-gated routes still work', async () => {
+    const provider = makeAuthProvider(vi.fn(), false);
+    const app = express();
+    app.use(
+      '/p',
+      createAuthMiddleware(provider, makeMockDb()),
+      requireRole('admin'),
+      (req, res) => {
+        res.json({ tenant: req.tenantId, role: req.auth?.role });
+      },
+    );
+    const res = await request(app).get('/p');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tenant: 'default', role: 'admin' });
+  });
+
+  it('is not the operator: the cross-tenant surface stays closed', async () => {
+    const provider = makeAuthProvider(vi.fn(), false);
+    const app = express();
+    app.use(
+      '/p',
+      createAuthMiddleware(provider, makeMockDb()),
+      requireRole('operator'),
+      (_r, res) => {
+        res.json({ ok: true });
+      },
+    );
+    expect((await request(app).get('/p')).status).toBe(403);
   });
 });

@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -47,6 +47,13 @@ flowchart LR
     Portfolio --> Cloud
 ```
 
+### Screenshots
+
+|                                         |                                           |
+| --------------------------------------- | ----------------------------------------- |
+| ![Dashboard](docs/assets/dashboard.png) | ![Candidates](docs/assets/candidates.png) |
+| ![Portfolio](docs/assets/portfolio.png) |                                           |
+
 ## Why Open-Source?
 
 Every aspect of DOMINUS is transparent, forkable, and customizable:
@@ -54,7 +61,7 @@ Every aspect of DOMINUS is transparent, forkable, and customizable:
 - **No vendor lock-in**: you own your data (portable database), your configuration (`.env`), and your fork. Migrate from DOMINUS Cloud to self-hosted with a single database dump.
 - **No black-box algorithms**: the scoring engine is heuristic — every weight, threshold, and signal is visible and tunable.
 - **No paid APIs required**: all data sources are free (public RDAP, USPTO, EUIPO) or file-based (keyword CSVs, comparable sales). The tool itself never requires a paid subscription.
-- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a Kubernetes cluster.
+- **No surprises**: fork the repo, change anything, deploy anywhere — from a Raspberry Pi to a dedicated cloud node.
 
 ## Pipeline Architecture
 
@@ -89,13 +96,26 @@ COMPS_DATA_PATH=examples/comps-sample.csv \
 node dist/cli.js run --closeout-csv examples/closeout-sample.csv
 ```
 
-Or with Docker:
+Or with Docker Compose (recommended — includes the validating Unbound resolver
+that "available" verdicts depend on):
+
+```bash
+export API_KEYS="admin=$(openssl rand -hex 32)"   # the API refuses to start exposed without auth
+echo "$API_KEYS"                                  # keep this: the part after "admin=" is your login key
+mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
+               # ./data would be root-owned and SQLite cannot open it there
+docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+```
+
+Then open <http://localhost:3000> and sign in with the key.
+
+A bare `docker run` also works, but without an Unbound resolver the first start
+waits ~30 s for it and DNS runs in degraded mode (it never reports a domain as
+available):
 
 ```bash
 docker build -t dominus .
-mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
-               # ./data would be root-owned and SQLite cannot open it there
-docker run -d -p 3000:3000 -v ./data:/app/data dominus
+docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 ```
 
 ## Current Stack
@@ -104,9 +124,9 @@ docker run -d -p 3000:3000 -v ./data:/app/data dominus
 | ------------------ | ----------------------------------------------- | ---------------------------------------------------------- |
 | **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
-| **CLI**            | Commander (18 commands)                         | Full functionality without a browser                       |
-| **API**            | Express REST (18 route modules)                 | Dashboard-ready, swappable frontend                        |
-| **Frontend**       | React 19 + Vite 6 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
+| **CLI**            | Commander (20 commands)                         | Full functionality without a browser                       |
+| **API**            | Express REST (29 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
 | **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |
 
@@ -122,7 +142,7 @@ docker run -d -p 3000:3000 -v ./data:/app/data dominus
 | **CLI (18 commands)** | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
-| **Auth**              | Static API key (`.env`)               | JWT + Auth0/Clerk, team accounts  |
+| **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
 | **Multi-tenancy**     | —                                     | ✓ Managed                         |
 | **Backups**           | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
 | **Support**           | GitHub Issues                         | Email/Slack (4h response)         |
@@ -162,13 +182,13 @@ See [Customization Guide](docs/customization/README.md) for step-by-step example
 
 DOMINUS scales from a personal CLI tool to a containerized service managing thousands of domains:
 
-| Scenario                    | Stack                   | Command                                                   |
-| --------------------------- | ----------------------- | --------------------------------------------------------- |
-| **Personal** (1-50 domains) | CLI only                | `npx dominus run --closeout-csv ./candidates.csv`         |
-| **Growing** (50-500)        | Docker (SQLite)         | `docker compose up -d`                                    |
-| **Large** (500+)            | Docker + PostgreSQL     | `docker compose -f compose.yml -f compose.prod.yml up -d` |
-| **Enterprise** (5000+)      | Kubernetes + PostgreSQL | `kubectl apply -f deploy/`                                |
-| **Managed**                 | DOMINUS Cloud           | Sign up at [dominus.cloud](#)                             |
+| Scenario                    | Stack                            | Command                                                                 |
+| --------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
+| **Personal** (1-50 domains) | CLI only                         | `npx dominus run --closeout-csv ./candidates.csv`                       |
+| **Growing** (50-500)        | Docker (SQLite)                  | `docker compose up -d`                                                  |
+| **Large** (500+)            | Docker + PostgreSQL              | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` |
+| **Enterprise** (5000+)      | Terraform (Hetzner) + PostgreSQL | see `deploy/terraform/`                                                 |
+| **Managed**                 | DOMINUS Cloud                    | Sign up at [dominus.cloud](#)                                           |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -224,16 +244,22 @@ Commands:
 
 ## Documentation
 
+- Guides: [closeouts to a buy decision](docs/guides/closeouts-to-buy-decision.md),
+  [portfolio keep/drop](docs/guides/portfolio-keep-drop.md),
+  [self-hosting](docs/guides/self-hosting.md),
+  [Cloud teams, SSO and operators](docs/guides/cloud-team-sso.md)
 - [Architecture Decision Records](docs/adr/README.md) — full architectural rationale
 - [Customization Guide](docs/customization/README.md) — how to adapt for your needs
 - [Deployment Guide](docs/deployment/README.md) — infrastructure options
 - [Contributing Guide](CONTRIBUTING.md) — how to contribute
 - [Security Policy](SECURITY.md) — vulnerability reporting
 - [Roadmap](ROADMAP.md) — planned features and releases
+- [Upgrading to 1.1.0](docs/releases/upgrade-1.1.0.md) — breaking changes and removals
+- [Service level agreement (draft)](docs/operations/sla.md)
 
 ## Project Status
 
-DOMINUS v0.11.0 — DNS/RDAP/WHOIS consensus hardening and reliability polish. All five pipeline stages, the heuristic scoring engine, trademark gate (real USPTO/EUIPO providers + caching), portfolio tracker with renewal clock and keep/drop verdicts, outcomes, backtest engine, and the professional React dashboard are implemented and tested. The community edition is fully functional and production-ready.
+DOMINUS v1.1.0 — all five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers with caching), the portfolio tracker with renewal clock and keep/drop verdicts, outcomes, the backtest engine and the React dashboard are implemented and tested. The community edition is fully functional; DOMINUS Cloud adds multi-tenancy, team accounts with email invitations, SSO and Stripe billing. This release fixes tenant-isolation and PostgreSQL-parity bugs found in the pre-release audit, adds a WCAG 2.1 AA accessibility gate, and removes features that were declared but never worked (see [docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)).
 
 ## FAQ
 
@@ -256,7 +282,7 @@ A two-stage gate: a fast DNS pre-filter (bulk, DoH/DoT with 2-of-3 resolver cons
 Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
 
 **Can I self-host DOMINUS?**
-Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to Kubernetes. See the [Deployment Guide](docs/deployment/README.md).
+Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to a Terraform-provisioned node. See the [Deployment Guide](docs/deployment/README.md).
 
 ## License
 

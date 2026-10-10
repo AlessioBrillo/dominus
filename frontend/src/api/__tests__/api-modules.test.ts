@@ -18,7 +18,7 @@ import { rebuildSnapshot, fetchBacktestReport, suggestWeights, runAutoTune } fro
 import { placeBid, resolveBid, listBids, listPendingBids, getBid } from '../bids.js';
 import { fetchSubscription, createCheckoutSession, createPortalSession } from '../billing.js';
 import { fetchAdminOverview, fetchAdminTenants } from '../admin.js';
-import { fetchCandidates, runPipeline, deleteCandidate, fetchRuns } from '../candidates.js';
+import { fetchCandidates, runPipeline, fetchRuns } from '../candidates.js';
 import { fetchDashboardStats } from '../dashboard.js';
 import {
   listListings,
@@ -50,6 +50,14 @@ import {
 } from '../portfolio.js';
 import { fetchProviderStatuses } from '../providers.js';
 import { shareScore, getPublicScore } from '../public.js';
+import {
+  inviteByEmail,
+  revokeInvitation,
+  acceptInvitation,
+  updateMemberRole,
+  removeMember,
+} from '../team.js';
+import { fetchMe } from '../me.js';
 import { preflightPurchase, executePurchase, checkPrices } from '../purchase.js';
 import {
   fetchRuns as fetchPipelineRuns,
@@ -254,12 +262,6 @@ describe('api/candidates', () => {
     mockedPost.mockResolvedValueOnce({ runId: 'r1', recommended: [], stageSummary: {} });
     await runPipeline({ keywords: ['a'] });
     expect(mockedPost).toHaveBeenCalledWith('/candidates/run', { keywords: ['a'] });
-  });
-
-  it('deleteCandidate deletes by domain', async () => {
-    mockedDelete.mockResolvedValueOnce(undefined);
-    await deleteCandidate('a.com');
-    expect(mockedDelete).toHaveBeenCalledWith('/candidates/a.com');
   });
 
   it('fetchRuns unwraps the runs list', async () => {
@@ -639,5 +641,44 @@ describe('api/watchlist', () => {
     mockedPost.mockResolvedValueOnce({ checked: 1, changed: 1 });
     await pollWatchlist();
     expect(mockedPost).toHaveBeenCalledWith('/watchlist/poll');
+  });
+});
+
+describe('api/team and api/me', () => {
+  it('inviteByEmail posts email and role and returns the link', async () => {
+    mockedPost.mockResolvedValueOnce({ link: 'l', emailed: false, invitation: { id: 1 } });
+    const result = await inviteByEmail('a@example.com', 'member');
+    expect(mockedPost).toHaveBeenCalledWith('/team/invite', {
+      email: 'a@example.com',
+      role: 'member',
+    });
+    expect(result.link).toBe('l');
+  });
+
+  it('revokeInvitation deletes by id', async () => {
+    mockedDelete.mockResolvedValueOnce(undefined);
+    await revokeInvitation(7);
+    expect(mockedDelete).toHaveBeenCalledWith('/team/invitations/7');
+  });
+
+  it('acceptInvitation redeems the token through the SSO router', async () => {
+    mockedPost.mockResolvedValueOnce({ tenantId: 't', role: 'member' });
+    await acceptInvitation('tok');
+    expect(mockedPost).toHaveBeenCalledWith('/auth/oidc/accept-invitation', { token: 'tok' });
+  });
+
+  it('encodes member ids in role and remove calls', async () => {
+    mockedPatch.mockResolvedValueOnce(undefined);
+    await updateMemberRole('a b@example.com', 'admin');
+    expect(mockedPatch).toHaveBeenCalledWith('/team/a%20b%40example.com/role', { role: 'admin' });
+    mockedDelete.mockResolvedValueOnce(undefined);
+    await removeMember('a@example.com');
+    expect(mockedDelete).toHaveBeenCalledWith('/team/a%40example.com');
+  });
+
+  it('fetchMe reads the effective identity', async () => {
+    mockedGet.mockResolvedValueOnce({ role: 'operator' });
+    await fetchMe();
+    expect(mockedGet).toHaveBeenCalledWith('/me', undefined);
   });
 });

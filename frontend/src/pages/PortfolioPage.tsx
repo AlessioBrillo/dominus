@@ -158,14 +158,22 @@ export function PortfolioPage() {
                 variant="ghost"
                 size="sm"
                 className="h-7 w-7 p-0"
+                aria-label={`Toggle details for ${domain}`}
+                aria-expanded={expandedDomain === domain}
                 onClick={() => setExpandedDomain(expandedDomain === domain ? null : domain)}
               >
-                <Eye className="h-3.5 w-3.5" />
+                <Eye className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={isUpdating}>
-                    <MoreVertical className="h-3.5 w-3.5" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    disabled={isUpdating}
+                    aria-label={`Verdict actions for ${domain}`}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-36">

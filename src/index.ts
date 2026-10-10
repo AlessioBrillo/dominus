@@ -11,7 +11,9 @@ import { createDependencies } from './app/composition-root.js';
 import { closeDatabase } from './db/database.js';
 import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
-import { createAuthMiddleware } from './api/middleware/auth.js';
+import { createAuthMiddleware, parseOperatorSubjects } from './api/middleware/auth.js';
+import { sessionRoleFor } from './services/identity-tenant-resolver.js';
+import { isStripeSignatureError } from './services/billing-service.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
@@ -23,6 +25,7 @@ import {
   createBillingRouter,
   createAdminRouter,
   createTeamRouter,
+  createMeRouter,
   createCandidatesRouter,
   createPortfolioRouter,
   createRunsRouter,
@@ -104,8 +107,28 @@ async function main(): Promise<void> {
       logger.warn('API authentication is DISABLED. Set API_KEYS env var to enable.');
     }
   }
+  if (config.IS_CLOUD_MODE && !config.METRICS_TOKEN) {
+    logger.fatal(
+      'FATAL: METRICS_TOKEN is required in cloud mode. /api/v1/metrics/* exposes run history ' +
+        'and queue internals across all tenants and must not be reachable unauthenticated.',
+    );
+    process.exit(1);
+  }
+  const operatorSubjects = parseOperatorSubjects(config.OPERATOR_SUBJECTS);
+  // Origins allowed to make cookie-authenticated, state-changing requests (CSRF guard).
+  const trustedOrigins = new Set<string>(
+    config.CORS_ORIGIN.split(',')
+      .map((o) => o.trim())
+      .filter((o) => o.length > 0 && o !== '*'),
+  );
+  if (deps.oidcDeps) trustedOrigins.add(new URL(deps.oidcDeps.callbackUrl).origin);
   const authMiddleware = createAuthMiddleware(deps.authProvider, deps.provider, {
     requireTenant: isMultiTenantAuth(config),
+    operatorSubjects,
+    trustedOrigins,
+    // A session outlives seat changes (8h): re-check the seat on every request so a
+    // removed or demoted member loses access immediately, not at JWT expiry.
+    validateSession: (claims) => deps.identityResolver.validateSession(claims),
     // Browser sessions via the SSO cookie (ADR-0062): only consulted when
     // the interactive login flow is configured (auth0 + client credentials).
     ...(deps.oidcDeps ? { sessionVerifier: deps.sessionJwt } : {}),
@@ -180,7 +203,14 @@ async function main(): Promise<void> {
           res.json({ received: true });
         } catch (err) {
           logger.error({ err }, 'Stripe webhook error');
-          res.status(400).json({ error: 'Webhook signature verification failed' });
+          // Bad signatures are the sender's fault (400, no retry value); a handler
+          // failure is ours (500) and must be redelivered by Stripe.
+          const badSignature = isStripeSignatureError(err);
+          res.status(badSignature ? 400 : 500).json({
+            error: badSignature
+              ? 'Webhook signature verification failed'
+              : 'Webhook processing failed',
+          });
         }
       },
     );
@@ -260,7 +290,27 @@ async function main(): Promise<void> {
         appOrigin: callbackUrl.origin + '/',
         sessionTtlMs: deps.oidcDeps.sessionTtlMs,
         sessionVerifier: deps.sessionJwt,
-        mintSession: (sub, tenantId, role) => deps.sessionJwt.mint({ sub, tenantId, role }),
+        trustedOrigins,
+        operatorSubjects,
+        // The tenant/role in the session come from the user's team seat, not
+        // from whatever the IdP claims (see IdentityTenantResolver).
+        mintSession: async (sub, tenantId, role, email) => {
+          const resolved = await deps.identityResolver.resolve({
+            sub,
+            orgId: tenantId,
+            claimedRole: role,
+          });
+          return deps.sessionJwt.mint({
+            sub,
+            ...(resolved.tenantId !== undefined ? { tenantId: resolved.tenantId } : {}),
+            ...(resolved.role !== undefined ? { role: resolved.role } : {}),
+            ...(email !== undefined ? { email } : {}),
+          });
+        },
+        acceptInvitation: async (token, userId, verifiedEmail) => {
+          const joined = await deps.teamService.acceptInvitation(token, userId, verifiedEmail);
+          return { tenantId: joined.tenantId, role: sessionRoleFor(joined.role) };
+        },
       }),
     );
   }
@@ -372,6 +422,7 @@ async function main(): Promise<void> {
   protectedRouter.use('/usage', createUsageRouter(deps.usageService));
   protectedRouter.use('/billing', createBillingRouter(deps.config, deps.billingService));
   protectedRouter.use('/admin', createAdminRouter(deps.adminService));
+  protectedRouter.use('/me', createMeRouter());
   protectedRouter.use('/team', createTeamRouter(deps.config, deps.teamService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));

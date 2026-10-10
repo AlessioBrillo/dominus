@@ -1,70 +1,70 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: 'npm'
+    directory: '/'
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "08:00"
+      interval: 'weekly'
+      day: 'monday'
+      time: '08:00'
     open-pull-requests-limit: 3
     ignore:
       # @types/psl ≥ 1.4.0 is a stub that delegates to psl's own types,
       # but psl's package.json "exports" doesn't expose them under
       # NodeNext resolution — the types become unresolvable.
       # Pin at 1.1.3 which ships real declarations.
-      - dependency-name: "@types/psl"
-        versions: [">=1.4.0"]
+      - dependency-name: '@types/psl'
+        versions: ['>=1.4.0']
       # better-sqlite3 ≥ 13: no prebuilt binaries for Windows/Node 22-24,
       # node-gyp rebuild fails on the Windows runners (EPERM).
       # Pin at 12.x which ships prebuilds.
-      - dependency-name: "better-sqlite3"
-        versions: [">=13.0.0"]
+      - dependency-name: 'better-sqlite3'
+        versions: ['>=13.0.0']
       # typescript ≥ 7.0.0: typescript-eslint refuses to load with TS 7
       # ("does not support TS 7.0") until it catches up.
-      - dependency-name: "typescript"
-        versions: [">=7.0.0"]
+      - dependency-name: 'typescript'
+        versions: ['>=7.0.0']
     groups:
       production:
-        dependency-type: "production"
+        dependency-type: 'production'
       development:
-        dependency-type: "development"
+        dependency-type: 'development'
     labels:
-      - "dependencies"
+      - 'dependencies'
 
-  - package-ecosystem: "npm"
-    directory: "/frontend"
+  - package-ecosystem: 'npm'
+    directory: '/frontend'
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "08:00"
+      interval: 'weekly'
+      day: 'monday'
+      time: '08:00'
     open-pull-requests-limit: 3
     ignore:
       # typescript ≥ 7.0.0: the frontend toolchain (typescript-eslint,
       # tsx, vitest) does not yet accept TS 7 — ERESOLVE on install.
       # Root workspace already migrated via PR #303; unblock here when
       # the toolchain catches up.
-      - dependency-name: "typescript"
-        versions: [">=7.0.0"]
+      - dependency-name: 'typescript'
+        versions: ['>=7.0.0']
       # @tanstack/react-table ≥ 9: API rewrite (useReactTable removed,
       # createReactTable model). Pin at 8.x.
-      - dependency-name: "@tanstack/react-table"
-        versions: [">=9.0.0"]
+      - dependency-name: '@tanstack/react-table'
+        versions: ['>=9.0.0']
     groups:
       production:
-        dependency-type: "production"
+        dependency-type: 'production'
       development:
-        dependency-type: "development"
+        dependency-type: 'development'
     labels:
-      - "dependencies"
-      - "frontend"
+      - 'dependencies'
+      - 'frontend'
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: 'github-actions'
+    directory: '/'
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "08:00"
+      interval: 'weekly'
+      day: 'monday'
+      time: '08:00'
     open-pull-requests-limit: 3
     labels:
-      - "dependencies"
-      - "ci"
+      - 'dependencies'
+      - 'ci'

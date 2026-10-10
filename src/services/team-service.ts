@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { TeamSeatsRepository } from '../db/repositories/team-seats-repository.js';
 import type { SubscriptionRepository } from '../db/repositories/subscription-repository.js';
+import { createHash, randomBytes } from 'node:crypto';
+import type {
+  TeamInvitation,
+  TeamInvitationsRepository,
+} from '../db/repositories/team-invitations-repository.js';
+import type { Mailer } from '../providers/email/mailer.js';
+import { getLogger } from '../logger.js';
 import type { TeamRole } from '../types/team.js';
 import { TEAM_PLAN_LIMITS } from '../types/team.js';
 import type { Subscription, SubscriptionPlan } from '../types/subscription.js';
@@ -20,6 +27,26 @@ export class DuplicateSeatError extends Error {
   constructor(public readonly userId: string) {
     super(`User ${userId} already has a seat in this team`);
     this.name = 'DuplicateSeatError';
+  }
+}
+
+/** The token is unknown, expired, revoked or already used (deliberately not distinguished). */
+export class InvitationInvalidError extends Error {
+  constructor() {
+    super('Invitation is invalid, expired or already used');
+    this.name = 'InvitationInvalidError';
+  }
+}
+
+/** The signed-in user's verified email is not the one the invitation was sent to. */
+export class InvitationEmailMismatchError extends Error {
+  constructor(public readonly reason: 'no-verified-email' | 'different-email') {
+    super(
+      reason === 'no-verified-email'
+        ? 'Your identity provider did not return a verified email address'
+        : 'This invitation was sent to a different email address',
+    );
+    this.name = 'InvitationEmailMismatchError';
   }
 }
 
@@ -46,7 +73,29 @@ export interface TeamSummary {
   activeSeats: number;
   pendingSeats: number;
   members: TeamMember[];
+  /** Outstanding email invitations (they hold a seat until accepted/expired). */
+  invitations: Omit<TeamInvitation, 'tenantId' | 'acceptedAt'>[];
 }
+
+export interface InvitationOptions {
+  repo: TeamInvitationsRepository;
+  /** Optional: without a configured mailer the caller gets a link to share. */
+  mailer?: Mailer | undefined;
+  /** Public origin used to build the invitation link (PUBLIC_APP_URL). */
+  appUrl?: string | undefined;
+  /** Invitation lifetime in hours (default 7 days). */
+  ttlHours?: number | undefined;
+}
+
+export interface CreatedInvitation {
+  invitation: TeamInvitation;
+  /** Single-use link. Shown once: only its hash is stored. */
+  link: string;
+  emailed: boolean;
+}
+
+const logger = getLogger();
+const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
 
 export interface TeamServiceOptions {
   /**
@@ -57,11 +106,14 @@ export interface TeamServiceOptions {
    * usage limits — the two enforcement surfaces must never disagree.
    */
   planOverrideProvider?: (tenantId: string) => Promise<SubscriptionPlan | null>;
+  /** Email-addressed invitations. Omitted = only the legacy user-id seat flow. */
+  invitations?: InvitationOptions;
 }
 
 export class TeamService {
   readonly #seatsRepo: TeamSeatsRepository;
   readonly #subRepo: SubscriptionRepository;
+  readonly #invitations: InvitationOptions | undefined;
   readonly #planOverrideProvider:
     ((tenantId: string) => Promise<SubscriptionPlan | null>) | undefined;
 
@@ -73,6 +125,14 @@ export class TeamService {
     this.#seatsRepo = seatsRepo;
     this.#subRepo = subRepo;
     this.#planOverrideProvider = options.planOverrideProvider;
+    this.#invitations = options.invitations;
+  }
+
+  /** Seats held by active members, legacy pending seats and outstanding invitations. */
+  async #occupiedSeats(tenantId: string): Promise<number> {
+    const seats = await this.#seatsRepo.countOccupiedSeats(tenantId);
+    const invited = this.#invitations ? await this.#invitations.repo.countPending(tenantId) : 0;
+    return seats + invited;
   }
 
   /** Effective plan for a tenant: operator override first, then subscription. */
@@ -105,6 +165,17 @@ export class TeamService {
       activeSeats: seats.filter((s) => s.status === 'active').length,
       pendingSeats: seats.filter((s) => s.status === 'pending').length,
       members,
+      invitations: (this.#invitations
+        ? await this.#invitations.repo.listPending(tenantId)
+        : []
+      ).map(({ id, email, role, invitedBy, expiresAt, createdAt }) => ({
+        id,
+        email,
+        role,
+        invitedBy,
+        expiresAt,
+        createdAt,
+      })),
     };
   }
 
@@ -131,9 +202,12 @@ export class TeamService {
       throw new DuplicateSeatError(userId);
     }
 
-    const activeCount = await this.#seatsRepo.countActiveSeats(tenantId);
-    if (activeCount >= limits.seats) {
-      throw new TeamSeatLimitError(activeCount, limits.seats);
+    // Pending invitations hold a seat, otherwise N invites could be issued
+    // and accepted past the plan limit.
+    const occupied = await this.#occupiedSeats(tenantId);
+    const isReinvite = existing?.status === 'pending';
+    if (!isReinvite && occupied >= limits.seats) {
+      throw new TeamSeatLimitError(occupied, limits.seats);
     }
 
     await this.#seatsRepo.invite(tenantId, userId, role, invitedBy);
@@ -143,6 +217,14 @@ export class TeamService {
     const seat = await this.#seatsRepo.findByTenantAndUser(tenantId, userId);
     if (!seat) {
       throw new SeatNotFoundError(userId);
+    }
+    if (seat.status !== 'active') {
+      const sub = await this.#subRepo.findByTenantId(tenantId);
+      const limits = TEAM_PLAN_LIMITS[await this.#resolvePlan(tenantId, sub)];
+      const active = await this.#seatsRepo.countActiveSeats(tenantId);
+      if (active >= limits.seats) {
+        throw new TeamSeatLimitError(active, limits.seats);
+      }
     }
     await this.#seatsRepo.acceptInvite(tenantId, userId);
   }
@@ -170,7 +252,125 @@ export class TeamService {
 
     if (limits.seats === 0) return false;
 
-    const activeCount = await this.#seatsRepo.countActiveSeats(tenantId);
-    return activeCount < limits.seats;
+    const occupied = await this.#occupiedSeats(tenantId);
+    return occupied < limits.seats;
+  }
+
+  /**
+   * Invite someone by email. Creates a single-use token (only its SHA-256 is
+   * stored), reserves a seat until it is accepted or expires, and emails the
+   * link when SMTP is configured. The link is always returned so an admin can
+   * share it by hand when email is off.
+   */
+  async createInvitation(
+    tenantId: string,
+    email: string,
+    role: TeamRole,
+    invitedBy: string,
+  ): Promise<CreatedInvitation> {
+    const inv = this.#invitations;
+    if (!inv) throw new Error('Email invitations are not enabled');
+    if (role === 'owner') throw new Error('Cannot assign owner role via invitation');
+
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    const limits = TEAM_PLAN_LIMITS[await this.#resolvePlan(tenantId, sub)];
+    if (limits.seats === 0) throw new Error('Current plan does not support team seats');
+
+    const occupied = await this.#occupiedSeats(tenantId);
+    if (occupied >= limits.seats) throw new TeamSeatLimitError(occupied, limits.seats);
+
+    const token = randomBytes(32).toString('base64url');
+    const ttlMs = (inv.ttlHours ?? 168) * 3_600_000;
+    const invitation = await inv.repo.create({
+      tenantId,
+      email: email.trim().toLowerCase(),
+      role,
+      tokenHash: hashToken(token),
+      invitedBy,
+      expiresAt: new Date(Date.now() + ttlMs),
+    });
+
+    const base = (inv.appUrl ?? '').replace(/\/+$/, '');
+    const link = `${base}/invite/${token}`;
+
+    let emailed = false;
+    // A relative link is useless in an email, and reporting `emailed: true` would
+    // hide the copyable link from the admin. Without PUBLIC_APP_URL, don't send.
+    if (inv.mailer?.configured && base === '') {
+      logger.warn(
+        { tenantId },
+        'SMTP is configured but PUBLIC_APP_URL is not: invitation not emailed, link returned instead',
+      );
+    }
+    if (inv.mailer?.configured && base !== '') {
+      try {
+        await inv.mailer.send({
+          to: invitation.email,
+          subject: 'You have been invited to a DOMINUS team',
+          text:
+            `You were invited to join a DOMINUS team as ${role}.\n\n` +
+            `Accept the invitation (valid for ${Math.round(ttlMs / 3_600_000)} hours):\n${link}\n\n` +
+            `If you were not expecting this, ignore this email.`,
+        });
+        emailed = true;
+      } catch (err) {
+        // The invitation is valid; the admin can still share the link.
+        logger.warn({ err, tenantId, invitationId: invitation.id }, 'Invitation email failed');
+      }
+    }
+    return { invitation, link, emailed };
+  }
+
+  async revokeInvitation(tenantId: string, invitationId: number): Promise<boolean> {
+    return this.#invitations ? this.#invitations.repo.revoke(tenantId, invitationId) : false;
+  }
+
+  /**
+   * Redeem an invitation for the signed-in user. The token is claimed
+   * atomically first (so a link works once even under concurrent clicks) and
+   * the claim is rolled back if the seat cannot be created.
+   */
+  async acceptInvitation(
+    token: string,
+    userId: string,
+    verifiedEmail?: string,
+  ): Promise<{ tenantId: string; role: TeamRole }> {
+    const inv = this.#invitations;
+    if (!inv) throw new InvitationInvalidError();
+
+    const invitation = await inv.repo.findByTokenHash(hashToken(token));
+    if (
+      !invitation ||
+      invitation.acceptedAt !== null ||
+      new Date(invitation.expiresAt).getTime() <= Date.now()
+    ) {
+      throw new InvitationInvalidError();
+    }
+    // The link is a bearer secret: forwarded, kept in a shared mailbox or opened by
+    // a link scanner it would otherwise admit whoever signs in first. Require the
+    // verified email of the signed-in user to be the invited one, and check it
+    // BEFORE claiming so a wrong person cannot burn the invitation.
+    if (!verifiedEmail) throw new InvitationEmailMismatchError('no-verified-email');
+    if (verifiedEmail.trim().toLowerCase() !== invitation.email) {
+      throw new InvitationEmailMismatchError('different-email');
+    }
+    if (!(await inv.repo.claim(invitation.id, userId))) throw new InvitationInvalidError();
+
+    try {
+      const { tenantId, role } = invitation;
+      const existing = await this.#seatsRepo.findByTenantAndUser(tenantId, userId);
+      if (existing?.status !== 'active') {
+        const sub = await this.#subRepo.findByTenantId(tenantId);
+        const limits = TEAM_PLAN_LIMITS[await this.#resolvePlan(tenantId, sub)];
+        const active = await this.#seatsRepo.countActiveSeats(tenantId);
+        if (active >= limits.seats) throw new TeamSeatLimitError(active, limits.seats);
+        await this.#seatsRepo.invite(tenantId, userId, role, invitation.invitedBy ?? userId);
+        await this.#seatsRepo.acceptInvite(tenantId, userId);
+      }
+      return { tenantId, role: existing?.status === 'active' ? existing.role : role };
+    } catch (err) {
+      await inv.repo.unclaim(invitation.id);
+      throw err;
+    }
   }
 }

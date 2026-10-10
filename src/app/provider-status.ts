@@ -115,7 +115,6 @@ function buildDnsStatusNote(config: Config): string {
   // ADR-0075: Unbound is mandatory, DNS_UNBOUND_ENABLED=false no longer supported.
   return (
     `Unbound recursive resolver (single source of truth, ADR-0072) at ${config.DNS_UNBOUND_HOSTS}. ` +
-    `Per-query DNSSEC validation ${config.DNS_PER_QUERY_DNSEC ? 'enabled' : 'disabled'}. ` +
     `DoT to Unbound upstream ${config.DNS_UNBOUND_UPSTREAM_TLS ? 'enabled' : 'disabled'}. ` +
     `Parking detection ${config.DNS_PARKING_CHECK_ENABLED ? 'enabled' : 'disabled'}.`
   );

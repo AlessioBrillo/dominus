@@ -206,7 +206,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
             const cutoff = new Date(
               Date.now() - options.before * 24 * 60 * 60 * 1000,
             ).toISOString();
-            const before = await deps.runsRepo.count();
+            const before = await deps.runsRepo.countAll();
             if (options.dryRun === true) {
               const expired = await deps.runsRepo.countBefore(cutoff);
               process.stdout.write(
@@ -214,20 +214,20 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
               );
             } else {
               const removed = await deps.runsRepo.pruneBefore(cutoff);
-              const after = await deps.runsRepo.count();
+              const after = await deps.runsRepo.countAll();
               process.stdout.write(
                 `Pruned ${removed} pipeline_runs row(s) started before ${cutoff}; ${after} remain.\n`,
               );
             }
           } else {
-            const before = await deps.runsRepo.count();
+            const before = await deps.runsRepo.countAll();
             if (options.dryRun === true) {
               process.stdout.write(
                 `Would prune pipeline_runs rows whose retained_until < now (${before} total rows).\n`,
               );
             } else {
               const removed = await deps.runsRepo.prune();
-              const after = await deps.runsRepo.count();
+              const after = await deps.runsRepo.countAll();
               process.stdout.write(`Pruned ${removed} pipeline_runs row(s); ${after} remain.\n`);
             }
           }

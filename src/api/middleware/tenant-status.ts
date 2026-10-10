@@ -15,7 +15,8 @@ const ALLOWED_PREFIXES = ['/billing'];
  * Mounted right after authentication. When the tenant has an operator
  * suspension flag, every request is rejected with 403 TENANT_SUSPENDED
  * except the /billing subtree (payment escape hatch) and callers holding
- * the `admin` role (operator keys must keep working).
+ * the platform `operator` role (a suspended tenant's own admin must NOT
+ * bypass the suspension).
  *
  * Community edition: the flag table is empty (flags are only ever written
  * through the admin-role surface), so this middleware is a single indexed
@@ -23,7 +24,7 @@ const ALLOWED_PREFIXES = ['/billing'];
  */
 export function createTenantStatusMiddleware(adminRepo: AdminRepository) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    if (req.auth?.role === 'admin') {
+    if (req.auth?.role === 'operator') {
       next();
       return;
     }

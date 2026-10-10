@@ -71,6 +71,12 @@ export function createKeyManagementRouter(
         res.status(400).json({ error: { code: 'INVALID_INPUT', message: 'name is required' } });
         return;
       }
+      if (role !== undefined && role !== 'admin' && role !== 'member') {
+        res
+          .status(400)
+          .json({ error: { code: 'INVALID_INPUT', message: "role must be 'admin' or 'member'" } });
+        return;
+      }
       await assertSeatAvailable();
       const generated = await provider.generate({
         tenantId: resolveTenantId(),

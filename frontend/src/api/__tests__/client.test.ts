@@ -243,3 +243,19 @@ describe('api verbs', () => {
     expect(lastFetchInit().method).toBe('DELETE');
   });
 });
+
+describe('URL resolution', () => {
+  it('prefixes authenticated paths with /api/v1', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse()));
+    await api.get('/team');
+    expect(lastFetchUrl()).toBe('/api/v1/team');
+  });
+
+  it('sends the anonymous public namespace to the server root, not /api/v1', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockResponse()));
+    await api.post('/public/scores', { domain: 'a.com' });
+    expect(lastFetchUrl()).toBe('/public/scores');
+    await api.get('/public/s/abcdefgh');
+    expect(lastFetchUrl()).toBe('/public/s/abcdefgh');
+  });
+});

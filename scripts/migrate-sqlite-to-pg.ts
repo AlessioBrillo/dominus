@@ -75,13 +75,17 @@ if (command === 'verify-roundtrip') {
 
   console.log(`[roundtrip] Exporting SQLite -> JSONL...`);
   const exportSummary = await exportSqliteToJsonl(sqlitePath, jsonlPath);
-  console.log(`[roundtrip] Exported ${exportSummary.rows} rows across ${exportSummary.tables} tables`);
+  console.log(
+    `[roundtrip] Exported ${exportSummary.rows} rows across ${exportSummary.tables} tables`,
+  );
 
   console.log(`[roundtrip] Importing JSONL -> PostgreSQL...`);
   const pool = new Pool({ connectionString: databaseUrl });
   try {
     const importSummary = await importJsonlToPg(jsonlPath, pool);
-    console.log(`[roundtrip] Imported ${importSummary.rows} rows across ${importSummary.tables} tables`);
+    console.log(
+      `[roundtrip] Imported ${importSummary.rows} rows across ${importSummary.tables} tables`,
+    );
 
     console.log(`[roundtrip] Verifying row counts in PostgreSQL...`);
     const mismatches = await verifyImport(jsonlPath, pool);
@@ -117,7 +121,9 @@ const pool = new Pool({ connectionString: databaseUrl });
 try {
   if (command === 'import') {
     const summary = await importJsonlToPg(arg1, pool);
-    console.log(`imported ${summary.rows} rows across ${summary.tables} tables (single transaction)`);
+    console.log(
+      `imported ${summary.rows} rows across ${summary.tables} tables (single transaction)`,
+    );
     console.log('next: npx tsx scripts/migrate-sqlite-to-pg.ts verify', arg1);
   } else if (command === 'verify') {
     const mismatches = await verifyImport(arg1, pool);

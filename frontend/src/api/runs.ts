@@ -44,6 +44,10 @@ export async function deleteRun(runId: string): Promise<void> {
   await api.delete(`/runs/${encodeURIComponent(runId)}`);
 }
 
-export async function pruneRuns(dryRun?: boolean): Promise<{ deleted: number }> {
-  return api.post<{ deleted: number }>('/runs/prune', { dryRun });
+export async function pruneRuns(
+  dryRun = false,
+): Promise<{ deleted: number; remaining?: number; dryRun?: boolean }> {
+  return api.post<{ deleted: number; remaining?: number; dryRun?: boolean }>('/runs/prune', {
+    dryRun,
+  });
 }

@@ -4,7 +4,7 @@ import type { Config } from '../../config.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
 import { WebhookEventsRepository } from '../../db/repositories/webhook-events-repository.js';
-import { BillingService } from '../billing-service.js';
+import { BillingService, isStripeSignatureError } from '../billing-service.js';
 
 const mockStripeApi = {
   constructEvent: vi.fn(),
@@ -269,6 +269,30 @@ describe('BillingService webhook handling', () => {
     expect(sub?.stripeSubscriptionId).toBe('sub_1');
   });
 
+  it('re-processes a redelivery when the first attempt failed (claim is released)', async () => {
+    stubWebhookEvent({
+      id: 'evt_retry',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'pro' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+      },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+    const upsert = vi.spyOn(subRepo, 'upsert').mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.handleWebhookEvent(RAW, 'sig')).rejects.toThrow('db down');
+    expect(await webhookRepo.isProcessed('stripe', 'evt_retry')).toBe(false);
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect((await subRepo.findByTenantId('tenant-1'))?.stripeSubscriptionId).toBe('sub_1');
+    expect(await webhookRepo.isProcessed('stripe', 'evt_retry')).toBe(true);
+  });
+
   it('derives the plan from the price on customer.subscription.updated', async () => {
     await subRepo.upsert({
       tenantId: 'tenant-1',
@@ -339,5 +363,24 @@ describe('BillingService webhook handling', () => {
     const service = new BillingService(baseConfig, subRepo, webhookRepo);
 
     await expect(service.handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+  });
+});
+
+describe('isStripeSignatureError', () => {
+  it('recognises stripe-node errors, which carry `type` (their `name` stays "Error")', () => {
+    const err = Object.assign(new Error('No signatures found'), {
+      type: 'StripeSignatureVerificationError',
+    });
+    expect(err.name).toBe('Error');
+    expect(isStripeSignatureError(err)).toBe(true);
+  });
+
+  it('does not treat handler failures as bad signatures', () => {
+    expect(isStripeSignatureError(new Error('db down'))).toBe(false);
+    expect(isStripeSignatureError(Object.assign(new Error('x'), { type: 'StripeAPIError' }))).toBe(
+      false,
+    );
+    expect(isStripeSignatureError(null)).toBe(false);
+    expect(isStripeSignatureError('boom')).toBe(false);
   });
 });

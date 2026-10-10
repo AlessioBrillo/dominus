@@ -3,6 +3,7 @@ import type { DatabaseProvider } from '../provider/interface.js';
 import type { PortfolioEntry, AddPortfolioEntryInput, Verdict } from '../../types/portfolio.js';
 import { DuplicateDomainError, DomainNotFoundError } from '../../types/errors.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
+import { sqlTimestampAgo } from '../sql-timestamp.js';
 
 interface PortfolioRow {
   id: number;
@@ -159,7 +160,7 @@ export class PortfolioRepository {
     if (existing === null) throw new DomainNotFoundError(domain);
     const tid = resolveTenantId();
     const sets: string[] = [
-      "last_rdap_verified_at = datetime('now')",
+      'last_rdap_verified_at = CURRENT_TIMESTAMP',
       'updated_at = CURRENT_TIMESTAMP',
     ];
     const params: (string | number)[] = [];
@@ -186,12 +187,16 @@ export class PortfolioRepository {
     const rows = await this.db.query<PortfolioRow>(
       `SELECT * FROM portfolio_entries
        WHERE tenant_id = ?
-         AND datetime(renewal_date) <= datetime('now', '+' || ? || ' days')
-         AND (last_rdap_verified_at IS NULL
-              OR datetime(last_rdap_verified_at) < datetime('now', '-30 days'))
+         AND renewal_date <= ?
+         AND (last_rdap_verified_at IS NULL OR last_rdap_verified_at < ?)
        ORDER BY last_rdap_verified_at ASC NULLS FIRST
        LIMIT ?`,
-      [tid, days, limit],
+      [
+        tid,
+        new Date(Date.now() + days * 86_400_000).toISOString(),
+        sqlTimestampAgo(30 * 86_400_000),
+        limit,
+      ],
     );
     return rows.map(rowToEntry);
   }
@@ -199,9 +204,13 @@ export class PortfolioRepository {
   async delete(domain: string): Promise<void> {
     const existing = await this.findByDomain(domain);
     if (existing === null) throw new DomainNotFoundError(domain);
+    const tid = resolveTenantId();
+    // outcomes.domain no longer carries a FK (domain uniqueness is per tenant),
+    // so the former ON DELETE CASCADE is performed here, scoped to the tenant.
+    await this.db.exec('DELETE FROM outcomes WHERE domain = ? AND tenant_id = ?', [domain, tid]);
     await this.db.exec('DELETE FROM portfolio_entries WHERE domain = ? AND tenant_id = ?', [
       domain,
-      resolveTenantId(),
+      tid,
     ]);
   }
 }

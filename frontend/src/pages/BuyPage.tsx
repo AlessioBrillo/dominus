@@ -185,8 +185,11 @@ export function BuyPage() {
               )}
 
               <div className="flex items-center gap-2">
-                <label className="text-sm text-text-muted">Registration period:</label>
+                <label htmlFor="registration-years" className="text-sm text-text-muted">
+                  Registration period:
+                </label>
                 <select
+                  id="registration-years"
                   value={years}
                   onChange={(e) => setYears(Number(e.target.value))}
                   className="bg-bg-muted border border-border rounded px-2 py-1 text-sm"

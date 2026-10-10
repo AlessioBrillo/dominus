@@ -1,6 +1,6 @@
 # Deployment Guide
 
-DOMINUS is designed to run anywhere — from a laptop to a Kubernetes cluster. Choose the option that fits your scale.
+DOMINUS is designed to run anywhere — from a laptop to a Terraform-provisioned cloud node. Choose the option that fits your scale.
 
 ## Quick Start (Docker)
 
@@ -168,7 +168,7 @@ requirement.
 
 The daily `pg_dump` backup has an RPO of up to 24h. For the Cloud stack
 (Dominus Cloud), PostgreSQL additionally ships with WAL archiving
-(ADR-0054) so a restore can replay the database to *any* point in time:
+(ADR-0054) so a restore can replay the database to _any_ point in time:
 
 - **WAL archiving** is enabled in `docker-compose.prod.yml`:
   `archive_mode=on` copies each switched segment into
@@ -190,12 +190,12 @@ The daily `pg_dump` backup has an RPO of up to 24h. For the Cloud stack
   `BackupStale` (the latter fires whenever the daily dump has not
   succeeded for 26h — including a failed or silently skipped backup).
 - **Restore**: `deploy/postgres/restore-base.sh <base-dir> <archive-dir>
-  [recovery_target_time]` replays the archive into a fresh cluster on a
+[recovery_target_time]` replays the archive into a fresh cluster on a
   spare port. Verify, then point `DATABASE_URL` at it and run
   `dominus maintenance vacuum`-style checks before promoting.
 
 > **Trade-off (documented in ADR-0054):** the WAL archive shares the DB
-> disk, so PITR protects against *logical* corruption (bad migration,
+> disk, so PITR protects against _logical_ corruption (bad migration,
 > accidental delete, buggy write) — the realistic failure mode — not
 > against host death. If the VPS dies, the archive dies with it: ship
 > the `backups` volume off-host (Hetzner Volume + snapshot, or object
@@ -204,7 +204,7 @@ The daily `pg_dump` backup has an RPO of up to 24h. For the Cloud stack
 > **Never place `dominus.db` itself on a network filesystem** (NFS/SMB,
 > Hetzner Volume, etc.). SQLite WAL mode is unsafe over network storage —
 > the WAL/SHM coordination assumes a local POSIX filesystem and risks
-> corruption under concurrent writes. Network storage is for *backups*
+> corruption under concurrent writes. Network storage is for _backups_
 > only.
 
 ## SQLite Concurrency (community edition)
@@ -243,7 +243,7 @@ negative cache and search domains. Consequences to know before choosing
   `forceRecheck` (used on closeout imports), but resolver-level caches
   are outside its control.
 - **Search-domain mangling.** Single-label candidates can be rewritten
-  by search domains into a "resolved" verdict — a false *registered*,
+  by search domains into a "resolved" verdict — a false _registered_,
   which is the conservative direction (missed opportunity, never a
   wasted buy).
 - **Disjointness is logical, not physical.** The consensus validator
@@ -251,29 +251,27 @@ negative cache and search domains. Consequences to know before choosing
   The only topologically independent opinion is the pinned private
   recursor (see below).
 
-For verdict integrity, prefer the co-hosted Unbound recursor
-(ADR-0042) so the 2-of-3 consensus second leg is a real recursive
-resolver on a private subnet, not the Docker stub:
+For verdict integrity run the co-hosted Unbound recursor (ADR-0072) so
+every lookup goes through a private, DNSSEC-validating resolver instead of
+the Docker stub:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-  -f docker-compose.dns-consensus.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml   -f docker-compose.unbound.yml up -d
 ```
 
-The override is turnkey: it pins `consensus-dns` to 172.20.0.10 and
-sets `DNS_CONSENSUS_NAMESERVERS=172.20.0.10:5300` +
-`DNS_CONSENSUS_ENABLED=true` on api/worker/scheduler automatically.
-Run `docker compose config --quiet` to validate the merged topology.
+The overlay adds the `unbound` service and points api/worker/scheduler at it
+with `DNS_UNBOUND_HOSTS=unbound:5300`. Run `docker compose config --quiet` to
+validate the merged topology.
 
 ## Monitoring (production profile)
 
 The prod compose profile ships a €0 self-hosted monitoring stack:
 
-| Service | Role |
-|---------|------|
-| `prometheus` | Scrapes `http://api:3000/api/v1/metrics/prometheus` every 30s, 30-day retention |
-| `alertmanager` | Routes alerts to the webhook in `deploy/prometheus/alertmanager.yml` |
-| `grafana` | Provisioned dashboard "DOMINUS Overview" (`GRAFANA_ADMIN_PASSWORD` is **required** by the prod overlay — no default `admin/admin` credentials) |
+| Service        | Role                                                                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prometheus`   | Scrapes `http://api:3000/api/v1/metrics/prometheus` every 30s, 30-day retention                                                                |
+| `alertmanager` | Routes alerts to the webhook in `deploy/prometheus/alertmanager.yml`                                                                           |
+| `grafana`      | Provisioned dashboard "DOMINUS Overview" (`GRAFANA_ADMIN_PASSWORD` is **required** by the prod overlay — no default `admin/admin` credentials) |
 
 Alert rules live in `deploy/prometheus/rules.yml` and cover: API down,
 provider error rate > 25%, stage errors, stuck job queue (jobs queued with
@@ -307,14 +305,14 @@ the next operation resumes the shared counters automatically.
 
 ## Options
 
-| Method | When to use | Commands |
-|--------|-------------|---------|
-| **CLI only** | Personal use, one-off scoring | `dominus run --closeout-csv candidates.csv` |
-| **Docker** | Growing portfolio, REST API needed | `docker compose up -d` |
-| **Docker + reverse proxy** | Public-facing API | Add nginx/Caddy in front |
-| **systemd** | Bare-metal Linux server | `systemctl enable dominus` |
-| **PM2** | Node.js process management | `pm2 start ecosystem.config.cjs` |
-| **Kubernetes** | Enterprise, high availability | `kubectl apply -f deploy/` |
+| Method                     | When to use                        | Commands                                    |
+| -------------------------- | ---------------------------------- | ------------------------------------------- |
+| **CLI only**               | Personal use, one-off scoring      | `dominus run --closeout-csv candidates.csv` |
+| **Docker**                 | Growing portfolio, REST API needed | `docker compose up -d`                      |
+| **Docker + reverse proxy** | Public-facing API                  | Add nginx/Caddy in front                    |
+| **systemd**                | Bare-metal Linux server            | `systemctl enable dominus`                  |
+| **PM2**                    | Node.js process management         | `pm2 start ecosystem.config.cjs`            |
+| **Terraform (Hetzner)**    | DOMINUS Cloud / dedicated node     | see `deploy/terraform/README.md`            |
 
 ## Architecture
 
@@ -328,6 +326,7 @@ Internet ──► Reverse Proxy (nginx/Caddy) ──► DOMINUS (port 3000) ─
 ## Reverse Proxy
 
 ### Nginx
+
 Copy `docs/deployment/nginx.conf` to your nginx configuration directory, adjust the `server_name` and SSL certificate paths, then reload nginx:
 
 ```bash
@@ -337,6 +336,7 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ### Caddy
+
 ```caddyfile
 dominus.example.com {
     reverse_proxy 127.0.0.1:3000
@@ -346,6 +346,7 @@ dominus.example.com {
 ## Bare Metal
 
 ### systemd
+
 ```bash
 sudo useradd -r -s /bin/false dominus
 sudo mkdir -p /opt/dominus/data
@@ -356,6 +357,7 @@ sudo systemctl enable --now dominus
 ```
 
 ### PM2
+
 ```bash
 npm install -g pm2
 cp docs/deployment/ecosystem.config.cjs .
@@ -370,16 +372,16 @@ All configuration is via environment variables. See `.env.example` for the full 
 
 Key variables for deployment:
 
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `HOST` | `127.0.0.1` | Set to `0.0.0.0` behind reverse proxy |
-| `PORT` | `3000` | Container port mapping |
-| `DATABASE_PATH` | `./data/dominus.db` | Must be writable; use a volume mount in Docker |
-| `API_KEYS` | (empty) | **Set this in production** to enable authentication |
-| `SCHEDULER_ENABLED` | `false` | Enable for automated renewal checks, rescoring, pruning |
-| `LOG_LEVEL` | `info` | Set to `warn` in production to reduce noise |
-| `DOMINUS_IMAGE_TAG` | (required) | Compose-only (ADR-0046): no default — pin to `vX.Y.Z` or a `sha-…` tag for immutable rollouts; compose fails fast if unset |
-| `BACKUP_DIR` | `./data/backup` | In the prod profile: `/backups` (dedicated volume) |
+| Variable            | Default             | Notes                                                                                                                      |
+| ------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `HOST`              | `127.0.0.1`         | Set to `0.0.0.0` behind reverse proxy                                                                                      |
+| `PORT`              | `3000`              | Container port mapping                                                                                                     |
+| `DATABASE_PATH`     | `./data/dominus.db` | Must be writable; use a volume mount in Docker                                                                             |
+| `API_KEYS`          | (empty)             | **Set this in production** to enable authentication                                                                        |
+| `SCHEDULER_ENABLED` | `false`             | Enable for automated renewal checks, rescoring, pruning                                                                    |
+| `LOG_LEVEL`         | `info`              | Set to `warn` in production to reduce noise                                                                                |
+| `DOMINUS_IMAGE_TAG` | (required)          | Compose-only (ADR-0046): no default — pin to `vX.Y.Z` or a `sha-…` tag for immutable rollouts; compose fails fast if unset |
+| `BACKUP_DIR`        | `./data/backup`     | In the prod profile: `/backups` (dedicated volume)                                                                         |
 
 ## Security Checklist
 

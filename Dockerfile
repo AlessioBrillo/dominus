@@ -30,7 +30,7 @@ COPY package.json package-lock.json ./
 # net for the node-gyp fallback when no prebuilt binary matches the target;
 # it lives only in this stage and never reaches the runtime images (only
 # node_modules is copied out of it).
-RUN npm ci --only=production --ignore-scripts \
+RUN npm ci --omit=dev --ignore-scripts \
   && apk add --no-cache python3 make g++ \
   && npm rebuild better-sqlite3
 
@@ -82,14 +82,28 @@ RUN addgroup -S dominus && adduser -S dominus -G dominus
 COPY --from=deps --chown=dominus:dominus /app/node_modules node_modules/
 COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
 COPY --from=frontend-build --chown=dominus:dominus /app/dist frontend/dist/
+# CSS for the server-rendered public pages (/public/s/:slug, compare pages).
+# The server serves ./public/static relative to the working directory.
+COPY --chown=dominus:dominus public/ public/
 COPY --chown=dominus:dominus package.json ./
 COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
+
+# Database mount point owned by the runtime user, so a fresh bind/volume
+# mount at /app/data is writable (docker run -v ./data:/app/data ...).
+RUN mkdir -p /app/data && chown dominus:dominus /app/data
+
+LABEL org.opencontainers.image.title="dominus-api" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/AlessioBrillo/dominus"
 
 USER dominus
 
 EXPOSE 3000
 
+# Reachable from outside the container. Safe: the server refuses to start on
+# 0.0.0.0 unless API authentication is configured (API_KEYS / AUTH_PROVIDER).
 ENV NODE_ENV=production \
+    HOST=0.0.0.0 \
     DATABASE_PATH=/app/data/dominus.db \
     FRONTEND_DIST_PATH=./frontend/dist \
     WORKER_ENABLED=false \
@@ -127,8 +141,12 @@ COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
 # Backup mount point: pre-created with the runtime user's ownership so a
 # fresh named volume (`docker compose ... up -d`) inherits dominus:dominus
 # on first mount and BACKUP_DIR stays writable for the non-root user.
-RUN mkdir -p /backups && chown dominus:dominus /backups
+RUN mkdir -p /backups /app/data && chown dominus:dominus /backups /app/data
 VOLUME ["/backups"]
+
+LABEL org.opencontainers.image.title="dominus-worker" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/AlessioBrillo/dominus"
 
 USER dominus
 
@@ -171,8 +189,12 @@ COPY --chown=dominus:dominus LICENSE THIRD-PARTY-NOTICES.md /licenses/
 # Backup mount point: pre-created with the runtime user's ownership so a
 # fresh named volume (`docker compose ... up -d`) inherits dominus:dominus
 # on first mount and BACKUP_DIR stays writable for the non-root user.
-RUN mkdir -p /backups && chown dominus:dominus /backups
+RUN mkdir -p /backups /app/data && chown dominus:dominus /backups /app/data
 VOLUME ["/backups"]
+
+LABEL org.opencontainers.image.title="dominus-scheduler" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/AlessioBrillo/dominus"
 
 USER dominus
 

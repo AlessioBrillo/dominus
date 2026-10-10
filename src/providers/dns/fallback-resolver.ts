@@ -335,15 +335,14 @@ export class FallbackResolver implements DnsProvider {
 }
 
 /**
- * Factory function to create the appropriate fallback provider based on config.
+ * Factory function to create the fallback provider.
  *
- * Fail-closed: only 'node-dns' is implemented. DoH options are reserved
- * for future use (ADR-0069/0065) and throw with an actionable message
- * instead of silently degrading to node-dns — an operator selecting
- * 'cloudflare-doh' must never unknowingly run on the system resolver.
+ * `node-dns` is the only fallback type. DoH fallbacks were reserved in
+ * ADR-0069/0065 but never built; they were removed rather than left as
+ * options that throw at startup.
  */
 export async function createFallbackProvider(
-  type: 'node-dns' | 'cloudflare-doh' | 'google-doh',
+  type: 'node-dns',
   options: {
     rateLimiter?: RateLimiterLike;
     breakers?: DnsBreakerRegistryLike;
@@ -362,17 +361,7 @@ export async function createFallbackProvider(
   switch (type) {
     case 'node-dns':
       return new NodeDnsFallback(baseOptions);
-    case 'cloudflare-doh':
-      throw new Error(
-        "DNS fallback provider 'cloudflare-doh' is not implemented (ADR-0069/0065). " +
-          'Set DNS_FALLBACK_PROVIDER=node-dns.',
-      );
-    case 'google-doh':
-      throw new Error(
-        "DNS fallback provider 'google-doh' is not implemented (ADR-0069/0065). " +
-          'Set DNS_FALLBACK_PROVIDER=node-dns.',
-      );
     default:
-      throw new Error(`Unknown fallback provider type: ${type}`);
+      throw new Error(`Unknown fallback provider type: ${String(type)}`);
   }
 }

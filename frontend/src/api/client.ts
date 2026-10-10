@@ -43,6 +43,15 @@ export function setOnUnauthorized(handler: () => void): void {
   onUnauthorized = handler;
 }
 
+/**
+ * The anonymous public namespace (shareable scores, ADR-0030) is mounted at the
+ * server root as `/public/*`, not under the authenticated `/api/v1` prefix.
+ */
+export function resolveUrl(path: string): string {
+  if (path.startsWith('/public/')) return path;
+  return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const apiKey = getStoredApiKey();
   const headers: Record<string, string> = {
@@ -56,7 +65,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const outerSignal = options.signal as AbortSignal | undefined;
 
-  const url = path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+  const url = resolveUrl(path);
 
   const res = await fetch(url, { ...options, signal: outerSignal, headers });
 

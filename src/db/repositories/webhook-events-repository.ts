@@ -39,6 +39,14 @@ export class WebhookEventsRepository {
     return result.changes > 0;
   }
 
+  /** Forget a recorded event so a redelivery is processed again (handler failed). */
+  async release(provider: string, eventId: string): Promise<void> {
+    await this.#db.exec('DELETE FROM webhook_events WHERE provider = ? AND event_id = ?', [
+      provider,
+      eventId,
+    ]);
+  }
+
   /** True when the event id was already recorded (dedup check without inserting). */
   async isProcessed(provider: string, eventId: string): Promise<boolean> {
     const row = await this.#db.queryOne<{ id: number }>(

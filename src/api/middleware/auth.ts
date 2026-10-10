@@ -7,6 +7,7 @@ import type { DatabaseProvider } from '../../db/provider/interface.js';
 import { runWithTenant } from '../../utils/tenant-context.js';
 import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
+import { isTrustedRequestOrigin } from './csrf.js';
 
 const logger = getLogger();
 
@@ -59,6 +60,41 @@ export interface AuthMiddlewareOptions {
    *  alternative to a Bearer token. Browser flows authenticate via the
    *  cookie; API/CLI clients keep using Authorization headers. */
   sessionVerifier?: SessionJwtVerifier;
+  /** Allowlist of platform operators: OIDC/JWT subjects and `key:<id>` DB key
+   *  ids. Only these callers get the `operator` role (cross-tenant admin
+   *  surface). Any `operator` role asserted by a key row or token claim is
+   *  ignored — tenants can mint their own roles, they must not self-promote. */
+  operatorSubjects?: ReadonlySet<string>;
+  /** Origins allowed to make state-changing requests with the session cookie
+   *  (CSRF guard). Empty/unset = no cookie-authenticated mutation is accepted. */
+  trustedOrigins?: ReadonlySet<string>;
+  /** Re-checks a verified session against live data (e.g. the team seat). Return
+   *  null to reject it, or the role to use now. Omitted = trust the JWT claims. */
+  validateSession?: (claims: {
+    sub: string;
+    tenantId?: string | undefined;
+  }) => Promise<{ role?: string | undefined } | null>;
+}
+
+export function parseOperatorSubjects(raw: string | undefined): ReadonlySet<string> {
+  return new Set(
+    (raw ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+}
+
+export function resolveRole(
+  role: string | undefined,
+  identity: { userId?: string | undefined; keyId?: number | undefined },
+  operators: ReadonlySet<string> | undefined,
+): string | undefined {
+  const isOperator =
+    (identity.userId !== undefined && operators?.has(identity.userId)) ||
+    (identity.keyId !== undefined && operators?.has(`key:${identity.keyId}`));
+  if (isOperator) return 'operator';
+  return role === 'operator' ? 'admin' : role;
 }
 
 /**
@@ -107,6 +143,10 @@ export function createAuthMiddleware(
         return;
       }
       req.tenantId = 'default';
+      // Open mode (no API_KEYS): the server refuses to run exposed like this, so
+      // the caller is the single local user. Give them the tenant admin role,
+      // otherwise every admin-gated route (run prune, team, keys) answers 403.
+      req.auth = { role: 'admin', tenantId: 'default' };
       runWithTenant('default', () => next());
       return;
     }
@@ -120,6 +160,23 @@ export function createAuthMiddleware(
         if (session) {
           const claims = await options.sessionVerifier.verify(session);
           if (claims) {
+            if (!isTrustedRequestOrigin(req, options.trustedOrigins ?? new Set())) {
+              logger.warn(
+                { ip: clientIp, origin: req.headers.origin },
+                'Cookie-authenticated request from untrusted origin — rejecting (CSRF)',
+              );
+              res.status(403).json({
+                error: { code: 'CSRF_REJECTED', message: 'Untrusted request origin' },
+              });
+              return;
+            }
+            const live = options.validateSession ? await options.validateSession(claims) : {};
+            if (live === null) {
+              res.status(401).json({
+                error: { code: 'UNAUTHORIZED', message: 'Session is no longer valid' },
+              });
+              return;
+            }
             if (options.requireTenant && !claims.tenantId) {
               logger.warn(
                 { ip: clientIp },
@@ -134,7 +191,11 @@ export function createAuthMiddleware(
             req.auth = {
               userId: claims.sub,
               tenantId: claims.tenantId,
-              role: claims.role,
+              role: resolveRole(
+                live.role ?? claims.role,
+                { userId: claims.sub },
+                options.operatorSubjects,
+              ),
             };
             runWithTenant(req.tenantId, () => next());
             return;
@@ -195,8 +256,9 @@ export function createAuthMiddleware(
     req.auth = {
       userId: result.userId,
       tenantId: result.tenantId,
-      role: result.role,
+      role: resolveRole(result.role, result, options.operatorSubjects),
       keyName: result.keyName,
+      keyId: result.keyId,
     };
     runWithTenant(req.tenantId, () => next());
   };

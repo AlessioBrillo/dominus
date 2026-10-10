@@ -44,8 +44,6 @@ x-unbound-env: &unbound-env
   DNS_UNBOUND_TLS: 'false'
   DNS_UNBOUND_TIMEOUT_MS: '1500'
   DNS_PARKING_CHECK_ENABLED: 'false'
-  # Native resolver pins for the fallback path (not used when Unbound enabled)
-  DNS_NAMESERVERS: 'unbound:5300'
 
 services:
   unbound:

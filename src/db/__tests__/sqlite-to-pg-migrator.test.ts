@@ -86,13 +86,20 @@ describe('exportSqliteToJsonl', () => {
 
 describe.runIf(PG_URL)('importJsonlToPg', () => {
   const schema = `mig_test_${Date.now()}`;
-  const pool = new Pool({ connectionString: PG_URL });
+  // Every pooled connection resolves unqualified names in the throwaway schema
+  // first, so the test is hermetic even when `public` is already migrated.
+  const pool = new Pool({ connectionString: PG_URL, options: `-c search_path=${schema},public` });
 
   beforeEach(async () => {
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true, force: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+    createCommunityDb();
+    await exportSqliteToJsonl(TEST_DB, TEST_EXPORT);
     await pool.query(`CREATE SCHEMA "${schema}"`);
   });
 
   afterEach(async () => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
   });
 

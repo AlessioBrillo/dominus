@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
 import type { StageDegradation } from '../../pipeline/orchestrator.js';
+import { resolveTenantId } from '../../utils/tenant-context.js';
 
 /**
  * One row of the `pipeline_runs` table (ADR-0011).
@@ -150,8 +151,8 @@ export class PipelineRunsRepository {
       `INSERT INTO pipeline_runs
            (run_id, started_at, finished_at, total_duration_ms,
             stage_summary, inputs, results_summary, host_version,
-            retained_until, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            retained_until, error, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *`,
       [
         input.runId,
@@ -164,6 +165,7 @@ export class PipelineRunsRepository {
         input.hostVersion,
         input.retainedUntil,
         input.error ?? null,
+        resolveTenantId(),
       ],
     ))!;
     return rowToRun(row);
@@ -182,7 +184,7 @@ export class PipelineRunsRepository {
               stage_summary = ?,
               results_summary = ?,
               error = ?
-        WHERE run_id = ?
+        WHERE run_id = ? AND tenant_id = ?
         RETURNING *`,
       [
         input.finishedAt,
@@ -191,6 +193,7 @@ export class PipelineRunsRepository {
         JSON.stringify(input.resultsSummary),
         input.error ?? null,
         runId,
+        resolveTenantId(),
       ],
     );
     return result ? rowToRun(result) : null;
@@ -198,8 +201,8 @@ export class PipelineRunsRepository {
 
   async findById(runId: string): Promise<PipelineRun | null> {
     const row = await this.db.queryOne<PipelineRunRow>(
-      'SELECT * FROM pipeline_runs WHERE run_id = ?',
-      [runId],
+      'SELECT * FROM pipeline_runs WHERE run_id = ? AND tenant_id = ?',
+      [runId, resolveTenantId()],
     );
     return row ? rowToRun(row) : null;
   }
@@ -210,8 +213,8 @@ export class PipelineRunsRepository {
    * lexicographically (which works for the canonical UTC format).
    */
   async findAll(options: ListPipelineRunsOptions = {}): Promise<PipelineRun[]> {
-    const where: string[] = [];
-    const params: unknown[] = [];
+    const where: string[] = ['tenant_id = ?'];
+    const params: unknown[] = [resolveTenantId()];
     if (options.since !== undefined) {
       where.push('started_at >= ?');
       params.push(options.since);
@@ -229,7 +232,17 @@ export class PipelineRunsRepository {
     return rows.map(rowToRun);
   }
 
+  /** Runs belonging to the current tenant. */
   async count(): Promise<number> {
+    const row = (await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pipeline_runs WHERE tenant_id = ?',
+      [resolveTenantId()],
+    ))!;
+    return row.n;
+  }
+
+  /** Every run across all tenants — system maintenance only. */
+  async countAll(): Promise<number> {
     const row = (await this.db.queryOne<{ n: number }>('SELECT COUNT(*) AS n FROM pipeline_runs'))!;
     return row.n;
   }
@@ -258,7 +271,29 @@ export class PipelineRunsRepository {
   }
 
   /**
-   * Delete every run whose `retained_until` is strictly before `now`.
+   * Delete the current tenant's runs whose `retained_until` has passed.
+   * Tenant-facing prune (API / `runs prune`); never touches other tenants.
+   */
+  /** Expired runs of the current tenant, without deleting them (prune preview). */
+  async countExpiredInTenant(now: string = new Date().toISOString()): Promise<number> {
+    const row = await this.db.queryOne<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM pipeline_runs WHERE retained_until < ? AND tenant_id = ?',
+      [now, resolveTenantId()],
+    );
+    return row?.n ?? 0;
+  }
+
+  async pruneInTenant(now: string = new Date().toISOString()): Promise<number> {
+    const result = await this.db.exec(
+      'DELETE FROM pipeline_runs WHERE retained_until < ? AND tenant_id = ?',
+      [now, resolveTenantId()],
+    );
+    return result.changes;
+  }
+
+  /**
+   * Delete every run whose `retained_until` is strictly before `now`, across
+   * all tenants. System maintenance only (scheduler / `maintenance prune`).
    * Returns the number of rows deleted. Idempotent — a second call
    * with the same `now` is a no-op.
    */
@@ -295,6 +330,15 @@ export class PipelineRunsRepository {
       ],
     );
     return result.changes;
+  }
+
+  /** Delete one run of the current tenant. Returns false when it does not exist. */
+  async deleteById(runId: string): Promise<boolean> {
+    const result = await this.db.exec(
+      'DELETE FROM pipeline_runs WHERE run_id = ? AND tenant_id = ?',
+      [runId, resolveTenantId()],
+    );
+    return result.changes > 0;
   }
 
   /** Test helper: clear every row. Not exposed via CLI. */

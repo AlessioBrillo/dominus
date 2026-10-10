@@ -122,6 +122,9 @@ import { CustomPriceRepository } from '../db/repositories/custom-price-repositor
 import { UsageRepository } from '../db/repositories/usage-repository.js';
 import { UsageMeterService } from '../services/usage-meter-service.js';
 import { TenantProvisioningService } from '../services/tenant-provisioning-service.js';
+import { IdentityTenantResolver } from '../services/identity-tenant-resolver.js';
+import { TeamInvitationsRepository } from '../db/repositories/team-invitations-repository.js';
+import { createMailer } from '../providers/email/index.js';
 import type { SubscriptionPlan } from '../types/subscription.js';
 import { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
@@ -181,6 +184,8 @@ export interface DominusDependencies {
   adminService: AdminService;
   adminRepo: AdminRepository;
   teamService: TeamService;
+  /** Maps an OIDC sign-in to a tenant/role via team seats (F4). */
+  identityResolver: IdentityTenantResolver;
 
   keywordProvider: KeywordProvider;
   compsProvider: CompsProvider;
@@ -259,6 +264,7 @@ interface BuiltRepositories {
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
   teamSeatsRepo: TeamSeatsRepository;
+  teamInvitationsRepo: TeamInvitationsRepository;
   usageRepo: UsageRepository;
   adminRepo: AdminRepository;
   publicScoreRepo: PublicScoreRepository;
@@ -282,6 +288,7 @@ function buildReadRepositories(
   | 'listingRepo'
   | 'subscriptionRepo'
   | 'teamSeatsRepo'
+  | 'teamInvitationsRepo'
   | 'publicScoreRepo'
   | 'customPriceRepo'
 > {
@@ -297,6 +304,7 @@ function buildReadRepositories(
     listingRepo: new ListingRepository(readProvider),
     subscriptionRepo: new SubscriptionRepository(readProvider),
     teamSeatsRepo: new TeamSeatsRepository(readProvider),
+    teamInvitationsRepo: new TeamInvitationsRepository(readProvider),
     publicScoreRepo: new PublicScoreRepository(readProvider),
     customPriceRepo: new CustomPriceRepository(readProvider),
   };
@@ -638,10 +646,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // (multi-tenant) identity mode, where tenants and API keys are real
   // rows. The community edition has no tenant concept and no route.
   const keyManager = authProvider.asKeyManager();
+  const tenantProvisioner = new TenantProvisioningService(
+    repos.subscriptionRepo,
+    repos.teamSeatsRepo,
+    keyManager,
+  );
   const provisioningService =
-    isMultiTenantAuth(config) && keyManager
-      ? new TenantProvisioningService(repos.subscriptionRepo, repos.teamSeatsRepo, keyManager)
-      : undefined;
+    isMultiTenantAuth(config) && keyManager ? tenantProvisioner : undefined;
+
+  // OIDC sign-in → tenant. Needs no API key manager: SSO users authenticate
+  // with the session cookie, not a key.
+  const identityResolver = new IdentityTenantResolver(
+    repos.teamSeatsRepo,
+    tenantProvisioner,
+    config.OIDC_AUTO_PROVISION_TENANTS,
+  );
 
   const billingService = new BillingService(
     config,
@@ -666,7 +685,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const adminService = new AdminService(repos.adminRepo, repos.usageRepo, repos.customPriceRepo);
   // Same plan-override source as UsageMeterService above: an operator grant
   // must raise seat limits exactly like usage limits (ADR-0057).
+  const mailer = createMailer(config);
   const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo, {
+    invitations: { repo: repos.teamInvitationsRepo, mailer, appUrl: config.PUBLIC_APP_URL },
     planOverrideProvider: (tenantId: string): Promise<SubscriptionPlan | null> =>
       repos.adminRepo.getAdminFlag(tenantId).then((flag) => flag?.planOverride ?? null),
   });
@@ -1117,11 +1138,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // --- Listing / Sales Pipeline (needed before runService for auto-list hook) ---
   const listingProvider = createListingProvider(config.LISTING_PROVIDER as ListingProviderType, {
     listingRepo: repos.listingRepo,
-    danApiKey: config.DAN_API_KEY ?? undefined,
-    afternicApiKey: config.AFTERNIC_API_KEY ?? undefined,
-    afternicApiUrl: config.AFTERNIC_API_URL ?? undefined,
-    sedoApiKey: config.SEDO_API_KEY ?? undefined,
-    sedoApiUrl: config.SEDO_API_URL ?? undefined,
   });
   const listingManager = new ListingManager(
     listingProvider,
@@ -1407,5 +1423,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     usageEnforcer,
     adminService,
     teamService,
+    identityResolver,
   };
 }

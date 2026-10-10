@@ -56,7 +56,9 @@ export function usePruneRuns() {
     mutationFn: (dryRun?: boolean) => pruneRuns(dryRun),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs.all });
-      toast.success(`Pruned ${result.deleted} runs`);
+      toast.success(
+        result.dryRun ? `${result.deleted} runs would be pruned` : `Pruned ${result.deleted} runs`,
+      );
     },
     onError: (err: Error) => {
       toast.error(err.message);

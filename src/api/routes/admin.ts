@@ -36,7 +36,7 @@ const daysParam = z.coerce.number().int().min(1).max(365).default(30);
  */
 export function createAdminRouter(adminService: AdminService): Router {
   const router = Router();
-  router.use(requireRole('admin'));
+  router.use(requireRole('operator'));
 
   const periodStart = (): string => UsageMeterService.periodStart(new Date().toISOString());
 

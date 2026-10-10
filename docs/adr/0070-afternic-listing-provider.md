@@ -4,7 +4,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Accepted |
+| **Status** | Superseded by [ADR-0082](0082-removal-of-unimplemented-features.md) |
 | **Date** | 2026-09-06 |
 | **Authors** | Alessio Brillo |
 | **Deciders** | Alessio Brillo |

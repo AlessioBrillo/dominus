@@ -168,8 +168,9 @@ export function WatchlistPage() {
                           variant="ghost"
                           size="sm"
                           className="h-7 w-7 p-0 text-text-muted hover:text-danger"
+                          aria-label={`Remove ${entry.domain} from watchlist`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>

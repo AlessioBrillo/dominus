@@ -63,9 +63,31 @@ export class TeamSeatsRepository {
     return rows.map(teamSeatFromRow);
   }
 
+  /**
+   * Active seats of a user across tenants, most recently joined first. A user
+   * who accepted an invitation lands in that team on the next login (there is
+   * no tenant switcher yet).
+   */
+  async findActiveByUserId(userId: string): Promise<TeamSeat[]> {
+    const rows = await this.#db.query<TeamSeatRow>(
+      "SELECT * FROM team_seats WHERE user_id = ? AND status = 'active' ORDER BY joined_at DESC, id DESC",
+      [userId],
+    );
+    return rows.map(teamSeatFromRow);
+  }
+
   async countActiveSeats(tenantId: string): Promise<number> {
     const row = await this.#db.queryOne<{ count: number }>(
       "SELECT COUNT(*) as count FROM team_seats WHERE tenant_id = ? AND status = 'active'",
+      [tenantId],
+    );
+    return row?.count ?? 0;
+  }
+
+  /** Seats held by active members plus outstanding invitations. */
+  async countOccupiedSeats(tenantId: string): Promise<number> {
+    const row = await this.#db.queryOne<{ count: number }>(
+      "SELECT COUNT(*) as count FROM team_seats WHERE tenant_id = ? AND status IN ('active', 'pending')",
       [tenantId],
     );
     return row?.count ?? 0;
@@ -87,14 +109,14 @@ export class TeamSeatsRepository {
          role = excluded.role,
          invited_by = excluded.invited_by,
          status = 'pending',
-         invited_at = datetime('now')`,
+         invited_at = CURRENT_TIMESTAMP`,
       [tenantId, userId, role, invitedBy],
     );
   }
 
   async acceptInvite(tenantId: string, userId: string): Promise<void> {
     await this.#db.exec(
-      "UPDATE team_seats SET status = 'active', joined_at = datetime('now') WHERE tenant_id = ? AND user_id = ?",
+      "UPDATE team_seats SET status = 'active', joined_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND user_id = ?",
       [tenantId, userId],
     );
   }

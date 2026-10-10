@@ -59,9 +59,12 @@ export function CandidatesPage() {
           onValueChange={(v) => setSelectedRunId(v === 'all' ? undefined : v)}
         >
           <TabsList>
-            <TabsTrigger value="all">All Runs</TabsTrigger>
+            {/* A run filter, not a tab set: there is no tab panel to control. */}
+            <TabsTrigger value="all" aria-controls={undefined}>
+              All Runs
+            </TabsTrigger>
             {runs.slice(0, 5).map((run) => (
-              <TabsTrigger key={run.runId} value={run.runId}>
+              <TabsTrigger key={run.runId} value={run.runId} aria-controls={undefined}>
                 {run.runId.slice(0, 8)}
               </TabsTrigger>
             ))}

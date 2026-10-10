@@ -9,6 +9,7 @@ import type { JobQueueService } from '../../app/job-queue-service.js';
 import type { PipelineProgressService } from '../../app/pipeline-progress-service.js';
 import { setupSseResponse } from '../../app/pipeline-progress-service.js';
 import type Database from 'better-sqlite3';
+import { requireRole } from '../middleware/require-role.js';
 import type { CandidateGenerationInput } from '../../pipeline/stages/candidate-generation-stage.js';
 import { getRouteParam } from '../route-utils.js';
 import { UsageLimitExceededError } from '../../types/errors.js';
@@ -125,15 +126,45 @@ export function createRunsRouter(
     }
   });
 
-  router.post('/prune', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const before = await runsRepo.count();
-      const deleted = await runsRepo.prune();
-      res.json({ deleted, remaining: before - deleted });
-    } catch (err: unknown) {
-      next(err);
-    }
-  });
+  router.post(
+    '/prune',
+    requireRole('admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const before = await runsRepo.count();
+        // `dryRun: true` reports what would go without deleting anything.
+        if ((req.body as { dryRun?: unknown } | undefined)?.dryRun === true) {
+          const wouldDelete = await runsRepo.countExpiredInTenant();
+          res.json({ deleted: wouldDelete, remaining: before, dryRun: true });
+          return;
+        }
+        const deleted = await runsRepo.pruneInTenant();
+        res.json({ deleted, remaining: before - deleted, dryRun: false });
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
+
+  router.delete(
+    '/:runId',
+    requireRole('admin'),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const runId = req.params.runId as string;
+        const removed = await runsRepo.deleteById(runId);
+        if (!removed) {
+          res
+            .status(404)
+            .json({ error: { code: 'NOT_FOUND', message: `Run '${runId}' not found` } });
+          return;
+        }
+        res.status(204).send();
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
 
   /**
    * POST / — Submit a pipeline run.

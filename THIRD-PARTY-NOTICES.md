@@ -9,23 +9,25 @@ license terms (in particular Apache-2.0 section 4(d) and LGPL-3.0).
 
 | Package | License | Note |
 |---------|---------|------|
-| better-sqlite3 | MIT | |
-| commander | MIT | |
-| cors | MIT | |
-| dotenv | BSD-2-Clause | |
-| express | MIT | |
-| express-rate-limit | MIT | |
-| ioredis | MIT | |
-| jose | MIT | |
-| lru-cache | BlueOak-1.0.0 | |
-| node-cron | ISC | |
-| node-notifier | MIT | |
-| pino | MIT | |
-| psl | MIT | |
-| stripe | MIT | |
-| zod | MIT | |
+| better-sqlite3 | MIT |  |
+| commander | MIT |  |
+| cors | MIT |  |
+| dotenv | BSD-2-Clause |  |
+| express | MIT |  |
+| express-rate-limit | MIT |  |
+| ioredis | MIT |  |
+| jose | MIT |  |
+| lru-cache | BlueOak-1.0.0 |  |
+| node-cron | ISC |  |
+| node-notifier | MIT |  |
+| nodemailer | MIT-0 | Loaded only when SMTP_URL is set (team invitations, email alerts) |
 | pg | MIT | Optional: PostgreSQL driver |
+| pino | MIT |  |
+| psl | MIT |  |
 | sharp | Apache-2.0 | Optional: image processing. **Bundles libvips (LGPL-3.0-or-later) as a native binary.** The LGPL component is dynamically linked and may be replaced by rebuilding sharp; full license text: https://www.gnu.org/licenses/lgpl-3.0.html |
+| stripe | MIT |  |
+| undici | MIT |  |
+| zod | MIT |  |
 
 ## Runtime dependencies (frontend)
 

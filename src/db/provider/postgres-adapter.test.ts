@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { PostgresAdapter } from './postgres-adapter.js';
 import { DatabaseError } from './interface.js';
+import { runWithTenant } from '../../utils/tenant-context.js';
 
 const PG_URL = process.env.DATABASE_URL ?? '';
 
@@ -26,10 +27,51 @@ describe.runIf(PG_URL)('PostgresAdapter', () => {
     it('accepts a schema parameter', async () => {
       adapter = await PostgresAdapter.create(PG_URL, { schema: 'public' });
       expect(adapter.isOpen()).toBe(true);
-      const rows = await adapter.query<{ currentSchema: string }>(
+      const rows = await adapter.query<{ current_schema: string }>(
         'SELECT current_schema AS current_schema',
       );
-      expect(rows[0]?.currentSchema).toBe('public');
+      expect(rows[0]?.current_schema).toBe('public');
+    });
+
+    it('does not leak tenant context to the next lease after a failed query', async () => {
+      // One connection forces the failed lease to be reused by the next call.
+      adapter = await PostgresAdapter.create(PG_URL, { max: 1 });
+
+      await expect(
+        runWithTenant('tenant-leak', () => adapter.query('SELECT 1 / 0')),
+      ).rejects.toThrow();
+
+      const rows = await adapter.query<{ tenant: string | null }>(
+        "SELECT current_setting('app.tenant_id', true) AS tenant",
+      );
+      expect(
+        rows[0]?.tenant === null || rows[0]?.tenant === '' || rows[0]?.tenant === 'default',
+      ).toBe(true);
+    });
+
+    it('inserts into tables that have no id column (no implicit RETURNING id)', async () => {
+      adapter = await PostgresAdapter.create(PG_URL);
+      await adapter.exec('DROP TABLE IF EXISTS no_id_probe');
+      await adapter.exec('CREATE TABLE no_id_probe (k TEXT PRIMARY KEY, v TEXT)');
+      try {
+        const res = await adapter.exec('INSERT INTO no_id_probe (k, v) VALUES (?, ?)', ['a', 'b']);
+        expect(res.changes).toBe(1);
+        expect(res.lastInsertRowid).toBeUndefined();
+      } finally {
+        await adapter.exec('DROP TABLE no_id_probe');
+      }
+    });
+
+    it('still reports lastInsertRowid for tables with an id column', async () => {
+      adapter = await PostgresAdapter.create(PG_URL);
+      await adapter.exec('DROP TABLE IF EXISTS with_id_probe');
+      await adapter.exec('CREATE TABLE with_id_probe (id SERIAL PRIMARY KEY, v TEXT)');
+      try {
+        const res = await adapter.exec('INSERT INTO with_id_probe (v) VALUES (?)', ['x']);
+        expect(res.lastInsertRowid).toBe(1);
+      } finally {
+        await adapter.exec('DROP TABLE with_id_probe');
+      }
     });
 
     it('exposes the underlying pool', async () => {
@@ -79,10 +121,12 @@ describe.runIf(PG_URL)('PostgresAdapter', () => {
       expect(rows[0]!.ok).toBe(1);
     });
 
-    it('converts snake_case to camelCase', async () => {
+    // Repositories read snake_case columns on both dialects, so the adapter
+    // must hand rows back untouched.
+    it('returns column names as written (snake_case)', async () => {
       adapter = await PostgresAdapter.create(PG_URL);
-      const rows = await adapter.query<{ firstName: string }>("SELECT 'Alice' AS first_name");
-      expect(rows[0]!.firstName).toBe('Alice');
+      const rows = await adapter.query<{ first_name: string }>("SELECT 'Alice' AS first_name");
+      expect(rows[0]!.first_name).toBe('Alice');
     });
 
     it('returns empty array for no results', async () => {

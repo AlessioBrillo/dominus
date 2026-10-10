@@ -68,7 +68,7 @@ const ALLOWLIST_HISTORICAL = [
   },
   {
     prefix: '0049_add_team_plan',
-    reason: 'DELETE FROM plan_limits WHERE plan=\'team\' (pre-gate era)',
+    reason: "DELETE FROM plan_limits WHERE plan='team' (pre-gate era)",
   },
 ];
 
@@ -163,7 +163,9 @@ export function scanMigrationContent(content, file) {
   const created = new Set(tableName('CREATE\\s+TABLE', sql, 'create'));
   for (const table of dropped) {
     if (!created.has(table)) {
-      findings.push(`${file}: DROP TABLE ${table} without a matching CREATE TABLE in the same migration`);
+      findings.push(
+        `${file}: DROP TABLE ${table} without a matching CREATE TABLE in the same migration`,
+      );
     }
   }
 
@@ -191,7 +193,6 @@ export function scanMigrationContent(content, file) {
   if (/DELETE\s+FROM\s+\S+/i.test(sql)) {
     findings.push(`${file}: DELETE FROM — irreversible data deletion`);
   }
-
 
   return findings;
 }
@@ -294,7 +295,9 @@ function main() {
   const roots = args.length > 0 ? args : [DEFAULT_ROOT];
   const findings = runGuard(roots);
   if (findings.length > 0) {
-    console.error(`check-migration-compat: FAIL — ${findings.length} destructive migration finding(s)`);
+    console.error(
+      `check-migration-compat: FAIL — ${findings.length} destructive migration finding(s)`,
+    );
     for (const f of findings) console.error(`  - ${f}`);
     console.error(
       '  Fix: make the migration additive (add a column, never drop/rename), or — with explicit review — ' +

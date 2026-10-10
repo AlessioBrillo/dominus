@@ -4,7 +4,6 @@ import {
   fetchCandidates,
   fetchRuns,
   runPipeline,
-  deleteCandidate,
   type RunPipelineResponse,
 } from '@/api/candidates';
 import { queryKeys } from './query-keys';
@@ -35,17 +34,6 @@ export function useRunPipeline() {
       queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs.all });
       return result;
-    },
-  });
-}
-
-export function useDeleteCandidate() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (domain: string) => deleteCandidate(domain),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.candidates.all });
     },
   });
 }

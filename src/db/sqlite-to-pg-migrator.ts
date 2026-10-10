@@ -158,6 +158,14 @@ async function insertBatch(
 
 /** Advance a SERIAL/BIGSERIAL sequence to max(id) after migrating rows. */
 async function advanceSerialSequence(client: PoolClient, table: string): Promise<void> {
+  // pg_get_serial_sequence raises (rather than returning NULL) when the table
+  // has no `id` column, e.g. key/value tables such as `settings`.
+  const hasId = await client.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = $1 AND column_name = 'id'`,
+    [table],
+  );
+  if (hasId.rowCount === 0) return;
   const seq = await client.query<{ seq: string | null }>(
     `SELECT pg_get_serial_sequence('${table}', 'id') AS seq`,
   );

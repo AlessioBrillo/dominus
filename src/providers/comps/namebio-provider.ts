@@ -45,8 +45,11 @@ export class NameBioProvider implements CompsProvider {
         signal: combined,
       });
     } catch (err: unknown) {
+      // The API takes the key in the query string, so a transport error that
+      // echoes the request URL would leak it into the logs.
+      const reason = err instanceof Error ? err.message : String(err);
       getLogger().error(
-        { err, term },
+        { err: reason.split(this.apiKey).join('[redacted]'), term },
         'NameBio API request failed — returning zero comparable sales',
       );
       return [];

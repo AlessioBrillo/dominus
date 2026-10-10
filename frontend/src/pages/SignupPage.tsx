@@ -65,17 +65,22 @@ export function SignupPage() {
               <Input
                 type="text"
                 placeholder="Name"
+                aria-label="Name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                autoFocus
               />
               <Input
                 type="email"
                 placeholder="Email (optional)"
+                aria-label="Email (optional)"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              {error && <p className="text-xs text-danger">{error}</p>}
+              {error && (
+                <p role="alert" className="text-xs text-danger">
+                  {error}
+                </p>
+              )}
               <Button type="submit" disabled={loading} className="w-full">
                 {loading ? 'Creating...' : 'Create workspace'}
               </Button>

@@ -147,7 +147,7 @@ export class CandidateRepository {
       `INSERT INTO candidates
          (domain, tld, source, status, dns_status, rdap_status, is_premium, pipeline_run_id, verdict_provenance, tenant_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(domain) DO UPDATE SET
+       ON CONFLICT(tenant_id, domain) DO UPDATE SET
          status             = excluded.status,
          dns_status         = excluded.dns_status,
          rdap_status        = excluded.rdap_status,

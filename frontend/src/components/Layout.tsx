@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   ListChecks,
@@ -24,12 +24,15 @@ import {
   ShieldCheck,
   Gauge,
   Users,
+  ShoppingBag,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useMe } from '@/hooks/useMe';
 import { useTheme } from '@/hooks/useTheme';
 import { LoginForm } from '@/components/LoginForm';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { inviteTokenFromPath, rememberInvite, takeInvite } from '@/lib/pending-invite';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -37,6 +40,7 @@ const navItems = [
   { to: '/runs', label: 'Runs', icon: Play },
   { to: '/score', label: 'Score', icon: Search },
   { to: '/portfolio', label: 'Portfolio', icon: Briefcase },
+  { to: '/buy', label: 'Buy', icon: ShoppingBag },
   { to: '/listings', label: 'Listings', icon: ShoppingCart },
   { to: '/bids', label: 'Bids', icon: Gavel },
   { to: '/outcomes', label: 'Outcomes', icon: History },
@@ -48,15 +52,36 @@ const navItems = [
   { to: '/billing', label: 'Billing', icon: CreditCard },
   { to: '/team', label: 'Team', icon: Users },
   { to: '/usage', label: 'Usage', icon: Gauge },
-  { to: '/admin', label: 'Admin', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', icon: Settings },
 ] as const;
+
+/** Cross-tenant operator panel: only shown to platform operators. */
+const operatorNavItems = [{ to: '/admin', label: 'Admin', icon: ShieldCheck }] as const;
 
 export function Layout() {
   const { isAuthenticated, isLoading, logout: authLogout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { isOperator } = useMe(isAuthenticated);
+  const visibleNav = isOperator ? [...navItems, ...operatorNavItems] : navItems;
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // An invitation link must survive the sign-in screen and the SSO round-trip
+  // (the IdP sends the user back to the app root, not to /invite/...).
+  useEffect(() => {
+    const token = inviteTokenFromPath(pathname);
+    if (token) {
+      // Only park it while signed out. Once signed in the page itself is the
+      // destination; parking it again would bounce the user back here forever.
+      if (!isAuthenticated) rememberInvite(token);
+      return;
+    }
+    if (isAuthenticated) {
+      const pending = takeInvite();
+      if (pending) navigate(`/invite/${pending}`, { replace: true });
+    }
+  }, [pathname, isAuthenticated, navigate]);
 
   const handleLogout = (): void => {
     authLogout();
@@ -96,24 +121,28 @@ export function Layout() {
             </div>
           )}
           <button
+            type="button"
             onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-expanded={sidebarOpen}
             className="text-text-muted hover:text-text-primary transition-colors shrink-0"
           >
             <Menu className="h-4 w-4" />
           </button>
         </div>
 
-        <nav className="flex-1 p-2 space-y-1">
-          {navItems.map(({ to, label, icon: Icon }) => (
+        <nav aria-label="Main" className="flex-1 p-2 space-y-1">
+          {visibleNav.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
+              aria-label={label}
               className={({ isActive }) =>
                 cn(
                   'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                   isActive
-                    ? 'bg-brand-900/40 text-brand-300 font-medium'
+                    ? 'bg-brand-100 text-brand-800 font-medium dark:bg-brand-900/40 dark:text-brand-300'
                     : 'text-text-muted hover:text-text-primary hover:bg-bg-hover',
                 )
               }
@@ -126,7 +155,9 @@ export function Layout() {
 
         <div className={cn('border-t border-border space-y-2', sidebarOpen ? 'p-4' : 'p-2')}>
           <button
+            type="button"
             onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             className={cn(
               'flex items-center gap-3 rounded-lg text-sm transition-colors w-full text-text-muted hover:text-text-primary hover:bg-bg-hover',
               sidebarOpen ? 'px-3 py-2' : 'p-2 justify-center',

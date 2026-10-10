@@ -2,7 +2,7 @@
 
 Status: **adopted** (v1.1.0)
 Scope: DOMINUS Cloud (PostgreSQL) and community edition (SQLite)
-Related: [ADR-0054 (PITR)](/docs/adr/README.md), [operations/RTO-RPO](rto-rpo.md)
+Related: [ADR-0054 (PITR)](../adr/0054-pitr-backup-strategy.md), [operations/RTO-RPO](../operations/rto-rpo.md)
 
 ## 1. The invariant
 
@@ -112,7 +112,7 @@ or `ROLLBACK BLOCKED BY MIGRATION GATE`.
    - Compare with `docker run --rm --entrypoint node <image> dist/db/migration-manifest-cli.js --list`
 3. If the database is **ahead** of the image (release migrated, then failed):
    restore the database from a PITR backup (newest base + WAL replay, see
-   [operations/RTO-RPO](rto-rpo.md)) or — preferred — deploy the **fixed**
+   [operations/RTO-RPO](../operations/rto-rpo.md)) or — preferred — deploy the **fixed**
    release that contains the same migrations instead of restoring.
 4. Only when the schema state is fully understood may an operator set
    `SKIP_MIGRATION_GATE=1` for a single rollout; record it in the deploy log.
@@ -131,7 +131,7 @@ or `ROLLBACK BLOCKED BY MIGRATION GATE`.
    Preferred fix: deploy the **fixed** release containing the same migration
    set, letting the migrate step complete the tail.
 4. If the failed migration wrote irreversible data, restore from a PITR
-   backup (newest base + WAL replay, see [operations/RTO-RPO](rto-rpo.md)).
+   backup (newest base + WAL replay, see [operations/RTO-RPO](../operations/rto-rpo.md)).
 5. A timeout (`migration timed out after <MIGRATE_TIMEOUT_SECONDS>s`) means
    the migrate container was killed; inspect the killed container's logs
    (`docker logs <container>`) before retrying.

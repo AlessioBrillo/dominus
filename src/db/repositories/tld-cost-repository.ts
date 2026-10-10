@@ -53,11 +53,11 @@ export class TldCostRepository {
   async upsert(tld: string, renewalCostEur: number, registrar?: string): Promise<void> {
     await this.db.exec(
       `INSERT INTO tld_renewal_costs (tld, renewal_cost_eur, registrar, updated_at)
-       VALUES (?, ?, ?, datetime('now'))
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(tld) DO UPDATE SET
          renewal_cost_eur = excluded.renewal_cost_eur,
          registrar = COALESCE(excluded.registrar, tld_renewal_costs.registrar),
-         updated_at = datetime('now')`,
+         updated_at = CURRENT_TIMESTAMP`,
       [tld, renewalCostEur, registrar ?? null],
     );
   }

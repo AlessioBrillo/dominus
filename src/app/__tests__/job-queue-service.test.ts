@@ -225,6 +225,48 @@ describe('JobQueueService', () => {
   });
 
   describe('dead letter operations', () => {
+    it('retries with exponential backoff and records the real attempt count', async () => {
+      const { jobId: jobIdStr } = await service.enqueuePipelineRun({ keywords: [] });
+      const jobId = Number(jobIdStr);
+      const repo = new (
+        await import('../../db/repositories/job-queue-repository.js')
+      ).JobQueueRepository(provider);
+
+      await repo.dequeue();
+      await repo.fail(jobId, 'dependency down');
+      // Not immediately eligible: no hot-loop on a failing dependency.
+      expect(await repo.dequeue()).toBeNull();
+      const first = provider.rawDb
+        .prepare('SELECT scheduled_at FROM job_queue WHERE id = ?')
+        .get(jobId) as { scheduled_at: string };
+      const firstDelay =
+        new Date(first.scheduled_at.replace(' ', 'T') + 'Z').getTime() - Date.now();
+      expect(firstDelay).toBeGreaterThan(3_000);
+      expect(firstDelay).toBeLessThan(10_000);
+
+      provider.rawDb
+        .prepare("UPDATE job_queue SET scheduled_at = datetime('now', '-1 minute')")
+        .run();
+      await repo.dequeue();
+      await repo.fail(jobId, 'dependency down');
+      const second = provider.rawDb
+        .prepare('SELECT scheduled_at FROM job_queue WHERE id = ?')
+        .get(jobId) as { scheduled_at: string };
+      const secondDelay =
+        new Date(second.scheduled_at.replace(' ', 'T') + 'Z').getTime() - Date.now();
+      expect(secondDelay).toBeGreaterThan(firstDelay);
+
+      provider.rawDb
+        .prepare("UPDATE job_queue SET scheduled_at = datetime('now', '-1 minute')")
+        .run();
+      await repo.dequeue();
+      await repo.fail(jobId, 'dependency down');
+      const dead = provider.rawDb.prepare('SELECT attempts FROM dead_letter_jobs').get() as {
+        attempts: number;
+      };
+      expect(dead.attempts).toBe(3);
+    });
+
     it('getDeadLetter and retryDeadLetter work end-to-end', async () => {
       const { jobId: jobIdStr } = await service.enqueuePipelineRun({ keywords: [] });
       const jobId = Number(jobIdStr);
@@ -232,10 +274,18 @@ describe('JobQueueService', () => {
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
       ).JobQueueRepository(provider);
+      // fail() now schedules the retry with backoff; make it due again.
+      const makeDue = (): void => {
+        provider.rawDb
+          .prepare("UPDATE job_queue SET scheduled_at = datetime('now', '-1 minute')")
+          .run();
+      };
       await repo.dequeue();
       await repo.fail(jobId, 'permanent error');
+      makeDue();
       await repo.dequeue();
       await repo.fail(jobId, 'permanent error 2');
+      makeDue();
       await repo.dequeue();
       await repo.fail(jobId, 'permanent error 3');
 
@@ -272,10 +322,18 @@ describe('JobQueueService', () => {
       const repo = new (
         await import('../../db/repositories/job-queue-repository.js')
       ).JobQueueRepository(provider);
+      // fail() now schedules the retry with backoff; make it due again.
+      const makeDue = (): void => {
+        provider.rawDb
+          .prepare("UPDATE job_queue SET scheduled_at = datetime('now', '-1 minute')")
+          .run();
+      };
       await repo.dequeue();
       await repo.fail(jobId, 'boom');
+      makeDue();
       await repo.dequeue();
       await repo.fail(jobId, 'boom 2');
+      makeDue();
       await repo.dequeue();
       await repo.fail(jobId, 'boom 3');
 

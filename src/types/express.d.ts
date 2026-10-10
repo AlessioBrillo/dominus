@@ -9,6 +9,7 @@ declare module 'express-serve-static-core' {
       tenantId?: string | undefined;
       role?: string | undefined;
       keyName?: string | undefined;
+      keyId?: number | undefined;
     };
   }
 }

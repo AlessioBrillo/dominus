@@ -441,7 +441,7 @@ export class PredictionAccuracyAnalyzer {
           expected_value, actual_sale_price, tld, scored_at, occurred_at,
           commercial_score, market_score, expiry_score, tenant_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(domain, occurred_at) DO UPDATE SET
+       ON CONFLICT(tenant_id, domain, occurred_at) DO UPDATE SET
          recommended          = excluded.recommended,
          weighted_score       = excluded.weighted_score,
          confidence           = excluded.confidence,

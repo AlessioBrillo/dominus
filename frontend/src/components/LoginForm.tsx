@@ -65,11 +65,15 @@ export function LoginForm() {
             <Input
               type="password"
               placeholder="API Key"
+              aria-label="API key"
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              autoFocus
             />
-            {error && <p className="text-xs text-danger">{error}</p>}
+            {error && (
+              <p role="alert" className="text-xs text-danger">
+                {error}
+              </p>
+            )}
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? 'Authenticating...' : 'Authenticate'}
             </Button>

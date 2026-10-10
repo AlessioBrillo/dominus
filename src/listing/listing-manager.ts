@@ -179,7 +179,7 @@ export class ListingManager {
 
     // Local-only path: the manual provider has no remote API (its
     // createListing would re-INSERT the same domain and hit the
-    // UNIQUE(domain, marketplace) constraint), and an unavailable remote
+    // UNIQUE(tenant_id, domain, marketplace) constraint), and an unavailable remote
     // provider degrades to local tracking by design.
     if (this.#provider.name === 'manual' || !this.#provider.isAvailable) {
       logger.info({ listingId: id }, 'ListingManager: marking as listed (manual mode)');

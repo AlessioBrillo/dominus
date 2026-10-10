@@ -6,6 +6,11 @@ import request from 'supertest';
 import { createOidcRouter, type OidcRouterDeps } from '../oidc.js';
 import { createSessionJwtMinter } from '../../../providers/auth/session-jwt.js';
 import type { OidcProvider } from '../../../providers/auth/oidc-provider.js';
+import {
+  InvitationEmailMismatchError,
+  InvitationInvalidError,
+  TeamSeatLimitError,
+} from '../../../services/team-service.js';
 
 interface TestResponse {
   status: number;
@@ -59,10 +64,13 @@ function buildApp(overrides: Partial<OidcRouterDeps> = {}): {
     appOrigin: APP_ORIGIN,
     sessionTtlMs: 8 * 60 * 60 * 1000,
     sessionVerifier: sessionJwt,
-    mintSession: (sub, tenantId, role) => sessionJwt.mint({ sub, tenantId, role }),
+    trustedOrigins: new Set([new URL(APP_ORIGIN).origin]),
+    mintSession: (sub, tenantId, role, email) =>
+      sessionJwt.mint({ sub, tenantId, role, ...(email !== undefined ? { email } : {}) }),
     ...overrides,
   };
   const app = express();
+  app.use(express.json());
   app.use('/api/v1/auth/oidc', createOidcRouter(deps));
   return { app, provider };
 }
@@ -213,14 +221,165 @@ describe('API: /api/v1/auth/oidc/me', () => {
 });
 
 describe('API: /api/v1/auth/oidc/logout', () => {
-  it('clears the session cookie', async () => {
+  it('clears the session cookie and returns the IdP logout URL', async () => {
     const { app } = buildApp();
     const res = await request(app)
       .post('/api/v1/auth/oidc/logout')
+      .set('Origin', new URL(APP_ORIGIN).origin)
       .set('Cookie', 'dominus_session=anything');
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
+    expect(res.body.logoutUrl).toBe('https://idp.example.com/v2/logout');
     const cleared = res.headers['set-cookie']?.[0] as string;
     expect(cleared).toContain('dominus_session=');
     expect(cleared).toMatch(/Expires=Thu, 01 Jan 1970/i);
+  });
+
+  it('rejects a logout POST from an untrusted origin (CSRF)', async () => {
+    const { app } = buildApp();
+    const res = await request(app)
+      .post('/api/v1/auth/oidc/logout')
+      .set('Origin', 'https://evil.example')
+      .set('Cookie', 'dominus_session=anything');
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe('CSRF_REJECTED');
+    expect(res.headers['set-cookie']).toBeUndefined();
+  });
+});
+
+describe('API: /api/v1/auth/oidc/me — operator role', () => {
+  it('reports operator for an allowlisted subject even if the session says admin', async () => {
+    const { app } = buildApp({ operatorSubjects: new Set(['user-1']) });
+    const session = await createSessionJwtMinter(CLIENT_SECRET, 8).mint({
+      sub: 'user-1',
+      tenantId: 'org-42',
+      role: 'admin',
+    });
+    const res = await request(app)
+      .get('/api/v1/auth/oidc/me')
+      .set('Cookie', `dominus_session=${session}`);
+    expect((res.body as { role: string }).role).toBe('operator');
+  });
+
+  it('never reports operator from the session claim alone', async () => {
+    const { app } = buildApp();
+    const session = await createSessionJwtMinter(CLIENT_SECRET, 8).mint({
+      sub: 'user-1',
+      tenantId: 'org-42',
+      role: 'operator',
+    });
+    const res = await request(app)
+      .get('/api/v1/auth/oidc/me')
+      .set('Cookie', `dominus_session=${session}`);
+    expect((res.body as { role: string }).role).toBe('admin');
+  });
+});
+
+describe('API: /api/v1/auth/oidc/accept-invitation', () => {
+  const ORIGIN = new URL(APP_ORIGIN).origin;
+  const TOKEN = 'a'.repeat(43);
+
+  async function sessionCookie(): Promise<string> {
+    const session = await createSessionJwtMinter(CLIENT_SECRET, 8).mint({
+      sub: 'user-9',
+      tenantId: 'personal-tenant',
+      role: 'admin',
+    });
+    return `dominus_session=${session}`;
+  }
+
+  const post = async (
+    app: Application,
+    opts: { cookie?: string; origin?: string; body?: unknown } = {},
+  ): Promise<request.Response> => {
+    let req = request(app).post('/api/v1/auth/oidc/accept-invitation');
+    if (opts.cookie) req = req.set('Cookie', opts.cookie);
+    req = req.set('Origin', opts.origin ?? ORIGIN);
+    return req.send(opts.body ?? { token: TOKEN });
+  };
+
+  it('is disabled (404) when invitations are not wired', async () => {
+    const { app } = buildApp();
+    expect((await post(app, { cookie: await sessionCookie() })).status).toBe(404);
+  });
+
+  it('joins the team and re-issues the session for the new tenant', async () => {
+    const acceptInvitation = vi.fn().mockResolvedValue({ tenantId: 'team-7', role: 'member' });
+    const { app } = buildApp({ acceptInvitation });
+
+    const res = await post(app, { cookie: await sessionCookie() });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ tenantId: 'team-7', role: 'member' });
+    expect(acceptInvitation).toHaveBeenCalledWith(TOKEN, 'user-9', undefined);
+
+    // The new cookie carries the team tenant, minted by the same signer.
+    const renewed = cookieValueOf(res, 'dominus_session');
+    const me = await request(app)
+      .get('/api/v1/auth/oidc/me')
+      .set('Cookie', `dominus_session=${renewed}`);
+    expect(me.body).toMatchObject({ sub: 'user-9', tenantId: 'team-7', role: 'member' });
+  });
+
+  it('passes the verified email from the session and keeps it in the renewed session', async () => {
+    const acceptInvitation = vi.fn().mockResolvedValue({ tenantId: 'team-7', role: 'member' });
+    const { app } = buildApp({ acceptInvitation });
+    const session = await createSessionJwtMinter(CLIENT_SECRET, 8).mint({
+      sub: 'user-9',
+      tenantId: 'personal-tenant',
+      role: 'admin',
+      email: 'bob@example.com',
+    });
+
+    const res = await post(app, { cookie: `dominus_session=${session}` });
+
+    expect(acceptInvitation).toHaveBeenCalledWith(TOKEN, 'user-9', 'bob@example.com');
+    const renewed = cookieValueOf(res, 'dominus_session');
+    const verified = await createSessionJwtMinter(CLIENT_SECRET, 8).verify(renewed);
+    expect(verified).toMatchObject({ sub: 'user-9', tenantId: 'team-7', email: 'bob@example.com' });
+  });
+
+  it('answers 403 INVITATION_EMAIL_MISMATCH when the identity is not the invited one', async () => {
+    const { app } = buildApp({
+      acceptInvitation: vi
+        .fn()
+        .mockRejectedValue(new InvitationEmailMismatchError('different-email')),
+    });
+    const res = await post(app, { cookie: await sessionCookie() });
+    expect(res.status).toBe(403);
+    expect((res.body as { error: { code: string } }).error.code).toBe('INVITATION_EMAIL_MISMATCH');
+  });
+
+  it('requires a session', async () => {
+    const { app } = buildApp({ acceptInvitation: vi.fn() });
+    expect((await post(app)).status).toBe(401);
+  });
+
+  it('rejects an untrusted origin (CSRF)', async () => {
+    const acceptInvitation = vi.fn();
+    const { app } = buildApp({ acceptInvitation });
+    const res = await post(app, { cookie: await sessionCookie(), origin: 'https://evil.example' });
+    expect(res.status).toBe(403);
+    expect(acceptInvitation).not.toHaveBeenCalled();
+  });
+
+  it('validates the token shape', async () => {
+    const { app } = buildApp({ acceptInvitation: vi.fn() });
+    const res = await post(app, { cookie: await sessionCookie(), body: { token: 'short' } });
+    expect(res.status).toBe(400);
+  });
+
+  it('maps an invalid invitation to 400 and a full team to 409', async () => {
+    const invalid = buildApp({
+      acceptInvitation: vi.fn().mockRejectedValue(new InvitationInvalidError()),
+    });
+    const res1 = await post(invalid.app, { cookie: await sessionCookie() });
+    expect(res1.status).toBe(400);
+    expect((res1.body as { error: { code: string } }).error.code).toBe('INVITATION_INVALID');
+
+    const full = buildApp({
+      acceptInvitation: vi.fn().mockRejectedValue(new TeamSeatLimitError(3, 3)),
+    });
+    const res2 = await post(full.app, { cookie: await sessionCookie() });
+    expect(res2.status).toBe(409);
   });
 });

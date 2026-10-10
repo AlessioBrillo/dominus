@@ -426,22 +426,10 @@ describe('createFallbackProvider', () => {
     provider.dispose?.();
   });
 
-  it('fails closed for cloudflare-doh (not implemented)', async () => {
-    await expect(createFallbackProvider('cloudflare-doh')).rejects.toThrow(
-      "'cloudflare-doh' is not implemented",
+  it('rejects the removed DoH fallback types', async () => {
+    await expect(createFallbackProvider('cloudflare-doh' as 'node-dns')).rejects.toThrow(
+      'Unknown fallback provider type',
     );
-  });
-
-  it('fails closed for google-doh (not implemented)', async () => {
-    await expect(createFallbackProvider('google-doh')).rejects.toThrow(
-      "'google-doh' is not implemented",
-    );
-  });
-
-  it('throws for unknown type', async () => {
-    await expect(
-      createFallbackProvider('unknown' as 'node-dns' | 'cloudflare-doh' | 'google-doh'),
-    ).rejects.toThrow('Unknown fallback provider type');
   });
 
   it('resolves duplicate domains independently in bulk (index-based merge)', async () => {

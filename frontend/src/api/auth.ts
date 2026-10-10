@@ -67,7 +67,10 @@ export function startSsoLogin(): void {
 
 export async function ssoLogout(): Promise<void> {
   try {
-    await api.post('/auth/oidc/logout');
+    const { logoutUrl } = await api.post<{ logoutUrl?: string }>('/auth/oidc/logout');
+    // End the identity-provider session too, otherwise the next SSO sign-in
+    // would silently log the same user back in.
+    if (logoutUrl) window.location.assign(logoutUrl);
   } catch {
     /* non-fatal — the local key is cleared regardless */
   }

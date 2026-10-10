@@ -342,10 +342,14 @@ export function OnboardingPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  <label
+                    htmlFor="import-domains"
+                    className="block text-sm font-medium text-text-primary mb-1.5"
+                  >
                     Domains (one per line)
                   </label>
                   <textarea
+                    id="import-domains"
                     value={importData.domains}
                     onChange={(e) =>
                       setImportData((prev) => ({ ...prev, domains: e.target.value }))
@@ -358,10 +362,14 @@ greenharvest.io`}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  <label
+                    htmlFor="import-renewal-cost"
+                    className="block text-sm font-medium text-text-primary mb-1.5"
+                  >
                     Annual renewal cost per domain (€)
                   </label>
                   <input
+                    id="import-renewal-cost"
                     type="number"
                     value={importData.renewalCost}
                     onChange={(e) =>
