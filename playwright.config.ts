@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // End-to-end tests run against the compiled backend (`node dist/index.js`),
-// which serves the built SPA from frontend/dist. The webServer boots on a
+// which serves the built SPA from dist/web. The webServer boots on a
 // fresh SQLite database in .e2e/ (wiped as part of the startup command) and
 // the globalSetup seeds deterministic fixtures. No external services are
 // required; the worker and scheduler are disabled.
@@ -50,7 +50,7 @@ export default defineConfig({
       NODE_ENV: 'development',
       RATE_LIMIT_MAX: '0',
       LOG_LEVEL: 'warn',
-      FRONTEND_DIST_PATH: './frontend/dist',
+      FRONTEND_DIST_PATH: './dist/web',
     },
   },
 });

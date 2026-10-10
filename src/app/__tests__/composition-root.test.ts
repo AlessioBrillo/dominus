@@ -504,7 +504,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       WHOIS_PER_QUERY_TIMEOUT_MS: 10000,
       RESCORE_BATCH_CONCURRENCY: 5,
       REQUEST_TIMEOUT_MS: 30000,
-      FRONTEND_DIST_PATH: './frontend/dist',
+      FRONTEND_DIST_PATH: './dist/web',
       FRONTEND_BASE_PATH: '',
       PUBLIC_CACHE_TTL_MS: 300000,
       ANON_TRADEMARK_BUDGET_ENABLED: false,

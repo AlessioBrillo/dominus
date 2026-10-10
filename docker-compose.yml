@@ -56,7 +56,7 @@ services:
       - WHOIS_LOOKUP_TIMEOUT=${WHOIS_LOOKUP_TIMEOUT:-10000}
       - BUY_MAX_ABSOLUTE_CAP=${BUY_MAX_ABSOLUTE_CAP:-0}
       - TRUST_PROXY_DEPTH=${TRUST_PROXY_DEPTH:-0}
-      - FRONTEND_DIST_PATH=./frontend/dist
+      - FRONTEND_DIST_PATH=./dist/web
       # Boot-required: HOST below is 0.0.0.0, so the API refuses to start
       # without authentication (fail-closed guard in src/index.ts). Generate
       # one with `openssl rand -hex 32` and export API_KEYS before `up -d`.

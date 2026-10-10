@@ -380,6 +380,32 @@ jobs:
       - name: Check every image reference is pinned
         run: npm run check:image-pins
 
+  npm-package:
+    name: npm package completeness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build backend + SPA
+        run: |
+          npm run build:frontend
+          npm run build
+
+      # The docker-smoke job builds the Docker image, which copies the SPA
+      # from source — so it can never catch a broken npm artifact. This job
+      # is the only one that exercises the path a consumer actually receives.
+      - name: Verify the tarball is a complete, usable artifact
+        run: npm run check:pack
+
   deploy-script:
     name: Deploy rollout script check
     runs-on: ubuntu-latest

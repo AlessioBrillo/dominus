@@ -1263,10 +1263,13 @@ const configSchema = z
 
     /**
      * Base path for the frontend SPA assets relative to process.cwd().
-     * Default: './frontend/dist'. Deployments with a custom frontend build
-     * path (e.g. Docker with multi-stage build) should set this.
+     * Default: './dist/web'. `npm run build` copies the compiled SPA from
+     * `frontend/dist/` there, so the backend and the dashboard live in a
+     * single build output that every distribution channel (source checkout,
+     * npm tarball, Docker) can serve. Deployments with a custom frontend
+     * build path should override this.
      */
-    FRONTEND_DIST_PATH: z.string().default('./frontend/dist'),
+    FRONTEND_DIST_PATH: z.string().default('./dist/web'),
 
     /**
      * URL base path for serving the SPA. When the application is behind a

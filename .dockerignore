@@ -1,13 +1,45 @@
-node_modules/
-dist/
-coverage/
+# Docker build-context excludes.
+#
+# Patterns without `**` are root-relative: `node_modules/` alone does NOT match
+# `frontend/node_modules/`, which used to ship ~218 MB of developer
+# dependencies into the context on every build. Always anchor recursive
+# exclusions with `**/`.
+**/node_modules/
+**/dist/
+**/coverage/
+**/.e2e/
+**/playwright-report/
+**/test-results/
+*.tsbuildinfo
+*.db
+*.db-wal
+*.db-shm
+
 .git/
 .gitignore
+.gitattributes
+.husky/
+.github/
+
+# Markdown is documentation, not build input. THIRD-PARTY-NOTICES.md is the
+# exception: the Dockerfile copies it into the images' /licenses/ directory.
 *.md
 !THIRD-PARTY-NOTICES.md
+
 .eslintrc*
 .prettierrc*
 vitest.config.ts
+playwright.config.ts
+
+# Compose files describe how to run the image; they are never build input.
 docker-compose.yml
+docker-compose.unbound.yml
+docker-compose.prod.yml
+.coverage-check/
+
 data/
 .env*
+
+# Stray migration rollback locks (see .gitignore).
+..locks/
+**/..locks/
