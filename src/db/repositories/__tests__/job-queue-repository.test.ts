@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../../migrator.js';
 import { SqliteProvider } from '../../provider/sqlite-adapter.js';
@@ -75,6 +75,32 @@ describe('JobQueueRepository', () => {
       expect(job!.status).toBe('running');
       expect(job!.attempts).toBe(1);
       expect(job!.startedAt).toBeDefined();
+    });
+
+    it('judges "due" on the JS clock that stamped scheduled_at, not the database clock', async () => {
+      vi.useFakeTimers();
+      try {
+        const base = Date.now();
+        // Due in 30 minutes: not eligible yet...
+        const id = await repo.enqueue(
+          'PRUNE',
+          {},
+          {
+            scheduledAt: new Date(base + 30 * 60_000)
+              .toISOString()
+              .replace('T', ' ')
+              .replace(/\.\d{3}Z$/, ''),
+          },
+        );
+        expect(await repo.dequeue()).toBeNull();
+
+        // ...and eligible once the application clock passes it, even though the
+        // database's own CURRENT_TIMESTAMP is still real time.
+        vi.setSystemTime(base + 60 * 60_000);
+        expect((await repo.dequeue())?.id).toBe(id);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('returns null when no queued jobs exist', async () => {
