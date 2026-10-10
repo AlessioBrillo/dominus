@@ -63,7 +63,9 @@ WORKDIR /app
 # minor from the repo (3.5.8-r0 broke the build once 3.5.9-r0 landed) while a
 # floor keeps the CVE guarantee and survives repo updates (ADR-0046) —
 # drop this once a NODE_IMAGE digest bump picks up libssl3 >= 3.5.8-r0 baked in.
-RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0'
+# zlib >= 1.3.2-r1 fixes CVE-2026-85091 (Trivy, medium) in the same way; drop it with the
+# next NODE_IMAGE digest bump that ships it.
+RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0' 'zlib>=1.3.2-r1'
 
 # Runtime strip (ADR-0046): the base image bundles the npm CLI with its own
 # dependency tree (/usr/local/lib/node_modules/npm). The runtime never
@@ -120,7 +122,7 @@ FROM ${NODE_IMAGE} AS worker
 WORKDIR /app
 
 # Patched libssl3/libcrypto3 floor — see the comment in the api stage.
-RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0'
+RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0' 'zlib>=1.3.2-r1'
 
 # Runtime strip (ADR-0046): npm/corepack are unused at runtime — see the
 # comment in the api stage. Removes the bundled-npm CVE surface class from
@@ -169,7 +171,7 @@ FROM ${NODE_IMAGE} AS scheduler
 WORKDIR /app
 
 # Patched libssl3/libcrypto3 floor — see the comment in the api stage.
-RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0'
+RUN apk add --no-cache --upgrade 'libssl3>=3.5.8-r0' 'libcrypto3>=3.5.8-r0' 'zlib>=1.3.2-r1'
 
 # Runtime strip (ADR-0046): npm/corepack/npx are never used at runtime —
 # see the comment in the api stage.

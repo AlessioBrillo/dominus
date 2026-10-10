@@ -126,13 +126,13 @@ export class JobQueueRepository {
       this.#db.dialect === 'postgres'
         ? `SELECT id FROM job_queue
            WHERE status = 'queued'
-             AND scheduled_at <= CURRENT_TIMESTAMP
+             AND scheduled_at <= ?
            ORDER BY priority DESC, scheduled_at ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED`
         : `SELECT id FROM job_queue
            WHERE status = 'queued'
-             AND scheduled_at <= CURRENT_TIMESTAMP
+             AND scheduled_at <= ?
            ORDER BY priority DESC, scheduled_at ASC
            LIMIT 1`;
 
@@ -146,7 +146,11 @@ export class JobQueueRepository {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = (${selectClause})
        RETURNING *`,
-      [workerId],
+      // "Due" is judged on the same JS clock that stamped `scheduled_at` in
+      // enqueue()/fail(). CURRENT_TIMESTAMP is the database's clock: on Windows the
+      // two can differ by a few ms, so a job enqueued just before a second boundary
+      // looked not-yet-due and dequeue() returned null (flaky CI).
+      [workerId, this.#ts()],
     );
     return row ? this.#rowToJob(row) : null;
   }
