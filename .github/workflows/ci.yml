@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -168,6 +168,15 @@ jobs:
     name: Docker runtime smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # The base compose file requires API_KEYS (fail-closed boot guard in
+      # src/index.ts). It is exported for the whole job because every compose
+      # invocation — build, up, logs, down — interpolates the environment
+      # block. Per-command prefixes do not cover the ones that were easy to
+      # miss (logs -f, down -v), which then abort with the :? error.
+      # /api/health stays public, so the dummy key does not affect the
+      # polled endpoint.
+      API_KEYS: ci-smoke-dummy-key
 
     steps:
       - uses: actions/checkout@v7
@@ -267,8 +276,8 @@ jobs:
           # Boot with authentication active: HOST=0.0.0.0 in compose refuses
           # to start unauthenticated (fail-closed). /api/health stays public,
           # so the polled endpoint is unaffected by the dummy key.
-          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
-          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
           LOGS_PID=$!
 
@@ -614,6 +623,10 @@ jobs:
     name: E2E (Playwright, Chromium)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Same reason as the docker-smoke job: the base compose file requires
+      # API_KEYS, and the teardown step also runs compose.
+      API_KEYS: ci-e2e-dummy-key
 
     steps:
       - uses: actions/checkout@v7
@@ -639,7 +652,7 @@ jobs:
           # Dummy key: HOST=0.0.0.0 refuses to boot unauthenticated
           # (fail-closed); without it the composed API crash-loops and the
           # readiness gate below is meaningless.
-          API_KEYS=ci-e2e-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
           # Wait for API to be ready
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then

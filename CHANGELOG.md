@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.1.0](https://github.com/AlessioBrillo/dominus/compare/v1.0.0...v1.1.0) (2026-10-11)
+## [1.1.0](https://github.com/AlessioBrillo/dominus/compare/v1.0.0...v1.1.0) (2026-10-12)
 
 
 ### ⚠ BREAKING CHANGES
@@ -115,6 +115,7 @@ your Unbound instance(s).
 * **auth:** implement OidcProvider interface properly ([03b1726](https://github.com/AlessioBrillo/dominus/commit/03b17265730b5e42d0a99286adf550c9a34903c9))
 * **build:** ship a complete npm artifact and a single SPA layout ([919af28](https://github.com/AlessioBrillo/dominus/commit/919af28602d3f93153377b9a013b8cf1f2aecd75))
 * **ci:** boot CI and the default compose stack without Unbound ([#424](https://github.com/AlessioBrillo/dominus/issues/424)) ([eac810a](https://github.com/AlessioBrillo/dominus/commit/eac810a99039b71d2d877f9cd21510f1db193941)), closes [#417](https://github.com/AlessioBrillo/dominus/issues/417)
+* **cli:** report the real version in the published package ([cc9e8b6](https://github.com/AlessioBrillo/dominus/commit/cc9e8b66417120f92ba5365fa409212e37513c3d))
 * **config:** DNS fallback, quorum, RDAP probe fail-open for community edition (ADR-0076/0077/0078) ([#448](https://github.com/AlessioBrillo/dominus/issues/448)) ([1e00cd2](https://github.com/AlessioBrillo/dominus/commit/1e00cd2814fad3506b114f0f32c634613008d929))
 * **config:** enforce Redis in cloud mode with explicit split-brain warning ([#393](https://github.com/AlessioBrillo/dominus/issues/393)) ([dd92871](https://github.com/AlessioBrillo/dominus/commit/dd9287179c97bc4ba89c30f5b77e698a2d6300b1))
 * **config:** sync DNS_CONSENSUS_STRATEGY enum with supported resolver strategies ([ff0b43b](https://github.com/AlessioBrillo/dominus/commit/ff0b43b116d1369666e46a2cd5d77103d3593455))
@@ -149,6 +150,7 @@ your Unbound instance(s).
 * **pipeline:** derive persistence deadline from lock TTL/heartbeat config ([#395](https://github.com/AlessioBrillo/dominus/issues/395)) ([f7a7824](https://github.com/AlessioBrillo/dominus/commit/f7a782448e3b3828d2e3e8f42281911c5dd49e16))
 * **provider/dns:** fallback fail-closed hardening (ADR-0079) ([#449](https://github.com/AlessioBrillo/dominus/issues/449)) ([a166a4c](https://github.com/AlessioBrillo/dominus/commit/a166a4cfea9887e61cbe06a41e3db18728419065))
 * **providers:** harden RDAP redirects/body cap and cancel orphaned DNS lookups ([#347](https://github.com/AlessioBrillo/dominus/issues/347)) ([f4b0197](https://github.com/AlessioBrillo/dominus/commit/f4b0197f8288fe04a3fcc7b740b5d902c09ed8a8))
+* **publish:** make the npm artifact work from a clean clone ([7a91a17](https://github.com/AlessioBrillo/dominus/commit/7a91a17d9c8377cd1c55063f23f40c76d5a61a0e))
 * **rdap,config,provider:** bootstrap routing, boolean env coercion, cache prune ([#353](https://github.com/AlessioBrillo/dominus/issues/353)) ([8f5bb10](https://github.com/AlessioBrillo/dominus/commit/8f5bb105a5a90d02710675443988362979254350))
 * **rdap,dns:** never combine Node global fetch with an undici v8 dispatcher ([#352](https://github.com/AlessioBrillo/dominus/issues/352)) ([c53c5c9](https://github.com/AlessioBrillo/dominus/commit/c53c5c99c8631eba0303723340aa02164a083bb1))
 * rls migration uses direct coalesce in policy for pg safety ([493ccfa](https://github.com/AlessioBrillo/dominus/commit/493ccfa1a8ecbf678d2cbcb81301c6a07a8fc6bb))
