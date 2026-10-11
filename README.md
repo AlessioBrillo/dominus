@@ -89,9 +89,39 @@ cd dominus
 npm install
 npm run build
 
-# Score some candidates with sample data (no config needed)
-# --sync is required: runs are enqueued asynchronously by default, and
-# without it the CLI only prints a job id.
+# Score a single domain with the bundled sample data. Works with zero
+# infrastructure and prints the full decision (ADR-0002).
+KEYWORD_DATA_PATH=examples/keywords-sample.json \
+COMPS_DATA_PATH=examples/comps-sample.csv \
+node dist/cli.js score vintagecoffee.com
+```
+
+```
+Score: vintagecoffee.com
+  Expected value:    €247.73
+  Suggested buy max: €123.87
+  List price:        €619.33
+  Confidence:        51.8%
+  Recommended:       YES
+```
+
+That is the whole decision: a conservative expected value, a purchase
+ceiling derived from it, a list price, and how much evidence supports it.
+
+### Running the full pipeline
+
+The five-stage pipeline also needs a validating DNS resolver before it can
+report a domain as **available**. Without one the DNS stage degrades, the
+run is flagged `degraded`, and the CLI exits non-zero on purpose — a
+degraded run is a partial answer, and fail-closed is the right signal for
+a tool that gates real purchases (ADR-0002).
+
+The easiest way to get a validating resolver is the Docker Compose stack
+below, which runs Unbound as a sidecar. With it in place, the sample
+closeout run becomes:
+
+```bash
+# --sync waits for the run instead of printing a job id
 KEYWORD_DATA_PATH=examples/keywords-sample.json \
 COMPS_DATA_PATH=examples/comps-sample.csv \
 node dist/cli.js run --sync --closeout-csv examples/closeout-sample.csv

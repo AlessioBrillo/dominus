@@ -27,8 +27,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
-const SEMVER_TAG_RE = /^v?\d+\.\d+\.\d+$/;
-const SHA_TAG_RE = /^sha-[0-9a-f]{7,40}$/;
 const LOCAL_IMAGE_RE = /^dominus-[a-z0-9-]+:[\w.-]+$/;
 
 export function isDockerfile(name) {
@@ -37,10 +35,6 @@ export function isDockerfile(name) {
 
 export function isCompose(name) {
   return /^docker-compose.*\.ya?ml$/.test(name);
-}
-
-export function isKubernetes(dirName, name) {
-  return dirName === 'deploy' && /\.ya?ml$/.test(name);
 }
 
 export function isTerraformTemplate(name) {
@@ -92,12 +86,6 @@ export function findImagePins(content, file, policy) {
 export const composePolicy = (ref) =>
   `image ${ref} is not pinned — add @sha256:<64-hex>, use a \${VAR} ref, or a locally built dominus-* image`;
 
-export const k8sPolicy = (ref) => {
-  const tag = ref.includes(':') ? (ref.split(':').at(-1) ?? '') : '';
-  if (tag !== '' && (SEMVER_TAG_RE.test(tag) || SHA_TAG_RE.test(tag))) return undefined;
-  return `image ${ref} uses a floating tag in a Kubernetes manifest — pin to @sha256:<64-hex>, vX.Y.Z or sha-<commit>`;
-};
-
 function collectFiles(root) {
   const files = [];
   const walk = (dir) => {
@@ -107,13 +95,7 @@ function collectFiles(root) {
         if (entry !== '.git' && entry !== 'node_modules' && entry !== 'frontend') walk(full);
         continue;
       }
-      const dirBase = dir.split(/[\\/]/).pop() ?? '';
-      if (
-        isDockerfile(entry) ||
-        isCompose(entry) ||
-        isKubernetes(dirBase, entry) ||
-        isTerraformTemplate(entry)
-      ) {
+      if (isDockerfile(entry) || isCompose(entry) || isTerraformTemplate(entry)) {
         files.push(full);
       }
     }
@@ -125,11 +107,12 @@ function collectFiles(root) {
 function scanFile(file) {
   const content = readFileSync(file, 'utf8');
   const name = file.split(/[\\/]/).at(-1) ?? '';
-  const dirName = file.split(/[\\/]/).at(-2) ?? '';
   if (isDockerfile(name)) return checkDockerfile(content, file);
-  if (isCompose(name)) return findImagePins(content, file, composePolicy);
-  if (isTerraformTemplate(name)) return findImagePins(content, file, composePolicy);
-  if (isKubernetes(dirName, name)) return findImagePins(content, file, k8sPolicy);
+  // Compose and the Terraform cloud-init templates follow the same policy:
+  // ADR-0046 covers the rendered node, not just the local overlay.
+  if (isCompose(name) || isTerraformTemplate(name)) {
+    return findImagePins(content, file, composePolicy);
+  }
   return [];
 }
 
