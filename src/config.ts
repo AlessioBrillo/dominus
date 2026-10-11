@@ -175,6 +175,22 @@ const configSchema = z
      */
     EUIPO_API_URL: urlWithDefault('https://api.euipo.europa.eu/trademark-search/trademarks'),
     /**
+     * Records requested per page from the EUIPO Trademark Search API
+     * (default: 50; the API's own maximum is 100). Larger pages mean fewer
+     * round-trips per term but a heavier single response.
+     */
+    EUIPO_PAGE_SIZE: z.coerce.number().int().min(1).max(100).default(50),
+    /**
+     * Upper bound on how many result pages a single EUIPO search fetches
+     * (default: 10). A term matching more records than
+     * EUIPO_PAGE_SIZE * EUIPO_MAX_PAGES is reported as
+     * `EUIPO_RESULT_TRUNCATED`, which forces the trademark gate to
+     * Unverified instead of Clear — a partly enumerated register cannot
+     * support "no match found" (Principle 6, ADR-0014). Raise this before
+     * concluding that a legitimate term is untrademarked.
+     */
+    EUIPO_MAX_PAGES: z.coerce.number().int().min(1).default(10),
+    /**
      * Number of days that a cached trademark result remains valid.
      * Avoids re-hitting rate-limited free APIs on repeat pipeline runs.
      */

@@ -15,6 +15,25 @@ function errorProvider(): TrademarkProvider {
   return { search: vi.fn().mockRejectedValue(new ProviderError('unavailable', 'test')) };
 }
 
+/**
+ * Provider that answers, but cannot finish enumerating the register. This
+ * is not an outage: the register replied, only partly, and the gate must
+ * not treat a partial enumeration as a negative result.
+ */
+function truncatingProvider(term = 'truncated'): TrademarkProvider {
+  return {
+    search: vi
+      .fn()
+      .mockRejectedValue(
+        new ProviderError(
+          `EUIPO results truncated for term "${term}": fetched 6 of 10`,
+          'EuipoProvider',
+          'EUIPO_RESULT_TRUNCATED',
+        ),
+      ),
+  };
+}
+
 /** Provider that never settles on its own — rejects only when the signal aborts. */
 function hangingProvider(): TrademarkProvider {
   return {
@@ -50,6 +69,50 @@ describe('TrademarkGate', () => {
     expect(result.partial).toBe(true);
     expect(result.verifiedSources).toEqual(['USPTO']);
     expect(result.usptoFailed).toBeUndefined();
+  });
+
+  // --- Fail-closed on an incomplete register ---
+
+  it('returns Unverified when EUIPO truncates, even though USPTO answered cleanly', async () => {
+    // The decisive case: EUIPO explicitly said it could not enumerate the
+    // register. USPTO's clean result is not enough to claim Clear, because
+    // the EUIPO mark may be exactly the one that was not fetched.
+    const gate = new TrademarkGate(mockProvider([]), truncatingProvider('nova'));
+    const result = await gate.check('nova.io');
+
+    expect(result.verdict).toBe(GateVerdict.Unverified);
+    expect(result.verifiedSources).toEqual(['USPTO']);
+    expect(result.partial).toBe(true);
+  });
+
+  it('returns Unverified on a truncated register for a strict TLD', async () => {
+    const gate = new TrademarkGate(mockProvider([]), truncatingProvider('nova'));
+    const result = await gate.check('nova.com');
+    expect(result.verdict).toBe(GateVerdict.Unverified);
+  });
+
+  it('returns Unverified when both sources truncate', async () => {
+    const gate = new TrademarkGate(truncatingProvider('nova'), truncatingProvider('nova'));
+    const result = await gate.check('nova.io');
+    expect(result.verdict).toBe(GateVerdict.Unverified);
+    expect(result.verifiedSources).toEqual([]);
+  });
+
+  it('still returns Blocked when a real match outranks a truncated source', async () => {
+    // A concrete hit is stronger evidence than an incomplete enumeration:
+    // blocking must not be downgraded just because another source ran out
+    // of pages.
+    const gate = new TrademarkGate(
+      mockProvider([
+        { markName: 'nova', owner: 'Nova Corp', status: 'registered', source: 'USPTO' },
+      ]),
+      truncatingProvider('nova'),
+    );
+    const result = await gate.check('nova.io');
+
+    expect(result.verdict).toBe(GateVerdict.Blocked);
+    expect(result.matchedMark).toBe('nova');
+    expect(result.matchSource).toBe('USPTO');
   });
 
   // --- Blocked cases ---

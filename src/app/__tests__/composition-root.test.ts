@@ -396,6 +396,8 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       USPTO_SEARCH_URL: 'https://tmsearch.uspto.gov/tmsearch',
       EUIPO_AUTH_URL: 'https://auth.tmdn.org/oidc/access_token',
       EUIPO_API_URL: 'https://api.euipo.europa.eu/trademark-search/trademarks',
+      EUIPO_PAGE_SIZE: 50,
+      EUIPO_MAX_PAGES: 10,
       KEYWORD_PROVIDER: 'manual' as const,
       COMPS_PROVIDER: 'manual' as const,
       DNS_BULK_CONCURRENCY: 10,

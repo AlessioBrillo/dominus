@@ -368,11 +368,20 @@ For each rejected alternative:
 
 ### Follow-up Backlog
 
-- The `EUIPO_AUTH_URL` default is a placeholder. Pin it
-  once the official current URL is verified.
-- Pagination: iterate the `page` parameter when
-  `totalElements > size` to surface tail hits on
-  high-volume search terms.
+- ~~The `EUIPO_AUTH_URL` default is a placeholder. Pin it once the official
+  current URL is verified.~~ **Resolved.** The default is the verified
+  TMview production endpoint `https://auth.tmdn.org/oidc/access_token`
+  (`src/config.ts`), and `.env.example` documented the stale legacy URL
+  until the v1.1.0 release pass corrected it.
+- ~~Pagination: iterate the `page` parameter when `totalElements > size` to
+  surface tail hits on high-volume search terms.~~ **Resolved (v1.1.0).**
+  `EuipoProvider.search()` now walks every page up to `EUIPO_MAX_PAGES`
+  (default 10 pages × `EUIPO_PAGE_SIZE` 50 records). Crucially it is
+  *fail-closed*: when the register declares more matching records than were
+  fetched, it throws `EUIPO_RESULT_TRUNCATED` instead of returning a
+  partial list, and `TrademarkGate` maps that to **Unverified** rather than
+  Clear. Enumerating the tail was the original ask; refusing to claim
+  "no match" without it is what makes the fix safe (Principle 6).
 - A future hardening can swap the curated status filter
   for an allow-list of EUIPO status codes once the EUIPO
   documentation stabilises around the new values.
