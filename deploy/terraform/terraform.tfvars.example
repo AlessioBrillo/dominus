@@ -7,7 +7,7 @@ domain            = "app.dominus.example"
 # Bump at every release: this tag is written into the app node's
 # DOMINUS_IMAGE_TAG. A stale tag rolls the node back onto an old image,
 # which the migration gate then refuses at boot (schema ahead of image).
-image_tag         = "v1.1.0"
+image_tag         = "v1.0.0"   # must name a RELEASED tag; bump per deploy
 
 # SSH ingress allowlist (both nodes). The default admits any source (keys
 # only + fail2ban); restrict to the operator's networks for production.
@@ -60,8 +60,11 @@ app_env = {
   # authorization block in deploy/prometheus/prometheus.yml to match).
   METRICS_TOKEN = "REPLACE_WITH_METRICS_TOKEN"
   # Alert webhook (dead-letter notifications; alertmanager.yml on the node
-  # routes the same endpoint).
-  NOTIFIER_WEBHOOK_URL = "https://example.com/your-webhook"
+  # routes the same endpoint). Left unset on purpose: an example.com
+  # placeholder resolves and returns 200 to any POST, so every alert is
+  # silently swallowed. Set a real endpoint, or leave it empty and rely on
+  # Prometheus/Alertmanager plus `dominus maintenance` output instead.
+  # NOTIFIER_WEBHOOK_URL = "https://hooks.slack.com/services/REPLACE/WITH/REAL"
   # Trade API keys as needed; secrets stay out of git.
 }
 

@@ -79,14 +79,17 @@ CONDITIONS OF ANY KIND.
 
 ## 7. Signature
 
-To agree to these terms, please add your name and the date below:
+To agree to these terms, paste the completed block below into the body of
+your first pull request:
 
 ```
 Name: ______________________________
-Email: _____________________________
 GitHub Username: ___________________
 Date: ______________________________
 ```
+
+A filled-in block is what CI looks for: it must contain your name, your
+GitHub username, and the date, in one comment.
 
 ### Enforcement
 
@@ -96,13 +99,20 @@ CLA is on file. The `cla.yml` workflow checks the public signer registry in
 
 Please submit the signed CLA by one of these methods:
 
-1. Open a pull request adding your name to the project's `CONTRIBUTORS.md`
-   (the `cla.yml` workflow registers the signature)
-2. Email a scanned copy to the project maintainer (see MAINTAINERS.md)
-3. Include the signed text in a comment on your first pull request
+1. **Sign in your first pull request** (recommended): paste the completed
+   signature block from above into the PR description. A maintainer adds
+   your name to `CONTRIBUTORS.md`, and the `cla.yml` workflow registers the
+   signature from there.
+2. **Open a pull request that adds your name yourself** to
+   `CONTRIBUTORS.md`, with the signature block in the PR description.
 
-The signed CLA records are kept by the maintainer; the `CONTRIBUTORS.md`
-registry is the public record of who has agreed to these terms.
+There is no email route. An email signature is not verifiable by CI and
+puts the burden of proof on the contributor, so the project keeps one
+record of truth: the PR thread.
+
+The signed CLA records are kept in the pull request thread; the
+`CONTRIBUTORS.md` registry is the public record of who has agreed to these
+terms.
 
 ---
 

@@ -5,6 +5,19 @@
 # application uses for job dead-letter notifications (NOTIFIER_WEBHOOK_URL),
 # so route it to the same endpoint if you want a single alert inbox.
 #
+# There is deliberately NO working default URL. The previous value pointed at
+# https://example.com/your-webhook, which resolves and returns 200 to any
+# POST: every alert was silently swallowed and the stack looked healthy. A
+# missing receiver is loud — alerts queue and `amtool` reports the receiver as
+# not ready — so an unset webhook is the honest default.
+#
+# Uncomment the block below and set a real endpoint (Slack incoming webhook,
+# PagerDuty Events API v2, Opsgenie, or any HTTP receiver of your own):
+#
+#   webhook_configs:
+#     - url: "https://hooks.slack.com/services/T00000/B00000/XXXXXXXXXXXXXXXX"
+#       send_resolved: true
+#
 # Example webhook payload: { "text": "..." } for a generic Slack/Telegram
 # bridge, or the format expected by your webhook receiver.
 
@@ -17,6 +30,6 @@ route:
 
 receivers:
   - name: dominus-webhook
-    webhook_configs:
-      - url: "https://example.com/your-webhook"
-        send_resolved: true
+    # webhook_configs:
+    #   - url: "https://example.invalid/set-a-real-alertmanager-webhook"
+    #     send_resolved: true

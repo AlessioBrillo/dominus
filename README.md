@@ -1,4 +1,4 @@
-﻿# DOMINUS — Open-Source Domain Valuation & Domain Portfolio Management Software
+# DOMINUS — Open-Source Domain Valuation & Domain Portfolio Management Software
 
 > Open-source decision-support engine for domain valuation, buying, reselling, and managing DNS domain portfolios — available as a self-hosted community edition or managed cloud service.
 
@@ -156,7 +156,7 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
 | **Multi-tenancy**     | —                                     | ✓ Managed                         |
 | **Backups**           | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
-| **Support**           | GitHub Issues                         | Email/Slack (4h response)         |
+| **Support**           | GitHub Issues                         | Email/Slack — Enterprise: 4 business hours, see [SLA](docs/operations/sla.md) |
 | **Cost**              | €0                                    | Free tier + paid plans            |
 
 ## Fork & Customize
@@ -272,7 +272,7 @@ list above is a subset of what the binary registers.
 - [Security Policy](SECURITY.md) — vulnerability reporting
 - [Roadmap](ROADMAP.md) — planned features and releases
 - [Upgrading to 1.1.0](docs/releases/upgrade-1.1.0.md) — breaking changes and removals
-- [Service level agreement (draft)](docs/operations/sla.md)
+- [Service level agreement](docs/operations/sla.md) — Enterprise support commitments
 
 ## Project Status
 
@@ -323,9 +323,10 @@ enforced in CI (`license:check`).
 
 ### Trademark
 
-"DOMINUS" is a trademark of AlessioBrillo. The AGPL license grants you the
-right to copy, modify, and distribute the code — it does **not** grant you
-the right to use the DOMINUS name or logo to promote your fork or a
-competing service. Forks and derived services must use a different name and
-must not imply affiliation with or endorsement by the DOMINUS project.
-Proceed with your own fork and your own brand.
+The name "DOMINUS" identifies this project and is claimed by its author,
+AlessioBrillo, as a project mark. The AGPL license grants you the right to
+copy, modify, and distribute the code — it does **not** grant you the right
+to use the DOMINUS name or logo to promote your fork or a competing
+service. Forks and derived services must use a different name and must not
+imply affiliation with or endorsement by the DOMINUS project. Proceed with
+your own fork and your own brand.

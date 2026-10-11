@@ -1,0 +1,19 @@
+# Chooses which issue form a reporter sees first.
+# Without this file GitHub opens the blank-issue editor, which bypasses the
+# templates and produces reports missing the environment and provider data
+# that the bug template asks for.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question or usage help
+    url: https://github.com/AlessioBrillo/dominus/discussions
+    about: Ask anything that is not a bug or a feature request. Discussions are searchable, so the next person with the same question finds the answer.
+  - name: Support options and response times
+    url: https://github.com/AlessioBrillo/dominus/blob/master/SUPPORT.md
+    about: What to expect from the maintainers and from DOMINUS Cloud support.
+  - name: Security vulnerability (private)
+    url: https://github.com/AlessioBrillo/dominus/security/advisories/new
+    about: Report a security issue privately. Do not open a public issue.
+  - name: Commercial licensing or DOMINUS Cloud
+    url: https://github.com/AlessioBrillo/dominus/blob/master/COMMERCIAL_LICENSE.md
+    about: Licensing, enterprise hosting, and commercial inquiries.
