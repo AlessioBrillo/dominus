@@ -85,7 +85,7 @@ flowchart TB
 
 | Signal | Computation | Data Source | Conservative Tuning |
 |--------|-------------|-------------|-------------------|
-| **Intrinsic** | Domain length score + pronounceability + hyphen/numbers penalty + TLD bonus | Local heuristics | TLD bonus capped at 0.15; hyphen penalty floors score |
+| **Intrinsic** | Domain length score + pronounceability + hyphen/numbers penalty + TLD bonus | Local heuristics | TLD bonus multiplies (0.4-1.0); hyphen and digit penalties floor the score |
 | **Commercial** | Search volume × CPC (normalised) | `KeywordProvider` | Falls back to 0 (no boost) if provider unavailable |
 | **Market** | Comparable sales median + recency-weighted average | `CompsProvider` | Falls back to 0; strong signal when available but capped |
 | **Expiry** | Age decile + backlinks log-scaled + Wayback age | Closeout CSV import | Only fires for expired/closeout domains |

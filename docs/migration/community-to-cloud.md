@@ -67,7 +67,8 @@ Exit code 1 lists per-table mismatches.
    (relevant if the community DB predates multi-tenancy):
    ```sql
    UPDATE candidates SET tenant_id = '<your-cloud-tenant-id>';
-   -- repeat for every table with a tenant_id column (see 0047)
+   -- repeat for every table with a tenant_id column (see 0029, which added
+-- tenant_id, and 0047, which forces RLS back on for the table owner)
    ```
 5. Smoke-test: run one pipeline run, open the dashboard, check the
    scheduler/backup jobs in the admin panel.

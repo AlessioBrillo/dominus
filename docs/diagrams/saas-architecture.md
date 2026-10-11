@@ -1,4 +1,4 @@
-# SaaS Architecture — DOMINUS Cloud
+﻿# SaaS Architecture — DOMINUS Cloud
 
 ```mermaid
 flowchart TB
@@ -14,7 +14,7 @@ flowchart TB
 
         subgraph App[Application Layer]
             AUTH[Auth Middleware<br/>JWT validation, tenant resolution]
-            API[REST API<br/>Express 5, 18 route modules]
+            API[REST API<br/>Express 5, 29 route modules]
             WORKER[Job Worker<br/>Async pipeline execution]
             SCHED[Scheduler<br/>Cron jobs, maintenance]
         end

@@ -1,9 +1,9 @@
-# Async Job Execution
+﻿# Async Job Execution
 
 ```mermaid
 flowchart TB
     subgraph Caller[Job Enqueue Callers]
-        CLI["CLI Commands<br/>dominus run --async<br/>dominus runs wait <id>"]
+        CLI["CLI Commands<br/>dominus run --sync<br/>dominus run --wait"]
         API["REST API<br/>POST /api/v1/runs<br/>POST /api/v1/portfolio/rescore"]
         SCHED[Scheduler<br/>Cron: backup, prune,<br/>watchlist, renewal check]
     end

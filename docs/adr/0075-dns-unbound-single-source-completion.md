@@ -5,6 +5,8 @@ date: 2026-09-24
 decision-makers: [Principal Software Engineer]
 ---
 
+# ADR-0075: DNS: UnboundResolver as Single Source of Truth (ADR-0072 Completion)
+
 ## Context
 
 ADR-0072 established UnboundResolver as the single DNS source of truth, but the implementation retained a dual-resolver architecture:

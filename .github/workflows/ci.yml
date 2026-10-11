@@ -434,6 +434,21 @@ jobs:
       - name: Check every image reference is pinned
         run: npm run check:image-pins
 
+  doc-drift:
+    name: Documentation drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Documentation rot is invisible in code review: every stale count,
+      # removed provider class and superseded topology below was accurate
+      # when written. This job derives the truth from the source tree and
+      # fails when the documents disagree with it.
+      - name: Check documentation against the source tree
+        run: npm run check:doc-drift
+
   npm-package:
     name: npm package completeness
     runs-on: ubuntu-latest

@@ -11,7 +11,7 @@ flowchart TB
     subgraph Pipeline[5-Stage Pipeline]
         direction TB
         S1["1. Candidate Generation<br/>Generate domain candidates<br/>from keyword combos / CSVs"]
-        S2["2. DNS Pre-filter<br/>Bulk availability check<br/>via Node.js dns module"]
+        S2["2. DNS Pre-filter<br/>Bulk availability check<br/>via validating resolver"]
         S3["3. RDAP Confirmation<br/>Precise availability +<br/>premium detection"]
         S4["4. Scoring Engine<br/>Heuristic valuator with<br/>4 signals + confidence"]
         S5["5. Trademark Gate<br/>Mandatory USPTO + EUIPO<br/>check (non-negotiable)"]
@@ -54,7 +54,7 @@ flowchart TB
 | Stage | Provider | Key Logic |
 |-------|----------|-----------|
 | 1. Candidate Generation | — | Keyword combos, brandable patterns, closeout CSV parser |
-| 2. DNS Pre-filter | `NodeDnsProvider` | Resolves A/AAAA records; registered = dropped |
+| 2. DNS Pre-filter | `UnboundResolver` (+ `NodeDnsFallback`) | Validating recursive resolver; Node.js DNS is the fallback for non-Available verdicts only |
 | 3. RDAP Confirmation | `PublicRdapProvider` + `FailoverRdapProvider` | RDAP lookup → available + not premium |
 | 4. Scoring Engine | `ManualKeywordProvider`, `ManualCompsProvider` | 4 signals → weighted aggregate → expected value |
-| 5. Trademark Gate | `UsptoProvider` + `EuipoProvider` | Fuzzy token matching + exact match; any hit = blocked |
+| 5. Trademark Gate | `UsptoCasesProvider` + `EuipoProvider` | Fuzzy token matching + exact match; any hit = blocked. A source that cannot fully enumerate its register yields Unverified, never Clear |

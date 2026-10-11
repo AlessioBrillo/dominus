@@ -1,4 +1,4 @@
-# Architecture Diagrams
+﻿# Architecture Diagrams
 
 This directory contains Mermaid-format architecture diagrams for DOMINUS.
 
@@ -12,7 +12,7 @@ This directory contains Mermaid-format architecture diagrams for DOMINUS.
 | Job Execution | [job-execution.md](job-execution.md) | Async job queue, worker lifecycle, handler dispatch, graceful shutdown |
 | SaaS Architecture | [saas-architecture.md](saas-architecture.md) | DOMINUS Cloud multi-tenant deployment, RLS + PostgreSQL |
 | Module Dependencies | [module-dependency.md](module-dependency.md) | High-level module graph for `src/` |
-| Deployment | [deployment.md](deployment.md) | Docker build, K8s deployment, local development |
+| Deployment | [deployment.md](deployment.md) | Docker build, Docker Compose (community + Cloud), Terraform |
 
 ## Rendering
 

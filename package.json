@@ -51,9 +51,9 @@
     "release:minor": "standard-version --release-as minor",
     "release:major": "standard-version --release-as major",
     "release:dry": "standard-version --dry-run",
-    "prepush": "npm run typecheck && npm run lint && npm test && npm run check:image-pins && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:migration-compat && npm run db:sync:check && npm run check:pack && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
-    "prepush:local": "npm run typecheck && npm run lint && npm test && npm run check:image-pins && npm run check:sql-portability && npm run check:migration-compat && npm run check:pack && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
-    "ci:backend": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm test -- --coverage",
+    "prepush": "npm run typecheck && npm run lint && npm test && npm run check:image-pins && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:migration-compat && npm run db:sync:check && npm run check:pack && npm run check:doc-drift && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
+    "prepush:local": "npm run typecheck && npm run lint && npm test && npm run check:image-pins && npm run check:sql-portability && npm run check:migration-compat && npm run check:pack && npm run check:doc-drift && cd frontend && npm run typecheck && npm run lint && npm test && cd ..",
+    "ci:backend": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm test -- --coverage",
     "ci:frontend": "cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
     "ci:local": "npm run typecheck && npm run build && npm run db:sync:check && npm run check:migration-compat && npm test",
     "ci:local:frontend": "cd frontend && npm run typecheck && npm run test && npm run build",
@@ -69,6 +69,7 @@
     "check:migration-compat:test": "node scripts/check-migration-compat.mjs --test",
     "migration:manifest": "node dist/db/migration-manifest-cli.js --list",
     "check:pack": "node scripts/check-pack.mjs",
+    "check:doc-drift": "node scripts/check-doc-drift.mjs",
     "prepare": "husky"
   },
   "lint-staged": {

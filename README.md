@@ -293,7 +293,12 @@ Before recommending any buy, DOMINUS checks the candidate against USPTO and EUIP
 Yes. Import closeout CSVs of expired domains and DOMINUS carries age, backlinks, and Wayback history into the expiry signal, then runs the same DNS/RDAP availability verification and trademark gate.
 
 **How does DOMINUS check if a domain is available?**
-A two-stage gate: a fast DNS pre-filter (bulk, DoH/DoT with 2-of-3 resolver consensus) followed by authoritative RDAP confirmation with opt-in second-opinion consensus. Verdicts are fail-closed — a disagreement downgrades to "unknown" rather than trusting a single resolver.
+A two-stage gate: a fast DNS pre-filter against a validating recursive
+resolver (Unbound with DNSSEC validation, running as a Docker sidecar),
+followed by authoritative RDAP confirmation with an opt-in second-opinion
+check. Verdicts are fail-closed — without a validating resolver the DNS
+stage degrades and never reports a domain as available, and a disagreement
+downgrades the verdict to "unknown" rather than trusting a single source.
 
 **How is DOMINUS different from Estibot, GoDaddy Appraisal, or Sedo?**
 Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
