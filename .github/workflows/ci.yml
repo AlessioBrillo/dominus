@@ -239,6 +239,18 @@ jobs:
             exit 1
           }
 
+          # 0. The documented quick-start must survive a Docker host whose
+          #    bridge pool already occupies the block this overlay used to
+          #    live in. A hardcoded subnet aborts `up -d` with "Pool
+          #    overlaps with other one on this address space" before any
+          #    container starts. 172.21.0.0/16 is the exact range that
+          #    collided on stock Docker Desktop hosts and broke the README
+          #    quick-start; claiming it here makes that regression
+          #    impossible to reintroduce.
+          docker network create --driver bridge \
+            --subnet 172.21.0.0/16 dominus-verify-pool >/dev/null
+          trap 'docker network rm dominus-verify-pool >/dev/null 2>&1 || true' EXIT
+
           # 3. The API must boot and answer /api/health (unauthenticated).
           #    Use docker-compose with unbound overlay to start Unbound + API together.
           #    This validates the full production stack (ADR-0075: Unbound mandatory).
@@ -284,6 +296,10 @@ jobs:
     timeout-minutes: 10
     env:
       POSTGRES_PASSWORD: ci-test-password
+      # API_KEYS is a boot requirement of the base compose file: without it
+      # the api container crash-loops through the Unbound readiness wait on
+      # every restart. Provide one so topology validation can interpolate.
+      API_KEYS: ci=0123456789abcdef
       # GRAFANA_ADMIN_PASSWORD is required by the prod overlay (no
       # admin/admin defaults); provide a placeholder so topology
       # validation can interpolate the merged config.
@@ -314,6 +330,44 @@ jobs:
             echo "FATAL: postgres/redis must not be in the base compose file"
             exit 1
           fi
+
+      # The API_KEYS guard must abort `up -d` rather than let the api
+      # container crash-loop through the ~30s Unbound readiness wait on
+      # every restart (a silent "it never becomes healthy" symptom).
+      - name: Base compose fails fast without API_KEYS
+        run: |
+          set -euo pipefail
+          if env -u API_KEYS docker compose -f docker-compose.yml config \
+              --quiet >/dev/null 2>&1; then
+            echo "FATAL: base compose started without API_KEYS —" \
+                 "the api container would crash-loop instead of failing fast"
+            exit 1
+          fi
+
+      # A hardcoded resolver subnet collides with whatever bridges already
+      # exist on the Docker host, and `up -d` then aborts with "Pool
+      # overlaps with other one on this address space" before any container
+      # starts — exactly what the README quick-start hit on stock Docker
+      # Desktop hosts. The subnet must therefore be an interpolation, not a
+      # literal. The docker-smoke job proves the override end-to-end by
+      # booting the overlay with the default bridge block already claimed.
+      - name: Unbound subnet is overridable, not hardcoded
+        run: |
+          set -euo pipefail
+          subnet_line=$(grep -E 'subnet:\s*\$\{' docker-compose.unbound.yml || true)
+          if [ -z "$subnet_line" ]; then
+            echo "FATAL: docker-compose.unbound.yml hardcodes a subnet." \
+                 "Wrap it in \${DOMINUS_UNBOUND_SUBNET:-...} so operators" \
+                 "can move it off a colliding host network."
+            exit 1
+          fi
+          hardcoded=$(grep -E 'subnet:\s*[0-9]+\.' docker-compose.unbound.yml || true)
+          if [ -n "$hardcoded" ]; then
+            echo "FATAL: found a literal subnet alongside the override:"
+            echo "$hardcoded"
+            exit 1
+          fi
+          echo "OK: $subnet_line"
 
       # The merged production profile must start the full Cloud stack — this
       # guards the regression where the documented prod command silently ran

@@ -49,9 +49,12 @@ services:
   unbound:
     image: mvance/unbound@sha256:76906da36d1806f3387338f15dcf8b357c51ce6897fb6450d6ce010460927e90
     restart: always
+    # No static ipv4_address on unbound-net: nothing addresses this service
+    # by IP (the app connects to `unbound:5300` by name), and a hardcoded
+    # address silently falls outside the range when DOMINUS_UNBOUND_SUBNET
+    # is changed, which fails `up -d` with an address-out-of-range error.
     networks:
-      unbound-net:
-        ipv4_address: 172.21.0.10
+      - unbound-net
     deploy:
       resources:
         limits:
@@ -134,4 +137,16 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.21.0.0/24
+        # Must not overlap any network already on this Docker host: a
+        # collision aborts `up -d` with "invalid pool request: Pool
+        # overlaps with other one on this address space", before any
+        # container starts.
+        #
+        # 10.89.0.0/24 is deliberately OUTSIDE Docker's default address
+        # pool (172.16.0.0/12). The previous literal 172.21.0.0/24 lived
+        # inside that pool, so any other user-defined network on the host
+        # could collide with it — which is exactly what broke the README
+        # quick-start on stock Docker Desktop. When it still collides (for
+        # example with a host LAN on the same range), override the whole
+        # thing with DOMINUS_UNBOUND_SUBNET.
+        - subnet: ${DOMINUS_UNBOUND_SUBNET:-10.89.0.0/24}

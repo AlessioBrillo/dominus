@@ -1,4 +1,4 @@
-# DOMINUS — Open-Source Domain Valuation & Domain Portfolio Management Software
+﻿# DOMINUS — Open-Source Domain Valuation & Domain Portfolio Management Software
 
 > Open-source decision-support engine for domain valuation, buying, reselling, and managing DNS domain portfolios — available as a self-hosted community edition or managed cloud service.
 
@@ -9,7 +9,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
-[![Open Source](https://img.shields.io/badge/open-source-AGPLv3-333333)](#)
 
 DOMINUS is an **open-source domain investment tool** that helps you make better domain purchase, portfolio, and pricing decisions than the market average. It combines **domain valuation** (heuristic appraisal of market value, buy ceiling, and list price), **expired domain analysis** (age, backlinks, Wayback history), and **domain portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
 
@@ -91,9 +90,11 @@ npm install
 npm run build
 
 # Score some candidates with sample data (no config needed)
+# --sync is required: runs are enqueued asynchronously by default, and
+# without it the CLI only prints a job id.
 KEYWORD_DATA_PATH=examples/keywords-sample.json \
 COMPS_DATA_PATH=examples/comps-sample.csv \
-node dist/cli.js run --closeout-csv examples/closeout-sample.csv
+node dist/cli.js run --sync --closeout-csv examples/closeout-sample.csv
 ```
 
 Or with Docker Compose (recommended — includes the validating Unbound resolver
@@ -109,13 +110,23 @@ docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
 
 Then open <http://localhost:3000> and sign in with the key.
 
+If the resolver subnet collides with a network already on your Docker host,
+`up -d` aborts with `Pool overlaps with other one on this address space`.
+Move it to a free range and retry:
+
+```bash
+DOMINUS_UNBOUND_SUBNET=10.99.0.0/24 \
+  docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+```
+
 A bare `docker run` also works, but without an Unbound resolver the first start
 waits ~30 s for it and DNS runs in degraded mode (it never reports a domain as
 available):
 
 ```bash
 docker build -t dominus .
-docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
+API_KEYS="admin=$(openssl rand -hex 32)" \
+  docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 ```
 
 ## Current Stack
@@ -139,7 +150,7 @@ docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 | **5-stage pipeline**  | ✓ Full                                | ✓ Full                            |
 | **Trademark gate**    | ✓ Full                                | ✓ Full                            |
 | **Portfolio tracker** | ✓ Full                                | ✓ Full                            |
-| **CLI (18 commands)** | ✓ Full                                | ✓ Full                            |
+| **CLI (20 commands)** | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
@@ -184,11 +195,11 @@ DOMINUS scales from a personal CLI tool to a containerized service managing thou
 
 | Scenario                    | Stack                            | Command                                                                 |
 | --------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
-| **Personal** (1-50 domains) | CLI only                         | `npx dominus run --closeout-csv ./candidates.csv`                       |
-| **Growing** (50-500)        | Docker (SQLite)                  | `docker compose up -d`                                                  |
-| **Large** (500+)            | Docker + PostgreSQL              | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` |
+| **Personal** (1-50 domains) | CLI only                         | `npx dominus run --sync --closeout-csv ./candidates.csv`                |
+| **Growing** (50-500)        | Docker (SQLite) + Unbound        | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d` |
+| **Large** (500+)            | Docker + PostgreSQL + Unbound    | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml -f docker-compose.prod.yml up -d` |
 | **Enterprise** (5000+)      | Terraform (Hetzner) + PostgreSQL | see `deploy/terraform/`                                                 |
-| **Managed**                 | DOMINUS Cloud                    | Sign up at [dominus.cloud](#)                                           |
+| **Managed**                 | DOMINUS Cloud                    | Managed PostgreSQL, automated PITR backups, team seats — availability on request |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -229,18 +240,24 @@ Commands:
   backtest            Run backtest + suggest weight adjustments
   runs                List/inspect pipeline runs
   candidates          List pipeline candidates
+  maintenance         Prune cache, backup, DB maintenance
   providers           Show provider status
-  scheduler           Run scheduled jobs manually
-  watchlist           Monitor domains for availability
-  maintenance         Prune cache, DB maintenance
   health              System health check
-  buy                 Record a purchase
-  registrars          Configure registrar providers
+  listing             Manage marketplace listings
+
+Commands registered only when their dependency is enabled:
+  scheduler           Run scheduled jobs manually   (SCHEDULER_ENABLED=true)
+  watchlist           Monitor domains for availability
+  buy, registrars     Purchases and registrar config (an active RegistrarProvider)
   report              Generate portfolio reports
   analytics           Prediction accuracy and P&L analytics
   bid                 Manage bids
-  listing             Manage marketplace listings
+  funnel              Inspect the acquisition funnel
+  keys                Manage scoped API keys       (DB-backed auth)
 ```
+
+Run `dominus --help` for the commands available in your installation — the
+list above is a subset of what the binary registers.
 
 ## Documentation
 

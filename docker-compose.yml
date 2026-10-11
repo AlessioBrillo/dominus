@@ -34,7 +34,12 @@ services:
       - "127.0.0.1:${PORT:-3000}:3000"
     volumes:
       - ./data:/app/data
-      - ./data/weights-override.json:/app/data/weights-override.json:ro
+      # Optional scoring-weights override. The source path ships in
+      # examples/, so a fresh clone has a readable file to edit. Mounting a
+      # path that does not exist (e.g. ./data/weights-override.json before
+      # the operator creates it) makes Docker silently create an empty
+      # DIRECTORY at that path, which the app then cannot read as a file.
+      - ./examples/weights-override.json:/app/data/weights-override.json:ro
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_PATH=/app/data/dominus.db
@@ -58,9 +63,14 @@ services:
       - TRUST_PROXY_DEPTH=${TRUST_PROXY_DEPTH:-0}
       - FRONTEND_DIST_PATH=./dist/web
       # Boot-required: HOST below is 0.0.0.0, so the API refuses to start
-      # without authentication (fail-closed guard in src/index.ts). Generate
-      # one with `openssl rand -hex 32` and export API_KEYS before `up -d`.
-      - API_KEYS=${API_KEYS:-}
+      # without authentication (fail-closed guard in src/index.ts). Without
+      # this guard the api container crash-loops through the ~30 s Unbound
+      # readiness wait on every restart, which looks like a hang to an
+      # operator. Docker Compose resolves this :? guard and aborts `up -d`
+      # with the fix in the message. The message intentionally contains no
+      # "=" and no shell substitution: Compose parses list-form environment
+      # entries by splitting on the first "=", so either would corrupt it.
+      - API_KEYS=${API_KEYS:?API_KEYS is required. Generate one with openssl rand -hex 32, then export it as admin=<key>}
       - DROP_SCORE_THRESHOLD=${DROP_SCORE_THRESHOLD:-25}
       - DROP_RENEWAL_HORIZON_DAYS=${DROP_RENEWAL_HORIZON_DAYS:-60}
       - WORKER_ENABLED=false
