@@ -97,7 +97,11 @@ if (existsSync(frontendDist)) {
     failures.push(`stage SPA into dist/web: ${String(err)}`);
   }
 } else {
-  console.warn(
+  // Written to stdout, not console.warn: a caller that captures the
+  // script's stdout needs to see this. console.warn goes to stderr, which
+  // Node's execFileSync only surfaces when the process fails — and this is
+  // explicitly not a failure (check:pack asserts the result later).
+  console.log(
     'finalize-dist: frontend/dist not found — the API will have no SPA to serve. ' +
       'Run `npm run build:frontend` before `npm run build` for a complete artifact.',
   );
@@ -126,13 +130,47 @@ function findTestDirs(dir) {
   return out;
 }
 
+/** Every file under `dir`, recursively. */
+function findAllFiles(dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...findAllFiles(full));
+    else out.push(full);
+  }
+  return out;
+}
+
 let prunedFiles = 0;
-for (const testDir of findTestDirs(distDir)) {
+const prunedTestDirs = findTestDirs(distDir);
+for (const testDir of prunedTestDirs) {
   try {
     prunedFiles += countFiles(testDir);
     rmSync(testDir, { recursive: true, force: true });
   } catch (err) {
     failures.push(`prune ${relative(root, testDir).split(sep).join('/')}: ${String(err)}`);
+  }
+}
+
+// Two test files sit next to the module they test instead of in a __tests__
+// directory, so the directory sweep cannot reach them. Match on the
+// `.test.js` suffix anywhere in the tree: a compiled test is never a runtime
+// artifact, whatever directory convention it followed in src/.
+for (const file of findAllFiles(distDir)) {
+  if (!file.endsWith('.test.js')) continue;
+  let underPruned = false;
+  for (const d of prunedTestDirs) {
+    if (file.startsWith(`${d}${sep}`)) {
+      underPruned = true;
+      break;
+    }
+  }
+  if (underPruned) continue;
+  try {
+    rmSync(file, { force: true });
+    prunedFiles += 1;
+  } catch (err) {
+    failures.push(`prune ${relative(root, file).split(sep).join('/')}: ${String(err)}`);
   }
 }
 

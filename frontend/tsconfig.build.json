@@ -1,0 +1,21 @@
+{
+  // Typecheck configuration for the production build (`npm run build`).
+  //
+  // It deliberately excludes the test files, which import @testing-library
+  // and other dev-only dependencies. Running `tsc` against the default
+  // tsconfig.json inside a production build makes the build fail on any
+  // machine that has installed production dependencies but not the test
+  // tooling — which is exactly the `npm run prepublishOnly` path, and the
+  // reason a fresh clone could not build a publishable package.
+  //
+  // `npm run typecheck` still uses tsconfig.json and therefore still covers
+  // every test file: the split removes a build-time dependency, it does not
+  // reduce what is checked.
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test-setup.ts",
+    "src/**/__mocks__/**"
+  ]
+}

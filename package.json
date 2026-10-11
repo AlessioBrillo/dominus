@@ -30,7 +30,7 @@
     "build:frontend": "cd frontend && npm run build",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "prepublishOnly": "npm run build:frontend && npm run build",
+    "prepublishOnly": "npm --prefix frontend ci && npm run build:frontend && npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

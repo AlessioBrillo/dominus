@@ -63,13 +63,47 @@ const FORBIDDEN_PATTERNS = [
   { re: /^frontend\/package\.json$/, label: 'nested frontend package.json' },
 ];
 
+/**
+ * `npm pack --dry-run --json` writes the JSON document to stdout, but npm
+ * may also emit human-readable notices there (for example ".git can't be
+ * packed" on a shallow clone). Parsing the whole stream then fails with a
+ * SyntaxError, which would make this gate report a broken tarball when the
+ * tarball is fine. Extract the outermost JSON array/object instead by
+ * bracket-matching from its first opening character.
+ */
+function extractJson(raw) {
+  const start = raw.search(/[[{]/);
+  if (start === -1) throw new Error('no JSON document in npm pack output');
+  const open = raw[start];
+  const close = open === '[' ? ']' : '}';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === open) depth += 1;
+    else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(raw.slice(start, i + 1));
+    }
+  }
+  throw new Error('unterminated JSON document in npm pack output');
+}
+
 try {
   const raw = execFileSync(process.execPath, [resolveNpmCli(), 'pack', '--dry-run', '--json'], {
     cwd: root,
     encoding: 'utf-8',
     maxBuffer: 32 * 1024 * 1024,
   });
-  const parsed = JSON.parse(raw);
+  const parsed = extractJson(raw);
   const pack = Array.isArray(parsed) ? parsed[0] : parsed;
   const files = new Set(pack.files.map((f) => f.path));
 
