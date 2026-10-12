@@ -115,7 +115,7 @@ your Unbound instance(s).
 * **auth:** implement OidcProvider interface properly ([03b1726](https://github.com/AlessioBrillo/dominus/commit/03b17265730b5e42d0a99286adf550c9a34903c9))
 * **build:** ship a complete npm artifact and a single SPA layout ([919af28](https://github.com/AlessioBrillo/dominus/commit/919af28602d3f93153377b9a013b8cf1f2aecd75))
 * **ci:** boot CI and the default compose stack without Unbound ([#424](https://github.com/AlessioBrillo/dominus/issues/424)) ([eac810a](https://github.com/AlessioBrillo/dominus/commit/eac810a99039b71d2d877f9cd21510f1db193941)), closes [#417](https://github.com/AlessioBrillo/dominus/issues/417)
-* **cli:** report the real version in the published package ([cc9e8b6](https://github.com/AlessioBrillo/dominus/commit/cc9e8b66417120f92ba5365fa409212e37513c3d))
+* **cli:** report the real version in the published package ([02a3e39](https://github.com/AlessioBrillo/dominus/commit/02a3e39ebdff447cf3f74da5058ca661cacba04a))
 * **config:** DNS fallback, quorum, RDAP probe fail-open for community edition (ADR-0076/0077/0078) ([#448](https://github.com/AlessioBrillo/dominus/issues/448)) ([1e00cd2](https://github.com/AlessioBrillo/dominus/commit/1e00cd2814fad3506b114f0f32c634613008d929))
 * **config:** enforce Redis in cloud mode with explicit split-brain warning ([#393](https://github.com/AlessioBrillo/dominus/issues/393)) ([dd92871](https://github.com/AlessioBrillo/dominus/commit/dd9287179c97bc4ba89c30f5b77e698a2d6300b1))
 * **config:** sync DNS_CONSENSUS_STRATEGY enum with supported resolver strategies ([ff0b43b](https://github.com/AlessioBrillo/dominus/commit/ff0b43b116d1369666e46a2cd5d77103d3593455))
@@ -168,7 +168,21 @@ your Unbound instance(s).
 * use file flag to skip RLS migration in CI ([e76930e](https://github.com/AlessioBrillo/dominus/commit/e76930e018daab612ad4b738a3c108318663b471))
 
 
+### Performance Improvements
+
+* **frontend:** split the bundle instead of shipping one 1 MB chunk ([135495a](https://github.com/AlessioBrillo/dominus/commit/135495ad5e54fcc9925eac11894e6130eeedb59b))
+
+
 * **dns:** remove NodeDnsProvider per ADR-0075 single source of truth ([ca8b6d9](https://github.com/AlessioBrillo/dominus/commit/ca8b6d916eb848e203a7fbc9108e582892153546))
+
+
+### Documentation
+
+* add a documentation drift gate and correct the drifted documents ([0b28921](https://github.com/AlessioBrillo/dominus/commit/0b2892104f0d5fd97d6013661660332ee8c76d8c))
+* add enterprise-tier.md status report ([#460](https://github.com/AlessioBrillo/dominus/issues/460)) ([88ca00a](https://github.com/AlessioBrillo/dominus/commit/88ca00a89ef0633efeb29352d0bc6e2c6b683143))
+* **adr:** add ADR-0080 db connection topology ([#450](https://github.com/AlessioBrillo/dominus/issues/450)) ([8c695b1](https://github.com/AlessioBrillo/dominus/commit/8c695b1c60fbb12e22938b2544c1d75b953c9f37))
+* **adr:** ADR-0068 DNS tertiary dual-redundancy for SPOF elimination ([19ab596](https://github.com/AlessioBrillo/dominus/commit/19ab596aaea349cd9f5370b741dab21642d34c8b))
+* **governance:** finish the launch-facing commitments ([bb5fec1](https://github.com/AlessioBrillo/dominus/commit/bb5fec1e2ddc3e749a296bd72039322656f620d2))
 
 ## [1.0.0](https://github.com/AlessioBrillo/dominus/compare/v0.11.0...v1.0.0) (2026-08-17)
 
