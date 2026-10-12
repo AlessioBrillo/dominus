@@ -103,10 +103,16 @@ createRoot(document.getElementById('root')!).render(
           <TooltipProvider>
             <AuthProvider>
               <ErrorBoundary>
-                <Routes>
-                  <Route element={<Layout />}>
-                    <Route index element={<DashboardPage />} />
-                    <Suspense fallback={<RouteFallback />}>
+                {/* Suspense wraps <Routes>, it cannot be a child of it: React
+                    Router only accepts <Route>/<React.Fragment> children, and a
+                    <Suspense> inside <Routes> throws
+                    "[undefined] is not a <Route> component" on first render.
+                    Code splitting still works — each lazy page suspends and
+                    shows RouteFallback until its chunk arrives. */}
+                <Suspense fallback={<RouteFallback />}>
+                  <Routes>
+                    <Route element={<Layout />}>
+                      <Route index element={<DashboardPage />} />
                       <Route path="onboarding" element={<OnboardingPage />} />
                       <Route path="candidates" element={<CandidatesPage />} />
                       <Route path="runs" element={<RunsPage />} />
@@ -128,12 +134,10 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="admin" element={<AdminPage />} />
                       <Route path="settings" element={<SettingsPage />} />
                       <Route path="*" element={<NotFoundPage />} />
-                    </Suspense>
-                  </Route>
-                  <Suspense fallback={<RouteFallback />}>
+                    </Route>
                     <Route path="signup" element={<SignupPage />} />
-                  </Suspense>
-                </Routes>
+                  </Routes>
+                </Suspense>
               </ErrorBoundary>
               <Toaster
                 position="bottom-right"

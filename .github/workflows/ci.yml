@@ -473,10 +473,13 @@ jobs:
 
       - run: npm ci
 
+      # Run the real publish lifecycle, not a reconstruction of it. This job
+      # exists to catch a broken npm artifact, so it must exercise exactly
+      # what `npm publish` runs: prepublishOnly installs the frontend's own
+      # dependencies (a root-only clone does not have them, and without them
+      # tsc cannot resolve @types/react) and then builds backend + SPA.
       - name: Build backend + SPA
-        run: |
-          npm run build:frontend
-          npm run build
+        run: npm run prepublishOnly
 
       # The docker-smoke job builds the Docker image, which copies the SPA
       # from source — so it can never catch a broken npm artifact. This job
@@ -638,8 +641,35 @@ jobs:
 
       - run: npm ci
 
-      - name: Build backend
+      # Order matters: the frontend must be built BEFORE the backend.
+      # `finalize-dist.mjs` (run by `npm run build`) copies frontend/dist into
+      # dist/web, which is where playwright.config.ts points
+      # FRONTEND_DIST_PATH. Building the backend first leaves dist/web absent,
+      # the API then boots in API-only mode, and every SPA test fails with
+      # "Cannot GET /" — 37 confusing timeouts instead of one clear error.
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
         run: npm run build
+        working-directory: frontend
+
+      - name: Build backend (stages the SPA into dist/web)
+        run: npm run build
+
+      # Fast-fail on the failure mode above. Without this the mistake costs 15
+      # minutes and 37 red tests whose messages say nothing about the SPA.
+      - name: Verify the SPA was staged
+        run: |
+          set -euo pipefail
+          test -f dist/web/index.html || {
+            echo "FATAL: dist/web/index.html is missing."
+            echo "The backend build stages frontend/dist into dist/web; the"
+            echo "frontend must be built before it. See the Build frontend step."
+            exit 1
+          }
+          echo "SPA staged: $(ls dist/web)"
 
       - name: Start services with Unbound (ADR-0075)
         run: |
@@ -661,14 +691,6 @@ jobs:
             fi
             sleep 2
           done
-
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Build frontend
-        run: npm run build
-        working-directory: frontend
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
