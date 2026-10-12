@@ -615,4 +615,92 @@ describe('EuipoProvider', () => {
     const results = await provider.search('test');
     expect(results).toEqual([]);
   });
+
+  // ── Pagination and fail-closed truncation (ADR-0014 follow-up) ────
+
+  /** Builds one page of `count` registered marks, with the register's own total. */
+  function pageOf(count: number, total: number, page: number): Record<string, unknown> {
+    return {
+      content: Array.from({ length: count }, (_, i) => ({
+        trademarkName: `MARK${page}-${i}`,
+        applicantName: 'Owner',
+        status: 'REGISTERED',
+        applicationNumber: `0${page}${i}`,
+      })),
+      totalElements: total,
+      number: page,
+      size: 2,
+    };
+  }
+
+  it('walks every page until a short page ends the result set', async () => {
+    // 5 matching records, page size 2 → pages of 2, 2, 1.
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => tokenResponse });
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(2, 5, 0) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(2, 5, 1) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(1, 5, 2) });
+
+    const provider = new EuipoProvider({ ...config, pageSize: 2 });
+    const results = await provider.search('mark');
+
+    expect(results).toHaveLength(5);
+    // 1 token request + 3 search pages; the loop stopped on the short page
+    // rather than issuing a fourth request to confirm it.
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    const requestedPages = mockFetch.mock.calls
+      .slice(1)
+      .map((call: unknown[]) => new URL(call[0] as string).searchParams.get('page'));
+    expect(requestedPages).toEqual(['0', '1', '2']);
+  });
+
+  it('throws EUIPO_RESULT_TRUNCATED when the register has records it cannot fetch', async () => {
+    // 10 matching records, page size 2, at most 3 pages → only 6 are fetched.
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => tokenResponse });
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(2, 10, 0) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(2, 10, 1) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(2, 10, 2) });
+
+    const provider = new EuipoProvider({ ...config, pageSize: 2, maxPages: 3 });
+    const error = await provider.search('mark').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as ProviderError).code).toBe('EUIPO_RESULT_TRUNCATED');
+    // The error must carry the numbers an operator needs to act on it.
+    expect((error as ProviderError).message).toMatch(/fetched 6 of 10/);
+    expect((error as ProviderError).context).toMatchObject({
+      recordsFetched: 6,
+      declaredTotal: 10,
+      pageSize: 2,
+      maxPages: 3,
+    });
+  });
+
+  it('does not truncate when the register omits its total (legacy envelope)', async () => {
+    // The legacy shape reports no totalElements/total, so there is no
+    // evidence that unfetched pages remain and no error is warranted.
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => tokenResponse });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => ({ trademarks: [{ trademarkName: 'LEGACY', status: 'REGISTERED' }] }),
+    });
+
+    const provider = new EuipoProvider({ ...config, pageSize: 2 });
+    const results = await provider.search('legacy');
+    expect(results).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops after one page when the first page is already short', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => tokenResponse });
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: () => pageOf(1, 1, 0) });
+
+    const provider = new EuipoProvider({ ...config, pageSize: 50 });
+    const results = await provider.search('unique');
+
+    expect(results).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
 });

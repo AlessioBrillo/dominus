@@ -107,17 +107,34 @@ describe('check-image-pins guard', () => {
     expect(result.stdout).not.toContain('FAIL');
   });
 
-  it('rejects a :latest image tag in a Kubernetes manifest', () => {
+  // Kubernetes manifests were removed in v1.1.0 (ADR-0082). The Terraform
+  // cloud-init templates are the remaining files rendered outside a local
+  // build, and they follow the same digest-pinning policy — so they carry
+  // the coverage the Kubernetes cases used to.
+  it('rejects a floating external tag in a Terraform cloud-init template', () => {
     const dir = fixtureTree({
-      'deploy/deployment.yaml': '      image: ghcr.io/alessiobrillo/dominus:latest\n',
+      'deploy/terraform/modules/app-node/files/cloud-init.yaml.tftpl':
+        '      image: postgres:16-alpine\n',
     });
     const result = runGuardFail(dir);
-    expect(result.stderr).toContain('dominus:latest');
+    expect(result.stderr).toContain('postgres:16-alpine');
   });
 
-  it('accepts semver or sha- prefixed tags in Kubernetes manifests', () => {
+  it('accepts an environment-variable image ref in a Terraform cloud-init template', () => {
     const dir = fixtureTree({
-      'deploy/deployment.yaml': '      image: ghcr.io/alessiobrillo/dominus:v0.10.1\n',
+      'deploy/terraform/modules/app-node/files/cloud-init.yaml.tftpl':
+        'image: ${DOMINUS_IMAGE_TAG}\n',
+    });
+    const result = runGuard(dir);
+    expect(result.stdout).not.toContain('FAIL');
+  });
+
+  it('still ignores non-manifest yaml outside a build context', () => {
+    // A plain .yml in deploy/ is not a compose file, a Dockerfile, or a
+    // .tftpl, so the guard must not scan it. This is what the retired
+    // isKubernetes() predicate used to (wrongly) claim to cover.
+    const dir = fixtureTree({
+      'deploy/alertmanager.yml': 'receivers:\n  - name: dominus-webhook\n',
     });
     const result = runGuard(dir);
     expect(result.stdout).not.toContain('FAIL');

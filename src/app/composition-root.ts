@@ -389,6 +389,8 @@ function buildTrademarkProviderStack(
         clientSecret: config.EUIPO_CLIENT_SECRET,
         authUrl: config.EUIPO_AUTH_URL,
         apiUrl: config.EUIPO_API_URL,
+        pageSize: config.EUIPO_PAGE_SIZE,
+        maxPages: config.EUIPO_MAX_PAGES,
         rateLimiter: euipoRateLimiter,
       }),
       {},

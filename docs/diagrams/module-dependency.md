@@ -1,4 +1,4 @@
-# Module Dependencies
+﻿# Module Dependencies
 
 High-level dependency graph for the `src/` module structure. Arrows point from
 consumer to consumed module.
@@ -7,7 +7,7 @@ consumer to consumed module.
 flowchart LR
     subgraph Entry[Entry Points]
         INDEX["src/index.ts<br/>Express server bootstrap"]
-        CLI["src/cli/index.ts<br/>Commander 18 commands"]
+        CLI["src/cli/index.ts<br/>Commander 20 commands"]
     end
 
     subgraph App[Application Layer]
@@ -26,21 +26,21 @@ flowchart LR
 
     subgraph Jobs[Async Job System]
         JW["jobs/worker.ts<br/>Poll + dispatch"]
-        JH["jobs/handlers/<br/>8 handlers"]
+        JH["jobs/handlers/<br/>10 handlers"]
     end
 
     subgraph API[REST API]
-        API["api/router.ts<br/>Express Router"]
-        ROUTES["api/routes/<br/>18 route modules"]
+        API["api/index.ts<br/>Express Router"]
+        ROUTES["api/routes/<br/>29 route modules"]
         PUB["api/public-router.ts<br/>Public scoring pages<br/>SSR + OG tags"]
         VIEWS["api/views/<br/>SSR HTML templates"]
     end
 
     subgraph DB[Database Layer]
         DBI["db/provider/<br/>DatabaseProvider interface"]
-        SQLITE["db/adapter/sqlite-adapter.ts"]
-        PG["db/adapter/pg-adapter.ts"]
-        REPO["db/repositories/<br/>18 repositories"]
+        SQLITE["db/provider/sqlite-adapter.ts"]
+        PG["db/provider/postgres-adapter.ts"]
+        REPO["db/repositories/<br/>28 repositories"]
         MIG["db/migrations/<br/>versioned DDL"]
     end
 

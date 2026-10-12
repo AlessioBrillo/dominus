@@ -8,8 +8,9 @@
 
 - GitHub: [https://github.com/AlessioBrillo](https://github.com/AlessioBrillo)
 - Sponsors (commercial license inquiries): [https://github.com/sponsors/AlessioBrillo](https://github.com/sponsors/AlessioBrillo)
-- Private security / legal contact: GitHub Issues private report at
-  [https://github.com/AlessioBrillo/dominus/security](https://github.com/AlessioBrillo/dominus/security)
+- Private contact (security, legal, security-vendor coordination): GitHub private
+  vulnerability report at
+  [https://github.com/AlessioBrillo/dominus/security/advisories/new](https://github.com/AlessioBrillo/dominus/security/advisories/new)
 
 ## Maintainer Expectations
 

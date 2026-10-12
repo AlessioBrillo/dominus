@@ -5,6 +5,32 @@
 # application uses for job dead-letter notifications (NOTIFIER_WEBHOOK_URL),
 # so route it to the same endpoint if you want a single alert inbox.
 #
+# ── The example.com placeholder is a substitution anchor, not a default ──
+#
+# `https://example.com/your-webhook` is the needle the Terraform module
+# replaces at render time: the `alertmanager_webhook_url` variable's HCL
+# `replace()` in deploy/terraform/modules/app-node/main.tf swaps this exact
+# string for the operator's real URL, and .github/workflows/iac.yml asserts
+# the two stay in sync. Editing or removing this line without updating that
+# chain silently disables the substitution — and a deployed node whose
+# webhook still points at example.com alerts nowhere, which is worse than a
+# loud failure. `amtool check-config` passes either way; the alerting simply
+# never arrives.
+#
+# Do NOT treat this as a working default. example.com resolves and answers
+# 200 to any POST, so an operator who deploys without substituting gets a
+# stack that looks healthy and is deaf.
+#
+# How to set a real endpoint:
+#   Terraform (recommended)  — set `alertmanager_webhook_url` in
+#     deploy/terraform/terraform.tfvars. The module substitutes it.
+#   Plain docker-compose     — uncomment the block below and edit the URL by
+#     hand; compose does not substitute.
+#
+#   webhook_configs:
+#     - url: "https://hooks.slack.com/services/T00000/B00000/XXXXXXXXXXXXXXXX"
+#       send_resolved: true
+#
 # Example webhook payload: { "text": "..." } for a generic Slack/Telegram
 # bridge, or the format expected by your webhook receiver.
 
@@ -18,5 +44,7 @@ route:
 receivers:
   - name: dominus-webhook
     webhook_configs:
+      # Substitution anchor. Terraform replaces this exact URL; see the
+      # header above before touching it.
       - url: "https://example.com/your-webhook"
         send_resolved: true

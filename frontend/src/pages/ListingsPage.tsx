@@ -10,6 +10,7 @@ import {
   useAcceptOffer,
   useDeclineOffer,
 } from '@/hooks/useListings';
+import { getListing } from '@/api/listings';
 import type { Listing, ListingOffer } from '@/types/domain';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -120,7 +121,10 @@ export function ListingsPage() {
     setExpandedListing(listing);
     setLoadingOffers(true);
     try {
-      const { getListing } = await import('@/api/listings');
+      // Static import, not `import('@/api/listings')`: useListings already
+      // imports the whole module statically, so the dynamic form cannot move
+      // it into another chunk (INEFFECTIVE_DYNAMIC_IMPORT). The load this
+      // defers is the request, not the code.
       const data = await getListing(listing.id);
       setOffers(data.offers);
     } catch {

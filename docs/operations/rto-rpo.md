@@ -31,13 +31,22 @@ Retention defaults: base backups 14 days (`PG_BASE_RETENTION_DAYS`), WAL
 7 days (`WAL_RETENTION_DAYS`) — the archive always covers the newest base
 minus one run. Sizing rule: `WAL_RETENTION_DAYS <= PG_BASE_RETENTION_DAYS`.
 
+These four variables (`B2_BASE_REMOTE`, `B2_WAL_REMOTE`, `WAL_RETENTION_DAYS`,
+`PG_BASE_RETENTION_DAYS`) are read by the **database node's** backup
+shell scripts (`deploy/postgres/base-backup.sh`) and by its cloud-init
+(`deploy/terraform/modules/db-node/`), not by the DOMINUS application. They
+therefore belong in the db node's `backup.env` and are deliberately absent
+from the root `.env.example`, which documents application configuration only.
+
 ## 3. Recovery runbook (condensed)
 
 1. **Stop writes**: stop the app (`docker compose stop api worker scheduler`)
    to freeze the WAL at a known point.
 2. **Restore the base**: `bash deploy/postgres/restore-base.sh` — picks the
    newest completed base from the manifest (`pitr_health`), restores it, and
-   replays archived WAL up to the chosen stop point (`RECOVERY_TARGET`).
+   replays archived WAL up to the chosen stop point, passed as the third
+argument to `restore-base.sh <base-dir> <wal-archive-dir> [recovery_target_time]`.
+Omitting it replays every WAL segment still in the archive.
 3. **Verify**: `docker compose exec -T postgres psql -U dominus -d dominus -c
    'SELECT count(*) FROM schema_migrations;'` and spot-check a recent row.
 4. **Redeploy**: roll the release tag whose manifest covers the restored

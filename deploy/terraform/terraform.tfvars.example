@@ -7,7 +7,7 @@ domain            = "app.dominus.example"
 # Bump at every release: this tag is written into the app node's
 # DOMINUS_IMAGE_TAG. A stale tag rolls the node back onto an old image,
 # which the migration gate then refuses at boot (schema ahead of image).
-image_tag         = "v1.1.0"
+image_tag         = "v1.0.0"   # must name a RELEASED tag; bump per deploy
 
 # SSH ingress allowlist (both nodes). The default admits any source (keys
 # only + fail2ban); restrict to the operator's networks for production.
@@ -25,11 +25,12 @@ db_backup_password = "REPLACE_WITH_STRONG_BACKUP_PASSWORD"
 # App connection role password (RLS-scoped dominus_app, ADR-0038/0047).
 db_app_password   = "REPLACE_WITH_STRONG_APP_PASSWORD"
 
-# Alertmanager webhook URL (optional). Replaces the example.com placeholder
-# in the alertmanager.yml rendered onto the app node; keep the same endpoint
-# as NOTIFIER_WEBHOOK_URL below for a single alert inbox. Leave empty to
-# keep the placeholder.
-# alertmanager_webhook_url = "https://hooks.example/dominus"
+# Alertmanager webhook URL. Replaces the example.com placeholder in the
+# alertmanager.yml rendered onto the app node. SET THIS: example.com resolves
+# and answers 200 to any POST, so leaving it unset deploys a stack that looks
+# healthy and never delivers an alert. Keep the same endpoint as
+# NOTIFIER_WEBHOOK_URL below for a single alert inbox.
+alertmanager_webhook_url = "https://hooks.example/REPLACE-WITH-YOUR-ALERT-ENDPOINT"
 
 # Hetzner DNS (optional): when set, the app A record is created at apply
 # time in the given zone (must exist in Hetzner DNS). Leave empty to point
@@ -60,8 +61,11 @@ app_env = {
   # authorization block in deploy/prometheus/prometheus.yml to match).
   METRICS_TOKEN = "REPLACE_WITH_METRICS_TOKEN"
   # Alert webhook (dead-letter notifications; alertmanager.yml on the node
-  # routes the same endpoint).
-  NOTIFIER_WEBHOOK_URL = "https://example.com/your-webhook"
+  # routes the same endpoint). Left unset on purpose: an example.com
+  # placeholder resolves and returns 200 to any POST, so every alert is
+  # silently swallowed. Set a real endpoint, or leave it empty and rely on
+  # Prometheus/Alertmanager plus `dominus maintenance` output instead.
+  # NOTIFIER_WEBHOOK_URL = "https://hooks.slack.com/services/REPLACE/WITH/REAL"
   # Trade API keys as needed; secrets stay out of git.
 }
 

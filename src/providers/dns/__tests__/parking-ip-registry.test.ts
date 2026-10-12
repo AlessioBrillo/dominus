@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -180,4 +180,59 @@ describe('ParkingIpRegistry', () => {
     const registry = new ParkingIpRegistry([{ name: 'V6Zone', cidr: ['fe80::/10'] }]);
     expect(registry.checkIp('fe80::1%eth0')).toBe('V6Zone');
   });
+
+  // ── Bundled reference list (ADR-0059) ────────────────────────────
+
+  describe('bundled parking reference list', () => {
+    const bundledPath = fileURLToPath(new URL('../parking-ips.json', import.meta.url));
+
+    it('ships as a real, non-empty data file', () => {
+      // Guards the file the compiled code loads at runtime. It is a .json
+      // asset, so `tsc` does not emit it: scripts/finalize-dist.mjs copies
+      // it into dist/, and scripts/check-pack.mjs asserts it reaches the
+      // tarball. Without all three, DNS_PARKING_CHECK_ENABLED silently
+      // degrades to a no-op (a fail-open behaviour, ADR-0059).
+      const raw = readFileSync(bundledPath, 'utf-8');
+      const parsed = JSON.parse(raw) as unknown;
+      expect(Array.isArray(parsed)).toBe(true);
+      expect((parsed as unknown[]).length).toBeGreaterThan(0);
+    });
+
+    it('contains only well-formed CIDR entries', () => {
+      const ranges = JSON.parse(readFileSync(bundledPath, 'utf-8')) as ParkingRange[];
+      for (const range of ranges) {
+        expect(range.name.length).toBeGreaterThan(0);
+        expect(range.cidr.length).toBeGreaterThan(0);
+        for (const cidr of range.cidr) {
+          expect(cidr).toMatch(/^[0-9a-fA-F.:]+\/\d+$/);
+        }
+      }
+    });
+
+    it('detects at least one known parking IP through the registry', () => {
+      const registry = ParkingIpRegistry.load(undefined, bundledPath);
+      const first = (JSON.parse(readFileSync(bundledPath, 'utf-8')) as ParkingRange[])[0]!;
+      const [firstCidr] = first.cidr;
+      // Any address inside the first declared range must resolve to that
+      // registrar: proves the file actually parses into live entries.
+      const probe = probeAddressForCidr(firstCidr!);
+      expect(registry.checkIp(probe)).toBe(first.name);
+    });
+  });
 });
+
+/** Returns an address guaranteed to fall inside `cidr`, for probing. */
+function probeAddressForCidr(cidr: string): string {
+  const [base, prefixRaw] = cidr.split('/');
+  const prefix = Number(prefixRaw);
+  if (base!.includes(':')) return `${base!.split('::')[0]}::1`;
+  const octets = base!.split('.').map(Number);
+  // Set the host bits to 1 — always inside the range, never the network or
+  // broadcast address, so the registry cannot reject it as an edge case.
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  const baseInt = octets.reduce((acc, o) => ((acc << 8) | o) >>> 0, 0) >>> 0;
+  const hostBits = ~mask >>> 0;
+  const host = hostBits === 0 ? 1 : (hostBits & 0xff) | (hostBits >> 8);
+  const addr = ((baseInt & mask) >>> 0) + (host & hostBits);
+  return [(addr >>> 24) & 0xff, (addr >>> 16) & 0xff, (addr >>> 8) & 0xff, addr & 0xff].join('.');
+}

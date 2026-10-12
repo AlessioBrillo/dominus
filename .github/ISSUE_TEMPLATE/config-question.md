@@ -9,7 +9,7 @@ assignees: ''
 ## Environment
 
 - DOMINUS version: <!-- `node dist/cli.js --version` or check package.json -->
-- Deployment: <!-- CLI only / Docker / systemd / PM2 / Kubernetes -->
+- Deployment: <!-- CLI only / Docker Compose / systemd / PM2 / Terraform (Hetzner) -->
 
 ## Question
 

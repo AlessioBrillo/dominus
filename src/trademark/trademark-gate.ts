@@ -79,6 +79,26 @@ export interface GateResult {
  */
 export const STRICT_USPTO_TLDS: ReadonlySet<string> = new Set(['.com', '.us']);
 
+/**
+ * Error codes that mean "this source answered, but the answer is
+ * incomplete". A source reporting one of these is excluded from the
+ * Clear path regardless of TLD, because a partial enumeration of a
+ * register is weaker evidence than no enumeration at all — it looks like
+ * a negative result while carrying none of its weight.
+ */
+const INCOMPLETE_RESULT_CODES: ReadonlySet<string> = new Set(['EUIPO_RESULT_TRUNCATED']);
+
+function isTruncation(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' && INCOMPLETE_RESULT_CODES.has(code);
+}
+
+/** Outcome of one source lookup. `truncated` implies `ok === false`. */
+type SourceOutcome =
+  | { ok: true; matches: TrademarkMatch[]; truncated: false }
+  | { ok: false; matches: never[]; truncated: boolean };
+
 function isStrictTld(domain: string): boolean {
   return STRICT_USPTO_TLDS.has(parseDomain(domain).tld);
 }
@@ -168,7 +188,27 @@ export class TrademarkGate {
         verifiedSources.push('EUIPO');
       }
 
-      if (!usptoResult.ok && isStrictTld(domain)) {
+      const truncated = usptoResult.truncated || euipoResult.truncated;
+      if (truncated) {
+        // Fail-closed on an incomplete register: a verdict of Clear here
+        // would claim absence of evidence from a source that explicitly
+        // said it could not finish enumerating (Principle 6).
+        logger.warn(
+          {
+            domain,
+            usptoTruncated: usptoResult.truncated,
+            euipoTruncated: euipoResult.truncated,
+            verifiedSources,
+          },
+          'Trademark gate: a source reported a truncated result set — verdict: Unverified',
+        );
+        result = {
+          domain,
+          verdict: GateVerdict.Unverified,
+          verifiedSources,
+          partial: verifiedSources.length < 2,
+        };
+      } else if (!usptoResult.ok && isStrictTld(domain)) {
         logger.warn(
           {
             domain,
@@ -221,13 +261,17 @@ export class TrademarkGate {
     sld: string,
     runSignal: AbortSignal | undefined,
     combinedSignal: AbortSignal | undefined,
-  ): Promise<{ ok: true; matches: TrademarkMatch[] } | { ok: false; matches: never[] }> {
+  ): Promise<SourceOutcome> {
     try {
       const matches = await provider.search(sld, combinedSignal);
-      return { ok: true as const, matches };
+      return { ok: true as const, matches, truncated: false as const };
     } catch (err) {
       if (runSignal !== undefined && runSignal.aborted) throw err;
-      return { ok: false as const, matches: [] };
+      // A truncated result set is not an outage: the register answered, but
+      // only partly. `truncated` forces Unverified below, because a partly
+      // enumerated register cannot support "no match found" — unlike a
+      // hard failure, which ADR-0012 already accepts for non-strict TLDs.
+      return { ok: false as const, matches: [], truncated: isTruncation(err) };
     }
   }
 

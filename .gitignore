@@ -41,6 +41,14 @@ data/
 # --- Claude runtime ---
 .claude/scheduled_tasks.lock
 
+# --- Stray migration rollback locks ---
+# A rollback tool once wrote its lock file to the repository's parent
+# directory (a literal `..locks/`), which git then committed as a tracked
+# path outside the project root. Ignore it wherever it reappears.
+..locks/
+*/..locks/
+**/..locks/
+
 # --- Local agent harness config ---
 .opencode/
 

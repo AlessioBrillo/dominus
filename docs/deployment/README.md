@@ -1,4 +1,4 @@
-# Deployment Guide
+﻿# Deployment Guide
 
 DOMINUS is designed to run anywhere — from a laptop to a Terraform-provisioned cloud node. Choose the option that fits your scale.
 
@@ -65,7 +65,7 @@ rollback is a one-line `.env` change to a previously verified tag.
 ### Release flow: gate → migrate → roll
 
 Tagged releases (`vX.Y.Z`) deploy through the workflow in three explicit
-phases (see `scripts/deploy/` and [ADR-0061](docs/adr/0061-release-migrate-before-roll.md)):
+phases (see `scripts/deploy/` and [ADR-0061](../adr/0061-release-migrate-before-roll.md)):
 
 1. **Migration gate** — `migration-gate.sh` refuses the deploy when the
    database is ahead of the target image's manifest (downgrade/divergent
@@ -74,7 +74,7 @@ phases (see `scripts/deploy/` and [ADR-0061](docs/adr/0061-release-migrate-befor
    its migrations against the live database while the previous image keeps
    serving, under a dedicated timeout (`MIGRATE_TIMEOUT_SECONDS`, default
    600 s). A failed or timed-out migration aborts the deploy — nothing is
-   rolled. See the [migration-policy runbook](docs/releases/migration-policy.md)
+   rolled. See the [migration-policy runbook](../releases/migration-policy.md)
    for the failure procedures.
 3. **Roll** — `rollout.sh` bumps `DOMINUS_IMAGE_TAG` in `.env`, rolls the
    stack, verifies the running image and health, and auto-rolls on failure
@@ -230,38 +230,41 @@ parallel runs, `WORKER_CONCURRENCY`) before considering PostgreSQL.
 
 ## DNS Resolution in Containers
 
-The DNS pre-filter races multiple resolver legs (`doh-primary` by
-default: Cloudflare/Google/Quad9 DoH, native fallback on error). Inside
-a container the **native leg is the Docker embedded resolver
-(127.0.0.11)** — a stub that forwards to the host's `/etc/resolv.conf`,
-which on many hosts is systemd-resolved (127.0.0.53) with its own
-negative cache and search domains. Consequences to know before choosing
-`native`-inclusive strategies:
+Availability verdicts run through the co-hosted **Unbound** recursor
+(ADR-0072): a private, DNSSEC-validating resolver on the compose network,
+reached as `unbound:5300`. The `docker-compose.unbound.yml` overlay adds it
+and wires api/worker/scheduler to it with `DNS_UNBOUND_STRICT=true`.
+
+Inside a container the **Node.js DNS fallback is the Docker embedded
+resolver (127.0.0.11)** — a stub that forwards to the host's
+`/etc/resolv.conf`, which on many hosts is systemd-resolved (127.0.0.53)
+with its own negative cache and search domains. Consequences to know:
 
 - **Stale negative cache.** A cached NXDOMAIN can serve "available" for
   a domain that just got registered. The app-level cache honours
   `forceRecheck` (used on closeout imports), but resolver-level caches
-  are outside its control.
+  are outside its control. This is exactly why the fallback is not
+  allowed to serve _Available_ verdicts (ADR-0002 conservatism).
 - **Search-domain mangling.** Single-label candidates can be rewritten
   by search domains into a "resolved" verdict — a false _registered_,
   which is the conservative direction (missed opportunity, never a
   wasted buy).
-- **Disjointness is logical, not physical.** The consensus validator
-  cannot see beyond 127.0.0.11; two strategies may share an upstream.
-  The only topologically independent opinion is the pinned private
-  recursor (see below).
 
-For verdict integrity run the co-hosted Unbound recursor (ADR-0072) so
-every lookup goes through a private, DNSSEC-validating resolver instead of
-the Docker stub:
+The overlay is not optional for the DNS stage to be useful: without it the
+first start waits ~30 s for a resolver that is not there and the run is
+marked degraded (`consensus-unverified`), which never produces a buy
+verdict. Community edition uses the fallback for non-Available verdicts
+only; DOMINUS Cloud stays strict (ADR-0076).
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml   -f docker-compose.unbound.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
 ```
 
 The overlay adds the `unbound` service and points api/worker/scheduler at it
-with `DNS_UNBOUND_HOSTS=unbound:5300`. Run `docker compose config --quiet` to
-validate the merged topology.
+with `DNS_UNBOUND_HOSTS=unbound:5300`. If the resolver subnet collides with
+a network already on your Docker host, move it with
+`DOMINUS_UNBOUND_SUBNET=<free-cidr>` and retry. Run
+`docker compose config --quiet` to validate the merged topology.
 
 ## Monitoring (production profile)
 

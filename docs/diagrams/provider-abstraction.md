@@ -23,51 +23,52 @@ flowchart TB
     end
 
     subgraph Community[Community Edition Implementations]
-        ND[NodeDnsProvider]
+        UR[UnboundResolver<br/>+ NodeDnsFallback]
         PR[PublicRdapProvider<br/>+ FailoverRdapProvider]
         NW[NodeWhoisProvider]
-        UP[UsptoProvider]
+        UP[UsptoCasesProvider<br/>+ TsdrTrademarkProvider]
         EP[EuipoProvider]
         MK[ManualKeywordProvider<br/>(local JSON)]
+        GS[GoogleSuggestKeywordProvider]
         MC[ManualCompsProvider<br/>(local CSV)]
         MR[ManualRegistrarProvider]
+        WB[CdxProvider<br/>(Wayback history)]
     end
 
-    subgraph Cloud[Cloud / Paid Implementations]
-        GDP[GoogleDnsProvider<br/>(stub)]
-        ARD[ARdapProvider<br/>(stub)]
-        WX[WhoisXmlProvider<br/>(stub)]
-        GKP[GoogleAdsKeywordProvider<br/>(stub)]
-        NB[NameBioCompsProvider<br/>(stub)]
-        NAME[NamecheapRegistrarProvider]
-        GD[GoDaddyRegistrarProvider]
-        PB[PorkbunRegistrarProvider]
-        NS[NameSiloRegistrarProvider]
-        DD[DynadotRegistrarProvider]
-        CF[CloudflareRegistrarProvider]
+    subgraph Optional[Optional Paid Implementations]
+        GA[GoogleAdsProvider<br/>(needs Google Ads credentials)]
+        NB[NameBioProvider<br/>(needs NameBio API access)]
+        CF[CloudflareRegistrarProvider<br/>(only real registrar adapter)]
     end
 
     subgraph CrossCutting[Cross-Cutting Decorators]
         CACHED[CachedProvider<br/>(configurable TTL)]
-        RETRY[RetryableProvider<br/>(exponential backoff + jitter)]
-        RATE[RateLimitedProvider<br/>(token bucket)]
-        CIRCUIT[CircuitBreakerProvider<br/>(max failures / time window)]
-        FAILOVER[FailoverProvider<br/>(primary → fallback)]
+        RETRY[RetryingProvider<br/>(exponential backoff + jitter)]
+        RATE[RateLimiter<br/>(token bucket)]
+        CIRCUIT[CircuitBreaker<br/>(max failures / time window)]
+        FAILOVER[FailoverRdapProvider<br/>(primary → fallback)]
     end
 
     Core -.-> Interfaces
     Interfaces --> Community
-    Interfaces --> Cloud
+    Interfaces --> Optional
     Interfaces --> CrossCutting
     CrossCutting --> Community
-    CrossCutting --> Cloud
+    CrossCutting --> Optional
 
     style Core fill:#1a1a2e,stroke:#0f3460,color:#eee
     style Interfaces fill:#16213e,stroke:#533483,color:#eee
     style Community fill:#0f3460,stroke:#16213e,color:#eee
-    style Cloud fill:#1a1a2e,stroke:#16213e,color:#ddd
+    style Optional fill:#1a1a2e,stroke:#16213e,color:#ddd
     style CrossCutting fill:#2d1b69,stroke:#533483,color:#eee
 ```
+
+Only two registrar adapters exist: `ManualRegistrarProvider` (no-op) and
+`CloudflareRegistrarProvider`. The other marketplace adapters (Afternic,
+Sedo, Dan.com, GoDaddy Auctions) were removed in v1.1.0 because they were
+never verified against the vendors' APIs — see
+[ADR-0082](../adr/0082-removal-of-unimplemented-features.md). They return
+when API access exists.
 
 ## Wiring in Composition Root
 
@@ -75,29 +76,23 @@ All providers are wired in a single file: `src/app/composition-root.ts`.
 
 ```typescript
 // Community edition wiring
-providers: {
-  dns: new NodeDnsProvider(config.dns),
-  rdap: new CachedProvider(
-    new FailoverRdapProvider([primaryRdap, ...fallbacks]),
-    { ttl: config.cache.rdapTtl }
+const euipoTmProvider = new CachedTrademarkProvider(
+  new RetryingTrademarkProvider(
+    new EuipoProvider({
+      clientId: config.EUIPO_CLIENT_ID,
+      clientSecret: config.EUIPO_CLIENT_SECRET,
+      authUrl: config.EUIPO_AUTH_URL,
+      apiUrl: config.EUIPO_API_URL,
+      pageSize: config.EUIPO_PAGE_SIZE,
+      maxPages: config.EUIPO_MAX_PAGES,
+      rateLimiter: euipoRateLimiter,
+    }),
+    {},
+    euipoCircuitBreaker,
   ),
-  trademark: new CachedProvider(
-    new RetryableProvider(
-      new CircuitBreakerProvider(
-        new UsptoProvider(config.trademark.uspto),
-        circuitConfig
-      ),
-      retryConfig
-    ),
-    { ttl: 7 * 24 * 60 * 60 * 1000 } // 7-day cache
-  ),
-  keyword: new ManualKeywordProvider(keywordData),
-  comps: new ManualCompsProvider(compsData),
-}
-
-// DOMINUS Cloud wiring (same interface, different implementations)
-providers: {
-  keyword: new GoogleAdsKeywordProvider(googleAdsClient),
-  comps: new NameBioCompsProvider(namebioClient),
-}
+  providerCacheRepo,
+  'EUIPO',
+  config.TM_CACHE_TTL_DAYS,
+  config.PROVIDER_MEMORY_CACHE_SIZE,
+);
 ```

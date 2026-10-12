@@ -6,5 +6,18 @@
     { "filename": "frontend/package-lock.json", "type": "json" },
     { "filename": "README.md", "updater": "scripts/readme-version-updater.cjs" }
   ],
-  "packageFiles": [{ "filename": "package.json", "type": "json" }]
+  "packageFiles": [{ "filename": "package.json", "type": "json" }],
+  "types": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance Improvements" },
+    { "type": "revert", "section": "Reverts" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "chore", "hidden": true },
+    { "type": "refactor", "hidden": true },
+    { "type": "test", "hidden": true },
+    { "type": "build", "hidden": true },
+    { "type": "style", "hidden": true },
+    { "type": "ci", "hidden": true }
+  ]
 }

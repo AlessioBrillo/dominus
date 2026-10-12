@@ -11,10 +11,13 @@ import { resolve } from 'node:path';
 const root = resolve(import.meta.dirname, '../..');
 
 // Read outside the zod schema (process.env directly / compose / Terraform).
+// NODE_ENV is read directly by a config refine() that decides whether
+// RATE_LIMIT_MAX=0 is legal, so it is documented without being a schema key.
 const EXTRA_ALLOWED = new Set([
   'DOMINUS_IMAGE_TAG',
   'REGISTRAR_CLOUDFLARE_API_TOKEN',
   'REGISTRAR_CLOUDFLARE_ACCOUNT_ID',
+  'NODE_ENV',
 ]);
 
 function schemaKeys(): Set<string> {

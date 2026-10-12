@@ -1,4 +1,4 @@
-# Customization Guide
+﻿# Customization Guide
 
 DOMINUS is designed to be forked and customized. This guide explains how to
 adapt every layer to your needs — from scoring weights to provider swaps.
@@ -71,7 +71,6 @@ conservative tuning:
 | `SCORING_LIST_PRICE_MULTIPLIER` | `2.5`     | Engine     | suggestedListPrice = expectedValue × this                                         |
 | `SCORING_BASE_MARKET_VALUE`     | `500`     | Engine     | Base EUR value for expected value calc                                            |
 | `SCORING_CONFIDENCE_BASE`       | `0.2`     | Engine     | Starting confidence with 1 signal                                                 |
-| `SCORING_CONFIDENCE_PER_SIGNAL` | `0.3`     | Engine     | Confidence increment per extra signal                                             |
 | `SCORING_CONFIDENCE_CAP`        | `0.8`     | Engine     | Absolute confidence cap                                                           |
 | `BUY_MAX_ABSOLUTE_CAP`          | `0`       | Engine     | Absolute cap on suggestedBuyMax (EUR); 0 = uncapped (evidence-anchored, ADR-0055) |
 
@@ -79,15 +78,21 @@ conservative tuning:
 
 TLD bonuses are multipliers applied to the intrinsic signal. Defaults:
 
-| TLD        | Bonus |
-| ---------- | ----- |
-| `.com`     | 1.0   |
-| `.ai`      | 0.9   |
-| `.io`      | 0.85  |
-| `.co`      | 0.75  |
-| `.net`     | 0.65  |
-| `.org`     | 0.55  |
-| All others | 0.3   |
+| TLD | Bonus |
+| --- | --- |
+| `.com` | 1.0 |
+| `.ai` | 0.9 |
+| `.io` | 0.85 |
+| `.co` | 0.75 |
+| `.net` | 0.65 |
+| `.org` | 0.55 |
+| `.app`, `.dev`, `.tv` | 0.5 |
+| `.me`, `.us`, `.tech`, `.xyz` | 0.45 |
+| `.shop`, `.site`, `.online`, `.store` | 0.4 |
+| **any other TLD** | 0.45 (`UNKNOWN_TLD_MULTIPLIER`) |
+
+The full list lives in `src/scoring/weights.ts`; unknown TLDs are penalised
+relative to `.com` rather than dropped to zero.
 
 Override via a JSON file:
 
@@ -150,7 +155,7 @@ Every provider is behind a TypeScript interface. To swap one:
 ```typescript
 import type { KeywordProvider, KeywordMetrics } from './keyword-provider.js';
 
-export class GoogleAdsKeywordProvider implements KeywordProvider {
+export class GoogleAdsProvider implements KeywordProvider {
   async getMetrics(term: string): Promise<KeywordMetrics> {
     // Call the Google Ads API here
     return { term, monthlySearchVolume: 5000, cpc: 3.5, competition: 0.6 };
@@ -164,7 +169,7 @@ export class GoogleAdsKeywordProvider implements KeywordProvider {
 // Before:
 const keywordProvider = new ManualKeywordProvider(config.KEYWORD_DATA_PATH);
 // After:
-const keywordProvider = new GoogleAdsKeywordProvider(/* your config */);
+const keywordProvider = new GoogleAdsProvider(/* your config */);
 ```
 
 That's it. The scoring engine, pipeline, and all consumers continue working
@@ -261,5 +266,5 @@ See the [Deployment Guide](../deployment/README.md) for:
 - Reverse proxy configuration (nginx)
 - systemd service unit
 - PM2 ecosystem file
-- Kubernetes manifests
+
 - Security checklist

@@ -1,9 +1,11 @@
 ---
-title: DNS Community Edition Fallback — NodeDnsProvider for Zero-Dependency Onboarding
+title: DNS Community Edition Fallback — Node.js DNS for Zero-Dependency Onboarding
 status: accepted
 date: 2026-09-26
 decision-makers: [Principal Software Engineer]
 ---
+
+# ADR-0076: DNS Community Edition Fallback — Node.js DNS for Zero-Dependency Onboarding
 
 ## Context
 

@@ -15,10 +15,13 @@ standard practice for open-source projects with dual-licensing models
 (see [ADR-0025](docs/adr/0025-license-change-agpl-commercial.md)).
 
 The CLA is available in [`CLA.md`](CLA.md). Signing is enforced by the
-`cla.yml` CI workflow: add your GitHub username to the `## CLA Signers`
-section of [`CONTRIBUTORS.md`](CONTRIBUTORS.md) (via a pull request) or
-follow the submission methods in CLA.md §7. Pull requests from external
-contributors without a signed CLA are blocked.
+`cla.yml` CI workflow: paste the signature block from CLA.md §7 into your
+first pull request, and a maintainer records it by adding your GitHub
+username to the `## CLA Signers` section of [`CONTRIBUTORS.md`](CONTRIBUTORS.md).
+Pull requests from external contributors without a signed CLA are blocked.
+
+By participating you also agree to the
+[Code of Conduct](CODE_OF_CONDUCT.md), which covers all project spaces.
 
 ## Development Setup
 

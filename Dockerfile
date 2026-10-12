@@ -40,6 +40,9 @@ WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.json ./
 COPY src/ src/
+# finalize-dist.mjs runs as part of `npm run build` (stages the SPA into
+# dist/web and prunes compiled tests), so it must exist in the build stage.
+COPY scripts/ scripts/
 RUN npm ci && npm run build
 
 # ---- Stage 3: Frontend Build (API only) ----
@@ -83,7 +86,7 @@ RUN addgroup -S dominus && adduser -S dominus -G dominus
 
 COPY --from=deps --chown=dominus:dominus /app/node_modules node_modules/
 COPY --from=backend-build --chown=dominus:dominus /app/dist dist/
-COPY --from=frontend-build --chown=dominus:dominus /app/dist frontend/dist/
+COPY --from=frontend-build --chown=dominus:dominus /app/dist dist/web/
 # CSS for the server-rendered public pages (/public/s/:slug, compare pages).
 # The server serves ./public/static relative to the working directory.
 COPY --chown=dominus:dominus public/ public/
@@ -107,7 +110,7 @@ EXPOSE 3000
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     DATABASE_PATH=/app/data/dominus.db \
-    FRONTEND_DIST_PATH=./frontend/dist \
+    FRONTEND_DIST_PATH=./dist/web \
     WORKER_ENABLED=false \
     SCHEDULER_ENABLED=false
 

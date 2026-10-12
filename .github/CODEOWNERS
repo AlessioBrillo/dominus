@@ -1,0 +1,27 @@
+# Everyone is a contributor by default; review is requested per area.
+*
+@AlessioBrillo
+
+# Scoring engine and weights — the core asset. Any change here needs the
+# maintainer's review because the engine must stay more conservative than
+# commercial appraisal tools (ADR-0002).
+/src/scoring/
+/src/portfolio/
+/src/backtest/
+
+# Trademark gate is non-negotiable and must not be weakened (ADR-0006).
+/src/trademark/
+/src/providers/trademark/
+
+# Multi-tenant surface and billing.
+/src/db/migrations/
+/src/api/middleware/
+/src/services/team-service.ts
+/src/services/billing-service.ts
+/src/services/admin-service.ts
+
+# Release and deployment pipeline.
+/Dockerfile
+/docker-compose*.yml
+/.github/workflows/
+/deploy/

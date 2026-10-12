@@ -100,7 +100,7 @@ export interface PipelineRunSummary {
   dnsBreakers?: DnsBreakerMetrics;
   /** Boot-time consensus disjointness observability (ADR-0065). */
   dnsDisjointness?: DnsDisjointnessMetrics;
-  /** Runtime DNS consensus disjointness validation (ADR-0066). */
+  /** Runtime DNS consensus disjointness validation. */
   dnsRuntimeConsensus?: DnsRuntimeConsensusMetrics;
   /** DNS operator map version/source for staleness alerting (ADR-0065). */
   dnsOperatorMap?: DnsOperatorMapMetrics;
@@ -122,7 +122,7 @@ export interface DnsDisjointnessMetrics {
   observed: boolean;
 }
 
-/** Runtime DNS consensus disjointness validation tallies (ADR-0066).
+/** Runtime DNS consensus disjointness validation tallies.
  *  Live DNS queries at startup to detect anycast/IP overlap that bootstrap
  *  checks cannot catch. */
 export interface DnsRuntimeConsensusMetrics {

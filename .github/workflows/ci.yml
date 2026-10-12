@@ -1,4 +1,4 @@
-name: CI
+﻿name: CI
 
 on:
   push:
@@ -168,6 +168,15 @@ jobs:
     name: Docker runtime smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # The base compose file requires API_KEYS (fail-closed boot guard in
+      # src/index.ts). It is exported for the whole job because every compose
+      # invocation — build, up, logs, down — interpolates the environment
+      # block. Per-command prefixes do not cover the ones that were easy to
+      # miss (logs -f, down -v), which then abort with the :? error.
+      # /api/health stays public, so the dummy key does not affect the
+      # polled endpoint.
+      API_KEYS: ci-smoke-dummy-key
 
     steps:
       - uses: actions/checkout@v7
@@ -239,6 +248,18 @@ jobs:
             exit 1
           }
 
+          # 0. The documented quick-start must survive a Docker host whose
+          #    bridge pool already occupies the block this overlay used to
+          #    live in. A hardcoded subnet aborts `up -d` with "Pool
+          #    overlaps with other one on this address space" before any
+          #    container starts. 172.21.0.0/16 is the exact range that
+          #    collided on stock Docker Desktop hosts and broke the README
+          #    quick-start; claiming it here makes that regression
+          #    impossible to reintroduce.
+          docker network create --driver bridge \
+            --subnet 172.21.0.0/16 dominus-verify-pool >/dev/null
+          trap 'docker network rm dominus-verify-pool >/dev/null 2>&1 || true' EXIT
+
           # 3. The API must boot and answer /api/health (unauthenticated).
           #    Use docker-compose with unbound overlay to start Unbound + API together.
           #    This validates the full production stack (ADR-0075: Unbound mandatory).
@@ -255,8 +276,8 @@ jobs:
           # Boot with authentication active: HOST=0.0.0.0 in compose refuses
           # to start unauthenticated (fail-closed). /api/health stays public,
           # so the polled endpoint is unaffected by the dummy key.
-          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
-          API_KEYS=ci-smoke-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml build api
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs -f api &
           LOGS_PID=$!
 
@@ -284,6 +305,10 @@ jobs:
     timeout-minutes: 10
     env:
       POSTGRES_PASSWORD: ci-test-password
+      # API_KEYS is a boot requirement of the base compose file: without it
+      # the api container crash-loops through the Unbound readiness wait on
+      # every restart. Provide one so topology validation can interpolate.
+      API_KEYS: ci=0123456789abcdef
       # GRAFANA_ADMIN_PASSWORD is required by the prod overlay (no
       # admin/admin defaults); provide a placeholder so topology
       # validation can interpolate the merged config.
@@ -314,6 +339,44 @@ jobs:
             echo "FATAL: postgres/redis must not be in the base compose file"
             exit 1
           fi
+
+      # The API_KEYS guard must abort `up -d` rather than let the api
+      # container crash-loop through the ~30s Unbound readiness wait on
+      # every restart (a silent "it never becomes healthy" symptom).
+      - name: Base compose fails fast without API_KEYS
+        run: |
+          set -euo pipefail
+          if env -u API_KEYS docker compose -f docker-compose.yml config \
+              --quiet >/dev/null 2>&1; then
+            echo "FATAL: base compose started without API_KEYS —" \
+                 "the api container would crash-loop instead of failing fast"
+            exit 1
+          fi
+
+      # A hardcoded resolver subnet collides with whatever bridges already
+      # exist on the Docker host, and `up -d` then aborts with "Pool
+      # overlaps with other one on this address space" before any container
+      # starts — exactly what the README quick-start hit on stock Docker
+      # Desktop hosts. The subnet must therefore be an interpolation, not a
+      # literal. The docker-smoke job proves the override end-to-end by
+      # booting the overlay with the default bridge block already claimed.
+      - name: Unbound subnet is overridable, not hardcoded
+        run: |
+          set -euo pipefail
+          subnet_line=$(grep -E 'subnet:\s*\$\{' docker-compose.unbound.yml || true)
+          if [ -z "$subnet_line" ]; then
+            echo "FATAL: docker-compose.unbound.yml hardcodes a subnet." \
+                 "Wrap it in \${DOMINUS_UNBOUND_SUBNET:-...} so operators" \
+                 "can move it off a colliding host network."
+            exit 1
+          fi
+          hardcoded=$(grep -E 'subnet:\s*[0-9]+\.' docker-compose.unbound.yml || true)
+          if [ -n "$hardcoded" ]; then
+            echo "FATAL: found a literal subnet alongside the override:"
+            echo "$hardcoded"
+            exit 1
+          fi
+          echo "OK: $subnet_line"
 
       # The merged production profile must start the full Cloud stack — this
       # guards the regression where the documented prod command silently ran
@@ -379,6 +442,50 @@ jobs:
 
       - name: Check every image reference is pinned
         run: npm run check:image-pins
+
+  doc-drift:
+    name: Documentation drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Documentation rot is invisible in code review: every stale count,
+      # removed provider class and superseded topology below was accurate
+      # when written. This job derives the truth from the source tree and
+      # fails when the documents disagree with it.
+      - name: Check documentation against the source tree
+        run: npm run check:doc-drift
+
+  npm-package:
+    name: npm package completeness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # Run the real publish lifecycle, not a reconstruction of it. This job
+      # exists to catch a broken npm artifact, so it must exercise exactly
+      # what `npm publish` runs: prepublishOnly installs the frontend's own
+      # dependencies (a root-only clone does not have them, and without them
+      # tsc cannot resolve @types/react) and then builds backend + SPA.
+      - name: Build backend + SPA
+        run: npm run prepublishOnly
+
+      # The docker-smoke job builds the Docker image, which copies the SPA
+      # from source — so it can never catch a broken npm artifact. This job
+      # is the only one that exercises the path a consumer actually receives.
+      - name: Verify the tarball is a complete, usable artifact
+        run: npm run check:pack
 
   deploy-script:
     name: Deploy rollout script check
@@ -519,6 +626,10 @@ jobs:
     name: E2E (Playwright, Chromium)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Same reason as the docker-smoke job: the base compose file requires
+      # API_KEYS, and the teardown step also runs compose.
+      API_KEYS: ci-e2e-dummy-key
 
     steps:
       - uses: actions/checkout@v7
@@ -530,8 +641,35 @@ jobs:
 
       - run: npm ci
 
-      - name: Build backend
+      # Order matters: the frontend must be built BEFORE the backend.
+      # `finalize-dist.mjs` (run by `npm run build`) copies frontend/dist into
+      # dist/web, which is where playwright.config.ts points
+      # FRONTEND_DIST_PATH. Building the backend first leaves dist/web absent,
+      # the API then boots in API-only mode, and every SPA test fails with
+      # "Cannot GET /" — 37 confusing timeouts instead of one clear error.
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
         run: npm run build
+        working-directory: frontend
+
+      - name: Build backend (stages the SPA into dist/web)
+        run: npm run build
+
+      # Fast-fail on the failure mode above. Without this the mistake costs 15
+      # minutes and 37 red tests whose messages say nothing about the SPA.
+      - name: Verify the SPA was staged
+        run: |
+          set -euo pipefail
+          test -f dist/web/index.html || {
+            echo "FATAL: dist/web/index.html is missing."
+            echo "The backend build stages frontend/dist into dist/web; the"
+            echo "frontend must be built before it. See the Build frontend step."
+            exit 1
+          }
+          echo "SPA staged: $(ls dist/web)"
 
       - name: Start services with Unbound (ADR-0075)
         run: |
@@ -544,7 +682,7 @@ jobs:
           # Dummy key: HOST=0.0.0.0 refuses to boot unauthenticated
           # (fail-closed); without it the composed API crash-loops and the
           # readiness gate below is meaningless.
-          API_KEYS=ci-e2e-dummy-key docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
           # Wait for API to be ready
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
@@ -553,14 +691,6 @@ jobs:
             fi
             sleep 2
           done
-
-      - name: Install frontend dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Build frontend
-        run: npm run build
-        working-directory: frontend
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

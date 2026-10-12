@@ -5,11 +5,10 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
-[![Open Source](https://img.shields.io/badge/open-source-AGPLv3-333333)](#)
 
 DOMINUS is an **open-source domain investment tool** that helps you make better domain purchase, portfolio, and pricing decisions than the market average. It combines **domain valuation** (heuristic appraisal of market value, buy ceiling, and list price), **expired domain analysis** (age, backlinks, Wayback history), and **domain portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
 
@@ -90,10 +89,42 @@ cd dominus
 npm install
 npm run build
 
-# Score some candidates with sample data (no config needed)
+# Score a single domain with the bundled sample data. Works with zero
+# infrastructure and prints the full decision (ADR-0002).
 KEYWORD_DATA_PATH=examples/keywords-sample.json \
 COMPS_DATA_PATH=examples/comps-sample.csv \
-node dist/cli.js run --closeout-csv examples/closeout-sample.csv
+node dist/cli.js score vintagecoffee.com
+```
+
+```
+Score: vintagecoffee.com
+  Expected value:    €247.73
+  Suggested buy max: €123.87
+  List price:        €619.33
+  Confidence:        51.8%
+  Recommended:       YES
+```
+
+That is the whole decision: a conservative expected value, a purchase
+ceiling derived from it, a list price, and how much evidence supports it.
+
+### Running the full pipeline
+
+The five-stage pipeline also needs a validating DNS resolver before it can
+report a domain as **available**. Without one the DNS stage degrades, the
+run is flagged `degraded`, and the CLI exits non-zero on purpose — a
+degraded run is a partial answer, and fail-closed is the right signal for
+a tool that gates real purchases (ADR-0002).
+
+The easiest way to get a validating resolver is the Docker Compose stack
+below, which runs Unbound as a sidecar. With it in place, the sample
+closeout run becomes:
+
+```bash
+# --sync waits for the run instead of printing a job id
+KEYWORD_DATA_PATH=examples/keywords-sample.json \
+COMPS_DATA_PATH=examples/comps-sample.csv \
+node dist/cli.js run --sync --closeout-csv examples/closeout-sample.csv
 ```
 
 Or with Docker Compose (recommended — includes the validating Unbound resolver
@@ -109,13 +140,23 @@ docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
 
 Then open <http://localhost:3000> and sign in with the key.
 
+If the resolver subnet collides with a network already on your Docker host,
+`up -d` aborts with `Pool overlaps with other one on this address space`.
+Move it to a free range and retry:
+
+```bash
+DOMINUS_UNBOUND_SUBNET=10.99.0.0/24 \
+  docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+```
+
 A bare `docker run` also works, but without an Unbound resolver the first start
 waits ~30 s for it and DNS runs in degraded mode (it never reports a domain as
 available):
 
 ```bash
 docker build -t dominus .
-docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
+API_KEYS="admin=$(openssl rand -hex 32)" \
+  docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 ```
 
 ## Current Stack
@@ -139,13 +180,13 @@ docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 | **5-stage pipeline**  | ✓ Full                                | ✓ Full                            |
 | **Trademark gate**    | ✓ Full                                | ✓ Full                            |
 | **Portfolio tracker** | ✓ Full                                | ✓ Full                            |
-| **CLI (18 commands)** | ✓ Full                                | ✓ Full                            |
+| **CLI (20 commands)** | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
 | **Multi-tenancy**     | —                                     | ✓ Managed                         |
 | **Backups**           | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
-| **Support**           | GitHub Issues                         | Email/Slack (4h response)         |
+| **Support**           | GitHub Issues                         | Email/Slack — Enterprise: 4 business hours, see [SLA](docs/operations/sla.md) |
 | **Cost**              | €0                                    | Free tier + paid plans            |
 
 ## Fork & Customize
@@ -184,11 +225,11 @@ DOMINUS scales from a personal CLI tool to a containerized service managing thou
 
 | Scenario                    | Stack                            | Command                                                                 |
 | --------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
-| **Personal** (1-50 domains) | CLI only                         | `npx dominus run --closeout-csv ./candidates.csv`                       |
-| **Growing** (50-500)        | Docker (SQLite)                  | `docker compose up -d`                                                  |
-| **Large** (500+)            | Docker + PostgreSQL              | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` |
+| **Personal** (1-50 domains) | CLI only                         | `npx dominus run --sync --closeout-csv ./candidates.csv`                |
+| **Growing** (50-500)        | Docker (SQLite) + Unbound        | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d` |
+| **Large** (500+)            | Docker + PostgreSQL + Unbound    | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml -f docker-compose.prod.yml up -d` |
 | **Enterprise** (5000+)      | Terraform (Hetzner) + PostgreSQL | see `deploy/terraform/`                                                 |
-| **Managed**                 | DOMINUS Cloud                    | Sign up at [dominus.cloud](#)                                           |
+| **Managed**                 | DOMINUS Cloud                    | Managed PostgreSQL, automated PITR backups, team seats — availability on request |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -229,18 +270,24 @@ Commands:
   backtest            Run backtest + suggest weight adjustments
   runs                List/inspect pipeline runs
   candidates          List pipeline candidates
+  maintenance         Prune cache, backup, DB maintenance
   providers           Show provider status
-  scheduler           Run scheduled jobs manually
-  watchlist           Monitor domains for availability
-  maintenance         Prune cache, DB maintenance
   health              System health check
-  buy                 Record a purchase
-  registrars          Configure registrar providers
+  listing             Manage marketplace listings
+
+Commands registered only when their dependency is enabled:
+  scheduler           Run scheduled jobs manually   (SCHEDULER_ENABLED=true)
+  watchlist           Monitor domains for availability
+  buy, registrars     Purchases and registrar config (an active RegistrarProvider)
   report              Generate portfolio reports
   analytics           Prediction accuracy and P&L analytics
   bid                 Manage bids
-  listing             Manage marketplace listings
+  funnel              Inspect the acquisition funnel
+  keys                Manage scoped API keys       (DB-backed auth)
 ```
+
+Run `dominus --help` for the commands available in your installation — the
+list above is a subset of what the binary registers.
 
 ## Documentation
 
@@ -255,7 +302,7 @@ Commands:
 - [Security Policy](SECURITY.md) — vulnerability reporting
 - [Roadmap](ROADMAP.md) — planned features and releases
 - [Upgrading to 1.1.0](docs/releases/upgrade-1.1.0.md) — breaking changes and removals
-- [Service level agreement (draft)](docs/operations/sla.md)
+- [Service level agreement](docs/operations/sla.md) — Enterprise support commitments
 
 ## Project Status
 
@@ -276,7 +323,12 @@ Before recommending any buy, DOMINUS checks the candidate against USPTO and EUIP
 Yes. Import closeout CSVs of expired domains and DOMINUS carries age, backlinks, and Wayback history into the expiry signal, then runs the same DNS/RDAP availability verification and trademark gate.
 
 **How does DOMINUS check if a domain is available?**
-A two-stage gate: a fast DNS pre-filter (bulk, DoH/DoT with 2-of-3 resolver consensus) followed by authoritative RDAP confirmation with opt-in second-opinion consensus. Verdicts are fail-closed — a disagreement downgrades to "unknown" rather than trusting a single resolver.
+A two-stage gate: a fast DNS pre-filter against a validating recursive
+resolver (Unbound with DNSSEC validation, running as a Docker sidecar),
+followed by authoritative RDAP confirmation with an opt-in second-opinion
+check. Verdicts are fail-closed — without a validating resolver the DNS
+stage degrades and never reports a domain as available, and a disagreement
+downgrades the verdict to "unknown" rather than trusting a single source.
 
 **How is DOMINUS different from Estibot, GoDaddy Appraisal, or Sedo?**
 Those are closed, often sales-leveraged appraisals. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
@@ -301,9 +353,10 @@ enforced in CI (`license:check`).
 
 ### Trademark
 
-"DOMINUS" is a trademark of AlessioBrillo. The AGPL license grants you the
-right to copy, modify, and distribute the code — it does **not** grant you
-the right to use the DOMINUS name or logo to promote your fork or a
-competing service. Forks and derived services must use a different name and
-must not imply affiliation with or endorsement by the DOMINUS project.
-Proceed with your own fork and your own brand.
+The name "DOMINUS" identifies this project and is claimed by its author,
+AlessioBrillo, as a project mark. The AGPL license grants you the right to
+copy, modify, and distribute the code — it does **not** grant you the right
+to use the DOMINUS name or logo to promote your fork or a competing
+service. Forks and derived services must use a different name and must not
+imply affiliation with or endorsement by the DOMINUS project. Proceed with
+your own fork and your own brand.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+﻿// SPDX-License-Identifier: AGPL-3.0-only
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +37,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 function loadCliVersion(): string {
   try {
-    const pkgPath = join(__dirname, '..', '..', '..', 'package.json');
+    const pkgPath = join(__dirname, '..', '..', 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as { version?: string };
     return pkg.version ?? '0.0.0';
   } catch {
