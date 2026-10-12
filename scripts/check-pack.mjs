@@ -21,19 +21,40 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-// Resolve the npm CLI from the current Node installation instead of spawning
-// `npm` through a shell: `shell: true` with an argument array is deprecated
-// (DEP0190) because the arguments are concatenated unescaped.
-function resolveNpmCli() {
-  const bundled = join(
-    dirname(process.execPath),
-    'node_modules',
-    'npm',
-    'bin',
-    'npm-cli.js',
-  );
-  return existsSync(bundled) ? bundled : 'npm-cli.js';
+/**
+ * Resolve how to invoke the npm CLI.
+ *
+ * Spawning `npm` through a shell triggers DEP0190 (arguments concatenated
+ * unescaped), and resolving the CLI next to `process.execPath` fails on
+ * GitHub-hosted runners, where npm lives outside the node prefix — the script
+ * then dies with "Command failed: ... npm-cli.js" and reports a complete
+ * tarball as uninspectable. The cascade tries every reliable answer before
+ * resorting to the shell, where the arguments are all literals owned by this
+ * file, so DEP0190 does not apply.
+ */
+function resolveNpmInvocation() {
+  // 1. `npm run` sets npm_execpath to the CLI script it is executing.
+  const execPath = process.env.npm_execpath;
+  if (execPath !== undefined && existsSync(execPath)) {
+    return { file: process.execPath, args: [execPath], shell: false };
+  }
+  // 2. A node installation that bundles npm next to itself.
+  const bundled = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (existsSync(bundled)) {
+    return { file: process.execPath, args: [bundled], shell: false };
+  }
+  // 3. An npm on PATH, reached without a shell.
+  const pathVar = process.env.PATH ?? '';
+  for (const dir of pathVar.split(process.platform === 'win32' ? ';' : ':')) {
+    if (dir.length === 0) continue;
+    const candidate = join(dir, process.platform === 'win32' ? 'npm.cmd' : 'npm');
+    if (existsSync(candidate)) return { file: candidate, args: [], shell: false };
+  }
+  // 4. Last resort.
+  return { file: 'npm', args: [], shell: true };
 }
+
+const npmInvocation = resolveNpmInvocation();
 
 const REQUIRED = [
   'dist/web/index.html',
@@ -98,11 +119,16 @@ function extractJson(raw) {
 }
 
 try {
-  const raw = execFileSync(process.execPath, [resolveNpmCli(), 'pack', '--dry-run', '--json'], {
-    cwd: root,
-    encoding: 'utf-8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
+  const raw = execFileSync(
+    npmInvocation.file,
+    [...npmInvocation.args, 'pack', '--dry-run', '--json'],
+    {
+      cwd: root,
+      encoding: 'utf-8',
+      maxBuffer: 32 * 1024 * 1024,
+      shell: npmInvocation.shell,
+    },
+  );
   const parsed = extractJson(raw);
   const pack = Array.isArray(parsed) ? parsed[0] : parsed;
   const files = new Set(pack.files.map((f) => f.path));
@@ -126,7 +152,9 @@ try {
   for (const forbidden of FORBIDDEN_TOP_LEVEL) {
     for (const f of files) {
       if (f.startsWith(forbidden)) {
-        failures.push(`unexpected top-level path in tarball: ${f} (expected only dist/, examples/ and the licence files)`);
+        failures.push(
+          `unexpected top-level path in tarball: ${f} (expected only dist/, examples/ and the licence files)`,
+        );
       }
     }
   }
@@ -143,7 +171,9 @@ try {
     process.exit(1);
   }
 
-  console.log(`check-pack: OK — tarball ${pack.name}@${pack.version} is complete (${files.size} files)`);
+  console.log(
+    `check-pack: OK — tarball ${pack.name}@${pack.version} is complete (${files.size} files)`,
+  );
 } catch (err) {
   console.error(`check-pack: could not inspect tarball: ${String(err)}`);
   process.exit(1);
