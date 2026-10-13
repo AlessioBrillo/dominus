@@ -9,7 +9,8 @@ export type JobType =
   | 'RENEWAL_CHECK'
   | 'WEIGHT_TUNE'
   | 'PORTFOLIO_HEALTHCHECK'
-  | 'AUTO_LIST';
+  | 'AUTO_LIST'
+  | 'POST_ACQUISITION';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead_letter';
 
@@ -182,6 +183,24 @@ export interface AutoListResultData {
   errors: number;
 }
 
+export interface PostAcquisitionPayload {
+  domain: string;
+  source: string;
+  pipelineRunId?: string | null;
+  tenantId?: string;
+}
+
+export interface PostAcquisitionResult {
+  domain: string;
+  source: string;
+  enabled: boolean;
+  dryRun: boolean;
+  steps: Array<{ step: string; status: string; message?: string }>;
+  done: number;
+  skipped: number;
+  failed: number;
+}
+
 export interface WeightTuneResult {
   sampleSize: number;
   applied: boolean;
@@ -199,7 +218,8 @@ export type JobPayload =
   | RenewalCheckPayload
   | WeightTunePayload
   | PortfolioHealthcheckPayload
-  | AutoListPayload;
+  | AutoListPayload
+  | PostAcquisitionPayload;
 
 export type JobResult =
   | PipelineRunResult
@@ -211,7 +231,8 @@ export type JobResult =
   | RenewalCheckResult
   | WeightTuneResult
   | PortfolioHealthcheckResult
-  | AutoListResultData;
+  | AutoListResultData
+  | PostAcquisitionResult;
 
 export interface JobHandler<P extends JobPayload = JobPayload, R extends JobResult = JobResult> {
   jobType: JobType;

@@ -17,6 +17,7 @@ import type {
   AutoListSource,
   AutoListEnqueuer,
 } from './auto-listing-service.js';
+import type { PostAcquisitionTrigger } from './post-acquisition-service.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -56,6 +57,7 @@ export class PurchaseService {
   readonly #buyMaxAbsoluteCap: number;
   readonly #autoListing: AutoListingService | undefined;
   readonly #autoListEnqueuer: AutoListEnqueuer | undefined;
+  readonly #postAcquisition: PostAcquisitionTrigger | undefined;
 
   constructor(options: {
     registrar: RegistrarProvider;
@@ -67,6 +69,7 @@ export class PurchaseService {
     buyMaxAbsoluteCap?: number;
     autoListing?: AutoListingService | undefined;
     autoListEnqueuer?: AutoListEnqueuer | undefined;
+    postAcquisition?: PostAcquisitionTrigger | undefined;
   }) {
     this.#registrar = options.registrar;
     this.#portfolioManager = options.portfolioManager;
@@ -77,6 +80,7 @@ export class PurchaseService {
     this.#buyMaxAbsoluteCap = options.buyMaxAbsoluteCap ?? 500;
     this.#autoListing = options.autoListing;
     this.#autoListEnqueuer = options.autoListEnqueuer;
+    this.#postAcquisition = options.postAcquisition;
   }
 
   get registrarName(): string {
@@ -198,7 +202,7 @@ export class PurchaseService {
 
         logger.info({ domain }, 'Manual purchase recorded in portfolio');
 
-        this.#enqueueAutoList(domain, 'purchase');
+        this.#runPostAcquisition(domain, 'purchase');
 
         return {
           success: true,
@@ -265,7 +269,7 @@ export class PurchaseService {
         'Domain purchased successfully',
       );
 
-      this.#enqueueAutoList(domain, 'purchase');
+      this.#runPostAcquisition(domain, 'purchase');
 
       return {
         success: true,
@@ -285,6 +289,32 @@ export class PurchaseService {
       logger.error({ domain, error: message }, 'Purchase failed');
       return { success: false, error: message };
     }
+  }
+
+  /**
+   * Post-acquisition hook (ADR-0083). Prefers the full automation
+   * pipeline (journaled, kill-switch aware); falls back to the legacy
+   * auto-list path when no pipeline trigger is wired.
+   */
+  #runPostAcquisition(domain: string, source: AutoListSource): void {
+    if (this.#postAcquisition) {
+      this.#postAcquisition
+        .trigger(domain, source)
+        .then((jobId) => {
+          logger.info(
+            { domain, source, jobId },
+            'PurchaseService: post-acquisition pipeline triggered',
+          );
+        })
+        .catch((err: unknown) => {
+          logger.warn(
+            { domain, source, err },
+            'PurchaseService: failed to trigger post-acquisition pipeline (non-fatal)',
+          );
+        });
+      return;
+    }
+    this.#enqueueAutoList(domain, source);
   }
 
   #enqueueAutoList(domain: string, source: AutoListSource): void {

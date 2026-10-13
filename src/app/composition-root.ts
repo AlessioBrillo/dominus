@@ -133,9 +133,21 @@ import { AnonScoringService } from '../services/anon-scoring-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
+import { PostAcquisitionRepository } from '../db/repositories/post-acquisition-repository.js';
+import { AutomationAuditRepository } from '../db/repositories/automation-audit-repository.js';
+import { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
 import { AutoListingService, type AutoListEnqueuer } from '../services/auto-listing-service.js';
+import {
+  PostAcquisitionService,
+  type PostAcquisitionTrigger,
+} from '../services/post-acquisition-service.js';
+import { ListingStepExecutor } from '../services/post-acquisition-listing-executor.js';
+import { SiteService } from '../services/site-service.js';
+import { SiteStepExecutor } from '../services/post-acquisition-site-executor.js';
+import { IndexingService } from '../services/indexing-service.js';
+import { IndexingStepExecutor } from '../services/post-acquisition-indexing-executor.js';
 import { createJobQueueService } from './job-queue-service.js';
 import {
   JobWorker,
@@ -148,6 +160,8 @@ import {
   RenewalCheckHandler,
   WeightTuneHandler,
   PortfolioHealthcheckHandler,
+  AutoListHandler,
+  PostAcquisitionHandler,
   HANDLERS,
 } from '../jobs/index.js';
 import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
@@ -211,6 +225,9 @@ export interface DominusDependencies {
 
   autoTuner: AutoWeightTuner | undefined;
   purchaseService: PurchaseServiceType;
+  postAcquisitionService: PostAcquisitionService;
+  siteService: SiteService;
+  indexingService: IndexingService;
   reportService: PortfolioReportService;
   metrics: MetricsCollector;
   metricsRepo: MetricsRepository;
@@ -232,6 +249,7 @@ export interface DominusDependencies {
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
   publicScoreRepo: PublicScoreRepository;
+  domainSiteRepo: DomainSiteRepository;
   /** Undefined in the community edition (env API keys): self-serve signup
    *  exists only where tenants are managed (ADR-0032). */
   provisioningService: TenantProvisioningService | undefined;
@@ -261,6 +279,9 @@ interface BuiltRepositories {
   watchlistRepo: WatchlistRepository;
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
+  postAcquisitionRepo: PostAcquisitionRepository;
+  automationAuditRepo: AutomationAuditRepository;
+  domainSiteRepo: DomainSiteRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
   teamSeatsRepo: TeamSeatsRepository;
@@ -326,14 +347,25 @@ function buildWriteRepositories(
   };
 }
 
-/** Build repositories that use the main provider (admin, usage, api keys). */
+/** Build repositories that use the main provider (admin, usage, api keys, automation). */
 function buildMainRepositories(
   provider: DatabaseProvider,
-): Pick<BuiltRepositories, 'apiKeyRepo' | 'usageRepo' | 'adminRepo'> {
+): Pick<
+  BuiltRepositories,
+  | 'apiKeyRepo'
+  | 'usageRepo'
+  | 'adminRepo'
+  | 'postAcquisitionRepo'
+  | 'automationAuditRepo'
+  | 'domainSiteRepo'
+> {
   return {
     apiKeyRepo: new ApiKeyRepository(provider),
     usageRepo: new UsageRepository(provider),
     adminRepo: new AdminRepository(provider),
+    postAcquisitionRepo: new PostAcquisitionRepository(provider),
+    automationAuditRepo: new AutomationAuditRepository(provider),
+    domainSiteRepo: new DomainSiteRepository(provider),
   };
 }
 
@@ -455,6 +487,8 @@ function buildWorkerIfEnabled(
   alertEngine: RenewalAlertEngine,
   autoTuner: AutoWeightTuner | undefined,
   portfolioHealthcheckService: PortfolioRdapService,
+  autoListingService: AutoListingService,
+  postAcquisitionService: PostAcquisitionService,
 ): JobWorker | undefined {
   if (!config.WORKER_ENABLED) return undefined;
 
@@ -494,6 +528,8 @@ function buildWorkerIfEnabled(
   const portfolioHealthcheckHandler = new PortfolioHealthcheckHandler({
     healthcheckService: portfolioHealthcheckService,
   });
+  const autoListHandler = new AutoListHandler({ autoListingService });
+  const postAcquisitionHandler = new PostAcquisitionHandler({ postAcquisitionService });
 
   const handlers = [
     pipelineRunHandler,
@@ -504,6 +540,8 @@ function buildWorkerIfEnabled(
     watchlistHandler,
     renewalHandler,
     portfolioHealthcheckHandler,
+    autoListHandler,
+    postAcquisitionHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
   for (const handler of handlers) {
@@ -1150,12 +1188,62 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const autoListingRepo = new AutoListingRepository(repos.provider);
   const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
+  // --- Post-acquisition automation pipeline (ADR-0083) ---
+  // Kill switch + dry-run come from config; steps without a registered
+  // executor are skipped by the orchestrator, so milestones can add
+  // executors (site, indexing, dns, parking) without touching this wiring.
+  const postAcquisitionService = new PostAcquisitionService(
+    repos.postAcquisitionRepo,
+    repos.automationAuditRepo,
+    [new ListingStepExecutor(autoListingService)],
+    {
+      enabled: config.AUTOMATION_ENABLED,
+      dryRun: config.AUTOMATION_DRY_RUN,
+    },
+  );
+
+  // --- M2: for-sale site + indexing (ADR-0083) ---
+  const siteService = new SiteService(repos.domainSiteRepo, {
+    engine,
+    ...(config.AUTOMATION_CONTACT_EMAIL !== undefined
+      ? { contact: config.AUTOMATION_CONTACT_EMAIL }
+      : {}),
+  });
+  const indexingService = new IndexingService({
+    ...(config.INDEXNOW_KEY !== undefined ? { indexNowKey: config.INDEXNOW_KEY } : {}),
+  });
+  postAcquisitionService.registerExecutor(new SiteStepExecutor(siteService));
+  postAcquisitionService.registerExecutor(
+    new IndexingStepExecutor(indexingService, {
+      ...(config.PUBLIC_APP_URL !== undefined ? { publicAppUrl: config.PUBLIC_APP_URL } : {}),
+    }),
+  );
+
   const jobQueueService = createJobQueueService(provider, { usageEnforcer });
 
   const autoListEnqueuer: AutoListEnqueuer = {
     async enqueue(domain: string, source: string, scoreJson?: string | null): Promise<string> {
       const domains = [{ domain, scoreJson: scoreJson ?? null }];
       return jobQueueService.enqueueAutoList(domains, 'purchase', source);
+    },
+  };
+
+  // Entry point used by purchase/auction completion: async job when the
+  // worker is enabled, inline run otherwise (community edition may run
+  // with WORKER_ENABLED=false).
+  const postAcquisitionTrigger: PostAcquisitionTrigger = {
+    async trigger(
+      domain: string,
+      source: 'purchase' | 'acquisition' | 'manual' | 'pipeline_run',
+      pipelineRunId?: string | null,
+    ): Promise<string> {
+      if (config.WORKER_ENABLED) {
+        return jobQueueService.enqueuePostAcquisition(domain, source, pipelineRunId ?? null);
+      }
+      await postAcquisitionService.run(domain, source, {
+        ...(pipelineRunId != null ? { pipelineRunId } : {}),
+      });
+      return 'inline';
     },
   };
 
@@ -1298,6 +1386,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
     autoListingService,
     autoListEnqueuer,
+    postAcquisitionTrigger,
   );
 
   // --- Acquisition ---
@@ -1310,6 +1399,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     trademarkGate,
     autoListingService,
     autoListEnqueuer,
+    10,
+    postAcquisitionTrigger,
   );
 
   // --- Acquisition Funnel ---
@@ -1358,6 +1449,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     alertEngine,
     autoTuner,
     portfolioHealthcheckService,
+    autoListingService,
+    postAcquisitionService,
   );
 
   // --- Scheduler ---
@@ -1403,6 +1496,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     scheduler,
     autoTuner,
     purchaseService,
+    postAcquisitionService,
+    siteService,
+    indexingService,
     reportService,
     metrics,
     progressService,

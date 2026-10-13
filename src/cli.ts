@@ -31,6 +31,7 @@ async function main(): Promise<void> {
     acquisitionService: deps.acquisitionService,
     funnelService: deps.funnelService,
     listingManager: deps.listingManager,
+    postAcquisitionService: deps.postAcquisitionService,
     keyManager: deps.authProvider.asKeyManager() as KeyManager | undefined,
     apiKeyRepo: deps.apiKeyRepo,
   });

@@ -80,6 +80,25 @@ Plus a **portfolio tracker** with renewal clock and monthly keep/drop/reprice ve
 
 Pipeline runs are **async by default** — enqueued to a job queue and executed by a background worker. Use `--sync` for immediate execution.
 
+### Post-Acquisition Automation (ADR-0083)
+
+Everything after a domain is acquired can run without manual work. The
+post-acquisition pipeline executes ordered steps — for-sale page, indexing,
+DNS delegation, ads monetization, marketplace listing — journaled per domain
+and audited. It ships **dark**: `AUTOMATION_ENABLED=false` and
+`AUTOMATION_DRY_RUN=true` by default, so nothing external happens until the
+operator enables it deliberately. Steps that need an external account (parking
+providers, marketplace APIs) are added behind their interface and report
+`skipped` until configured — the pipeline never claims what it cannot do.
+
+```bash
+dominus automate settings                 # kill switch + dry-run state
+dominus automate run vintagecoffee.com    # run/resume the pipeline for a domain
+dominus automate audit                    # what the system did, autonomously
+```
+
+See the [automation runbook](docs/guides/automation-runbook.md).
+
 ## Quick Start
 
 ```bash
@@ -165,8 +184,8 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
 | ------------------ | ----------------------------------------------- | ---------------------------------------------------------- |
 | **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
-| **CLI**            | Commander (20 commands)                         | Full functionality without a browser                       |
-| **API**            | Express REST (29 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **CLI**            | Commander (21 commands)                         | Full functionality without a browser                       |
+| **API**            | Express REST (30 route modules)                 | Dashboard-ready, swappable frontend                        |
 | **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
 | **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |
@@ -180,7 +199,7 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
 | **5-stage pipeline**  | ✓ Full                                | ✓ Full                            |
 | **Trademark gate**    | ✓ Full                                | ✓ Full                            |
 | **Portfolio tracker** | ✓ Full                                | ✓ Full                            |
-| **CLI (20 commands)** | ✓ Full                                | ✓ Full                            |
+| **CLI (21 commands)** | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
@@ -255,6 +274,15 @@ Key variables:
 | `EUIPO_CLIENT_ID`          | (optional)          | EUIPO trademark search (free registration)                                  |
 | `API_KEYS`                 | (optional)          | REST API authentication                                                     |
 
+Post-acquisition automation (ADR-0083) is off by default and dry-run by default:
+
+| Variable                   | Default             | Purpose                                                                     |
+| -------------------------- | ------------------- | --------------------------------------------------------------------------- |
+| `AUTOMATION_ENABLED`       | `false`             | Kill switch. When false, every automation run is refused and audited        |
+| `AUTOMATION_DRY_RUN`       | `true`              | When true, steps that spend money or mutate DNS skip instead of acting      |
+| `INDEXNOW_KEY`             | (optional)          | IndexNow key: serves `/<key>.txt` and submits for-sale pages to Bing/Yandex |
+| `AUTOMATION_CONTACT_EMAIL` | (optional)          | Contact address published on for-sale pages (offer mailto)                  |
+
 See [full reference](docs/customization/configuration.md).
 
 ## Commands
@@ -274,6 +302,7 @@ Commands:
   providers           Show provider status
   health              System health check
   listing             Manage marketplace listings
+  automate            Post-acquisition automation pipeline (status, run, reset, audit)
 
 Commands registered only when their dependency is enabled:
   scheduler           Run scheduled jobs manually   (SCHEDULER_ENABLED=true)
@@ -293,6 +322,7 @@ list above is a subset of what the binary registers.
 
 - Guides: [closeouts to a buy decision](docs/guides/closeouts-to-buy-decision.md),
   [portfolio keep/drop](docs/guides/portfolio-keep-drop.md),
+  [automation runbook](docs/guides/automation-runbook.md),
   [self-hosting](docs/guides/self-hosting.md),
   [Cloud teams, SSO and operators](docs/guides/cloud-team-sso.md)
 - [Architecture Decision Records](docs/adr/README.md) — full architectural rationale

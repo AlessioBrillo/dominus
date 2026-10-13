@@ -3,7 +3,6 @@
 DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
 v1.1.0 — Release hardening (release candidate).
 Next: v1.2.0 — Post-1.0 features.
-
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 
@@ -210,6 +209,35 @@ estimates and subject to change.
       keep/drop, Cloud team setup with SSO, self-hosting)
 - [ ] Customer case studies (need real customers)
 - [ ] Community Discord server
+
+## v1.2.0 — Post-Acquisition Automation (ADR-0083)
+
+> **Status**: In progress
+> **Focus**: automated lifecycle after the buy decision — site, indexing,
+> DNS delegation, parking/monetization, marketplace listing
+
+- [x] Post-acquisition pipeline: journaled steps (`post_acquisition_steps`),
+      audit trail (`automation_audit`), kill switch `AUTOMATION_ENABLED`
+      (default off) and dry-run `AUTOMATION_DRY_RUN` (default on)
+- [x] `POST_ACQUISITION` job type on the existing queue; purchase and
+      won-auction paths trigger the pipeline instead of the old fire-and-forget
+      auto-list
+- [x] `listing` step (delegates to the existing AutoListingService)
+- [x] Bug fix: `AUTO_LIST` / `POST_ACQUISITION` job handlers are now registered
+      by the worker (previously enqueued jobs dead-lettered)
+- [x] CLI `dominus automate settings|status|run|reset|audit`, API
+      `/api/v1/automation/*`, OpenAPI coverage, operator runbook
+- [x] **M2** — `site` + `indexing` steps: landing page generated from scoring
+      data and published at `/public/for-sale/<domain>` (Schema.org Offer),
+      sitemap inclusion, IndexNow submission (`INDEXNOW_KEY`), contact via
+      `AUTOMATION_CONTACT_EMAIL`
+- [ ] **M3** — `dns` + `parking` steps: DnsWriteProvider (Cloudflare-first,
+      manual fallback), first MonetizationProvider (Sedo Parking), revenue
+      ingestion
+- [ ] **M4** — marketplace automation: Dan.com + Afternic ListingProvider
+      adapters (verified API access required), offer sync and response rules
+- [ ] **M5** — sustainability: carry-cost vs ad-revenue verdict feeding the
+      drop engine, alerts, dashboards
 
 ## Post-1.0
 
