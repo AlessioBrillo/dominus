@@ -20,6 +20,10 @@ export {
   type PortfolioHealthcheckHandlerDeps,
 } from './handlers/portfolio-healthcheck-handler.js';
 export { AutoListHandler, type AutoListHandlerDeps } from './handlers/auto-list-handler.js';
+export {
+  PostAcquisitionHandler,
+  type PostAcquisitionHandlerDeps,
+} from './handlers/post-acquisition-handler.js';
 export type {
   JobType,
   JobStatus,

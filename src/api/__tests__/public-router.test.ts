@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createPublicRouter } from '../public-router.js';
+import { createPublicRouter, createIndexNowKeyHandler } from '../public-router.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { renderScorePage, renderDomainPage, renderComparePage } from '../views/index.js';
 import { generateOgPng } from '../open-graph.js';
@@ -948,6 +948,142 @@ describe('Public Router — /public', () => {
 
       expect(res.status).toBe(201);
       expect(res.headers['ratelimit-limit']).toBeDefined();
+    });
+  });
+
+  describe('GET /public/for-sale/:domain (ADR-0083 M2)', () => {
+    function makeDomainSiteRepoStub(site: Record<string, unknown> | null): {
+      findByDomainPublic: ReturnType<typeof vi.fn>;
+      listForSitemap: ReturnType<typeof vi.fn>;
+      upsert: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    } {
+      return {
+        findByDomainPublic: vi.fn().mockResolvedValue(site),
+        listForSitemap: vi.fn().mockResolvedValue(site ? [site] : []),
+        upsert: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+      };
+    }
+
+    const publishedSite = {
+      domain: 'vintagecoffee.com',
+      headline: 'vintagecoffee.com is for sale',
+      summary: 'Available for purchase. Asking price €1,200.',
+      askingPriceEur: 1200,
+      scoreJson: JSON.stringify({
+        expectedValue: 400,
+        confidence: 0.6,
+        suggestedListPrice: 1200,
+        weightedScore: 0.55,
+      }),
+      contact: 'owner@example.com',
+      publishedAt: '2026-10-13 10:00:00',
+      updatedAt: '2026-10-13 10:00:00',
+    };
+
+    it('renders the for-sale HTML page with Schema.org Offer', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          domainSiteRepo: makeDomainSiteRepoStub(publishedSite) as never,
+        }),
+      );
+      app.use(errorHandler);
+
+      const res = await request(app)
+        .get('/public/for-sale/vintagecoffee.com')
+        .set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('vintagecoffee.com');
+      expect(res.text).toContain('This domain is for sale');
+      expect(res.text).toContain('€1200');
+      expect(res.text).toContain('"@type":"Offer"');
+      expect(res.text).toContain('mailto:owner@example.com');
+    });
+
+    it('returns JSON when JSON is accepted', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          domainSiteRepo: makeDomainSiteRepoStub(publishedSite) as never,
+        }),
+      );
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/for-sale/vintagecoffee.com'));
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('askingPriceEur', 1200);
+      expect(res.body).toHaveProperty('score');
+    });
+
+    it('returns 404 when no page is published for the domain', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          domainSiteRepo: makeDomainSiteRepoStub(null) as never,
+        }),
+      );
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/for-sale/other.com'));
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 404 when no site repository is configured', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await acceptJson(request(app).get('/public/for-sale/vintagecoffee.com'));
+      expect(res.status).toBe(404);
+    });
+
+    it('includes for-sale pages in the sitemap', async () => {
+      const app = express();
+      app.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          domainSiteRepo: makeDomainSiteRepoStub(publishedSite) as never,
+        }),
+      );
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/sitemap.xml');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('/public/for-sale/vintagecoffee.com');
+    });
+  });
+
+  describe('IndexNow key file (ADR-0083 M2)', () => {
+    it('serves the key as plain text at /<key>.txt', async () => {
+      const handler = createIndexNowKeyHandler({ indexNowKey: 'abc123def456abc123def456' });
+      const res = await request(express().get('/:key.txt', handler)).get(
+        '/abc123def456abc123def456.txt',
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.text).toBe('abc123def456abc123def456');
+      expect(res.headers['content-type']).toContain('text/plain');
+    });
+
+    it('returns 404 for a non-matching filename', async () => {
+      const handler = createIndexNowKeyHandler({ indexNowKey: 'abc123def456abc123def456' });
+      const res = await request(express().get('/:key.txt', handler)).get('/wrong.txt');
+
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 404 when no key is configured', async () => {
+      const handler = createIndexNowKeyHandler({});
+      const res = await request(express().get('/:key.txt', handler)).get('/abc123def456.txt');
+
+      expect(res.status).toBe(404);
     });
   });
 });

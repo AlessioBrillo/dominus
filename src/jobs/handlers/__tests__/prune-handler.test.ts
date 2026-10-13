@@ -19,7 +19,9 @@ describe('PruneHandler', () => {
   }
 
   it('calls all repositories to prune expired data', async () => {
-    const deps = makeDeps();
+    const deps = makeDeps({
+      automationAuditRepo: { pruneOlderThan: vi.fn().mockResolvedValue(4) },
+    });
     const handler = new PruneHandler(deps as any);
 
     const result = await handler.handle({ maxAgeDays: 30 });
@@ -30,6 +32,7 @@ describe('PruneHandler', () => {
     expect(deps.providerCacheRepo.pruneExpired).toHaveBeenCalled();
     expect(deps.jobQueueRepo.deleteCompleted).toHaveBeenCalled();
     expect(deps.provider.exec).toHaveBeenCalledTimes(2);
+    expect(deps.automationAuditRepo.pruneOlderThan).toHaveBeenCalled();
     expect(result.deletedCandidates).toBe(10);
     expect(result.deletedScoringRuns).toBe(5);
     expect(result.deletedPipelineRuns).toBe(3);
@@ -38,6 +41,16 @@ describe('PruneHandler', () => {
     expect(result.deletedWaybackCache).toBe(0);
     expect(result.deletedPublicScores).toBe(2);
     expect(result.deletedEvents).toBe(2);
+    expect(result.deletedAutomationAudit).toBe(4);
+  });
+
+  it('reports zero audit deletions when the audit repository is absent (pre-0061 schema)', async () => {
+    const deps = makeDeps();
+    const handler = new PruneHandler(deps as any);
+
+    const result = await handler.handle({ maxAgeDays: 30 });
+
+    expect(result.deletedAutomationAudit).toBe(0);
   });
 
   it('uses default maxAgeDays of 30', async () => {

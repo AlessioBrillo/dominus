@@ -231,11 +231,16 @@ jobs:
           #    be refused with usage (exit 2).
           docker run --rm --entrypoint node dominus-api:test \
             dist/db/migrate-cli.js --help >/dev/null
+          # 2a. Derive the expected count from the manifest inside the image
+          #     (never hard-code it: the count drifted when migrations were
+          #     added, which is what the doc-drift gate teaches elsewhere).
+          expected_migrations=$(docker run --rm --entrypoint node dominus-api:test \
+            dist/db/migration-manifest-cli.js --list | wc -l | tr -d '[:space:]')
           migrate_out=$(docker run --rm -e DATABASE_PATH=/tmp/migrate-smoke.db \
             --entrypoint node dominus-api:test dist/db/migrate-cli.js)
           echo "$migrate_out"
-          grep -q "migrations applied: 60" <<<"$migrate_out" || {
-            echo "FATAL: migrate CLI must migrate a fresh SQLite database to the full manifest inside the image"
+          grep -q "migrations applied: ${expected_migrations}" <<<"$migrate_out" || {
+            echo "FATAL: migrate CLI must migrate a fresh SQLite database to the full manifest (${expected_migrations}) inside the image"
             exit 1
           }
           set +e

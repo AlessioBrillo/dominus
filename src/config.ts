@@ -1905,6 +1905,51 @@ const configSchema = z
      */
     LISTING_DEFAULT_PRICE_MULTIPLIER: z.coerce.number().min(0.1).max(10).default(1.0),
 
+    // ── Post-acquisition automation config (ADR-0083) ─────────────────
+
+    /**
+     * Kill switch for the post-acquisition automation pipeline. When false
+     * (default) the pipeline refuses to run and every trigger is audited
+     * as `automation_disabled`. Steps that spend money or mutate DNS are
+     * never executed while this is false.
+     */
+    AUTOMATION_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
+
+    /**
+     * Dry-run mode for the post-acquisition automation pipeline. When true
+     * (default) the pipeline still runs and journals every step, but
+     * executors that would spend money or mutate DNS must skip and report
+     * `dry_run` instead of acting. Set to false only after reviewing the
+     * pipeline output of a dry-run pass.
+     */
+    AUTOMATION_DRY_RUN: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+
+    /**
+     * IndexNow ownership key used by the `indexing` step of the
+     * post-acquisition pipeline. When set, DOMINUS serves the key file at
+     * `https://<host>/<key>.txt` and submits published for-sale pages to
+     * IndexNow (Bing/Yandex/Seznam). Unset = the step skips.
+     * Generate with: openssl rand -hex 32
+     */
+    INDEXNOW_KEY: z.string().min(8).optional(),
+
+    /**
+     * Contact address published on for-sale pages (the `site` step).
+     * When unset, the page links to the appraisal instead of an offer
+     * mailto. No contact details are ever invented.
+     */
+    AUTOMATION_CONTACT_EMAIL: z.string().email().optional(),
+
+    /**
+     * Retention in days for the automation_audit trail (data-prune job).
+     * Default: 90. Set to 0 to disable pruning of the audit trail.
+     */
+    AUTOMATION_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(90),
+
     // ── Job Queue / Worker config (ADR-0023) ──────────────────────────
 
     /**

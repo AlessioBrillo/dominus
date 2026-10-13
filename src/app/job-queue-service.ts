@@ -7,6 +7,7 @@ import type {
   JobResult,
   PipelineRunPayload,
   AutoListPayload,
+  PostAcquisitionPayload,
   JobQueueRow,
   JobQueueStats,
   DeadLetterJobRow,
@@ -54,6 +55,11 @@ export interface JobQueueService {
     domains: AutoListPayload['domains'],
     pipelineRunId: string,
     source?: string,
+  ): Promise<string>;
+  enqueuePostAcquisition(
+    domain: string,
+    source?: string,
+    pipelineRunId?: string | null,
   ): Promise<string>;
   getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null>;
   getQueueStats(): Promise<JobQueueStats>;
@@ -180,6 +186,22 @@ export function createJobQueueService(
       return enqueue('AUTO_LIST', { domains, pipelineRunId, source } as AutoListPayload, {
         priority: 0,
       });
+    },
+
+    async enqueuePostAcquisition(
+      domain: string,
+      source: string = 'purchase',
+      pipelineRunId: string | null = null,
+    ): Promise<string> {
+      return enqueue(
+        'POST_ACQUISITION',
+        {
+          domain,
+          source,
+          ...(pipelineRunId !== null ? { pipelineRunId } : {}),
+        } as PostAcquisitionPayload,
+        { priority: 5, maxAttempts: 3 },
+      );
     },
 
     async getJobStatus(jobId: number): Promise<{ job: JobQueueRow; result?: JobResult } | null> {

@@ -92,6 +92,7 @@ re-running the original arguments.
 | [0080](0080-db-connection-topology.md)                         | DB Connection Topology — Single Writer, Explicit Lifecycle, Read-Your-Write                          | 2026-10-02 | Proposed                            |
 | [0081](0081-operator-role-and-team-invitations.md)             | Platform operator role, SSO tenant resolution and team invitations                                   | 2026-10-08 | Accepted                            |
 | [0082](0082-removal-of-unimplemented-features.md)              | Remove features that were declared but never worked                                                  | 2026-10-08 | Accepted                            |
+| [0083](0083-post-acquisition-automation-pipeline.md)           | Post-Acquisition Automation Pipeline                                                                 | 2026-10-12 | Accepted                            |
 
 ## Conventions
 
