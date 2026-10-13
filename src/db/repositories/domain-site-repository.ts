@@ -21,7 +21,7 @@ export class DomainSiteRepository {
     await this.db.exec(
       `INSERT INTO domain_sites (domain, headline, summary, asking_price_eur, score_json, contact, tenant_id)
        VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (domain) DO UPDATE SET
+       ON CONFLICT (domain, tenant_id) DO UPDATE SET
          headline = excluded.headline,
          summary = excluded.summary,
          asking_price_eur = excluded.asking_price_eur,
@@ -40,10 +40,12 @@ export class DomainSiteRepository {
     );
   }
 
-  /** Public read: no tenant filter (a published page is public content). */
+  /** Public read: no tenant filter (a published page is public content).
+   *  Deterministic: the most recently updated page wins when more than one
+   *  tenant published a page for the same domain. */
   async findByDomainPublic(domain: string): Promise<DomainSite | null> {
     const row = await this.db.queryOne<DomainSiteRow>(
-      `SELECT ${COLUMNS} FROM domain_sites WHERE domain = ?`,
+      `SELECT ${COLUMNS} FROM domain_sites WHERE domain = ? ORDER BY updated_at DESC LIMIT 1`,
       [domain],
     );
     return row ? domainSiteFromRow(row) : null;
@@ -54,7 +56,16 @@ export class DomainSiteRepository {
       `SELECT ${COLUMNS} FROM domain_sites ORDER BY published_at DESC LIMIT ?`,
       [limit],
     );
-    return rows.map(domainSiteFromRow);
+    // One sitemap entry per domain: two tenants can track the same domain
+    // (unique is per tenant), but the public site has one page per name.
+    const seen = new Set<string>();
+    const unique: DomainSite[] = [];
+    for (const site of rows.map(domainSiteFromRow)) {
+      if (seen.has(site.domain)) continue;
+      seen.add(site.domain);
+      unique.push(site);
+    }
+    return unique;
   }
 
   async delete(domain: string): Promise<void> {

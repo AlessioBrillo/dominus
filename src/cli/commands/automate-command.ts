@@ -4,8 +4,11 @@ import type { PostAcquisitionService } from '../../services/post-acquisition-ser
 import {
   POST_ACQUISITION_STEPS,
   isPostAcquisitionStepName,
+  isPostAcquisitionTriggerSource,
   type PostAcquisitionStepName,
 } from '../../types/automation.js';
+
+const TRIGGER_SOURCES = ['purchase', 'acquisition', 'manual', 'pipeline_run'] as const;
 
 import { getLogger } from '../../logger.js';
 
@@ -102,6 +105,13 @@ export function registerAutomateCommand(program: Command, options: AutomateComma
     .option('--reset', 'Reset all steps before running')
     .action(async (domain, opts) => {
       try {
+        if (!isPostAcquisitionTriggerSource(opts.source)) {
+          console.error(
+            `Unknown trigger source "${opts.source}". Valid: ${TRIGGER_SOURCES.join(', ')}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
         const result = opts.reset
           ? await postAcquisitionService.resetAndRun(domain, opts.source)
           : await postAcquisitionService.run(domain, opts.source, {

@@ -131,6 +131,7 @@ export interface PruneResult {
   deletedWaybackCache: number;
   deletedPublicScores: number;
   deletedEvents: number;
+  deletedAutomationAudit: number;
 }
 
 export interface WatchlistPollPayload {

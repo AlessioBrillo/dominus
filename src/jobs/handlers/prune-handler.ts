@@ -5,6 +5,7 @@ import type { ScoringRepository } from '../../db/repositories/scoring-repository
 import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs-repository.js';
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { JobQueueRepository } from '../../db/repositories/job-queue-repository.js';
+import type { AutomationAuditRepository } from '../../db/repositories/automation-audit-repository.js';
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { PrunePayload, PruneResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
@@ -18,6 +19,9 @@ export interface PruneHandlerDeps {
   pipelineRunsRepo: PipelineRunsRepository;
   providerCacheRepo: ProviderCacheRepository;
   jobQueueRepo: JobQueueRepository;
+  /** Automation audit trail retention (default: 90). Optional: the audit
+   *  table only exists on installations that ran migration 0061. */
+  automationAuditRepo?: AutomationAuditRepository | undefined;
   /** Raw SQLite connection for wayback_cache cleanup. null when using PostgreSQL. */
   db: Database.Database | null;
   /** DatabaseProvider for cross-dialect queries (public_scores, events). */
@@ -26,6 +30,8 @@ export interface PruneHandlerDeps {
   publicScoresRetentionDays: number;
   /** Retention days for events entries (default: 180). */
   eventsRetentionDays: number;
+  /** Retention days for automation_audit entries (default: 90). */
+  automationAuditRetentionDays?: number;
 }
 
 export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
@@ -65,6 +71,13 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
       await this.deps.provider.exec('DELETE FROM events WHERE created_at < ?', [eventsCutoff])
     ).changes;
 
+    const auditRetentionDays = this.deps.automationAuditRetentionDays ?? 90;
+    const deletedAutomationAudit = this.deps.automationAuditRepo
+      ? await this.deps.automationAuditRepo.pruneOlderThan(
+          new Date(Date.now() - auditRetentionDays * 86400000).toISOString(),
+        )
+      : 0;
+
     logger.info(
       {
         deletedCandidates,
@@ -75,6 +88,7 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
         deletedWaybackCache,
         deletedPublicScores,
         deletedEvents,
+        deletedAutomationAudit,
       },
       'PruneHandler: completed',
     );
@@ -88,6 +102,7 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
       deletedWaybackCache,
       deletedPublicScores,
       deletedEvents,
+      deletedAutomationAudit,
     };
   }
 }

@@ -282,6 +282,7 @@ Post-acquisition automation (ADR-0083) is off by default and dry-run by default:
 | `AUTOMATION_DRY_RUN`       | `true`              | When true, steps that spend money or mutate DNS skip instead of acting      |
 | `INDEXNOW_KEY`             | (optional)          | IndexNow key: serves `/<key>.txt` and submits for-sale pages to Bing/Yandex |
 | `AUTOMATION_CONTACT_EMAIL` | (optional)          | Contact address published on for-sale pages (offer mailto)                  |
+| `AUTOMATION_AUDIT_RETENTION_DAYS` | `90`         | Retention of the automation audit trail (pruned by the data-prune job)      |
 
 See [full reference](docs/customization/configuration.md).
 

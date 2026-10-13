@@ -107,3 +107,9 @@ A `POST /run` while the kill switch is off returns `409` with code
 5. **Failures are resumable.** A failed step can be retried after the external
    cause is fixed with `dominus automate run <domain>` (the journal skips the
    steps already done).
+6. **Concurrency.** Two triggers for the same domain (purchase plus a manual
+   run, or a retried job) are serialized, so a step never executes twice in
+   parallel; the journal is the source of truth for what already ran.
+7. **Housekeeping.** The `data-prune` job deletes `automation_audit` rows older
+   than `AUTOMATION_AUDIT_RETENTION_DAYS` (default 90). The step journal itself
+   is bounded by the portfolio size and is never pruned.

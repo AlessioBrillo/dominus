@@ -117,6 +117,34 @@ the operator must understand the kill switch before enabling automation.
 the ones gated by dry-run + kill switch; the default configuration performs no
 external mutation.
 
+## Post-implementation review findings (fixed)
+
+A critical review of the first implementation found and fixed:
+
+1. **Handler registration was untestable and had already failed once.**
+   `AutoListHandler` was never registered, so every `AUTO_LIST` job
+   dead-lettered. Handler construction is now extracted into
+   `buildJobHandlers()` and a test asserts the registered set matches
+   `REQUIRED_JOB_TYPES` (read from the `JobType` union source), with
+   `WEIGHT_TUNE` marked conditional on `AUTO_TUNE_ENABLED`.
+2. **Concurrent runs of the same domain could interleave.** Two triggers
+   (purchase + manual run, or a retried job) both passed the "already done"
+   check before either completed. Runs are now serialized per domain inside
+   the process; the journal remains the source of truth.
+3. **`domain_sites` upsert had no tenant guard.** Two tenants tracking the
+   same domain could silently overwrite each other's published page. The
+   conflict target is now `(domain, tenant_id)`; the public read picks the
+   most recently updated page and the sitemap lists one entry per domain.
+4. **`automation_audit` grew without bound** on long-running installs. The
+   `data-prune` job now deletes rows older than
+   `AUTOMATION_AUDIT_RETENTION_DAYS` (default 90), and reports the count in
+   `PruneResult.deletedAutomationAudit`.
+5. **Malformed stored snapshots could turn a public read into a 500.**
+   `GET /public/for-sale/:domain` now parses the score snapshot defensively
+   and caches the JSON response like the HTML one.
+6. **CLI accepted any `--source` string**, which would be persisted into the
+   journal. The command now validates against the trigger-source enum.
+
 ## Compliance Check
 
 - [x] ADR-0002 conservatism: default configuration performs no money/DNS action.

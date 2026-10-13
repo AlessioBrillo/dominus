@@ -257,4 +257,55 @@ describe('PostAcquisitionService', () => {
       expect(result.steps.find((s) => s.step === 'listing')?.status).toBe('done');
     });
   });
+
+  describe('per-domain serialization', () => {
+    it('serializes two concurrent runs of the same domain', async () => {
+      const repo = mockRepo();
+      // The step starts 'pending' and only becomes 'done' on the first run;
+      // a concurrent second run must not execute it in parallel.
+      const rows = new Map<string, { status: string }>();
+      repo.findByDomainAndStep.mockImplementation(
+        async (_domain: string, step: string) => rows.get(step) ?? null,
+      );
+      repo.upsert.mockImplementation(async (input: { domain: string; step: string }) => {
+        rows.set(input.step, { status: 'pending' });
+        return journalRow(input);
+      });
+      repo.markDone.mockImplementation(async (id: number) => {
+        const step = POST_ACQUISITION_STEPS[id - 1];
+        const row = rows.get(step as string);
+        if (row) row.status = 'done';
+      });
+
+      const order: string[] = [];
+      const listing = fakeExecutor('listing', () => {
+        order.push('listing-start');
+        return { status: 'done' };
+      });
+
+      const service = new PostAcquisitionService(repo, mockAuditRepo(), [listing], {
+        enabled: true,
+      });
+
+      await Promise.all([
+        service.run('example.com', 'purchase'),
+        service.run('example.com', 'purchase'),
+      ]);
+
+      // The step executes exactly once: the second run finds it already done.
+      expect(listing.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs different domains independently', async () => {
+      const repo = mockRepo();
+      const listing = fakeExecutor('listing', () => ({ status: 'done' }));
+      const service = new PostAcquisitionService(repo, mockAuditRepo(), [listing], {
+        enabled: true,
+      });
+
+      await Promise.all([service.run('a.com', 'purchase'), service.run('b.com', 'purchase')]);
+
+      expect(listing.execute).toHaveBeenCalledTimes(2);
+    });
+  });
 });

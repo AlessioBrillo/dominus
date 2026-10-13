@@ -50,4 +50,12 @@ export class AutomationAuditRepository {
     );
     return rows.map(automationAuditFromRow);
   }
+
+  /** Retention pass for the data-prune job. Returns the number of rows deleted. */
+  async pruneOlderThan(cutoff: string): Promise<number> {
+    const result = await this.db.exec('DELETE FROM automation_audit WHERE created_at < ?', [
+      cutoff,
+    ]);
+    return Number(result.changes);
+  }
 }

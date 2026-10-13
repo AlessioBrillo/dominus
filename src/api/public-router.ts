@@ -150,6 +150,15 @@ export function createIndexNowKeyHandler(options: PublicRouterOptions = {}): Req
   };
 }
 
+/** Never let a malformed stored snapshot turn a public read into a 500. */
+function parseScoreSafely(json: string): unknown {
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Defense-in-depth: strip the buy signal (suggestedBuyMax) from any public
  * response whose trademark verdict is not 'clear'. The service layer already
@@ -357,7 +366,7 @@ export function createPublicRouter(
             headline: site.headline,
             summary: site.summary,
             askingPriceEur: site.askingPriceEur,
-            score: JSON.parse(site.scoreJson) as unknown,
+            score: parseScoreSafely(site.scoreJson),
             contact: site.contact,
             publishedAt: site.publishedAt,
           });

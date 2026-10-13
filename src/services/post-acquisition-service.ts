@@ -10,6 +10,7 @@ import type {
   PostAcquisitionStepStatus,
   PostAcquisitionTriggerSource,
 } from '../types/automation.js';
+import type { AutomationAuditEntry } from '../types/automation.js';
 import { POST_ACQUISITION_STEPS } from '../types/automation.js';
 import { getLogger } from '../logger.js';
 
@@ -72,6 +73,10 @@ export class PostAcquisitionService {
   readonly #executors = new Map<PostAcquisitionStepName, PostAcquisitionStepExecutor>();
   readonly #enabled: boolean;
   readonly #dryRun: boolean;
+  /** In-process per-domain serialization: two triggers for the same domain
+   *  (purchase + manual run, or a retried job) must never interleave — both
+   *  would otherwise pass the "already done" check before either completes. */
+  readonly #running = new Map<string, Promise<PostAcquisitionRunResult>>();
 
   constructor(
     repo: PostAcquisitionRepository,
@@ -101,6 +106,26 @@ export class PostAcquisitionService {
     domain: string,
     source: PostAcquisitionTriggerSource,
     options: PostAcquisitionRunOptions = {},
+  ): Promise<PostAcquisitionRunResult> {
+    // Serialize concurrent runs for the same domain (see #running).
+    const previous = this.#running.get(domain);
+    const current = (previous ?? Promise.resolve()).then(() =>
+      this.#runInternal(domain, source, options),
+    );
+    this.#running.set(domain, current);
+    try {
+      return await current;
+    } finally {
+      if (this.#running.get(domain) === current) {
+        this.#running.delete(domain);
+      }
+    }
+  }
+
+  async #runInternal(
+    domain: string,
+    source: PostAcquisitionTriggerSource,
+    options: PostAcquisitionRunOptions,
   ): Promise<PostAcquisitionRunResult> {
     if (!this.#enabled) {
       logger.warn({ domain, source }, 'PostAcquisitionService: automation disabled (kill switch)');
@@ -206,9 +231,7 @@ export class PostAcquisitionService {
     await this.#repo.resetStep(domain, step);
   }
 
-  async listAudit(
-    limit: number = 100,
-  ): Promise<ReturnType<AutomationAuditRepository['listRecent']>> {
+  async listAudit(limit: number = 100): Promise<AutomationAuditEntry[]> {
     return this.#auditRepo.listRecent(limit);
   }
 

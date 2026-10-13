@@ -8,14 +8,15 @@ export const backwardCompatible = true;
 /**
  * Published for-sale pages (ADR-0083, M2).
  *
- * One row per domain, written by the `site` step of the post-acquisition
- * pipeline. Reads from the public namespace are deliberately tenant-agnostic
- * (the same pattern as public_scores): a published page is, by definition,
+ * One row per (domain, tenant): the unique constraint keeps two tenants
+ * tracking the same domain from silently overwriting each other's page.
+ * Reads from the public namespace are deliberately tenant-agnostic (the
+ * same pattern as public_scores): a published page is, by definition,
  * content the operator chose to make public. Writes stay tenant-scoped.
  */
 const SQLITE_DDL = `
 CREATE TABLE IF NOT EXISTS domain_sites (
-  domain TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
   headline TEXT NOT NULL,
   summary TEXT NOT NULL,
   asking_price_eur REAL,
@@ -23,13 +24,14 @@ CREATE TABLE IF NOT EXISTS domain_sites (
   contact TEXT,
   tenant_id TEXT NOT NULL DEFAULT 'default',
   published_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(domain, tenant_id)
 )
 `;
 
 const PG_DDL = `
 CREATE TABLE IF NOT EXISTS domain_sites (
-  domain TEXT PRIMARY KEY,
+  domain TEXT NOT NULL,
   headline TEXT NOT NULL,
   summary TEXT NOT NULL,
   asking_price_eur REAL,
@@ -37,7 +39,8 @@ CREATE TABLE IF NOT EXISTS domain_sites (
   contact TEXT,
   tenant_id TEXT NOT NULL DEFAULT 'default',
   published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(domain, tenant_id)
 )
 `;
 

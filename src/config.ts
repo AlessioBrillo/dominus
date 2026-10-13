@@ -1944,6 +1944,12 @@ const configSchema = z
      */
     AUTOMATION_CONTACT_EMAIL: z.string().email().optional(),
 
+    /**
+     * Retention in days for the automation_audit trail (data-prune job).
+     * Default: 90. Set to 0 to disable pruning of the audit trail.
+     */
+    AUTOMATION_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(90),
+
     // ── Job Queue / Worker config (ADR-0023) ──────────────────────────
 
     /**
