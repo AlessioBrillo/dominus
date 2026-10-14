@@ -1,0 +1,124 @@
+name: Release
+
+# Publishes the community-edition artifacts on a version tag:
+#   - GitHub Release with notes extracted from the CHANGELOG section
+#   - npm package `dominus-oss`, built from the same commit
+#
+# Deliberately separate from deploy.yml: the Cloud rollout (Terraform, SSH,
+# migrate-before-roll) and the public artifact publication have different
+# triggers, different blast radius and different failure modes. Keeping them
+# in one workflow meant the release step silently degraded when the CHANGELOG
+# section was missing — `--generate-notes` produced a release with no notes at
+# all, which is how an empty public release notes page happens.
+#
+# npm is published with OIDC trusted publishing: the workflow requests a
+# short-lived token bound to this repository, environment and commit (OIDC
+# token → npm). No long-lived NPM_TOKEN secret exists to leak, and the token
+# is bound to the exact version being published.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Verify the release but do not publish'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Publish GitHub Release and npm package
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write   # release notes + release asset
+    env:
+      DRY_RUN: ${{ inputs.dry_run || false }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # full history: the CHANGELOG extraction compares against the
+          # previous tag, and standard-version conventions reference commits.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      # The SPA has to be built before the backend: `dist/web/` must exist in
+      # the tarball or every HTML route in the published package 404s. CI
+      # catches this via check-pack, which is why this step runs even in a
+      # dry run — an artifact that only works because a Docker build
+      # synthesised the frontend is not the artifact a consumer receives.
+      - name: Build frontend
+        run: npm --prefix frontend ci && npm run build:frontend
+
+      - name: Build backend and validate the tarball
+        run: |
+          npm ci
+          npm run build
+          # check-pack fails loudly on a missing frontend or data file,
+          # instead of shipping a package whose SPA route is a 404.
+          npm run check:pack
+
+      - name: Extract version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------
+      # GitHub Release
+      # ------------------------------------------------------------------
+      # The previous behaviour degraded silently: a missing CHANGELOG
+      # section produced a release with auto-generated notes, and no one
+      # noticed until the release page was read. Now a missing or empty
+      # section fails the workflow, so a tag cannot be half-published.
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          version="${tag#v}"
+          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+            echo "::error title=Missing CHANGELOG section::CHANGELOG.md has no section for ${version}.
+          Add '## [${version}]' before tagging. Refusing to publish a release with no notes."
+            exit 1
+          fi
+          # From the version's header to the next top-level header, so the
+          # section body is isolated rather than the whole document.
+          awk -v v="${version}" '
+            $0 ~ "^## \\[" v "\\]" || $0 ~ "^## " v " " { insec=1; next }
+            insec && /^## / { exit }
+            insec { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+          test -s /tmp/release-notes.md || { echo "::error title=Empty CHANGELOG section::Section for ${version} is empty."; exit 1; }
+
+      - name: Publish GitHub Release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "${TAG}" --notes-file /tmp/release-notes.md
+
+      # ------------------------------------------------------------------
+      # npm package
+      # ------------------------------------------------------------------
+      # OIDC trusted publishing: `npm publish` detects the OIDC environment
+      # and exchanges it for a token, so nothing is stored in secrets.
+      # `--provenance` publishes the build's cryptographic provenance,
+      # letting anyone verify the tarball was built from this repository,
+      # this commit, by this workflow.
+      - name: Publish to npm (dry run)
+        if: env.DRY_RUN == 'true'
+        run: npm publish --dry-run --provenance
+
+      - name: Publish to npm
+        if: env.DRY_RUN != 'true'
+        run: npm publish --provenance --access public

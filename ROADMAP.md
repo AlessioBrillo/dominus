@@ -90,7 +90,7 @@ estimates and subject to change.
 - [x] CI matrix testing (Node 22 + 24 on ubuntu and windows, native-bindings smoke check)
 - [x] Codecov integration + coverage badge in README
 - [x] Security audit (dependency scan, CSP review, auth hardening) — `npm audit` reports 0 vulnerabilities in both workspaces; the script runs with `--omit=dev`, and the frontend tree is clean in full
-- [x] Frontend coverage thresholds raised to ≥50% (enforced in CI via `npm run test:coverage`; vitest thresholds 50/50/50 lines/functions/branches)
+- [x] Frontend coverage thresholds raised to ≥70% (enforced in CI via `npm run test:coverage`; vitest thresholds 70/70/70 statements/lines/functions and 60 branches)
 
 ## v0.11.0 — Consensus Hardening (released)
 

@@ -6,7 +6,7 @@ updates:
       interval: 'weekly'
       day: 'monday'
       time: '08:00'
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     ignore:
       # @types/psl ≥ 1.4.0 is a stub that delegates to psl's own types,
       # but psl's package.json "exports" doesn't expose them under
@@ -23,11 +23,29 @@ updates:
       # ("does not support TS 7.0") until it catches up.
       - dependency-name: 'typescript'
         versions: ['>=7.0.0']
+      # vitest ≥ 5.0.0 removed the `bench` export (vitest-dev/vitest#10113),
+      # which breaks src/benchmarks/*.bench.ts with TS2724, and moved `vite`
+      # to a required non-optional peer. Because .npmrc sets
+      # legacy-peer-deps=true, npm will not auto-install it, so `vitest run`
+      # dies with ERR_MODULE_NOT_FOUND. Port the benchmarks to the v5 API and
+      # add vite to devDependencies first — see the tracking issue. Unblock by
+      # removing this rule; the failure is deterministic, not flaky.
+      - dependency-name: 'vitest'
+        versions: ['>=5.0.0']
     groups:
       production:
         dependency-type: 'production'
+          # Semantic-versioning majors in the development group are not worth
+          # a weekly PR: they never affect a shipped artifact, they break the
+          # test suite in ways that take real work to fix, and the lockfile
+          # churn makes review of the unrelated production bump harder. Keep
+          # majors opt-in via a manual, scoped PR.
+        exclude-patterns:
+          - '@vitest/*'
       development:
         dependency-type: 'development'
+        exclude-patterns:
+          - '@vitest/*'
     labels:
       - 'dependencies'
 
