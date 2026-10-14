@@ -125,7 +125,7 @@
     "lru-cache": "^11.5.3",
     "node-cron": "^4.6.0",
     "node-notifier": "^11.0.0",
-    "nodemailer": "^10.0.16",
+    "nodemailer": "^10.1.0",
     "pino": "^10.4.0",
     "psl": "^1.15.0",
     "stripe": "^23.0.0",
