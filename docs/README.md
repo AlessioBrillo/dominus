@@ -38,6 +38,9 @@ Task-oriented, each one start to finish:
   deploys, gate → migrate → roll, backups
 - [npm publishing runbook](releases/npm-publishing.md) — the one-time OIDC
   trusted-publisher setup, and how a consumer verifies provenance
+- [Cloud launch readiness](releases/cloud-launch-readiness.md) — the verified
+  state of DOMINUS Cloud: what is solid, what blocks revenue, and the
+  decisions already on record
 - [Migration policy](releases/migration-policy.md) — how schema changes are
   released, including the operational runbook
 - [Upgrade to 1.1.0](releases/upgrade-1.1.0.md) — what changed and what you
