@@ -3,6 +3,12 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ExpiryWatcher, ExpiryWindow } from '../expiry-watcher.js';
 import type { DomainExpiryInfo } from '../expiry-watcher.js';
 
+// computeRenewalClock-style day math makes "now + N days" fixtures land on a
+// different UTC calendar day depending on the wall clock. vi.useFakeTimers()
+// alone only freezes at the *current* real time, so anchor it explicitly:
+// anchoring mid-UTC-day keeps every fixture inside its intended calendar day.
+const FIXED_NOW = '2026-10-14T12:00:00.000Z';
+
 function daysFromNow(n: number): string {
   const d = new Date(Date.now() + n * 86_400_000);
   return d.toISOString();
@@ -27,6 +33,7 @@ describe('ExpiryWatcher', () => {
   beforeEach(() => {
     watcher = new ExpiryWatcher({ preReleaseDays: 30, closeoutDays: 7, pollIntervalHours: 6 });
     vi.useFakeTimers();
+    vi.setSystemTime(new Date(FIXED_NOW));
   });
 
   afterEach(() => {
