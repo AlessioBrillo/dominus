@@ -28,10 +28,14 @@ All notable changes to this project will be documented in this file. See [standa
   error bodies now carry `requestId`. Inbound values are length-capped
   (200 chars) and charset-restricted, since an untrusted id would otherwise
   be written into response headers and structured logs.
+* **observability:** warn when `TRUST_PROXY_DEPTH` is unset behind a reverse
+  proxy — the value decides whose `X-Forwarded-For` is believed, which
+  decides the key every per-IP rate limit uses, and unset reads the same as
+  "no proxy" so nothing surfaced the mistake.
 
 ### Bug Fixes
 
-* **portfolio:** de-flake day math across the UTC midnight boundary
+- **portfolio:** de-flake day math across the UTC midnight boundary
   ([#474](https://github.com/AlessioBrillo/dominus/pull/474)) — two suites
   read the wall clock while comparing UTC calendar days, so any CI run that
   crossed 00:00 UTC failed for reasons unrelated to the diff. Anchored to
