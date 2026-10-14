@@ -79,7 +79,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         # Pinned to a fixed commit (supply-chain hardening): never track a
         # branch (`@master`) for third-party actions.
-        uses: aquasecurity/trivy-action@c03d123cb480c08c69b054af418ea5e69fe6e57e
+        uses: aquasecurity/trivy-action@6abccf398f78b4c337599c0656f933d91efb91a0
         with:
           image-ref: dominus-api:scan
           format: sarif
