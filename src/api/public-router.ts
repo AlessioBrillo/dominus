@@ -22,9 +22,11 @@ import {
   escapeHtml,
   renderScorePage,
   renderDomainPage,
+  renderForSalePage,
   renderComparePage,
   renderErrorPage,
 } from './views/index.js';
+import type { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 
 const logger = getLogger();
 
@@ -77,6 +79,16 @@ export interface PublicRouterOptions {
     postMax?: number;
     postBodyMaxBytes?: number;
   };
+  /**
+   * Published for-sale pages (ADR-0083, M2). When provided, the router
+   * serves `/for-sale/:domain` and includes those pages in the sitemap.
+   */
+  domainSiteRepo?: DomainSiteRepository | undefined;
+  /**
+   * IndexNow verification key. When set, the router serves the key file
+   * at the site root (`/<key>.txt`) so search engines can verify ownership.
+   */
+  indexNowKey?: string | undefined;
 }
 
 /** Extract the public-facing origin so per-origin caches key correctly. */
@@ -116,6 +128,35 @@ export function createRobotsTxtHandler(options: PublicRouterOptions = {}): Reque
     res.type('text/plain');
     res.send(`User-agent: *\nAllow: /\n\nSitemap: ${siteUrl}/public/sitemap.xml\n`);
   };
+}
+
+/**
+ * Serve the IndexNow ownership-verification file at the site root
+ * (`/<key>.txt`, ADR-0083 M2). Mount at the root level, not under /public:
+ * search engines fetch the key from the host root. Returns 404 for any
+ * other filename and when no key is configured.
+ */
+export function createIndexNowKeyHandler(options: PublicRouterOptions = {}): RequestHandler {
+  const key = options.indexNowKey;
+  return (req: Request, res: Response): void => {
+    const requested = (req.params['key'] as string | undefined) ?? '';
+    if (key === undefined || key.length < 8 || requested !== key) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.type('text/plain');
+    res.send(key);
+  };
+}
+
+/** Never let a malformed stored snapshot turn a public read into a 500. */
+function parseScoreSafely(json: string): unknown {
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -283,6 +324,60 @@ export function createPublicRouter(
   );
 
   router.get(
+    '/for-sale/:domain',
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const domain = req.params.domain as string | undefined;
+        if (!domain || !isValidDomain(domain)) {
+          res.status(400).json({
+            error: { code: 'INVALID_DOMAIN', message: `'${domain ?? ''}' is not a valid domain` },
+          });
+          return;
+        }
+        if (!options.domainSiteRepo) {
+          res.status(404).json({
+            error: { code: 'NOT_FOUND', message: 'No for-sale pages are published' },
+          });
+          return;
+        }
+
+        const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+        if (!(await domainRateLimiter.check(ip, domain))) {
+          res.status(429).json({
+            error: { code: 'RATE_LIMITED', message: 'Too many requests for this domain' },
+          });
+          return;
+        }
+
+        const site = await options.domainSiteRepo.findByDomainPublic(domain);
+        if (site === null) {
+          res.status(404).json({
+            error: { code: 'NOT_FOUND', message: `${domain} has no published for-sale page` },
+          });
+          return;
+        }
+
+        res.set('Cache-Control', 'public, max-age=3600');
+        if (req.accepts('html')) {
+          res.send(renderForSalePage(site, siteUrlForReq(req)));
+        } else {
+          res.json({
+            domain: site.domain,
+            headline: site.headline,
+            summary: site.summary,
+            askingPriceEur: site.askingPriceEur,
+            score: parseScoreSafely(site.scoreJson),
+            contact: site.contact,
+            publishedAt: site.publishedAt,
+          });
+        }
+      } catch (err: unknown) {
+        next(err);
+      }
+    },
+  );
+
+  router.get(
     '/compare/:slug1/:slug2',
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
       try {
@@ -391,9 +486,27 @@ export function createPublicRouter(
           })
           .join('');
 
+        // Published for-sale pages (ADR-0083, M2) — buyer discoverability.
+        const forSaleUrls = options.domainSiteRepo
+          ? (await options.domainSiteRepo.listForSitemap())
+              .map((site) => {
+                const lastmod = site.publishedAt
+                  ? new Date(site.publishedAt).toISOString().split('T')[0]
+                  : new Date().toISOString().split('T')[0];
+                return `
+  <url>
+    <loc>${escapeHtml(origin)}/public/for-sale/${escapeHtml(site.domain)}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+              })
+              .join('')
+          : '';
+
         const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urls}
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">${urls}${forSaleUrls}
 </urlset>`;
 
         const etag = `"${createHash('sha1').update(xml).digest('hex')}"`;

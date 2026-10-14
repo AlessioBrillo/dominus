@@ -30,6 +30,7 @@ import type { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import type { AcquisitionService } from '../services/acquisition-service.js';
 import type { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import type { ListingManager } from '../listing/listing-manager.js';
+import type { PostAcquisitionService } from '../services/post-acquisition-service.js';
 import type { KeyManager } from '../providers/auth/auth-provider.js';
 import type { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 
@@ -45,6 +46,7 @@ function loadCliVersion(): string {
   }
 }
 import { registerListingCommand } from './commands/listing-command.js';
+import { registerAutomateCommand } from './commands/automate-command.js';
 import { registerRunCommand } from './commands/run-command.js';
 import { registerBidCommand } from './commands/bid-command.js';
 import { registerPortfolioCommand } from './commands/portfolio-command.js';
@@ -90,6 +92,7 @@ export interface CreateCliOptions {
   acquisitionService?: AcquisitionService;
   funnelService?: AcquisitionFunnelService;
   listingManager?: ListingManager;
+  postAcquisitionService?: PostAcquisitionService;
   keyManager?: KeyManager | undefined;
   apiKeyRepo?: ApiKeyRepository | undefined;
 }
@@ -185,6 +188,12 @@ export function createCli(options: CreateCliOptions): Command {
 
   if (options.listingManager) {
     registerListingCommand(program, { listingManager: options.listingManager });
+  }
+
+  if (options.postAcquisitionService) {
+    registerAutomateCommand(program, {
+      postAcquisitionService: options.postAcquisitionService,
+    });
   }
 
   registerKeysCommand(program, {

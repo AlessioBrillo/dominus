@@ -1,8 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { computeRenewalClock, isRenewalImminent } from '../renewal-clock.js';
 import { Verdict } from '../../types/portfolio.js';
 import type { PortfolioEntry } from '../../types/portfolio.js';
+
+// computeRenewalClock diffs UTC calendar days, so a "now minus a few seconds"
+// fixture is only inside the same day while the wall clock is far from 00:00
+// UTC. The suite used to read the real clock and therefore failed on any CI run
+// that crossed midnight UTC. Anchor the suite to mid-UTC-day: deterministic,
+// and it keeps asserting exactly what it asserts — sub-day offsets round to
+// calendar days, not to exact 24h deltas.
+const FIXED_NOW = '2026-10-14T12:00:00.000Z';
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(FIXED_NOW));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeEntry(renewalDaysFromNow: number): PortfolioEntry {
   const renewal = new Date(Date.now() + renewalDaysFromNow * 24 * 60 * 60 * 1000);

@@ -614,6 +614,9 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       DNS_FALLBACK_PROVIDER: 'node-dns' as const,
       DNS_FALLBACK_ONLY_FOR_NON_AVAILABLE: true,
       IS_CLOUD_MODE: false,
+      AUTOMATION_ENABLED: false,
+      AUTOMATION_DRY_RUN: true,
+      AUTOMATION_AUDIT_RETENTION_DAYS: 90,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

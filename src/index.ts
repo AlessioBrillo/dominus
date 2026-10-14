@@ -18,6 +18,7 @@ import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js'
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
+import { requestContext } from './api/middleware/request-context.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import { serverTimeoutConfig } from './utils/server-timeouts.js';
 import {
@@ -41,6 +42,7 @@ import {
   createSchedulerRouter,
   createWatchlistRouter,
   createPurchaseRouter,
+  createAutomationRouter,
   createBidsRouter,
   createFunnelRouter,
   createReportRouter,
@@ -52,6 +54,7 @@ import {
   createWorkerRouter,
   createPublicRouter,
   createRobotsTxtHandler,
+  createIndexNowKeyHandler,
   errorHandler,
   createRequestLogger,
   responseCache,
@@ -182,6 +185,10 @@ async function main(): Promise<void> {
 
   app.use(securityHeaders);
 
+  // First in the chain: everything below this point logs under a correlation
+  // id, and clients see it echoed in the response header and error bodies.
+  app.use(requestContext());
+
   if (config.REQUEST_TIMEOUT_MS > 0) {
     app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
   }
@@ -228,7 +235,11 @@ async function main(): Promise<void> {
 
   app.use(
     '/public',
-    createPublicRouter(deps.anonScoringService, deps.redisClient, publicAppUrlOption(config)),
+    createPublicRouter(deps.anonScoringService, deps.redisClient, {
+      ...publicAppUrlOption(config),
+      domainSiteRepo: deps.domainSiteRepo,
+      ...(config.INDEXNOW_KEY !== undefined ? { indexNowKey: config.INDEXNOW_KEY } : {}),
+    }),
   );
 
   // Site-root robots.txt (crawlers fetch '/robots.txt'). The handler is
@@ -236,6 +247,11 @@ async function main(): Promise<void> {
   // auth and before the SPA catch-all. The Sitemap directive points at the
   // /public/sitemap.xml route.
   app.get('/robots.txt', createRobotsTxtHandler(publicAppUrlOption(config)));
+
+  // IndexNow ownership verification file (ADR-0083, M2):
+  // https://<host>/<INDEXNOW_KEY>.txt must serve the key as plain text.
+  // Registered before the SPA catch-all; 404 for any other filename.
+  app.get('/:key.txt', createIndexNowKeyHandler(publicAppUrlOption(config)));
 
   app.use('/api/v1/docs', createDocsRouter());
   app.use('/api/health', createHealthRouter(deps.healthCheck, deps.metrics, deps.dnsProvider));
@@ -414,6 +430,7 @@ async function main(): Promise<void> {
     createOnboardingRouter(deps.provider, deps.engine, deps.trademarkGate, deps.portfolioManager),
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
+  protectedRouter.use('/automation', createAutomationRouter(deps.postAcquisitionService));
   protectedRouter.use('/bids', createBidsRouter(deps.acquisitionService));
   protectedRouter.use(
     '/keys',

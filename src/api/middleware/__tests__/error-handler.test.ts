@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Request, Response } from 'express';
 import { errorHandler } from '../error-handler.js';
+import { requestStorage } from '../request-context.js';
 import {
   DominusError,
   ProviderError,
@@ -96,6 +97,49 @@ describe('errorHandler', () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(jsonCall(res)).toEqual({
       error: { code: 'RATE_LIMITED', message: 'Too many requests' },
+    });
+  });
+
+  // The existing assertions above use toEqual with exact bodies: adding a
+  // `requestId` field would have broken all of them, which is exactly the
+  // coupling these new tests make explicit — the field must appear only when
+  // a request context exists.
+  it('includes requestId in the error body inside a request', () => {
+    const res = mockRes();
+    requestStorage.run({ requestId: 'err-trace-1' }, () => {
+      errorHandler(new DuplicateDomainError('example.com'), {} as Request, res, vi.fn());
+    });
+    expect(jsonCall(res)).toEqual({
+      error: {
+        code: 'DUPLICATE_DOMAIN',
+        message: 'Domain already in portfolio: example.com',
+        requestId: 'err-trace-1',
+      },
+    });
+  });
+
+  it('includes requestId in a sanitised 500 body inside a request', () => {
+    const res = mockRes();
+    requestStorage.run({ requestId: 'err-trace-2' }, () => {
+      errorHandler(new Error('sensitive: secret'), {} as Request, res, vi.fn());
+    });
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(jsonCall(res)).toEqual({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Internal server error',
+        requestId: 'err-trace-2',
+      },
+    });
+  });
+
+  it('omits requestId outside a request context', () => {
+    const res = mockRes();
+    // Outside HTTP (CLI, worker, scheduler) the handler is reached without a
+    // request context and must not emit an empty or placeholder id.
+    errorHandler(new DuplicateDomainError('example.com'), {} as Request, res, vi.fn());
+    expect(jsonCall(res)).toEqual({
+      error: { code: 'DUPLICATE_DOMAIN', message: 'Domain already in portfolio: example.com' },
     });
   });
 });

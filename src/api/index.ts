@@ -21,6 +21,7 @@ export { createAlertsRouter } from './routes/alerts.js';
 export { createSchedulerRouter } from './routes/scheduler.js';
 export { createWatchlistRouter } from './routes/watchlist.js';
 export { createPurchaseRouter } from './routes/purchase.js';
+export { createAutomationRouter } from './routes/automation.js';
 export { createReportRouter } from './routes/report-routes.js';
 export { createMetricsRouter } from './routes/metrics.js';
 export { createAnalyticsRouter } from './routes/analytics.js';
@@ -30,7 +31,11 @@ export { createListingsRouter } from './routes/listings.js';
 export { createOnboardingRouter } from './routes/onboarding.js';
 export { createDocsRouter } from './routes/docs.js';
 export { createWorkerRouter } from './routes/worker.js';
-export { createPublicRouter, createRobotsTxtHandler } from './public-router.js';
+export {
+  createPublicRouter,
+  createRobotsTxtHandler,
+  createIndexNowKeyHandler,
+} from './public-router.js';
 export type { PublicRouterOptions } from './public-router.js';
 export { createAuthMiddleware } from './middleware/auth.js';
 export { securityHeaders } from './middleware/security-headers.js';
