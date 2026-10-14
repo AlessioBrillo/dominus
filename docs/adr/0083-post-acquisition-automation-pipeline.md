@@ -153,3 +153,47 @@ A critical review of the first implementation found and fixed:
 - [x] ADR-0038 usage metering: post-purchase bookkeeping stays outside plan gates.
 - [x] ADR-0082 honesty: no step is declared before its executor exists.
 - [x] English identifiers and comments throughout.
+
+## Amendment (2026-10-14): the write path uses the read path's fail-closed gate
+
+M3 introduces `dns` (a `DnsWriteProvider` that creates records on Cloudflare)
+and `parking` (a `MonetizationProvider` that ingests revenue). Those are the
+first steps in this pipeline that **mutate external state and move money**, so
+they need a decision recorded now rather than designed under delivery pressure.
+
+**Decision: a write goes through the same fail-closed reasoning as the read
+path (ADR-0002), not a write-then-compensate model.**
+
+Rationale. The read path already resolves "is this domain available" through
+consensus precisely because a single provider is not trustworthy (ADR-0039,
+0059, 0063, 0076). A write multiplies the consequence of the same
+untrustworthiness by making it durable and externally visible: a bad consensus
+result applied to a live zone changes where a domain's traffic goes, and a
+revenue figure the operator then acts on compounds the error. Compensation is
+not an equivalent safety net, because it assumes the compensating action will
+itself succeed — which is exactly what is uncertain during the incident that
+produced the bad read in the first place.
+
+Practical consequences for M3, none of them implementable yet:
+
+- The write gate must reach an independently corroborated conclusion about
+  what the current state *is* before it decides what to write. If that
+  conclusion is not available, the step is `skipped` with a reason, which is
+  already the behaviour of `dns` and `parking` today (`no executor
+  registered`, `post-acquisition-service.ts`).
+- A write that half-completes must leave the domain in a recoverable, named
+  state in the journal, not a best-effort "probably applied". This is the same
+  journaling discipline that made the purchase path auditable.
+- Revenue ingestion is treated as a read, not a write: it never mutates
+  external state, it only records what the monetisation provider reports, and
+  it goes through the same scrutiny as any other value feeding a verdict.
+- `AUTOMATION_DRY_RUN` and `AUTOMATION_ENABLED` remain the outer defaults and
+  are unchanged. This amendment is about how a write behaves once both are on.
+
+Recorded in advance and not yet implemented: the ADR-0082 lesson is that a
+declared-but-unverified adapter is worse than an absent one, so `dns` and
+`parking` stay `skipped` until their providers have been exercised against the
+real vendor APIs. The gate decision has to be settled before the provider work
+starts, because it determines the interface — a provider that can only be
+queried optimistically cannot back a fail-closed gate.
+

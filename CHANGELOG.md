@@ -2,6 +2,62 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.0](https://github.com/AlessioBrillo/dominus/compare/v1.1.0...v1.2.0) (2026-10-14)
+
+### Features
+
+* **automation:** post-acquisition pipeline with for-sale site and indexing
+  (ADR-0083, [#473](https://github.com/AlessioBrillo/dominus/pull/473)) —
+  journaled steps in `post_acquisition_steps`, an append-only
+  `automation_audit` trail, a kill switch (`AUTOMATION_ENABLED`, default
+  off) and dry-run (`AUTOMATION_DRY_RUN`, default on). New `POST_ACQUISITION`
+  job type on the existing queue; the purchase and won-auction paths now
+  trigger the pipeline instead of the old fire-and-forget auto-list.
+  `listing`, `site` and `indexing` steps execute: a landing page is
+  generated from scoring data and published at
+  `/public/for-sale/<domain>` with Schema.org `Offer` markup, included in
+  the sitemap, and submitted to IndexNow (`INDEXNOW_KEY`), with contact via
+  `AUTOMATION_CONTACT_EMAIL`. Also fixes `AUTO_LIST` / `POST_ACQUISITION`
+  job handlers being unregistered by the worker, which previously
+  dead-lettered every enqueued job.
+* **observability:** request correlation ids propagated through logs and
+  errors ([#475](https://github.com/AlessioBrillo/dominus/pull/475)) —
+  inbound `X-Request-Id` is echoed when well-formed and otherwise replaced
+  with a generated UUID, the id is bound into AsyncLocalStorage so it
+  reaches the 113 existing `getLogger()` call sites via a pino mixin, and
+  error bodies now carry `requestId`. Inbound values are length-capped
+  (200 chars) and charset-restricted, since an untrusted id would otherwise
+  be written into response headers and structured logs.
+* **observability:** warn when `TRUST_PROXY_DEPTH` is unset behind a reverse
+  proxy — the value decides whose `X-Forwarded-For` is believed, which
+  decides the key every per-IP rate limit uses, and unset reads the same as
+  "no proxy" so nothing surfaced the mistake.
+
+### Bug Fixes
+
+- **portfolio:** de-flake day math across the UTC midnight boundary
+  ([#474](https://github.com/AlessioBrillo/dominus/pull/474)) — two suites
+  read the wall clock while comparing UTC calendar days, so any CI run that
+  crossed 00:00 UTC failed for reasons unrelated to the diff. Anchored to
+  mid-UTC-day.
+* **docs:** `npx dominus` in the deployment matrix pointed at a package name
+  that is not published and is held by an unrelated project. The community
+  CLI now installs as `dominus-oss@latest`, and the Quick Start documents
+  both the npm and source paths. The README also gained the AGPL §6(b)
+  Corresponding Source offer that an npm installation of `dist/` requires.
+* **docs:** ROADMAP claimed frontend coverage thresholds of 50/50/50 while
+  `frontend/vitest.config.ts` enforces 70/70/70/60.
+* **ci:** release publication moved to a dedicated `release.yml`. The old
+  step in `deploy.yml` degraded silently to `--generate-notes` when the
+  CHANGELOG section was missing, which shipped a release page with no
+  notes. A missing or empty section now fails the workflow, and npm is
+  published with OIDC trusted publishing plus `--provenance` instead of a
+  long-lived token.
+* **ci:** Dependabot blocked from proposing `vitest` ≥ 5, which removes the
+  `bench` export used by `src/benchmarks/*.bench.ts` and turns `vite` into
+  a required non-optional peer that `.npmrc`'s `legacy-peer-deps=true` will
+  not install — a deterministic break of every `vitest run`.
+
 ## [1.1.0](https://github.com/AlessioBrillo/dominus/compare/v1.0.0...v1.1.0) (2026-10-12)
 
 

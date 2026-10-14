@@ -18,6 +18,7 @@ import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js'
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
+import { checkTrustProxyGuard } from './api/boot-guards.js';
 import { requestContext } from './api/middleware/request-context.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import { serverTimeoutConfig } from './utils/server-timeouts.js';
@@ -116,6 +117,15 @@ async function main(): Promise<void> {
         'and queue internals across all tenants and must not be reachable unauthenticated.',
     );
     process.exit(1);
+  }
+  // trust proxy decides whose X-Forwarded-For is believed, which decides the
+  // key every per-IP limit uses. Config has default(0), so a configured value
+  // cannot be distinguished from an unset one there; the raw env var can. A
+  // wrong-but-configured value is the operator's call, but unset behind a
+  // proxy silently throttles every client as one caller.
+  if (process.env.TRUST_PROXY_DEPTH === undefined) {
+    const trustProxyGuard = checkTrustProxyGuard(null);
+    if (trustProxyGuard) logger.warn(trustProxyGuard.message);
   }
   const operatorSubjects = parseOperatorSubjects(config.OPERATOR_SUBJECTS);
   // Origins allowed to make cookie-authenticated, state-changing requests (CSRF guard).
