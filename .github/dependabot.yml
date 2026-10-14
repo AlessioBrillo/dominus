@@ -32,6 +32,34 @@ updates:
       # removing this rule; the failure is deterministic, not flaky.
       - dependency-name: 'vitest'
         versions: ['>=5.0.0']
+      # The @vitest/* packages share vitest's version line. coverage-v8 5.x
+      # declares vitest 5 as a required peer, so a standalone bump of it while
+      # vitest stays on 4 is an install-time ERESOLVE, not a runtime problem:
+      # `npm ci` cannot resolve the tree at all. Blocking only `vitest`
+      # itself left the door open, which is exactly what PR #482 walked
+      # through. Same remedy: lift this when the benchmarks are ported.
+      - dependency-name: '@vitest/coverage-v8'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/expect'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/runner'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/snapshot'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/spy'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/mocker'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/utils'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/browser'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/pretty-format'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/istanbul-lib-coverage'
+        versions: ['>=5.0.0']
+      - dependency-name: '@vitest/istanbul-lib-report'
+        versions: ['>=5.0.0']
     groups:
       production:
         dependency-type: 'production'
