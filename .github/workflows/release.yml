@@ -35,7 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
-      contents: write   # release notes + release asset
+      contents: write # release notes + release asset
+      # Required for OIDC trusted publishing: `npm publish` requests a
+      # short-lived token from GitHub's OIDC provider. Without this the
+      # publish step fails with a token exchange error that reads like an
+      # npm-side problem, which is the wrong place to look.
+      id-token: write
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
 
@@ -105,7 +110,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
-        run: gh release create "${TAG}" --notes-file /tmp/release-notes.md
+        run: |
+          set -euo pipefail
+          tag="${TAG}"
+          # Idempotent on re-run. The npm step below this one can fail after the
+          # release already exists (for example when the trusted publisher has
+          # not been configured yet), and re-running the workflow must not then
+          # fail on a release that is already there. Create on first pass,
+          # update the notes if it exists.
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists — updating its notes."
+            gh release edit "${tag}" --notes-file /tmp/release-notes.md
+          else
+            gh release create "${tag}" --notes-file /tmp/release-notes.md
+          fi
 
       # ------------------------------------------------------------------
       # npm package
