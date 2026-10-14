@@ -18,6 +18,7 @@ import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js'
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
+import { requestContext } from './api/middleware/request-context.js';
 import { requestTimeout } from './api/middleware/timeout.js';
 import { serverTimeoutConfig } from './utils/server-timeouts.js';
 import {
@@ -183,6 +184,10 @@ async function main(): Promise<void> {
   );
 
   app.use(securityHeaders);
+
+  // First in the chain: everything below this point logs under a correlation
+  // id, and clients see it echoed in the response header and error bodies.
+  app.use(requestContext());
 
   if (config.REQUEST_TIMEOUT_MS > 0) {
     app.use(requestTimeout(config.REQUEST_TIMEOUT_MS));
