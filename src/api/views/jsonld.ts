@@ -76,6 +76,32 @@ export function reviewJsonLd(score: JsonLdScoreData): string {
   return tag(review);
 }
 
+export function forSaleOfferJsonLd(site: {
+  domain: string;
+  headline: string;
+  askingPriceEur: number | null;
+}): string {
+  const product: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: site.domain,
+    description: site.headline,
+    category: 'Domain name',
+    ...(site.askingPriceEur !== null
+      ? {
+          offers: {
+            '@type': 'Offer',
+            price: site.askingPriceEur,
+            priceCurrency: 'EUR',
+            availability: 'https://schema.org/InStock',
+            url: `/public/for-sale/${site.domain}`,
+          },
+        }
+      : {}),
+  };
+  return tag(product);
+}
+
 export function breadcrumbJsonLd(
   items: Array<{ position: number; name: string; path: string }>,
   siteUrl: string,

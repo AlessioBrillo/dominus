@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Request, Response, NextFunction } from 'express';
 import type pino from 'pino';
+import { getRequestId } from './request-context.js';
 
 /** Parameters whose values are redacted from request logs. */
 const REDACTED_QUERY_PARAMS = new Set(['key', 'api_key', 'apiKey', 'token', 'secret']);
@@ -36,6 +37,10 @@ export function createRequestLogger(
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req: Request, res: Response, next: NextFunction): void => {
     const start = Date.now();
+    // Read the store synchronously, while the request context is still
+    // active: `res.on('finish')` fires from the socket layer, outside the
+    // AsyncLocalStorage context, so the mixin could not resolve the id here.
+    const requestId = getRequestId();
     res.on('finish', () => {
       logger.info(
         {
@@ -43,6 +48,7 @@ export function createRequestLogger(
           url: sanitiseUrl(req.url),
           status: res.statusCode,
           durationMs: Date.now() - start,
+          ...(requestId === undefined ? {} : { requestId }),
         },
         'http request',
       );

@@ -7,7 +7,7 @@ consumer to consumed module.
 flowchart LR
     subgraph Entry[Entry Points]
         INDEX["src/index.ts<br/>Express server bootstrap"]
-        CLI["src/cli/index.ts<br/>Commander 20 commands"]
+        CLI["src/cli/index.ts<br/>Commander 21 commands"]
     end
 
     subgraph App[Application Layer]
@@ -26,12 +26,12 @@ flowchart LR
 
     subgraph Jobs[Async Job System]
         JW["jobs/worker.ts<br/>Poll + dispatch"]
-        JH["jobs/handlers/<br/>10 handlers"]
+        JH["jobs/handlers/<br/>11 handlers"]
     end
 
     subgraph API[REST API]
         API["api/index.ts<br/>Express Router"]
-        ROUTES["api/routes/<br/>29 route modules"]
+        ROUTES["api/routes/<br/>30 route modules"]
         PUB["api/public-router.ts<br/>Public scoring pages<br/>SSR + OG tags"]
         VIEWS["api/views/<br/>SSR HTML templates"]
     end
@@ -40,7 +40,7 @@ flowchart LR
         DBI["db/provider/<br/>DatabaseProvider interface"]
         SQLITE["db/provider/sqlite-adapter.ts"]
         PG["db/provider/postgres-adapter.ts"]
-        REPO["db/repositories/<br/>28 repositories"]
+        REPO["db/repositories/<br/>31 repositories"]
         MIG["db/migrations/<br/>versioned DDL"]
     end
 

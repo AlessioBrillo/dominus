@@ -9,6 +9,7 @@ import type { OutcomeRepository } from '../db/index.js';
 import type { ScoringEngine } from '../scoring/index.js';
 import type { TrademarkGate } from '../trademark/index.js';
 import type { AutoListingService, AutoListEnqueuer } from '../services/auto-listing-service.js';
+import type { PostAcquisitionTrigger } from '../services/post-acquisition-service.js';
 
 export function buildRegistrarProvider(config: Config): RegistrarProvider {
   const registrarConfig: Record<string, string> = {};
@@ -55,6 +56,7 @@ export function buildPurchaseService(
   config: Config,
   autoListing?: AutoListingService,
   autoListEnqueuer?: AutoListEnqueuer,
+  postAcquisition?: PostAcquisitionTrigger,
 ): PurchaseService {
   const autoApprovalMap: Record<string, AutoApprovalPolicy> = {
     never: AutoApprovalPolicy.Never,
@@ -72,5 +74,6 @@ export function buildPurchaseService(
     buyMaxAbsoluteCap: config.BUY_MAX_ABSOLUTE_CAP,
     autoListing,
     autoListEnqueuer,
+    postAcquisition,
   });
 }

@@ -10,6 +10,7 @@ import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import { GateVerdict } from '../trademark/trademark-gate.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import type { AutoListingService, AutoListEnqueuer } from './auto-listing-service.js';
+import type { PostAcquisitionTrigger } from './post-acquisition-service.js';
 import { getLogger } from '../logger.js';
 import { parseDomain } from '../utils/domain.js';
 
@@ -24,6 +25,7 @@ export class AcquisitionService {
   readonly #gate: TrademarkGate | undefined;
   readonly #autoListing: AutoListingService | undefined;
   readonly #autoListEnqueuer: AutoListEnqueuer | undefined;
+  readonly #postAcquisition: PostAcquisitionTrigger | undefined;
   readonly #defaultRenewalCostEur: number;
 
   constructor(
@@ -36,6 +38,7 @@ export class AcquisitionService {
     autoListing?: AutoListingService,
     autoListEnqueuer?: AutoListEnqueuer,
     defaultRenewalCostEur: number = 10,
+    postAcquisition?: PostAcquisitionTrigger,
   ) {
     this.#repo = repo;
     this.#portfolioManager = portfolioManager;
@@ -45,6 +48,7 @@ export class AcquisitionService {
     this.#gate = gate;
     this.#autoListing = autoListing;
     this.#autoListEnqueuer = autoListEnqueuer;
+    this.#postAcquisition = postAcquisition;
     this.#defaultRenewalCostEur = defaultRenewalCostEur;
   }
 
@@ -166,7 +170,22 @@ export class AcquisitionService {
             notes: `Won auction on ${existing.venue}, bid €${existing.bidAmountEur}`,
           });
 
-          if (this.#autoListEnqueuer) {
+          if (this.#postAcquisition) {
+            this.#postAcquisition
+              .trigger(input.domain, 'acquisition')
+              .then((jobId) => {
+                logger.info(
+                  { domain: input.domain, jobId },
+                  'AcquisitionService: post-acquisition pipeline triggered after won bid',
+                );
+              })
+              .catch((err: unknown) => {
+                logger.warn(
+                  { domain: input.domain, err },
+                  'AcquisitionService: failed to trigger post-acquisition pipeline after won bid (non-fatal)',
+                );
+              });
+          } else if (this.#autoListEnqueuer) {
             this.#autoListEnqueuer
               .enqueue(input.domain, 'acquisition', null)
               .then((jobId) => {

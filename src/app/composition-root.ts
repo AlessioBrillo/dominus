@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type Database from 'better-sqlite3';
 import type { Config } from '../config.js';
+import type { JobHandler, JobPayload, JobResult } from '../types/job-queue.js';
 import type { DatabaseProvider } from '../db/provider/interface.js';
 import { ensureSchemaUpToDate } from '../db/migrator.js';
 import { getLogger } from '../logger.js';
@@ -133,9 +134,21 @@ import { AnonScoringService } from '../services/anon-scoring-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
+import { PostAcquisitionRepository } from '../db/repositories/post-acquisition-repository.js';
+import { AutomationAuditRepository } from '../db/repositories/automation-audit-repository.js';
+import { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
 import { AutoListingService, type AutoListEnqueuer } from '../services/auto-listing-service.js';
+import {
+  PostAcquisitionService,
+  type PostAcquisitionTrigger,
+} from '../services/post-acquisition-service.js';
+import { ListingStepExecutor } from '../services/post-acquisition-listing-executor.js';
+import { SiteService } from '../services/site-service.js';
+import { SiteStepExecutor } from '../services/post-acquisition-site-executor.js';
+import { IndexingService } from '../services/indexing-service.js';
+import { IndexingStepExecutor } from '../services/post-acquisition-indexing-executor.js';
 import { createJobQueueService } from './job-queue-service.js';
 import {
   JobWorker,
@@ -148,6 +161,8 @@ import {
   RenewalCheckHandler,
   WeightTuneHandler,
   PortfolioHealthcheckHandler,
+  AutoListHandler,
+  PostAcquisitionHandler,
   HANDLERS,
 } from '../jobs/index.js';
 import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
@@ -211,6 +226,9 @@ export interface DominusDependencies {
 
   autoTuner: AutoWeightTuner | undefined;
   purchaseService: PurchaseServiceType;
+  postAcquisitionService: PostAcquisitionService;
+  siteService: SiteService;
+  indexingService: IndexingService;
   reportService: PortfolioReportService;
   metrics: MetricsCollector;
   metricsRepo: MetricsRepository;
@@ -232,6 +250,7 @@ export interface DominusDependencies {
   authProvider: AuthProvider;
   anonScoringService: AnonScoringService;
   publicScoreRepo: PublicScoreRepository;
+  domainSiteRepo: DomainSiteRepository;
   /** Undefined in the community edition (env API keys): self-serve signup
    *  exists only where tenants are managed (ADR-0032). */
   provisioningService: TenantProvisioningService | undefined;
@@ -261,6 +280,9 @@ interface BuiltRepositories {
   watchlistRepo: WatchlistRepository;
   acquisitionRepo: AcquisitionRepository;
   listingRepo: ListingRepository;
+  postAcquisitionRepo: PostAcquisitionRepository;
+  automationAuditRepo: AutomationAuditRepository;
+  domainSiteRepo: DomainSiteRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
   teamSeatsRepo: TeamSeatsRepository;
@@ -326,14 +348,25 @@ function buildWriteRepositories(
   };
 }
 
-/** Build repositories that use the main provider (admin, usage, api keys). */
+/** Build repositories that use the main provider (admin, usage, api keys, automation). */
 function buildMainRepositories(
   provider: DatabaseProvider,
-): Pick<BuiltRepositories, 'apiKeyRepo' | 'usageRepo' | 'adminRepo'> {
+): Pick<
+  BuiltRepositories,
+  | 'apiKeyRepo'
+  | 'usageRepo'
+  | 'adminRepo'
+  | 'postAcquisitionRepo'
+  | 'automationAuditRepo'
+  | 'domainSiteRepo'
+> {
   return {
     apiKeyRepo: new ApiKeyRepository(provider),
     usageRepo: new UsageRepository(provider),
     adminRepo: new AdminRepository(provider),
+    postAcquisitionRepo: new PostAcquisitionRepository(provider),
+    automationAuditRepo: new AutomationAuditRepository(provider),
+    domainSiteRepo: new DomainSiteRepository(provider),
   };
 }
 
@@ -437,65 +470,85 @@ function buildTrademarkProviderStack(
   };
 }
 
-function buildWorkerIfEnabled(
-  config: Config,
-  db: Database.Database | null,
-  provider: DatabaseProvider,
-  runService: PipelineRunService,
-  portfolioManager: PortfolioManager,
-  scoringRepo: ScoringRepository,
-  currentWeights: ScoringWeights,
-  outcomeRepo: OutcomeRepository,
-  backupService: BackupService,
-  candidateRepo: CandidateRepository,
-  pipelineRunsRepo: PipelineRunsRepository,
-  providerCacheRepo: ProviderCacheRepository,
-  jobQueueRepo: JobQueueRepository,
-  watchlistService: WatchlistService,
-  alertEngine: RenewalAlertEngine,
-  autoTuner: AutoWeightTuner | undefined,
-  portfolioHealthcheckService: PortfolioRdapService,
-): JobWorker | undefined {
-  if (!config.WORKER_ENABLED) return undefined;
+/** Dependencies required to construct the job handlers the worker registers. */
+export interface JobHandlerDeps {
+  config: Config;
+  db: Database.Database | null;
+  provider: DatabaseProvider;
+  runService: PipelineRunService;
+  portfolioManager: PortfolioManager;
+  scoringRepo: ScoringRepository;
+  currentWeights: ScoringWeights;
+  outcomeRepo: OutcomeRepository;
+  backupService: BackupService;
+  candidateRepo: CandidateRepository;
+  pipelineRunsRepo: PipelineRunsRepository;
+  providerCacheRepo: ProviderCacheRepository;
+  jobQueueRepo: JobQueueRepository;
+  watchlistService: WatchlistService;
+  alertEngine: RenewalAlertEngine;
+  autoTuner: AutoWeightTuner | undefined;
+  portfolioHealthcheckService: PortfolioRdapService;
+  autoListingService: AutoListingService;
+  postAcquisitionService: PostAcquisitionService;
+  automationAuditRepo: AutomationAuditRepository;
+}
 
-  const pipelineRunHandler = new PipelineRunHandler({ runService });
+/**
+ * Build every job handler. Extracted from the worker wiring so a test can
+ * assert that the registered set matches REQUIRED_JOB_TYPES — the
+ * AUTO_LIST dead-letter defect (ADR-0083) happened precisely because a
+ * handler existed but was never registered.
+ */
+export function buildJobHandlers(deps: JobHandlerDeps): JobHandler<JobPayload, JobResult>[] {
+  const { config } = deps;
+
+  const pipelineRunHandler = new PipelineRunHandler({ runService: deps.runService });
   const portfolioRescoreHandler = new PortfolioRescoreHandler({
-    portfolioManager,
-    rescoreService: portfolioManager.getRescoreService()!,
+    portfolioManager: deps.portfolioManager,
+    rescoreService: deps.portfolioManager.getRescoreService()!,
   });
-  const backtestSignalsRepo = new BacktestSignalsRepository(provider);
-  const backtestEngine = new BacktestEngine(provider, outcomeRepo, backtestSignalsRepo);
+  const backtestSignalsRepo = new BacktestSignalsRepository(deps.provider);
+  const backtestEngine = new BacktestEngine(deps.provider, deps.outcomeRepo, backtestSignalsRepo);
   const weightSuggester = new WeightSuggester(
-    provider,
+    deps.provider,
     backtestSignalsRepo,
-    scoringRepo,
-    currentWeights,
+    deps.scoringRepo,
+    deps.currentWeights,
   );
   const backtestHandler = new BacktestBuildHandler({
     backtestEngine,
     weightSuggester,
-    currentWeights,
+    currentWeights: deps.currentWeights,
   });
-  const backupHandler = new BackupHandler({ backupService });
+  const backupHandler = new BackupHandler({ backupService: deps.backupService });
   const pruneHandler = new PruneHandler({
-    candidateRepo,
-    scoringRepo,
-    pipelineRunsRepo,
-    providerCacheRepo,
-    jobQueueRepo,
-    db,
-    provider,
+    candidateRepo: deps.candidateRepo,
+    scoringRepo: deps.scoringRepo,
+    pipelineRunsRepo: deps.pipelineRunsRepo,
+    providerCacheRepo: deps.providerCacheRepo,
+    jobQueueRepo: deps.jobQueueRepo,
+    automationAuditRepo: deps.automationAuditRepo,
+    db: deps.db,
+    provider: deps.provider,
     publicScoresRetentionDays: config.PUBLIC_SCORES_RETENTION_DAYS,
     eventsRetentionDays: config.EVENTS_RETENTION_DAYS,
+    automationAuditRetentionDays: config.AUTOMATION_AUDIT_RETENTION_DAYS,
   });
-  const watchlistHandler = new WatchlistPollHandler({ watchlistService });
-  const renewalHandler = new RenewalCheckHandler({ alertEngine });
-  const weightTuneHandler = autoTuner ? new WeightTuneHandler({ autoTuner }) : undefined;
+  const watchlistHandler = new WatchlistPollHandler({ watchlistService: deps.watchlistService });
+  const renewalHandler = new RenewalCheckHandler({ alertEngine: deps.alertEngine });
+  const weightTuneHandler = deps.autoTuner
+    ? new WeightTuneHandler({ autoTuner: deps.autoTuner })
+    : undefined;
   const portfolioHealthcheckHandler = new PortfolioHealthcheckHandler({
-    healthcheckService: portfolioHealthcheckService,
+    healthcheckService: deps.portfolioHealthcheckService,
+  });
+  const autoListHandler = new AutoListHandler({ autoListingService: deps.autoListingService });
+  const postAcquisitionHandler = new PostAcquisitionHandler({
+    postAcquisitionService: deps.postAcquisitionService,
   });
 
-  const handlers = [
+  return [
     pipelineRunHandler,
     portfolioRescoreHandler,
     backtestHandler,
@@ -504,8 +557,20 @@ function buildWorkerIfEnabled(
     watchlistHandler,
     renewalHandler,
     portfolioHealthcheckHandler,
+    autoListHandler,
+    postAcquisitionHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
+}
+
+function buildWorkerIfEnabled(
+  config: Config,
+  provider: DatabaseProvider,
+  handlerDeps: Omit<JobHandlerDeps, 'config'>,
+): JobWorker | undefined {
+  if (!config.WORKER_ENABLED) return undefined;
+
+  const handlers = buildJobHandlers({ config, ...handlerDeps });
   for (const handler of handlers) {
     HANDLERS.set(handler.jobType, handler);
   }
@@ -518,6 +583,33 @@ function buildWorkerIfEnabled(
   worker.start();
   return worker;
 }
+
+/**
+ * Job types the worker must always register. Exported (and asserted by a
+ * test) because a handler that exists but is never registered silently
+ * dead-letters its jobs — exactly the AUTO_LIST defect fixed in ADR-0083:
+ * purchases enqueued AUTO_LIST jobs for months while the worker had no
+ * handler for them. Adding a job type here without registering it must
+ * fail CI, not production.
+ *
+ * WEIGHT_TUNE is deliberately absent: it is conditional on
+ * AUTO_TUNE_ENABLED and registered only when the tuner is configured.
+ */
+export const REQUIRED_JOB_TYPES = [
+  'PIPELINE_RUN',
+  'PORTFOLIO_RESCORE',
+  'BACKTEST_BUILD',
+  'BACKUP',
+  'PRUNE',
+  'WATCHLIST_POLL',
+  'RENEWAL_CHECK',
+  'PORTFOLIO_HEALTHCHECK',
+  'AUTO_LIST',
+  'POST_ACQUISITION',
+] as const;
+
+/** Job types registered only when their feature is enabled in config. */
+export const CONDITIONAL_JOB_TYPES = ['WEIGHT_TUNE'] as const;
 
 function buildSchedulerIfEnabled(
   config: Config,
@@ -1150,12 +1242,62 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const autoListingRepo = new AutoListingRepository(repos.provider);
   const autoListingService = new AutoListingService(listingManager, autoListingRepo);
 
+  // --- Post-acquisition automation pipeline (ADR-0083) ---
+  // Kill switch + dry-run come from config; steps without a registered
+  // executor are skipped by the orchestrator, so milestones can add
+  // executors (site, indexing, dns, parking) without touching this wiring.
+  const postAcquisitionService = new PostAcquisitionService(
+    repos.postAcquisitionRepo,
+    repos.automationAuditRepo,
+    [new ListingStepExecutor(autoListingService)],
+    {
+      enabled: config.AUTOMATION_ENABLED,
+      dryRun: config.AUTOMATION_DRY_RUN,
+    },
+  );
+
+  // --- M2: for-sale site + indexing (ADR-0083) ---
+  const siteService = new SiteService(repos.domainSiteRepo, {
+    engine,
+    ...(config.AUTOMATION_CONTACT_EMAIL !== undefined
+      ? { contact: config.AUTOMATION_CONTACT_EMAIL }
+      : {}),
+  });
+  const indexingService = new IndexingService({
+    ...(config.INDEXNOW_KEY !== undefined ? { indexNowKey: config.INDEXNOW_KEY } : {}),
+  });
+  postAcquisitionService.registerExecutor(new SiteStepExecutor(siteService));
+  postAcquisitionService.registerExecutor(
+    new IndexingStepExecutor(indexingService, {
+      ...(config.PUBLIC_APP_URL !== undefined ? { publicAppUrl: config.PUBLIC_APP_URL } : {}),
+    }),
+  );
+
   const jobQueueService = createJobQueueService(provider, { usageEnforcer });
 
   const autoListEnqueuer: AutoListEnqueuer = {
     async enqueue(domain: string, source: string, scoreJson?: string | null): Promise<string> {
       const domains = [{ domain, scoreJson: scoreJson ?? null }];
       return jobQueueService.enqueueAutoList(domains, 'purchase', source);
+    },
+  };
+
+  // Entry point used by purchase/auction completion: async job when the
+  // worker is enabled, inline run otherwise (community edition may run
+  // with WORKER_ENABLED=false).
+  const postAcquisitionTrigger: PostAcquisitionTrigger = {
+    async trigger(
+      domain: string,
+      source: 'purchase' | 'acquisition' | 'manual' | 'pipeline_run',
+      pipelineRunId?: string | null,
+    ): Promise<string> {
+      if (config.WORKER_ENABLED) {
+        return jobQueueService.enqueuePostAcquisition(domain, source, pipelineRunId ?? null);
+      }
+      await postAcquisitionService.run(domain, source, {
+        ...(pipelineRunId != null ? { pipelineRunId } : {}),
+      });
+      return 'inline';
     },
   };
 
@@ -1298,6 +1440,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config,
     autoListingService,
     autoListEnqueuer,
+    postAcquisitionTrigger,
   );
 
   // --- Acquisition ---
@@ -1310,6 +1453,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     trademarkGate,
     autoListingService,
     autoListEnqueuer,
+    10,
+    postAcquisitionTrigger,
   );
 
   // --- Acquisition Funnel ---
@@ -1340,25 +1485,27 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   });
 
   // --- Worker ---
-  const worker = buildWorkerIfEnabled(
-    config,
+  const worker = buildWorkerIfEnabled(config, repos.provider, {
     db,
-    repos.provider,
+    provider: repos.provider,
     runService,
     portfolioManager,
-    repos.scoringRepo,
+    scoringRepo: repos.scoringRepo,
     currentWeights,
-    repos.outcomeRepo,
+    outcomeRepo: repos.outcomeRepo,
     backupService,
-    repos.candidateRepo,
-    repos.pipelineRunsRepo,
-    repos.providerCacheRepo,
-    repos.jobQueueRepo,
+    candidateRepo: repos.candidateRepo,
+    pipelineRunsRepo: repos.pipelineRunsRepo,
+    providerCacheRepo: repos.providerCacheRepo,
+    jobQueueRepo: repos.jobQueueRepo,
     watchlistService,
     alertEngine,
     autoTuner,
     portfolioHealthcheckService,
-  );
+    autoListingService,
+    postAcquisitionService,
+    automationAuditRepo: repos.automationAuditRepo,
+  });
 
   // --- Scheduler ---
   const scheduler = buildSchedulerIfEnabled(
@@ -1403,6 +1550,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     scheduler,
     autoTuner,
     purchaseService,
+    postAcquisitionService,
+    siteService,
+    indexingService,
     reportService,
     metrics,
     progressService,

@@ -207,6 +207,45 @@ const ROWS: readonly Row[] = [
     { tag: 'Purchases', summary: 'Buy a domain through the registrar', body: true },
   ],
 
+  // Post-acquisition automation (ADR-0083)
+  [
+    'get',
+    '/automation/settings',
+    { tag: 'Automation', summary: 'Kill switch and dry-run flag of the automation pipeline' },
+  ],
+  [
+    'get',
+    '/automation/steps',
+    {
+      tag: 'Automation',
+      summary: 'Journal of post-acquisition pipeline steps',
+      query: ['domain', 'status', 'limit'],
+    },
+  ],
+  [
+    'get',
+    '/automation/audit',
+    {
+      tag: 'Automation',
+      summary: 'Audit trail of autonomous automation actions',
+      query: ['limit'],
+    },
+  ],
+  [
+    'post',
+    '/automation/run',
+    {
+      tag: 'Automation',
+      summary: 'Run or resume the post-acquisition pipeline for a domain',
+      body: true,
+    },
+  ],
+  [
+    'post',
+    '/automation/reset',
+    { tag: 'Automation', summary: 'Reset a step (or the whole pipeline) for a domain', body: true },
+  ],
+
   // Pipeline
   [
     'post',
