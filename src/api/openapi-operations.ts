@@ -211,7 +211,19 @@ const ROWS: readonly Row[] = [
   [
     'get',
     '/automation/settings',
-    { tag: 'Automation', summary: 'Kill switch and dry-run flag of the automation pipeline' },
+    {
+      tag: 'Automation',
+      summary: 'Kill switch, dry-run flag and this tenant opt-in of the automation pipeline',
+    },
+  ],
+  [
+    'put',
+    '/automation/settings',
+    {
+      tag: 'Automation',
+      summary: 'Enable/disable automation and dry-run for this tenant',
+      body: true,
+    },
   ],
   [
     'get',
@@ -260,7 +272,29 @@ const ROWS: readonly Row[] = [
   ['get', '/funnel/{runId}', { tag: 'Runs', summary: 'Acquisition funnel of a run' }],
   ['post', '/funnel/{runId}/generate', { tag: 'Runs', summary: 'Generate the funnel for a run' }],
 
+  // Carry-cost sustainability (ADR-0083, M5)
+  [
+    'get',
+    '/sustainability',
+    { tag: 'Portfolio', summary: 'Carry-cost verdicts for the portfolio' },
+  ],
+  [
+    'get',
+    '/sustainability/{domain}',
+    { tag: 'Portfolio', summary: 'Carry-cost verdict for one portfolio domain' },
+  ],
+
   // Listings and offers
+  [
+    'get',
+    '/listings/settings',
+    { tag: 'Sales', summary: 'Tenant listing policy (base price and offer rules)' },
+  ],
+  [
+    'put',
+    '/listings/settings',
+    { tag: 'Sales', summary: 'Update the tenant listing policy', body: true },
+  ],
   ['get', '/listings/{id}', { tag: 'Sales', summary: 'Listing detail' }],
   ['patch', '/listings/{id}', { tag: 'Sales', summary: 'Update a listing', body: true }],
   ['delete', '/listings/{id}', { tag: 'Sales', summary: 'Delete a listing', success: '204' }],

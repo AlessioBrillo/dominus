@@ -134,6 +134,57 @@ describe('AutoListingService', () => {
         'DB connection lost',
       );
     });
+
+    it('uses the scoring price when no settings store is wired', async () => {
+      const mgr = createMockListingManager();
+      mgr.getListings.mockResolvedValue([]);
+      mgr.listDomain.mockResolvedValue(makeListing({ id: 1 }));
+
+      const svc = new AutoListingService(mgr, createMockAutoListingRepo());
+      await svc.autoList('example.com', { suggestedListPrice: 2000 } as never, 'purchase');
+
+      expect(mgr.listDomain).toHaveBeenCalledWith('example.com', 'manual', 2000);
+    });
+
+    it('uses the tenant base price when the policy is fixed (M4)', async () => {
+      const mgr = createMockListingManager();
+      mgr.getListings.mockResolvedValue([]);
+      mgr.listDomain.mockResolvedValue(makeListing({ id: 1, priceEur: 2500 }));
+
+      const settingsRepo = {
+        get: vi.fn().mockResolvedValue({
+          pricePolicy: 'fixed',
+          basePriceEur: 2500,
+          offerAutoDeclineBelowEur: null,
+          offerCounterEur: null,
+        }),
+      };
+
+      const svc = new AutoListingService(mgr, createMockAutoListingRepo(), settingsRepo as never);
+      await svc.autoList('example.com', { suggestedListPrice: 2000 } as never, 'purchase');
+
+      expect(mgr.listDomain).toHaveBeenCalledWith('example.com', 'manual', 2500);
+    });
+
+    it('falls back to the scoring price when the policy is scoring (M4)', async () => {
+      const mgr = createMockListingManager();
+      mgr.getListings.mockResolvedValue([]);
+      mgr.listDomain.mockResolvedValue(makeListing({ id: 1 }));
+
+      const settingsRepo = {
+        get: vi.fn().mockResolvedValue({
+          pricePolicy: 'scoring',
+          basePriceEur: 2500,
+          offerAutoDeclineBelowEur: null,
+          offerCounterEur: null,
+        }),
+      };
+
+      const svc = new AutoListingService(mgr, createMockAutoListingRepo(), settingsRepo as never);
+      await svc.autoList('example.com', { suggestedListPrice: 2000 } as never, 'purchase');
+
+      expect(mgr.listDomain).toHaveBeenCalledWith('example.com', 'manual', 2000);
+    });
   });
 
   describe('autoListBatch', () => {

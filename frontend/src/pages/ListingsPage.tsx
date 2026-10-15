@@ -12,6 +12,7 @@ import {
 } from '@/hooks/useListings';
 import { getListing } from '@/api/listings';
 import type { Listing, ListingOffer } from '@/types/domain';
+import { ListingPolicyCard } from '@/components/ListingPolicyCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -171,6 +172,8 @@ export function ListingsPage() {
           </Button>
         </div>
       </div>
+
+      <ListingPolicyCard />
 
       <Card>
         <CardHeader>

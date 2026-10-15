@@ -55,6 +55,18 @@ function mockAuditRepo(): any {
   };
 }
 
+/** Fake tenant settings store; `current` is the stored row state. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockSettingsRepo(current: { enabled: boolean; dryRun: boolean }): any {
+  return {
+    get: vi.fn().mockResolvedValue({ ...current }),
+    set: vi.fn(async (update: Record<string, unknown>) => {
+      Object.assign(current, update);
+      return { ...current };
+    }),
+  };
+}
+
 /** Fake executor that returns a scripted outcome (or throws). */
 function fakeExecutor(
   step: PostAcquisitionStepExecutor['step'],
@@ -217,6 +229,149 @@ describe('PostAcquisitionService', () => {
       expect(result.steps.find((s) => s.step === 'parking')?.status).toBe('skipped');
       expect(listing.execute).toHaveBeenCalled(); // skipped steps do not halt
       expect(repo.markSkipped).toHaveBeenCalledWith(5, 'dry_run');
+    });
+  });
+
+  describe('tenant opt-in gate (Phase 0)', () => {
+    it('refuses to run when the tenant is opted out and audits the refusal', async () => {
+      const repo = mockRepo();
+      const audit = mockAuditRepo();
+      const listing = fakeExecutor('listing', () => ({ status: 'done' }));
+      const settingsRepo = mockSettingsRepo({ enabled: false, dryRun: true });
+
+      const service = new PostAcquisitionService(repo, audit, [listing], {
+        enabled: true,
+        dryRun: false,
+        settingsRepo,
+      });
+
+      const result = await service.run('example.com', 'purchase');
+
+      expect(result.enabled).toBe(false);
+      expect(result.refusedBy).toBe('tenant_switch');
+      expect(result.steps).toEqual([]);
+      expect(listing.execute).not.toHaveBeenCalled();
+      expect(audit.insert).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'tenant_automation_disabled', domain: 'example.com' }),
+      );
+    });
+
+    it('the global kill switch wins over an enabled tenant', async () => {
+      const repo = mockRepo();
+      const audit = mockAuditRepo();
+      const listing = fakeExecutor('listing', () => ({ status: 'done' }));
+      const settingsRepo = mockSettingsRepo({ enabled: true, dryRun: false });
+
+      const service = new PostAcquisitionService(repo, audit, [listing], {
+        enabled: false,
+        dryRun: false,
+        settingsRepo,
+      });
+
+      const result = await service.run('example.com', 'purchase');
+
+      expect(result.enabled).toBe(false);
+      expect(result.refusedBy).toBe('global_kill_switch');
+      expect(listing.execute).not.toHaveBeenCalled();
+    });
+
+    it('env dry-run forces simulation even when the tenant asked for live execution', async () => {
+      const repo = mockRepo();
+      repo.upsert.mockImplementation(async (input: { domain: string; step: string }) =>
+        journalRow(input),
+      );
+      const listing = fakeExecutor('listing', () => ({ status: 'done' }));
+      const settingsRepo = mockSettingsRepo({ enabled: true, dryRun: false });
+
+      const service = new PostAcquisitionService(repo, mockAuditRepo(), [listing], {
+        enabled: true,
+        dryRun: true,
+        settingsRepo,
+      });
+
+      const result = await service.run('example.com', 'purchase');
+
+      expect(result.enabled).toBe(true);
+      expect(result.dryRun).toBe(true);
+      expect(listing.execute).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
+    });
+
+    it('runs live only when both switches allow it', async () => {
+      const repo = mockRepo();
+      repo.upsert.mockImplementation(async (input: { domain: string; step: string }) =>
+        journalRow(input),
+      );
+      const listing = fakeExecutor('listing', () => ({ status: 'done' }));
+      const settingsRepo = mockSettingsRepo({ enabled: true, dryRun: false });
+
+      const service = new PostAcquisitionService(repo, mockAuditRepo(), [listing], {
+        enabled: true,
+        dryRun: false,
+        settingsRepo,
+      });
+
+      const result = await service.run('example.com', 'purchase');
+
+      expect(result.enabled).toBe(true);
+      expect(result.dryRun).toBe(false);
+      expect(listing.execute).toHaveBeenCalledWith(expect.objectContaining({ dryRun: false }));
+    });
+
+    it('getSettingsView combines global, tenant and effective settings', async () => {
+      const settingsRepo = mockSettingsRepo({ enabled: true, dryRun: false });
+      const service = new PostAcquisitionService(mockRepo(), mockAuditRepo(), [], {
+        enabled: true,
+        dryRun: true,
+        settingsRepo,
+      });
+
+      const view = await service.getSettingsView();
+
+      expect(view).toEqual({
+        global: { enabled: true, dryRun: true },
+        tenant: { enabled: true, dryRun: false },
+        effective: { enabled: true, dryRun: true },
+      });
+    });
+
+    it('updateTenantSettings delegates to the store', async () => {
+      const settingsRepo = mockSettingsRepo({ enabled: false, dryRun: true });
+      const service = new PostAcquisitionService(mockRepo(), mockAuditRepo(), [], {
+        enabled: true,
+        settingsRepo,
+      });
+
+      const stored = await service.updateTenantSettings({ enabled: true });
+
+      expect(stored).toEqual({ enabled: true, dryRun: true });
+      expect(settingsRepo.set).toHaveBeenCalledWith({ enabled: true });
+    });
+
+    it('updateTenantSettings throws when no store is configured', async () => {
+      const service = new PostAcquisitionService(mockRepo(), mockAuditRepo(), [], {
+        enabled: true,
+      });
+      await expect(service.updateTenantSettings({ enabled: true })).rejects.toThrow(
+        /no settings store/,
+      );
+    });
+
+    it('falls back to env-only behaviour when no settings store is wired', async () => {
+      const repo = mockRepo();
+      repo.upsert.mockImplementation(async (input: { domain: string; step: string }) =>
+        journalRow(input),
+      );
+      const listing = fakeExecutor('listing', () => ({ status: 'done' }));
+
+      const service = new PostAcquisitionService(repo, mockAuditRepo(), [listing], {
+        enabled: true,
+        dryRun: false,
+      });
+
+      const result = await service.run('example.com', 'purchase');
+
+      expect(result.enabled).toBe(true);
+      expect(listing.execute).toHaveBeenCalledWith(expect.objectContaining({ dryRun: false }));
     });
   });
 

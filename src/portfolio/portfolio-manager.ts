@@ -3,14 +3,15 @@ import type {
   PortfolioEntry,
   AddPortfolioEntryInput,
   RenewalClockData,
-  Verdict,
 } from '../types/portfolio.js';
+import { Verdict } from '../types/portfolio.js';
 import type { PortfolioRepository } from '../db/repositories/portfolio-repository.js';
 import { computeDropVerdict, DEFAULT_DROP_VERDICT_CONFIG } from './drop-verdict-engine.js';
 import type { DropVerdictConfig } from './drop-verdict-engine.js';
 import { computeRenewalClock } from './renewal-clock.js';
 import type { PortfolioRescoreService, RescoreSummary } from './portfolio-rescore-service.js';
 import type { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
+import type { CarryCostSignal } from '../services/portfolio-sustainability-service.js';
 
 export interface PortfolioSummary {
   entry: PortfolioEntry;
@@ -30,6 +31,7 @@ export interface PortfolioAddOptions {
 
 export class PortfolioManager {
   #rescoreService: PortfolioRescoreService | null = null;
+  #carryCostSignal: CarryCostSignal | null = null;
   readonly #dropConfig: DropVerdictConfig;
   readonly #usageEnforcer: PipelineUsageEnforcer | undefined;
 
@@ -67,6 +69,15 @@ export class PortfolioManager {
 
   getRescoreService(): PortfolioRescoreService | null {
     return this.#rescoreService;
+  }
+
+  /**
+   * Inject the carry-cost signal (ADR-0083, M5). Like the rescore service,
+   * it is wired only where revenue data exists, and its absence changes
+   * nothing: verdicts keep coming from the drop engine alone.
+   */
+  setCarryCostSignal(signal: CarryCostSignal): void {
+    this.#carryCostSignal = signal;
   }
 
   async add(
@@ -119,12 +130,28 @@ export class PortfolioManager {
     const entries = await this.repo.findAll();
     for (const entry of entries) {
       const result = computeDropVerdict(entry, this.#dropConfig);
-      if (result.verdict !== entry.verdict) {
+
+      // Carry-cost signal (M5): a domain whose ad revenue does not cover
+      // its renewal is a Reprice candidate — never an automatic drop,
+      // which keeps its human gate. Only Keep verdicts are refined;
+      // Drop/Reprice from the engine stand as they are.
+      let verdict = result.verdict;
+      let reason = result.reason;
+      if (verdict === Verdict.Keep && this.#carryCostSignal !== null) {
+        const signal = await this.#carryCostSignal.getSignal(entry.domain).catch(() => null);
+        if (signal !== null && signal.verdict === 'loss') {
+          verdict = Verdict.Reprice;
+          reason =
+            `Carry cost negative (net €${signal.netAnnualEur.toFixed(2)}/yr: ` +
+            `annualised revenue €${signal.annualRevenueEur.toFixed(2)} vs renewal ` +
+            `€${signal.renewalCostEur.toFixed(2)}) — reprice or drop at the next renewal`;
+        }
+      }
+
+      if (verdict !== entry.verdict) {
         const reasonWithNpv =
-          result.npv !== undefined
-            ? `${result.reason} (NPV: €${result.npv.toFixed(2)})`
-            : result.reason;
-        await this.repo.updateVerdict(entry.domain, result.verdict, reasonWithNpv);
+          result.npv !== undefined ? `${reason} (NPV: €${result.npv.toFixed(2)})` : reason;
+        await this.repo.updateVerdict(entry.domain, verdict, reasonWithNpv);
       }
     }
   }

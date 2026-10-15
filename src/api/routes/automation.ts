@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { PostAcquisitionService } from '../../services/post-acquisition-service.js';
+import type { TenantAutomationSettingsUpdate } from '../../types/automation.js';
 import { POST_ACQUISITION_STEPS } from '../../types/automation.js';
 import { validate } from '../middleware/validate.js';
 
@@ -27,16 +28,59 @@ const auditQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 
+const settingsUpdateSchema = z
+  .object({
+    enabled: z.boolean(),
+    dryRun: z.boolean(),
+  })
+  .partial()
+  .refine((value) => value.enabled !== undefined || value.dryRun !== undefined, {
+    message: 'At least one of enabled or dryRun must be provided',
+  });
+
 export function createAutomationRouter(postAcquisitionService: PostAcquisitionService): Router {
   const router = Router();
 
-  router.get('/settings', (_req: Request, res: Response, next: NextFunction): void => {
-    try {
-      res.json({ settings: postAcquisitionService.settings });
-    } catch (err) {
-      next(err);
-    }
-  });
+  router.get(
+    '/settings',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const view = await postAcquisitionService.getSettingsView();
+        res.json({ settings: view });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.put(
+    '/settings',
+    validate({ body: settingsUpdateSchema }),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        const body = req.body as z.infer<typeof settingsUpdateSchema>;
+        const update: TenantAutomationSettingsUpdate = {
+          ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          ...(body.dryRun !== undefined ? { dryRun: body.dryRun } : {}),
+        };
+        await postAcquisitionService.updateTenantSettings(update);
+        const view = await postAcquisitionService.getSettingsView();
+        res.json({ settings: view, tenant: view.tenant });
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message.includes('no settings store')) {
+          res.status(501).json({
+            error: {
+              code: 'AUTOMATION_SETTINGS_UNAVAILABLE',
+              message:
+                'Tenant automation settings are not configured on this deployment; use the environment flags instead',
+            },
+          });
+          return;
+        }
+        next(err);
+      }
+    },
+  );
 
   router.get(
     '/steps',
@@ -81,10 +125,14 @@ export function createAutomationRouter(postAcquisitionService: PostAcquisitionSe
           ...(pipelineRunId != null ? { pipelineRunId } : {}),
         });
         if (!result.enabled) {
+          const refusedByTenant = result.refusedBy === 'tenant_switch';
           res.status(409).json({
-            error:
-              'Automation is disabled (AUTOMATION_ENABLED=false). Enable the kill switch before running the pipeline.',
-            code: 'AUTOMATION_DISABLED',
+            error: {
+              code: refusedByTenant ? 'TENANT_AUTOMATION_DISABLED' : 'AUTOMATION_DISABLED',
+              message: refusedByTenant
+                ? 'Automation is disabled for this tenant. Enable it in the automation settings before running the pipeline.'
+                : 'Automation is disabled (AUTOMATION_ENABLED=false). Enable the kill switch before running the pipeline.',
+            },
           });
           return;
         }

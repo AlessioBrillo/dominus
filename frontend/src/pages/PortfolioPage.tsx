@@ -20,6 +20,7 @@ import {
   useRemoveFromPortfolio,
 } from '@/hooks/usePortfolio';
 import { Button } from '@/components/ui/button';
+import { CarryCostCard } from '@/components/CarryCostCard';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -324,6 +325,8 @@ export function PortfolioPage() {
           </Button>
         </div>
       </div>
+
+      <CarryCostCard />
 
       {portfolio.length === 0 ? (
         <Card>

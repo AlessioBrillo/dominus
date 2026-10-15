@@ -50,6 +50,7 @@ import {
   createMetricsRouter,
   createAnalyticsRouter,
   createListingsRouter,
+  createSustainabilityRouter,
   createOnboardingRouter,
   createDocsRouter,
   createWorkerRouter,
@@ -454,7 +455,11 @@ async function main(): Promise<void> {
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));
   protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
-  protectedRouter.use('/listings', createListingsRouter(deps.listingManager));
+  protectedRouter.use(
+    '/listings',
+    createListingsRouter(deps.listingManager, deps.tenantListingSettingsRepo),
+  );
+  protectedRouter.use('/sustainability', createSustainabilityRouter(deps.sustainabilityService));
   if (deps.worker) {
     protectedRouter.use('/system', createWorkerRouter(deps.worker, deps.jobQueueService));
   }

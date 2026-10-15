@@ -617,6 +617,15 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       AUTOMATION_ENABLED: false,
       AUTOMATION_DRY_RUN: true,
       AUTOMATION_AUDIT_RETENTION_DAYS: 90,
+      DNS_WRITE_PROVIDER: 'manual',
+      DNS_WRITE_CLOUDFLARE_API_TOKEN: undefined,
+      AUTOMATION_DNS_RECORD_TYPE: 'A',
+      AUTOMATION_DNS_RECORD_VALUE: undefined,
+      AUTOMATION_DNS_RECORD_NAME: '@',
+      MONETIZATION_PROVIDER: 'manual',
+      MONETIZATION_REVENUE_PATH: undefined,
+      REVENUE_SYNC_LOOKBACK_DAYS: 90,
+      SCHEDULER_REVENUE_SYNC_CRON: '0 7 * * *',
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

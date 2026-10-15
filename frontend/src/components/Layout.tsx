@@ -25,6 +25,7 @@ import {
   Gauge,
   Users,
   ShoppingBag,
+  Bot,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useMe } from '@/hooks/useMe';
@@ -48,6 +49,7 @@ const navItems = [
   { to: '/backtest', label: 'Backtest', icon: TrendingUp },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/scheduler', label: 'Scheduler', icon: Clock },
+  { to: '/automation', label: 'Automation', icon: Bot },
   { to: '/providers', label: 'Providers', icon: Server },
   { to: '/billing', label: 'Billing', icon: CreditCard },
   { to: '/team', label: 'Team', icon: Users },

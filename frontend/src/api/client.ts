@@ -109,6 +109,8 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal): Promise<T> => request<T>(path, { signal }),
   post: <T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined, signal }),
+  put: <T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+    request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined, signal }),
   patch: <T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined, signal }),
   delete: <T>(path: string, signal?: AbortSignal): Promise<T> =>

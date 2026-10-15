@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { PostAcquisitionRepository } from '../db/repositories/post-acquisition-repository.js';
 import type { AutomationAuditRepository } from '../db/repositories/automation-audit-repository.js';
+import type { TenantAutomationSettingsRepository } from '../db/repositories/tenant-automation-settings-repository.js';
 import type {
   AutomationSettings,
+  AutomationSettingsView,
+  EffectiveAutomationSettings,
   PostAcquisitionRunResult,
   PostAcquisitionRunStepResult,
   PostAcquisitionStep,
   PostAcquisitionStepName,
   PostAcquisitionStepStatus,
   PostAcquisitionTriggerSource,
+  TenantAutomationSettings,
+  TenantAutomationSettingsUpdate,
 } from '../types/automation.js';
 import type { AutomationAuditEntry } from '../types/automation.js';
 import { POST_ACQUISITION_STEPS } from '../types/automation.js';
@@ -28,8 +33,8 @@ export interface PostAcquisitionStepContext {
 
 export type PostAcquisitionStepOutcome =
   | { status: 'done'; message?: string; detail?: Record<string, unknown> }
-  | { status: 'skipped'; reason: string }
-  | { status: 'failed'; error: string };
+  | { status: 'skipped'; reason: string; detail?: Record<string, unknown> }
+  | { status: 'failed'; error: string; detail?: Record<string, unknown> };
 
 export interface PostAcquisitionStepExecutor {
   readonly step: PostAcquisitionStepName;
@@ -56,6 +61,14 @@ export interface PostAcquisitionServiceOptions {
   enabled?: boolean;
   /** Dry-run flag (AUTOMATION_DRY_RUN) forwarded to every executor. */
   dryRun?: boolean;
+  /**
+   * Per-tenant opt-in store (ADR-0083, Phase 0). When wired, the
+   * effective gate combines the operator brake above with the tenant's
+   * own switch: enabled = env AND tenant, dry-run = env OR tenant.
+   * When absent (community CLI without a settings store, tests) the
+   * env flags alone decide, preserving the original behaviour.
+   */
+  settingsRepo?: TenantAutomationSettingsRepository | undefined;
 }
 
 /**
@@ -73,6 +86,7 @@ export class PostAcquisitionService {
   readonly #executors = new Map<PostAcquisitionStepName, PostAcquisitionStepExecutor>();
   readonly #enabled: boolean;
   readonly #dryRun: boolean;
+  readonly #settingsRepo: TenantAutomationSettingsRepository | undefined;
   /** In-process per-domain serialization: two triggers for the same domain
    *  (purchase + manual run, or a retried job) must never interleave — both
    *  would otherwise pass the "already done" check before either completes. */
@@ -88,6 +102,7 @@ export class PostAcquisitionService {
     this.#auditRepo = auditRepo;
     this.#enabled = options.enabled ?? false;
     this.#dryRun = options.dryRun ?? true;
+    this.#settingsRepo = options.settingsRepo;
     for (const executor of executors) {
       this.#executors.set(executor.step, executor);
     }
@@ -95,6 +110,40 @@ export class PostAcquisitionService {
 
   get settings(): AutomationSettings {
     return { enabled: this.#enabled, dryRun: this.#dryRun };
+  }
+
+  /**
+   * Full settings view: the operator brake (env), this tenant's switch
+   * and the effective combination the pipeline enforces.
+   */
+  async getSettingsView(): Promise<AutomationSettingsView> {
+    const tenant = this.#settingsRepo
+      ? await this.#settingsRepo.get()
+      : ({ enabled: this.#enabled, dryRun: this.#dryRun } satisfies TenantAutomationSettings);
+    return { global: this.settings, tenant, effective: this.#effective(tenant) };
+  }
+
+  /** Update this tenant's switch. Returns the stored settings. */
+  async updateTenantSettings(
+    update: TenantAutomationSettingsUpdate,
+  ): Promise<TenantAutomationSettings> {
+    if (!this.#settingsRepo) {
+      throw new Error(
+        'Tenant automation settings are not available: no settings store is configured',
+      );
+    }
+    return this.#settingsRepo.set(update);
+  }
+
+  /** Conservative combination: the operator brake can only ever tighten. */
+  #effective(tenant: TenantAutomationSettings): EffectiveAutomationSettings {
+    if (!this.#enabled) {
+      return { enabled: false, dryRun: true, refusedBy: 'global_kill_switch' };
+    }
+    if (!tenant.enabled) {
+      return { enabled: false, dryRun: this.#dryRun || tenant.dryRun, refusedBy: 'tenant_switch' };
+    }
+    return { enabled: true, dryRun: this.#dryRun || tenant.dryRun };
   }
 
   /** Register an additional step executor (used by later milestones). */
@@ -130,11 +179,38 @@ export class PostAcquisitionService {
     if (!this.#enabled) {
       logger.warn({ domain, source }, 'PostAcquisitionService: automation disabled (kill switch)');
       await this.#audit(domain, 'automation_disabled', source);
-      return { domain, source, enabled: false, dryRun: this.#dryRun, steps: [] };
+      return {
+        domain,
+        source,
+        enabled: false,
+        dryRun: true,
+        steps: [],
+        refusedBy: 'global_kill_switch',
+      };
+    }
+
+    const tenant = this.#settingsRepo
+      ? await this.#settingsRepo.get()
+      : ({ enabled: true, dryRun: false } satisfies TenantAutomationSettings);
+    const effective = this.#effective(tenant);
+    if (!effective.enabled) {
+      logger.warn(
+        { domain, source },
+        'PostAcquisitionService: automation disabled for tenant (opt-in required)',
+      );
+      await this.#audit(domain, 'tenant_automation_disabled', source);
+      return {
+        domain,
+        source,
+        enabled: false,
+        dryRun: effective.dryRun,
+        steps: [],
+        refusedBy: 'tenant_switch',
+      };
     }
 
     const pipelineRunId = options.pipelineRunId ?? null;
-    await this.#audit(domain, 'automation_run_started', source, { dryRun: this.#dryRun });
+    await this.#audit(domain, 'automation_run_started', source, { dryRun: effective.dryRun });
 
     const stepResults: PostAcquisitionRunStepResult[] = [];
 
@@ -164,7 +240,7 @@ export class PostAcquisitionService {
           domain,
           source,
           pipelineRunId,
-          dryRun: this.#dryRun,
+          dryRun: effective.dryRun,
           signal: options.signal,
         });
 
@@ -177,11 +253,19 @@ export class PostAcquisitionService {
           });
           await this.#audit(domain, `step_${step}_done`, source, outcome.detail ?? null);
         } else if (outcome.status === 'skipped') {
-          await this.#repo.markSkipped(row.id, outcome.reason);
+          if (outcome.detail !== undefined) {
+            await this.#repo.markSkipped(row.id, outcome.reason, outcome.detail);
+          } else {
+            await this.#repo.markSkipped(row.id, outcome.reason);
+          }
           stepResults.push({ step, status: 'skipped', message: outcome.reason });
           await this.#audit(domain, `step_${step}_skipped`, source, { reason: outcome.reason });
         } else {
-          await this.#repo.markFailed(row.id, outcome.error);
+          if (outcome.detail !== undefined) {
+            await this.#repo.markFailed(row.id, outcome.error, outcome.detail);
+          } else {
+            await this.#repo.markFailed(row.id, outcome.error);
+          }
           stepResults.push({ step, status: 'failed', message: outcome.error });
           await this.#audit(domain, `step_${step}_failed`, source, { error: outcome.error });
           logger.error(
@@ -204,7 +288,7 @@ export class PostAcquisitionService {
       steps: stepResults.map((s) => ({ step: s.step, status: s.status })),
     });
 
-    return { domain, source, enabled: true, dryRun: this.#dryRun, steps: stepResults };
+    return { domain, source, enabled: true, dryRun: effective.dryRun, steps: stepResults };
   }
 
   async getStatus(domain: string): Promise<PostAcquisitionStep[]> {

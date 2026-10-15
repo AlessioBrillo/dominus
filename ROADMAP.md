@@ -231,13 +231,29 @@ estimates and subject to change.
       data and published at `/public/for-sale/<domain>` (Schema.org Offer),
       sitemap inclusion, IndexNow submission (`INDEXNOW_KEY`), contact via
       `AUTOMATION_CONTACT_EMAIL`
-- [ ] **M3** — `dns` + `parking` steps: DnsWriteProvider (Cloudflare-first,
-      manual fallback), first MonetizationProvider (Sedo Parking), revenue
-      ingestion
-- [ ] **M4** — marketplace automation: Dan.com + Afternic ListingProvider
-      adapters (verified API access required), offer sync and response rules
-- [ ] **M5** — sustainability: carry-cost vs ad-revenue verdict feeding the
-      drop engine, alerts, dashboards
+- [x] **Phase 0** — tenant opt-in: `tenant_automation_settings` (per-tenant
+      kill switch/dry-run, conservative combination with the env brake),
+      `PUT /automation/settings`, Automation dashboard page (settings, step
+      journal, audit trail), `dominus automate settings --enabled/--dry-run`
+- [x] **M3** — `dns` + `parking` steps: DnsWriteProvider (Cloudflare-first,
+      manual fallback) behind a fail-closed write gate (ADR-0083 amendment),
+      MonetizationProvider with a CSV revenue reader (zero paid API
+      dependencies; provider API adapters land with verified access,
+      ADR-0082), revenue ingestion idempotent per (domain, date, source)
+- [x] **M4 (partial)** — marketplace automation without unverified vendor APIs:
+      tenant listing policy (`tenant_listing_settings`): fixed base price
+      for automatic listings, offer auto-decline floor and counter rule
+      (both conservative by default), `GET/PUT /api/v1/listings/settings`,
+      listing policy card in the dashboard
+- [ ] **M4 (vendor adapters)** — Dan.com + Afternic ListingProvider
+      adapters and offer sync: blocked on verified API access (ADR-0082);
+      they return once the vendors grant and verify the credentials
+- [x] **M5** — sustainability: scheduled revenue ingestion
+      (`REVENUE_SYNC` job + `revenue-sync` scheduler job, read-only,
+      idempotent), carry-cost verdict (`sustainable` / `marginal` /
+      `loss` / `insufficient_data`, 30-day minimum before judging) exposed
+      at `GET /api/v1/sustainability` and in the Portfolio dashboard, and
+      fed into the drop engine as a Reprice signal (never an auto-drop)
 
 ## Post-1.0
 

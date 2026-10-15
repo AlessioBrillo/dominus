@@ -49,6 +49,9 @@ const BacktestPage = lazy(() =>
 const SchedulerPage = lazy(() =>
   import('@/pages/SchedulerPage').then((m) => ({ default: m.SchedulerPage })),
 );
+const AutomationPage = lazy(() =>
+  import('@/pages/AutomationPage').then((m) => ({ default: m.AutomationPage })),
+);
 const ProvidersPage = lazy(() =>
   import('@/pages/ProvidersPage').then((m) => ({ default: m.ProvidersPage })),
 );
@@ -126,6 +129,7 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="watchlist" element={<WatchlistPage />} />
                       <Route path="backtest" element={<BacktestPage />} />
                       <Route path="scheduler" element={<SchedulerPage />} />
+                      <Route path="automation" element={<AutomationPage />} />
                       <Route path="providers" element={<ProvidersPage />} />
                       <Route path="billing" element={<BillingPage />} />
                       <Route path="team" element={<TeamPage />} />

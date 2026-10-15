@@ -48,6 +48,15 @@ vi.mock('@/api/listings', () => ({
   recordOffer: vi.fn(),
   acceptOffer: vi.fn<() => Promise<{ status: string }>>(),
   declineOffer: vi.fn<() => Promise<{ status: string }>>(),
+  getListingSettings: vi.fn<() => Promise<{ settings: unknown }>>().mockResolvedValue({
+    settings: {
+      pricePolicy: 'scoring',
+      basePriceEur: null,
+      offerAutoDeclineBelowEur: null,
+      offerCounterEur: null,
+    },
+  }),
+  updateListingSettings: vi.fn<() => Promise<{ settings: unknown }>>(),
 }));
 
 import {

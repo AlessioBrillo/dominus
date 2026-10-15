@@ -136,6 +136,9 @@ import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
 import { PostAcquisitionRepository } from '../db/repositories/post-acquisition-repository.js';
 import { AutomationAuditRepository } from '../db/repositories/automation-audit-repository.js';
+import { TenantAutomationSettingsRepository } from '../db/repositories/tenant-automation-settings-repository.js';
+import { MonetizationRevenueRepository } from '../db/repositories/monetization-revenue-repository.js';
+import { TenantListingSettingsRepository } from '../db/repositories/tenant-listing-settings-repository.js';
 import { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import { ListingManager } from '../listing/listing-manager.js';
 import { createListingProvider, type ListingProviderType } from '../providers/listing/index.js';
@@ -149,6 +152,16 @@ import { SiteService } from '../services/site-service.js';
 import { SiteStepExecutor } from '../services/post-acquisition-site-executor.js';
 import { IndexingService } from '../services/indexing-service.js';
 import { IndexingStepExecutor } from '../services/post-acquisition-indexing-executor.js';
+import { DnsWriteGate } from '../services/dns-write-gate.js';
+import { DnsStepExecutor } from '../services/post-acquisition-dns-executor.js';
+import { RevenueIngestionService } from '../services/revenue-ingestion-service.js';
+import { ParkingStepExecutor } from '../services/post-acquisition-parking-executor.js';
+import { PortfolioSustainabilityService } from '../services/portfolio-sustainability-service.js';
+import { CsvMonetizationProvider } from '../providers/monetization/csv-monetization-provider.js';
+import { CloudflareDnsWriteProvider } from '../providers/dns/cloudflare-dns-write-provider.js';
+import { ManualDnsWriteProvider } from '../providers/dns/manual-dns-write-provider.js';
+import { NodeDelegationReader } from '../providers/dns/node-delegation-reader.js';
+import { resolveCloudflareApiToken } from './registrar-factory.js';
 import { createJobQueueService } from './job-queue-service.js';
 import {
   JobWorker,
@@ -163,6 +176,7 @@ import {
   PortfolioHealthcheckHandler,
   AutoListHandler,
   PostAcquisitionHandler,
+  RevenueSyncHandler,
   HANDLERS,
 } from '../jobs/index.js';
 import { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
@@ -239,6 +253,9 @@ export interface DominusDependencies {
   pnlService: PnlService;
   listingManager: ListingManager;
   autoListingService: AutoListingService;
+  tenantListingSettingsRepo: TenantListingSettingsRepository;
+  revenueIngestionService: RevenueIngestionService;
+  sustainabilityService: PortfolioSustainabilityService;
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
@@ -282,6 +299,9 @@ interface BuiltRepositories {
   listingRepo: ListingRepository;
   postAcquisitionRepo: PostAcquisitionRepository;
   automationAuditRepo: AutomationAuditRepository;
+  tenantAutomationSettingsRepo: TenantAutomationSettingsRepository;
+  monetizationRevenueRepo: MonetizationRevenueRepository;
+  tenantListingSettingsRepo: TenantListingSettingsRepository;
   domainSiteRepo: DomainSiteRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
@@ -358,6 +378,9 @@ function buildMainRepositories(
   | 'adminRepo'
   | 'postAcquisitionRepo'
   | 'automationAuditRepo'
+  | 'tenantAutomationSettingsRepo'
+  | 'monetizationRevenueRepo'
+  | 'tenantListingSettingsRepo'
   | 'domainSiteRepo'
 > {
   return {
@@ -366,6 +389,9 @@ function buildMainRepositories(
     adminRepo: new AdminRepository(provider),
     postAcquisitionRepo: new PostAcquisitionRepository(provider),
     automationAuditRepo: new AutomationAuditRepository(provider),
+    tenantAutomationSettingsRepo: new TenantAutomationSettingsRepository(provider),
+    monetizationRevenueRepo: new MonetizationRevenueRepository(provider),
+    tenantListingSettingsRepo: new TenantListingSettingsRepository(provider),
     domainSiteRepo: new DomainSiteRepository(provider),
   };
 }
@@ -492,6 +518,7 @@ export interface JobHandlerDeps {
   autoListingService: AutoListingService;
   postAcquisitionService: PostAcquisitionService;
   automationAuditRepo: AutomationAuditRepository;
+  revenueIngestionService: RevenueIngestionService;
 }
 
 /**
@@ -547,6 +574,9 @@ export function buildJobHandlers(deps: JobHandlerDeps): JobHandler<JobPayload, J
   const postAcquisitionHandler = new PostAcquisitionHandler({
     postAcquisitionService: deps.postAcquisitionService,
   });
+  const revenueSyncHandler = new RevenueSyncHandler({
+    revenueIngestionService: deps.revenueIngestionService,
+  });
 
   return [
     pipelineRunHandler,
@@ -559,6 +589,7 @@ export function buildJobHandlers(deps: JobHandlerDeps): JobHandler<JobPayload, J
     portfolioHealthcheckHandler,
     autoListHandler,
     postAcquisitionHandler,
+    revenueSyncHandler,
     ...(weightTuneHandler ? [weightTuneHandler] : []),
   ];
 }
@@ -606,6 +637,7 @@ export const REQUIRED_JOB_TYPES = [
   'PORTFOLIO_HEALTHCHECK',
   'AUTO_LIST',
   'POST_ACQUISITION',
+  'REVENUE_SYNC',
 ] as const;
 
 /** Job types registered only when their feature is enabled in config. */
@@ -626,6 +658,7 @@ function buildSchedulerIfEnabled(
   portfolioHealthcheckService: PortfolioRdapService,
   lockProvider: LockProvider | undefined,
   metrics: MetricsCollector,
+  revenueIngestionService: RevenueIngestionService,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
 
@@ -662,6 +695,7 @@ function buildSchedulerIfEnabled(
     ...(pitrHealthService ? { pitrHealthService } : {}),
     ...(lockProvider ? { lock: lockProvider } : {}),
     ...(autoTuner ? { autoTuner } : {}),
+    revenueIngestionService,
   });
 }
 
@@ -1238,14 +1272,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     repos.listingRepo,
     engine,
     trademarkGate,
+    repos.tenantListingSettingsRepo,
   );
   const autoListingRepo = new AutoListingRepository(repos.provider);
-  const autoListingService = new AutoListingService(listingManager, autoListingRepo);
+  const autoListingService = new AutoListingService(
+    listingManager,
+    autoListingRepo,
+    repos.tenantListingSettingsRepo,
+  );
 
   // --- Post-acquisition automation pipeline (ADR-0083) ---
-  // Kill switch + dry-run come from config; steps without a registered
-  // executor are skipped by the orchestrator, so milestones can add
-  // executors (site, indexing, dns, parking) without touching this wiring.
+  // Kill switch + dry-run come from config (operator brake); the tenant's
+  // own opt-in lives in tenant_automation_settings and is resolved per
+  // run by the service. Steps without a registered executor are skipped
+  // by the orchestrator, so milestones can add executors (dns, parking)
+  // without touching this wiring.
   const postAcquisitionService = new PostAcquisitionService(
     repos.postAcquisitionRepo,
     repos.automationAuditRepo,
@@ -1253,6 +1294,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     {
       enabled: config.AUTOMATION_ENABLED,
       dryRun: config.AUTOMATION_DRY_RUN,
+      settingsRepo: repos.tenantAutomationSettingsRepo,
     },
   );
 
@@ -1272,6 +1314,53 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       ...(config.PUBLIC_APP_URL !== undefined ? { publicAppUrl: config.PUBLIC_APP_URL } : {}),
     }),
   );
+
+  // --- M3: DNS delegation step (ADR-0083) ---
+  // Fail-closed write gate: the provider is the write leg, the public
+  // delegation reader the independent corroboration leg, the parking
+  // target comes from configuration. Nothing is delegated before the
+  // operator configures both provider and target.
+  const dnsWriteProvider =
+    config.DNS_WRITE_PROVIDER === 'cloudflare'
+      ? new CloudflareDnsWriteProvider(resolveCloudflareApiToken(config) ?? '')
+      : new ManualDnsWriteProvider();
+  const dnsWriteGate = new DnsWriteGate({
+    writeProvider: dnsWriteProvider,
+    reader: new NodeDelegationReader(),
+    ...(config.AUTOMATION_DNS_RECORD_VALUE !== undefined
+      ? {
+          target: {
+            type: config.AUTOMATION_DNS_RECORD_TYPE,
+            value: config.AUTOMATION_DNS_RECORD_VALUE,
+            recordName: config.AUTOMATION_DNS_RECORD_NAME,
+          },
+        }
+      : {}),
+  });
+  postAcquisitionService.registerExecutor(new DnsStepExecutor(dnsWriteGate));
+
+  // --- M3: parking / monetization step (ADR-0083) ---
+  // Revenue ingestion is a read: the CSV provider reads an operator
+  // export (zero paid API dependencies); provider API adapters land only
+  // with verified access (ADR-0082). No provider = the step skips.
+  const monetizationProvider =
+    config.MONETIZATION_PROVIDER === 'csv'
+      ? new CsvMonetizationProvider(config.MONETIZATION_REVENUE_PATH)
+      : undefined;
+  const revenueIngestion = new RevenueIngestionService({
+    provider: monetizationProvider,
+    repo: repos.monetizationRevenueRepo,
+  });
+  postAcquisitionService.registerExecutor(new ParkingStepExecutor(revenueIngestion));
+
+  // --- M5: sustainability signal into the drop engine ---
+  // The carry-cost verdict can only ever refine a Keep into a Reprice —
+  // it never drops a domain on its own (the drop keeps its human gate).
+  // The signal is attached below, once the PortfolioManager exists.
+  const sustainabilityService = new PortfolioSustainabilityService({
+    portfolioRepo: repos.portfolioRepo,
+    revenueRepo: repos.monetizationRevenueRepo,
+  });
 
   const jobQueueService = createJobQueueService(provider, { usageEnforcer });
 
@@ -1363,6 +1452,9 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       config.RESCORE_BATCH_CONCURRENCY,
     ),
   );
+  // Carry-cost signal (M5): refine Keep verdicts into Reprice when the ad
+  // revenue of a domain does not cover its renewal. Never auto-drops.
+  portfolioManager.setCarryCostSignal(sustainabilityService);
 
   const notifiers = buildNotifiers(config);
   const alertEngine = new RenewalAlertEngine(
@@ -1505,6 +1597,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoListingService,
     postAcquisitionService,
     automationAuditRepo: repos.automationAuditRepo,
+    revenueIngestionService: revenueIngestion,
   });
 
   // --- Scheduler ---
@@ -1523,6 +1616,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     portfolioHealthcheckService,
     lockProvider,
     metrics,
+    revenueIngestion,
   );
 
   return {
@@ -1562,6 +1656,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     pnlService,
     listingManager,
     autoListingService,
+    revenueIngestionService: revenueIngestion,
+    sustainabilityService,
     jobQueueService,
     worker,
     authProvider,

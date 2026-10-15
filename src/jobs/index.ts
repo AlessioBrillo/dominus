@@ -24,6 +24,10 @@ export {
   PostAcquisitionHandler,
   type PostAcquisitionHandlerDeps,
 } from './handlers/post-acquisition-handler.js';
+export {
+  RevenueSyncHandler,
+  type RevenueSyncHandlerDeps,
+} from './handlers/revenue-sync-handler.js';
 export type {
   JobType,
   JobStatus,

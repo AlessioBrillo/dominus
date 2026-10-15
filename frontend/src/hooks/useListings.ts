@@ -11,9 +11,13 @@ import {
   recordOffer as recordOfferApi,
   acceptOffer as acceptOfferApi,
   declineOffer as declineOfferApi,
+  getListingSettings as getListingSettingsApi,
+  updateListingSettings as updateListingSettingsApi,
   type CreateListingRequest,
   type UpdateListingRequest,
   type RecordOfferRequest,
+  type ListingSettingsUpdate,
+  type TenantListingSettings,
 } from '@/api/listings';
 import { queryKeys } from './query-keys';
 import type { Listing, ListingOffer } from '@/types/domain';
@@ -24,7 +28,28 @@ const listingsKeys = {
   all: ['listings'] as const,
   list: () => [...listingsKeys.all, 'list'] as const,
   detail: (id: number) => [...listingsKeys.all, 'detail', id] as const,
+  settings: () => [...listingsKeys.all, 'settings'] as const,
 };
+
+export function useListingSettings() {
+  return useQuery({
+    queryKey: listingsKeys.settings(),
+    queryFn: getListingSettingsApi,
+    staleTime: 30_000,
+    select: (data: { settings: TenantListingSettings }) => data.settings,
+  });
+}
+
+export function useUpdateListingSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (update: ListingSettingsUpdate) => updateListingSettingsApi(update),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: listingsKeys.all });
+    },
+  });
+}
 
 export function useListingsList(status?: string, marketplace?: string, domain?: string) {
   return useQuery({
