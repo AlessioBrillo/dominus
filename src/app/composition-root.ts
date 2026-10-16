@@ -131,6 +131,9 @@ import { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
 import { AcquisitionFunnelService } from '../services/acquisition-funnel-service.js';
 import { FunnelRepository } from '../db/repositories/funnel-repository.js';
 import { AnonScoringService } from '../services/anon-scoring-service.js';
+import { TenantCredentialRepository } from '../db/repositories/tenant-credential-repository.js';
+import { CredentialVaultService } from '../services/credential-vault-service.js';
+import { RegistrarCatalogService } from '../services/registrar-catalog-service.js';
 import { ListingRepository } from '../db/repositories/listing-repository.js';
 import { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
 import { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
@@ -256,6 +259,10 @@ export interface DominusDependencies {
   tenantListingSettingsRepo: TenantListingSettingsRepository;
   revenueIngestionService: RevenueIngestionService;
   sustainabilityService: PortfolioSustainabilityService;
+  /** Tenant credential vault (ADR-0085). Undefined when VAULT_ENCRYPTION_KEY is not set. */
+  credentialVault: CredentialVaultService;
+  /** Registrar catalog service (ADR-0086): price matrix and TCO comparison. */
+  registrarCatalog: RegistrarCatalogService;
 
   jobQueueService: ReturnType<typeof createJobQueueService>;
   worker: JobWorker | undefined;
@@ -303,6 +310,7 @@ interface BuiltRepositories {
   monetizationRevenueRepo: MonetizationRevenueRepository;
   tenantListingSettingsRepo: TenantListingSettingsRepository;
   domainSiteRepo: DomainSiteRepository;
+  tenantCredentialRepo: TenantCredentialRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
   teamSeatsRepo: TeamSeatsRepository;
@@ -382,6 +390,7 @@ function buildMainRepositories(
   | 'monetizationRevenueRepo'
   | 'tenantListingSettingsRepo'
   | 'domainSiteRepo'
+  | 'tenantCredentialRepo'
 > {
   return {
     apiKeyRepo: new ApiKeyRepository(provider),
@@ -393,6 +402,7 @@ function buildMainRepositories(
     monetizationRevenueRepo: new MonetizationRevenueRepository(provider),
     tenantListingSettingsRepo: new TenantListingSettingsRepository(provider),
     domainSiteRepo: new DomainSiteRepository(provider),
+    tenantCredentialRepo: new TenantCredentialRepository(provider),
   };
 }
 
@@ -760,6 +770,15 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     ...writeRepos,
     ...mainRepos,
   };
+
+  // --- Credential Vault (ADR-0085) ---
+  // Per-tenant encrypted provider credentials. Fail-closed when
+  // VAULT_ENCRYPTION_KEY is unset: writes refuse, reads return null.
+  const tenantCredentialRepo = new TenantCredentialRepository(repos.provider);
+  const credentialVault = new CredentialVaultService(
+    config.VAULT_ENCRYPTION_KEY,
+    tenantCredentialRepo,
+  );
 
   // --- Auth Provider ---
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
@@ -1524,6 +1543,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // --- Purchase ---
   const registrarProvider = buildRegistrarProvider(config);
+  const registrarCatalog = new RegistrarCatalogService(registrarProvider);
   const purchaseService = buildPurchaseService(
     registrarProvider,
     portfolioManager,
@@ -1659,6 +1679,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoListingService,
     revenueIngestionService: revenueIngestion,
     sustainabilityService,
+    credentialVault,
+    registrarCatalog,
     jobQueueService,
     worker,
     authProvider,

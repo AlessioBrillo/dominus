@@ -518,6 +518,271 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
+    '/api/v1/registrar/tlds': {
+      get: {
+        tags: ['Registrar'],
+        summary: 'List all TLDs covered by the registrar price catalog',
+        responses: {
+          '200': {
+            description: 'TLD list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tlds: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/v1/registrar/registrars': {
+      get: {
+        tags: ['Registrar'],
+        summary: 'List all registrars in the catalog',
+        responses: {
+          '200': {
+            description: 'Registrar list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    registrars: {
+                      type: 'array',
+                      items: {
+                        type: 'string',
+                        enum: [
+                          'cloudflare',
+                          'dynadot',
+                          'porkbun',
+                          'namecheap',
+                          'ovh',
+                          'namesilo',
+                          'gandi',
+                          'godaddy',
+                          'manual',
+                        ],
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/v1/registrar/tlds/{tld}': {
+      get: {
+        tags: ['Registrar'],
+        summary: 'Price matrix for one TLD (registration, renewal, transfer prices per registrar)',
+        parameters: [
+          {
+            name: 'tld',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', pattern: '^\\.[a-z0-9-]+$' },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'TLD price matrix',
+          },
+          '404': { description: 'TLD not in catalog' },
+        },
+      },
+    },
+    '/api/v1/registrar/tco': {
+      get: {
+        tags: ['Registrar'],
+        summary: 'TCO (total cost of ownership) comparison for a domain over a holding period',
+        parameters: [
+          {
+            name: 'domain',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+          },
+          {
+            name: 'holdingYears',
+            in: 'query',
+            schema: { type: 'integer', minimum: 1, maximum: 20, default: 3 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'TCO comparison',
+          },
+        },
+      },
+    },
+    '/api/v1/registrar/recommend': {
+      get: {
+        tags: ['Registrar'],
+        summary: 'Recommended registrar for a domain (cheapest verified auto-purchase TCO)',
+        parameters: [
+          {
+            name: 'domain',
+            in: 'query',
+            required: true,
+            schema: { type: 'string' },
+          },
+          {
+            name: 'holdingYears',
+            in: 'query',
+            schema: { type: 'integer', minimum: 1, maximum: 20, default: 3 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Registrar recommendation',
+          },
+        },
+      },
+    },
+    '/api/v1/tenant/credentials': {
+      get: {
+        tags: ['Tenant Credentials'],
+        summary: 'List configured credential providers for the current tenant',
+        description:
+          'Returns metadata only (provider name, scope, updated at). Never returns secrets. Requires VAULT_ENCRYPTION_KEY to be set.',
+        responses: {
+          '200': {
+            description: 'Credential metadata list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    credentials: {
+                      type: 'array',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          providerType: {
+                            type: 'string',
+                            enum: ['registrar', 'parking', 'adsense', 'gsc', 'marketplace'],
+                          },
+                          providerName: { type: 'string' },
+                          accountId: { type: ['string', 'null'] },
+                          credentialScope: { type: ['string', 'null'] },
+                          updatedAt: { type: 'string', format: 'date-time' },
+                          createdAt: { type: 'string', format: 'date-time' },
+                          configured: { type: 'boolean' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          '501': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+    },
+    '/api/v1/tenant/credentials/{providerType}/{providerName}': {
+      put: {
+        tags: ['Tenant Credentials'],
+        summary: 'Store or replace a provider credential for the current tenant',
+        description:
+          'The secret is encrypted at rest (AES-256-GCM over a scrypt-derived key from VAULT_ENCRYPTION_KEY) and never returned in plaintext.',
+        parameters: [
+          {
+            name: 'providerType',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+              enum: ['registrar', 'parking', 'adsense', 'gsc', 'marketplace'],
+            },
+          },
+          {
+            name: 'providerName',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['secret'],
+                properties: {
+                  secret: { type: 'string', minLength: 1, maxLength: 10000 },
+                  accountId: { type: ['string', 'null'], maxLength: 200 },
+                  credentialScope: { type: ['string', 'null'], maxLength: 200 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Credential stored',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    ok: { type: 'boolean' },
+                    providerType: { type: 'string' },
+                    providerName: { type: 'string' },
+                    message: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          '501': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+      delete: {
+        tags: ['Tenant Credentials'],
+        summary: 'Delete a provider credential for the current tenant',
+        parameters: [
+          {
+            name: 'providerType',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+              enum: ['registrar', 'parking', 'adsense', 'gsc', 'marketplace'],
+            },
+          },
+          {
+            name: 'providerName',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Credential deleted',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    ok: { type: 'boolean' },
+                    deleted: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          '501': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+    },
     '/api/v1/metrics': {
       get: {
         tags: ['System'],

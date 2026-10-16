@@ -1763,6 +1763,22 @@ const configSchema = z
      */
     PURCHASE_AUTO_APPROVAL: z.enum(['never', 'under_buy_max', 'always']).default('never'),
 
+    // ── Credential Vault config (ADR-0085) ──────────────────────────────
+
+    /**
+     * Master encryption key for the tenant credential vault. When set,
+     * per-tenant provider credentials (registrar tokens, parking API keys,
+     * AdSense OAuth tokens, ...) are encrypted at rest with AES-256-GCM over
+     * a scrypt-derived key. When unset (default), the vault is a no-op:
+     * writes are refused and reads return null — providers degrade to their
+     * existing env-based configuration (community edition, single-tenant).
+     *
+     * The key must be safeguarded outside the database (env file with 0600,
+     * secret manager, etc.). Losing it means all stored credentials must be
+     * re-set — there is no password recovery by design.
+     */
+    VAULT_ENCRYPTION_KEY: z.string().min(1).optional(),
+
     // ── Acquisition Funnel config ───────────────────────────────────────
 
     /**

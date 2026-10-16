@@ -47,6 +47,7 @@ import {
   createBidsRouter,
   createFunnelRouter,
   createReportRouter,
+  createRegistrarCatalogRouter,
   createMetricsRouter,
   createAnalyticsRouter,
   createListingsRouter,
@@ -54,6 +55,7 @@ import {
   createOnboardingRouter,
   createDocsRouter,
   createWorkerRouter,
+  createTenantCredentialsRouter,
   createPublicRouter,
   createRobotsTxtHandler,
   createIndexNowKeyHandler,
@@ -454,12 +456,14 @@ async function main(): Promise<void> {
   protectedRouter.use('/team', createTeamRouter(deps.config, deps.teamService));
   protectedRouter.use('/funnel', createFunnelRouter(deps.funnelService));
   protectedRouter.use('/report', createReportRouter(deps.reportService));
+  protectedRouter.use('/registrar', createRegistrarCatalogRouter(deps.registrarCatalog));
   protectedRouter.use('/analytics', createAnalyticsRouter(deps.accuracyAnalyzer, deps.pnlService));
   protectedRouter.use(
     '/listings',
     createListingsRouter(deps.listingManager, deps.tenantListingSettingsRepo),
   );
   protectedRouter.use('/sustainability', createSustainabilityRouter(deps.sustainabilityService));
+  protectedRouter.use('/tenant/credentials', createTenantCredentialsRouter(deps.credentialVault));
   if (deps.worker) {
     protectedRouter.use('/system', createWorkerRouter(deps.worker, deps.jobQueueService));
   }
