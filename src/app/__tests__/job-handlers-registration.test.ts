@@ -62,6 +62,7 @@ function buildWithMigrations(): JobHandler<JobPayload, JobResult>[] {
     autoListingService: {} as never,
     postAcquisitionService: {} as never,
     automationAuditRepo: {} as never,
+    revenueIngestionService: {} as never,
   });
 }
 

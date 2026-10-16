@@ -8,6 +8,7 @@ import type {
   PipelineRunPayload,
   AutoListPayload,
   PostAcquisitionPayload,
+  RevenueSyncPayload,
   JobQueueRow,
   JobQueueStats,
   DeadLetterJobRow,
@@ -51,6 +52,7 @@ export interface JobQueueService {
   enqueueRenewalCheck(): Promise<string>;
   enqueueWeightTune(): Promise<string>;
   enqueuePortfolioHealthcheck(horizonDays?: number, batchSize?: number): Promise<string>;
+  enqueueRevenueSync(since: string): Promise<string>;
   enqueueAutoList(
     domains: AutoListPayload['domains'],
     pipelineRunId: string,
@@ -176,6 +178,10 @@ export function createJobQueueService(
         },
         { priority: 0 },
       );
+    },
+
+    async enqueueRevenueSync(since: string): Promise<string> {
+      return enqueue('REVENUE_SYNC', { since } as RevenueSyncPayload, { priority: 0 });
     },
 
     async enqueueAutoList(

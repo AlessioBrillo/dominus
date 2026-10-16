@@ -14,7 +14,7 @@ flowchart TB
 
         subgraph App[Application Layer]
             AUTH[Auth Middleware<br/>JWT validation, tenant resolution]
-            API[REST API<br/>Express 5, 30 route modules]
+            API[REST API<br/>Express 5, 31 route modules]
             WORKER[Job Worker<br/>Async pipeline execution]
             SCHED[Scheduler<br/>Cron jobs, maintenance]
         end

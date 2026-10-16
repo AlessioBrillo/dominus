@@ -15,6 +15,9 @@ import type {
  *  - listed              → done
  *  - already listed      → done (the desired end state already holds)
  *  - error               → failed (halts the chain so it is visible)
+ *
+ * Dry-run is honoured like every other executor: a simulated run must
+ * not create a listing, let alone publish one on a real marketplace.
  */
 export class ListingStepExecutor implements PostAcquisitionStepExecutor {
   readonly step = 'listing' as const;
@@ -22,6 +25,10 @@ export class ListingStepExecutor implements PostAcquisitionStepExecutor {
   constructor(private readonly autoListingService: AutoListingService) {}
 
   async execute(ctx: PostAcquisitionStepContext): Promise<PostAcquisitionStepOutcome> {
+    if (ctx.dryRun) {
+      return { status: 'skipped', reason: 'dry_run' };
+    }
+
     const outcome = await this.autoListingService.autoList(ctx.domain, null, ctx.source);
 
     if (!outcome.skipped) {

@@ -97,21 +97,21 @@ export class PostAcquisitionRepository {
     );
   }
 
-  async markSkipped(id: number, reason: string): Promise<void> {
+  async markSkipped(id: number, reason: string, detail?: Record<string, unknown>): Promise<void> {
     await this.db.exec(
       `UPDATE post_acquisition_steps
-       SET status = 'skipped', last_error = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = 'skipped', last_error = ?, detail_json = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND tenant_id = ?`,
-      [reason, id, resolveTenantId()],
+      [reason, detail ? JSON.stringify(detail) : null, id, resolveTenantId()],
     );
   }
 
-  async markFailed(id: number, error: string): Promise<void> {
+  async markFailed(id: number, error: string, detail?: Record<string, unknown>): Promise<void> {
     await this.db.exec(
       `UPDATE post_acquisition_steps
-       SET status = 'failed', last_error = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = 'failed', last_error = ?, detail_json = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND tenant_id = ?`,
-      [error, id, resolveTenantId()],
+      [error, detail ? JSON.stringify(detail) : null, id, resolveTenantId()],
     );
   }
 

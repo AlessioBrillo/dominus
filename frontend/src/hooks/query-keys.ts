@@ -37,6 +37,12 @@ export const queryKeys = {
     health: () => [...queryKeys.settings.all, 'health'] as const,
     providers: () => [...queryKeys.settings.all, 'providers'] as const,
   },
+  automation: {
+    all: ['automation'] as const,
+    settings: () => [...queryKeys.automation.all, 'settings'] as const,
+    steps: (status?: string) => [...queryKeys.automation.all, 'steps', status] as const,
+    audit: () => [...queryKeys.automation.all, 'audit'] as const,
+  },
   runs: {
     all: ['runs'] as const,
     list: () => [...queryKeys.runs.all, 'list'] as const,
@@ -65,6 +71,9 @@ export const queryKeys = {
   usage: {
     all: ['usage'] as const,
     history: () => [...queryKeys.usage.all, 'history'] as const,
+  },
+  sustainability: {
+    all: ['sustainability'] as const,
   },
   admin: {
     all: ['admin'] as const,

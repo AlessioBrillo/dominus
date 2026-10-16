@@ -10,7 +10,8 @@ export type JobType =
   | 'WEIGHT_TUNE'
   | 'PORTFOLIO_HEALTHCHECK'
   | 'AUTO_LIST'
-  | 'POST_ACQUISITION';
+  | 'POST_ACQUISITION'
+  | 'REVENUE_SYNC';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'dead_letter';
 
@@ -209,6 +210,21 @@ export interface WeightTuneResult {
   dryRun: boolean;
 }
 
+export interface RevenueSyncPayload {
+  /** Earliest revenue date to (re-)fetch, ISO date. */
+  since: string;
+  tenantId?: string;
+}
+
+export interface RevenueSyncResult {
+  /** Revenue rows written (inserted or updated). */
+  recorded: number;
+  /** Domains the provider reported revenue for. */
+  domains: number;
+  /** Provider that answered, or null when none is configured. */
+  provider: string | null;
+}
+
 export type JobPayload =
   | PipelineRunPayload
   | PortfolioRescorePayload
@@ -220,7 +236,8 @@ export type JobPayload =
   | WeightTunePayload
   | PortfolioHealthcheckPayload
   | AutoListPayload
-  | PostAcquisitionPayload;
+  | PostAcquisitionPayload
+  | RevenueSyncPayload;
 
 export type JobResult =
   | PipelineRunResult
@@ -233,7 +250,8 @@ export type JobResult =
   | WeightTuneResult
   | PortfolioHealthcheckResult
   | AutoListResultData
-  | PostAcquisitionResult;
+  | PostAcquisitionResult
+  | RevenueSyncResult;
 
 export interface JobHandler<P extends JobPayload = JobPayload, R extends JobResult = JobResult> {
   jobType: JobType;

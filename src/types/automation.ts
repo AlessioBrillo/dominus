@@ -144,6 +144,60 @@ export interface PostAcquisitionRunStepResult {
   message?: string;
 }
 
+/**
+ * Per-tenant opt-in for the post-acquisition pipeline (ADR-0083, Phase 0).
+ *
+ * The env flags are the operator's global brake: `AUTOMATION_ENABLED=false`
+ * refuses every run regardless of tenant, and `AUTOMATION_DRY_RUN=true`
+ * forces simulation. These settings are the tenant's own switch — the
+ * effective gate is the conservative combination of both:
+ *   effective.enabled  = env.enabled  AND tenant.enabled
+ *   effective.dryRun   = env.dryRun   OR  tenant.dryRun
+ */
+export interface TenantAutomationSettings {
+  enabled: boolean;
+  dryRun: boolean;
+}
+
+/** Partial update: only the provided fields change. */
+export interface TenantAutomationSettingsUpdate {
+  enabled?: boolean;
+  dryRun?: boolean;
+}
+
+/** Default tenant opt-in state: automation stays off until the tenant enables it. */
+export const DEFAULT_TENANT_AUTOMATION_SETTINGS: TenantAutomationSettings = {
+  enabled: false,
+  dryRun: true,
+};
+
+export interface TenantAutomationSettingsRow {
+  tenant_id: string;
+  enabled: number;
+  dry_run: number;
+  updated_at: string;
+}
+
+export function tenantAutomationSettingsFromRow(
+  row: TenantAutomationSettingsRow,
+): TenantAutomationSettings {
+  return { enabled: Boolean(row.enabled), dryRun: Boolean(row.dry_run) };
+}
+
+/** Effective settings after combining the operator brake and the tenant switch. */
+export interface EffectiveAutomationSettings {
+  enabled: boolean;
+  dryRun: boolean;
+  /** Which switch refused the run, when `enabled` is false. */
+  refusedBy?: 'global_kill_switch' | 'tenant_switch';
+}
+
+export interface AutomationSettingsView {
+  global: { enabled: boolean; dryRun: boolean };
+  tenant: TenantAutomationSettings;
+  effective: EffectiveAutomationSettings;
+}
+
 export interface PostAcquisitionRunResult {
   domain: string;
   source: PostAcquisitionTriggerSource;
@@ -151,6 +205,8 @@ export interface PostAcquisitionRunResult {
   enabled: boolean;
   dryRun: boolean;
   steps: PostAcquisitionRunStepResult[];
+  /** Which switch refused the run, when `enabled` is false. */
+  refusedBy?: 'global_kill_switch' | 'tenant_switch';
 }
 
 export interface AutomationSettings {

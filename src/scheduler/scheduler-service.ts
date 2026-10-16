@@ -8,6 +8,7 @@ import type { ProviderCacheRepository } from '../db/repositories/provider-cache-
 import type { WatchlistService } from '../watchlist/watchlist-service.js';
 import type { AutoWeightTuner } from '../scoring/auto-tuner.js';
 import type { PortfolioRdapService } from '../portfolio/portfolio-rdap-service.js';
+import type { RevenueIngestionService } from '../services/revenue-ingestion-service.js';
 import type { BackupService } from './backup-service.js';
 import type { PitrHealthService } from './pitr-health-service.js';
 import type { Config } from '../config.js';
@@ -27,6 +28,17 @@ export function cronFireSlotLockName(jobName: string, when: Date): string {
 }
 
 const CRON_FIRE_LOCK_TTL_MS = 10 * 60_000;
+
+/**
+ * Earliest revenue date a sync should (re-)fetch: the configured lookback
+ * window. Re-fetching an already-ingested day is safe — writes are
+ * idempotent at (domain, date, source) granularity, so a repeated sync
+ * corrects figures instead of duplicating them.
+ */
+function revenueSinceIso(lookbackDays: number): string {
+  const since = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+  return since.toISOString().slice(0, 10);
+}
 
 export interface ScheduledJob {
   name: string;
@@ -49,6 +61,13 @@ export interface SchedulerOptions {
   backupService?: BackupService;
   jobQueueService?: JobQueueService;
   portfolioHealthcheckService?: PortfolioRdapService;
+  /**
+   * Revenue ingestion service (ADR-0083, M5). When provided, a
+   * `revenue-sync` job enqueues REVENUE_SYNC on the worker (or runs it
+   * inline) every SCHEDULER_REVENUE_SYNC_CRON. The job itself is a read:
+   * it records reported ad revenue and never mutates external state.
+   */
+  revenueIngestionService?: RevenueIngestionService;
   /**
    * Distributed lock (Redis composite or DB pipeline_locks). When present,
    * concurrent cron fires from multiple scheduler replicas are deduplicated:
@@ -79,6 +98,7 @@ export class SchedulerService {
   private readonly jobRepo: SchedulerJobRepository | undefined;
   private readonly jobQueueService: JobQueueService | undefined;
   private readonly portfolioHealthcheckService: PortfolioRdapService | undefined;
+  private readonly revenueIngestionService: RevenueIngestionService | undefined;
   private readonly lock: LockProvider | undefined;
   private readonly pitrHealthService: PitrHealthService | undefined;
   private running = false;
@@ -96,6 +116,7 @@ export class SchedulerService {
     this.jobRepo = options.jobRepo;
     this.jobQueueService = options.jobQueueService;
     this.portfolioHealthcheckService = options.portfolioHealthcheckService;
+    this.revenueIngestionService = options.revenueIngestionService;
     this.lock = options.lock;
     this.pitrHealthService = options.pitrHealthService;
   }
@@ -149,6 +170,30 @@ export class SchedulerService {
       );
     } else {
       logger.warn('portfolio-rescore job disabled (PortfolioManager not provided)');
+    }
+
+    if (this.revenueIngestionService) {
+      this.#register(
+        'revenue-sync',
+        this.config.SCHEDULER_REVENUE_SYNC_CRON,
+        'Ingest ad revenue from the configured monetization provider (read-only, ADR-0083 M5)',
+        async () => {
+          if (!this.revenueIngestionService!.isConfigured) {
+            const msg = 'Revenue sync skipped: no monetization provider configured';
+            logger.info(msg);
+            return msg;
+          }
+          const result = await this.revenueIngestionService!.ingestAll(
+            revenueSinceIso(this.config.REVENUE_SYNC_LOOKBACK_DAYS),
+          );
+          const msg = `Revenue sync: recorded ${result.recorded} row(s) for ${result.domains.length} domain(s)`;
+          logger.info(msg);
+          return msg;
+        },
+        'REVENUE_SYNC',
+      );
+    } else {
+      logger.warn('revenue-sync job disabled (RevenueIngestionService not provided)');
     }
 
     if (this.trademarkRepo && this.runsRepo) {
@@ -309,6 +354,11 @@ export class SchedulerService {
                 break;
               case 'PORTFOLIO_HEALTHCHECK':
                 jobId = await this.jobQueueService!.enqueuePortfolioHealthcheck();
+                break;
+              case 'REVENUE_SYNC':
+                jobId = await this.jobQueueService!.enqueueRevenueSync(
+                  revenueSinceIso(this.config.REVENUE_SYNC_LOOKBACK_DAYS),
+                );
                 break;
               default:
                 return await execute();

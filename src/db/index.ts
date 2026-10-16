@@ -74,6 +74,9 @@ export { AutoListingRepository } from './repositories/auto-listing-repository.js
 export { AcquisitionRepository } from './repositories/acquisition-repository.js';
 export { PostAcquisitionRepository } from './repositories/post-acquisition-repository.js';
 export { AutomationAuditRepository } from './repositories/automation-audit-repository.js';
+export { TenantAutomationSettingsRepository } from './repositories/tenant-automation-settings-repository.js';
+export { MonetizationRevenueRepository } from './repositories/monetization-revenue-repository.js';
+export { TenantListingSettingsRepository } from './repositories/tenant-listing-settings-repository.js';
 export { DomainSiteRepository } from './repositories/domain-site-repository.js';
 export { SubscriptionRepository } from './repositories/subscription-repository.js';
 export { UsageRepository } from './repositories/usage-repository.js';

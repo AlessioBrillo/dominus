@@ -12,9 +12,22 @@ import type { AutoListingService, AutoListEnqueuer } from '../services/auto-list
 import type { PostAcquisitionTrigger } from '../services/post-acquisition-service.js';
 
 export function buildRegistrarProvider(config: Config): RegistrarProvider {
+  return registrarRegistry.createActive(config.REGISTRAR_PROVIDER, resolveRegistrarConfig(config));
+}
+
+/**
+ * Resolve the flat config map for a registrar provider (ADR-0004):
+ * `REGISTRAR_<NAME>_<FIELD>` env vars first, the
+ * `registrar_<name>_<field>` keys of FILE_REGISTRAR_CONFIG as fallback.
+ * Exported so other modules (e.g. the DNS write provider) can reuse the
+ * exact same credential resolution instead of re-inventing it.
+ */
+export function resolveRegistrarConfig(
+  config: Config,
+  providerName: string = config.REGISTRAR_PROVIDER,
+): Record<string, string> {
   const registrarConfig: Record<string, string> = {};
-  const registrarProviderName = config.REGISTRAR_PROVIDER;
-  const registrarEnvPrefix = `REGISTRAR_${registrarProviderName.replace(/-/g, '_').toUpperCase()}_`;
+  const registrarEnvPrefix = `REGISTRAR_${providerName.replace(/-/g, '_').toUpperCase()}_`;
 
   // 1. Load from env vars (takes precedence)
   for (const [key, value] of Object.entries(process.env)) {
@@ -32,7 +45,7 @@ export function buildRegistrarProvider(config: Config): RegistrarProvider {
   if (filePath) {
     try {
       const fileConfig = loadFileConfig(filePath);
-      const filePrefix = `registrar_${registrarProviderName.toLowerCase()}_`;
+      const filePrefix = `registrar_${providerName.toLowerCase()}_`;
       for (const [key, value] of Object.entries(fileConfig)) {
         if (key.startsWith(filePrefix)) {
           const fieldKey = key.slice(filePrefix.length);
@@ -44,7 +57,18 @@ export function buildRegistrarProvider(config: Config): RegistrarProvider {
     }
   }
 
-  return registrarRegistry.createActive(registrarProviderName, registrarConfig);
+  return registrarConfig;
+}
+
+/**
+ * Cloudflare API token shared by the registrar integration and the DNS
+ * write provider: `DNS_WRITE_CLOUDFLARE_API_TOKEN` first, then the
+ * registrar's own token (same account, token carries DNS:Edit).
+ */
+export function resolveCloudflareApiToken(config: Config): string | undefined {
+  return (
+    config.DNS_WRITE_CLOUDFLARE_API_TOKEN ?? resolveRegistrarConfig(config, 'cloudflare').apiToken
+  );
 }
 
 export function buildPurchaseService(

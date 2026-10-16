@@ -5,6 +5,7 @@ import type { MarketplaceName, Listing } from '../types/listing.js';
 import type { AutoListSource } from '../types/listing.js';
 export type { AutoListSource } from '../types/listing.js';
 import type { AutoListingRepository } from '../db/repositories/auto-listing-repository.js';
+import type { TenantListingSettingsRepository } from '../db/repositories/tenant-listing-settings-repository.js';
 import { getLogger } from '../logger.js';
 import { isTransient, computeDelay, defaultSleep } from '../providers/retry-policy.js';
 
@@ -33,10 +34,31 @@ export type AutoListOutcome = AutoListResult | AutoListSkipped;
 export class AutoListingService {
   readonly #listingManager: ListingManager;
   readonly #autoListingRepo: AutoListingRepository;
+  readonly #listingSettingsRepo: TenantListingSettingsRepository | undefined;
 
-  constructor(listingManager: ListingManager, autoListingRepo: AutoListingRepository) {
+  constructor(
+    listingManager: ListingManager,
+    autoListingRepo: AutoListingRepository,
+    listingSettingsRepo?: TenantListingSettingsRepository,
+  ) {
     this.#listingManager = listingManager;
     this.#autoListingRepo = autoListingRepo;
+    this.#listingSettingsRepo = listingSettingsRepo;
+  }
+
+  /**
+   * Resolve the listing price for a new automatic listing (ADR-0083, M4):
+   * the tenant's fixed base price when the policy says so, otherwise the
+   * conservative price the scoring engine computed.
+   */
+  async #resolvePrice(score: ScoreResult | null): Promise<number | undefined> {
+    if (this.#listingSettingsRepo !== undefined) {
+      const settings = await this.#listingSettingsRepo.get();
+      if (settings.pricePolicy === 'fixed' && settings.basePriceEur !== null) {
+        return settings.basePriceEur;
+      }
+    }
+    return score?.suggestedListPrice;
   }
 
   async autoList(
@@ -47,6 +69,7 @@ export class AutoListingService {
     marketplace?: MarketplaceName,
   ): Promise<AutoListOutcome> {
     const mkt = marketplace ?? DEFAULT_MARKETPLACE;
+    const price = await this.#resolvePrice(score);
 
     const existing = await this.#listingManager.getListings({ domain });
     const alreadyOnTarget = existing.find((l) => l.marketplace === mkt);
@@ -63,11 +86,7 @@ export class AutoListingService {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const listing = await this.#listingManager.listDomain(
-          domain,
-          mkt,
-          score?.suggestedListPrice,
-        );
+        const listing = await this.#listingManager.listDomain(domain, mkt, price);
 
         const scoreSnapshotJson = score ? JSON.stringify(score) : null;
 

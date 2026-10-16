@@ -84,3 +84,27 @@ export function acceptOffer(listingId: number, offerId: number): Promise<{ statu
 export function declineOffer(listingId: number, offerId: number): Promise<{ status: string }> {
   return api.post<{ status: string }>(`/listings/${listingId}/offers/${offerId}/decline`);
 }
+
+export interface TenantListingSettings {
+  pricePolicy: 'scoring' | 'fixed';
+  basePriceEur: number | null;
+  offerAutoDeclineBelowEur: number | null;
+  offerCounterEur: number | null;
+}
+
+export interface ListingSettingsUpdate {
+  pricePolicy?: 'scoring' | 'fixed';
+  basePriceEur?: number | null;
+  offerAutoDeclineBelowEur?: number | null;
+  offerCounterEur?: number | null;
+}
+
+export function getListingSettings(): Promise<{ settings: TenantListingSettings }> {
+  return api.get<{ settings: TenantListingSettings }>('/listings/settings');
+}
+
+export function updateListingSettings(
+  update: ListingSettingsUpdate,
+): Promise<{ settings: TenantListingSettings }> {
+  return api.put<{ settings: TenantListingSettings }>('/listings/settings', update);
+}

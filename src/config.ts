@@ -1364,6 +1364,13 @@ const configSchema = z
      */
     SCHEDULER_PORTFOLIO_HEALTHCHECK_CRON: z.string().default('0 2 * * 0'),
 
+    /**
+     * Cron expression for ad-revenue ingestion (ADR-0083, M5). Ingestion
+     * is a read: it records what the monetization provider reports and
+     * never mutates external state. Default: daily at 07:00.
+     */
+    SCHEDULER_REVENUE_SYNC_CRON: z.string().default('0 7 * * *'),
+
     // ── Backup config ─────────────────────────────────────────────────
 
     /**
@@ -1949,6 +1956,70 @@ const configSchema = z
      * Default: 90. Set to 0 to disable pruning of the audit trail.
      */
     AUTOMATION_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).default(90),
+
+    /**
+     * Active DNS write provider for the `dns` step (ADR-0083, M3).
+     * - 'manual' (default) — no automation: the step skips and records the
+     *   instructions the operator must execute by hand.
+     * - 'cloudflare' — writes zone records through the Cloudflare API
+     *   (requires DNS_WRITE_CLOUDFLARE_API_TOKEN and the domain's zone
+     *   managed in the same account).
+     */
+    DNS_WRITE_PROVIDER: z.enum(['manual', 'cloudflare']).default('manual'),
+
+    /**
+     * Cloudflare API token for DNS writes. Falls back to
+     * REGISTRAR_CLOUDFLARE_API_TOKEN when unset. Needs `Zone.DNS:Edit`
+     * on the zones DOMINUS manages.
+     */
+    DNS_WRITE_CLOUDFLARE_API_TOKEN: z.string().optional(),
+
+    /**
+     * Parking delegation target for the `dns` step: the record type
+     * ('A' or 'CNAME') the domain must resolve through. Unset value =
+     * the step skips with `target_not_configured` — nothing is delegated
+     * before the operator says where to.
+     */
+    AUTOMATION_DNS_RECORD_TYPE: z.enum(['A', 'CNAME']).default('A'),
+
+    /**
+     * Parking delegation target value: the A-record IP or CNAME hostname
+     * of the parking provider. When unset, the `dns` step skips with
+     * `target_not_configured`.
+     */
+    AUTOMATION_DNS_RECORD_VALUE: z.string().optional(),
+
+    /**
+     * Record name the parking target is applied to. Default '@' (the zone
+     * apex). Use a subdomain (e.g. 'www') to park only that host.
+     */
+    AUTOMATION_DNS_RECORD_NAME: z.string().default('@'),
+
+    /**
+     * Monetization provider for the `parking` step (ADR-0083, M3).
+     * - 'manual' (default) — no revenue source is configured and the step
+     *   skips honestly with `monetization_provider_unavailable`.
+     * - 'csv' — reads a revenue export (columns `domain,date,amount_eur`)
+     *   from MONETIZATION_REVENUE_PATH. The community edition ships this
+     *   reader (zero paid API dependencies); provider API adapters land
+     *   only with verified access (ADR-0082).
+     */
+    MONETIZATION_PROVIDER: z.enum(['csv', 'manual']).default('manual'),
+
+    /**
+     * Path to the revenue CSV for the `parking` step. Columns:
+     * `domain,date,amount_eur` with a header line. Dates are ISO
+     * (YYYY-MM-DD); amounts are EUR and may be negative corrections.
+     */
+    MONETIZATION_REVENUE_PATH: z.string().optional(),
+
+    /**
+     * Lookback window in days for the scheduled revenue ingestion
+     * (ADR-0083, M5). Each run re-fetches this window; writes are
+     * idempotent per (domain, date, source), so a repeated run corrects
+     * figures instead of duplicating them. Default: 90 days.
+     */
+    REVENUE_SYNC_LOOKBACK_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
 
     // ── Job Queue / Worker config (ADR-0023) ──────────────────────────
 

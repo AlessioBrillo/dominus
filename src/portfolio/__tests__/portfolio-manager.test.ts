@@ -257,4 +257,65 @@ describe('PortfolioManager (CRUD)', () => {
       expect(entry?.verdict).toBe(Verdict.Reprice);
     });
   });
+
+  describe('refreshVerdicts with the carry-cost signal (M5)', () => {
+    it('refines a Keep into Reprice when the carry cost is negative', async () => {
+      const renewal = new Date(Date.now() + 200 * 86_400_000).toISOString();
+      await manager.add(makeAddInput('lossy.com', { renewalDate: renewal, renewalCost: 12 }));
+      await manager.updateScore('lossy.com', 60, 1000);
+
+      manager.setCarryCostSignal({
+        getSignal: async (domain: string) =>
+          domain === 'lossy.com'
+            ? {
+                verdict: 'loss' as const,
+                netAnnualEur: -10.8,
+                annualRevenueEur: 1.2,
+                renewalCostEur: 12,
+              }
+            : null,
+      });
+
+      await manager.refreshVerdicts();
+      const entry = await repo.findByDomain('lossy.com');
+
+      expect(entry?.verdict).toBe(Verdict.Reprice);
+      expect(entry?.verdictReason).toContain('Carry cost negative');
+    });
+
+    it('keeps a sustainable domain on Keep', async () => {
+      const renewal = new Date(Date.now() + 200 * 86_400_000).toISOString();
+      await manager.add(makeAddInput('earner.com', { renewalDate: renewal, renewalCost: 12 }));
+      await manager.updateScore('earner.com', 60, 1000);
+
+      manager.setCarryCostSignal({
+        getSignal: async () => ({
+          verdict: 'sustainable' as const,
+          netAnnualEur: 20,
+          annualRevenueEur: 32,
+          renewalCostEur: 12,
+        }),
+      });
+
+      await manager.refreshVerdicts();
+      const entry = await repo.findByDomain('earner.com');
+      expect(entry?.verdict).toBe(Verdict.Keep);
+    });
+
+    it('a signal failure never blocks the verdict refresh', async () => {
+      const renewal = new Date(Date.now() + 200 * 86_400_000).toISOString();
+      await manager.add(makeAddInput('flaky.com', { renewalDate: renewal }));
+      await manager.updateScore('flaky.com', 60, 1000);
+
+      manager.setCarryCostSignal({
+        getSignal: async () => {
+          throw new Error('revenue store down');
+        },
+      });
+
+      await manager.refreshVerdicts();
+      const entry = await repo.findByDomain('flaky.com');
+      expect(entry?.verdict).toBe(Verdict.Keep);
+    });
+  });
 });

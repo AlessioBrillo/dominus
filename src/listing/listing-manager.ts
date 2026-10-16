@@ -3,6 +3,8 @@ import type { ListingProvider } from '../providers/listing/listing-provider.js';
 import type { ListingRepository } from '../db/repositories/listing-repository.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import { GateVerdict, type TrademarkGate } from '../trademark/trademark-gate.js';
+import type { TenantListingSettingsRepository } from '../db/repositories/tenant-listing-settings-repository.js';
+import { evaluateOfferRules } from './offer-rules.js';
 import type {
   Listing,
   ListingOffer,
@@ -21,17 +23,20 @@ export class ListingManager {
   readonly #repo: ListingRepository;
   readonly #engine: ScoringEngine;
   readonly #trademarkGate: TrademarkGate;
+  readonly #listingSettingsRepo: TenantListingSettingsRepository | undefined;
 
   constructor(
     provider: ListingProvider,
     repo: ListingRepository,
     engine: ScoringEngine,
     trademarkGate: TrademarkGate,
+    listingSettingsRepo?: TenantListingSettingsRepository,
   ) {
     this.#provider = provider;
     this.#repo = repo;
     this.#engine = engine;
     this.#trademarkGate = trademarkGate;
+    this.#listingSettingsRepo = listingSettingsRepo;
   }
 
   get provider(): ListingProvider {
@@ -352,8 +357,67 @@ export class ListingManager {
       notes: notes ?? null,
     };
 
+    // Tenant offer rules (ADR-0083, M4): conservative by default — with
+    // no configured rule the offer stays pending for a human, exactly as
+    // before. A rule never overrides an accepted/declined listing state
+    // that a human already set.
+    const answered = await this.#applyOfferRules(listing, offer);
+    if (answered !== null) return answered;
+
     logger.info({ listingId, amountEur, buyer }, 'ListingManager: offer recorded');
     return offer;
+  }
+
+  /**
+   * Apply the tenant's offer rules to a freshly recorded offer.
+   * Returns the answered offer (declined/countered) or null when the
+   * offer stays pending for a human decision.
+   */
+  async #applyOfferRules(listing: Listing, offer: ListingOffer): Promise<ListingOffer | null> {
+    if (this.#listingSettingsRepo === undefined) return null;
+    if (listing.status === 'sold') return null;
+
+    const settings = await this.#listingSettingsRepo.get();
+    const outcome = evaluateOfferRules(settings, offer.amountEur);
+
+    if (outcome.action === 'declined') {
+      await this.#repo.updateOfferStatus(offer.id, 'declined', `Auto-declined: ${outcome.reason}`);
+      // The domain is still for sale: the listing goes back to listed.
+      await this.#repo.update(offer.listingId, { status: 'listed' });
+      const answered: ListingOffer = {
+        ...offer,
+        status: 'declined',
+        respondedAt: new Date().toISOString(),
+        notes: `Auto-declined: ${outcome.reason}`,
+      };
+      logger.info(
+        { listingId: offer.listingId, offerId: offer.id, amountEur: offer.amountEur },
+        'ListingManager: offer auto-declined by tenant rule',
+      );
+      return answered;
+    }
+
+    if (outcome.action === 'countered') {
+      await this.#repo.updateOfferStatus(
+        offer.id,
+        'countered',
+        `Auto-countered at €${outcome.counterEur.toFixed(0)}: ${outcome.reason}`,
+      );
+      await this.#repo.update(offer.listingId, { status: 'listed' });
+      const answered: ListingOffer = {
+        ...offer,
+        status: 'countered',
+        respondedAt: new Date().toISOString(),
+        notes: `Auto-countered at €${outcome.counterEur.toFixed(0)}: ${outcome.reason}`,
+      };
+      logger.info(
+        { listingId: offer.listingId, offerId: offer.id, counterEur: outcome.counterEur },
+        'ListingManager: offer auto-countered by tenant rule',
+      );
+      return answered;
+    }
+
+    return null;
   }
 
   async respondToOffer(

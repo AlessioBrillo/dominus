@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import { z } from 'zod';
 import type { ListingManager } from '../../listing/listing-manager.js';
+import type { TenantListingSettingsRepository } from '../../db/repositories/tenant-listing-settings-repository.js';
+import type { TenantListingSettingsUpdate } from '../../types/listing-settings.js';
+import { validate } from '../middleware/validate.js';
 
 function parseId(raw: string | string[] | undefined): number | null {
   if (typeof raw !== 'string') return null;
@@ -8,8 +12,89 @@ function parseId(raw: string | string[] | undefined): number | null {
   return Number.isFinite(id) && id > 0 && Number.isInteger(id) ? id : null;
 }
 
-export function createListingsRouter(listingManager: ListingManager): Router {
+const settingsUpdateSchema = z
+  .object({
+    pricePolicy: z.enum(['scoring', 'fixed']),
+    basePriceEur: z.number().positive().nullable(),
+    offerAutoDeclineBelowEur: z.number().positive().nullable(),
+    offerCounterEur: z.number().positive().nullable(),
+  })
+  .partial()
+  .refine(
+    (value) =>
+      value.pricePolicy !== undefined ||
+      value.basePriceEur !== undefined ||
+      value.offerAutoDeclineBelowEur !== undefined ||
+      value.offerCounterEur !== undefined,
+    { message: 'At least one setting must be provided' },
+  )
+  // A fixed-price policy without a usable base price would silently fall
+  // back to the scoring price and misreport the tenant's intent; €0 would
+  // auto-list at zero.
+  .refine(
+    (value) =>
+      value.pricePolicy !== 'fixed' ||
+      (typeof value.basePriceEur === 'number' && value.basePriceEur > 0),
+    { message: 'A fixed price policy requires basePriceEur above zero', path: ['basePriceEur'] },
+  );
+
+export function createListingsRouter(
+  listingManager: ListingManager,
+  listingSettingsRepo?: TenantListingSettingsRepository,
+): Router {
   const router = Router();
+
+  // Registered before '/:id' so 'settings' is not parsed as a listing id.
+  router.get(
+    '/settings',
+    async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        if (!listingSettingsRepo) {
+          res.status(501).json({
+            error: {
+              code: 'LISTING_SETTINGS_UNAVAILABLE',
+              message: 'Listing settings are not configured on this deployment',
+            },
+          });
+          return;
+        }
+        res.json({ settings: await listingSettingsRepo.get() });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.put(
+    '/settings',
+    validate({ body: settingsUpdateSchema }),
+    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+      try {
+        if (!listingSettingsRepo) {
+          res.status(501).json({
+            error: {
+              code: 'LISTING_SETTINGS_UNAVAILABLE',
+              message: 'Listing settings are not configured on this deployment',
+            },
+          });
+          return;
+        }
+        const body = req.body as z.infer<typeof settingsUpdateSchema>;
+        const update: TenantListingSettingsUpdate = {
+          ...(body.pricePolicy !== undefined ? { pricePolicy: body.pricePolicy } : {}),
+          ...(body.basePriceEur !== undefined ? { basePriceEur: body.basePriceEur } : {}),
+          ...(body.offerAutoDeclineBelowEur !== undefined
+            ? { offerAutoDeclineBelowEur: body.offerAutoDeclineBelowEur }
+            : {}),
+          ...(body.offerCounterEur !== undefined ? { offerCounterEur: body.offerCounterEur } : {}),
+        };
+        const settings = await listingSettingsRepo.set(update);
+        res.json({ settings });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
 
   router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     const id = parseId(req.params.id);

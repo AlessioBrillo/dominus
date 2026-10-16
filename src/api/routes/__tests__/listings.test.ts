@@ -39,7 +39,106 @@ function makeListing(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createMockSettingsRepo(): any {
+  return {
+    get: vi.fn().mockResolvedValue({
+      pricePolicy: 'scoring',
+      basePriceEur: null,
+      offerAutoDeclineBelowEur: null,
+      offerCounterEur: null,
+    }),
+    set: vi.fn(async (update: Record<string, unknown>) => ({
+      pricePolicy: 'scoring',
+      basePriceEur: null,
+      offerAutoDeclineBelowEur: null,
+      offerCounterEur: null,
+      ...update,
+    })),
+  };
+}
+
 describe('Listings API', () => {
+  describe('GET /listings/settings', () => {
+    it('returns the conservative tenant defaults', async () => {
+      const mgr = createMockListingManager();
+      const settings = createMockSettingsRepo();
+      const app = express();
+      app.use(express.json());
+      app.use('/listings', createListingsRouter(mgr, settings));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/listings/settings');
+
+      expect(res.status).toBe(200);
+      expect(res.body.settings).toEqual({
+        pricePolicy: 'scoring',
+        basePriceEur: null,
+        offerAutoDeclineBelowEur: null,
+        offerCounterEur: null,
+      });
+    });
+
+    it('returns 501 when the store is not configured', async () => {
+      const mgr = createMockListingManager();
+      const app = express();
+      app.use(express.json());
+      app.use('/listings', createListingsRouter(mgr));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/listings/settings');
+
+      expect(res.status).toBe(501);
+      expect(res.body.error.code).toBe('LISTING_SETTINGS_UNAVAILABLE');
+    });
+  });
+
+  describe('PUT /listings/settings', () => {
+    it('stores a partial update and returns the merged settings', async () => {
+      const mgr = createMockListingManager();
+      const settings = createMockSettingsRepo();
+      const app = express();
+      app.use(express.json());
+      app.use('/listings', createListingsRouter(mgr, settings));
+      app.use(errorHandler);
+
+      const res = await request(app)
+        .put('/listings/settings')
+        .send({ pricePolicy: 'fixed', basePriceEur: 2500 });
+
+      expect(res.status).toBe(200);
+      expect(settings.set).toHaveBeenCalledWith({ pricePolicy: 'fixed', basePriceEur: 2500 });
+      expect(res.body.settings.basePriceEur).toBe(2500);
+    });
+
+    it('rejects an empty body with 400', async () => {
+      const mgr = createMockListingManager();
+      const settings = createMockSettingsRepo();
+      const app = express();
+      app.use(express.json());
+      app.use('/listings', createListingsRouter(mgr, settings));
+      app.use(errorHandler);
+
+      const res = await request(app).put('/listings/settings').send({});
+
+      expect(res.status).toBe(400);
+      expect(settings.set).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown price policy with 400', async () => {
+      const mgr = createMockListingManager();
+      const settings = createMockSettingsRepo();
+      const app = express();
+      app.use(express.json());
+      app.use('/listings', createListingsRouter(mgr, settings));
+      app.use(errorHandler);
+
+      const res = await request(app).put('/listings/settings').send({ pricePolicy: 'random' });
+
+      expect(res.status).toBe(400);
+      expect(settings.set).not.toHaveBeenCalled();
+    });
+  });
   describe('GET /listings', () => {
     it('returns an empty array', async () => {
       const mgr = createMockListingManager();
