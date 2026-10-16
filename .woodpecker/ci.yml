@@ -1,0 +1,46 @@
+# CI gate (was GitHub ci.yml): ci:backend + ci:frontend + Postgres tests + deploy/release gate.
+# Not included (need docker-in-docker): docker-smoke, compose-config, e2e. Local: `ci-local`.
+when:
+  - event: [push, manual]
+
+services:
+  - name: postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: dominus
+
+steps:
+  - name: backend
+    image: node:24
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - npm ci
+      - npm run ci:backend
+
+  - name: postgres-tests
+    image: node:24
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/dominus
+    commands:
+      - npx tsx src/db/migrate-cli.ts
+      - npx vitest run src/db src/__tests__ src/services src/api
+
+  - name: frontend
+    image: node:24
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - cd frontend && npm ci
+      - npm run build:frontend
+      - cd frontend && npm run typecheck && npm run lint && npm run test:coverage
+
+  - name: release-gate
+    image: node:24
+    commands:
+      - npm run check:image-pins
+      - npm run check:migration-compat:test
+      - bash scripts/deploy/test-migration-gate.sh
+      - bash scripts/deploy/test-rollout.sh
+      - bash scripts/deploy/test-migrate.sh

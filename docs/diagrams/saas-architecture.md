@@ -1,4 +1,4 @@
-# SaaS Architecture — DOMINUS Cloud
+ï»¿# SaaS Architecture â€” DOMINUS Cloud
 
 ```mermaid
 flowchart TB
@@ -108,7 +108,7 @@ flowchart LR
 | Decision | Rationale |
 |----------|-----------|
 | **Shared tables + RLS** | Simpler than schema-per-tenant; RLS provides defence-in-depth isolation |
-| **Auth0/Clerk for identity** | Managed password hashing, OAuth, email verification, brute-force protection — reduces security surface for a solo maintainer |
+| **Auth0/Clerk for identity** | Managed password hashing, OAuth, email verification, brute-force protection â€” reduces security surface for a solo maintainer |
 | **Stripe for billing** | Gold standard for SaaS billing; Customer Portal enables self-serve plan changes |
 | **SQLite for community** | Zero infrastructure cost, single-file portability, backward compatible with v0.3.x |
 | **Same codebase** | No feature branching, no enterprise fork, no dual-track maintenance |

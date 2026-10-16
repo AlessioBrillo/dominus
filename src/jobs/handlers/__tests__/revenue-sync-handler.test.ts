@@ -51,4 +51,30 @@ describe('RevenueSyncHandler', () => {
     });
     expect(handler.jobType).toBe('REVENUE_SYNC');
   });
+
+  it('refuses to run without a tenant context on a multi-tenant deployment', async () => {
+    const ingestion = fakeIngestion({ configured: true });
+    const handler = new RevenueSyncHandler({
+      revenueIngestionService: ingestion as unknown as RevenueIngestionService,
+      multiTenant: true,
+    });
+
+    const result = await handler.handle({ since: '2026-07-01' });
+
+    // Honest zero: never mix tenants under the default tenant.
+    expect(result).toEqual({ recorded: 0, domains: 0, provider: null });
+    expect(ingestion.ingestAll).not.toHaveBeenCalled();
+  });
+
+  it('runs on a single-tenant deployment without a tenant context', async () => {
+    const ingestion = fakeIngestion({ configured: true });
+    const handler = new RevenueSyncHandler({
+      revenueIngestionService: ingestion as unknown as RevenueIngestionService,
+    });
+
+    const result = await handler.handle({ since: '2026-07-01' });
+
+    expect(result.recorded).toBe(3);
+    expect(ingestion.ingestAll).toHaveBeenCalledWith('2026-07-01');
+  });
 });

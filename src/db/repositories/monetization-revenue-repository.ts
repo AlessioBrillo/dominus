@@ -14,27 +14,23 @@ import { resolveTenantId } from '../../utils/tenant-context.js';
 export class MonetizationRevenueRepository {
   constructor(private readonly db: DatabaseProvider) {}
 
-  /** Insert-or-update one revenue record. Returns the stored row id. */
+  /**
+   * Insert-or-update one revenue record (idempotent by construction).
+   *
+   * The write is a single atomic upsert on the
+   * (domain, revenue_date, source, tenant_id) unique index — two
+   * concurrent ingests of the same day converge instead of racing a
+   * read-then-write, and a repeated ingestion is a correction, never a
+   * duplicate. The follow-up SELECT only fetches the row id (both
+   * concurrent callers get the same one).
+   */
   async record(record: RevenueRecord): Promise<number> {
-    const existing = await this.db.queryOne<{ id: number }>(
-      `SELECT id FROM monetization_revenue
-        WHERE domain = ? AND revenue_date = ? AND source = ? AND tenant_id = ?`,
-      [record.domain, record.date, record.source, resolveTenantId()],
-    );
-
-    if (existing) {
-      await this.db.exec(
-        `UPDATE monetization_revenue
-           SET amount_eur = ?, fetched_at = ?
-          WHERE id = ? AND tenant_id = ?`,
-        [record.amountEur, record.fetchedAt, existing.id, resolveTenantId()],
-      );
-      return existing.id;
-    }
-
     await this.db.exec(
       `INSERT INTO monetization_revenue (domain, revenue_date, amount_eur, source, fetched_at, tenant_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (domain, revenue_date, source, tenant_id) DO UPDATE SET
+         amount_eur = excluded.amount_eur,
+         fetched_at = excluded.fetched_at`,
       [
         record.domain,
         record.date,
@@ -114,17 +110,22 @@ export class MonetizationRevenueRepository {
     return row?.revenue_date ?? null;
   }
 
-  /** Summary for one domain: total, last 30 days, most recent record. */
+  /**
+   * Summary for one domain. `totalEur` is the all-time total
+   * (`totalSince`), so the journal detail and the carry-cost verdict can
+   * never disagree; `last30DaysEur` is computed from the recent rows.
+   */
   async summarize(domain: string, now: Date = new Date()): Promise<DomainRevenueSummary> {
     const since30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rows = await this.findByDomain(domain);
     const last30DaysEur = rows
       .filter((r) => r.revenue_date >= since30)
       .reduce((sum, r) => sum + r.amount_eur, 0);
+    const totalEur = await this.totalSince(domain);
 
     return {
       domain,
-      totalEur: rows.reduce((sum, r) => sum + r.amount_eur, 0),
+      totalEur,
       last30DaysEur,
       lastRecordDate: rows.length > 0 ? rows[0]!.revenue_date : null,
       records: rows.length,

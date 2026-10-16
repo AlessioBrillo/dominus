@@ -46,9 +46,8 @@ export class PortfolioSustainabilityService implements CarryCostSignal {
 
   /** Carry-cost verdict for one portfolio domain, or null when not tracked. */
   async getDomainVerdict(domain: string): Promise<CarryCostResult | null> {
-    const entries = await this.#portfolioRepo.findAll();
-    const entry: PortfolioEntry | undefined = entries.find((e) => e.domain === domain);
-    if (entry === undefined) return null;
+    const entry = await this.#portfolioRepo.findByDomain(domain);
+    if (entry === null || entry === undefined) return null;
     return this.#verdictFor(entry);
   }
 
@@ -81,12 +80,19 @@ export class PortfolioSustainabilityService implements CarryCostSignal {
 
   async #verdictFor(entry: PortfolioEntry): Promise<CarryCostResult> {
     const first = await this.#revenueRepo.firstRecordDate(entry.domain);
+    const last = await this.#revenueRepo.lastRecordDate(entry.domain);
     const totalEur = await this.#revenueRepo.totalSince(entry.domain);
+    // Observe the recorded span (first to last record), not first-to-now:
+    // a monetization gap must not deflate the annualised rate and push a
+    // healthy domain towards a loss verdict.
     const daysMonetized =
-      first !== null
+      first !== null && last !== null
         ? Math.max(
             0,
-            Math.floor((Date.now() - new Date(`${first}T00:00:00Z`).getTime()) / 86400000),
+            Math.floor(
+              (new Date(`${last}T00:00:00Z`).getTime() - new Date(`${first}T00:00:00Z`).getTime()) /
+                86400000,
+            ),
           )
         : 0;
 

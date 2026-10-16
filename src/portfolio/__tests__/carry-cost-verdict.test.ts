@@ -64,10 +64,11 @@ describe('computeCarryCostVerdict', () => {
     expect(result.reason).toContain('drop candidate');
   });
 
-  it('handles a zero renewal cost as always sustainable once data exists', () => {
+  it('treats a missing renewal cost as insufficient data, not as sustainable', () => {
     const result = computeCarryCostVerdict(
       input({ revenueEur: 1, daysMonetized: 60, renewalCostEur: 0 }),
     );
-    expect(result.verdict).toBe('sustainable');
+    expect(result.verdict).toBe('insufficient_data');
+    expect(result.reason).toContain('renewal cost recorded');
   });
 });

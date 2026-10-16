@@ -17,6 +17,7 @@ import type {
 } from '../types/automation.js';
 import type { AutomationAuditEntry } from '../types/automation.js';
 import { POST_ACQUISITION_STEPS } from '../types/automation.js';
+import { SettingsStoreUnavailableError } from '../types/errors.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -119,8 +120,18 @@ export class PostAcquisitionService {
   async getSettingsView(): Promise<AutomationSettingsView> {
     const tenant = this.#settingsRepo
       ? await this.#settingsRepo.get()
-      : ({ enabled: this.#enabled, dryRun: this.#dryRun } satisfies TenantAutomationSettings);
+      : this.#envOnlyTenantSwitch();
     return { global: this.settings, tenant, effective: this.#effective(tenant) };
+  }
+
+  /**
+   * On an env-only deployment (no settings store) the operator brake is
+   * the only switch, so it is reported as the tenant state — one shared
+   * fallback for the view and the run path, so the two can never
+   * disagree.
+   */
+  #envOnlyTenantSwitch(): TenantAutomationSettings {
+    return { enabled: this.#enabled, dryRun: this.#dryRun };
   }
 
   /** Update this tenant's switch. Returns the stored settings. */
@@ -128,9 +139,7 @@ export class PostAcquisitionService {
     update: TenantAutomationSettingsUpdate,
   ): Promise<TenantAutomationSettings> {
     if (!this.#settingsRepo) {
-      throw new Error(
-        'Tenant automation settings are not available: no settings store is configured',
-      );
+      throw new SettingsStoreUnavailableError('Tenant automation');
     }
     return this.#settingsRepo.set(update);
   }
@@ -157,10 +166,11 @@ export class PostAcquisitionService {
     options: PostAcquisitionRunOptions = {},
   ): Promise<PostAcquisitionRunResult> {
     // Serialize concurrent runs for the same domain (see #running).
-    const previous = this.#running.get(domain);
-    const current = (previous ?? Promise.resolve()).then(() =>
-      this.#runInternal(domain, source, options),
-    );
+    // The previous promise is caught before chaining: a rejected run (DB
+    // error) must not poison the queue and make every later run for this
+    // domain reject without executing.
+    const previous = (this.#running.get(domain) ?? Promise.resolve()).catch(() => undefined);
+    const current = previous.then(() => this.#runInternal(domain, source, options));
     this.#running.set(domain, current);
     try {
       return await current;
@@ -191,7 +201,7 @@ export class PostAcquisitionService {
 
     const tenant = this.#settingsRepo
       ? await this.#settingsRepo.get()
-      : ({ enabled: true, dryRun: false } satisfies TenantAutomationSettings);
+      : this.#envOnlyTenantSwitch();
     const effective = this.#effective(tenant);
     if (!effective.enabled) {
       logger.warn(

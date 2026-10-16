@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { PostAcquisitionService } from '../../services/post-acquisition-service.js';
 import type { TenantAutomationSettingsUpdate } from '../../types/automation.js';
+import { SettingsStoreUnavailableError } from '../../types/errors.js';
 import { POST_ACQUISITION_STEPS } from '../../types/automation.js';
 import { validate } from '../middleware/validate.js';
 
@@ -67,7 +68,7 @@ export function createAutomationRouter(postAcquisitionService: PostAcquisitionSe
         const view = await postAcquisitionService.getSettingsView();
         res.json({ settings: view, tenant: view.tenant });
       } catch (err: unknown) {
-        if (err instanceof Error && err.message.includes('no settings store')) {
+        if (err instanceof SettingsStoreUnavailableError) {
           res.status(501).json({
             error: {
               code: 'AUTOMATION_SETTINGS_UNAVAILABLE',

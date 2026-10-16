@@ -7,6 +7,7 @@ import type {
   DnsWriteProvider,
   PublicDelegationReader,
 } from '../types/dns-write.js';
+import { defaultSleep } from '../providers/retry-policy.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -21,7 +22,13 @@ export interface DnsWriteGateOptions {
   reader?: PublicDelegationReader | undefined;
   /** Parking target from configuration. Absent = nothing to delegate to. */
   target?: DnsDelegationTarget | undefined;
+  /** Injectable for tests: the confirmation backoff sleep. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** Confirmation attempts and backoff for the public read after a write. */
+const CONFIRM_ATTEMPTS = 3;
+const CONFIRM_BACKOFF_MS = 2_000;
 
 /** Same set of nameservers, order-insensitive. */
 function sameNameservers(actual: readonly string[], expected: readonly string[]): boolean {
@@ -56,11 +63,13 @@ export class DnsWriteGate {
   readonly #writeProvider: DnsWriteProvider;
   readonly #reader: PublicDelegationReader | undefined;
   readonly #target: DnsDelegationTarget | undefined;
+  readonly #sleep: (ms: number) => Promise<void>;
 
   constructor(options: DnsWriteGateOptions) {
     this.#writeProvider = options.writeProvider;
     this.#reader = options.reader;
     this.#target = options.target;
+    this.#sleep = options.sleep ?? defaultSleep;
   }
 
   /** Records that encode the configured delegation target. */
@@ -87,6 +96,11 @@ export class DnsWriteGate {
     if (!this.#target || this.#target.value.length === 0) {
       return { action: 'skip', reason: 'target_not_configured' };
     }
+    // Without the independent leg there is nothing to corroborate with:
+    // refuse before spending a billable provider call on the zone read.
+    if (!this.#reader) {
+      return { action: 'skip', reason: 'delegation_unverifiable' };
+    }
 
     const state = await this.#writeProvider.readZoneState(domain);
     if (state === null || !state.managed) {
@@ -94,9 +108,6 @@ export class DnsWriteGate {
     }
 
     // Independent leg: what does public DNS say the delegation is?
-    if (!this.#reader) {
-      return { action: 'skip', reason: 'delegation_unverifiable' };
-    }
     const publicNs = await this.#reader.resolveNameservers(domain);
     if (publicNs === null || publicNs.length === 0) {
       return {
@@ -133,9 +144,20 @@ export class DnsWriteGate {
    * Confirm the write took effect from the public side. False when the
    * delegation still does not resolve to the target — the executor turns
    * that into a named, resumable failure.
+   *
+   * A single public read can still be served from a resolver cache, so
+   * the confirmation retries a few times with a short bounded backoff
+   * before giving up: a successful write must not be reported as
+   * `write_unconfirmed` just because DNS was about to catch up.
    */
   async confirm(domain: string): Promise<boolean> {
-    return this.#targetIsLive(domain);
+    for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt++) {
+      if (await this.#targetIsLive(domain)) return true;
+      if (attempt < CONFIRM_ATTEMPTS) {
+        await this.#sleep(CONFIRM_BACKOFF_MS * attempt);
+      }
+    }
+    return false;
   }
 
   /** Does the domain already resolve to the configured target? */
@@ -150,6 +172,9 @@ export class DnsWriteGate {
     }
 
     const addresses = await this.#reader.resolveAddresses(domain);
-    return addresses !== null && addresses.includes(this.#target.value);
+    if (addresses === null) return false;
+    // Compare normalised: an operator value written with a trailing dot,
+    // whitespace or uppercase IPv6 hex must still match a live record.
+    return addresses.some((a) => a.trim().replace(/\.$/, '').toLowerCase() === value);
   }
 }

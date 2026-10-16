@@ -22,17 +22,25 @@ function makeEntry(overrides: Partial<PortfolioEntry> = {}): PortfolioEntry {
 
 function fakeRepos(
   entries: PortfolioEntry[],
-  revenue: { first: string | null; total: number },
+  revenue: { first: string | null; last?: string | null; total: number },
 ): {
-  portfolioRepo: { findAll: ReturnType<typeof vi.fn> };
-  revenueRepo: { firstRecordDate: ReturnType<typeof vi.fn>; totalSince: ReturnType<typeof vi.fn> };
+  portfolioRepo: { findAll: ReturnType<typeof vi.fn>; findByDomain: ReturnType<typeof vi.fn> };
+  revenueRepo: {
+    firstRecordDate: ReturnType<typeof vi.fn>;
+    lastRecordDate: ReturnType<typeof vi.fn>;
+    totalSince: ReturnType<typeof vi.fn>;
+  };
 } {
   return {
     portfolioRepo: {
       findAll: vi.fn(async () => entries),
+      findByDomain: vi.fn(
+        async (domain: string) => entries.find((e) => e.domain === domain) ?? null,
+      ),
     },
     revenueRepo: {
       firstRecordDate: vi.fn(async () => revenue.first),
+      lastRecordDate: vi.fn(async () => revenue.last ?? revenue.first),
       totalSince: vi.fn(async () => revenue.total),
     },
   };
@@ -40,14 +48,18 @@ function fakeRepos(
 
 describe('PortfolioSustainabilityService', () => {
   it('verdicts every portfolio entry', async () => {
-    const deps = fakeRepos([makeEntry()], { first: '2025-10-01', total: 30 });
+    const deps = fakeRepos([makeEntry()], {
+      first: '2025-10-01',
+      last: '2026-10-14',
+      total: 30,
+    });
     const service = new PortfolioSustainabilityService(deps as never);
 
     const verdicts = await service.getAllVerdicts();
 
     expect(verdicts).toHaveLength(1);
     expect(verdicts[0]?.domain).toBe('vintagecoffee.com');
-    // 30 EUR over ~379 days -> ~28.9/year against a 12/year renewal.
+    // 30 EUR over a 378-day span -> ~29/year against a 12/year renewal.
     expect(verdicts[0]?.verdict).toBe('sustainable');
   });
 
@@ -60,6 +72,22 @@ describe('PortfolioSustainabilityService', () => {
     expect(verdict?.verdict).toBe('insufficient_data');
   });
 
+  it('measures the monetized window from the recorded span, not the clock', async () => {
+    // Revenue every day for 45 days, last record long ago: the window is
+    // 45 days, so the annualised rate is not deflated by the idle gap.
+    const deps = fakeRepos([makeEntry()], {
+      first: '2025-09-01',
+      last: '2025-10-16',
+      total: 3,
+    });
+    const service = new PortfolioSustainabilityService(deps as never);
+
+    const verdict = await service.getDomainVerdict('vintagecoffee.com');
+
+    // 3 EUR over 45 days -> ~24.3/year against a 12/year renewal.
+    expect(verdict?.verdict).toBe('sustainable');
+  });
+
   it('null for a domain outside the portfolio', async () => {
     const deps = fakeRepos([makeEntry()], { first: null, total: 0 });
     const service = new PortfolioSustainabilityService(deps as never);
@@ -69,7 +97,11 @@ describe('PortfolioSustainabilityService', () => {
   });
 
   it('exposes a compact signal for the drop engine', async () => {
-    const deps = fakeRepos([makeEntry()], { first: '2025-10-01', total: 1 });
+    const deps = fakeRepos([makeEntry()], {
+      first: '2025-10-01',
+      last: '2026-10-14',
+      total: 1,
+    });
     const service = new PortfolioSustainabilityService(deps as never);
 
     const signal = await service.getSignal('vintagecoffee.com');
@@ -78,5 +110,18 @@ describe('PortfolioSustainabilityService', () => {
     expect(signal?.verdict).toBe('loss');
     expect(signal?.renewalCostEur).toBe(12);
     expect(signal?.netAnnualEur).toBeLessThan(0);
+  });
+
+  it('does not judge a domain whose renewal cost was never recorded', async () => {
+    const deps = fakeRepos([makeEntry({ renewalCost: 0 })], {
+      first: '2025-10-01',
+      last: '2026-10-14',
+      total: 5,
+    });
+    const service = new PortfolioSustainabilityService(deps as never);
+
+    const verdict = await service.getDomainVerdict('vintagecoffee.com');
+
+    expect(verdict?.verdict).toBe('insufficient_data');
   });
 });

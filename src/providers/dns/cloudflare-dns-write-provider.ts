@@ -90,46 +90,65 @@ export class CloudflareDnsWriteProvider implements DnsWriteProvider {
     const changed: DnsRecord[] = [];
     const appliedRecords: DnsRecord[] = existing.map(toDnsRecord);
 
-    for (const record of records) {
-      const fullName = fullRecordName(record.name, domain);
-      const match = existing.find((r) => r.type === record.type && sameName(r.name, fullName));
+    try {
+      for (const record of records) {
+        const fullName = fullRecordName(record.name, domain);
+        const match = existing.find((r) => r.type === record.type && sameName(r.name, fullName));
 
-      if (match && normaliseContent(match.content) === normaliseContent(record.content)) {
-        // Already in the desired state: idempotent no-op.
-        continue;
-      }
+        if (match && normaliseContent(match.content) === normaliseContent(record.content)) {
+          // Already in the desired state: idempotent no-op.
+          continue;
+        }
 
-      if (match) {
-        await this.#request(
-          'PATCH',
-          `/zones/${zone.id}/dns_records/${encodeURIComponent(match.id)}`,
-          { type: record.type, name: fullName, content: record.content, ttl: record.ttl ?? 1 },
-        );
-      } else {
-        await this.#request('POST', `/zones/${zone.id}/dns_records`, {
+        if (match) {
+          await this.#request(
+            'PATCH',
+            `/zones/${zone.id}/dns_records/${encodeURIComponent(match.id)}`,
+            { type: record.type, name: fullName, content: record.content, ttl: record.ttl ?? 1 },
+          );
+        } else {
+          await this.#request('POST', `/zones/${zone.id}/dns_records`, {
+            type: record.type,
+            name: fullName,
+            content: record.content,
+            ttl: record.ttl ?? 1,
+          });
+        }
+
+        const applied: DnsRecord = {
           type: record.type,
-          name: fullName,
+          name: record.name,
           content: record.content,
-          ttl: record.ttl ?? 1,
+        };
+        changed.push(applied);
+        const appliedIndex = appliedRecords.findIndex(
+          (r) => r.type === record.type && sameName(r.name, fullName),
+        );
+        const absolute: DnsRecord = { type: record.type, name: fullName, content: record.content };
+        if (appliedIndex >= 0) {
+          appliedRecords[appliedIndex] = absolute;
+        } else {
+          appliedRecords.push(absolute);
+        }
+      }
+    } catch (err: unknown) {
+      // A half-completed write must leave a recoverable, named state: the
+      // records already applied travel with the error so the journal can
+      // record exactly what is live (ADR-0083 amendment).
+      if (err instanceof ProviderError) {
+        throw new ProviderError(err.message, this.name, err.code, {
+          ...err.context,
+          partialAppliedRecords: changed,
         });
       }
-
-      const applied: DnsRecord = { type: record.type, name: record.name, content: record.content };
-      changed.push(applied);
-      const appliedIndex = appliedRecords.findIndex(
-        (r) => r.type === record.type && sameName(r.name, fullName),
-      );
-      const absolute: DnsRecord = { type: record.type, name: fullName, content: record.content };
-      if (appliedIndex >= 0) {
-        appliedRecords[appliedIndex] = absolute;
-      } else {
-        appliedRecords.push(absolute);
-      }
+      throw err;
     }
 
     return {
       domain,
-      applied: true,
+      // applied reports whether this call changed anything: a pure no-op
+      // must be distinguishable from a real write.
+      applied: changed.length > 0,
       records: appliedRecords,
       changed,
       ...(changed.length > 0
@@ -191,9 +210,11 @@ export class CloudflareDnsWriteProvider implements DnsWriteProvider {
     }
 
     if (!response.ok || !json.success) {
-      const message =
-        json.errors?.map((e) => e.message).join('; ') ??
-        `Cloudflare DNS API returned HTTP ${String(response.status)}`;
+      const apiMessage =
+        json.errors && json.errors.length > 0
+          ? json.errors.map((e) => e.message).join('; ')
+          : undefined;
+      const message = apiMessage ?? `Cloudflare DNS API returned HTTP ${String(response.status)}`;
       logger.error(
         { path, httpStatus: response.status, error: message },
         'CloudflareDnsWriteProvider: API error',

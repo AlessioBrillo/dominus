@@ -576,6 +576,7 @@ export function buildJobHandlers(deps: JobHandlerDeps): JobHandler<JobPayload, J
   });
   const revenueSyncHandler = new RevenueSyncHandler({
     revenueIngestionService: deps.revenueIngestionService,
+    multiTenant: config.IS_CLOUD_MODE,
   });
 
   return [

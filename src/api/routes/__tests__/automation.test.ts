@@ -4,6 +4,7 @@ import express from 'express';
 import request from 'supertest';
 import { createAutomationRouter } from '../automation.js';
 import { errorHandler } from '../../middleware/error-handler.js';
+import { SettingsStoreUnavailableError } from '../../../types/errors.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mockService(): any {
@@ -99,7 +100,7 @@ describe('Automation API', () => {
     it('returns 501 when the deployment has no settings store', async () => {
       const service = mockService();
       service.updateTenantSettings.mockRejectedValue(
-        new Error('Tenant automation settings are not available: no settings store is configured'),
+        new SettingsStoreUnavailableError('Tenant automation'),
       );
       const res = await request(makeApp(service))
         .put('/automation/settings')

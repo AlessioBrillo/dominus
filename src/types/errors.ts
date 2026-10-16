@@ -90,6 +90,23 @@ export class DatabaseError extends DominusError {
   }
 }
 
+/**
+ * Raised when a per-tenant control-plane feature (automation opt-in) is
+ * requested on a deployment without its settings store. Carries a
+ * machine-readable code so callers can branch on the error type instead
+ * of sniffing the message (§5 error contract).
+ */
+export class SettingsStoreUnavailableError extends DominusError {
+  constructor(feature: string) {
+    super(
+      `${feature} settings are not available: no settings store is configured on this deployment`,
+      'SETTINGS_STORE_UNAVAILABLE',
+      { feature },
+    );
+    this.name = 'SettingsStoreUnavailableError';
+  }
+}
+
 export class UsageLimitExceededError extends DominusError {
   readonly feature: string;
   readonly current: number;

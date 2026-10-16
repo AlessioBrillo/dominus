@@ -15,9 +15,9 @@ function parseId(raw: string | string[] | undefined): number | null {
 const settingsUpdateSchema = z
   .object({
     pricePolicy: z.enum(['scoring', 'fixed']),
-    basePriceEur: z.number().min(0).nullable(),
-    offerAutoDeclineBelowEur: z.number().min(0).nullable(),
-    offerCounterEur: z.number().min(0).nullable(),
+    basePriceEur: z.number().positive().nullable(),
+    offerAutoDeclineBelowEur: z.number().positive().nullable(),
+    offerCounterEur: z.number().positive().nullable(),
   })
   .partial()
   .refine(
@@ -27,6 +27,15 @@ const settingsUpdateSchema = z
       value.offerAutoDeclineBelowEur !== undefined ||
       value.offerCounterEur !== undefined,
     { message: 'At least one setting must be provided' },
+  )
+  // A fixed-price policy without a usable base price would silently fall
+  // back to the scoring price and misreport the tenant's intent; €0 would
+  // auto-list at zero.
+  .refine(
+    (value) =>
+      value.pricePolicy !== 'fixed' ||
+      (typeof value.basePriceEur === 'number' && value.basePriceEur > 0),
+    { message: 'A fixed price policy requires basePriceEur above zero', path: ['basePriceEur'] },
   );
 
 export function createListingsRouter(

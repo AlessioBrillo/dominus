@@ -381,7 +381,7 @@ export class ListingManager {
     const outcome = evaluateOfferRules(settings, offer.amountEur);
 
     if (outcome.action === 'declined') {
-      await this.#repo.updateOfferStatus(offer.id, 'declined');
+      await this.#repo.updateOfferStatus(offer.id, 'declined', `Auto-declined: ${outcome.reason}`);
       // The domain is still for sale: the listing goes back to listed.
       await this.#repo.update(offer.listingId, { status: 'listed' });
       const answered: ListingOffer = {
@@ -398,7 +398,11 @@ export class ListingManager {
     }
 
     if (outcome.action === 'countered') {
-      await this.#repo.updateOfferStatus(offer.id, 'countered');
+      await this.#repo.updateOfferStatus(
+        offer.id,
+        'countered',
+        `Auto-countered at €${outcome.counterEur.toFixed(0)}: ${outcome.reason}`,
+      );
       await this.#repo.update(offer.listingId, { status: 'listed' });
       const answered: ListingOffer = {
         ...offer,

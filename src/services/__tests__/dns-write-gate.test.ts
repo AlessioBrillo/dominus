@@ -187,6 +187,44 @@ describe('DnsWriteGate', () => {
     });
     expect(await gate.confirm('example.com')).toBe(true);
   });
+
+  it('confirm retries while the resolver is still catching up', async () => {
+    const reader = fakeReader({ ns: ['ns1.cloudflare.com'], addresses: ['9.9.9.9'] });
+    let calls = 0;
+    reader.resolveAddresses = vi.fn(async () => {
+      calls += 1;
+      return calls < 2 ? ['9.9.9.9'] : ['5.6.7.8'];
+    });
+    const sleeps: number[] = [];
+    const gate = new DnsWriteGate({
+      writeProvider: fakeWriteProvider({ state: managedState }),
+      reader,
+      target,
+      sleep: async (ms: number): Promise<void> => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(await gate.confirm('example.com')).toBe(true);
+    expect(calls).toBe(2);
+    expect(sleeps).toEqual([2000]);
+  });
+
+  it('confirm gives up after the bounded attempts', async () => {
+    const reader = fakeReader({ ns: ['ns1.cloudflare.com'], addresses: ['9.9.9.9'] });
+    const sleeps: number[] = [];
+    const gate = new DnsWriteGate({
+      writeProvider: fakeWriteProvider({ state: managedState }),
+      reader,
+      target,
+      sleep: async (ms: number): Promise<void> => {
+        sleeps.push(ms);
+      },
+    });
+
+    expect(await gate.confirm('example.com')).toBe(false);
+    expect(sleeps).toEqual([2000, 4000]);
+  });
 });
 
 describe('formatDelegationInstructions', () => {

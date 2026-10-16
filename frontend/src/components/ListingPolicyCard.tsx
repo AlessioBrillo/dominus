@@ -31,14 +31,21 @@ export function ListingPolicyCard() {
     setCounterPrice(settings.offerCounterEur !== null ? String(settings.offerCounterEur) : '');
   }, [settings]);
 
-  const parseOptional = (value: string): number | null => {
+  const parseOptional = (value: string): number | null | 'invalid' => {
     if (value.trim() === '') return null;
     const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    if (!Number.isFinite(parsed) || parsed < 0) return 'invalid';
+    return parsed;
   };
 
   const handleSave = async () => {
     const parsedBase = parseOptional(basePrice);
+    const parsedDecline = parseOptional(declineFloor);
+    const parsedCounter = parseOptional(counterPrice);
+    if (parsedBase === 'invalid' || parsedDecline === 'invalid' || parsedCounter === 'invalid') {
+      toast.error('Prices must be numbers of zero or more');
+      return;
+    }
     if (pricePolicy === 'fixed' && (parsedBase === null || parsedBase <= 0)) {
       toast.error('A fixed price policy needs a base price above zero');
       return;
@@ -48,8 +55,8 @@ export function ListingPolicyCard() {
       await update.mutateAsync({
         pricePolicy,
         basePriceEur: parsedBase,
-        offerAutoDeclineBelowEur: parseOptional(declineFloor),
-        offerCounterEur: parseOptional(counterPrice),
+        offerAutoDeclineBelowEur: parsedDecline,
+        offerCounterEur: parsedCounter,
       });
       toast.success('Listing policy saved');
     } catch (err) {

@@ -78,4 +78,19 @@ describe('ListingStepExecutor', () => {
       expect(outcome.error).toBe('Marketplace API unavailable');
     }
   });
+
+  it('skips in dry-run and never creates a listing', async () => {
+    const svc = mockAutoListingService();
+
+    const outcome = await new ListingStepExecutor(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      svc as any,
+    ).execute({ ...ctx, dryRun: true });
+
+    expect(outcome.status).toBe('skipped');
+    if (outcome.status === 'skipped') {
+      expect(outcome.reason).toBe('dry_run');
+    }
+    expect(svc.autoList).not.toHaveBeenCalled();
+  });
 });

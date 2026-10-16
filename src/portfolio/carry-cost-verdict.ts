@@ -57,6 +57,20 @@ export function computeCarryCostVerdict(input: CarryCostInput): CarryCostResult 
     };
   }
 
+  // A missing or zero renewal cost is absent data, not a free domain:
+  // judging it as sustainable would be the generous reading.
+  if (renewalCostEur <= 0) {
+    return {
+      domain,
+      verdict: 'insufficient_data',
+      annualRevenueEur,
+      annualCarryCostEur: renewalCostEur,
+      netAnnualEur,
+      reason:
+        'No renewal cost recorded — the carry cost is unknown, so the verdict cannot be judged',
+    };
+  }
+
   if (netAnnualEur >= 0) {
     return {
       domain,
