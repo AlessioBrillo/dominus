@@ -4,6 +4,8 @@ import type { ListingRepository } from '../db/repositories/listing-repository.js
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import { GateVerdict, type TrademarkGate } from '../trademark/trademark-gate.js';
 import type { TenantListingSettingsRepository } from '../db/repositories/tenant-listing-settings-repository.js';
+import type { OutcomeRepository } from '../db/repositories/outcome-repository.js';
+import type { PortfolioRepository } from '../db/repositories/portfolio-repository.js';
 import { evaluateOfferRules } from './offer-rules.js';
 import type {
   Listing,
@@ -18,12 +20,21 @@ import { DominusError, TrademarkGateError } from '../types/errors.js';
 
 const logger = getLogger();
 
+export interface SaleOutcome {
+  salePriceEur: number;
+  commissionPct: number | null;
+  venue: string | null;
+  notes: string | null;
+}
+
 export class ListingManager {
   readonly #provider: ListingProvider;
   readonly #repo: ListingRepository;
   readonly #engine: ScoringEngine;
   readonly #trademarkGate: TrademarkGate;
   readonly #listingSettingsRepo: TenantListingSettingsRepository | undefined;
+  readonly #outcomeRepo: OutcomeRepository | undefined;
+  readonly #portfolioRepo: PortfolioRepository | undefined;
 
   constructor(
     provider: ListingProvider,
@@ -31,12 +42,16 @@ export class ListingManager {
     engine: ScoringEngine,
     trademarkGate: TrademarkGate,
     listingSettingsRepo?: TenantListingSettingsRepository,
+    outcomeRepo?: OutcomeRepository,
+    portfolioRepo?: PortfolioRepository,
   ) {
     this.#provider = provider;
     this.#repo = repo;
     this.#engine = engine;
     this.#trademarkGate = trademarkGate;
     this.#listingSettingsRepo = listingSettingsRepo;
+    this.#outcomeRepo = outcomeRepo;
+    this.#portfolioRepo = portfolioRepo;
   }
 
   get provider(): ListingProvider {
@@ -436,6 +451,124 @@ export class ListingManager {
       await this.#repo.update(listingId, { status: 'sold' });
     }
     logger.info({ offerId, listingId, status }, 'ListingManager: offer response recorded');
+  }
+
+  /**
+   * Complete a sale: transition the listing to `sold` and the offer to
+   * `accepted`, then record a `sold` outcome with the full financials so the
+   * P&L report realises the capital (ADR-0089). The sale is only allowed on a
+   * pending offer belonging to a listing that has been published (`listed`)
+   * or has an offer pending (`offer_received`) and is not already sold.
+   */
+  async sellDomain(
+    listingId: number,
+    offerId: number,
+    sale: SaleOutcome,
+  ): Promise<{ listing: Listing; offer: ListingOffer; outcomeId: number }> {
+    const listing = await this.#repo.findById(listingId);
+    if (!listing) throw new Error(`Listing ${listingId} not found`);
+    if (listing.status === 'sold') {
+      throw new Error(`Listing ${listingId} is already sold`);
+    }
+
+    const offers = await this.#repo.findOffersByListingId(listingId);
+    const offer = offers.find((o) => o.id === offerId);
+    if (!offer) throw new Error(`Offer ${offerId} not found for listing ${listingId}`);
+    if (offer.status !== 'pending') {
+      throw new Error(`Offer ${offerId} is not pending (status: ${offer.status})`);
+    }
+    if (!Number.isFinite(sale.salePriceEur) || sale.salePriceEur <= 0) {
+      throw new Error(`Invalid sale price: ${sale.salePriceEur}`);
+    }
+
+    await this.#repo.update(listingId, { status: 'sold' });
+    await this.#repo.updateOfferStatus(
+      offerId,
+      'accepted',
+      `Accepted sale at €${sale.salePriceEur.toFixed(0)}${sale.notes ? ` — ${sale.notes}` : ''}`,
+    );
+
+    const acquiredAt = new Date(listing.createdAt).getTime();
+    const daysListed = Math.max(1, Math.round((Date.now() - acquiredAt) / (1000 * 60 * 60 * 24)));
+
+    let acquisitionCostEur: number | undefined;
+    let totalRenewalCostEur: number | undefined;
+    if (this.#portfolioRepo) {
+      const entry = await this.#portfolioRepo.findByDomain(listing.domain);
+      if (entry) {
+        acquisitionCostEur = entry.acquisitionCost;
+        totalRenewalCostEur = entry.renewalCost;
+      }
+    }
+
+    let outcomeId: number | undefined;
+    if (this.#outcomeRepo) {
+      const outcome = await this.#outcomeRepo.insert({
+        domain: listing.domain,
+        type: 'sold',
+        occurredAt: new Date().toISOString(),
+        salePriceEur: sale.salePriceEur,
+        listingPriceEur: listing.priceEur ?? undefined,
+        daysListed,
+        venue: sale.venue ?? undefined,
+        commissionPct: sale.commissionPct ?? undefined,
+        acquisitionCostEur,
+        totalRenewalCostEur,
+        notes: sale.notes ?? undefined,
+      });
+      outcomeId = outcome.id;
+    }
+
+    logger.info(
+      {
+        listingId,
+        offerId,
+        domain: listing.domain,
+        salePriceEur: sale.salePriceEur,
+        commissionPct: sale.commissionPct,
+        daysListed,
+      },
+      'ListingManager: sale completed',
+    );
+
+    return {
+      listing: { ...listing, status: 'sold' },
+      offer: { ...offer, status: 'accepted' },
+      outcomeId: outcomeId ?? -1,
+    };
+  }
+
+  /**
+   * Public buyer-facing offer intake: record a pending offer on the listing
+   * found by `domain`, executed under the listing's own tenant so the offer
+   * is visible to the domain's owner (ADR-0089). Rate-limited per domain by
+   * the public router.
+   */
+  async recordPublicOffer(
+    domain: string,
+    amountEur: number,
+    buyer: string,
+    notes: string | null,
+  ): Promise<ListingOffer> {
+    if (!Number.isFinite(amountEur) || amountEur <= 0) {
+      throw new Error(`Invalid offer amount: ${amountEur}`);
+    }
+    if (!buyer || typeof buyer !== 'string') {
+      throw new Error('buyer is required');
+    }
+
+    const listings = await this.#repo.findByDomain(domain);
+    const listing = listings.find((l) => l.status !== 'sold');
+    if (!listing) {
+      throw new Error(`No active listing found for ${domain}`);
+    }
+
+    return this.recordOffer(listing.id, amountEur, buyer, notes ?? undefined);
+  }
+
+  /** Resolve the tenant id that owns a listing for `domain` (public-intake routing). */
+  async getTenantForDomain(domain: string): Promise<string | null> {
+    return this.#repo.getTenantForDomain(domain);
   }
 
   async getListings(filter?: ListingsFilter): Promise<Listing[]> {

@@ -518,6 +518,50 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
+    '/api/v1/listings/{listingId}/offers/{offerId}/sell': {
+      post: {
+        tags: ['Sales'],
+        summary: 'Complete a sale: accept an offer and record a sold outcome',
+        description:
+          'Transitions the listing to sold and the offer to accepted, then records a sold outcome with the full financials so the P&L realises the capital (ADR-0089).',
+        parameters: [
+          {
+            name: 'listingId',
+            in: 'path',
+            required: true,
+            schema: { type: 'integer' },
+          },
+          {
+            name: 'offerId',
+            in: 'path',
+            required: true,
+            schema: { type: 'integer' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['salePriceEur'],
+                properties: {
+                  salePriceEur: { type: 'number', minimum: 0 },
+                  commissionPct: { type: 'number', minimum: 0, maximum: 100 },
+                  venue: { type: 'string' },
+                  notes: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Sale completed' },
+          '400': { $ref: '#/components/responses/ValidationError' },
+          '404': { description: 'Listing or offer not found' },
+        },
+      },
+    },
     '/api/v1/registrar/tlds': {
       get: {
         tags: ['Registrar'],

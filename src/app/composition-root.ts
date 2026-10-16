@@ -1293,6 +1293,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     engine,
     trademarkGate,
     repos.tenantListingSettingsRepo,
+    repos.outcomeRepo,
+    repos.portfolioRepo,
   );
   const autoListingRepo = new AutoListingRepository(repos.provider);
   const autoListingService = new AutoListingService(

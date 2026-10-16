@@ -251,6 +251,7 @@ async function main(): Promise<void> {
     createPublicRouter(deps.anonScoringService, deps.redisClient, {
       ...publicAppUrlOption(config),
       domainSiteRepo: deps.domainSiteRepo,
+      listingManager: deps.listingManager,
       ...(config.INDEXNOW_KEY !== undefined ? { indexNowKey: config.INDEXNOW_KEY } : {}),
     }),
   );

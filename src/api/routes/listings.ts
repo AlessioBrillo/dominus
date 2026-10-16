@@ -334,5 +334,43 @@ export function createListingsRouter(
     },
   );
 
+  router.post(
+    '/:listingId/offers/:offerId/sell',
+    async (req: Request, res: Response, next: NextFunction) => {
+      const listingId = parseId(req.params.listingId);
+      const offerId = parseId(req.params.offerId);
+      if (listingId === null || offerId === null) {
+        res.status(400).json({ error: { code: 'INVALID_ID', message: 'Invalid ID' } });
+        return;
+      }
+
+      const { salePriceEur, commissionPct, venue, notes } = req.body as {
+        salePriceEur?: number;
+        commissionPct?: number | null;
+        venue?: string | null;
+        notes?: string | null;
+      };
+
+      if (typeof salePriceEur !== 'number' || salePriceEur <= 0) {
+        res.status(400).json({
+          error: { code: 'VALIDATION_ERROR', message: 'A valid salePriceEur is required' },
+        });
+        return;
+      }
+
+      try {
+        const result = await listingManager.sellDomain(listingId, offerId, {
+          salePriceEur,
+          commissionPct: commissionPct ?? null,
+          venue: venue ?? null,
+          notes: notes ?? null,
+        });
+        res.json({ listing: result.listing, offer: result.offer, outcomeId: result.outcomeId });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
   return router;
 }
