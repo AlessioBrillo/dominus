@@ -193,7 +193,7 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
 | **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
 | **CLI**            | Commander (21 commands)                         | Full functionality without a browser                       |
-| **API**            | Express REST (31 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **API**            | Express REST (33 route modules)                 | Dashboard-ready, swappable frontend                        |
 | **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
 | **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |

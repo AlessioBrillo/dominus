@@ -5,6 +5,20 @@ import type { CloseoutEntry, DomainCandidate } from '../../types/candidate.js';
 import type { Stage, StageResult } from '../stage.js';
 import { extractTld, normalizeDomain } from '../../utils/domain.js';
 
+const CONSONANTS = 'bcdfghjklmnpqrstvwxyz';
+const VOWELS = 'aeiou';
+const RANDOM_PREFIXES = ['e', 'i', 'my', 'get', 'try', 'go', 'best', 'top', 'my', 'the'];
+const RANDOM_SUFFIXES = ['hub', 'lab', 'io', 'ly', 'ify', 'base', 'spot', 'zone', 'net', 'pro'];
+
+export function generateRandomSld(length: number): string {
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    const pool = i % 2 === 0 ? CONSONANTS : VOWELS;
+    result += pool.charAt(Math.floor(Math.random() * pool.length));
+  }
+  return result;
+}
+
 export interface CandidateGenerationInput {
   keywords?: string[] | undefined;
   brandableNames?: string[] | undefined;
@@ -18,6 +32,18 @@ export interface CandidateGenerationInput {
    * as-is. Useful for rescore operations and incremental checks.
    */
   domains?: string[] | undefined;
+  /**
+   * Sector-based generation: keywords from a sector keyword pack (see
+   * examples/sector-keywords.json). Each keyword is combined with the default
+   * TLD unless it already contains a dot.
+   */
+  sectorKeywords?: string[] | undefined;
+  /**
+   * Random domain generation: generates `randomCount` brandable-style names
+   * of random length (5-10 chars) with the default TLD. Useful for
+   * "sorprendimi" discovery.
+   */
+  randomCount?: number | undefined;
   /**
    * Optional external run ID. When provided, all generated candidates use this
    * as their pipelineRunId instead of generating a new UUID. This eliminates
@@ -97,6 +123,39 @@ export class CandidateGenerationStage implements Stage<CandidateGenerationInput,
           domain,
           tld,
           source: CandidateSource.KeywordCombo,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
+        });
+      }
+      for (const keyword of input.sectorKeywords ?? []) {
+        const tld = keyword.includes('.') ? extractTld(keyword) : this.defaultKeywordTld;
+        const name = keyword.includes('.') ? keyword.replace(/\.[^.]+$/, '') : keyword;
+        passed.push({
+          domain: `${name}${tld}`,
+          tld,
+          source: CandidateSource.Sector,
+          status: CandidateStatus.Pending,
+          isPremium: false,
+          pipelineRunId: runId,
+        });
+      }
+      for (let i = 0; i < (input.randomCount ?? 0); i++) {
+        const length = 5 + Math.floor(Math.random() * 6); // 5-10 chars
+        const sld = generateRandomSld(length);
+        const prefix =
+          Math.random() < 0.5
+            ? ''
+            : RANDOM_PREFIXES[Math.floor(Math.random() * RANDOM_PREFIXES.length)];
+        const suffix =
+          Math.random() < 0.5
+            ? ''
+            : RANDOM_SUFFIXES[Math.floor(Math.random() * RANDOM_SUFFIXES.length)];
+        const domain = `${prefix}${sld}${suffix}${this.defaultKeywordTld}`;
+        passed.push({
+          domain,
+          tld: this.defaultKeywordTld,
+          source: CandidateSource.Random,
           status: CandidateStatus.Pending,
           isPremium: false,
           pipelineRunId: runId,

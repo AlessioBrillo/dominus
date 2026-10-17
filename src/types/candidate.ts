@@ -4,6 +4,8 @@ export enum CandidateSource {
   Brandable = 'brandable',
   CloseoutCsv = 'closeout_csv',
   PortfolioRescore = 'portfolio_rescore',
+  Sector = 'sector',
+  Random = 'random',
 }
 
 export enum CandidateStatus {

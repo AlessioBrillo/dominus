@@ -94,6 +94,8 @@ re-running the original arguments.
 | [0082](0082-removal-of-unimplemented-features.md)                              | Remove features that were declared but never worked                                                  | 2026-10-08 | Accepted                            |
 | [0083](0083-post-acquisition-automation-pipeline.md)                           | Post-Acquisition Automation Pipeline                                                                 | 2026-10-12 | Accepted                            |
 | [0084](0084-automation-milestones-tenant-opt-in-fail-closed-dns-carry-cost.md) | Automation milestones — tenant opt-in, fail-closed DNS writes, carry-cost verdicts                   | 2026-10-15 | Accepted                            |
+| [0085](0085-tenant-credential-vault.md)                                        | Tenant Credential Vault for Automated Provider Access                                                | 2026-10-16 | Accepted                            |
+| [0089](0089-tenant-offer-channel-exit.md)                                      | Tenant offer channel and exit — sale outcome closes the P&L loop                                     | 2026-10-16 | Accepted                            |
 
 ## Conventions
 

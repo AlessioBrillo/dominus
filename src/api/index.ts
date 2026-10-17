@@ -28,10 +28,12 @@ export { createAnalyticsRouter } from './routes/analytics.js';
 export { createBidsRouter } from './routes/bids.js';
 export { createFunnelRouter } from './routes/funnel.js';
 export { createListingsRouter } from './routes/listings.js';
+export { createRegistrarCatalogRouter } from './routes/registrar-catalog.js';
 export { createSustainabilityRouter } from './routes/sustainability.js';
 export { createOnboardingRouter } from './routes/onboarding.js';
 export { createDocsRouter } from './routes/docs.js';
 export { createWorkerRouter } from './routes/worker.js';
+export { createTenantCredentialsRouter } from './routes/tenant-credentials.js';
 export {
   createPublicRouter,
   createRobotsTxtHandler,

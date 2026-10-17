@@ -105,6 +105,20 @@ export class ListingRepository {
     return rows.map(listingFromRow);
   }
 
+  /**
+   * Resolve the tenant id that owns a listing for `domain` — used only by the
+   * public offer-intake route so a buyer's offer is written to the listing's
+   * own tenant, never to a shared bucket. A domain may have listings under
+   * more than one tenant; the most recently created one wins.
+   */
+  async getTenantForDomain(domain: string): Promise<string | null> {
+    const row = await this.#db.queryOne<{ tenant_id: string }>(
+      'SELECT tenant_id FROM listings WHERE domain = ? ORDER BY created_at DESC LIMIT 1',
+      [domain],
+    );
+    return row ? row.tenant_id : null;
+  }
+
   async findByMarketplaceAndExternalId(
     marketplace: string,
     externalId: string,

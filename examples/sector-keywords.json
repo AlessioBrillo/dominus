@@ -1,0 +1,197 @@
+{
+  "sectors": [
+    {
+      "id": "food-beverage",
+      "name": "Food & Beverage",
+      "description": "Ristoranti, bar, caffè, delivery, ricette, food tech",
+      "keywords": [
+        "gusto", "sapore", "cibo", "mangia", "bevi", "ristorante", "caffè", "bar",
+        "delivery", "takeaway", "ricetta", "chef", "gourmet", "food", "beverage",
+        "dolce", "salato", "pizza", "pasta", "vino", "birra", "cocktail", "gelato",
+        "pasticceria", "panificio", "macelleria", "pesce", "frutta", "verdura",
+        "bio", "vegan", "healthy", "slowfood", "streetfood", "brunch", "aperitivo"
+      ]
+    },
+    {
+      "id": "travel-tourism",
+      "name": "Travel & Tourism",
+      "description": "Viaggi, vacanze, alberghi, turismo, destinazioni",
+      "keywords": [
+        "viaggio", "vacanza", "hotel", "albergo", "bnb", "ostello", "turismo",
+        "destinazione", "volo", "viaggia", "esplora", "resort", "spiaggia",
+        "montagna", "città", "tour", "guida", "itinerario", "partenza", "arrivo",
+        "valigia", "passaporto", "weekend", "ferie", "viaggiatore", "nomade",
+        "digitale", "crociere", "campeggio", "agriturismo", "villaggio"
+      ]
+    },
+    {
+      "id": "health-wellness",
+      "name": "Health & Wellness",
+      "description": "Salute, benessere, fitness, palestra, nutrizione, salute mentale",
+      "keywords": [
+        "salute", "benessere", "fitness", "palestra", "allenamento", "nutrizione",
+        "dieta", "yoga", "meditazione", "salute mentale", "psicologo", "terapia",
+        "integratore", "vitamina", "proteina", "corpo", "mente", "equilibrio",
+        "relax", "spa", "massaggio", "fisioterapia", "osteopata", "nutrizionista",
+        "personal trainer", "running", "corsa", "bici", "nuoto", "danza"
+      ]
+    },
+    {
+      "id": "technology-software",
+      "name": "Technology & Software",
+      "description": "SaaS, app, software, AI, cybersecurity, cloud, programmazione",
+      "keywords": [
+        "tech", "software", "app", "saas", "cloud", "ai", "intelligenza",
+        "artificiale", "cybersecurity", "sicurezza", "dati", "dato", "programmazione",
+        "sviluppo", "codice", "web", "api", "digitale", "automazione", "robot",
+        "bot", "algoritmo", "machine", "learning", "deep", "neural", "rete",
+        "server", "hosting", "dominio", "sito", "piattaforma", "tool", "strumento"
+      ]
+    },
+    {
+      "id": "finance-investing",
+      "name": "Finance & Investing",
+      "description": "Finanza personale, investimenti, crypto, trading, risparmio",
+      "keywords": [
+        "finanza", "investimento", "risparmio", "denaro", "soldi", "crypto",
+        "bitcoin", "trading", "broker", "borsa", "azione", "titolo", "obbligazione",
+        "mutuo", "prestito", "credito", "conto", "carta", "pagamento", "wallet",
+        "exchange", "token", "nft", "blockchain", "fintech", "tasse", "fisco",
+        "assicurazione", "previdenza", "pensione", "patrimonio", "ricchezza"
+      ]
+    },
+    {
+      "id": "real-estate",
+      "name": "Real Estate",
+      "description": "Immobiliare, case, affitti, vendita, proprietà, costruzioni",
+      "keywords": [
+        "casa", "immobile", "affitto", "vendita", "proprietà", "costruzione",
+        "edilizia", "appartamento", "villa", "attico", "locale", "ufficio",
+        "capannone", "terreno", "agenzia", "agente", "mutuo", "catasto",
+        "ristrutturazione", "arredamento", "design", "interno", "esterno",
+        "giardino", "terrazzo", "box", "garage", "posto auto", "condominio",
+        "amministratore", "locazione", "roge", "notaio"
+      ]
+    },
+    {
+      "id": "fashion-beauty",
+      "name": "Fashion & Beauty",
+      "description": "Moda, abbigliamento, bellezza, cosmetica, stile, accessori",
+      "keywords": [
+        "moda", "abbigliamento", "vestito", "scarpa", "accessorio", "bello",
+        "bellezza", "cosmetico", "trucco", "profumo", "crema", "pelle", "capello",
+        "parrucchiere", "estetista", "unghie", "makeup", "skincare", "stile",
+        "eleganza", "lusso", "brand", "outfit", "look", "tendenza", "stagione",
+        "collezione", "sfilata", "fashion", "glamour", "chic", "vintage"
+      ]
+    },
+    {
+      "id": "education-learning",
+      "name": "Education & Learning",
+      "description": "Scuola, università, corsi, formazione, e-learning, libri",
+      "keywords": [
+        "scuola", "università", "corso", "formazione", "studio", "apprendimento",
+        "e-learning", "lezione", "professore", "studente", "studiare", "esame",
+        "diploma", "laurea", "master", "certificazione", "libro", "manuale",
+        "tutorial", "guida", "come si fa", "impara", "imparare", "conoscenza",
+        "competenza", "skill", "capacità", "webinar", "workshop", "seminario"
+      ]
+    },
+    {
+      "id": "home-garden",
+      "name": "Home & Garden",
+      "description": "Arredamento, giardino, fai-da-te, casalinghi, ristrutturazione",
+      "keywords": [
+        "casa", "arredamento", "mobili", "giardino", "pianta", "fiore", "albero",
+        "fai da te", "attrezzo", "martello", "trapano", "vernice", "colore",
+        "illuminazione", "lampada", "tessuto", "tenda", "tappeto", "cuscino",
+        "letto", "divano", "tavolo", "sedia", "cucina", "bagno", "camera",
+        "pulizia", "detersivo", "organizzazione", "riordino", "decorazione"
+      ]
+    },
+    {
+      "id": "automotive-motors",
+      "name": "Automotive & Motors",
+      "description": "Auto, moto, ricambi, officine, gomme, noleggio",
+      "keywords": [
+        "auto", "macchina", "moto", "veicolo", "ricambio", "officina", "meccanico",
+        "gomme", "pneumatico", "carrozzeria", "motore", "freni", "olio", "filtro",
+        "noleggio", "leasing", "concessionario", "usato", "nuovo", "vendita auto",
+        "prova strada", "test drive", "assistenza", "tagliando", "revisione",
+        "bollo", "assicurazione auto", "gpl", "metano", "elettrico", "ibrido"
+      ]
+    },
+    {
+      "id": "pets-animals",
+      "name": "Pets & Animals",
+      "description": "Animali domestici, veterinario, cibo per animali, toelettatura",
+      "keywords": [
+        "animale", "cane", "gatto", "cucciolo", "veterinario", "cibo per animali",
+        "crocchetta", "letto per animali", "giocattolo", "collare", "guinzaglio",
+        "toelettatura", "pensione", "gattile", "canile", "allevamento",
+        "razza", "pedigree", "vaccino", "antiparassitario", "integratore",
+        "coniglio", "uccello", "pesce", "tartaruga", "roditore", "furetto"
+      ]
+    },
+    {
+      "id": "weddings-events",
+      "name": "Weddings & Events",
+      "description": "Matrimoni, eventi, feste, fotografi, wedding planner, location",
+      "keywords": [
+        "matrimonio", "nozze", "sposi", "sposa", "sposo", "evento", "festa",
+        "wedding", "planner", "fotografo", "location", "sala", "ristorante",
+        "catering", "torta", "abito da sposa", "anello", "fedi", "bouquet",
+        "viaggio di nozze", "lista nozze", "bomboniere", "musica", "dj",
+        "intrattenimento", "allestimento", "decorazione", "animazione"
+      ]
+    },
+    {
+      "id": "career-jobs",
+      "name": "Career & Jobs",
+      "description": "Lavoro, assunzioni, curriculum, recruiting, professioni",
+      "keywords": [
+        "lavoro", "assunzione", "curriculum", "cv", "candidatura", "colloquio",
+        "recruiting", "seleziona", "offerta", "posizione", "professione",
+        "carriera", "promozione", "stagista", "apprendistato", "contratto",
+        "partita iva", "dipendente", "libero professionista", "freelance",
+        "smart working", "remoto", "ufficio", "azienda", "impresa", "startup"
+      ]
+    },
+    {
+      "id": "sports-outdoor",
+      "name": "Sports & Outdoor",
+      "description": "Sport, outdoor, attrezzatura sportiva, escursionismo, calcio",
+      "keywords": [
+        "sport", "calcio", "tennis", "pallacanestro", "running", "corsa",
+        "escursionismo", "montagna", "trekking", "bici", "ciclismo", "nuoto",
+        "palestra", "attrezzatura", "scarpa sportiva", "abbigliamento sportivo",
+        "integratore", "palestra", "crossfit", "yoga", "pilates", "arti marziali",
+        "calcio a 5", "padel", "golf", "sci", "snowboard", "surf"
+      ]
+    },
+    {
+      "id": "home-services",
+      "name": "Home Services",
+      "description": "Idraulico, elettricista, pulizie, traslochi, giardinaggio",
+      "keywords": [
+        "idraulico", "elettricista", "pulizie", "trasloco", "giardinaggio",
+        "impresa pulizie", "badante", "colf", "baby sitter", "dog sitter",
+        "riparazione", "manutenzione", "installazione", "assistenza", "tecnico",
+        "emergenza", "pronto intervento", "preventivo", "sopralluogo",
+        "impresa edile", "muratore", "piastrellista", "imbianchino", "falegname"
+      ]
+    }
+  ],
+  "tldPresets": [
+    { "tld": ".com", "label": "Commerciale globale", "default": true },
+    { "tld": ".it", "label": "Italia", "default": false },
+    { "tld": ".eu", "label": "Europa", "default": false },
+    { "tld": ".net", "label": "Network/Tech", "default": false },
+    { "tld": ".org", "label": "Organizzazione", "default": false },
+    { "tld": ".io", "label": "Tech/Startup", "default": false },
+    { "tld": ".co", "label": "Azienda", "default": false },
+    { "tld": ".site", "label": "Sito generico", "default": false },
+    { "tld": ".online", "label": "Online", "default": false },
+    { "tld": ".shop", "label": "E-commerce", "default": false }
+  ]
+}

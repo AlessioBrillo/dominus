@@ -4,6 +4,9 @@ import type { RegistrarDescriptor } from '../../types/registrar.js';
 import { RegistrarConfigError } from '../../types/registrar.js';
 import { ManualRegistrarProvider } from './manual-registrar-provider.js';
 import { CloudflareRegistrarProvider } from './cloudflare-registrar-provider.js';
+import { DynadotRegistrarProvider } from './dynadot-registrar-provider.js';
+import { PorkbunRegistrarProvider } from './porkbun-registrar-provider.js';
+import { NamecheapRegistrarProvider } from './namecheap-registrar-provider.js';
 
 export interface RegistrarRegistration {
   name: string;
@@ -22,6 +25,9 @@ export class RegistrarRegistry {
   private registerDefaults(): void {
     this.register(ManualRegistrarProvider.registration);
     this.register(CloudflareRegistrarProvider.registration);
+    this.register(DynadotRegistrarProvider.registration);
+    this.register(PorkbunRegistrarProvider.registration);
+    this.register(NamecheapRegistrarProvider.registration);
   }
 
   register(registration: RegistrarRegistration): void {

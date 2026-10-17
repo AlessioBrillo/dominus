@@ -31,7 +31,7 @@ flowchart LR
 
     subgraph API[REST API]
         API["api/index.ts<br/>Express Router"]
-        ROUTES["api/routes/<br/>31 route modules"]
+        ROUTES["api/routes/<br/>33 route modules"]
         PUB["api/public-router.ts<br/>Public scoring pages<br/>SSR + OG tags"]
         VIEWS["api/views/<br/>SSR HTML templates"]
     end
@@ -40,7 +40,7 @@ flowchart LR
         DBI["db/provider/<br/>DatabaseProvider interface"]
         SQLITE["db/provider/sqlite-adapter.ts"]
         PG["db/provider/postgres-adapter.ts"]
-        REPO["db/repositories/<br/>34 repositories"]
+        REPO["db/repositories/<br/>35 repositories"]
         MIG["db/migrations/<br/>versioned DDL"]
     end
 
