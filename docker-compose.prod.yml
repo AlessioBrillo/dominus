@@ -57,7 +57,6 @@
 services:
   api:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}
-    env_file: .env
     restart: always
     deploy:
       resources:
@@ -82,7 +81,6 @@ services:
 
   worker:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}-worker
-    env_file: .env
     restart: always
     depends_on:
       redis:
@@ -116,7 +114,6 @@ services:
 
   scheduler:
     image: ghcr.io/alessiobrillo/dominus:${DOMINUS_IMAGE_TAG:?DOMINUS_IMAGE_TAG is required (ADR-0046) — set it to vX.Y.Z or sha-<commit>}-scheduler
-    env_file: .env
     restart: always
     depends_on:
       redis:
