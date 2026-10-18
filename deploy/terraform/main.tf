@@ -89,8 +89,8 @@ variable "domain" {
 
 variable "image_tag" {
   type        = string
-  default     = "v1.0.0"
-  description = "GHCR image tag to deploy (digest-pinned at apply, ADR-0046). Only consulted at provision time: the rendered compose references DOMINUS_IMAGE_TAG from .env at runtime, so release bumps go through the deploy pipeline (deploy.yml), never a Terraform apply — user_data is ForceNew and an apply would recreate the node and lose the named volumes."
+  default     = "v1.2.0"
+  description = "GHCR image tag rendered into cloud-init user_data at provision time (digest-pinned, ADR-0046). Only consulted at first provision: the rendered compose references DOMINUS_IMAGE_TAG from .env at runtime, and user_data carries ignore_changes so a later `terraform apply` never recreates the node (and destroys its volumes). Release bumps go through the deploy pipeline (deploy.yml → rollout.sh), not a Terraform apply."
 }
 
 variable "app_env" {

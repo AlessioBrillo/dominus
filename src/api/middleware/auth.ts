@@ -116,7 +116,10 @@ function extractApiKey(req: Request): string | null {
   }
 
   const tokenParam = req.query['token'];
-  if (typeof tokenParam === 'string' && tokenParam.length > 0) {
+  // Query-param auth is SSE-only: GET, read-only stage-progress events.
+  // Never accept it on mutation methods (POST/PUT/DELETE/PATCH) — keys in
+  // query strings leak to proxy logs, Referer headers and browser history.
+  if (typeof tokenParam === 'string' && tokenParam.length > 0 && req.method === 'GET') {
     return tokenParam;
   }
 

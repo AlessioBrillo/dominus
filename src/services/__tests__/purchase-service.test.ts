@@ -2,8 +2,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PurchaseService, AutoApprovalPolicy } from '../purchase-service.js';
 import { GateVerdict } from '../../trademark/trademark-gate.js';
-import { PurchaseNotApprovedError } from '../../types/registrar.js';
+import { PurchaseNotApprovedError, PurchaseTrademarkError } from '../../types/registrar.js';
 import type { RegistrarPriceCheck } from '../../providers/registrar/registrar-provider.js';
+import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createMockRegistrar(): any {
@@ -34,6 +35,12 @@ function createMockEngine(): any {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createMockGate(): any {
   return { check: vi.fn() };
+}
+
+function makeGateClear(): TrademarkGate {
+  const gate = createMockGate();
+  gate.check.mockResolvedValue({ verdict: GateVerdict.Clear });
+  return gate as unknown as TrademarkGate;
 }
 
 function makePriceCheck(overrides: Partial<RegistrarPriceCheck> = {}): RegistrarPriceCheck {
@@ -205,6 +212,7 @@ describe('PurchaseService', () => {
         portfolioManager: createMockPortfolioManager(),
         outcomeRepo: createMockOutcomeRepo(),
         engine,
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.UnderBuyMax,
       });
 
@@ -232,6 +240,7 @@ describe('PurchaseService', () => {
         portfolioManager: createMockPortfolioManager(),
         outcomeRepo: createMockOutcomeRepo(),
         engine,
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.UnderBuyMax,
       });
 
@@ -239,18 +248,36 @@ describe('PurchaseService', () => {
       expect(result.operatorApprovalRequired).toBe(true);
     });
 
-    it('never requires operator approval under Always policy', async () => {
+    it('never requires operator approval under Always policy when TM is clear', async () => {
       const reg = createMockRegistrar();
       reg.checkPrice.mockResolvedValue([makePriceCheck({ registerPriceEur: 999 })]);
       const svc = new PurchaseService({
         registrar: reg,
         portfolioManager: createMockPortfolioManager(),
         outcomeRepo: createMockOutcomeRepo(),
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.Always,
       });
 
       const result = await svc.preflight('example.com');
       expect(result.operatorApprovalRequired).toBe(false);
+    });
+
+    it('requires operator approval under Always policy when TM is not clear', async () => {
+      const reg = createMockRegistrar();
+      reg.checkPrice.mockResolvedValue([makePriceCheck({ registerPriceEur: 10 })]);
+      const gate = createMockGate();
+      gate.check.mockResolvedValue({ verdict: GateVerdict.Blocked });
+      const svc = new PurchaseService({
+        registrar: reg,
+        portfolioManager: createMockPortfolioManager(),
+        outcomeRepo: createMockOutcomeRepo(),
+        gate,
+        autoApproval: AutoApprovalPolicy.Always,
+      });
+
+      const result = await svc.preflight('example.com');
+      expect(result.operatorApprovalRequired).toBe(true);
     });
   });
 
@@ -267,6 +294,7 @@ describe('PurchaseService', () => {
         registrar: reg,
         portfolioManager: pm,
         outcomeRepo,
+        gate: makeGateClear(),
       });
 
       const result = await svc.execute('example.com');
@@ -287,6 +315,7 @@ describe('PurchaseService', () => {
         registrar: reg,
         portfolioManager: createMockPortfolioManager(),
         outcomeRepo: createMockOutcomeRepo(),
+        gate: makeGateClear(),
       });
 
       const result = await svc.execute('example.com');
@@ -301,10 +330,27 @@ describe('PurchaseService', () => {
         registrar: reg,
         portfolioManager: createMockPortfolioManager(),
         outcomeRepo: createMockOutcomeRepo(),
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.Never,
       });
 
       await expect(svc.execute('example.com')).rejects.toThrow(PurchaseNotApprovedError);
+    });
+
+    it('throws PurchaseTrademarkError when trademark is blocked even with operator approval', async () => {
+      const reg = createMockRegistrar();
+      reg.checkPrice.mockResolvedValue([makePriceCheck()]);
+      const gate = createMockGate();
+      gate.check.mockResolvedValue({ verdict: GateVerdict.Blocked });
+      const svc = new PurchaseService({
+        registrar: reg,
+        portfolioManager: createMockPortfolioManager(),
+        outcomeRepo: createMockOutcomeRepo(),
+        gate,
+        autoApproval: AutoApprovalPolicy.Always,
+      });
+
+      await expect(svc.execute('example.com', 1, true)).rejects.toThrow(PurchaseTrademarkError);
     });
 
     it('passes expectedPriceEur to registrar purchase', async () => {
@@ -324,6 +370,7 @@ describe('PurchaseService', () => {
         registrar: reg,
         portfolioManager: pm,
         outcomeRepo,
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.Always,
       });
 
@@ -353,6 +400,7 @@ describe('PurchaseService', () => {
         registrar: reg,
         portfolioManager: pm,
         outcomeRepo,
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.Always,
       });
 
@@ -382,6 +430,7 @@ describe('PurchaseService', () => {
         registrar: reg,
         portfolioManager: createMockPortfolioManager(),
         outcomeRepo: createMockOutcomeRepo(),
+        gate: makeGateClear(),
         autoApproval: AutoApprovalPolicy.Always,
       });
 

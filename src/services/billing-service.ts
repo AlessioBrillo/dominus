@@ -112,9 +112,9 @@ export class BillingService {
 
     try {
       const { Stripe } = await import('stripe');
-      this.#stripe = new Stripe(
-        this.#config.STRIPE_SECRET_KEY,
-      ) as unknown as StripeSdk['Stripe']['prototype'];
+      this.#stripe = new Stripe(this.#config.STRIPE_SECRET_KEY, {
+        apiVersion: '2026-09-30.endive',
+      }) as unknown as StripeSdk['Stripe']['prototype'];
       return this.#stripe;
     } catch {
       logger.warn('Stripe SDK not available — billing features disabled');
@@ -273,6 +273,7 @@ export class BillingService {
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: { tenantId, plan },
+      automatic_tax: { enabled: true },
       ...(firstCheckout ? { subscription_data: { trial_period_days: 14 } } : {}),
       idempotency_key: idempotencyKey,
     });

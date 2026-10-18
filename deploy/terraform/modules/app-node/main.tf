@@ -93,6 +93,16 @@ resource "hcloud_server" "app" {
     ip         = "10.0.0.2"
     alias_ips  = []
   }
+
+  # user_data is rendered once at provision time. Bumping image_tag (or any
+  # other variable) must NOT recreate the server: that would destroy the
+  # pgdata/redis-data/backups named volumes on the node's disk. Image
+  # rollouts go through the deploy pipeline (deploy.yml → rollout.sh), not
+  # `terraform apply`. user_data changes are therefore ignored after the
+  # first apply.
+  lifecycle {
+    ignore_changes = [user_data]
+  }
 }
 
 output "public_ip" {

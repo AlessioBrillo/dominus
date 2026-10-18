@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Command } from 'commander';
 import type { PurchaseService } from '../../services/purchase-service.js';
-import { PurchaseNotApprovedError } from '../../types/registrar.js';
+import { PurchaseNotApprovedError, PurchaseTrademarkError } from '../../types/registrar.js';
 
 export interface BuyCommandDeps {
   purchaseService: PurchaseService;
@@ -45,7 +45,7 @@ export function registerBuyCommand(program: Command, deps: BuyCommandDeps): void
     .command('execute')
     .description('Purchase a domain (checks price, requires confirmation)')
     .argument('<domain>', 'Domain to purchase')
-    .option('-y, --yes', 'Skip confirmation prompt', false)
+    .option('-y, --yes', 'Skip confirmation prompt (operator approval)', false)
     .option('--years <n>', 'Registration period in years', (v) => Number.parseInt(v, 10), 1)
     .option('--dry-run', 'Check without executing the purchase', false)
     .action(async (domain: string, options: { yes: boolean; years: number; dryRun: boolean }) => {
@@ -58,13 +58,14 @@ export function registerBuyCommand(program: Command, deps: BuyCommandDeps): void
           return;
         }
 
+        // Trademark gate is non-negotiable: never proceed on Blocked/Unverified,
+        // even with --yes.
         if (!check.trademarkClear) {
-          process.stderr.write(`WARNING: Domain ${domain} did NOT pass the trademark gate.\n`);
-          if (!options.yes) {
-            process.stderr.write('Use --yes to override this warning.\n');
-            process.exit(1);
-            return;
-          }
+          process.stderr.write(
+            `ERROR: Domain ${domain} did NOT pass the trademark gate (${check.trademarkClear === false ? 'Blocked' : 'Unverified'}). Purchase aborted.\n`,
+          );
+          process.exit(1);
+          return;
         }
 
         const priceStr =
@@ -82,9 +83,7 @@ export function registerBuyCommand(program: Command, deps: BuyCommandDeps): void
           process.stdout.write(`  Confidence:    ${((check.confidence ?? 0) * 100).toFixed(0)}%\n`);
           process.stdout.write(`  Buy Max:       €${(check.suggestedBuyMax ?? 0).toFixed(2)}\n`);
         }
-        process.stdout.write(
-          `  TM Status:     ${check.trademarkClear ? 'CLEAR' : 'BLOCKED/UNVERIFIED'}\n`,
-        );
+        process.stdout.write(`  TM Status:     CLEAR\n`);
         process.stdout.write('\n');
 
         if (options.dryRun) {
@@ -111,6 +110,11 @@ export function registerBuyCommand(program: Command, deps: BuyCommandDeps): void
       } catch (err: unknown) {
         if (err instanceof PurchaseNotApprovedError) {
           process.stderr.write('Operator approval required. Re-run with --yes to confirm.\n');
+          process.exit(1);
+          return;
+        }
+        if (err instanceof PurchaseTrademarkError) {
+          process.stderr.write(`Error: ${err.message}\n`);
           process.exit(1);
           return;
         }

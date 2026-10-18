@@ -10,6 +10,12 @@
 # accessible to the app role automatically.
 set -e
 
+# Guard: only act when executed directly as an entrypoint script, not when
+# sourced (e.g. accidentally pulled into another initdb.d script).
+if [ "$(basename -- "$0")" != "init-app-role.sh" ]; then
+  exit 0
+fi
+
 : "${DOMINUS_APP_PASSWORD:?DOMINUS_APP_PASSWORD must be set}"
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL

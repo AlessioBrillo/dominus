@@ -31,7 +31,7 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 | **Backend**        | Node.js 22+, Express 5                                         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)                        |
 | **CLI**            | Commander (21 commands)                                        |
-| **API**            | Express REST (31 route modules)                                |
+| **API**            | Express REST (33 route modules)                                |
 | **Frontend**       | React 19 + Vite 8 + Tailwind CSS 4 + Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2                       |
 | **Infrastructure** | Docker, Docker Compose, Terraform (Hetzner), GitHub Actions    |
@@ -46,7 +46,9 @@ Five-stage pipeline with async-first execution — acquisition and auto-listing
 are manual and out of scope:
 
 1. **Candidate generation** — keyword combos, brandable names, closeout CSVs imported manually
-2. **DNS pre-filter** — fast bulk check via Node `dns`; drops obviously registered names
+2. **DNS pre-filter** — fast bulk check via Unbound recursive resolver
+   (DNSSEC-validated; Node.js DNS fallback for non-Available verdicts only;
+   never reports Available without DNSSEC validation)
 3. **RDAP confirmation** — precise availability status + premium detection via public RDAP
 4. **Scoring** — heuristic engine (see below)
 5. **Trademark gate** — mandatory USPTO/EUIPO check; any match blocks the candidate
@@ -108,10 +110,11 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.1.0 — release hardening: tenant isolation fixes, operator role,
-email team invitations, PostgreSQL parity tested in CI, WCAG 2.1 AA gate,
-Unbound as the single DNS source of truth. v1.0.0 introduced the DOMINUS Cloud
-MVP. Next: v1.2.0 — post-1.0 features.
+DOMINUS v1.2.0 — release integrity: trademark gate enforced on every
+purchase path (API, CLI, auto-approval, bid), tenant isolation fixes,
+operator role, PostgreSQL parity tested in CI, WCAG 2.1 AA gate,
+Unbound as the single DNS source of truth. v1.0.0 introduced the DOMINUS
+Cloud MVP. Next: v1.3.0 — self-hosted and SaaS hardening.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
@@ -124,8 +127,11 @@ Resolved design decisions:
    DOMINUS Cloud; the CLI remains fully functional for automation.
    See [ADR-0028](docs/adr/0028-frontend-architecture-professional-dashboard.md).
 3. **Registrar**: manual purchases by default. The [RegistrarProvider]
-   (src/providers/registrar/registrar-provider.ts) interface has one real
-   implementation, Cloudflare; other registrars are not implemented.
+   interface has one verified production implementation, Cloudflare;
+   Dynadot, Porkbun and Namecheap providers are registered but marked
+   experimental (unverified against vendor APIs — see ADR-0082). Use
+   `REGISTRAR_PROVIDER=manual` (default) unless you have verified
+   credentials.
    See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
 4. **Drop policy** — defaults live in config (`DROP_SCORE_THRESHOLD`,
    `DROP_RENEWAL_HORIZON_DAYS`); thresholds are tuned via backtest feedback.
@@ -150,13 +156,20 @@ See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
 
 ## CI gate
 
-GitHub Actions is not the gate. The single source of truth is `.woodpecker/ci.yml`.
+GitHub Actions is CI mirroring; the authoritative gate runs locally on the
+committer's machine with Docker:
 
-- **Local, no server:** `ci-local` from the repo root (Docker running). Exit 0 = green.
-  Never run `woodpecker-cli exec` directly on the checkout: it bind-mounts the repo and
-  install steps would overwrite host dependencies.
-- **Server:** push the branch; the check is `ci/woodpecker/push/ci` (`gh pr checks <n> --watch`).
-- **Not in the gate:** docker-smoke, compose-config and the Playwright e2e job (need docker-in-docker); npm-package prepublish check; CodeQL.
-- **Status:** pipeline written, first green run not recorded yet. If a step fails for an
-  environment reason (image, network, missing tool), fix `.woodpecker/ci.yml`, not the code.
-- Done / merge-ready means this gate is green on the final tree. See `~/.agents/CI.md`.
+- **Local:** `npm run gate` from the repo root. Exit 0 = green.
+  It runs typecheck → build → db:sync:check → lint → format:check →
+  check:migration-compat → check:sql-portability → notices:check →
+  adr:index:check → check:pack → check:doc-drift → backend tests with
+  coverage → frontend typecheck/lint/test-with-coverage/build.
+- **With Docker:** `npm run gate:docker` additionally renders both compose
+  stacks, lints Prometheus alert rules, and (when Docker is available)
+  starts base+Unbound and prod-overlay to assert `/api/v1/health` on a
+  fresh Postgres volume. Run this before any tag or any change to
+  compose/Dockerfile/deploy/.
+- **Pre-push:** husky `pre-push` → `npm run gate`. Bypass only with an
+  explicit `--no-verify`.
+- **Done / merge-ready** means this gate is green on the final tree.
+  See `~/.agents/CI.md`.

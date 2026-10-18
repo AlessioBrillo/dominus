@@ -124,5 +124,53 @@ describe('GET /api/v1/score/:domain', () => {
     const res = await request(app).get('/api/v1/score/example.com');
     expect(res.status).toBe(200);
     expect(res.body.trademark).toHaveProperty('verdict', 'unverified');
+    expect(res.body.score.recommended).toBe(false);
+    expect(res.body.trademarkBuyBlocked).toBe(true);
+  });
+
+  it('forces recommended to false when trademark is Blocked', async () => {
+    const gate = {
+      check: vi.fn().mockResolvedValue({
+        domain: 'test.com',
+        verdict: GateVerdict.Blocked,
+        verifiedSources: ['USPTO'],
+        matchedMark: 'TESTMARK',
+        matchSource: 'USPTO',
+        partial: false,
+        usptoFailed: false,
+      }),
+    } as unknown as TrademarkGate;
+    const app = express();
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine(), gate));
+    app.use(errorHandler);
+
+    const res = await request(app).get('/api/v1/score/example.com');
+    expect(res.status).toBe(200);
+    // engine recommends, but TM blocks -> recommended forced false
+    expect(res.body.score.recommended).toBe(false);
+    expect(res.body.trademarkBuyBlocked).toBe(true);
+  });
+
+  it('keeps recommended true when trademark is Clear', async () => {
+    const gate = makeStubGate();
+    const app = express();
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine(), gate));
+    app.use(errorHandler);
+
+    const res = await request(app).get('/api/v1/score/example.com');
+    expect(res.status).toBe(200);
+    expect(res.body.score.recommended).toBe(true);
+    expect(res.body.trademarkBuyBlocked).toBe(false);
+  });
+
+  it('recommended is false when no gate is provided', async () => {
+    const app = express();
+    app.use('/api/v1/score', createScoreRouter(makeStubEngine()));
+    app.use(errorHandler);
+
+    const res = await request(app).get('/api/v1/score/example.com');
+    expect(res.status).toBe(200);
+    expect(res.body.trademark).toBeUndefined();
+    expect(res.body.score.recommended).toBe(true);
   });
 });

@@ -76,6 +76,25 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       }
 
       const tenantId = req.tenantId ?? 'default';
+
+      // When PUBLIC_APP_URL is configured, redirect the payer back to our own
+      // origin — never to an attacker-controlled URL.
+      const appOrigin = config.PUBLIC_APP_URL;
+      if (appOrigin) {
+        for (const field of ['successUrl', 'cancelUrl'] as const) {
+          const url = parsed.data[field];
+          if (!url.startsWith(appOrigin)) {
+            res.status(400).json({
+              error: {
+                code: 'VALIDATION_ERROR',
+                message: `${field} must be on the configured app origin (${appOrigin})`,
+              },
+            });
+            return;
+          }
+        }
+      }
+
       const session = await billingService.createCheckoutSession(
         tenantId,
         parsed.data.plan as SubscriptionPlan,
@@ -108,6 +127,16 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       const returnUrl =
         (req.body as { returnUrl?: string })?.returnUrl ??
         `${req.protocol}://${req.get('host')}/billing`;
+      const appOrigin = config.PUBLIC_APP_URL;
+      if (appOrigin && !returnUrl.startsWith(appOrigin)) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: `returnUrl must be on the configured app origin (${appOrigin})`,
+          },
+        });
+        return;
+      }
       const session = await billingService.createPortalSession(tenantId, returnUrl);
 
       if (!session) {

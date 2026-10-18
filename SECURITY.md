@@ -7,8 +7,8 @@ release. Upgrade to the latest `1.x` release to receive them.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.1.x   | :white_check_mark: |
-| < 1.1.0 | :x:                |
+| 1.2.x   | :white_check_mark: |
+| < 1.2.0 | :x:                |
 
 ## Reporting a Vulnerability
 

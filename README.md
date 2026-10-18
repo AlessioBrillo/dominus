@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -345,7 +345,16 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.1.0 — all five pipeline stages, the heuristic scoring engine, the trademark gate (real USPTO/EUIPO providers with caching), the portfolio tracker with renewal clock and keep/drop verdicts, outcomes, the backtest engine and the React dashboard are implemented and tested. The community edition is fully functional; DOMINUS Cloud adds multi-tenancy, team accounts with email invitations, SSO and Stripe billing. This release fixes tenant-isolation and PostgreSQL-parity bugs found in the pre-release audit, adds a WCAG 2.1 AA accessibility gate, and removes features that were declared but never worked (see [docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)).
+DOMINUS v1.2.0 — full release integrity: all five pipeline stages, the
+heuristic scoring engine, the mandatory trademark gate enforced on every
+purchase path (API, CLI, auto-approval, bid), real USPTO/EUIPO providers
+with caching, the portfolio tracker with renewal clock and keep/drop
+verdicts, outcomes, the backtest engine and the React dashboard are
+implemented and tested. Post-acquisition automation (ADR-0083) ships dark
+by default (`AUTOMATION_ENABLED=false`). The community edition is fully
+functional; DOMINUS Cloud adds multi-tenancy, team accounts with email
+invitations, SSO and Stripe billing. See [docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)
+and the v1.2.0 integrity notes below.
 
 ## FAQ
 
@@ -353,7 +362,7 @@ DOMINUS v1.1.0 — all five pipeline stages, the heuristic scoring engine, the t
 DOMINUS uses a transparent heuristic appraisal engine with four signal groups: intrinsic quality (length, pronounceability, hyphens/numbers, TLD bonus), commercial demand (keyword search volume × CPC), market comparables (NameBio sales data), and expiry signals for expired/closeout domains (age, backlinks, Wayback snapshots). Every weight is visible and tunable — no black box. The engine is deliberately **more conservative than commercial appraisal tools**.
 
 **Is DOMINUS really free?**
-Yes. The community edition is AGPL v3, self-hosted, and runs on free data sources (public RDAP, USPTO, EUIPO, DoH/DoT resolvers). No paid API is required and there is no feature gating — DOMINUS Cloud monetises hosting only.
+Yes. The community edition is AGPL v3, self-hosted, and runs on free data sources (public RDAP, USPTO, EUIPO). No paid API is required and there is no feature gating — DOMINUS Cloud monetises hosting only.
 
 **What is the trademark gate?**
 Before recommending any buy, DOMINUS checks the candidate against USPTO and EUIPO trademark records. Any match blocks the candidate. This check is mandatory and cannot be bypassed — see [ADR-0006](docs/adr/0006-trademark-gate-mandate.md).

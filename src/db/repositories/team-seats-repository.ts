@@ -84,6 +84,15 @@ export class TeamSeatsRepository {
     return row?.count ?? 0;
   }
 
+  /** Active seats with admin or owner role for a tenant. */
+  async countActiveAdmins(tenantId: string): Promise<number> {
+    const row = await this.#db.queryOne<{ count: number }>(
+      "SELECT COUNT(*) as count FROM team_seats WHERE tenant_id = ? AND status = 'active' AND role IN ('admin', 'owner')",
+      [tenantId],
+    );
+    return row?.count ?? 0;
+  }
+
   /** Seats held by active members plus outstanding invitations. */
   async countOccupiedSeats(tenantId: string): Promise<number> {
     const row = await this.#db.queryOne<{ count: number }>(

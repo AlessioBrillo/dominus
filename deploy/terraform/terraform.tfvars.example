@@ -7,7 +7,7 @@ domain            = "app.dominus.example"
 # Bump at every release: this tag is written into the app node's
 # DOMINUS_IMAGE_TAG. A stale tag rolls the node back onto an old image,
 # which the migration gate then refuses at boot (schema ahead of image).
-image_tag         = "v1.0.0"   # must name a RELEASED tag; bump per deploy
+image_tag         = "v1.2.0"   # must name a RELEASED tag; bump per deploy
 
 # SSH ingress allowlist (both nodes). The default admits any source (keys
 # only + fail2ban); restrict to the operator's networks for production.
