@@ -326,11 +326,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # env_file: .env is now declared on the base compose services; an empty
-      # .env keeps `docker compose config` working in CI where no real .env
-      # exists. Real values are injected through the `env:` map above.
-      - name: Create empty .env for compose interpolation
-        run: touch .env
+      # env_file: .env is now declared on the base compose services; a .env
+      # with the CI-provided values keeps `docker compose config` working.
+      # Real secrets are injected through the `env:` map above.
+      - name: Create .env for compose interpolation
+        run: |
+          cat > .env <<'EOF'
+          API_KEYS=ci=0123456789abcdef
+          POSTGRES_PASSWORD=ci-test-password
+          GRAFANA_ADMIN_PASSWORD=ci-test-password
+          DOMINUS_IMAGE_TAG=v1.0.0
+          EOF
 
       # The base compose file must start the full app by default
       # (api + worker + scheduler) and must NOT define the Cloud data
