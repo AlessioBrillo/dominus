@@ -649,6 +649,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Docker Compose always looks for .env in the project directory; an empty
+      # file keeps `docker compose up` working in CI where no real .env
+      # exists. API_KEYS is injected through the `env:` map above.
+      - name: Create empty .env for compose interpolation
+        run: touch .env
+
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
