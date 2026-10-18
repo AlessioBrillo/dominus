@@ -10,7 +10,11 @@ import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import { GateVerdict } from '../trademark/trademark-gate.js';
 import { parseDomain } from '../utils/domain.js';
-import { PurchaseNotApprovedError, type PurchaseRecord } from '../types/registrar.js';
+import {
+  PurchaseNotApprovedError,
+  PurchaseTrademarkError,
+  type PurchaseRecord,
+} from '../types/registrar.js';
 import { addYearsToDate } from '../types/acquisition.js';
 import type {
   AutoListingService,
@@ -139,7 +143,11 @@ export class PurchaseService {
     const buyMax = suggestedBuyMax ?? this.#buyMaxAbsoluteCap;
     let operatorApprovalRequired = true;
 
-    if (this.#autoApproval === AutoApprovalPolicy.Always) {
+    // A domain that has not been cleared by the trademark gate must always
+    // require operator approval — auto-approval never overrides it.
+    if (!trademarkClear) {
+      operatorApprovalRequired = true;
+    } else if (this.#autoApproval === AutoApprovalPolicy.Always) {
       operatorApprovalRequired = false;
     } else if (
       this.#autoApproval === AutoApprovalPolicy.UnderBuyMax &&
@@ -169,6 +177,16 @@ export class PurchaseService {
   ): Promise<PurchaseExecutionResult> {
     try {
       const check = await this.preflight(domain);
+
+      // Trademark gate is non-negotiable: no purchase proceeds without a Clear
+      // verdict, regardless of operator approval or auto-approval policy.
+      if (!check.trademarkClear) {
+        throw new PurchaseTrademarkError(
+          domain,
+          this.#registrar.name,
+          check.trademarkClear === false ? 'Blocked' : 'Unverified',
+        );
+      }
 
       // Manual registrar: allow recording purchases made externally.
       // The preflight check is still performed for scoring + TM gate,
@@ -285,6 +303,7 @@ export class PurchaseService {
       };
     } catch (err: unknown) {
       if (err instanceof PurchaseNotApprovedError) throw err;
+      if (err instanceof PurchaseTrademarkError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       logger.error({ domain, error: message }, 'Purchase failed');
       return { success: false, error: message };

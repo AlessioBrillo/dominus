@@ -19,6 +19,18 @@ export class PurchaseNotApprovedError extends PurchaseError {
   }
 }
 
+export class PurchaseTrademarkError extends PurchaseError {
+  constructor(domain: string, provider: string, verdict: string) {
+    super(
+      domain,
+      provider,
+      `Domain ${domain} is blocked by the trademark gate (verdict: ${verdict}). Trademark check is non-negotiable.`,
+      'PURCHASE_TRADEMARK_BLOCKED',
+    );
+    this.name = 'PurchaseTrademarkError';
+  }
+}
+
 export class RegistrarConfigError extends DominusError {
   readonly registrar: string;
   constructor(registrar: string, message: string) {

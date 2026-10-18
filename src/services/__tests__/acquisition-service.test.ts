@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AcquisitionService } from '../acquisition-service.js';
 import { BidStatus, type Bid, type PlaceBidInput } from '../../types/acquisition.js';
 import { DuplicateDomainError } from '../../types/errors.js';
+import { GateVerdict, type TrademarkGate } from '../../trademark/trademark-gate.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createMockRepo(): any {
@@ -132,6 +133,54 @@ describe('AcquisitionService', () => {
         bidAmountEur: 200,
       });
       expect(result.bidAmountEur).toBe(200);
+    });
+
+    it('rejects bid when trademark gate returns Blocked', async () => {
+      const gate = {
+        check: vi.fn().mockResolvedValue({ verdict: GateVerdict.Blocked }),
+      } as unknown as TrademarkGate;
+      const svcWithGate = new AcquisitionService(repo, pm, outcomeRepo, db, undefined, gate);
+      repo.findByDomain.mockReturnValue(null);
+      await expect(
+        svcWithGate.place({
+          domain: 'example.com',
+          venue: 'sedo',
+          bidAmountEur: 100,
+        }),
+      ).rejects.toThrow(/blocked by trademark gate/);
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
+
+    it('rejects bid when trademark gate returns Unverified (fail-closed)', async () => {
+      const gate = {
+        check: vi.fn().mockResolvedValue({ verdict: 'unverified' as GateVerdict }),
+      } as unknown as TrademarkGate;
+      const svcWithGate = new AcquisitionService(repo, pm, outcomeRepo, db, undefined, gate);
+      repo.findByDomain.mockReturnValue(null);
+      await expect(
+        svcWithGate.place({
+          domain: 'example.com',
+          venue: 'sedo',
+          bidAmountEur: 100,
+        }),
+      ).rejects.toThrow(/blocked by trademark gate/);
+      expect(repo.insert).not.toHaveBeenCalled();
+    });
+
+    it('rejects bid when trademark gate errors (fail-closed)', async () => {
+      const gate = {
+        check: vi.fn().mockRejectedValue(new Error('USPTO down')),
+      } as unknown as TrademarkGate;
+      const svcWithGate = new AcquisitionService(repo, pm, outcomeRepo, db, undefined, gate);
+      repo.findByDomain.mockReturnValue(null);
+      await expect(
+        svcWithGate.place({
+          domain: 'example.com',
+          venue: 'sedo',
+          bidAmountEur: 100,
+        }),
+      ).rejects.toThrow(/could not be completed/);
+      expect(repo.insert).not.toHaveBeenCalled();
     });
   });
 

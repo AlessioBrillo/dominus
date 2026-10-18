@@ -15,6 +15,11 @@ const root = resolve(import.meta.dirname, '../..');
 // RATE_LIMIT_MAX=0 is legal, so it is documented without being a schema key.
 const EXTRA_ALLOWED = new Set([
   'DOMINUS_IMAGE_TAG',
+  'DOMINUS_APP_PASSWORD',
+  'DOMINUS_UNBOUND_SUBNET',
+  'POSTGRES_USER',
+  'POSTGRES_PASSWORD',
+  'POSTGRES_DB',
   'REGISTRAR_CLOUDFLARE_API_TOKEN',
   'REGISTRAR_CLOUDFLARE_ACCOUNT_ID',
   'NODE_ENV',

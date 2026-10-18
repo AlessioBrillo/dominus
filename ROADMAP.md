@@ -1,8 +1,8 @@
 # Roadmap
 
 DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
-v1.1.0 — Release hardening (release candidate).
-Next: v1.2.0 — Post-1.0 features.
+v1.1.0 — Release hardening (released).
+Next: v1.2.0 — Post-1.0 features (integrity gate, self-hosted & SaaS hardening).
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 
@@ -172,7 +172,7 @@ estimates and subject to change.
 
 ## v1.1.0 — Release Engineering Safety
 
-> **Status**: Release candidate
+> **Status**: Released
 > **Focus**: Release engineering safety, tenant isolation and PostgreSQL
 > parity, accessibility, and removing features that never worked
 

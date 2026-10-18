@@ -24,7 +24,6 @@ services:
       dockerfile: Dockerfile
       target: api
     image: dominus-api:latest
-    container_name: dominus-api
     ports:
       # Bind to loopback by default: the API is unauthenticated on /
       # health only, and exposing the app port on the host network
@@ -34,12 +33,6 @@ services:
       - "127.0.0.1:${PORT:-3000}:3000"
     volumes:
       - ./data:/app/data
-      # Optional scoring-weights override. The source path ships in
-      # examples/, so a fresh clone has a readable file to edit. Mounting a
-      # path that does not exist (e.g. ./data/weights-override.json before
-      # the operator creates it) makes Docker silently create an empty
-      # DIRECTORY at that path, which the app then cannot read as a file.
-      - ./examples/weights-override.json:/app/data/weights-override.json:ro
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_PATH=/app/data/dominus.db
@@ -86,6 +79,12 @@ services:
       # Fallback never serves Available verdicts (ADR-0002 conservatism).
       - DNS_UNBOUND_ENABLED=true
       - DNSSEC_MODE=strict
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
     restart: unless-stopped
 
   worker:
@@ -94,7 +93,6 @@ services:
       dockerfile: Dockerfile
       target: worker
     image: dominus-worker:latest
-    container_name: dominus-worker
     volumes:
       - ./data:/app/data
       - backups:/backups
@@ -132,6 +130,12 @@ services:
       # Fallback never serves Available verdicts (ADR-0002 conservatism).
       - DNS_UNBOUND_ENABLED=true
       - DNSSEC_MODE=strict
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
     restart: unless-stopped
 
   scheduler:
@@ -140,7 +144,6 @@ services:
       dockerfile: Dockerfile
       target: scheduler
     image: dominus-scheduler:latest
-    container_name: dominus-scheduler
     volumes:
       - ./data:/app/data
       - backups:/backups
@@ -166,7 +169,7 @@ services:
       - WORKER_ENABLED=false
       - SCHEDULER_ENABLED=true
       - SCHEDULER_BACKUP_CRON=${SCHEDULER_BACKUP_CRON:-0 4 * * *}
-      - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 5 * * 0}
+      - SCHEDULER_PRUNE_CRON=${SCHEDULER_PRUNE_CRON:-0 10 1 * *}
       - BACKUP_DIR=${BACKUP_DIR:-/backups}
       - REDIS_URL=${REDIS_URL:-}
       # Unbound via the docker-compose.unbound.yml overlay (ADR-0072/0075).
@@ -178,6 +181,12 @@ services:
       # Fallback never serves Available verdicts (ADR-0002 conservatism).
       - DNS_UNBOUND_ENABLED=true
       - DNSSEC_MODE=strict
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        compress: "true"
     restart: unless-stopped
 
 # Dedicated backups volume: keeps VACUUM INTO/pg_dump backups off the

@@ -3,7 +3,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { PurchaseService } from '../../services/purchase-service.js';
-import { PurchaseNotApprovedError } from '../../types/registrar.js';
+import { PurchaseNotApprovedError, PurchaseTrademarkError } from '../../types/registrar.js';
 import { validate } from '../middleware/validate.js';
 
 const preflightQuerySchema = z.object({
@@ -50,6 +50,14 @@ export function createPurchaseRouter(purchaseService: PurchaseService): Router {
           res.status(400).json({ success: false, error: result.error });
         }
       } catch (err) {
+        if (err instanceof PurchaseTrademarkError) {
+          res.status(409).json({
+            success: false,
+            error: err.message,
+            code: 'PURCHASE_TRADEMARK_BLOCKED',
+          });
+          return;
+        }
         if (err instanceof PurchaseNotApprovedError) {
           res
             .status(400)

@@ -30,6 +30,13 @@ export class DuplicateSeatError extends Error {
   }
 }
 
+export class LastAdminError extends Error {
+  constructor() {
+    super('Cannot remove or demote the last active admin — the tenant would be locked out');
+    this.name = 'LastAdminError';
+  }
+}
+
 /** The token is unknown, expired, revoked or already used (deliberately not distinguished). */
 export class InvitationInvalidError extends Error {
   constructor() {
@@ -234,6 +241,14 @@ export class TeamService {
     if (!seat || seat.status !== 'active') {
       throw new SeatNotFoundError(userId);
     }
+    const isAdmin = seat.role === 'admin' || seat.role === 'owner';
+    const becomingNonAdmin = role !== 'admin' && role !== 'owner';
+    if (isAdmin && becomingNonAdmin) {
+      const activeAdmins = await this.#seatsRepo.countActiveAdmins(tenantId);
+      if (activeAdmins <= 1) {
+        throw new LastAdminError();
+      }
+    }
     await this.#seatsRepo.updateRole(tenantId, userId, role);
   }
 
@@ -241,6 +256,13 @@ export class TeamService {
     const seat = await this.#seatsRepo.findByTenantAndUser(tenantId, userId);
     if (!seat) {
       throw new SeatNotFoundError(userId);
+    }
+    const isAdmin = seat.role === 'admin' || seat.role === 'owner';
+    if (isAdmin) {
+      const activeAdmins = await this.#seatsRepo.countActiveAdmins(tenantId);
+      if (activeAdmins <= 1) {
+        throw new LastAdminError();
+      }
     }
     await this.#seatsRepo.remove(tenantId, userId);
   }

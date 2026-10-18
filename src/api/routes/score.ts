@@ -61,7 +61,17 @@ export function createScoreRouter(engine: ScoringEngine, gate?: TrademarkGate): 
           }
         }
 
-        res.json({ domain, score: scoreResult, trademark });
+        let trademarkBuyBlocked = false;
+        if (trademark && trademark.verdict !== 'clear') {
+          trademarkBuyBlocked = true;
+        }
+
+        res.json({
+          domain,
+          score: { ...scoreResult, recommended: scoreResult.recommended && !trademarkBuyBlocked },
+          trademark,
+          trademarkBuyBlocked,
+        });
       })
       .catch(next);
   });

@@ -139,7 +139,7 @@ describe('CLI: dominus buy execute', () => {
     exitMock.mockRestore();
   });
 
-  it('warns on TM block and exits without --yes', async () => {
+  it('blocks on TM block and exits without --yes (no override)', async () => {
     const svc = createMockPurchaseService();
     svc.preflight.mockResolvedValue({
       domain: 'example.com',
@@ -162,7 +162,39 @@ describe('CLI: dominus buy execute', () => {
       await program.parseAsync(['node', 'dominus', 'buy', 'execute', 'example.com']);
     });
 
-    expect(out).toContain('WARNING');
+    expect(out).toContain('ERROR');
+    expect(out).toContain('trademark gate');
+    expect(out).toContain('Purchase aborted');
+    expect(out).not.toContain('--yes');
+    expect(exitMock).toHaveBeenCalledWith(1);
+    exitMock.mockRestore();
+  });
+
+  it('blocks on TM block even with --yes (auto-approval never overrides)', async () => {
+    const svc = createMockPurchaseService();
+    svc.preflight.mockResolvedValue({
+      domain: 'example.com',
+      available: true,
+      registerPriceEur: 10,
+      renewalPriceEur: 10,
+      expectedValue: null,
+      confidence: null,
+      suggestedBuyMax: null,
+      trademarkClear: false,
+      operatorApprovalRequired: true,
+    });
+
+    const program = new Command();
+    registerBuyCommand(program, { purchaseService: svc });
+
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+
+    const out = await captureStdout(async () => {
+      await program.parseAsync(['node', 'dominus', 'buy', 'execute', 'example.com', '--yes']);
+    });
+
+    expect(out).toContain('ERROR');
+    expect(out).toContain('Purchase aborted');
     expect(exitMock).toHaveBeenCalledWith(1);
     exitMock.mockRestore();
   });

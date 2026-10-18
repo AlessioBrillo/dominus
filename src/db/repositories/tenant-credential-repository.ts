@@ -5,7 +5,10 @@ import type {
   TenantCredentialRow,
   TenantCredentialView,
 } from '../../types/tenant-credential.js';
-import { type CredentialProviderType, tenantCredentialFromRow } from '../../types/tenant-credential.js';
+import {
+  type CredentialProviderType,
+  tenantCredentialFromRow,
+} from '../../types/tenant-credential.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
 
 /**

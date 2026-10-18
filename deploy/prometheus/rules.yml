@@ -68,6 +68,71 @@ groups:
           summary: "Pipeline stage {{ $labels.stage }} timeout rate above 10%"
           description: "More than 10% of {{ $labels.stage }} executions are hitting their budget timeout. Consider increasing STAGE_TIMEOUT_PER_CANDIDATE_MS or STAGE_TIMEOUT_CAP_MS for this stage."
 
+  - name: dominus-services
+    rules:
+      - alert: ApiDown
+        expr: up{job="dominus-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DOMINUS API is down"
+          description: "The dominus-api target has been down for more than 1 minute."
+
+      - alert: WorkerDown
+        expr: dominus_worker_up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DOMINUS worker is down"
+          description: "The worker health endpoint (port 9090) has not responded for more than 2 minutes."
+
+      - alert: SchedulerDown
+        expr: dominus_scheduler_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DOMINUS scheduler is down"
+          description: "The scheduler health endpoint (port 9091) has not responded for more than 2 minutes — backups and renewal checks may not run."
+
+      - alert: QueueBacklogHigh
+        expr: dominus_job_queue_pending > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job queue backlog above 100 pending jobs"
+          description: "There are {{ $value }} pending jobs in the queue. The worker may be stuck or under-provisioned."
+
+      - alert: DeadLetterJobsRising
+        expr: increase(dominus_job_queue_dead_letters_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead-letter jobs are being created"
+          description: "Jobs are dead-lettering (permanently failing). Inspect the dead-letter table and worker logs."
+
+      - alert: RedisDown
+        expr: up{job="dominus-redis-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "The Redis exporter target is down — distributed rate limiting and caching will fall back to per-instance limits."
+
+      - alert: RedisEvictionsHigh
+        expr: rate(redis_evicted_keys_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis eviction pressure"
+          description: "Redis is evicting keys — rate-limit and cache buckets are being dropped under memory pressure."
+
   - name: dominus-backup
     rules:
       - alert: BackupStale

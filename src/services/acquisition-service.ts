@@ -90,10 +90,11 @@ export class AcquisitionService {
     if (this.#gate) {
       try {
         const result = await this.#gate.check(input.domain);
-        if (result.verdict === GateVerdict.Blocked) {
+        if (result.verdict !== GateVerdict.Clear) {
+          const sources = (result.verifiedSources ?? []).join(', ');
           const detail = result.matchedMark
-            ? `matched mark "${result.matchedMark}" on ${result.matchSource ?? result.verifiedSources.join(', ')}`
-            : `trademark match on ${result.verifiedSources.join(', ')}`;
+            ? `matched mark "${result.matchedMark}" on ${result.matchSource ?? sources}`
+            : `trademark verdict "${result.verdict}" (${sources || 'none'})`;
           throw new Error(
             `Domain ${input.domain} is blocked by trademark gate (${detail}). ` +
               'Bid rejected: trademark check is non-negotiable.',
@@ -103,10 +104,14 @@ export class AcquisitionService {
         if (err instanceof Error && err.message.includes('blocked by trademark gate')) {
           throw err;
         }
-        logger.warn(
-          { domain: input.domain, err },
-          'Trademark check failed during bid placement — proceeding without TM verification',
-        );
+        // Fail-closed: a trademark check error must never silently permit a bid.
+        if (err instanceof Error) {
+          throw new Error(
+            `Domain ${input.domain} bid rejected: trademark check could not be completed.`,
+            { cause: err },
+          );
+        }
+        throw err;
       }
     }
 

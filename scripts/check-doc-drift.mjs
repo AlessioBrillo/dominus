@@ -41,7 +41,16 @@ function listFiles(dir, { exclude = [], suffix = '.ts' } = {}) {
 
 /** Every markdown file that is part of the published documentation set. */
 function docsFiles() {
-  const out = [join(root, 'README.md')];
+  const out = [
+    join(root, 'README.md'),
+    join(root, 'CLAUDE.md'),
+    join(root, 'ROADMAP.md'),
+    join(root, 'SECURITY.md'),
+    join(root, 'CONTRIBUTING.md'),
+    join(root, 'GOVERNANCE.md'),
+    join(root, 'MAINTAINERS.md'),
+    join(root, 'SUPPORT.md'),
+  ];
   const docs = join(root, 'docs');
   if (!existsSync(docs)) return out;
   const walk = (dir) => {
@@ -203,19 +212,19 @@ const RETIRED_CONCEPTS = [
     // deploy/ no longer ships manifests (removed in 1.1.0, ADR-0082).
     // "not Kubernetes" is allowed; "K8s deployment" style claims are not.
     pattern: /k(?:8s|ubernetes)/gi,
-    allowIn: (p) => p.includes('docs/adr/') || p.includes('docs/releases/'),
+    allowIn: (p) => p.includes('docs/adr/') || p.includes('docs/releases/') || p === 'ROADMAP.md',
   },
   {
     concept: '2-of-3 DNS resolver consensus',
     // Superseded by ADR-0072/0075: Unbound is the single source of truth.
     pattern: /2-of-3/g,
-    allowIn: (p) => p.includes('docs/adr/') || p.includes('docs/releases/'),
+    allowIn: (p) => p.includes('docs/adr/') || p.includes('docs/releases/') || p === 'ROADMAP.md',
   },
   {
     concept: 'DNS_CONSENSUS_ / DNS_TERTIARY_ configuration',
     // Removed env vars in 1.1.0; docs listing them are stale.
     pattern: /DNS_(CONSENSUS|TERTIARY)_[A-Z_]+/g,
-    allowIn: (p) => p.includes('docs/adr/') || p.includes('docs/releases/'),
+    allowIn: (p) => p.includes('docs/adr/') || p.includes('docs/releases/') || p === 'ROADMAP.md',
   },
 ];
 
