@@ -318,6 +318,10 @@ jobs:
       # admin/admin defaults); provide a placeholder so topology
       # validation can interpolate the merged config.
       GRAFANA_ADMIN_PASSWORD: ci-test-password
+      # DOMINUS_APP_PASSWORD is required by the prod overlay's postgres service
+      # (DOMINUS_APP_PASSWORD:? guard). Provide a placeholder so topology
+      # validation can interpolate the merged config.
+      DOMINUS_APP_PASSWORD: ci-test-password
       # DOMINUS_IMAGE_TAG is required (ADR-0046): a stable release tag is
       # enough for topology validation; the pinned-digest existence check
       # below validates the immutable refs against the registry.
