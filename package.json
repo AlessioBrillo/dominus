@@ -55,7 +55,7 @@
     "release:dry": "standard-version --dry-run",
     "prepush": "npm run gate",
     "prepush:local": "npm run gate",
-    "gate": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test -- --coverage && npm run build && cd .. && npm run test:e2e:smoke",
+    "gate": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm run check:legal-placeholders && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test -- --coverage && npm run build && cd .. && npm run test:e2e:smoke",
     "gate:docker": "node scripts/docker-smoke.mjs",
     "ci:backend": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm test -- --coverage",
     "ci:frontend": "cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
@@ -74,6 +74,7 @@
     "migration:manifest": "node dist/db/migration-manifest-cli.js --list",
     "check:pack": "node scripts/check-pack.mjs",
     "check:doc-drift": "node scripts/check-doc-drift.mjs",
+    "check:legal-placeholders": "node scripts/check-legal-placeholders.mjs",
     "prepare": "husky"
   },
   "lint-staged": {

@@ -46,29 +46,44 @@ trusted-publishing release and a `--provenance` attestation. See
 > in place; the remaining step is the npm-side one-time setup described in
 > [npm-publishing.md](npm-publishing.md).
 
-### 2. Legal documentation — MISSING, and it gates revenue
+### 2. Legal documentation — SURFACE BUILT, IDENTITY MISSING
 
-None of these exist anywhere in the repository:
+**Status (2026-10-19, ADR-0090):** the three documents exist and are served
+to the public. They were written for the wrong jurisdiction, so they were
+rewritten: the operator is an Italian economic operator, so the applicable
+rule is art. 7 of D.Lgs. 70/2003, not the German Impressum.
 
-| Document | Why it is required |
+| Document | State |
 |---|---|
-| Terms of Service | no contractual basis for the service |
-| Privacy Policy / Datenschutzerklärung | GDPR art. 13–14 |
-| Impressum | mandatory in DE/AT; the deployment is Hetzner, the audience is the EU |
-| DPA / AVV (GDPR art. 28) | the app processes personal data (team invitation emails) |
-| Cookie/consent notice | ePrivacy; tokens are held client-side |
-| Right of withdrawal (14 days) | EU consumers, digital services |
+| Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; **the operator identity is still a placeholder** |
+| Terms of Service | published at `/terms`; withdrawal (art. 52/59 Consumer Code) and reverse charge included |
+| Privacy Notice | published at `/privacy`; sub-processors, transfers and retention included |
+| DPA / AVV (GDPR art. 28) | **MISSING** — still to be drafted with the accountant |
+| Cookie/consent notice | folded into the privacy notice: no third-party analytics, no tracking cookies, so no consent is required |
 
-`src/services/billing-service.ts` has **no tax handling at all**: no
-`automatic_tax`, no `tax_id` collection, no `invoice_settings.tax_ids`.
-Selling EU digital subscriptions without VAT at the customer's rate, or a
-correct B2B reverse charge, means the VAT collected is owed back plus
-penalties. The decision on record is **Stripe Tax (`automatic_tax`)**, which
-computes and collects and is the lower-risk choice absent a dedicated
-accountant.
+The documents are server-owned structured data (`src/services/legal-content.ts`),
+served unauthenticated at `GET /public/legal`, rendered by the SPA and linked
+from the footer of every server-rendered public page. `npm run
+check:legal-placeholders` fails the gate when a placeholder reaches the
+published text, when a required clause disappears, or when the public pages
+stop carrying the footer.
 
-There is also no `docs/README.md`-visible privacy contact for the SPA — the
-frontend has no `/terms`, `/privacy` or `/imprint` routes at all.
+**What is still missing:** the operator identity (`LEGAL_ENTITY_NAME`,
+`LEGAL_REGISTERED_ADDRESS`, `LEGAL_VAT_ID`, `LEGAL_CONTACT_EMAIL`,
+`LEGAL_PRIVACY_EMAIL`, and for a company `LEGAL_REA_NUMBER` and `LEGAL_PEC`).
+Until those are set, the notice publishes a placeholder — which is why
+`npm run launch:check` refuses to declare a deployment launchable while they
+are missing.
+
+The documents were drafted **without a formal legal review**, and that is a
+recorded decision (ADR-0090), not an omission. A review remains open work.
+
+`src/services/billing-service.ts` enables Stripe Tax (`automatic_tax`) but
+does not collect a tax ID, does not require a billing address and does not
+update an existing customer: without those, an EU business customer cannot
+apply the reverse charge and the tax calculation on a returning customer is
+not reliable. The decision on record is **Stripe Tax**, which computes and
+collects and is the lower-risk choice absent a dedicated accountant.
 
 ### 3. Infrastructure has never been provisioned — MISSING
 
