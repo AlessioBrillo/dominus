@@ -137,6 +137,82 @@ describe('BillingService.checkout', () => {
     expect((call.idempotency_key as string).startsWith('checkout:tenant-1:pro:month:')).toBe(true);
   });
 
+  it('collects the tax inputs the EU VAT rules need', async () => {
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.createCheckoutSession(
+      'tenant-1',
+      'pro',
+      'month',
+      'https://dominus.app/billing?ok=1',
+      'https://dominus.app/billing?cancel=1',
+      'user@example.com',
+    );
+
+    const call = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
+    // Stripe Tax computes the rate...
+    expect(call.automatic_tax).toEqual({ enabled: true });
+    // ...from an address it must ask for...
+    expect(call.billing_address_collection).toBe('required');
+    // ...and an EU business must be able to enter the VAT ID that triggers
+    // the reverse charge mechanism.
+    expect(call.tax_id_collection).toEqual({ enabled: true });
+  });
+
+  it('collects the express consent that the withdrawal waiver depends on', async () => {
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.createCheckoutSession(
+      'tenant-1',
+      'pro',
+      'month',
+      'https://dominus.app/billing?ok=1',
+      'https://dominus.app/billing?cancel=1',
+      'user@example.com',
+    );
+
+    const call = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(call.consent_collection).toEqual({ terms_of_service: 'required' });
+    const customText = call.custom_text as { terms_of_service_acceptance?: { message: string } };
+    expect(customText.terms_of_service_acceptance?.message).toContain('art. 59(1)(o)');
+    expect(customText.terms_of_service_acceptance?.message).toContain(
+      'immediate performance of the service',
+    );
+  });
+
+  it('does not send customer_update without a customer, and does once there is one', async () => {
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.createCheckoutSession(
+      'tenant-1',
+      'pro',
+      'month',
+      'https://dominus.app/billing?ok=1',
+      'https://dominus.app/billing?cancel=1',
+      'user@example.com',
+    );
+    const firstCall = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(firstCall.customer_update).toBeUndefined();
+
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'active',
+      stripeCustomerId: 'cus_1',
+    });
+
+    await service.createCheckoutSession(
+      'tenant-1',
+      'team',
+      'year',
+      'https://dominus.app/billing?ok=1',
+      'https://dominus.app/billing?cancel=1',
+    );
+    const secondCall = mockStripeApi.createSession.mock.calls[1]?.[0] as Record<string, unknown>;
+    expect(secondCall.customer).toBe('cus_1');
+    expect(secondCall.customer_update).toEqual({ address: 'auto', name: 'auto' });
+  });
+
   it('returns null when no price is configured for the plan', async () => {
     const cfg = {
       ...baseConfig,
