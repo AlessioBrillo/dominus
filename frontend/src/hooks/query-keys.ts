@@ -75,6 +75,9 @@ export const queryKeys = {
   sustainability: {
     all: ['sustainability'] as const,
   },
+  tenantCredentials: {
+    all: ['tenant-credentials'] as const,
+  },
   admin: {
     all: ['admin'] as const,
     overview: () => [...queryKeys.admin.all, 'overview'] as const,

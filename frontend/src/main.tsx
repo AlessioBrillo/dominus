@@ -18,6 +18,15 @@ import '@/styles/globals.css';
 // is fetched on navigation. A page that fails to load (a stale deployment
 // mid-roll, a dropped connection on a slow link) surfaces through the
 // ErrorBoundary instead of a blank screen.
+const SustainabilityPage = lazy(() =>
+  import('@/pages/SustainabilityPage').then((m) => ({ default: m.SustainabilityPage })),
+);
+const TenantCredentialsPage = lazy(() =>
+  import('@/pages/TenantCredentialsPage').then((m) => ({ default: m.TenantCredentialsPage })),
+);
+const RegistrarCatalogPage = lazy(() =>
+  import('@/pages/RegistrarCatalogPage').then((m) => ({ default: m.RegistrarCatalogPage })),
+);
 const OnboardingPage = lazy(() =>
   import('@/pages/OnboardingPage').then((m) => ({ default: m.OnboardingPage })),
 );
@@ -69,6 +78,15 @@ const SettingsPage = lazy(() =>
 );
 const SignupPage = lazy(() =>
   import('@/pages/SignupPage').then((m) => ({ default: m.SignupPage })),
+);
+const TermsOfServicePage = lazy(() =>
+  import('@/pages/TermsOfServicePage').then((m) => ({ default: m.TermsOfServicePage })),
+);
+const PrivacyPolicyPage = lazy(() =>
+  import('@/pages/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage })),
+);
+const ImpressumPage = lazy(() =>
+  import('@/pages/ImpressumPage').then((m) => ({ default: m.ImpressumPage })),
 );
 const NotFoundPage = lazy(() =>
   import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
@@ -130,6 +148,9 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="backtest" element={<BacktestPage />} />
                       <Route path="scheduler" element={<SchedulerPage />} />
                       <Route path="automation" element={<AutomationPage />} />
+                      <Route path="sustainability" element={<SustainabilityPage />} />
+                      <Route path="credentials" element={<TenantCredentialsPage />} />
+                      <Route path="registrar" element={<RegistrarCatalogPage />} />
                       <Route path="providers" element={<ProvidersPage />} />
                       <Route path="billing" element={<BillingPage />} />
                       <Route path="team" element={<TeamPage />} />
@@ -140,6 +161,9 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>
                     <Route path="signup" element={<SignupPage />} />
+                    <Route path="terms" element={<TermsOfServicePage />} />
+                    <Route path="privacy" element={<PrivacyPolicyPage />} />
+                    <Route path="impressum" element={<ImpressumPage />} />
                   </Routes>
                 </Suspense>
               </ErrorBoundary>
