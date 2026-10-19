@@ -75,6 +75,7 @@
     "check:pack": "node scripts/check-pack.mjs",
     "check:doc-drift": "node scripts/check-doc-drift.mjs",
     "check:legal-placeholders": "node scripts/check-legal-placeholders.mjs",
+    "launch:check": "node scripts/launch-check.mjs",
     "prepare": "husky"
   },
   "lint-staged": {

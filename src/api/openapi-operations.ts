@@ -32,6 +32,27 @@ const ROWS: readonly Row[] = [
   // Identity
   ['get', '/me', { tag: 'Identity', summary: 'Effective identity of the caller (role, tenant)' }],
 
+  // Data-subject rights (GDPR art. 15 and 17)
+  [
+    'get',
+    '/tenant/export',
+    {
+      tag: 'Data rights',
+      summary: 'Export everything the service holds about the caller tenant (GDPR art. 15)',
+      role: 'admin',
+    },
+  ],
+  [
+    'delete',
+    '/tenant',
+    {
+      tag: 'Data rights',
+      summary: 'Erase everything the service holds about the caller tenant (GDPR art. 17)',
+      body: true,
+      role: 'admin',
+    },
+  ],
+
   // Team
   ['get', '/team', { tag: 'Team', summary: 'Seat usage, members and pending invitations' }],
   [

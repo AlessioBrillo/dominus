@@ -1,4 +1,4 @@
-ï»¿# SaaS Architecture â€” DOMINUS Cloud
+# SaaS Architecture — DOMINUS Cloud
 
 ```mermaid
 flowchart TB
@@ -14,7 +14,7 @@ flowchart TB
 
         subgraph App[Application Layer]
             AUTH[Auth Middleware<br/>JWT validation, tenant resolution]
-            API[REST API<br/>Express 5, 33 route modules]
+            API[REST API<br/>Express 5, 34 route modules]
             WORKER[Job Worker<br/>Async pipeline execution]
             SCHED[Scheduler<br/>Cron jobs, maintenance]
         end
@@ -108,7 +108,7 @@ flowchart LR
 | Decision | Rationale |
 |----------|-----------|
 | **Shared tables + RLS** | Simpler than schema-per-tenant; RLS provides defence-in-depth isolation |
-| **Auth0/Clerk for identity** | Managed password hashing, OAuth, email verification, brute-force protection â€” reduces security surface for a solo maintainer |
+| **Auth0/Clerk for identity** | Managed password hashing, OAuth, email verification, brute-force protection — reduces security surface for a solo maintainer |
 | **Stripe for billing** | Gold standard for SaaS billing; Customer Portal enables self-serve plan changes |
 | **SQLite for community** | Zero infrastructure cost, single-file portability, backward compatible with v0.3.x |
 | **Same codebase** | No feature branching, no enterprise fork, no dual-track maintenance |
