@@ -34,6 +34,7 @@ export { createOnboardingRouter } from './routes/onboarding.js';
 export { createDocsRouter } from './routes/docs.js';
 export { createWorkerRouter } from './routes/worker.js';
 export { createTenantCredentialsRouter } from './routes/tenant-credentials.js';
+export { createTenantDataRouter } from './routes/tenant-data.js';
 export {
   createPublicRouter,
   createRobotsTxtHandler,

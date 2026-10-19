@@ -16,6 +16,7 @@ import { sessionRoleFor } from './services/identity-tenant-resolver.js';
 import { isStripeSignatureError } from './services/billing-service.js';
 import { buildLegalContent } from './services/legal-content.js';
 import { identityFromConfig, missingIdentityFields } from './services/legal-identity.js';
+import { TenantDataService } from './services/tenant-data-service.js';
 import { setLegalFooterContext } from './api/views/legal-footer.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
@@ -59,6 +60,7 @@ import {
   createDocsRouter,
   createWorkerRouter,
   createTenantCredentialsRouter,
+  createTenantDataRouter,
   createPublicRouter,
   createRobotsTxtHandler,
   createIndexNowKeyHandler,
@@ -436,6 +438,9 @@ async function main(): Promise<void> {
     '/backtest',
     createBacktestRouter(deps.provider, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
   );
+  // Data-subject rights: export (art. 15) and erasure (art. 17) of the
+  // caller's tenant.
+  protectedRouter.use('/tenant', createTenantDataRouter(new TenantDataService(deps.provider)));
   protectedRouter.use('/providers', createProvidersRouter(deps.config));
   protectedRouter.use(
     '/outcomes',

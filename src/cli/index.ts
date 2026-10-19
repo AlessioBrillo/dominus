@@ -33,6 +33,7 @@ import type { ListingManager } from '../listing/listing-manager.js';
 import type { PostAcquisitionService } from '../services/post-acquisition-service.js';
 import type { KeyManager } from '../providers/auth/auth-provider.js';
 import type { ApiKeyRepository } from '../db/repositories/api-key-repository.js';
+import type { DatabaseProvider } from '../db/provider/interface.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -66,6 +67,7 @@ import { registerRegistrarsCommand } from './commands/registrars-command.js';
 import { registerReportCommand } from './commands/report-command.js';
 import { registerAnalyticsCommand } from './commands/analytics-command.js';
 import { registerKeysCommand } from './commands/keys-command.js';
+import { registerTenantCommand } from './commands/tenant-command.js';
 
 export interface CreateCliOptions {
   db: Database.Database | null;
@@ -95,6 +97,7 @@ export interface CreateCliOptions {
   postAcquisitionService?: PostAcquisitionService;
   keyManager?: KeyManager | undefined;
   apiKeyRepo?: ApiKeyRepository | undefined;
+  provider?: DatabaseProvider | undefined;
 }
 
 export function createCli(options: CreateCliOptions): Command {
@@ -200,6 +203,10 @@ export function createCli(options: CreateCliOptions): Command {
     keyManager: options.keyManager,
     apiKeyRepo: options.apiKeyRepo,
   });
+
+  if (options.provider) {
+    registerTenantCommand(program, { provider: options.provider });
+  }
 
   return program;
 }

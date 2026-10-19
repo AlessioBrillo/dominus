@@ -64,6 +64,8 @@ Task-oriented, each one start to finish:
   what the deployment publishes, and which fields the operator must set
 - [Data processing agreement (GDPR art. 28)](legal/data-processing-agreement.md)
   — the processor agreement template for DOMINUS Cloud
+- [Data-subject rights](legal/data-rights.md) — export (art. 15) and erasure
+  (art. 17) from the API and the CLI, and what the erasure does not reach
 - [Billing tax verification](releases/billing-tax-verification.md) — the Stripe
   Tax runbook: what the code sets, what only the operator can configure, and
   the three scenarios to verify
