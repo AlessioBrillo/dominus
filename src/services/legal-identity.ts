@@ -87,20 +87,31 @@ export function missingIdentityFields(identity: LegalIdentity): string[] {
   return missing;
 }
 
+/**
+ * Reserved example domains (RFC 2606) and the reserved `.example` TLD.
+ *
+ * Matched with a regular expression over the whole value rather than with
+ * `includes('example.com')`: a substring check on a hostname is an
+ * incomplete sanitisation (the host can appear anywhere in the string), and
+ * CodeQL treats it as a security finding for good reason.
+ */
+const RESERVED_DOMAIN = /@[^@\s]*(\.example\b|example\.(com|org|net)\b)/i;
+
+/** Words that mean "nobody filled this in yet". */
+const PLACEHOLDER_WORDS = [
+  'changeme',
+  'change_me',
+  'change-me',
+  'tbd',
+  'todo',
+  'placeholder',
+  'xxx',
+];
+
 /** True when a value is one of the placeholders that must never be published. */
 export function isPlaceholderValue(value: string): boolean {
   const normalized = value.trim().toLowerCase();
   if (normalized === '') return true;
-  return (
-    normalized.includes('.example') ||
-    normalized.includes('example.com') ||
-    normalized.includes('example.org') ||
-    normalized.includes('changeme') ||
-    normalized.includes('change_me') ||
-    normalized.includes('change-me') ||
-    normalized.includes('tbd') ||
-    normalized.includes('todo') ||
-    normalized.includes('placeholder') ||
-    normalized.includes('xxx')
-  );
+  if (RESERVED_DOMAIN.test(normalized)) return true;
+  return PLACEHOLDER_WORDS.some((word) => normalized.includes(word));
 }
