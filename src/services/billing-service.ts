@@ -27,6 +27,21 @@ const EVENT_ID_CACHE_MAX = 10_000;
 /** How long a Stripe idempotency key stays valid on the API side (24h). */
 const STRIPE_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The text Stripe shows next to the terms-of-service checkbox.
+ *
+ * Art. 59(1)(o) of the Italian Consumer Code: the 14-day right of withdrawal
+ * is lost for a digital service supplied immediately when the consumer gives
+ * prior express consent to the performance and acknowledges the loss of the
+ * right. The checkbox is the consent and this text is the acknowledgement,
+ * so the two must travel together: removing the text without removing the
+ * consent (or the other way round) leaves the operator without the waiver.
+ */
+export const CHECKOUT_TERMS_CONSENT_MESSAGE =
+  'By checking this box you accept the Terms of Service and consent to the immediate ' +
+  'performance of the service. You acknowledge that, once performance has begun, you lose ' +
+  'the right of withdrawal provided for in art. 59(1)(o) of the Italian Consumer Code.';
+
 type StripeSdk = {
   Stripe: new (
     secretKey: string,
@@ -54,6 +69,12 @@ type StripeSdk = {
           metadata?: Record<string, string>;
           subscription_data?: { trial_period_days?: number };
           idempotency_key?: string;
+          automatic_tax?: { enabled: boolean };
+          billing_address_collection?: 'auto' | 'required';
+          tax_id_collection?: { enabled: boolean };
+          customer_update?: { address?: 'auto'; name?: 'auto' };
+          consent_collection?: { terms_of_service: 'required' };
+          custom_text?: { terms_of_service_acceptance?: { message: string } };
         }) => Promise<{ id: string; url: string | null }>;
       };
     };
@@ -273,7 +294,34 @@ export class BillingService {
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: { tenantId, plan },
+      // EU tax compliance (ADR-0090):
+      //
+      // - automatic_tax asks Stripe Tax to determine the rate from the
+      //   customer's location;
+      // - billing_address_collection is what makes that determination
+      //   possible, and it is required for the tax calculation to be
+      //   reliable;
+      // - tax_id_collection lets an EU business enter its VAT ID, which
+      //   Stripe validates against VIES: with a valid ID the invoice is
+      //   issued under the reverse charge mechanism, without Italian VAT;
+      // - customer_update lets Checkout write the address it collected back
+      //   to an existing customer, which Stripe requires when automatic tax
+      //   is used with a customer that already has one.
       automatic_tax: { enabled: true },
+      billing_address_collection: 'required',
+      tax_id_collection: { enabled: true },
+      ...(sub?.stripeCustomerId
+        ? { customer_update: { address: 'auto' as const, name: 'auto' as const } }
+        : {}),
+      // The consent is what makes the withdrawal waiver valid: art. 59(1)(o)
+      // of the Italian Consumer Code loses the 14-day right of withdrawal for
+      // a digital service supplied immediately only when the consumer gives
+      // prior express consent and acknowledges the loss. The checkbox is the
+      // consent; the custom text is the acknowledgement. The link in the
+      // checkbox points at the terms of service configured on the Stripe
+      // account, which must be the /terms page of this deployment.
+      consent_collection: { terms_of_service: 'required' },
+      custom_text: { terms_of_service_acceptance: { message: CHECKOUT_TERMS_CONSENT_MESSAGE } },
       ...(firstCheckout ? { subscription_data: { trial_period_days: 14 } } : {}),
       idempotency_key: idempotencyKey,
     });

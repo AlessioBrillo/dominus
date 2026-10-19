@@ -58,6 +58,16 @@ Task-oriented, each one start to finish:
 - [Backup and operations](adr/0022-backup-and-operations.md) — automatic
   daily backup, manual commands, pruning
 
+## Legal
+
+- [Legal notice, terms of service and privacy notice](legal/legal-surface.md) —
+  what the deployment publishes, and which fields the operator must set
+- [Data processing agreement (GDPR art. 28)](legal/data-processing-agreement.md)
+  — the processor agreement template for DOMINUS Cloud
+- [Billing tax verification](releases/billing-tax-verification.md) — the Stripe
+  Tax runbook: what the code sets, what only the operator can configure, and
+  the three scenarios to verify
+
 ## Security
 
 - [Reporting a vulnerability](../SECURITY.md) — GitHub private vulnerability
