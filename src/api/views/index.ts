@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export { escapeHtml } from './escape.js';
+export { setLegalFooterContext, getLegalFooterContext, legalFooterHtml } from './legal-footer.js';
+export type { LegalFooterContext } from './legal-footer.js';
 export { renderScorePage } from './score-page.js';
 export { renderDomainPage } from './domain-page.js';
 export { renderForSalePage } from './for-sale-page.js';

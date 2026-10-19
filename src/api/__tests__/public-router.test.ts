@@ -6,6 +6,8 @@ import { createPublicRouter, createIndexNowKeyHandler } from '../public-router.j
 import { errorHandler } from '../middleware/error-handler.js';
 import { renderScorePage, renderDomainPage, renderComparePage } from '../views/index.js';
 import { generateOgPng } from '../open-graph.js';
+import { buildLegalContent } from '../../services/legal-content.js';
+import { identityFromConfig } from '../../services/legal-identity.js';
 import type { AnonScoringService } from '../../services/anon-scoring-service.js';
 import type { ScoreResult } from '../../types/score.js';
 
@@ -1084,6 +1086,48 @@ describe('Public Router — /public', () => {
       const res = await request(express().get('/:key.txt', handler)).get('/abc123def456.txt');
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('GET /public/legal', () => {
+    const legalContent = buildLegalContent({
+      identity: identityFromConfig({
+        LEGAL_ENTITY_NAME: 'Example Operator SRL',
+        LEGAL_ENTITY_KIND: 'company',
+        LEGAL_REGISTERED_ADDRESS: 'Via Roma 1, 00100 Roma (RM), Italy',
+        LEGAL_VAT_ID: 'IT12345678901',
+        LEGAL_CONTACT_EMAIL: 'hello@example.it',
+        LEGAL_PRIVACY_EMAIL: 'privacy@example.it',
+      }),
+      cloudMode: true,
+    });
+
+    it('serves the three documents without authentication', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring, undefined, { legalContent }));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/legal');
+
+      expect(res.status).toBe(200);
+      expect(res.body.mode).toBe('cloud');
+      expect(res.body.documents.map((d: { slug: string }) => d.slug)).toEqual([
+        'legal-notice',
+        'terms',
+        'privacy',
+      ]);
+      expect(JSON.stringify(res.body)).toContain('IT12345678901');
+    });
+
+    it('returns 404 when no legal content is configured', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/legal');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
     });
   });
 });

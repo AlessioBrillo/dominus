@@ -29,6 +29,7 @@ import {
 } from './views/index.js';
 import type { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import type { ListingManager } from '../listing/listing-manager.js';
+import type { LegalContent } from '../services/legal-content.js';
 
 const logger = getLogger();
 
@@ -98,6 +99,13 @@ export interface PublicRouterOptions {
    * at the site root (`/<key>.txt`) so search engines can verify ownership.
    */
   indexNowKey?: string | undefined;
+  /**
+   * The legal surface (legal notice, terms of service, privacy notice).
+   * Served unauthenticated at `/public/legal` because the documents must be
+   * reachable by anyone, including the crawlers that index the public
+   * namespace.
+   */
+  legalContent?: LegalContent | undefined;
 }
 
 /** Extract the public-facing origin so per-origin caches key correctly. */
@@ -253,6 +261,20 @@ export function createPublicRouter(
   router.use((_req, _res, next) => runWithTenant('public', () => next()));
 
   router.get('/robots.txt', createRobotsTxtHandler(options));
+
+  // The legal surface. Public and cacheable: the legal notice, the terms of
+  // service and the privacy notice must be readable without an account, by
+  // anyone, including the crawlers that index the public namespace.
+  router.get('/legal', (_req: Request, res: Response) => {
+    if (!options.legalContent) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Legal documents are not available' },
+      });
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json(options.legalContent);
+  });
 
   router.post(
     '/scores',

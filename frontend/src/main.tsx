@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { StrictMode, lazy, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -79,14 +79,8 @@ const SettingsPage = lazy(() =>
 const SignupPage = lazy(() =>
   import('@/pages/SignupPage').then((m) => ({ default: m.SignupPage })),
 );
-const TermsOfServicePage = lazy(() =>
-  import('@/pages/TermsOfServicePage').then((m) => ({ default: m.TermsOfServicePage })),
-);
-const PrivacyPolicyPage = lazy(() =>
-  import('@/pages/PrivacyPolicyPage').then((m) => ({ default: m.PrivacyPolicyPage })),
-);
-const ImpressumPage = lazy(() =>
-  import('@/pages/ImpressumPage').then((m) => ({ default: m.ImpressumPage })),
+const LegalDocumentPage = lazy(() =>
+  import('@/pages/LegalDocumentPage').then((m) => ({ default: m.LegalDocumentPage })),
 );
 const NotFoundPage = lazy(() =>
   import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
@@ -161,9 +155,18 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>
                     <Route path="signup" element={<SignupPage />} />
-                    <Route path="terms" element={<TermsOfServicePage />} />
-                    <Route path="privacy" element={<PrivacyPolicyPage />} />
-                    <Route path="impressum" element={<ImpressumPage />} />
+                    {/* Legal documents: served from the backend, outside the
+                        authenticated shell so anyone can read them. */}
+                    <Route path="terms" element={<LegalDocumentPage slug="terms" />} />
+                    <Route path="privacy" element={<LegalDocumentPage slug="privacy" />} />
+                    <Route
+                      path="legal-notice"
+                      element={<LegalDocumentPage slug="legal-notice" />}
+                    />
+                    {/* The German "Impressum" route published in 1.2.0: the
+                        operator is an EU entity, so the notice is the Italian
+                        legal notice. The old URL keeps working. */}
+                    <Route path="impressum" element={<Navigate to="/legal-notice" replace />} />
                   </Routes>
                 </Suspense>
               </ErrorBoundary>

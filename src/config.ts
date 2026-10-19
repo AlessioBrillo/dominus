@@ -2254,6 +2254,42 @@ const configSchema = z
 
     PUBLIC_SCORES_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
     EVENTS_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(180),
+
+    /**
+     * Legal identity of the service operator.
+     *
+     * These are the fields art. 7 of Italian Legislative Decree 70/2003
+     * requires a provider of an electronic service to publish, and the fields
+     * a GDPR notice needs to name the controller. They are operator data, not
+     * source code: the values are injected into the legal notice, the terms
+     * of service and the privacy notice (src/services/legal-content.ts) and
+     * into the footer of every server-rendered public page.
+     *
+     * They are optional because the community edition is operated by whoever
+     * deploys it — that operator is the controller, not the DOMINUS authors.
+     * In cloud mode they must be set: `npm run launch:check` refuses to
+     * declare a deployment launchable while they are missing or still
+     * hold a placeholder.
+     */
+    LEGAL_ENTITY_NAME: z.string().optional(),
+    /** 'individual' for a sole trader, 'company' for a registered company. */
+    LEGAL_ENTITY_KIND: z.enum(['individual', 'company']).default('individual'),
+    /** Registered address, as it must appear on the legal notice. */
+    LEGAL_REGISTERED_ADDRESS: z.string().optional(),
+    /** VAT identification number (Partita IVA). */
+    LEGAL_VAT_ID: z.string().optional(),
+    /** Business register number (REA) — companies only. */
+    LEGAL_REA_NUMBER: z.string().optional(),
+    /** Certified electronic address (PEC) — companies only. */
+    LEGAL_PEC: z.string().optional(),
+    /** General contact address shown on the legal notice. */
+    LEGAL_CONTACT_EMAIL: z.string().optional(),
+    /** Address for data-subject requests shown in the privacy notice. */
+    LEGAL_PRIVACY_EMAIL: z.string().optional(),
+    /** Supervisory authority named in the privacy notice. */
+    LEGAL_SUPERVISORY_AUTHORITY: z
+      .string()
+      .default('Garante per la protezione dei dati personali (Italy)'),
   })
   .refine(
     (data) => {
