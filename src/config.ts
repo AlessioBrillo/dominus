@@ -36,7 +36,9 @@ const configSchema = z
     /**
      * PostgreSQL connection string for the cloud edition.
      * When set, the application uses PostgreSQL instead of SQLite.
-     * Format: postgresql://user:password@host:5432/dbname
+     * Format: postgresql://<user>@<host>:5432/<dbname> — when the database
+     * requires a password, it follows the user, separated by a colon
+     * (standard libpq URI syntax).
      * The community edition leaves this unset and uses DATABASE_PATH (SQLite).
      */
     DATABASE_URL: z.string().optional(),

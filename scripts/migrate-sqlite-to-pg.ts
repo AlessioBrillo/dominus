@@ -9,15 +9,15 @@
 //
 //   # Phase 2 — import into PostgreSQL (target schema must be migrated:
 //   # start the Cloud stack once, or run `dominus maintenance migrate`)
-//   DATABASE_URL=postgres://user:pass@host:5432/dominus \
+//   DATABASE_URL=postgres://<user>@<host>:5432/dominus \
 //     npx tsx scripts/migrate-sqlite-to-pg.ts import ./data/dominus-export.jsonl
 //
 //   # Phase 3 — verify row counts match the export
-//   DATABASE_URL=postgres://user:pass@host:5432/dominus \
+//   DATABASE_URL=postgres://<user>@<host>:5432/dominus \
 //     npx tsx scripts/migrate-sqlite-to-pg.ts verify ./data/dominus-export.jsonl
 //
 //   # Phase 4 — verify roundtrip (SQLite -> PG -> SQLite)
-//   DATABASE_URL=postgres://user:pass@host:5432/dominus \
+//   DATABASE_URL=postgres://<user>@<host>:5432/dominus \
 //     npx tsx scripts/migrate-sqlite-to-pg.ts verify-roundtrip ./data/dominus.db
 //
 // The import runs in a single transaction and must run as the table

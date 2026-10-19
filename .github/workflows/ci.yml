@@ -81,12 +81,15 @@ jobs:
       - name: Migration roundtrip verification (SQLite -> PG -> SQLite)
         if: matrix.os == 'ubuntu-latest' && matrix.node == '22'
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dominus
+          # No password in the URI: the throwaway container authenticates with
+          # trust (POSTGRES_HOST_AUTH_METHOD below), so nothing in this file
+          # looks like a credential to the secret scanner.
+          DATABASE_URL: postgresql://postgres@localhost:5432/dominus
         run: |
           set -euo pipefail
           # Start PostgreSQL for roundtrip test
           docker run -d --name dominus-pg-roundtrip \
-            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
             -e POSTGRES_DB=dominus \
             -p 5432:5432 postgres:16-alpine
           # Wait for PG to be ready
@@ -103,7 +106,7 @@ jobs:
           # migration 0030 reads it with current_setting(..., true)
           # (missing_ok). Nothing to pre-configure for the roundtrip.
           # Run migrations on PG
-          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
+          DATABASE_URL=postgresql://postgres@localhost:5432/dominus npx tsx dist/db/migrate-cli.js
           # Create a test SQLite DB with some data.
           # NOTE: env -u DATABASE_URL is load-bearing — this job exports
           # DATABASE_URL at job level and createDatabaseProvider prefers it
@@ -113,7 +116,7 @@ jobs:
           sqlite_db="$(mktemp -d)/roundtrip.db"
           env -u DATABASE_URL DATABASE_PATH="$sqlite_db" npx tsx dist/db/migrate-cli.js
           # Run roundtrip verification
-          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/dominus \
+          DATABASE_URL=postgresql://postgres@localhost:5432/dominus \
             npx tsx scripts/migrate-sqlite-to-pg.ts verify-roundtrip "$sqlite_db"
           # Cleanup
           docker rm -f dominus-pg-roundtrip >/dev/null
@@ -137,7 +140,9 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_PASSWORD: postgres
+          # Trust authentication on an ephemeral CI-only service: no password
+          # literal is committed, and the service never leaves the runner.
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: dominus
         ports:
           - 5432:5432
@@ -147,7 +152,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dominus
+      DATABASE_URL: postgresql://postgres@localhost:5432/dominus
     steps:
       - uses: actions/checkout@v7
 

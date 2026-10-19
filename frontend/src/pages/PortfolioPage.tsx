@@ -337,7 +337,7 @@ export function PortfolioPage() {
       ) : (
         <>
           <div className="rounded-xl border border-border overflow-hidden">
-            <table className="w-full">
+            <table className="w-full" data-testid="portfolio-table">
               <thead>
                 {table.getHeaderGroups().map((hg) => (
                   <tr key={hg.id} className="bg-bg-muted">

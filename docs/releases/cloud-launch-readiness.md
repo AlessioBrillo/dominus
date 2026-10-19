@@ -38,6 +38,14 @@ project. The CLI now ships as `dominus-oss@latest` with an OIDC
 trusted-publishing release and a `--provenance` attestation. See
 [npm-publishing.md](npm-publishing.md).
 
+> **Correction (2026-10-19):** the publish step of the `v1.2.0` release
+> workflow failed with `npm error 404 Not Found — PUT
+> https://registry.npmjs.org/dominus-oss`. The package is **not** on npm
+> yet: the trusted publisher is not configured on the npm account for this
+> repository. The workflow, the tarball and the provenance attestation are
+> in place; the remaining step is the npm-side one-time setup described in
+> [npm-publishing.md](npm-publishing.md).
+
 ### 2. Legal documentation — MISSING, and it gates revenue
 
 None of these exist anywhere in the repository:
