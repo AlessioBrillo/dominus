@@ -350,6 +350,35 @@ if (!existsSync(indexPath)) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Check 7 — every `npm run <script>` a document mentions must exist
+ * ------------------------------------------------------------------ */
+/**
+ * A document that tells the reader to run a command that does not exist is
+ * a broken promise: the reader tries it, it fails, and the document loses
+ * the reader. The scripts live in the root and in the frontend workspace,
+ * so both are consulted.
+ */
+const SCRIPT_PACKAGES = ['package.json', join('frontend', 'package.json')];
+const knownScripts = new Set();
+for (const pkgPath of SCRIPT_PACKAGES) {
+  const abs = join(root, pkgPath);
+  if (!existsSync(abs)) continue;
+  const pkg = JSON.parse(readFileSync(abs, 'utf-8'));
+  for (const name of Object.keys(pkg.scripts ?? {})) knownScripts.add(name);
+}
+
+checksRun += 1;
+for (const doc of DOC_FILES) {
+  const text = readDoc(doc);
+  for (const m of text.matchAll(/npm run ([a-zA-Z0-9:_-]+)/g)) {
+    const script = m[1];
+    if (knownScripts.has(script)) continue;
+    const line = text.slice(0, m.index).split('\n').length;
+    fail(`${rel(doc)}:${line} tells the reader to run \`npm run ${script}\`, which does not exist`);
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * Report
  * ------------------------------------------------------------------ */
 if (failures.length > 0) {

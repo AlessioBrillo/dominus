@@ -41,6 +41,8 @@ Task-oriented, each one start to finish:
 - [Cloud launch readiness](releases/cloud-launch-readiness.md) — the verified
   state of DOMINUS Cloud: what is solid, what blocks revenue, and the
   decisions already on record
+- [Launch checklist](releases/launch-checklist.md) — the mechanical launch
+  gate (`npm run launch:check`) and the human steps that remain, in order
 - [Migration policy](releases/migration-policy.md) — how schema changes are
   released, including the operational runbook
 - [Upgrade to 1.1.0](releases/upgrade-1.1.0.md) — what changed and what you
