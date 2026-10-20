@@ -30,6 +30,7 @@ data-rights endpoints.
 | billing configuration | Stripe is configured but a published plan has no price id, or the webhook secret is missing |
 | billing webhooks | `STRIPE_WEBHOOK_SECRET` is missing |
 | security audit | `--paid` and no third-party review is on file |
+| external monitoring | `--paid` and `EXTERNAL_PROBE_URL` is unset (the app node's own monitor cannot report the app node's outage) |
 | legal text | the published documents are more than a year old (warning) |
 | proxy depth | `TRUST_PROXY_DEPTH` is unset behind a proxy (warning) |
 | alerting | the Alertmanager webhook is still the placeholder (warning) |
@@ -83,16 +84,41 @@ This work has never been done. It is the largest technical unknown:
 
 ```bash
 cd deploy/terraform
-terraform init && terraform plan && terraform apply   # needs HCLOUD_TOKEN
+cp terraform.tfvars.example terraform.tfvars
+cp backend.hcl.example backend.hcl   # the remote state: a secret store
+terraform init -backend-config=backend.hcl
+terraform plan && terraform apply       # needs HCLOUD_TOKEN
 ```
 
+- **The state is a secret store.** It holds the three database passwords,
+  the B2 application key and the whole `app_env` map. It must not live on
+  the machine that created it: the backend configuration points it at
+  Backblaze B2 (S3-compatible), and `backend.hcl` is gitignored like
+  `terraform.tfvars`. The rotation runbook is in
+  [operations/secrets.md](../operations/secrets.md).
+- **SSH ingress is closed by default.** `ssh_allowed_cidrs` defaults to
+  empty and the apply is refused until the operator either lists their own
+  CIDRs or sets the explicit `allow_public_ssh = true`. The deploy pipeline
+  reaches the app node from GitHub runners with dynamic egress addresses,
+  so the opt-in is the realistic choice today — the point is that it is
+  written down instead of inherited.
 - point the domain at the load balancer and confirm the TLS certificate;
 - confirm `/api/v1/health` answers from outside;
 - put a real webhook in `deploy/prometheus/alertmanager.yml` (or let the
   Terraform module substitute it) and receive a test alert;
+- **configure the external availability probe**
+  ([operations/external-monitoring.md](../operations/external-monitoring.md)):
+  Prometheus runs on the app node, so it cannot report the app node's own
+  outage. The probe, the dead-man's switch and the `EXTERNAL_PROBE_URL`
+  variable are specified in
+  [`deploy/monitoring/uptime-probe.yml`](../../deploy/monitoring/uptime-probe.yml);
 - run a **restore drill against the real backup target**
   (`scripts/restore-drill.mjs`), not against a local copy: the PITR path
-  has never been executed against a real environment;
+  has never been executed against a real environment. The static
+  `--pg-base` inspection proves the layout of a base backup and nothing
+  else; the rehearsal is `--pg-restore`, which restores, replays the WAL,
+  waits for the recovery to finish and compares row counts
+  ([operations/rto-rpo.md](../operations/rto-rpo.md));
 - roll a release through `deploy.yml` (migrate-before-roll, ADR-0061) and
   rehearse the rollback.
 
@@ -119,12 +145,31 @@ publisher is not configured on the npm account: the one-time setup is in
 Until that is done, `npx dominus-oss` does not exist, and the README must
 not claim otherwise.
 
+The publish is now verified twice (ADR-0091):
+
+- **before the tag**, by `npm run release:verify -- --pack` in the local
+  gate: the tarball is installed in a throwaway directory and run, so an
+  artifact that does not boot never reaches a tag;
+- **after the publish**, by the `verify` job of the release workflow: the
+  published package is installed from the registry, the CLI is run, and
+  the provenance attestation is read. A failure there cannot un-publish the
+  package — the response is `npm deprecate` and a patch release — but it
+  turns a silent distribution failure into a red workflow.
+
+The rehearsal of the publish itself is `gh workflow run release.yml -f
+dry_run=true`, which exercises the OIDC exchange for real without
+publishing.
+
 ### 7. The launch
 
 - the announcement (Product Hunt, Hacker News, the domain investor
   communities) with the launch checklist as the source of truth;
 - a support channel that a human answers (the SLA promises a response time
-  only to Enterprise, by contract);
+  only to Enterprise, by contract). The response times in `SUPPORT.md` are
+  a commitment to a person, not to a queue: before a tier promises four
+  business hours, somebody has to be able to answer within four business
+  hours. GitHub Discussions is enabled for the community edition, and the
+  support address is the operator's published contact address;
 - the status page and the incident runbook
   ([incident-response.md](../operations/incident-response.md));
 - the monitoring: Prometheus, Alertmanager, Grafana, and the restore drill
