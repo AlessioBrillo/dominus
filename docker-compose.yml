@@ -32,7 +32,10 @@ services:
       # when a LAN-exposed deployment is intended.
       - "127.0.0.1:${PORT:-3000}:3000"
     volumes:
-      - ./data:/app/data
+      # DATA_DIR lets the local Docker gate run against a throwaway database
+      # instead of the developer's ./data (a stale schema there makes the
+      # smoke fail for reasons that have nothing to do with the image).
+      - ${DATA_DIR:-./data}:/app/data
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_PATH=/app/data/dominus.db
@@ -94,7 +97,7 @@ services:
       target: worker
     image: dominus-worker:latest
     volumes:
-      - ./data:/app/data
+      - ${DATA_DIR:-./data}:/app/data
       - backups:/backups
     environment:
       - NODE_ENV=${NODE_ENV:-production}
@@ -145,7 +148,7 @@ services:
       target: scheduler
     image: dominus-scheduler:latest
     volumes:
-      - ./data:/app/data
+      - ${DATA_DIR:-./data}:/app/data
       - backups:/backups
     environment:
       - NODE_ENV=${NODE_ENV:-production}
