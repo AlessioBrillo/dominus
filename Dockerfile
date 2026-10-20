@@ -21,7 +21,14 @@ ARG NODE_IMAGE=node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f716
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# .npmrc carries the resolution rules of the repository (legacy-peer-deps,
+# for the peer conflicts between @typescript-eslint/* and TypeScript 6.x).
+# It has to be inside the build context: without it `npm ci` in the image
+# resolves peers strictly while the lockfile was written under the
+# repository rules, and the two disagree. The symptom is an image build
+# that fails with "Invalid: lock file's X does not satisfy X" on a
+# dependency bump that the checkout installs without complaint.
+COPY package.json package-lock.json .npmrc ./
 # --ignore-scripts keeps arbitrary install scripts from running during the
 # build (supply-chain hygiene). better-sqlite3 is the deliberate exception:
 # its native binding is produced by its install script (prebuild-install),
@@ -38,7 +45,7 @@ RUN npm ci --omit=dev --ignore-scripts \
 FROM ${NODE_IMAGE} AS backend-build
 WORKDIR /app
 
-COPY package.json package-lock.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json .npmrc ./
 COPY src/ src/
 # finalize-dist.mjs runs as part of `npm run build` (stages the SPA into
 # dist/web and prunes compiled tests), so it must exist in the build stage.

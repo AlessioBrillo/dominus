@@ -19,17 +19,83 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const root = process.cwd();
 let failures = 0;
 
-function sh(cmd, args, { cwd = root } = {}) {
+/**
+ * The environment the compose calls run with.
+ *
+ * The compose files require these variables (the API refuses to boot
+ * without API_KEYS, the prod overlay refuses to render without the database
+ * passwords and the image tag). The gate is local, so ephemeral values are
+ * enough — but the caller's own values win, because a real deployment has
+ * them and the smoke should exercise what the operator actually runs.
+ */
+const SMOKE_ENV = {
+  ...process.env,
+  API_KEYS: process.env.API_KEYS ?? 'admin=smoke-local-only-0000000000000000000000000000',
+  POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD ?? 'smoke-local-password',
+  DOMINUS_APP_PASSWORD: process.env.DOMINUS_APP_PASSWORD ?? 'smoke-local-password',
+  GRAFANA_ADMIN_PASSWORD: process.env.GRAFANA_ADMIN_PASSWORD ?? 'smoke-local-password',
+  DOMINUS_IMAGE_TAG: process.env.DOMINUS_IMAGE_TAG ?? 'v1.2.0',
+};
+
+/**
+ * A throwaway data directory.
+ *
+ * The stacks mount the host's ./data, so without this the smoke would run
+ * against the developer's own database: a schema that is ahead of the image
+ * then fails the migration gate and the smoke reports a broken image for a
+ * reason that has nothing to do with the image.
+ */
+const SMOKE_DATA_DIR = join(tmpdir(), 'dominus-docker-smoke');
+mkdirSync(SMOKE_DATA_DIR, { recursive: true });
+const SMOKE_COMPOSE_ENV = { ...SMOKE_ENV, DATA_DIR: SMOKE_DATA_DIR };
+
+function sh(cmd, args, { cwd = root, env = SMOKE_COMPOSE_ENV } = {}) {
   try {
-    return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execFileSync(cmd, args, { cwd, env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   } catch (err) {
     return { error: err, stdout: err.stdout ? err.stdout.toString() : '', stderr: err.stderr ? err.stderr.toString() : '' };
   }
+}
+
+/**
+ * Wait for the health endpoint, the way CI does.
+ *
+ * A single immediate curl reports "Empty reply from server" while the
+ * container is still starting: the port is bound before the application
+ * listens. A smoke that fails for that reason teaches the reader to ignore
+ * the smoke.
+ */
+/**
+ * The prod overlay declares `env_file: .env`. Compose refuses to render
+ * without it; an empty file is enough, exactly as CI does. The file is only
+ * created when it is missing and only removed when the smoke created it — a
+ * developer's own .env is never touched.
+ */
+const ENV_FILE = join(root, '.env');
+const ENV_FILE_CREATED = !existsSync(ENV_FILE);
+if (ENV_FILE_CREATED) writeFileSync(ENV_FILE, '', 'utf-8');
+
+function removeTempEnvFile() {
+  if (ENV_FILE_CREATED) rmSync(ENV_FILE, { force: true });
+}
+
+function waitForHealth(label, timeoutSeconds) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  let last = '';
+  while (Date.now() < deadline) {
+    const health = sh('curl', ['-fsS', '--max-time', '5', 'http://127.0.0.1:3000/api/v1/health']);
+    if (!health.error) return { ok: true };
+    last = health.stderr || health.error?.message || 'unknown error';
+    execFileSync(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);
+  }
+  return { ok: false, last };
 }
 
 function fail(msg) {
@@ -74,9 +140,9 @@ async function smokeBaseUnbound() {
   // Bring up the stack detached, wait for health, hit /api/v1/health, then down.
   sh('docker', ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.unbound.yml', 'up', '-d']);
   try {
-    const health = sh('curl', ['-fsS', '--max-time', '30', 'http://127.0.0.1:3000/api/v1/health']);
-    if (health.error) {
-      fail(`base+unbound /api/v1/health failed: ${health.stderr || health.error.message}`);
+    const health = waitForHealth('base+unbound', 120);
+    if (!health.ok) {
+      fail(`base+unbound /api/v1/health failed: ${health.last}`);
     } else {
       ok('base+unbound /api/v1/health OK');
     }
@@ -92,16 +158,11 @@ async function smokeProd() {
     return;
   }
   process.stdout.write('\n== Smoke 2: prod overlay (fresh postgres volume) ==\n');
-  // Requires POSTGRES_PASSWORD and DOMINUS_APP_PASSWORD for the init scripts.
-  if (!process.env.POSTGRES_PASSWORD || !process.env.DOMINUS_APP_PASSWORD) {
-    ok('Skipping prod runtime smoke (POSTGRES_PASSWORD / DOMINUS_APP_PASSWORD not set)');
-    return;
-  }
   sh('docker', ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.prod.yml', 'up', '-d']);
   try {
-    const health = sh('curl', ['-fsS', '--max-time', '60', 'http://127.0.0.1:3000/api/v1/health']);
-    if (health.error) {
-      fail(`prod /api/v1/health failed: ${health.stderr || health.error.message}`);
+    const health = waitForHealth('prod', 180);
+    if (!health.ok) {
+      fail(`prod /api/v1/health failed: ${health.last}`);
     } else {
       ok('prod /api/v1/health OK');
     }
@@ -133,6 +194,10 @@ async function main() {
   smokePromtool();
   await smokeBaseUnbound();
   await smokeProd();
+
+  // The throwaway data directory is the smoke's, not the developer's.
+  rmSync(SMOKE_DATA_DIR, { recursive: true, force: true });
+  removeTempEnvFile();
 
   process.stdout.write('\n');
   if (failures > 0) {
