@@ -97,6 +97,10 @@ re-running the original arguments.
 | [0085](0085-tenant-credential-vault.md)                                        | Tenant Credential Vault for Automated Provider Access                                                | 2026-10-16 | Accepted                            |
 | [0089](0089-tenant-offer-channel-exit.md)                                      | Tenant offer channel and exit — sale outcome closes the P&L loop                                     | 2026-10-16 | Accepted                            |
 | [0090](0090-legal-surface-and-launch-gate.md)                                  | The legal surface is server-owned data, and a launch gate guards it                                  | 2026-10-19 | Accepted                            |
+| [0091](0091-verified-published-artifact.md)                                    | The published artifact is verified, not assumed                                                      | 2026-10-20 | Accepted                            |
+| [0092](0092-community-first-run-resolver-latency.md)                           | The community first run does not wait for a resolver that is not there                               | 2026-10-20 | Accepted                            |
+| [0093](0093-subscription-plan-from-price.md)                                   | The granted plan is derived from the price, not from the metadata                                    | 2026-10-20 | Accepted                            |
+| [0094](0094-launch-posture-single-replica-external-probe.md)                   | One replica, one external probe: the launch posture is measured, not promised                        | 2026-10-20 | Accepted                            |
 
 ## Conventions
 

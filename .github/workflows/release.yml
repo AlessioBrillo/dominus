@@ -3,13 +3,14 @@ name: Release
 # Publishes the community-edition artifacts on a version tag:
 #   - GitHub Release with notes extracted from the CHANGELOG section
 #   - npm package `dominus-oss`, built from the same commit
+#   - a verification of the PUBLISHED artifact (install, boot, version)
 #
 # Deliberately separate from deploy.yml: the Cloud rollout (Terraform, SSH,
 # migrate-before-roll) and the public artifact publication have different
 # triggers, different blast radius and different failure modes. Keeping them
 # in one workflow meant the release step silently degraded when the CHANGELOG
-# section was missing — `--generate-notes` produced a release with no notes at
-# all, which is how an empty public release notes page happens.
+# section was missing — `--generate-notes` produced a release with no notes
+# at all, which is how an empty public release notes page happens.
 #
 # npm is published with OIDC trusted publishing: the workflow requests a
 # short-lived token bound to this repository, environment and commit (OIDC
@@ -25,6 +26,11 @@ on:
         description: 'Verify the release but do not publish'
         type: boolean
         default: false
+      version:
+        description:
+          'Version to rehearse (a dry run from a branch). Defaults to the version in package.json.'
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -41,6 +47,11 @@ jobs:
       # publish step fails with a token exchange error that reads like an
       # npm-side problem, which is the wrong place to look.
       id-token: write
+    outputs:
+      # The verified job needs the version it must install: a step output
+      # is not visible across jobs.
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
 
@@ -55,6 +66,56 @@ jobs:
         with:
           node-version: 22
           registry-url: 'https://registry.npmjs.org'
+
+      # ------------------------------------------------------------------
+      # Version resolution
+      # ------------------------------------------------------------------
+      # The version comes from the tag on a tag push, and from the
+      # `version` input (or package.json) on a manual dispatch.
+      #
+      # The previous implementation derived the version from `GITHUB_REF`
+      # with `${GITHUB_REF#refs/tags/}`. On a branch that expansion does
+      # not match, so the version became the literal string
+      # `refs/heads/master` and the CHANGELOG lookup below could never
+      # succeed: the dry run that `docs/releases/npm-publishing.md` tells
+      # the operator to run before the first publish was guaranteed to
+      # fail. The version is now resolved explicitly, and a tag that
+      # disagrees with package.json is refused before anything is built.
+      - name: Resolve the version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "${REF_TYPE}" = "tag" ]; then
+            version="${REF_NAME#v}"
+            tag="${REF_NAME}"
+          else
+            version="${INPUT_VERSION:-${pkg_version}}"
+            version="${version#v}"
+            tag="v${version}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "package_version=${pkg_version}" >> "$GITHUB_OUTPUT"
+          echo "resolved version ${version} (package.json: ${pkg_version}, ref: ${REF_TYPE} ${REF_NAME})"
+
+      - name: Verify the tag matches the package version
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          if [ "${VERSION}" != "${PACKAGE_VERSION}" ]; then
+            echo "::error title=Version mismatch::The tag is v${VERSION} but package.json says ${PACKAGE_VERSION}."
+          echo "The published artifact and the repository would disagree. Bump the version, merge it, and tag the merge commit."
+            exit 1
+          fi
+          echo "tag v${VERSION} matches package.json"
 
       # The SPA has to be built before the backend: `dist/web/` must exist in
       # the tarball or every HTML route in the published package 404s. CI
@@ -72,10 +133,6 @@ jobs:
           # instead of shipping a package whose SPA route is a 404.
           npm run check:pack
 
-      - name: Extract version from tag
-        id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       # ------------------------------------------------------------------
       # GitHub Release
       # ------------------------------------------------------------------
@@ -89,8 +146,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="${{ steps.version.outputs.tag }}"
-          version="${tag#v}"
+          version="${{ steps.version.outputs.version }}"
           if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
             echo "::error title=Missing CHANGELOG section::CHANGELOG.md has no section for ${version}.
           Add '## [${version}]' before tagging. Refusing to publish a release with no notes."
@@ -140,3 +196,48 @@ jobs:
       - name: Publish to npm
         if: env.DRY_RUN != 'true'
         run: npm publish --provenance --access public
+
+  # --------------------------------------------------------------------
+  # The published artifact, verified
+  # --------------------------------------------------------------------
+  # `check-pack` inspects the tarball this workflow built. It cannot see
+  # the artifact a consumer receives: the v1.2.0 release published
+  # nothing (the npm trusted publisher was not configured, so the publish
+  # failed with E404) and the failure was discovered days later, by
+  # reading the documentation. This job installs the published package
+  # and runs it, so a broken artifact is a red workflow instead of a
+  # support ticket.
+  #
+  # A failure here cannot un-publish the package: the response is to fix
+  # the artifact and publish a patch version (`npm deprecate` the broken
+  # one in the meantime).
+  verify:
+    name: Verify the published artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: release
+    # `env` is not available in a job-level `if`; the dispatch input is.
+    if: github.ref_type == 'tag' && inputs.dry_run != true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install and run the published package
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          PACKAGE_NAME: dominus-oss
+        run: |
+          set -euo pipefail
+          # The registry is eventually consistent: a package published a
+          # minute ago may not be visible yet, so the verification retries.
+          node scripts/verify-release.mjs \
+            --package "${PACKAGE_NAME}@${VERSION}" \
+            --expect-version "${VERSION}" \
+            --retries 12 \
+            --retry-delay 15000
