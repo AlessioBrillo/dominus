@@ -63,8 +63,13 @@ if (readme) {
     );
   }
   // The Project Status paragraph is the first thing a reader sees after the
-  // quickstart: it must name the release the repository is at.
-  if (!new RegExp(`DOMINUS v${version.replace(/\./g, '\\.')}\\b`).test(readme)) {
+  // quickstart: it must name the release the repository is at. The pattern
+  // is a constant one and the version is compared, not interpolated into a
+  // regular expression: a regex built from a value is a sanitization
+  // surface, and a comparison on the captured version is both simpler
+  // and exact.
+  const status = /DOMINUS v(\d+\.\d+\.\d+)/.exec(readme);
+  if (!status || status[1] !== version) {
     findings.push(
       `README.md: the Project Status paragraph does not mention "DOMINUS v${version}"`,
     );

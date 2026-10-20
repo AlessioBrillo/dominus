@@ -623,7 +623,17 @@ async function main() {
   await check('a tenant can export everything the service holds about it', async () => {
     const res = await api(keys[TENANT_C], '/api/v1/tenant/export');
     assert(res.status === 200, `expected 200, got ${res.status}: ${res.text.slice(0, 200)}`);
-    assert(res.text.includes(DOMAIN_C), 'the export does not contain the tenant domain');
+    // The export is asserted on its STRUCTURE, not on a substring of the
+    // body: a row that carries the domain is the evidence, and an exact
+    // comparison is stronger than "the string appears somewhere".
+    const tables = res.json?.tables ?? [];
+    const portfolio = tables.find((t) => t?.table === 'portfolio_entries');
+    assert(portfolio, 'the export does not contain the portfolio_entries table');
+    const domains = (portfolio.rows ?? []).map((row) => row?.domain);
+    assert(
+      domains.some((domain) => domain === DOMAIN_C),
+      'the export does not contain the tenant domain',
+    );
   });
 
   await check('a tenant can erase its own data, and only its own', async () => {
