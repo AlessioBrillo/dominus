@@ -81,6 +81,36 @@ External escalation is only required for SEV-1. For a cross-tenant leak or a
 payment error, GDPR notification obligations start running immediately:
 involve the platform owner at once, not at the end of the incident.
 
+## The status page
+
+The severity ladder promises a visible status for SEV-2 within fifteen
+minutes, and a status nobody can read is not a status. The status page is
+the operator's own hosted page (a hosted provider, not the app node: the
+app node is the thing that breaks) and it is linked from the public site
+and from the incident emails.
+
+What it has to carry, in this order:
+
+| Field | Why it is there |
+|---|---|
+| Current state | `operational`, `degraded`, `partial outage`, `major outage` |
+| What is affected | the API, the pipeline runs, the dashboard, the automation |
+| Start time | the question every customer asks first |
+| The last update | a status that stops being updated is worse than none |
+| The incident reference | the post-mortem link, when it exists |
+
+Two rules that the severity ladder depends on:
+
+- **Update it on a schedule even when nothing changed.** A customer who
+  checks the page every five minutes and sees a timestamp that moved knows
+  somebody is awake.
+- **Do not post a cause before it is known.** "Under investigation" is a
+  status; a guess is not.
+
+The external probe ([external-monitoring.md](external-monitoring.md)) is
+the source for the current state: it measures the same thing the status
+page claims, so the two cannot drift apart silently.
+
 ## After it is over
 
 Within 48 hours, a post-mortem with:

@@ -1,0 +1,83 @@
+# External availability probe — DOMINUS Cloud
+#
+# The Prometheus/Alertmanager/Grafana stack in this repository runs on the
+# app node (deploy/prometheus/, deploy/terraform/modules/app-node/). That is
+# the right place to see what the *application* is doing, and the wrong place
+# to discover that the *machine* is gone: an app-node outage takes the
+# monitor with it, so the outage is exactly the event nothing reports.
+#
+# The SLA (docs/operations/sla.md) measures availability with an external
+# probe. This file is the specification of that probe. It is
+# provider-neutral on purpose: the operator picks one of the free tiers
+# (UptimeRobot, Better Stack, Hetrix Tools, Checkly) and translates it. The
+# contract below is what must not change.
+#
+# What the contract buys:
+#   - an outage is reported by something that does not live on the node that
+#     failed;
+#   - the availability figure in the SLA is measured, not estimated;
+#   - a silent monitor (the probe itself stops reporting) is an alert, not a
+#     blind spot — that is the dead-man's switch below.
+
+probe:
+  name: DOMINUS Cloud — API health
+  # The public health endpoint. Never the API root, never an authenticated
+  # route: the probe must work without credentials.
+  url: ${EXTERNAL_PROBE_URL}
+  method: GET
+  expect_status: 200
+  # The body must contain the service marker, so a proxy that answers 200
+  # with an error page is a failure and not a pass.
+  expect_body_contains: '"status":"ok"'
+  # Short enough that an outage is inside the measurement window of the SLA
+  # (99.5% of a calendar month is ~3.6 hours of downtime) and long enough
+  # that a restarted container is not an incident.
+  interval_seconds: 60
+  timeout_seconds: 20
+  # The probe is regional: one probe per region is enough for the launch
+  # topology, and the number of probes is a cost decision, not a technical
+  # one.
+  regions: [eu-central]
+
+# The dead-man's switch: the opposite condition. A cron on the operator's
+# side (or any always-on host that is NOT the app node) pings a heartbeat
+# URL at a fixed interval; if the ping does not arrive, the monitor alerts.
+# It catches the failure mode a normal probe cannot: the probe service
+# itself, or the network path, is down.
+dead_mans_switch:
+  description: >-
+    A scheduled ping to the monitor's heartbeat URL, from a host that is not
+    the app node. If the ping stops arriving, the monitor alerts.
+  interval_seconds: 300
+  # The URL is the monitor's heartbeat endpoint. It is intentionally NOT
+  # stored here: it is a credential (whoever holds it can silence the
+  # monitor). It lives in the operator's secret store and in
+  # NOTIFIER_WEBHOOK_URL-style configuration, never in the repository.
+  heartbeat_url_env: EXTERNAL_HEARTBEAT_URL
+
+# What the operator gets when the probe fails: the notification channel is
+# the same one the Alertmanager webhook points at, so the two alerting
+# paths converge on one destination instead of two.
+notification:
+  channel: same as the Alertmanager webhook (deploy/prometheus/alertmanager.yml)
+  # The Alertmanager webhook and the external probe must not share a single
+  # failure domain: if both are the same provider and the provider is down,
+  # neither the application nor the probe reports anything.
+  independence: >-
+    The probe provider and the Alertmanager provider must be different
+    vendors. A shared vendor is a shared failure domain.
+
+# The SLA excludes upstream outages (RDAP, WHOIS, USPTO/EUIPO, DNS roots,
+# Stripe). The health endpoint is deliberately free of upstream dependencies:
+# it reports the process and its database, never a provider verdict, so a
+# degraded provider does not read as a downtime. Keep it that way: a probe
+# on a route that calls an upstream service would turn every provider
+# blip into an availability incident.
+health_endpoint_contract:
+  path: /api/health
+  requires_authentication: false
+  must_not_depend_on: [dns, rdap, whois, uspto, euipo, stripe]
+  note: >-
+    /api/health answers 200 with {"status":"ok",...} while the database is
+    reachable. A degraded provider does not change the status: verdicts
+    degrade, correctness does not (ADR-0002, ADR-0039).

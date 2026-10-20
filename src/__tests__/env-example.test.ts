@@ -13,6 +13,9 @@ const root = resolve(import.meta.dirname, '../..');
 // Read outside the zod schema (process.env directly / compose / Terraform).
 // NODE_ENV is read directly by a config refine() that decides whether
 // RATE_LIMIT_MAX=0 is legal, so it is documented without being a schema key.
+// EXTERNAL_PROBE_URL is an operator variable: the launch gate
+// (scripts/launch-check.mjs) reads it, the server never does — the server
+// has no use for the URL of a monitor that watches it.
 const EXTRA_ALLOWED = new Set([
   'DOMINUS_IMAGE_TAG',
   'DOMINUS_APP_PASSWORD',
@@ -23,6 +26,7 @@ const EXTRA_ALLOWED = new Set([
   'REGISTRAR_CLOUDFLARE_API_TOKEN',
   'REGISTRAR_CLOUDFLARE_ACCOUNT_ID',
   'NODE_ENV',
+  'EXTERNAL_PROBE_URL',
 ]);
 
 function schemaKeys(): Set<string> {
