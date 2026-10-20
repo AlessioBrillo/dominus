@@ -9,13 +9,24 @@ domain            = "app.dominus.example"
 # which the migration gate then refuses at boot (schema ahead of image).
 image_tag         = "v1.2.0"   # must name a RELEASED tag; bump per deploy
 
-# SSH ingress allowlist (both nodes). The default admits any source (keys
-# only + fail2ban); restrict to the operator's networks for production.
+# SSH ingress allowlist (both nodes). The default is EMPTY and an apply
+# with an empty allowlist is refused by a precondition on both firewalls:
+# an SSH port open to the whole internet is a standing invitation, and a
+# permissive default survives longer than a documented one. Pick one:
+#
+#   A. the operator's own networks (recommended once the deploy runner
+#      has a static egress IP):
+#   ssh_allowed_cidrs = ["203.0.113.10/32"]
+#
+#   B. the explicit opt-in — SSH from any address. The nodes are
+#      key-only (PasswordAuthentication no) and fail2ban throttles the
+#      guessing, but a compromised operator key becomes world-reachable.
+#   allow_public_ssh = true
+#
 # Caveat: the release pipeline (deploy.yml) reaches the app node over SSH
 # from GitHub Actions runners with dynamic egress IPs — a static-egress
-# runner is required before restricting the app node. The db node can be
-# restricted freely.
-# ssh_allowed_cidrs = ["203.0.113.10/32"]
+# runner is required before the app node can be restricted. The db node
+# can be restricted freely.
 
 db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
 # Dedicated password for the backup role (REPLICATION only, used by the

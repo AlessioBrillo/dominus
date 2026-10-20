@@ -315,6 +315,10 @@ jobs:
           db_app_password   = "dummy"
           alertmanager_webhook_url = ""
           hetzner_dns_token = ""
+          # SSH ingress is closed by default and the apply is refused when it
+          # is undecided (deploy/terraform/main.tf). The fixture has to
+          # express a decision, exactly like a real operator's tfvars.
+          ssh_allowed_cidrs = ["203.0.113.10/32"]
           b2_backup = {
             enabled         = true
             bucket          = "dummy"
