@@ -401,14 +401,28 @@ const configSchema = z
      * application will wait up to this duration for the resolver to become healthy
      * and confirm DNSSEC validation (negative-control probe). If readiness is not
      * achieved within this timeout, startup fails with actionable error message.
-     * Default: 30000 (30 seconds).
+     *
+     * The default depends on the deployment mode, because the wait only ever
+     * changes the outcome in one of the two:
+     *
+     * - Cloud (strict): the resolver must be there, and the app refuses to
+     *   start without it. A long wait lets a sidecar that is still booting
+     *   come up. 30 seconds.
+     * - Community (non-strict): the resolver is optional. When it is absent,
+     *   the Node fallback takes over (ADR-0076) and the wait changes nothing
+     *   except the latency of every command. Five seconds is enough for a
+     *   resolver that is starting; a machine with no resolver at all now
+     *   starts in seconds instead of half a minute — the difference between
+     *   a first run that feels broken and one that does not.
+     *
+     * Default: 30000 in cloud mode, 5000 in the community edition.
      */
     DNS_UNBOUND_READINESS_TIMEOUT_MS: z.coerce
       .number()
       .int()
       .min(1000)
       .max(300_000)
-      .default(30_000),
+      .default(() => (detectCloudMode(process.env) ? 30_000 : 5_000)),
     /**
      * Skip the Unbound resolver readiness wait at startup (test-only).
      * When true, the application will not call waitForReady() and will proceed
