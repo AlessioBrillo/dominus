@@ -166,9 +166,18 @@ ENV NODE_ENV=production \
     DATABASE_PATH=/app/data/dominus.db \
     WORKER_ENABLED=true \
     SCHEDULER_ENABLED=false \
-    PORT=0
+    PORT=3000
 
 # Internal healthcheck HTTP listener on loopback (9090) — not exposed
+#
+# PORT is set to a valid value even though this process never binds it:
+# the configuration validates PORT (>= 1) because the API binds it, and
+# the validation runs for every process. The previous PORT=0 made this
+# image crash at boot with "PORT: Too small" — the worker and the
+# scheduler never started, in any deployment that did not override PORT
+# (the community compose stack), and the failure was invisible because
+# the API kept serving. The value is inert here: the health server binds
+# 127.0.0.1:9090 and nothing else.
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9090/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
@@ -214,9 +223,12 @@ ENV NODE_ENV=production \
     DATABASE_PATH=/app/data/dominus.db \
     WORKER_ENABLED=false \
     SCHEDULER_ENABLED=true \
-    PORT=0
+    PORT=3000
 
 # Internal healthcheck HTTP listener on loopback (9091) — not exposed
+#
+# PORT: same as the worker stage — a valid value for the shared
+# configuration validation, never bound by this process.
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:9091/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
