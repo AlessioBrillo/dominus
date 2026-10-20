@@ -31,7 +31,7 @@ Everything below was checked against the repository on 2026-10-20.
 
 ## Blockers, in the order they must be cleared
 
-### 1. The community CLI was not installable — FIXED in this release
+### 1. The community CLI is not installable — ONE ACCOUNT-SIDE STEP LEFT
 
 `package.json` was publish-shaped from the start (`bin.dominus`, `files[]`,
 `prepublishOnly`) and CI validated the tarball with `check-pack`, but no
@@ -41,13 +41,22 @@ project. The CLI now ships as `dominus-oss@latest` with an OIDC
 trusted-publishing release and a `--provenance` attestation. See
 [npm-publishing.md](npm-publishing.md).
 
-> **Correction (2026-10-19):** the publish step of the `v1.2.0` release
+> **Correction (2026-10-20):** the publish step of the `v1.3.0` release
 > workflow failed with `npm error 404 Not Found — PUT
-> https://registry.npmjs.org/dominus-oss`. The package is **not** on npm
-> yet: the trusted publisher is not configured on the npm account for this
-> repository. The workflow, the tarball and the provenance attestation are
-> in place; the remaining step is the npm-side one-time setup described in
-> [npm-publishing.md](npm-publishing.md).
+> https://registry.npmjs.org/dominus-oss`, exactly like the `v1.2.0` one:
+> the trusted publisher is not configured on the npm account for this
+> repository. The package is **not** on npm yet. The workflow, the tarball,
+> the GitHub Release, the container images (`v1.3.0`, `v1.3.0-worker`,
+> `v1.3.0-scheduler`) and the provenance attestation are in place; the
+> remaining step is the npm-side one-time setup described in
+> [npm-publishing.md](npm-publishing.md), after which the publish is
+> re-runnable with `gh workflow run release.yml --ref v1.3.0`.
+>
+> What the release taught: `check-pack` was green throughout, because it
+> inspects the tarball the workflow builds and cannot see the artifact a
+> consumer receives. The published artifact is now verified on both sides
+> of the publish (ADR-0091), and a distribution failure is a red workflow
+> instead of a discovery days later.
 
 ### 2. Legal documentation — SURFACE BUILT, IDENTITY MISSING
 

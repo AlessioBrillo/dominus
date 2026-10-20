@@ -138,12 +138,24 @@ Put the report in `docs/security/` with a name that contains "external" or
 
 The community edition is distributed as `dominus-oss` on npm, published by
 the release workflow through OIDC trusted publishing with a provenance
-attestation. The `v1.2.0` publish failed with `E404` because the trusted
-publisher is not configured on the npm account: the one-time setup is in
+attestation. The publish of `v1.2.0` failed with `E404`, and the publish
+of `v1.3.0` (20 October 2026) failed with the same error: the trusted
+publisher is not configured on the npm account. The one-time setup is in
 [npm-publishing.md](npm-publishing.md).
 
 Until that is done, `npx dominus-oss` does not exist, and the README must
-not claim otherwise.
+not claim otherwise. The GitHub Release, the container images and the
+provenance attestation are published: only the npm package is missing.
+
+The publish is re-runnable. Once the trusted publisher is configured:
+
+```bash
+gh workflow run release.yml --ref v1.3.0
+```
+
+It rebuilds the same commit, updates the existing GitHub Release, and
+publishes the package; the `verify` job then installs it from the registry
+and runs it.
 
 The publish is now verified twice (ADR-0091):
 
