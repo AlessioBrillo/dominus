@@ -41,6 +41,8 @@ Task-oriented, each one start to finish:
 - [Cloud launch readiness](releases/cloud-launch-readiness.md) — the verified
   state of DOMINUS Cloud: what is solid, what blocks revenue, and the
   decisions already on record
+- [Launch checklist](releases/launch-checklist.md) — the mechanical launch
+  gate (`npm run launch:check`) and the human steps that remain, in order
 - [Migration policy](releases/migration-policy.md) — how schema changes are
   released, including the operational runbook
 - [Upgrade to 1.1.0](releases/upgrade-1.1.0.md) — what changed and what you
@@ -57,6 +59,18 @@ Task-oriented, each one start to finish:
 - [Service level agreement](operations/sla.md) — what Enterprise commits to
 - [Backup and operations](adr/0022-backup-and-operations.md) — automatic
   daily backup, manual commands, pruning
+
+## Legal
+
+- [Legal notice, terms of service and privacy notice](legal/legal-surface.md) —
+  what the deployment publishes, and which fields the operator must set
+- [Data processing agreement (GDPR art. 28)](legal/data-processing-agreement.md)
+  — the processor agreement template for DOMINUS Cloud
+- [Data-subject rights](legal/data-rights.md) — export (art. 15) and erasure
+  (art. 17) from the API and the CLI, and what the erasure does not reach
+- [Billing tax verification](releases/billing-tax-verification.md) — the Stripe
+  Tax runbook: what the code sets, what only the operator can configure, and
+  the three scenarios to verify
 
 ## Security
 

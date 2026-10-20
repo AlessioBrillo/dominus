@@ -96,6 +96,7 @@ re-running the original arguments.
 | [0084](0084-automation-milestones-tenant-opt-in-fail-closed-dns-carry-cost.md) | Automation milestones — tenant opt-in, fail-closed DNS writes, carry-cost verdicts                   | 2026-10-15 | Accepted                            |
 | [0085](0085-tenant-credential-vault.md)                                        | Tenant Credential Vault for Automated Provider Access                                                | 2026-10-16 | Accepted                            |
 | [0089](0089-tenant-offer-channel-exit.md)                                      | Tenant offer channel and exit — sale outcome closes the P&L loop                                     | 2026-10-16 | Accepted                            |
+| [0090](0090-legal-surface-and-launch-gate.md)                                  | The legal surface is server-owned data, and a launch gate guards it                                  | 2026-10-19 | Accepted                            |
 
 ## Conventions
 

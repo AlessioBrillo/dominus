@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { StrictMode, lazy, Suspense, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -18,6 +18,15 @@ import '@/styles/globals.css';
 // is fetched on navigation. A page that fails to load (a stale deployment
 // mid-roll, a dropped connection on a slow link) surfaces through the
 // ErrorBoundary instead of a blank screen.
+const SustainabilityPage = lazy(() =>
+  import('@/pages/SustainabilityPage').then((m) => ({ default: m.SustainabilityPage })),
+);
+const TenantCredentialsPage = lazy(() =>
+  import('@/pages/TenantCredentialsPage').then((m) => ({ default: m.TenantCredentialsPage })),
+);
+const RegistrarCatalogPage = lazy(() =>
+  import('@/pages/RegistrarCatalogPage').then((m) => ({ default: m.RegistrarCatalogPage })),
+);
 const OnboardingPage = lazy(() =>
   import('@/pages/OnboardingPage').then((m) => ({ default: m.OnboardingPage })),
 );
@@ -69,6 +78,9 @@ const SettingsPage = lazy(() =>
 );
 const SignupPage = lazy(() =>
   import('@/pages/SignupPage').then((m) => ({ default: m.SignupPage })),
+);
+const LegalDocumentPage = lazy(() =>
+  import('@/pages/LegalDocumentPage').then((m) => ({ default: m.LegalDocumentPage })),
 );
 const NotFoundPage = lazy(() =>
   import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
@@ -130,6 +142,9 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="backtest" element={<BacktestPage />} />
                       <Route path="scheduler" element={<SchedulerPage />} />
                       <Route path="automation" element={<AutomationPage />} />
+                      <Route path="sustainability" element={<SustainabilityPage />} />
+                      <Route path="credentials" element={<TenantCredentialsPage />} />
+                      <Route path="registrar" element={<RegistrarCatalogPage />} />
                       <Route path="providers" element={<ProvidersPage />} />
                       <Route path="billing" element={<BillingPage />} />
                       <Route path="team" element={<TeamPage />} />
@@ -140,6 +155,18 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>
                     <Route path="signup" element={<SignupPage />} />
+                    {/* Legal documents: served from the backend, outside the
+                        authenticated shell so anyone can read them. */}
+                    <Route path="terms" element={<LegalDocumentPage slug="terms" />} />
+                    <Route path="privacy" element={<LegalDocumentPage slug="privacy" />} />
+                    <Route
+                      path="legal-notice"
+                      element={<LegalDocumentPage slug="legal-notice" />}
+                    />
+                    {/* The German "Impressum" route published in 1.2.0: the
+                        operator is an EU entity, so the notice is the Italian
+                        legal notice. The old URL keeps working. */}
+                    <Route path="impressum" element={<Navigate to="/legal-notice" replace />} />
                   </Routes>
                 </Suspense>
               </ErrorBoundary>

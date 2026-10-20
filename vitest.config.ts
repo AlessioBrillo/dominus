@@ -12,6 +12,11 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     pool: 'forks',
     singleFork: true,
+    // The default 5s budget is too tight for the integration-heavy part of
+    // this suite (real SQLite files, real loopback sockets) on a loaded
+    // Windows runner: tests that assert nothing failed with "Test timed out
+    // in 5000ms". A timeout that depends on the machine is not a signal.
+    testTimeout: 15_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

@@ -33,7 +33,7 @@ per table. It never touches the source.
 ## Step 2 — Import (target side, one transaction)
 
 ```bash
-DATABASE_URL=postgres://user:pass@host:5432/dominus \
+DATABASE_URL=postgres://<user>@<host>:5432/dominus \
   npx tsx scripts/migrate-sqlite-to-pg.ts import ./data/dominus-export.jsonl
 # imported 12345 rows across 52 tables (single transaction)
 ```
@@ -51,7 +51,7 @@ Notes:
 ## Step 3 — Verify
 
 ```bash
-DATABASE_URL=postgres://user:pass@host:5432/dominus \
+DATABASE_URL=postgres://<user>@<host>:5432/dominus \
   npx tsx scripts/migrate-sqlite-to-pg.ts verify ./data/dominus-export.jsonl
 # verify: OK - all table row counts match the export
 ```

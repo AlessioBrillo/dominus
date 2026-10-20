@@ -192,8 +192,8 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
 | ------------------ | ----------------------------------------------- | ---------------------------------------------------------- |
 | **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
-| **CLI**            | Commander (21 commands)                         | Full functionality without a browser                       |
-| **API**            | Express REST (33 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **CLI**            | Commander (22 commands)                         | Full functionality without a browser                       |
+| **API**            | Express REST (34 route modules)                 | Dashboard-ready, swappable frontend                        |
 | **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
 | **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |
@@ -207,7 +207,7 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
 | **5-stage pipeline**  | ✓ Full                                | ✓ Full                            |
 | **Trademark gate**    | ✓ Full                                | ✓ Full                            |
 | **Portfolio tracker** | ✓ Full                                | ✓ Full                            |
-| **CLI (21 commands)** | ✓ Full                                | ✓ Full                            |
+| **CLI (22 commands)** | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |

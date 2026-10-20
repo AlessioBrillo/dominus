@@ -30,8 +30,8 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 | ------------------ | -------------------------------------------------------------- |
 | **Backend**        | Node.js 22+, Express 5                                         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)                        |
-| **CLI**            | Commander (21 commands)                                        |
-| **API**            | Express REST (33 route modules)                                |
+| **CLI**            | Commander (22 commands)                                        |
+| **API**            | Express REST (34 route modules)                                |
 | **Frontend**       | React 19 + Vite 8 + Tailwind CSS 4 + Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2                       |
 | **Infrastructure** | Docker, Docker Compose, Terraform (Hetzner), GitHub Actions    |
@@ -163,7 +163,14 @@ committer's machine with Docker:
   It runs typecheck → build → db:sync:check → lint → format:check →
   check:migration-compat → check:sql-portability → notices:check →
   adr:index:check → check:pack → check:doc-drift → backend tests with
-  coverage → frontend typecheck/lint/test-with-coverage/build.
+  coverage → frontend typecheck/lint/test-with-coverage/build → the
+  end-to-end smoke gate (`npm run test:e2e:smoke`).
+- **End-to-end smoke:** the gate ends with a Playwright subset — auth,
+  portfolio and the WCAG 2.1 AA gate — so the local gate cannot be green
+  while the shipped SPA is broken. It needs the Chromium build once per
+  machine: `npm run e2e:install`. The full suite stays in CI
+  (`npm run test:e2e`). `SKIP_E2E_SMOKE=1` is the only escape hatch and it
+  prints a warning in the log.
 - **With Docker:** `npm run gate:docker` additionally renders both compose
   stacks, lints Prometheus alert rules, and (when Docker is available)
   starts base+Unbound and prod-overlay to assert `/api/v1/health` on a
@@ -173,3 +180,8 @@ committer's machine with Docker:
   explicit `--no-verify`.
 - **Done / merge-ready** means this gate is green on the final tree.
   See `~/.agents/CI.md`.
+- **Secret scanning:** TruffleHog runs in CI over the pushed diff with
+  verification enabled, so any credential-shaped URI in a tracked file is
+  reported. Keep database URIs password-free in tracked files
+  (`postgresql://<user>@<host>:5432/<db>`); the password goes in a
+  separate variable.
