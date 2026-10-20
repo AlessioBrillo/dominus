@@ -76,6 +76,13 @@ type StripeSdk = {
           consent_collection?: { terms_of_service: 'required' };
           custom_text?: { terms_of_service_acceptance?: { message: string } };
         }) => Promise<{ id: string; url: string | null }>;
+        retrieve: (
+          id: string,
+          params?: { expand?: string[] },
+        ) => Promise<{
+          id: string;
+          line_items?: { data?: { price?: { id?: string } }[] };
+        }>;
       };
     };
     webhooks: {
@@ -101,6 +108,23 @@ export function isStripeSignatureError(err: unknown): boolean {
       (err as { name?: unknown }).name === 'StripeSignatureVerificationError')
   );
 }
+
+/**
+ * The parts of a Stripe Checkout Session the webhook handler relies on.
+ *
+ * `line_items` is absent from the `checkout.session.completed` payload
+ * unless the session was retrieved with `expand: ['line_items']`, so it is
+ * optional here and the price id may have to be fetched from the API.
+ */
+type CheckoutSessionPayload = {
+  id?: string;
+  metadata?: Record<string, string>;
+  customer?: string;
+  subscription?: string;
+  mode?: string;
+  amount_total?: number;
+  line_items?: { data?: { price?: { id?: string } }[] };
+};
 
 export class BillingService {
   readonly #config: Config;
@@ -422,6 +446,61 @@ export class BillingService {
     }
   }
 
+  /**
+   * Resolve the Stripe Price ID a checkout session was paid for.
+   *
+   * Stripe does not include `line_items` in the `checkout.session.completed`
+   * payload unless the session is retrieved with `expand: ['line_items']`,
+   * so the event payload alone is normally empty and the session has to be
+   * fetched from the API. When neither source yields a price id the caller
+   * falls back to the session metadata — the price id is what says what was
+   * actually paid for, so it is worth one extra API call.
+   */
+  async #resolveCheckoutPriceId(
+    eventId: string,
+    session: CheckoutSessionPayload,
+  ): Promise<string | undefined> {
+    const fromEvent = session.line_items?.data?.[0]?.price?.id;
+    if (fromEvent) return fromEvent;
+
+    if (!session.id) {
+      logger.warn(
+        { eventId },
+        'Checkout session without line items or id — falling back to metadata plan',
+      );
+      return undefined;
+    }
+
+    const stripe = await this.#getStripe();
+    if (!stripe) {
+      logger.warn(
+        { eventId, sessionId: session.id },
+        'Stripe client unavailable — falling back to metadata plan',
+      );
+      return undefined;
+    }
+
+    try {
+      const retrieved = await stripe.checkout.sessions.retrieve(session.id, {
+        expand: ['line_items.data.price'],
+      });
+      const priceId = retrieved.line_items?.data?.[0]?.price?.id;
+      if (!priceId) {
+        logger.warn(
+          { eventId, sessionId: session.id },
+          'Checkout session without line items — falling back to metadata plan',
+        );
+      }
+      return priceId;
+    } catch (err) {
+      logger.warn(
+        { err, eventId, sessionId: session.id },
+        'Failed to retrieve checkout session — falling back to metadata plan',
+      );
+      return undefined;
+    }
+  }
+
   async #processEvent(event: {
     id: string;
     type: string;
@@ -431,14 +510,7 @@ export class BillingService {
 
     switch (event.type) {
       case 'checkout.session.completed': {
-        const session = event.data.object as {
-          metadata?: Record<string, string>;
-          customer?: string;
-          subscription?: string;
-          mode?: string;
-          amount_total?: number;
-          line_items?: { data?: { price?: { id?: string } }[] };
-        };
+        const session = event.data.object as CheckoutSessionPayload;
         if (session.mode !== 'subscription') return;
 
         const tenantId = session.metadata?.tenantId ?? '';
@@ -447,15 +519,33 @@ export class BillingService {
           return;
         }
 
-        // Cross-check: if this is a custom price, verify the amount paid matches expected
-        let plan: SubscriptionPlan;
-        const lineItems = session.line_items?.data ?? [];
-        const priceId = lineItems[0]?.price?.id;
+        // The price id is the only trustworthy source of the plan: the session
+        // metadata is written by us at checkout creation, but nothing in it
+        // proves which price the customer actually paid for.
+        const priceId = await this.#resolveCheckoutPriceId(event.id, session);
 
-        if (priceId && this.#customPriceRepo) {
-          const customPrice = await this.#customPriceRepo.findByPriceId(priceId);
+        let plan: SubscriptionPlan;
+        if (priceId) {
+          const planFromPrice = await this.resolvePlanForPriceId(priceId, tenantId);
+          if (!planFromPrice) {
+            // Fail closed: an unknown price id grants nothing. Throwing here
+            // would release the event claim and make Stripe retry forever a
+            // price id that is never going to become known.
+            logger.warn(
+              { eventId: event.id, tenantId, priceId },
+              'Checkout price id does not map to a plan — rejecting grant',
+            );
+            return;
+          }
+          plan = planFromPrice;
+
+          // A custom price carries a negotiated amount the customer must have
+          // paid: the price id alone does not authorise the grant, so the
+          // tenant and the amount are checked before the plan is honoured.
+          const customPrice = this.#customPriceRepo
+            ? await this.#customPriceRepo.findByPriceId(priceId)
+            : undefined;
           if (customPrice) {
-            // Custom price found — verify tenant matches and amount is correct
             if (customPrice.tenantId !== tenantId) {
               logger.warn(
                 { eventId: event.id, tenantId, expectedTenant: customPrice.tenantId, priceId },
@@ -477,12 +567,10 @@ export class BillingService {
               );
               return;
             }
-            plan = customPrice.plan;
-          } else {
-            // No custom price, fall back to config-based resolution
-            plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
           }
         } else {
+          // No price id could be established — fall back to the plan the
+          // session was created with (the helper logged why).
           plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
         }
 
