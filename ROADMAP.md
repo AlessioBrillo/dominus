@@ -2,7 +2,9 @@
 
 DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
 v1.1.0 — Release hardening (released).
-Next: v1.2.0 — Post-1.0 features (integrity gate, self-hosted & SaaS hardening).
+v1.2.0 — Post-acquisition automation (in progress).
+Next: v1.3.0 — Launch readiness: the legal surface, the tax and consent
+compliance, the data-subject rights and the launch gate.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 
@@ -255,8 +257,54 @@ estimates and subject to change.
       at `GET /api/v1/sustainability` and in the Portfolio dashboard, and
       fed into the drop engine as a Reprice signal (never an auto-drop)
 
+## v1.3.0 — Launch readiness (ADR-0090)
+
+> **Status**: In progress
+> **Focus**: the public launch of DOMINUS Cloud — the legal surface, the
+> tax and consumer-law compliance, the data-subject rights, and a launch
+> gate that can be executed
+
+- [x] Legal surface rebuilt for the right jurisdiction (art. 7 D.Lgs.
+      70/2003, not the German Impressum): legal notice, terms of service
+      and privacy notice as server-owned structured data, published
+      unauthenticated, linked from the footer of every public page
+- [x] Identity as configuration (`LEGAL_*`), never as a placeholder: the
+      launch gate refuses a deployment whose identity is missing
+- [x] Community edition publishes the documents that apply to it (AGPL,
+      self-hosted data flow) and never the operator identity
+- [x] Stripe Tax completed: billing address required, VAT ID collected for
+      the EU reverse charge, customer address written back on returning
+      customers
+- [x] EU consumer law: the art. 59(1)(o) consent and its acknowledgement
+      are collected at checkout, in one constant, asserted by the tests
+- [x] Data-subject rights: export (art. 15) and erasure (art. 17) from
+      the API and the CLI, over one registry of tenant-scoped tables that
+      cannot drift from the schema
+- [x] Data processing agreement (art. 28) template, sub-processor list and
+      retention table published
+- [x] `npm run launch:check`: the launch state is executable, not a
+      document — exit 0 or exit 1
+- [x] The green trunk: the E2E suite is part of the local gate, the
+      secret-scanning false positives are gone, the master is green
+- [ ] Operator identity (name, address, P.IVA, REA, PEC, contacts)
+- [ ] Fiscal position and the accountant: OSS registration, the invoice
+      series, the reverse-charge wording, the review of the legal texts
+- [ ] The three Stripe verification scenarios, recorded
+- [ ] The infrastructure, provisioned for real: `terraform apply`, DNS,
+      TLS, a real Alertmanager webhook, a restore drill against the real
+      backup target
+- [ ] The third-party security audit, before the paid tiers
+- [ ] The npm trusted publisher, so `dominus-oss` is installable
+- [ ] Public launch: Product Hunt, Hacker News, domain investor communities
+
 ## Post-1.0
 
+- **Internationalisation** (v1.4.0) — the legal documents and the
+  interface as a translatable catalogue, with machine-assisted
+  translation that opens a pull request and a check that no user-facing
+  string can bypass the catalogue. Runtime translation is excluded: it
+  would send user data to a third party, and it is neither indexable nor
+  cacheable.
 - **Real-time collaboration** — WebSocket-based shared pipeline views
 - **Advanced analytics** — Portfolio diversification heatmaps, trend analysis
 - **Name generator** — AI-assisted brandable domain generation
@@ -266,6 +314,8 @@ estimates and subject to change.
 - **Tenant switcher** — follow-up to ADR-0081
 - **Row-level security on control-plane tables** — needs a dedicated bypass design
 - **Mobile app** — Native notifications for renewal alerts and bid updates
+- **Multi-replica rate limiting** — the protected router counts per
+  replica; the shared store arrives with the multi-replica topology
 
 ---
 

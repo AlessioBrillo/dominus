@@ -954,6 +954,32 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
       },
     },
+    '/public/legal': {
+      get: {
+        tags: ['Public'],
+        summary: 'Legal notice, terms of service and privacy notice (no auth required)',
+        description:
+          'The legal surface of this deployment, as structured data. In the community edition the documents describe the self-hosted deployment; in cloud mode they describe the managed service and the operator identity.',
+        responses: {
+          '200': {
+            description: 'Legal documents and the operator identity',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    mode: { type: 'string', enum: ['cloud', 'community'] },
+                    identity: { type: 'object' },
+                    documents: { type: 'array', items: { type: 'object' } },
+                  },
+                },
+              },
+            },
+          },
+          '404': { description: 'Legal documents are not configured' },
+        },
+      },
+    },
     '/api/v1/admin/tenants/{tenantId}/suspend': {
       post: {
         tags: ['Admin'],

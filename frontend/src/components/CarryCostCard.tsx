@@ -47,7 +47,7 @@ export function CarryCostCard() {
             the parking step and its revenue is recorded.
           </p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" data-testid="carry-cost-table">
             <thead>
               <tr className="text-left text-text-muted">
                 <th className="py-2 font-medium">Domain</th>

@@ -34,6 +34,7 @@ async function main(): Promise<void> {
     postAcquisitionService: deps.postAcquisitionService,
     keyManager: deps.authProvider.asKeyManager() as KeyManager | undefined,
     apiKeyRepo: deps.apiKeyRepo,
+    provider: deps.provider,
   });
   cli.parse(process.argv);
 }

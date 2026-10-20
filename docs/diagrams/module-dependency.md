@@ -1,4 +1,4 @@
-﻿# Module Dependencies
+# Module Dependencies
 
 High-level dependency graph for the `src/` module structure. Arrows point from
 consumer to consumed module.
@@ -7,7 +7,7 @@ consumer to consumed module.
 flowchart LR
     subgraph Entry[Entry Points]
         INDEX["src/index.ts<br/>Express server bootstrap"]
-        CLI["src/cli/index.ts<br/>Commander 21 commands"]
+        CLI["src/cli/index.ts<br/>Commander 22 commands"]
     end
 
     subgraph App[Application Layer]
@@ -31,7 +31,7 @@ flowchart LR
 
     subgraph API[REST API]
         API["api/index.ts<br/>Express Router"]
-        ROUTES["api/routes/<br/>33 route modules"]
+        ROUTES["api/routes/<br/>34 route modules"]
         PUB["api/public-router.ts<br/>Public scoring pages<br/>SSR + OG tags"]
         VIEWS["api/views/<br/>SSR HTML templates"]
     end

@@ -14,6 +14,10 @@ import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware, parseOperatorSubjects } from './api/middleware/auth.js';
 import { sessionRoleFor } from './services/identity-tenant-resolver.js';
 import { isStripeSignatureError } from './services/billing-service.js';
+import { buildLegalContent } from './services/legal-content.js';
+import { identityFromConfig, missingIdentityFields } from './services/legal-identity.js';
+import { TenantDataService } from './services/tenant-data-service.js';
+import { setLegalFooterContext } from './api/views/legal-footer.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
@@ -56,6 +60,7 @@ import {
   createDocsRouter,
   createWorkerRouter,
   createTenantCredentialsRouter,
+  createTenantDataRouter,
   createPublicRouter,
   createRobotsTxtHandler,
   createIndexNowKeyHandler,
@@ -101,6 +106,31 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const logger = getLogger();
   const deps = await createDependencies(config);
+
+  // The legal surface: identity, terms of service, privacy notice. Built
+  // once at boot from the configuration and served at /public/legal; the same
+  // identity is injected into the footer of every server-rendered page.
+  const legalContent = buildLegalContent({
+    identity: identityFromConfig(config),
+    cloudMode: config.IS_CLOUD_MODE,
+  });
+  setLegalFooterContext({
+    mode: legalContent.mode,
+    entityName: legalContent.identity.entityName,
+    vatId: legalContent.identity.vatId,
+    contactEmail: legalContent.identity.contactEmail,
+  });
+  if (config.IS_CLOUD_MODE) {
+    const missing = missingIdentityFields(legalContent.identity);
+    if (missing.length > 0) {
+      logger.warn(
+        { missing },
+        'Cloud mode: the legal identity is incomplete. The legal notice, the terms of service and ' +
+          'the privacy notice are published without it. Set the LEGAL_* environment variables — ' +
+          '`npm run launch:check` refuses to declare a deployment launchable while they are missing.',
+      );
+    }
+  }
 
   if (!deps.authProvider.isActive) {
     if (config.HOST === '0.0.0.0' || config.HOST === '::') {
@@ -252,6 +282,7 @@ async function main(): Promise<void> {
       ...publicAppUrlOption(config),
       domainSiteRepo: deps.domainSiteRepo,
       listingManager: deps.listingManager,
+      legalContent,
       ...(config.INDEXNOW_KEY !== undefined ? { indexNowKey: config.INDEXNOW_KEY } : {}),
     }),
   );
@@ -407,6 +438,9 @@ async function main(): Promise<void> {
     '/backtest',
     createBacktestRouter(deps.provider, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
   );
+  // Data-subject rights: export (art. 15) and erasure (art. 17) of the
+  // caller's tenant.
+  protectedRouter.use('/tenant', createTenantDataRouter(new TenantDataService(deps.provider)));
   protectedRouter.use('/providers', createProvidersRouter(deps.config));
   protectedRouter.use(
     '/outcomes',

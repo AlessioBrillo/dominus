@@ -37,6 +37,8 @@
     "test:unit": "vitest run",
     "test:integration": "vitest run --reporter=verbose src/db/provider/postgres-adapter.test.ts",
     "test:e2e": "playwright test",
+    "test:e2e:smoke": "node scripts/run-e2e-smoke.mjs",
+    "e2e:install": "playwright install chromium",
     "bench": "vitest bench --reporter=default",
     "bench:ci": "vitest bench",
     "lint": "eslint src/ --ext .ts",
@@ -53,7 +55,7 @@
     "release:dry": "standard-version --dry-run",
     "prepush": "npm run gate",
     "prepush:local": "npm run gate",
-    "gate": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test -- --coverage && npm run build && cd ..",
+    "gate": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm run check:legal-placeholders && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test -- --coverage && npm run build && cd .. && npm run test:e2e:smoke",
     "gate:docker": "node scripts/docker-smoke.mjs",
     "ci:backend": "npm run typecheck && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run check:doc-drift && npm test -- --coverage",
     "ci:frontend": "cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
@@ -72,6 +74,8 @@
     "migration:manifest": "node dist/db/migration-manifest-cli.js --list",
     "check:pack": "node scripts/check-pack.mjs",
     "check:doc-drift": "node scripts/check-doc-drift.mjs",
+    "check:legal-placeholders": "node scripts/check-legal-placeholders.mjs",
+    "launch:check": "node scripts/launch-check.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
@@ -119,7 +123,7 @@
     "better-sqlite3": "^12.11.1",
     "commander": "^15.0.0",
     "cors": "^2.8.6",
-    "dotenv": "^18.0.7",
+    "dotenv": "^18.0.8",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "ioredis": "^6.0.0",
@@ -127,12 +131,12 @@
     "lru-cache": "^11.5.3",
     "node-cron": "^4.6.0",
     "node-notifier": "^11.0.0",
-    "nodemailer": "^10.1.0",
+    "nodemailer": "^10.1.2",
     "pino": "^10.4.0",
     "psl": "^1.15.0",
     "stripe": "^23.0.0",
-    "undici": "^8.11.2",
-    "zod": "^4.6.5"
+    "undici": "^8.12.2",
+    "zod": "^4.6.7"
   },
   "optionalDependencies": {
     "pg": "^8.23.1",
@@ -157,7 +161,7 @@
     "@types/supertest": "^7.2.1",
     "@typescript-eslint/eslint-plugin": "^8.71.1",
     "@typescript-eslint/parser": "^8.71.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^10.12.0",
     "globals": "^17.13.0",
     "husky": "^9.1.7",
@@ -169,6 +173,6 @@
     "supertest": "^7.3.1",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
