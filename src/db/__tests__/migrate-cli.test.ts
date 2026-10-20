@@ -66,7 +66,7 @@ describe('runMigrateCli — happy path', () => {
     }
   });
 
-  it('is idempotent — a second run against the same database applies nothing', async () => {
+  it('is idempotent - a second run against the same database applies nothing', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dominus-migrate-'));
     const dbPath = join(dir, 'dominus.db');
     try {
@@ -81,7 +81,11 @@ describe('runMigrateCli — happy path', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+    // The whole migration set is applied twice, against a file-backed
+    // database: on a loaded Windows runner that exceeds the default 5s
+    // timeout, and the test then failed with "Test timed out in 5000ms"
+    // while asserting nothing. The work is real, so the budget is real.
+  }, 30_000);
 
   it('closes the provider after a successful run', async () => {
     const provider = SqliteProvider.openInMemory();
