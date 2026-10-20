@@ -1,0 +1,206 @@
+# DOMINUS — Cloud acceptance stack.
+#
+# The production-parity stack for the Cloud edition: PostgreSQL with
+# row-level security, Redis, and the three long-running processes (api,
+# worker, scheduler) against the same database, with the same tenant
+# isolation the production deployment has.
+#
+# It is NOT the production overlay. The monitoring stack, the TLS
+# terminator, the digest-pinned images, the fail2ban/hostssl posture and
+# the backups are covered by deploy/terraform and by the docker gate. What
+# this file adds is the evidence no other gate can produce: the same
+# schema, the same RLS policies, the same job queue, with two tenants in
+# it — before a paid deployment exists.
+#
+# The images are BUILT from the working tree, not pulled: the point of the
+# suite is to test the code that is about to be released, not the last
+# published tag. For a released candidate, pin the tag in
+# scripts/acceptance/cloud-acceptance.mjs (ACCEPTANCE_IMAGE_TAG).
+#
+# Usage:
+#   npm run acceptance:cloud                 # build, migrate, assert, tear down
+#   docker compose -f docker-compose.acceptance.yml -f docker-compose.unbound.yml up -d
+#
+# The Unbound sidecar comes from docker-compose.unbound.yml: ADR-0075 made
+# the validating resolver mandatory, so the acceptance stack runs the same
+# resolver the production stack runs. The stack is started in phases by
+# scripts/acceptance/cloud-acceptance.mjs, because the migrations have to
+# be applied by the OWNER role before the app role connects — exactly the
+# split the production deployment has.
+
+name: dominus-acceptance
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    environment:
+      POSTGRES_USER: dominus
+      POSTGRES_PASSWORD: acceptance-local-password
+      POSTGRES_DB: dominus
+      # The non-superuser application role (ADR-0038/0047). The app
+      # connects as dominus_app, never as the owner: a superuser bypasses
+      # row-level security even with FORCE ROW LEVEL SECURITY, so tenant
+      # isolation would rest on application filters alone.
+      DOMINUS_APP_PASSWORD: acceptance-local-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # The same init script the production database uses: it creates the
+      # app role and the default privileges that let the migrations run.
+      - ./deploy/postgres/init-app-role.sh:/docker-entrypoint-initdb.d/init-app-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dominus -d dominus"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    image: dominus-api:acceptance
+    ports:
+      - "127.0.0.1:${ACCEPTANCE_PORT:-3210}:3000"
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3000
+      # The app role, not the owner: this is what makes the RLS proof
+      # meaningful.
+      - DATABASE_URL=postgresql://dominus_app:acceptance-local-password@postgres:5432/dominus
+      - REDIS_URL=redis://redis:6379
+      - AUTH_PROVIDER=db
+      - AUTO_PROVISION_TENANTS=true
+      - USAGE_ENFORCEMENT_ENABLED=true
+      - METRICS_TOKEN=acceptance-metrics-token
+      # Stripe is configured with test-shaped values: the webhook route is
+      # only mounted when billing is configured, and the suite signs its
+      # own events, so no network call is ever made.
+      - STRIPE_SECRET_KEY=sk_test_acceptance
+      - STRIPE_PUBLISHABLE_KEY=pk_test_acceptance
+      - STRIPE_WEBHOOK_SECRET=whsec_acceptance_secret
+      - STRIPE_PRICE_ID_PRO_MONTHLY=price_acceptance_pro_monthly
+      - STRIPE_PRICE_ID_PRO_YEARLY=price_acceptance_pro_yearly
+      - STRIPE_PRICE_ID_TEAM_MONTHLY=price_acceptance_team_monthly
+      - STRIPE_PRICE_ID_TEAM_YEARLY=price_acceptance_team_yearly
+      - STRIPE_PRICE_ID_ENTERPRISE_MONTHLY=price_acceptance_enterprise_monthly
+      - STRIPE_PRICE_ID_ENTERPRISE_YEARLY=price_acceptance_enterprise_yearly
+      # A test identity, so the legal surface is complete and the boot log
+      # stays readable. It is NOT an operator identity: the launch gate
+      # (npm run launch:check) is what decides whether a real deployment
+      # may publish a legal notice.
+      - LEGAL_ENTITY_NAME=Dominus Acceptance Suite
+      - LEGAL_ENTITY_KIND=company
+      - LEGAL_REGISTERED_ADDRESS=Acceptance Lab, Via Test 1, 00100 Roma
+      - LEGAL_VAT_ID=IT00000000000
+      - LEGAL_REA_NUMBER=PR-000000
+      - LEGAL_PEC=acceptance@example.invalid
+      - LEGAL_CONTACT_EMAIL=acceptance@example.invalid
+      - LEGAL_PRIVACY_EMAIL=privacy@example.invalid
+      - RATE_LIMIT_MAX=10000
+      - TRUST_PROXY_DEPTH=0
+      - LOG_LEVEL=info
+      - WORKER_ENABLED=false
+      - SCHEDULER_ENABLED=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "dist/app/healthcheck-cli.js"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: dominus-worker:acceptance
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://dominus_app:acceptance-local-password@postgres:5432/dominus
+      - REDIS_URL=redis://redis:6379
+      - AUTH_PROVIDER=db
+      - AUTO_PROVISION_TENANTS=true
+      - USAGE_ENFORCEMENT_ENABLED=true
+      - WORKER_ENABLED=true
+      - SCHEDULER_ENABLED=false
+      - WORKER_CONCURRENCY=2
+      - JOB_QUEUE_POLL_INTERVAL_MS=500
+      - BACKUP_DIR=/backups
+      - RATE_LIMIT_MAX=10000
+      - LOG_LEVEL=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backups:/backups
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: scheduler
+    image: dominus-scheduler:acceptance
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://dominus_app:acceptance-local-password@postgres:5432/dominus
+      - REDIS_URL=redis://redis:6379
+      - AUTH_PROVIDER=db
+      - AUTO_PROVISION_TENANTS=true
+      - USAGE_ENFORCEMENT_ENABLED=true
+      - WORKER_ENABLED=false
+      - SCHEDULER_ENABLED=true
+      - BACKUP_DIR=/backups
+      - RATE_LIMIT_MAX=10000
+      - LOG_LEVEL=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backups:/backups
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
+  backups:

@@ -68,3 +68,7 @@ bench-results.json
 playwright-report/
 test-results/
 
+# --- Cloud acceptance suite (fixtures hold live API keys) ---
+.acceptance/
+.acceptance-run*.log
+
