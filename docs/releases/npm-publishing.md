@@ -59,7 +59,7 @@ The `dry_run` input on the release workflow exercises the whole path
 except the final publish:
 
 ```bash
-gh workflow run release.yml -f dry_run=true   # only on a tag or via dispatch
+gh workflow run release.yml -f dry_run=true
 ```
 
 It builds the frontend and the backend, runs `check:pack`, extracts the
@@ -68,7 +68,36 @@ CHANGELOG section (failing loudly if it is missing), and runs
 exchange for real — so a successful dry run proves the trusted publisher
 record is correct, without publishing anything.
 
-## 5. What a consumer can verify
+The version is resolved explicitly (ADR-0091): on a manual dispatch it
+comes from the `version` input, or from `package.json` when the input is
+empty, so the dry run rehearses the version that is about to be tagged. On
+a tag push the version comes from the tag, and a tag that disagrees with
+`package.json` fails the workflow before anything is built.
+
+## 5. The publish is verified too
+
+Publishing is not the end of the contract: the artifact has to be
+installable and runnable by the person who installs it. After the publish,
+the `verify` job of the workflow installs the published package from the
+registry, runs the CLI, and reads the provenance attestation:
+
+```bash
+node scripts/verify-release.mjs --package dominus-oss@1.3.0
+```
+
+The same script runs before the tag, on the local gate, over the tarball
+that is about to be published:
+
+```bash
+npm run release:verify -- --pack
+```
+
+A failure after the publish cannot un-publish the package. The response is
+`npm deprecate dominus-oss@<version>` and a patch release; the point of the
+job is that the failure is a red workflow instead of a support ticket days
+later.
+
+## 6. What a consumer can verify
 
 Because the package is published with `--provenance`, npm emits a Sigstore
 attestation linking the tarball to this repository, this workflow and the

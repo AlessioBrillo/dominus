@@ -1,10 +1,14 @@
 # Roadmap
 
-DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
-v1.1.0 — Release hardening (released).
-v1.2.0 — Post-acquisition automation (in progress).
-Next: v1.3.0 — Launch readiness: the legal surface, the tax and consent
-compliance, the data-subject rights and the launch gate.
+DOMINUS v1.0.0 - DOMINUS Cloud MVP (released).
+v1.1.0 - Release hardening (released).
+v1.2.0 - Post-acquisition automation (released; the marketplace vendor
+adapters remain blocked on vendor access).
+v1.3.0 - Launch readiness: the legal surface, the tax and consent
+compliance, the data-subject rights, the launch gate and the verified
+artifact (released).
+Next: the infrastructure provisioned for real, the operator identity, and
+the paid tiers behind the third-party audit.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 
@@ -214,7 +218,7 @@ estimates and subject to change.
 
 ## v1.2.0 — Post-Acquisition Automation (ADR-0083)
 
-> **Status**: In progress
+> **Status**: Released (the M4 vendor adapters stay blocked on vendor access)
 > **Focus**: automated lifecycle after the buy decision — site, indexing,
 > DNS delegation, parking/monetization, marketplace listing
 
@@ -257,9 +261,10 @@ estimates and subject to change.
       at `GET /api/v1/sustainability` and in the Portfolio dashboard, and
       fed into the drop engine as a Reprice signal (never an auto-drop)
 
-## v1.3.0 — Launch readiness (ADR-0090)
+## v1.3.0 — Launch readiness (ADR-0090, ADR-0091, ADR-0092, ADR-0093, ADR-0094)
 
-> **Status**: In progress
+> **Status**: Released — the code is done; what remains is the operator's
+> work (identity, fiscal position, infrastructure, audit)
 > **Focus**: the public launch of DOMINUS Cloud — the legal surface, the
 > tax and consumer-law compliance, the data-subject rights, and a launch
 > gate that can be executed
@@ -286,13 +291,24 @@ estimates and subject to change.
       document — exit 0 or exit 1
 - [x] The green trunk: the E2E suite is part of the local gate, the
       secret-scanning false positives are gone, the master is green
+- [x] The published artifact is verified, not assumed (ADR-0091): the
+      local gate installs and runs the tarball before a tag, the release
+      workflow installs and runs the published package after the publish,
+      and the release rehearsal works from a branch again
+- [x] The granted plan is derived from the Stripe price id, never from
+      the session metadata (ADR-0093); an unknown price id grants nothing
+- [x] The launch posture is measured, not promised (ADR-0094): one
+      replica stated in the SLA, an external availability probe outside
+      the app node, a real PITR rehearsal, and fail-closed SSH ingress
+- [x] The community first run does not wait thirty seconds for a
+      resolver that is usually not there (ADR-0092)
 - [ ] Operator identity (name, address, P.IVA, REA, PEC, contacts)
 - [ ] Fiscal position and the accountant: OSS registration, the invoice
       series, the reverse-charge wording, the review of the legal texts
 - [ ] The three Stripe verification scenarios, recorded
 - [ ] The infrastructure, provisioned for real: `terraform apply`, DNS,
-      TLS, a real Alertmanager webhook, a restore drill against the real
-      backup target
+      TLS, a real Alertmanager webhook, an external probe, a restore
+      drill against the real backup target
 - [ ] The third-party security audit, before the paid tiers
 - [ ] The npm trusted publisher, so `dominus-oss` is installable
 - [ ] Public launch: Product Hunt, Hacker News, domain investor communities

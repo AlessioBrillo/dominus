@@ -2,5 +2,8 @@
 *.tfstate
 *.tfstate.*
 terraform.tfvars
+# The backend configuration carries the B2 access key and the bucket
+# coordinates of the remote state: the state is a secret store.
+backend.hcl
 .terraform.lock.hcl
 crash.log

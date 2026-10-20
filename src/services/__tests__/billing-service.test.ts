@@ -4,19 +4,26 @@ import type { Config } from '../../config.js';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
 import { WebhookEventsRepository } from '../../db/repositories/webhook-events-repository.js';
+import { CustomPriceRepository } from '../../db/repositories/custom-price-repository.js';
 import { BillingService, isStripeSignatureError } from '../billing-service.js';
 
 const mockStripeApi = {
   constructEvent: vi.fn(),
   createSession: vi.fn(),
   createPortal: vi.fn(),
+  retrieveSession: vi.fn(),
 };
 
 vi.mock('stripe', () => ({
   Stripe: class {
     webhooks = { constructEvent: mockStripeApi.constructEvent };
     customers = { createPortalSession: mockStripeApi.createPortal };
-    checkout = { sessions: { create: mockStripeApi.createSession } };
+    checkout = {
+      sessions: {
+        create: mockStripeApi.createSession,
+        retrieve: mockStripeApi.retrieveSession,
+      },
+    };
   },
 }));
 
@@ -439,6 +446,200 @@ describe('BillingService webhook handling', () => {
     const service = new BillingService(baseConfig, subRepo, webhookRepo);
 
     await expect(service.handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+  });
+});
+
+describe('BillingService checkout.session.completed plan derivation', () => {
+  let db: SqliteProvider;
+  let subRepo: SubscriptionRepository;
+  let webhookRepo: WebhookEventsRepository;
+  let customPriceRepo: CustomPriceRepository;
+
+  beforeEach(async () => {
+    db = SqliteProvider.openInMemory();
+    await db.runMigrations();
+    subRepo = new SubscriptionRepository(db);
+    webhookRepo = new WebhookEventsRepository(db);
+    customPriceRepo = new CustomPriceRepository(db);
+    vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  const RAW = Buffer.from('{"id":"evt_1","type":"checkout.session.completed"}', 'utf8');
+
+  function service(): BillingService {
+    return new BillingService(baseConfig, subRepo, webhookRepo, customPriceRepo);
+  }
+
+  it('grants the plan derived from the price id, not the one in the session metadata', async () => {
+    stubWebhookEvent({
+      id: 'evt_price',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'team' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+        line_items: { data: [{ price: { id: 'price_pro_monthly' } }] },
+      },
+    });
+
+    await service().handleWebhookEvent(RAW, 'sig');
+
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.plan).toBe('pro');
+  });
+
+  it('grants nothing when the price id maps to no plan', async () => {
+    stubWebhookEvent({
+      id: 'evt_unknown_price',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'enterprise' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+        line_items: { data: [{ price: { id: 'price_made_up' } }] },
+      },
+    });
+    const upsert = vi.spyOn(subRepo, 'upsert');
+
+    await expect(service().handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(await subRepo.findByTenantId('tenant-1')).toBeUndefined();
+  });
+
+  it('grants the custom plan when the tenant and the paid amount match', async () => {
+    await customPriceRepo.upsert({
+      tenantId: 'tenant-1',
+      priceId: 'price_custom_1',
+      plan: 'enterprise',
+      expectedAmountEur: 50000,
+      seats: 10,
+    });
+    stubWebhookEvent({
+      id: 'evt_custom_ok',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'pro' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+        amount_total: 5_000_000,
+        line_items: { data: [{ price: { id: 'price_custom_1' } }] },
+      },
+    });
+
+    await service().handleWebhookEvent(RAW, 'sig');
+
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.plan).toBe('enterprise');
+  });
+
+  it('grants nothing when the paid amount does not match the custom price', async () => {
+    await customPriceRepo.upsert({
+      tenantId: 'tenant-1',
+      priceId: 'price_custom_1',
+      plan: 'enterprise',
+      expectedAmountEur: 50000,
+      seats: 10,
+    });
+    stubWebhookEvent({
+      id: 'evt_custom_amount',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'enterprise' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+        amount_total: 2_900,
+        line_items: { data: [{ price: { id: 'price_custom_1' } }] },
+      },
+    });
+    const upsert = vi.spyOn(subRepo, 'upsert');
+
+    await expect(service().handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(await subRepo.findByTenantId('tenant-1')).toBeUndefined();
+  });
+
+  it('grants nothing when the custom price belongs to another tenant', async () => {
+    await customPriceRepo.upsert({
+      tenantId: 'tenant-2',
+      priceId: 'price_custom_1',
+      plan: 'enterprise',
+      expectedAmountEur: 50000,
+      seats: 10,
+    });
+    stubWebhookEvent({
+      id: 'evt_custom_tenant',
+      type: 'checkout.session.completed',
+      object: {
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'enterprise' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+        amount_total: 5_000_000,
+        line_items: { data: [{ price: { id: 'price_custom_1' } }] },
+      },
+    });
+    const upsert = vi.spyOn(subRepo, 'upsert');
+
+    await expect(service().handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(await subRepo.findByTenantId('tenant-1')).toBeUndefined();
+  });
+
+  it('retrieves the session from Stripe when the payload carries no line items', async () => {
+    mockStripeApi.retrieveSession.mockResolvedValue({
+      id: 'cs_1',
+      line_items: { data: [{ price: { id: 'price_team_monthly' } }] },
+    });
+    stubWebhookEvent({
+      id: 'evt_retrieve',
+      type: 'checkout.session.completed',
+      object: {
+        id: 'cs_1',
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'pro' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+      },
+    });
+
+    await service().handleWebhookEvent(RAW, 'sig');
+
+    expect(mockStripeApi.retrieveSession).toHaveBeenCalledWith('cs_1', {
+      expand: ['line_items.data.price'],
+    });
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.plan).toBe('team');
+  });
+
+  it('falls back to the metadata plan when the session cannot be retrieved', async () => {
+    mockStripeApi.retrieveSession.mockRejectedValue(new Error('stripe unreachable'));
+    stubWebhookEvent({
+      id: 'evt_retrieve_failed',
+      type: 'checkout.session.completed',
+      object: {
+        id: 'cs_1',
+        mode: 'subscription',
+        metadata: { tenantId: 'tenant-1', plan: 'pro' },
+        customer: 'cus_1',
+        subscription: 'sub_1',
+      },
+    });
+
+    await expect(service().handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.plan).toBe('pro');
   });
 });
 

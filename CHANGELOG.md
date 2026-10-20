@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.0](https://github.com/AlessioBrillo/dominus/compare/v1.2.0...v1.3.0) (2026-10-20)
+
+
+### Features
+
+* **billing:** collect the tax inputs and the withdrawal consent (ADR-0090) ([#498](https://github.com/AlessioBrillo/dominus/issues/498)) ([82dae3d](https://github.com/AlessioBrillo/dominus/commit/82dae3d7f838f67eedb726bcca815ef9e9c1a881))
+* **billing:** the granted plan comes from the price ([0ca371e](https://github.com/AlessioBrillo/dominus/commit/0ca371ea96eb2333d8628eb5920ef50441271df3))
+* **frontend:** m3/m5 pages, legal pages, and tenant credentials ([#494](https://github.com/AlessioBrillo/dominus/issues/494)) ([3e85330](https://github.com/AlessioBrillo/dominus/commit/3e85330a482c02be05d2dba0efd48a0b7c74f2a2))
+* **gdpr:** data-subject export and erasure (GDPR art. 15 and 17) ([#499](https://github.com/AlessioBrillo/dominus/issues/499)) ([d2e87af](https://github.com/AlessioBrillo/dominus/commit/d2e87af5809e4b574b7951efa5cb8eaf86f22ca0))
+* **legal:** server-owned legal surface for the EU operator (ADR-0090) ([#497](https://github.com/AlessioBrillo/dominus/issues/497)) ([79fd293](https://github.com/AlessioBrillo/dominus/commit/79fd29394def7b763ba069ccdf11012a7faf8b25))
+* **ops:** the launch posture is measured, not promised ([a258c0d](https://github.com/AlessioBrillo/dominus/commit/a258c0d6bb8dce024ad288068ae4f4de1884b8b8))
+* **ops:** the SSH ingress is closed by default ([3fd276c](https://github.com/AlessioBrillo/dominus/commit/3fd276c808d4f8a59227fc8c0c340e866c3c74e0))
+* **release:** the launch gate is a command, not a document (ADR-0090) ([#500](https://github.com/AlessioBrillo/dominus/issues/500)) ([e4f470b](https://github.com/AlessioBrillo/dominus/commit/e4f470bc6a053b4e61ec80a03add28d2876ebeda))
+* **release:** the published artifact is verified, not assumed ([a9271c9](https://github.com/AlessioBrillo/dominus/commit/a9271c90fe8094908f00583e0677d1a33c913ba8))
+
+
+### Bug Fixes
+
+* **ci:** green trunk — e2e strict-mode drift, smoke gate, credential-shaped URIs ([#495](https://github.com/AlessioBrillo/dominus/issues/495)) ([69a9293](https://github.com/AlessioBrillo/dominus/commit/69a9293c5da8ff118d66e32bccd3f0a0d24b1462))
+* **deps:** bump vitest to 4.1.12 and unbind the loopback test from the ephemeral port range ([#501](https://github.com/AlessioBrillo/dominus/issues/501)) ([59e6da0](https://github.com/AlessioBrillo/dominus/commit/59e6da090a1eafa77e6bb71150c335a49cb3b1d4))
+* **docker:** the build context must carry the repository's npm rules ([#503](https://github.com/AlessioBrillo/dominus/issues/503)) ([e2e7bff](https://github.com/AlessioBrillo/dominus/commit/e2e7bff4cc6db0316933b499d5c0ffb172306778))
+* **ops:** the restore drill proves the data, not the layout ([e4bc317](https://github.com/AlessioBrillo/dominus/commit/e4bc3179b0fede84d08b3345dba875673ff720d4))
+
+
+### Performance Improvements
+
+* **dns:** the first run does not wait for a missing resolver ([2cb2d26](https://github.com/AlessioBrillo/dominus/commit/2cb2d26f030913fee8301b4f47997d6600913b2b))
+
+
+### Documentation
+
+* **release:** the launch state and the support promise ([25f91ca](https://github.com/AlessioBrillo/dominus/commit/25f91ca41931cd152904e61d9caff314700af3d7))
+
 ## [1.2.0](https://github.com/AlessioBrillo/dominus/compare/v1.1.0...v1.2.0) (2026-10-14)
 
 ### Features

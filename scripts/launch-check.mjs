@@ -165,6 +165,32 @@ if (existsSync(alertmanagerPath)) {
 }
 
 /* ------------------------------------------------------------------ *
+ * 4b. The external probe
+ *
+ * Prometheus, Alertmanager and Grafana run on the app node. An app-node
+ * outage therefore takes the alerting with it: the monitor that would
+ * report the outage is down in the same failure. The SLA measures
+ * availability with an external probe, and until that probe exists the
+ * figure is an intention rather than a measurement.
+ * ------------------------------------------------------------------ */
+const externalProbe = process.env.EXTERNAL_PROBE_URL;
+if (externalProbe && !isPlaceholder(externalProbe)) {
+  record('pass', 'external monitoring', `the availability probe is configured (${externalProbe})`);
+} else if (requirePaid) {
+  record(
+    'fail',
+    'external monitoring',
+    'EXTERNAL_PROBE_URL is not set — a paid customer is promised a measured availability, and the measurement has to exist',
+  );
+} else {
+  record(
+    'warn',
+    'external monitoring',
+    'EXTERNAL_PROBE_URL is not set — the app node’s own monitor cannot report the app node’s outage',
+  );
+}
+
+/* ------------------------------------------------------------------ *
  * 5. The third-party security audit (a decision on record: before the paid launch)
  * ------------------------------------------------------------------ */
 const securityDir = join(root, 'docs', 'security');

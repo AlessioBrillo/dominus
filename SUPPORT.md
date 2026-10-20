@@ -18,7 +18,7 @@ offering. Here's how to get help.
 | [GitHub Issues](https://github.com/AlessioBrillo/dominus/issues) | Bug reports, feature requests | Community & Cloud users |
 | [GitHub Discussions](https://github.com/AlessioBrillo/dominus/discussions) | Q&A, show and tell, ideas | Community & Cloud users |
 | [Security](SECURITY.md) | Report vulnerabilities privately | All users |
-| DOMINUS Cloud support | Managed infrastructure issues | Cloud subscribers |
+| DOMINUS Cloud support | The support address published in the legal notice (`/legal-notice`) | Cloud subscribers |
 | Commercial license inquiries | Enterprise licensing | Organizations |
 
 ### Response expectations
@@ -27,11 +27,17 @@ offering. Here's how to get help.
 | --- | --- | --- |
 | Community (self-hosted) | GitHub Issues and Discussions | best effort, typically within 7 business days |
 | DOMINUS Cloud — Pro | Email | 1 business day |
-| DOMINUS Cloud — Team | Email + Slack | 4 business hours |
+| DOMINUS Cloud — Team | Email + Slack | 1 business day |
 | DOMINUS Cloud — Enterprise | named address in your order form | 4 business hours for severity 1 — see the [SLA](docs/operations/sla.md) |
 
 There is no paid support tier for the community edition, and no SLA attaches
 to it. Community support is what maintainers and users volunteer.
+
+> The response times are a commitment to a person, not to a queue. The
+> Enterprise first-response time is contractual; the Cloud tiers promise
+> what a single maintainer can actually keep. If a paid tier ever needs a
+> faster answer than the team can give, the answer is more people, not a
+> smaller number in the table.
 
 ## Before Opening an Issue
 

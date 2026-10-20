@@ -5,14 +5,14 @@ roadmap entry. It records what was verified, what is missing, and who
 decides what. It is written to be read by someone joining the effort, so it
 states facts with file paths rather than intentions.
 
-Everything below was checked against the repository on 2026-10-14.
+Everything below was checked against the repository on 2026-10-20.
 
 ## What is solid
 
 - 2,575 backend tests and 407 frontend tests green; 18 CI jobs including a
   PostgreSQL matrix, Docker smoke, OpenAPI contract coverage and a WCAG 2.1
   AA a11y gate.
-- 83 accepted ADRs. The architecture record is genuinely current —
+- 90 accepted ADRs. The architecture record is genuinely current —
   `check-doc-drift` derives route/repository/handler/CLI counts from the
   source tree, so the documents cannot silently rot.
 - Fail-closed posture on the parts that matter: DNS consensus (ADR-0039,
@@ -25,6 +25,9 @@ Everything below was checked against the repository on 2026-10-14.
 - Release engineering: migrate-before-roll (ADR-0061), additive-migration
   gate, PITR backup with a restore drill script, rollback on health-poll
   failure.
+- The published artifact is verified, not assumed (ADR-0091): the local gate
+  installs and runs the tarball before a tag, and the release workflow
+  installs and runs the published package after the publish.
 
 ## Blockers, in the order they must be cleared
 
@@ -58,7 +61,7 @@ rule is art. 7 of D.Lgs. 70/2003, not the German Impressum.
 | Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; **the operator identity is still a placeholder** |
 | Terms of Service | published at `/terms`; withdrawal (art. 52/59 Consumer Code) and reverse charge included |
 | Privacy Notice | published at `/privacy`; sub-processors, transfers and retention included |
-| DPA / AVV (GDPR art. 28) | **MISSING** — still to be drafted with the accountant |
+| DPA / AVV (GDPR art. 28) | **template published, not executed** — `docs/legal/data-processing-agreement.md`; the operator's fields and the review with the accountant and the lawyer are still open |
 | Cookie/consent notice | folded into the privacy notice: no third-party analytics, no tracking cookies, so no consent is required |
 
 The documents are server-owned structured data (`src/services/legal-content.ts`),
@@ -78,12 +81,13 @@ are missing.
 The documents were drafted **without a formal legal review**, and that is a
 recorded decision (ADR-0090), not an omission. A review remains open work.
 
-`src/services/billing-service.ts` enables Stripe Tax (`automatic_tax`) but
-does not collect a tax ID, does not require a billing address and does not
-update an existing customer: without those, an EU business customer cannot
-apply the reverse charge and the tax calculation on a returning customer is
-not reliable. The decision on record is **Stripe Tax**, which computes and
-collects and is the lower-risk choice absent a dedicated accountant.
+`src/services/billing-service.ts` enables Stripe Tax (`automatic_tax`) and
+collects the billing address, the VAT ID and the art. 59(1)(o) withdrawal
+consent (ADR-0090, v1.3.0). The plan granted on a completed checkout is
+derived from the **Stripe price id**, not from the session metadata
+(ADR-0093): the price id is read from the event payload or from the session
+retrieved with the line items expanded, and a price id that maps to no plan
+grants nothing.
 
 ### 3. Infrastructure has never been provisioned — MISSING
 
@@ -98,6 +102,21 @@ running. Concretely unverified:
   restore drill has never been executed against a real environment).
 - The `migrate-before-roll` rollout against a live database.
 
+Two properties of the deployment are now decided in the code and have to be
+exercised by the first apply (ADR-0094):
+
+- **The state is a secret store.** It holds the database passwords, the B2
+  key and the whole `app_env` map. The remote backend (Backblaze B2,
+  S3-compatible) is configured through `backend.hcl`, which is gitignored
+  like `terraform.tfvars`; a state file on a laptop is a lost deployment
+  and a leaked set of credentials.
+- **SSH ingress is closed by default.** `ssh_allowed_cidrs` defaults to
+  empty and the apply is refused until the operator lists their own CIDRs
+  or sets the explicit `allow_public_ssh = true`. The deploy pipeline
+  reaches the app node from GitHub runners with dynamic egress addresses,
+  so the opt-in is the realistic choice today — what changes is that the
+  decision is written down instead of inherited from a default.
+
 ### 4. Monitoring does not alert anyone — MISSING
 
 `deploy/prometheus/alertmanager.yml` ships with
@@ -110,7 +129,30 @@ A startup now warns when `TRUST_PROXY_DEPTH` is unset, which is the
 misconfiguration that silently keys every per-IP rate limit on the proxy
 instead of the client.
 
-### 5. Scale — RECORDED, NOT CLOSED
+There is a second, quieter gap: Prometheus, Alertmanager and Grafana run on
+the app node, so the monitor that would report an app-node outage is down
+in the same failure. The SLA measures availability with an external probe,
+and that probe does not exist yet. The specification and the configuration
+are in [operations/external-monitoring.md](../operations/external-monitoring.md)
+and `deploy/monitoring/uptime-probe.yml`; the launch gate warns without
+`EXTERNAL_PROBE_URL` and fails with `--paid`.
+
+### 5. The restore drill proves the layout, not the data — CLOSED IN CODE, NOT YET RUN
+
+`scripts/restore-drill.mjs --pg-base` checked that a `pg_basebackup`
+directory has the expected files. That is a layout check: it never
+restored, never replayed a WAL segment and never compared a row, so the
+RTO in [operations/rto-rpo.md](../operations/rto-rpo.md) was a target and
+not a measurement.
+
+`scripts/restore-drill.mjs --pg-restore` is the rehearsal: it restores a
+base backup, replays the archived WAL, waits for the recovery to finish
+instead of assuming it did, proves it is talking to the restored instance
+(the system identifier in the manifest) and compares row counts. It has
+never run against a real PostgreSQL, which is exactly what the first
+staging drill has to do.
+
+### 6. Scale — RECORDED, NOT CLOSED
 
 The authenticated API rate limiter is in-process (`express-rate-limit` with
 no store); Redis backs the public router only (ADR-0041/0052). Cloud mode
@@ -132,7 +174,11 @@ proxy. This is a limiter change, not a config change.
 | Tiers at launch | Free + Pro + Team; Enterprise on contract |
 | Third-party security audit | Before the launch, not after |
 | Legal texts | Drafted without a formal review; recorded as an accepted risk in ADR-0090 |
-| Protected rate limiter | Single replica at launch; the shared store comes with the multi-replica topology |
+| Protected rate limiter | Single replica at launch; the shared store comes with the multi-replica topology (ADR-0094) |
+| Availability | One replica, measured by an external probe outside the app node (ADR-0094) |
+| Ingress | Closed by default; the operator writes the decision down at apply time (ADR-0094) |
+| Plan granted on checkout | Derived from the Stripe price id, never from the session metadata (ADR-0093) |
+| Release | The published artifact is installed and run before and after the publish (ADR-0091) |
 | Version | v1.3.0 |
 
 ## Recommended sequence
@@ -150,17 +196,19 @@ it is `npm run launch:check`.
    the VAT ID and takes the withdrawal consent. **Left for a human**: the
    operator identity (`LEGAL_*`), the fiscal position, the review of the
    texts, and the three Stripe verification scenarios.
-2. **Provision the infrastructure for real** — `terraform apply`, point DNS,
-   confirm TLS and the health check, wire a real Alertmanager webhook, run
-   an actual restore drill against real B2. This is the work that has never
-   been done and is the largest technical unknown. **Unchanged: still
-   undone.**
+2. **Provision the infrastructure for real** — `terraform apply` with the
+   remote state, point DNS, confirm TLS and the health check, wire a real
+   Alertmanager webhook, configure the external probe, run an actual
+   restore drill against real B2 with `--pg-restore`. This is the work that
+   has never been done and is the largest technical unknown. **Partly done
+   in code** (ADR-0094): the fail-closed ingress, the remote state and the
+   real rehearsal are implemented; **the execution is still undone.**
 3. **Security audit** — external, scoped to the multi-tenant surface (RLS,
    `runWithTenant`, pooled PostgreSQL), the OIDC session and CSRF, the public
    namespace (`/public/*`, `AnonScoringService`, trademark budget), and the
    Stripe webhook. The first-party review of those four areas is in
-   [audit-2026-08.md](../security/audit-2026-08.md). **Unchanged: still
-   undone.**
+   [audit-2026-08.md](../security/audit-2026-08.md), and the metadata-trust
+   finding it recorded is closed (ADR-0093). **Unchanged: still undone.**
 4. **Remediate, then release the tiers.** The tiers stay behind the existing
    fail-closed billing gate until the operator has a fiscal position and the
    gate passes.
@@ -174,6 +222,12 @@ it is `npm run launch:check`.
 | No way to export or erase a tenant's data | `GET /api/v1/tenant/export`, `DELETE /api/v1/tenant` and the `dominus tenant` commands |
 | The launch state was a document | `npm run launch:check` answers with exit 0 or exit 1 |
 | The E2E suite was not in the local gate, and master was red | The smoke gate is in `npm run gate`; master is green |
+| The plan granted on checkout was read from the session metadata | It is derived from the Stripe price id, and an unknown price id grants nothing (ADR-0093) |
+| The release workflow could not be rehearsed from a branch | The version is resolved explicitly and the dry run works; the published artifact is installed and run (ADR-0091) |
+| The restore drill checked the layout of a base backup | `--pg-restore` restores, replays the WAL, waits for the recovery and compares row counts (ADR-0094) |
+| The availability figure had no instrument | An external probe outside the app node, with a dead-man's switch (ADR-0094) |
+| SSH ingress was open to the internet by default | The apply is refused until the operator writes the decision down (ADR-0094) |
+| The community first run waited 30 s for a resolver that is usually not there | Five seconds in the community edition, thirty in the cloud (ADR-0092) |
 
 ## What this document does not cover
 

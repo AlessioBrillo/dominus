@@ -1,0 +1,48 @@
+# Terraform remote state for DOMINUS Cloud — Backblaze B2 (S3-compatible).
+#
+# Copy to backend.hcl, fill in the bucket, and initialise with the
+# partial configuration:
+#
+#   cp backend.hcl.example backend.hcl
+#   $EDITOR backend.hcl
+#   terraform init -backend-config=backend.hcl
+#
+# WHY this file exists: the Terraform state is not a cache of the plan,
+# it is a secret store. It carries the rendered cloud-init user_data and
+# therefore the three database passwords, the B2 application key and the
+# whole app_env map (JWT_SECRET, STRIPE_*, API_KEYS) in plaintext. A
+# local terraform.tfstate is that secret store on a laptop — lost with
+# the machine, stolen with the machine, swept into a backup service with
+# the machine. It must not live on a laptop.
+#
+# backend.hcl itself must be gitignored exactly like terraform.tfvars:
+# it names the bucket and, if the credentials are written into it, the
+# access key that can read and write the state.
+
+bucket = "dominus-tfstate"
+key    = "dominus/terraform.tfstate"
+region = "us-east-005"
+
+# B2's S3 endpoint. B2 is not region-aware in the AWS sense: the
+# credential and region checks are skipped, and path-style addressing is
+# mandatory — B2 rejects the virtual-host style bucket names the AWS
+# SDK would otherwise use.
+endpoint = "https://s3.us-east-005.backblazeb2.com"
+
+skip_credentials_validation = true
+skip_region_validation      = true
+use_path_style              = true
+
+# Credentials: prefer the environment over this file, so the file holds
+# only the bucket coordinates and can be shared more freely.
+#
+#   export AWS_ACCESS_KEY_ID="..."
+#   export AWS_SECRET_ACCESS_KEY="..."
+#
+# A B2 application key (not the master key) with write access to this
+# bucket only is enough — see docs/operations/secrets.md for the scope
+# and the rotation. If the credentials are written here instead, this
+# file is a secret and must never be committed:
+#
+# access_key = "REPLACE_WITH_B2_KEY_ID"
+# secret_key = "REPLACE_WITH_B2_APPLICATION_KEY"
