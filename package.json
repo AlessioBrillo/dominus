@@ -1,6 +1,6 @@
 {
   "name": "dominus-oss",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Open-source decision-support engine for buying, reselling, and managing DNS domain portfolios — self-hosted community edition or managed DOMINUS Cloud",
   "private": false,
   "license": "AGPL-3.0-only",
@@ -55,9 +55,9 @@
     "release:dry": "standard-version --dry-run",
     "prepush": "npm run gate",
     "prepush:local": "npm run gate",
-    "gate": "npm run typecheck && npm run build:frontend && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run release:verify -- --pack && npm run check:doc-drift && npm run check:legal-placeholders && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test -- --coverage && cd .. && npm run test:e2e:smoke",
+    "gate": "npm run typecheck && npm run build:frontend && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run release:verify -- --pack && npm run check:doc-drift && npm run check:release-consistency && npm run check:legal-placeholders && npm test -- --coverage && cd frontend && npm run typecheck && npm run lint && npm run test -- --coverage && cd .. && npm run test:e2e:smoke",
     "gate:docker": "node scripts/docker-smoke.mjs",
-    "ci:backend": "npm run typecheck && npm run build:frontend && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run release:verify -- --pack && npm run check:doc-drift && npm test -- --coverage",
+    "ci:backend": "npm run typecheck && npm run build:frontend && npm run build && npm run db:sync:check && npm run lint && npm run format:check && npm run check:migration-compat && npm run check:sql-portability && npm run notices:check && npm run adr:index:check && npm run check:pack && npm run release:verify -- --pack && npm run check:doc-drift && npm run check:release-consistency && npm test -- --coverage",
     "ci:frontend": "cd frontend && npm run typecheck && npm run lint && npm run test && npm run build",
     "ci:local": "npm run typecheck && npm run build && npm run db:sync:check && npm run check:migration-compat && npm test",
     "ci:local:frontend": "cd frontend && npm run typecheck && npm run test && npm run build",
@@ -75,8 +75,10 @@
     "check:pack": "node scripts/check-pack.mjs",
     "release:verify": "node scripts/verify-release.mjs",
     "check:doc-drift": "node scripts/check-doc-drift.mjs",
+    "check:release-consistency": "node scripts/check-release-consistency.mjs",
     "check:legal-placeholders": "node scripts/check-legal-placeholders.mjs",
     "launch:check": "node scripts/launch-check.mjs",
+    "acceptance:cloud": "node scripts/acceptance/cloud-acceptance.mjs",
     "prepare": "husky"
   },
   "lint-staged": {

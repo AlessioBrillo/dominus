@@ -193,9 +193,46 @@ jobs:
         if: env.DRY_RUN == 'true'
         run: npm publish --dry-run --provenance
 
-      - name: Publish to npm
+      # The publish is idempotent. npm refuses to overwrite a version that
+      # is already on the registry (E403), and the only way to claim the
+      # package name before the trusted publisher can be configured is a
+      # manual publish — so a re-run of this workflow for a version that is
+      # already published used to fail here, and because `verify` depends
+      # on this job, the verification of the PUBLISHED artifact was skipped
+      # with it. The artifact stayed unverified for the exact reason it was
+      # supposed to be checked. Detect the existing version and skip.
+      - name: Check whether the version is already published
+        id: npm-version-state
         if: env.DRY_RUN != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PACKAGE_NAME: dominus-oss
+        run: |
+          set -euo pipefail
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "${PACKAGE_NAME}@${VERSION} is already on the registry — skipping the publish."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "${PACKAGE_NAME}@${VERSION} is not published yet."
+          fi
+
+      - name: Publish to npm
+        if: env.DRY_RUN != 'true' && steps.npm-version-state.outputs.published != 'true'
         run: npm publish --provenance --access public
+
+      - name: Report the npm state
+        if: always() && env.DRY_RUN != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PUBLISHED: ${{ steps.npm-version-state.outputs.published }}
+        run: |
+          set -euo pipefail
+          if [ "${PUBLISHED}" = "true" ]; then
+            echo "::notice title=npm::${VERSION} was already published — the verify job still checks the published artifact."
+          else
+            echo "::notice title=npm::${VERSION} publish step completed."
+          fi
 
   # --------------------------------------------------------------------
   # The published artifact, verified
@@ -211,6 +248,12 @@ jobs:
   # A failure here cannot un-publish the package: the response is to fix
   # the artifact and publish a patch version (`npm deprecate` the broken
   # one in the meantime).
+  #
+  # The job depends on `release` for the resolved version, not for the
+  # publish: the publish step above is idempotent, so a version that is
+  # already on the registry no longer fails the release job and no longer
+  # takes this verification down with it. A published artifact is always
+  # verified, however it got there.
   verify:
     name: Verify the published artifact
     runs-on: ubuntu-latest

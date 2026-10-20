@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.1](https://github.com/AlessioBrillo/dominus/compare/v1.3.0...v1.3.1) (2026-10-20)
+
+### Features
+
+* **acceptance:** the Cloud acceptance suite (ADR-0095) — a production-parity
+  stack (PostgreSQL with RLS, Redis, api/worker/scheduler, two tenants) and
+  the assertions that only that stack can produce: tenant isolation at the
+  API level and at the database level, the Stripe webhook with a signed
+  event, the plan and usage surface, the GDPR export and erasure, the
+  metrics token, the public legal surface, and the scheduler → queue →
+  worker path. `npm run acceptance:cloud`.
+* **release:** the version in the README, the Terraform example, the docker
+  smoke and the CHANGELOG are checked against `package.json`
+  (`npm run check:release-consistency`), so a release cannot ship with the
+  repository still describing the previous one.
+
+### Bug Fixes
+
+* **cli:** the CLI no longer dies in PostgreSQL mode. The backtest and the
+  maintenance commands checked for the SQLite handle while the command
+  line was being built, and the check called `process.exit(1)`: in the
+  Cloud edition (PostgreSQL) that killed every command before it could
+  run — including `dominus keys create`, the documented way to mint the
+  first API key of a fresh deployment, and `dominus scheduler run`. A
+  command that cannot run in this deployment now refuses at invocation.
+* **cli:** `dominus keys create` reads the row it wrote back for the
+  tenant it wrote it for, not for the ambient tenant context. The
+  bootstrap of a Cloud deployment writes outside any tenant scope on
+  purpose, so the read-back found nothing and the command crashed.
+* **cli:** `dominus scheduler run <job>` works. The job definitions were
+  created only by the scheduler's `start()`, which only the long-running
+  scheduler process calls, so the manual run answered "Unknown job".
+  The definitions are now registered without arming the cron timers.
+* **cli:** `dominus health` reports the PostgreSQL connection instead of
+  dereferencing a null handle in the Cloud edition.
+* **cli:** the CLI releases the connection pool and the Redis client when
+  the command is done. In PostgreSQL mode they kept the event loop alive,
+  so every command printed its output and then hung — `dominus keys
+  create` returned the key and never returned to the shell.
+* **ops:** the worker and the scheduler images boot again. They set
+  `PORT=0`, which the shared configuration rejects ("PORT: Too small"),
+  so both containers crash-looped at boot in every deployment that did
+  not override the variable — the community compose stack included. The
+  failure was invisible: the API kept serving.
+* **release:** the npm publish is idempotent — a version that is already on
+  the registry is skipped instead of failing, and the verification of the
+  published artifact runs anyway (it used to be skipped with the failed
+  publish, which is exactly the case it exists for).
+* **release:** `image_tag` has no default in Terraform any more, so a first
+  apply cannot boot a release that was current when the file was written.
+* **release:** the docker smoke no longer pins a version by hand; it uses
+  the published `master` image unless the operator names a tag, and it
+  now asserts that the worker and the scheduler are running — a
+  crash-looping container is a failed stack, not a detail of one service.
+* **ops:** the deploy workflow has a production and a staging target, each
+  with its own environment and secrets. A release tag deploys to
+  production; staging is an explicit dispatch.
+* **ops:** the Terraform example no longer advertises `JWT_SECRET` (the
+  application does not read it) and no longer suggests `API_KEYS` for the
+  Cloud edition, where the keys live in the database and are minted with
+  `dominus keys create`.
+* **docs:** the npm distribution section states that the provenance
+  attestation is part of the missing publish, not of what is already
+  published — npm attaches it to the tarball.
+* **docs:** the README quickstart has a PowerShell path, and the project
+  status names the current release.
+
 ## [1.3.0](https://github.com/AlessioBrillo/dominus/compare/v1.2.0...v1.3.0) (2026-10-20)
 
 
