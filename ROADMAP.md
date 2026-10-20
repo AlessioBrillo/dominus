@@ -1,10 +1,14 @@
 # Roadmap
 
-DOMINUS v1.0.0 — DOMINUS Cloud MVP (released).
-v1.1.0 — Release hardening (released).
-v1.2.0 — Post-acquisition automation (in progress).
-Next: v1.3.0 — Launch readiness: the legal surface, the tax and consent
-compliance, the data-subject rights and the launch gate.
+DOMINUS v1.0.0 - DOMINUS Cloud MVP (released).
+v1.1.0 - Release hardening (released).
+v1.2.0 - Post-acquisition automation (released; the marketplace vendor
+adapters remain blocked on vendor access).
+v1.3.0 - Launch readiness: the legal surface, the tax and consent
+compliance, the data-subject rights, the launch gate and the verified
+artifact (released).
+Next: the infrastructure provisioned for real, the operator identity, and
+the paid tiers behind the third-party audit.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 
@@ -214,7 +218,7 @@ estimates and subject to change.
 
 ## v1.2.0 — Post-Acquisition Automation (ADR-0083)
 
-> **Status**: In progress
+> **Status**: Released (the M4 vendor adapters stay blocked on vendor access)
 > **Focus**: automated lifecycle after the buy decision — site, indexing,
 > DNS delegation, parking/monetization, marketplace listing
 
@@ -257,9 +261,10 @@ estimates and subject to change.
       at `GET /api/v1/sustainability` and in the Portfolio dashboard, and
       fed into the drop engine as a Reprice signal (never an auto-drop)
 
-## v1.3.0 — Launch readiness (ADR-0090)
+## v1.3.0 — Launch readiness (ADR-0090, ADR-0091, ADR-0092, ADR-0093, ADR-0094)
 
-> **Status**: In progress
+> **Status**: Released — the code is done; what remains is the operator's
+> work (identity, fiscal position, infrastructure, audit)
 > **Focus**: the public launch of DOMINUS Cloud — the legal surface, the
 > tax and consumer-law compliance, the data-subject rights, and a launch
 > gate that can be executed

@@ -110,11 +110,13 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.2.0 — release integrity: trademark gate enforced on every
-purchase path (API, CLI, auto-approval, bid), tenant isolation fixes,
-operator role, PostgreSQL parity tested in CI, WCAG 2.1 AA gate,
-Unbound as the single DNS source of truth. v1.0.0 introduced the DOMINUS
-Cloud MVP. Next: v1.3.0 — self-hosted and SaaS hardening.
+DOMINUS v1.3.0 — launch readiness: the legal surface for the EU operator
+(art. 7 D.Lgs. 70/2003), the tax inputs and the withdrawal consent at
+checkout, the data-subject rights (GDPR art. 15 and 17), a launch gate that
+can be executed, and a published artifact that is verified before and after
+the publish. v1.0.0 introduced the DOMINUS Cloud MVP. Next: the
+infrastructure provisioned for real, the operator identity, and the paid
+tiers behind the third-party audit.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
