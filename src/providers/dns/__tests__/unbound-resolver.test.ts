@@ -826,16 +826,58 @@ describe('UnboundResolver pre-binding socket check (live loopback sockets)', () 
     const { createServer } = await import('node:net');
     const { createSocket } = await import('node:dgram');
 
-    // TCP acceptor on an ephemeral port; UDP echo on the SAME port number
-    // (TCP and UDP have separate number spaces, like the real resolver).
-    const tcpServer = createServer((socket) => socket.end());
-    await new Promise<void>((resolve) => tcpServer.listen(0, '127.0.0.1', () => resolve()));
-    const port = (tcpServer.address() as { port: number }).port;
-    const udpServer = createSocket('udp4');
-    udpServer.on('message', (msg, rinfo) => {
-      udpServer.send(msg, rinfo.port, rinfo.address);
-    });
-    await new Promise<void>((resolve) => udpServer.bind(port, '127.0.0.1', () => resolve()));
+    // A TCP acceptor and a UDP echo server on the SAME port number (TCP and
+    // UDP have separate number spaces, like the real resolver).
+    //
+    // The port is chosen from a fixed range instead of an ephemeral one
+    // (`listen(0)`): on Windows the ephemeral range overlaps the port
+    // reservations Hyper-V and WSL put aside, and a UDP bind to one of
+    // those ports fails with EACCES. The test then failed intermittently
+    // with "bind EACCES 127.0.0.1:<port>" — a flake in the local gate that
+    // had nothing to do with the code under test.
+    const PORT_RANGE_START = 20000;
+    const PORT_RANGE_END = 20100;
+
+    let tcpServer: ReturnType<typeof createServer> | undefined;
+    let udpServer: ReturnType<typeof createSocket> | undefined;
+    let port = 0;
+
+    for (let candidate = PORT_RANGE_START; candidate < PORT_RANGE_END; candidate += 1) {
+      const server = createServer((socket) => socket.end());
+      const tcpBound = await new Promise<boolean>((resolve) => {
+        server.once('error', () => resolve(false));
+        server.listen(candidate, '127.0.0.1', () => resolve(true));
+      });
+      if (!tcpBound) {
+        server.close();
+        continue;
+      }
+
+      const echo = createSocket('udp4');
+      echo.on('message', (msg, rinfo) => {
+        echo.send(msg, rinfo.port, rinfo.address);
+      });
+      const udpBound = await new Promise<boolean>((resolve) => {
+        echo.once('error', () => resolve(false));
+        echo.bind(candidate, '127.0.0.1', () => resolve(true));
+      });
+      if (!udpBound) {
+        echo.close();
+        server.close();
+        continue;
+      }
+
+      tcpServer = server;
+      udpServer = echo;
+      port = candidate;
+      break;
+    }
+
+    if (!tcpServer || !udpServer) {
+      throw new Error(
+        `no port in ${PORT_RANGE_START}-${PORT_RANGE_END} accepted both a TCP and a UDP bind`,
+      );
+    }
 
     try {
       resolveFn.mockImplementation((domain) => {
