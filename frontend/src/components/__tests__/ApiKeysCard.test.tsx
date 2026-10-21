@@ -38,6 +38,11 @@ describe('ApiKeysCard', () => {
     expect(screen.getByText('never used')).toBeVisible();
   });
 
+  // The tests that type character by character get an explicit timeout:
+  // `userEvent.type` walks the input one keystroke at a time, and the
+  // default 5s budget is decided by how loaded the machine is rather than
+  // by the behaviour under test. A gate that reddens for the speed of the
+  // host is not a gate.
   it('creates a key and shows the secret once', async () => {
     vi.mocked(createApiKey).mockResolvedValue({
       id: 4,
@@ -56,7 +61,7 @@ describe('ApiKeysCard', () => {
     expect(createApiKey).toHaveBeenCalledWith('new', 'admin');
     expect(await screen.findByLabelText('New API key')).toHaveValue('dk_new_FULL_SECRET');
     expect(screen.getByRole('status')).toHaveTextContent(/will not see it again/i);
-  });
+  }, 15_000);
 
   it('requires a name', async () => {
     render(<ApiKeysCard />, { wrapper: createWrapper() });
@@ -77,7 +82,7 @@ describe('ApiKeysCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create key' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/no room for another key/i);
-  });
+  }, 15_000);
 
   it('revokes a key', async () => {
     vi.mocked(revokeApiKey).mockResolvedValue(undefined);

@@ -122,7 +122,28 @@ terraform plan && terraform apply       # needs HCLOUD_TOKEN
 - roll a release through `deploy.yml` (migrate-before-roll, ADR-0061) and
   rehearse the rollback.
 
-### 5. The third-party security audit
+### 5. The Cloud acceptance suite
+
+The Cloud topology has to run before it is deployed. The suite builds the
+working tree's images, starts PostgreSQL with the production init script,
+applies the migrations as the owner role, runs the api, the worker and
+the scheduler against the non-superuser app role, and asserts the things
+that only exist in the Cloud: tenant isolation at the API level and at
+the database level, the Stripe webhook, the plan and usage surface, the
+GDPR export and erasure, the metrics token, the scheduler → queue → worker
+path, and the SPA against the same data.
+
+```bash
+npm run acceptance:cloud
+```
+
+It is a command, not a document: exit 0 means the assertions passed. The
+scope and the boundaries are in
+[cloud-acceptance.md](cloud-acceptance.md) — the boundaries are the work
+list of the staging phase, not a disclaimer. It runs in CI on every pull
+request, so a Cloud regression cannot reach `master`.
+
+### 6. The third-party security audit
 
 The decision on record is that the audit happens **before** the paid launch,
 not after. The scope is the multi-tenant surface (RLS, `runWithTenant`,
@@ -134,7 +155,7 @@ for the auditor, not a substitute for it.
 Put the report in `docs/security/` with a name that contains "external" or
 "third-party": that is what the gate looks for.
 
-### 6. The npm distribution
+### 7. The npm distribution
 
 The community edition is distributed as `dominus-oss` on npm, published by
 the release workflow through OIDC trusted publishing with a provenance
@@ -144,18 +165,24 @@ publisher is not configured on the npm account. The one-time setup is in
 [npm-publishing.md](npm-publishing.md).
 
 Until that is done, `npx dominus-oss` does not exist, and the README must
-not claim otherwise. The GitHub Release, the container images and the
-provenance attestation are published: only the npm package is missing.
+not claim otherwise. The GitHub Release and the container images are
+published. The npm package is missing — and so is its provenance
+attestation: npm attaches the attestation to the published tarball, so
+there is nothing to verify while the package itself is absent. (The
+container images carry their own BuildKit provenance, which is a different
+mechanism and not a substitute.)
 
 The publish is re-runnable. Once the trusted publisher is configured:
 
 ```bash
-gh workflow run release.yml --ref v1.3.0
+gh workflow run release.yml --ref v1.3.1
 ```
 
 It rebuilds the same commit, updates the existing GitHub Release, and
 publishes the package; the `verify` job then installs it from the registry
-and runs it.
+and runs it. The publish step skips the versions that are already on the
+registry, so a re-run of an already published version updates the release
+notes and still runs the verification instead of failing and skipping it.
 
 The publish is now verified twice (ADR-0091):
 
@@ -172,7 +199,7 @@ The rehearsal of the publish itself is `gh workflow run release.yml -f
 dry_run=true`, which exercises the OIDC exchange for real without
 publishing.
 
-### 7. The launch
+### 8. The launch
 
 - the announcement (Product Hunt, Hacker News, the domain investor
   communities) with the launch checklist as the source of truth;
@@ -194,10 +221,11 @@ publishing.
 | fiscal position | the tax registration and the accountant's advice | private; the conclusion in the ADR |
 | operator identity | the gate passing | the output of `npm run launch:check` |
 | Stripe | the three scenarios | the table in [billing-tax-verification.md](billing-tax-verification.md) |
+| Cloud behaviour | the acceptance report | the output of `npm run acceptance:cloud` |
 | infrastructure | the applied plan, the TLS certificate, the health check | the deployment |
 | restore drill | the drill output | the operations log |
 | audit | the report | `docs/security/` |
-| npm | the provenance attestation | the release on npm |
+| npm | the published package and its provenance attestation | the release on npm |
 
 ## If something goes wrong
 

@@ -101,6 +101,7 @@ re-running the original arguments.
 | [0092](0092-community-first-run-resolver-latency.md)                           | The community first run does not wait for a resolver that is not there                               | 2026-10-20 | Accepted                            |
 | [0093](0093-subscription-plan-from-price.md)                                   | The granted plan is derived from the price, not from the metadata                                    | 2026-10-20 | Accepted                            |
 | [0094](0094-launch-posture-single-replica-external-probe.md)                   | One replica, one external probe: the launch posture is measured, not promised                        | 2026-10-20 | Accepted                            |
+| [0095](0095-cloud-acceptance-suite.md)                                         | The Cloud acceptance suite: production parity before the first paid deployment                       | 2026-10-20 | Accepted                            |
 
 ## Conventions
 

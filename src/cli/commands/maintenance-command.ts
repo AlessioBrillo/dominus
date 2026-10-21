@@ -36,7 +36,19 @@ function assertDb(db: Database.Database | null, cmd: string): Database.Database 
 }
 
 export function registerMaintenanceCommand(program: Command, deps: MaintenanceCommandDeps): void {
-  const rawDb = assertDb(deps.db, 'maintenance');
+  /**
+   * The SQLite requirement is checked when a maintenance subcommand RUNS,
+   * not when the CLI is built.
+   *
+   * It used to be checked at registration time, and the check called
+   * process.exit(1): in PostgreSQL mode — the Cloud edition — that killed
+   * the WHOLE command line before a single command could run, including
+   * `dominus keys create` and `dominus scheduler run`. A command that
+   * cannot run in this deployment must not take the other commands down
+   * with it.
+   */
+  const requireDb = (cmd: string): Database.Database => assertDb(deps.db, `maintenance ${cmd}`);
+
   const maintenance = program
     .command('maintenance')
     .description('Prune ephemeral data, backup, and vacuum the database');
@@ -69,6 +81,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
       const absPath = resolve(process.cwd(), path);
       mkdirSync(dirname(absPath), { recursive: true });
 
+      const rawDb = requireDb('backup');
       rawDb.pragma('wal_checkpoint(TRUNCATE)');
       if (absPath.includes("'")) {
         process.stderr.write('Error: backup path must not contain single quotes\n');
@@ -84,6 +97,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     .description('Run integrity_check, WAL checkpoint, and VACUUM to reclaim space')
     .action(() => {
       process.stdout.write('Running integrity_check...\n');
+      const rawDb = requireDb('vacuum');
       const integrity = rawDb.pragma('integrity_check') as unknown as string;
       if (integrity !== 'ok') {
         process.stderr.write(`INTEGRITY CHECK FAILED: ${integrity}\n`);
@@ -273,7 +287,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     .option('--force', 'Skip confirmation prompt (required for automation)')
     .option('--dry-run', 'Show what would be rolled back without executing')
     .action(async (migrationName: string, options: { force?: boolean; dryRun?: boolean }) => {
-      const rawDb = assertDb(deps.db, 'maintenance migrate rollback');
+      const rawDb = requireDb('migrate rollback');
       const provider = new SqliteProvider(rawDb, 30000, true); // externalLifecycle = true
 
       try {
@@ -343,7 +357,7 @@ export function registerMaintenanceCommand(program: Command, deps: MaintenanceCo
     .command('status')
     .description('Show applied migrations and pending migrations')
     .action(async () => {
-      const rawDb = assertDb(deps.db, 'maintenance migrate status');
+      const rawDb = requireDb('migrate status');
       const provider = new SqliteProvider(rawDb, 30000, true);
 
       try {

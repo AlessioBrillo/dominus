@@ -8,14 +8,17 @@
  * require a working Docker daemon; run them with `npm run gate:docker` before
  * any tag or any change to compose / Dockerfile / deploy/.
  *
- * Smoke 1 — base + Unbound: stack must render and start, /api/v1/health OK,
- * and a sample pipeline run completes (degraded without Unbound is still OK
- * for syntax, but Unbound overlay is the documented path).
- * Smoke 2 — prod overlay on a FRESH volume: postgres init must succeed
- * (catches B1: initdb.d scripts + DOMINUS_APP_PASSWORD), migrations run,
- * /api/v1/health OK.
- * Smoke 3 — compose config lint: both stacks render with `config --quiet`;
- * promtool checks alert rules (catches B3).
+ * Smoke 1 — base + Unbound, BUILT FROM THE WORKING TREE: the stack must
+ * render and start, /api/v1/health OK, and the worker and the scheduler
+ * must be RUNNING (a container that crash-loops is a failed stack, not a
+ * detail of one service).
+ * Smoke 2 — prod overlay on a FRESH volume, against the PUBLISHED image
+ * (the prod overlay references ghcr.io, not the local build): postgres
+ * init must succeed (catches B1: initdb.d scripts + DOMINUS_APP_PASSWORD),
+ * migrations run, /api/v1/health OK.
+ *
+ * The two smokes cover two different things on purpose: the working tree
+ * that is about to be tagged, and the artifact the consumers install.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -41,7 +44,19 @@ const SMOKE_ENV = {
   POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD ?? 'smoke-local-password',
   DOMINUS_APP_PASSWORD: process.env.DOMINUS_APP_PASSWORD ?? 'smoke-local-password',
   GRAFANA_ADMIN_PASSWORD: process.env.GRAFANA_ADMIN_PASSWORD ?? 'smoke-local-password',
-  DOMINUS_IMAGE_TAG: process.env.DOMINUS_IMAGE_TAG ?? 'v1.2.0',
+  // The prod overlay pulls the published image, so the tag has to exist in
+  // the registry. `master` is the only tag that is guaranteed to be there
+  // (the Deploy workflow pushes it on every master push); a release tag
+  // only exists after the tag was pushed, which is AFTER this gate is
+  // supposed to be green. Hardcoding a version here was how the smoke
+  // kept testing v1.2.0 for a v1.3.0 release: the gate was green and
+  // the artifact was from the wrong release.
+  //
+  // To smoke a release candidate, pin it explicitly:
+  //   DOMINUS_IMAGE_TAG=v1.3.1 npm run gate:docker
+  // The candidate itself is covered by the acceptance suite
+  // (npm run acceptance:cloud), which builds the working tree.
+  DOMINUS_IMAGE_TAG: process.env.DOMINUS_IMAGE_TAG ?? 'master',
 };
 
 /**
@@ -136,7 +151,15 @@ async function smokeBaseUnbound() {
     ok('Skipping base+unbound runtime smoke (no Docker daemon)');
     return;
   }
-  process.stdout.write('\n== Smoke 1: base + Unbound ==\n');
+  process.stdout.write('\n== Smoke 1: base + Unbound (the working tree) ==\n');
+  // Build the images from the working tree FIRST. `up` does not rebuild:
+  // it reuses whatever image is lying around, so the smoke was testing a
+  // nine-day-old build and reporting it as the current one. The gap was
+  // invisible because the API kept serving while the worker and the
+  // scheduler crash-looped on a configuration error the stale image
+  // still had. This smoke is the pre-tag gate: it must test what is
+  // about to be tagged.
+  composeBuild(['api', 'worker', 'scheduler']);
   // Bring up the stack detached, wait for health, hit /api/v1/health, then down.
   sh('docker', ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.unbound.yml', 'up', '-d']);
   try {
@@ -146,9 +169,68 @@ async function smokeBaseUnbound() {
     } else {
       ok('base+unbound /api/v1/health OK');
     }
+    // The worker and the scheduler must be RUNNING, not merely present.
+    // They used to crash-loop at boot (the images set PORT=0, which the
+    // configuration rejects), and the smoke did not notice: the API kept
+    // serving, so the stack looked healthy while no job was ever
+    // processed. A process that has died is a failure of the stack, not a
+    // detail of one service.
+    for (const service of ['worker', 'scheduler']) {
+      const state = composeServiceState(service);
+      if (state === 'running') {
+        ok(`${service} is running`);
+      } else {
+        fail(`${service} is "${state}" — it must be running (see: docker compose logs ${service})`);
+      }
+    }
   } finally {
     sh('docker', ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.unbound.yml', 'down']);
   }
+}
+
+/** The compose state of one service ('running', 'exited', 'restarting', …). */
+function composeServiceState(service) {
+  const r = sh('docker', [
+    'compose',
+    '-f',
+    'docker-compose.yml',
+    '-f',
+    'docker-compose.unbound.yml',
+    'ps',
+    '--format',
+    '{{.State}}',
+    service,
+  ]);
+  if (r.error) return `unknown (${r.stderr || r.error.message})`;
+  const lines = String(r)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines.at(-1) ?? 'unknown';
+}
+
+/**
+ * Build the compose services from the working tree.
+ *
+ * The build is the slow part of the gate and it is the point: a smoke
+ * that reuses a stale image is a smoke of the past.
+ */
+function composeBuild(services) {
+  const r = sh('docker', [
+    'compose',
+    '-f',
+    'docker-compose.yml',
+    '-f',
+    'docker-compose.unbound.yml',
+    'build',
+    ...services,
+  ]);
+  if (r.error) {
+    fail(`the image build failed: ${r.stderr || r.error.message}`);
+    return false;
+  }
+  ok(`built ${services.join(', ')} from the working tree`);
+  return true;
 }
 
 // ── Smoke 2: prod overlay on fresh volume ───────────────────────────

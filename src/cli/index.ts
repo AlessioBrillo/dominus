@@ -143,11 +143,17 @@ export function createCli(options: CreateCliOptions): Command {
   registerBacktestCommand(program, { db, outcomeRepo, currentWeights });
   registerRunsCommand(program, { runsRepo, jobQueueService });
   const backupProvider = db ? new SqliteProvider(db) : undefined;
-  const backupService = new BackupService({
-    provider: backupProvider!,
-    backupDir: config.BACKUP_DIR,
-    retentionDays: config.BACKUP_RETENTION_DAYS,
-  });
+  // The backup service is SQLite-only (VACUUM INTO). In PostgreSQL mode
+  // there is no provider to back up, so there is no service: the command
+  // refuses with a clear message instead of dereferencing a missing
+  // provider.
+  const backupService = backupProvider
+    ? new BackupService({
+        provider: backupProvider,
+        backupDir: config.BACKUP_DIR,
+        retentionDays: config.BACKUP_RETENTION_DAYS,
+      })
+    : undefined;
   registerMaintenanceCommand(program, {
     db,
     trademarkRepo,
@@ -159,8 +165,14 @@ export function createCli(options: CreateCliOptions): Command {
     backupService,
   });
   registerProvidersCommand(program, { config });
-  registerHealthCommand(program, { db, config });
+  registerHealthCommand(program, { db, config, provider: options.provider });
   if (scheduler) {
+    // The job catalogue is created by the scheduler's start(), which only
+    // the long-running scheduler process calls. The CLI needs it for
+    // `dominus scheduler status` and `dominus scheduler run <job>`, so it
+    // registers the definitions here — WITHOUT arming the cron timers: a
+    // manual one-shot run must not leave a schedule behind.
+    scheduler.registerJobs();
     registerSchedulerCommand(program, { scheduler });
   }
 

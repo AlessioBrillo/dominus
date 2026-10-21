@@ -46,11 +46,17 @@ trusted-publishing release and a `--provenance` attestation. See
 > https://registry.npmjs.org/dominus-oss`, exactly like the `v1.2.0` one:
 > the trusted publisher is not configured on the npm account for this
 > repository. The package is **not** on npm yet. The workflow, the tarball,
-> the GitHub Release, the container images (`v1.3.0`, `v1.3.0-worker`,
-> `v1.3.0-scheduler`) and the provenance attestation are in place; the
-> remaining step is the npm-side one-time setup described in
-> [npm-publishing.md](npm-publishing.md), after which the publish is
-> re-runnable with `gh workflow run release.yml --ref v1.3.0`.
+> the GitHub Release and the container images (`v1.3.0`, `v1.3.0-worker`,
+> `v1.3.0-scheduler`) are in place; the remaining step is the npm-side
+> one-time setup described in [npm-publishing.md](npm-publishing.md), after
+> which the publish is re-runnable with
+> `gh workflow run release.yml --ref v1.3.1`.
+>
+> The npm provenance attestation is part of that missing step, not of what
+> is already published: npm attaches the attestation to the published
+> tarball, so there is no attestation to read while the package is absent.
+> The container images carry their own BuildKit provenance, which is a
+> different mechanism and does not stand in for it.
 >
 > What the release taught: `check-pack` was green throughout, because it
 > inspects the tarball the workflow builds and cannot see the artifact a
@@ -197,6 +203,19 @@ code instead of by hand. The full checklist, with the evidence to record,
 is in [launch-checklist.md](launch-checklist.md), and the mechanical half of
 it is `npm run launch:check`.
 
+0. **Prove the Cloud topology runs** — `npm run acceptance:cloud`
+   (ADR-0095). The suite builds the working tree's images, starts
+   PostgreSQL with the production init script, applies the migrations as
+   the owner role, runs the api/worker/scheduler against the
+   non-superuser app role, and asserts tenant isolation at the API and at
+   the database level, the Stripe webhook, the plan and usage surface, the
+   GDPR export and erasure, the metrics token and the scheduler → queue →
+   worker path. **It found five defects that would have reached the first
+   paid deployment** (the CLI was dead in PostgreSQL mode, the worker and
+   the scheduler images could not boot, the first API key could not be
+   minted, the manual run of a scheduled job did not work, and the CLI
+   never released its connections). The scope and the boundaries are in
+   [cloud-acceptance.md](cloud-acceptance.md).
 1. **Legal + VAT** — longest lead time, blocks revenue, can proceed in
    parallel with everything else. **Done in code** (ADR-0090): the legal
    notice, the terms of service and the privacy notice are server-owned
@@ -211,7 +230,10 @@ it is `npm run launch:check`.
    restore drill against real B2 with `--pg-restore`. This is the work that
    has never been done and is the largest technical unknown. **Partly done
    in code** (ADR-0094): the fail-closed ingress, the remote state and the
-   real rehearsal are implemented; **the execution is still undone.**
+   real rehearsal are implemented; **the execution is still undone.** The
+   deploy pipeline now has a `staging` target (an explicit dispatch) and a
+   `production` target (a release tag, with an approval), each with its
+   own secrets.
 3. **Security audit** — external, scoped to the multi-tenant surface (RLS,
    `runWithTenant`, pooled PostgreSQL), the OIDC session and CSRF, the public
    namespace (`/public/*`, `AnonScoringService`, trademark budget), and the
@@ -221,6 +243,18 @@ it is `npm run launch:check`.
 4. **Remediate, then release the tiers.** The tiers stay behind the existing
    fail-closed billing gate until the operator has a fiscal position and the
    gate passes.
+
+## What changed in v1.3.1
+
+| Was | Now |
+|---|---|
+| The Cloud topology had never run as a system | `npm run acceptance:cloud` (ADR-0095) — the production data topology, with the assertions that only it can produce |
+| The CLI died in PostgreSQL mode: every command, including `dominus keys create` | The SQLite-only commands refuse at invocation; the rest of the CLI works in the Cloud |
+| The worker and the scheduler images could not boot (`PORT=0`) | Both boot; the docker smoke asserts that they are running, not merely present |
+| The first API key of a Cloud deployment could not be minted | `dominus keys create` reads the row back for the tenant it wrote it for |
+| `dominus scheduler run <job>` answered "Unknown job" | The job catalogue is registered without arming the cron timers |
+| A tag pushed to `master` deployed to the only host, with no approval | Two targets: `staging` (an explicit dispatch) and `production` (a tag, with an environment approval) |
+| The repository could announce a version the deployment did not run | `npm run check:release-consistency` compares the README, the Terraform example, the docker smoke and the CHANGELOG with `package.json` |
 
 ## What changed in v1.3.0
 

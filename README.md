@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.3.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.3.1-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -107,6 +107,12 @@ Install the CLI from npm, no clone required:
 npx dominus-oss@latest score vintagecoffee.com
 ```
 
+`dominus-oss` is published by the release workflow with OIDC trusted
+publishing and a provenance attestation
+([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)). If the
+registry has no version yet — the first release of a new line, or a mirror
+that lags — the source and Docker paths below are equivalent.
+
 Or run from source:
 
 ```bash
@@ -120,6 +126,19 @@ npm run build
 # infrastructure and prints the full decision (ADR-0002).
 KEYWORD_DATA_PATH=examples/keywords-sample.json \
 COMPS_DATA_PATH=examples/comps-sample.csv \
+node dist/cli.js score vintagecoffee.com
+```
+
+On Windows (PowerShell) the same thing:
+
+```powershell
+git clone https://github.com/AlessioBrillo/dominus.git
+cd dominus
+npm install
+npm run build
+
+$env:KEYWORD_DATA_PATH = "examples/keywords-sample.json"
+$env:COMPS_DATA_PATH  = "examples/comps-sample.csv"
 node dist/cli.js score vintagecoffee.com
 ```
 
@@ -162,6 +181,16 @@ export API_KEYS="admin=$(openssl rand -hex 32)"   # the API refuses to start exp
 echo "$API_KEYS"                                  # keep this: the part after "admin=" is your login key
 mkdir -p data  # the container runs as non-root `dominus`: a daemon-created
                # ./data would be root-owned and SQLite cannot open it there
+docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
+```
+
+On Windows (PowerShell):
+
+```powershell
+$key = "admin=" + (openssl rand -hex 32)   # or: -join ((1..64) | % { Get-Random -Maximum 16 | % { $_.ToString('x') } })
+$env:API_KEYS = $key
+$key                                          # keep this: the part after "admin=" is your login key
+New-Item -ItemType Directory -Force -Path data  # the container runs as non-root `dominus`
 docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
 ```
 
@@ -345,7 +374,7 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.2.0 — full release integrity: all five pipeline stages, the
+DOMINUS v1.3.1 — full release integrity: all five pipeline stages, the
 heuristic scoring engine, the mandatory trademark gate enforced on every
 purchase path (API, CLI, auto-approval, bid), real USPTO/EUIPO providers
 with caching, the portfolio tracker with renewal clock and keep/drop
@@ -354,7 +383,7 @@ implemented and tested. Post-acquisition automation (ADR-0083) ships dark
 by default (`AUTOMATION_ENABLED=false`). The community edition is fully
 functional; DOMINUS Cloud adds multi-tenancy, team accounts with email
 invitations, SSO and Stripe billing. See [docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)
-and the v1.2.0 integrity notes below.
+and the [CHANGELOG](CHANGELOG.md) for the release history.
 
 ## FAQ
 

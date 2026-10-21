@@ -5,15 +5,28 @@ import { dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { Command } from 'commander';
 import { reportProviderStatuses } from '../../app/provider-status.js';
+import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { Config } from '../../config.js';
 
 export interface HealthCommandDeps {
   db: Database.Database | null;
   config: Config;
+  /**
+   * The database provider. In PostgreSQL mode (the Cloud edition) there
+   * is no better-sqlite3 handle at all, and this command used to
+   * dereference a null one: the health check of a Cloud deployment
+   * crashed instead of reporting. The provider knows whether its
+   * connection is open, which is the same question this command asks.
+   */
+  provider?: DatabaseProvider | undefined;
+}
+
+interface DatabaseStatus {
+  ok: boolean;
+  label: string;
 }
 
 export function registerHealthCommand(program: Command, deps: HealthCommandDeps): void {
-  const rawDb = deps.db!;
   program
     .command('health')
     .description('Check system health: database, version, providers, uptime')
@@ -21,18 +34,19 @@ export function registerHealthCommand(program: Command, deps: HealthCommandDeps)
     .action((options: { json: boolean }) => {
       const version = readVersion();
       const uptime = process.uptime();
-      const dbOk = checkDatabase(rawDb);
+      const database = describeDatabase(deps.db, deps.provider);
       const providers = reportProviderStatuses(deps.config);
 
       if (options.json) {
         process.stdout.write(
           JSON.stringify(
             {
-              status: dbOk ? 'ok' : 'degraded',
+              status: database.ok ? 'ok' : 'degraded',
               version,
               uptime,
               timestamp: new Date().toISOString(),
-              database: dbOk ? 'connected' : 'error',
+              database: database.ok ? 'connected' : 'error',
+              databaseEngine: database.label,
               providers,
             },
             null,
@@ -42,23 +56,33 @@ export function registerHealthCommand(program: Command, deps: HealthCommandDeps)
         return;
       }
 
-      process.stdout.write(formatHealthReport(version, uptime, dbOk, providers));
+      process.stdout.write(
+        formatHealthReport(version, uptime, database.ok, database.label, providers),
+      );
     });
 }
 
-function checkDatabase(db: Database.Database): boolean {
-  try {
-    const row = db.prepare('SELECT 1 AS ok').get() as { ok: number } | undefined;
-    return row?.ok === 1;
-  } catch {
-    return false;
+function describeDatabase(
+  db: Database.Database | null,
+  provider: DatabaseProvider | undefined,
+): DatabaseStatus {
+  if (db) {
+    try {
+      const row = db.prepare('SELECT 1 AS ok').get() as { ok: number } | undefined;
+      return { ok: row?.ok === 1, label: 'sqlite' };
+    } catch {
+      return { ok: false, label: 'sqlite' };
+    }
   }
+  // PostgreSQL mode: the provider knows whether the pool is open.
+  return { ok: provider?.isOpen() === true, label: 'postgresql' };
 }
 
 function formatHealthReport(
   version: string,
   uptime: number,
   dbOk: boolean,
+  dbLabel: string,
   providers: ReturnType<typeof reportProviderStatuses>,
 ): string {
   const lines: string[] = [];
@@ -66,7 +90,7 @@ function formatHealthReport(
   lines.push(`DOMINUS v${version}`);
   lines.push(`Status:     ${dbOk ? 'ok' : 'degraded'}`);
   lines.push(`Uptime:     ${formatUptime(uptime)}`);
-  lines.push(`Database:   ${dbOk ? 'connected' : 'ERROR'}`);
+  lines.push(`Database:   ${dbOk ? 'connected' : 'ERROR'} (${dbLabel})`);
   lines.push('');
 
   lines.push('Providers:');

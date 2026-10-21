@@ -11,6 +11,13 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: './e2e',
+  // The Cloud acceptance specs live in e2e/cloud and run against the
+  // Cloud stack (PostgreSQL, RLS, the api/worker/scheduler), not against
+  // the SQLite instance this configuration boots: they have their own
+  // project (playwright.cloud.config.ts) and their own lifecycle. Without
+  // this exclusion they would be collected here and fail on a missing
+  // fixture.
+  testIgnore: '**/cloud/**',
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   workers: 1,

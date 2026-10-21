@@ -3,6 +3,7 @@
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
 import { createCli } from './cli/index.js';
+import { closeDatabase } from './db/database.js';
 import type { KeyManager } from './providers/auth/auth-provider.js';
 
 async function main(): Promise<void> {
@@ -36,7 +37,24 @@ async function main(): Promise<void> {
     apiKeyRepo: deps.apiKeyRepo,
     provider: deps.provider,
   });
-  cli.parse(process.argv);
+
+  // parseAsync, not parse: the actions are asynchronous, and the resources
+  // below may only be released once the action has finished.
+  await cli.parseAsync(process.argv);
+
+  // The CLI is a one-shot process. It must release the connection pool
+  // and the Redis client before returning to the shell: in PostgreSQL mode
+  // they keep the event loop alive, so every command printed its output
+  // and then hung — `dominus keys create` returned the key and never
+  // exited.
+  //
+  // The in-process job worker (ADR-0023: the CLI runs the queued jobs
+  // itself) is stopped first, so that no poll is in flight when the
+  // database goes away.
+  await deps.worker?.stop();
+  await deps.redisClient?.shutdown();
+  await deps.provider.close();
+  closeDatabase();
 }
 
 main().catch((err) => {
