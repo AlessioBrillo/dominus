@@ -51,10 +51,13 @@ test.describe('cloud acceptance — the SPA against the tenant-scoped data', () 
     await page.goto('/billing');
 
     await expect(page.getByRole('heading', { name: 'Billing' })).toBeVisible();
-    await expect(page.getByText('Current Plan', { exact: true })).toBeVisible();
-    // The acceptance runner delivered a signed checkout.session.completed
-    // for the pro price: the SPA must show the granted plan, not the
-    // default one.
-    await expect(page.getByText('Pro', { exact: true }).first()).toBeVisible();
+    // The plan is asserted through the sentence the card writes about it,
+    // not through the words alone: the page repeats every plan name in
+    // the list below, so "Pro" and "Current Plan" are both ambiguous.
+    // Playwright's strict mode refuses a locator that matches two
+    // elements, and whether it matches one or two depends on how fast
+    // the page rendered — a test that passes on one machine and fails on
+    // another is a broken test.
+    await expect(page.getByText('You are on the Pro plan')).toBeVisible();
   });
 });
