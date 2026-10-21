@@ -56,6 +56,9 @@ All notable changes to this project will be documented in this file. See [standa
   the published `master` image unless the operator names a tag, and it
   now asserts that the worker and the scheduler are running — a
   crash-looping container is a failed stack, not a detail of one service.
+  It also builds the images from the working tree before booting them:
+  `docker compose up` does not rebuild, so the pre-tag gate was testing
+  whatever image was lying around and calling it the current one.
 * **ops:** the deploy workflow has a production and a staging target, each
   with its own environment and secrets. A release tag deploys to
   production; staging is an explicit dispatch.
