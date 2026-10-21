@@ -18,6 +18,13 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test-setup.ts'],
     css: true,
+    // The default budget is 5s per test, and a jsdom test that waits on
+    // timers and user interactions can exceed it on a loaded host for
+    // reasons that have nothing to do with the behaviour under test. A
+    // gate that reddens for the speed of the machine is not a gate — and
+    // a timeout that fires late still fails a test that is really
+    // broken.
+    testTimeout: 15_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

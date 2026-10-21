@@ -70,6 +70,11 @@ All notable changes to this project will be documented in this file. See [standa
   staging/production split was broken exactly that way: the environment
   name is resolved before the matrix is expanded, so
   `environment: ${{ matrix.environment }}` is not a valid expression.
+* **test:** the frontend suite has a 15s per-test budget instead of the
+  5s default. A jsdom test that waits on timers and user interactions
+  can exceed 5s on a loaded host for reasons that have nothing to do
+  with the behaviour under test; a gate that reddens for the speed of the
+  machine is not a gate.
 * **ops:** the Terraform example no longer advertises `JWT_SECRET` (the
   application does not read it) and no longer suggests `API_KEYS` for the
   Cloud edition, where the keys live in the database and are minted with
