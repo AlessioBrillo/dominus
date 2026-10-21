@@ -1,0 +1,62 @@
+name: Deploy the DOMINUS stack to an app node
+description: >
+  Runs the migrate-before-roll and the rollout on a DOMINUS app node. The
+  staging and the production targets share this action on purpose: two
+  copies of the rollout are two rollouts that drift, and the only thing
+  that should differ between a rehearsal and the real thing is the host
+  and the tag.
+
+inputs:
+  host:
+    description: The SSH host of the app node
+    required: true
+  ssh_key:
+    description: The SSH private key of the deploy user
+    required: true
+  tag:
+    description: The image tag to roll (vX.Y.Z or sha-<commit>)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up the SSH agent
+      uses: webfactory/ssh-agent@v0.10.0
+      with:
+        ssh-private-key: ${{ inputs.ssh_key }}
+
+    # Migrate-before-roll (ADR-0061): the target image's schema
+    # migrations run explicitly BEFORE the rollout, with their own
+    # timeout budget, so slow DDL can never trip the health poll of the
+    # roll phase. The migrate step always runs the TARGET image
+    # (DOMINUS_IMAGE_TAG forced from the shell, which takes precedence
+    # over .env for interpolation) against the live database. On failure
+    # or timeout no image is rolled and the operator restores from a
+    # PITR backup instead of rolling back blindly.
+    - name: Run schema migrations (migrate-before-roll)
+      shell: bash
+      env:
+        HOST: ${{ inputs.host }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        scp -o StrictHostKeyChecking=accept-new \
+          scripts/deploy/migrate.sh "root@${HOST}:/tmp/dominus-migrate.sh"
+        ssh -o StrictHostKeyChecking=accept-new "root@${HOST}" \
+          "cd /opt/dominus && DOMINUS_TAG=${TAG} bash /tmp/dominus-migrate.sh"
+
+    # Bump tag, pull and roll the stack (auto-rollback). The rollout
+    # re-checks the gate (its rollback path needs the decision) and
+    # restores the previous tag automatically when the health poll never
+    # goes green.
+    - name: Bump tag, pull and roll the stack (auto-rollback)
+      shell: bash
+      env:
+        HOST: ${{ inputs.host }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        scp -o StrictHostKeyChecking=accept-new \
+          scripts/deploy/rollout.sh "root@${HOST}:/tmp/dominus-rollout.sh"
+        ssh -o StrictHostKeyChecking=accept-new "root@${HOST}" \
+          "cd /opt/dominus && DOMINUS_TAG=${TAG} bash /tmp/dominus-rollout.sh"

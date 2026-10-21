@@ -291,7 +291,14 @@ async function stackUp() {
     // compiles the backend and the frontend inside the image, which is
     // minutes, not seconds. The generic timeout of the helper would kill
     // a healthy build.
-    compose(['build', 'api', 'worker', 'scheduler'], { timeout: 30 * 60_000 });
+    //
+    // One service at a time: the three targets share their layers, so
+    // the second and the third are cached, and a single build at a time
+    // keeps the peak memory of the runner (and of a laptop) to one
+    // compile instead of three.
+    for (const service of ['api', 'worker', 'scheduler']) {
+      compose(['build', service], { timeout: 30 * 60_000 });
+    }
   }
   process.stdout.write('Starting PostgreSQL and Redis…\n');
   compose(['up', '-d', 'postgres', 'redis']);

@@ -61,7 +61,20 @@ All notable changes to this project will be documented in this file. See [standa
   whatever image was lying around and calling it the current one.
 * **ops:** the deploy workflow has a production and a staging target, each
   with its own environment and secrets. A release tag deploys to
-  production; staging is an explicit dispatch.
+  production; staging is an explicit dispatch. The two targets share one
+  composite action, so the rollout cannot drift between them.
+* **release:** a new gate checks that the workflow files parse
+  (`npm run check:workflows`). A workflow that does not parse fails at
+  RUN time, on the event that triggers it — for the deploy workflow that
+  is the push to master, where the pull request's CI never ran it. The
+  staging/production split was broken exactly that way: the environment
+  name is resolved before the matrix is expanded, so
+  `environment: ${{ matrix.environment }}` is not a valid expression.
+* **test:** the frontend suite has a 15s per-test budget instead of the
+  5s default. A jsdom test that waits on timers and user interactions
+  can exceed 5s on a loaded host for reasons that have nothing to do
+  with the behaviour under test; a gate that reddens for the speed of the
+  machine is not a gate.
 * **ops:** the Terraform example no longer advertises `JWT_SECRET` (the
   application does not read it) and no longer suggests `API_KEYS` for the
   Cloud edition, where the keys live in the database and are minted with

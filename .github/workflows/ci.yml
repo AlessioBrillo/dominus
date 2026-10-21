@@ -565,10 +565,20 @@ jobs:
   deploy-script:
     name: Deploy rollout script check
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v7
+
+      # The workflow check below needs the parser, so the job needs the
+      # dependencies. Without them the step failed with ERR_MODULE_NOT_FOUND
+      # — a check that cannot run is not a check.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
 
       # The rollout script runs on the app node during release deploys; a
       # syntax error there fails the deploy at the worst moment, so CI
@@ -585,6 +595,16 @@ jobs:
 
       - name: Behavior-test migrate script (mocked docker)
         run: bash scripts/deploy/test-migrate.sh
+
+      # The workflow files must parse. A workflow that does not parse
+      # fails at RUN time, on the event that triggers it — for the deploy
+      # workflow that is the push to master, where the pull request's CI
+      # never ran it. The staging/production split was broken exactly
+      # that way (`environment: ${{ matrix.environment }}` is not a valid
+      # expression: the environment is resolved before the matrix is
+      # expanded) and the only place it showed up was master.
+      - name: Check the workflow files
+        run: npm run check:workflows
 
   release-gate:
     name: Release gate (schema migration safety)
@@ -763,15 +783,30 @@ jobs:
           # Dummy key: HOST=0.0.0.0 refuses to boot unauthenticated
           # (fail-closed); without it the composed API crash-loops and the
           # readiness gate below is meaningless.
-          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d
-          # Wait for API to be ready
+          #
+          # Only the api: the specs talk to the Playwright webServer (the
+          # host build), and this stack is here to prove that the IMAGE
+          # boots. Starting the worker and the scheduler as well would
+          # double the memory of the runner for nothing — and they now
+          # really run, which is the point of the fix.
+          docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d api
+          ready=0
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health >/dev/null 2>&1; then
               echo "API ready"
+              ready=1
               break
             fi
             sleep 2
           done
+          # The loop used to end silently: if the container never became
+          # healthy the job carried on and failed later, somewhere else,
+          # with a message about the tests.
+          if [ "$ready" != "1" ]; then
+            echo "::error::the container API never became healthy"
+            docker compose -f docker-compose.yml -f docker-compose.unbound.yml logs api || true
+            exit 1
+          fi
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
