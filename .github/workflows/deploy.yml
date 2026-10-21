@@ -122,97 +122,76 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
-    name: Deploy to ${{ matrix.environment }}
+  # Two targets, two sets of secrets, two decisions.
+  #
+  # Before this split the workflow had ONE host and ONE secret pair, and
+  # every `v*` tag deployed to it: pushing a tag was a production event
+  # by accident, with no environment, no approval and no way to rehearse
+  # a release anywhere but on the node the customers use. The two targets
+  # are now explicit:
+  #
+  #   production — a release tag, and only a release tag. The environment
+  #     carries the deploy secrets and requires an approval, so the tag
+  #     alone is not enough to change what the customers are served.
+  #   staging   — an explicit dispatch, never a tag. This is where the
+  #     acceptance evidence and the restore drill are produced.
+  #
+  # They are two jobs and not one job with a matrix: the environment name
+  # is resolved before the matrix is expanded, so `environment:
+  # ${{ matrix.environment }}` is not a valid expression and the workflow
+  # fails to parse — at run time, on the push to master, where nobody
+  # looks. The rollout itself is a shared composite action, so the two
+  # targets cannot drift.
+  deploy-production:
+    name: Deploy to production
     runs-on: ubuntu-latest
     needs: docker
     timeout-minutes: 20
-    # Two targets, two sets of secrets, two decisions.
-    #
-    # Before this split the workflow had ONE host and ONE secret pair, and
-    # every `v*` tag deployed to it: pushing a tag was a production event
-    # by accident, with no environment, no approval and no way to rehearse
-    # a release anywhere but on the node the customers use. The two targets
-    # are now explicit:
-    #
-    #   production — a release tag, and only a release tag. The
-    #     environment carries the deploy secrets, so a repository-level
-    #     secret can no longer reach production by accident.
-    #   staging   — an explicit dispatch, never a tag. This is where the
-    #     acceptance evidence and the restore drill are produced.
-    #
-    # A job-level `if` is evaluated per matrix instance, so exactly one of
-    # the two runs for any given event.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - environment: production
-            trigger: tag
-          - environment: staging
-            trigger: manual
-    if: >-
-      (matrix.trigger == 'tag' && startsWith(github.ref, 'refs/tags/v')) ||
-      (matrix.trigger == 'manual' && github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
-    environment:
-      name: ${{ matrix.environment }}
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
     env:
       DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-      # The tag to roll: the release tag for production, the operator's
-      # choice for staging (vX.Y.Z or sha-<commit>).
-      DEPLOY_TAG: ${{ matrix.trigger == 'tag' && github.ref_name || inputs.tag }}
+    steps:
+      - name: Resolve the tag to deploy
+        run: |
+          set -euo pipefail
+          echo "deploying ${GITHUB_REF_NAME} to production"
 
+      - uses: ./.github/actions/deploy-target
+        if: env.DEPLOY_SSH_HOST != ''
+        with:
+          host: ${{ env.DEPLOY_SSH_HOST }}
+          ssh_key: ${{ env.DEPLOY_SSH_KEY }}
+          tag: ${{ github.ref_name }}
+
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    needs: docker
+    timeout-minutes: 20
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'staging'
+    environment: staging
+    env:
+      DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
     steps:
       # Fail loudly instead of rolling an empty tag. A staging dispatch
       # without a tag is a mistake, not a request to deploy "whatever".
       - name: Resolve the tag to deploy
-        if: env.DEPLOY_SSH_HOST != ''
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          if [ -z "${DEPLOY_TAG}" ]; then
+          if [ -z "${TAG}" ]; then
             echo "::error title=Missing tag::No image tag to deploy. Pass one explicitly (e.g. v1.3.1 or sha-<commit>)."
             exit 1
           fi
-          echo "deploying ${DEPLOY_TAG} to ${{ matrix.environment }}"
+          echo "deploying ${TAG} to staging"
 
-      - uses: webfactory/ssh-agent@v0.10.0
+      - uses: ./.github/actions/deploy-target
         if: env.DEPLOY_SSH_HOST != ''
         with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      # Migrate-before-roll (ADR-0061): the target image's schema
-      # migrations run explicitly BEFORE the rollout, with their own
-      # timeout budget, so slow DDL can never trip the health poll of the
-      # roll phase. The migrate step always runs the TARGET image
-      # (DOMINUS_IMAGE_TAG forced from the shell, which takes precedence
-      # over .env for interpolation) against the live database. On failure
-      # or timeout no image is rolled and the operator restores from a
-      # PITR backup instead of rolling back blindly.
-      - name: Run schema migrations (migrate-before-roll)
-        if: env.DEPLOY_SSH_HOST != ''
-        env:
-          HOST: ${{ env.DEPLOY_SSH_HOST }}
-          TAG: ${{ env.DEPLOY_TAG }}
-        run: |
-          set -euo pipefail
-          scp -o StrictHostKeyChecking=accept-new \
-            scripts/deploy/migrate.sh "root@${HOST}:/tmp/dominus-migrate.sh"
-          ssh -o StrictHostKeyChecking=accept-new "root@${HOST}" \
-            "cd /opt/dominus && DOMINUS_TAG=${TAG} bash /tmp/dominus-migrate.sh"
-
-      # Bump tag, pull and roll the stack (auto-rollback). The rollout
-      # re-checks the gate (its rollback path needs the decision) and
-      # restores the previous tag automatically when the health poll never
-      # goes green.
-      - name: Bump tag, pull and roll the stack (auto-rollback)
-        if: env.DEPLOY_SSH_HOST != ''
-        env:
-          HOST: ${{ env.DEPLOY_SSH_HOST }}
-          TAG: ${{ env.DEPLOY_TAG }}
-        run: |
-          set -euo pipefail
-          scp -o StrictHostKeyChecking=accept-new \
-            scripts/deploy/rollout.sh "root@${HOST}:/tmp/dominus-rollout.sh"
-          ssh -o StrictHostKeyChecking=accept-new "root@${HOST}" \
-            "cd /opt/dominus && DOMINUS_TAG=${TAG} bash /tmp/dominus-rollout.sh"
+          host: ${{ env.DEPLOY_SSH_HOST }}
+          ssh_key: ${{ env.DEPLOY_SSH_KEY }}
+          tag: ${{ inputs.tag }}

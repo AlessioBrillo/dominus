@@ -586,6 +586,16 @@ jobs:
       - name: Behavior-test migrate script (mocked docker)
         run: bash scripts/deploy/test-migrate.sh
 
+      # The workflow files must parse. A workflow that does not parse
+      # fails at RUN time, on the event that triggers it — for the deploy
+      # workflow that is the push to master, where the pull request's CI
+      # never ran it. The staging/production split was broken exactly
+      # that way (`environment: ${{ matrix.environment }}` is not a valid
+      # expression: the environment is resolved before the matrix is
+      # expanded) and the only place it showed up was master.
+      - name: Check the workflow files
+        run: npm run check:workflows
+
   release-gate:
     name: Release gate (schema migration safety)
     runs-on: ubuntu-latest
