@@ -565,10 +565,20 @@ jobs:
   deploy-script:
     name: Deploy rollout script check
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v7
+
+      # The workflow check below needs the parser, so the job needs the
+      # dependencies. Without them the step failed with ERR_MODULE_NOT_FOUND
+      # — a check that cannot run is not a check.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
 
       # The rollout script runs on the app node during release deploys; a
       # syntax error there fails the deploy at the worst moment, so CI
