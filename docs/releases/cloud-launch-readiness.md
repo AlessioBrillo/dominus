@@ -210,11 +210,12 @@ it is `npm run launch:check`.
    non-superuser app role, and asserts tenant isolation at the API and at
    the database level, the Stripe webhook, the plan and usage surface, the
    GDPR export and erasure, the metrics token and the scheduler → queue →
-   worker path. **It found four defects that would have reached the first
+   worker path. **It found five defects that would have reached the first
    paid deployment** (the CLI was dead in PostgreSQL mode, the worker and
    the scheduler images could not boot, the first API key could not be
-   minted, and the manual run of a scheduled job did not work). The scope
-   and the boundaries are in [cloud-acceptance.md](cloud-acceptance.md).
+   minted, the manual run of a scheduled job did not work, and the CLI
+   never released its connections). The scope and the boundaries are in
+   [cloud-acceptance.md](cloud-acceptance.md).
 1. **Legal + VAT** — longest lead time, blocks revenue, can proceed in
    parallel with everything else. **Done in code** (ADR-0090): the legal
    notice, the terms of service and the privacy notice are server-owned

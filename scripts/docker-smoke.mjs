@@ -8,14 +8,17 @@
  * require a working Docker daemon; run them with `npm run gate:docker` before
  * any tag or any change to compose / Dockerfile / deploy/.
  *
- * Smoke 1 — base + Unbound: stack must render and start, /api/v1/health OK,
- * and a sample pipeline run completes (degraded without Unbound is still OK
- * for syntax, but Unbound overlay is the documented path).
- * Smoke 2 — prod overlay on a FRESH volume: postgres init must succeed
- * (catches B1: initdb.d scripts + DOMINUS_APP_PASSWORD), migrations run,
- * /api/v1/health OK.
- * Smoke 3 — compose config lint: both stacks render with `config --quiet`;
- * promtool checks alert rules (catches B3).
+ * Smoke 1 — base + Unbound, BUILT FROM THE WORKING TREE: the stack must
+ * render and start, /api/v1/health OK, and the worker and the scheduler
+ * must be RUNNING (a container that crash-loops is a failed stack, not a
+ * detail of one service).
+ * Smoke 2 — prod overlay on a FRESH volume, against the PUBLISHED image
+ * (the prod overlay references ghcr.io, not the local build): postgres
+ * init must succeed (catches B1: initdb.d scripts + DOMINUS_APP_PASSWORD),
+ * migrations run, /api/v1/health OK.
+ *
+ * The two smokes cover two different things on purpose: the working tree
+ * that is about to be tagged, and the artifact the consumers install.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -148,7 +151,15 @@ async function smokeBaseUnbound() {
     ok('Skipping base+unbound runtime smoke (no Docker daemon)');
     return;
   }
-  process.stdout.write('\n== Smoke 1: base + Unbound ==\n');
+  process.stdout.write('\n== Smoke 1: base + Unbound (the working tree) ==\n');
+  // Build the images from the working tree FIRST. `up` does not rebuild:
+  // it reuses whatever image is lying around, so the smoke was testing a
+  // nine-day-old build and reporting it as the current one. The gap was
+  // invisible because the API kept serving while the worker and the
+  // scheduler crash-looped on a configuration error the stale image
+  // still had. This smoke is the pre-tag gate: it must test what is
+  // about to be tagged.
+  composeBuild(['api', 'worker', 'scheduler']);
   // Bring up the stack detached, wait for health, hit /api/v1/health, then down.
   sh('docker', ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.unbound.yml', 'up', '-d']);
   try {
@@ -196,6 +207,30 @@ function composeServiceState(service) {
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
   return lines.at(-1) ?? 'unknown';
+}
+
+/**
+ * Build the compose services from the working tree.
+ *
+ * The build is the slow part of the gate and it is the point: a smoke
+ * that reuses a stale image is a smoke of the past.
+ */
+function composeBuild(services) {
+  const r = sh('docker', [
+    'compose',
+    '-f',
+    'docker-compose.yml',
+    '-f',
+    'docker-compose.unbound.yml',
+    'build',
+    ...services,
+  ]);
+  if (r.error) {
+    fail(`the image build failed: ${r.stderr || r.error.message}`);
+    return false;
+  }
+  ok(`built ${services.join(', ')} from the working tree`);
+  return true;
 }
 
 // ── Smoke 2: prod overlay on fresh volume ───────────────────────────
