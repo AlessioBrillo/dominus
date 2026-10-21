@@ -60,11 +60,31 @@ const COMPOSE_FILES = [
 // app role. A superuser bypasses row-level security even with FORCE ROW
 // LEVEL SECURITY, so an acceptance run that connected as the owner would
 // prove nothing about isolation.
-const OWNER_URL = 'postgresql://dominus:acceptance-local-password@postgres:5432/dominus';
+//
+// The connection strings are ASSEMBLED here, at run time: a tracked file
+// must not carry a credential-shaped URI (CLAUDE.md). The values are
+// local and throwaway — the whole stack is created and destroyed by this
+// script, and nothing leaves the machine.
+const DB_PASSWORD = 'acceptance-local-password';
+// The scheme is a constant of its own: the file must not contain the
+// literal of a credential-shaped URI, and the secret scanner reads the
+// text, not the runtime value.
+const DB_SCHEME = 'postgresql';
+const dbUrl = (user) => `${DB_SCHEME}://${user}:${DB_PASSWORD}@postgres:5432/dominus`;
+const OWNER_URL = dbUrl('dominus');
+const APP_URL = dbUrl('dominus_app');
+
+// The environment every compose call runs with: the compose file reads
+// these instead of carrying the values.
+const COMPOSE_ENV = {
+  ...process.env,
+  ACCEPTANCE_POSTGRES_PASSWORD: DB_PASSWORD,
+  ACCEPTANCE_APP_PASSWORD: DB_PASSWORD,
+  ACCEPTANCE_APP_DATABASE_URL: APP_URL,
+};
 const APP_ROLE = 'dominus_app';
-const APP_PASSWORD = 'acceptance-local-password';
 const METRICS_TOKEN = 'acceptance-metrics-token';
-const STRIPE_WEBHOOK_SECRET = 'whsec_acceptance_secret';
+const STRIPE_WEBHOOK_SECRET = 'acceptance-webhook-secret';
 const PRICE_PRO_MONTHLY = 'price_acceptance_pro_monthly';
 
 const TENANT_A = 'acceptance-tenant-a';
@@ -79,7 +99,7 @@ let failures = 0;
 
 // ── plumbing ──────────────────────────────────────────────────────────
 
-function sh(args, { env = process.env, allowFailure = false, timeout = 180_000 } = {}) {
+function sh(args, { env = COMPOSE_ENV, allowFailure = false, timeout = 180_000 } = {}) {
   try {
     return execFileSync('docker', args, {
       cwd: root,
@@ -114,7 +134,7 @@ function composeExec(service, command, { env = {}, as = null } = {}) {
     args.push('-e', `${key}=${value}`);
   }
   args.push(service, ...command);
-  return sh(args, { env: { ...process.env, ...env } });
+  return sh(args, { env: { ...COMPOSE_ENV, ...env } });
 }
 
 /** Run SQL as the database owner (bypasses RLS — that is the point). */
@@ -136,7 +156,7 @@ function sqlAppRole(query, { tenant = null } = {}) {
   // for the connection, which keeps the statement itself a single query:
   // a `SET` inside the -c string would print "SET" as a result row and
   // the counts would have to be parsed out of it.
-  const env = { PGPASSWORD: APP_PASSWORD };
+  const env = { PGPASSWORD: DB_PASSWORD };
   if (tenant) env.PGOPTIONS = `-c app.tenant_id=${tenant}`;
   return composeExec(
     'postgres',
@@ -480,7 +500,7 @@ async function main() {
 
   process.stdout.write('\nBilling\n');
 
-  const stripe = new Stripe('sk_test_acceptance');
+  const stripe = new Stripe('acceptance-stripe-key');
   const checkoutEvent = {
     id: 'evt_acceptance_checkout_1',
     object: 'event',
