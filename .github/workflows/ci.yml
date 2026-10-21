@@ -309,6 +309,53 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.unbound.yml down -v
           exit 1
 
+  # The Cloud edition (PostgreSQL with row-level security, Redis, the
+  # api/worker/scheduler split, tenants, billing, GDPR) had no running
+  # evidence before this job: the unit and integration suites covered
+  # every component and none of the system. This job runs the Cloud
+  # topology — the working tree's images, the production init script, the
+  # migrations as the owner role and the app as the non-superuser app
+  # role — and asserts the things that only exist in the Cloud:
+  # tenant isolation at the API level and at the database level, the
+  # Stripe webhook, the plan and usage surface, the GDPR export and
+  # erasure, the metrics token, and the SPA against the same data.
+  #
+  # It is a separate job and not part of the fast matrix because it needs
+  # Docker and minutes, not seconds.
+  cloud-acceptance:
+    name: Cloud acceptance (PostgreSQL, RLS, billing, GDPR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ACCEPTANCE_PORT: '3210'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # The suite ends with three browser smokes: a tenant signs in and
+      # sees its own portfolio and not the other tenant's, the second
+      # tenant sees the other side of the isolation, and the billing page
+      # shows the plan the webhook granted.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the Cloud acceptance suite
+        run: npm run acceptance:cloud
+
+      - name: Upload the acceptance report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-acceptance-report
+          path: .acceptance/
+          retention-days: 14
+
   compose-config:
     name: Compose topology & monitoring config
     runs-on: ubuntu-latest
@@ -477,6 +524,14 @@ jobs:
       # fails when the documents disagree with it.
       - name: Check documentation against the source tree
         run: npm run check:doc-drift
+
+      # The version a user reads must be the version that gets deployed:
+      # the README, the Terraform example, the docker smoke and the
+      # CHANGELOG are checked against package.json. The v1.3.0 release
+      # shipped a repository that announced v1.2.0 and deployed the v1.2.0
+      # image, and nothing failed.
+      - name: Check the release metadata against package.json
+        run: npm run check:release-consistency
 
   npm-package:
     name: npm package completeness

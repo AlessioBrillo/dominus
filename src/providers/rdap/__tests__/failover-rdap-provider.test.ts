@@ -418,13 +418,18 @@ describe('FailoverRdapProvider', () => {
       const failer = makeFailingProvider('flaky');
       const healer = makeHealthyProvider('stable');
 
-      // Very short cooldown: 10ms — after the first failure, the circuit
-      // opens immediately. After 10ms it transitions to half-open and
-      // allows the server to be tried again.
+      // The cooldown is 200ms, not 10ms: the "immediately after" step
+      // below must find the circuit still open, and a 10ms cooldown was
+      // decided by how fast the machine happened to run the previous
+      // call. Under load (a full suite with coverage on a busy host) the
+      // cooldown expired between the two calls and the test failed for a
+      // reason that had nothing to do with the circuit breaker. The
+      // intent — a circuit that is half-open after the cooldown — is
+      // unchanged, and the wait below is comfortably past it.
       const provider = new FailoverRdapProvider([failer, healer], undefined, {
         failureThreshold: 1,
         windowMs: 30_000,
-        cooldownMs: 10,
+        cooldownMs: 200,
       });
 
       // First call: failer fails (circuit opens), healer wins
@@ -442,7 +447,7 @@ describe('FailoverRdapProvider', () => {
       vi.clearAllMocks();
 
       // Wait for cooldown to expire
-      await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 260));
 
       // Next call: circuit half-open, failer is tried again
       const result = await provider.confirm('example.com');

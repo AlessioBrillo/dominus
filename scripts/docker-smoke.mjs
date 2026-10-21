@@ -41,7 +41,19 @@ const SMOKE_ENV = {
   POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD ?? 'smoke-local-password',
   DOMINUS_APP_PASSWORD: process.env.DOMINUS_APP_PASSWORD ?? 'smoke-local-password',
   GRAFANA_ADMIN_PASSWORD: process.env.GRAFANA_ADMIN_PASSWORD ?? 'smoke-local-password',
-  DOMINUS_IMAGE_TAG: process.env.DOMINUS_IMAGE_TAG ?? 'v1.2.0',
+  // The prod overlay pulls the published image, so the tag has to exist in
+  // the registry. `master` is the only tag that is guaranteed to be there
+  // (the Deploy workflow pushes it on every master push); a release tag
+  // only exists after the tag was pushed, which is AFTER this gate is
+  // supposed to be green. Hardcoding a version here was how the smoke
+  // kept testing v1.2.0 for a v1.3.0 release: the gate was green and
+  // the artifact was from the wrong release.
+  //
+  // To smoke a release candidate, pin it explicitly:
+  //   DOMINUS_IMAGE_TAG=v1.3.1 npm run gate:docker
+  // The candidate itself is covered by the acceptance suite
+  // (npm run acceptance:cloud), which builds the working tree.
+  DOMINUS_IMAGE_TAG: process.env.DOMINUS_IMAGE_TAG ?? 'master',
 };
 
 /**
@@ -146,9 +158,44 @@ async function smokeBaseUnbound() {
     } else {
       ok('base+unbound /api/v1/health OK');
     }
+    // The worker and the scheduler must be RUNNING, not merely present.
+    // They used to crash-loop at boot (the images set PORT=0, which the
+    // configuration rejects), and the smoke did not notice: the API kept
+    // serving, so the stack looked healthy while no job was ever
+    // processed. A process that has died is a failure of the stack, not a
+    // detail of one service.
+    for (const service of ['worker', 'scheduler']) {
+      const state = composeServiceState(service);
+      if (state === 'running') {
+        ok(`${service} is running`);
+      } else {
+        fail(`${service} is "${state}" — it must be running (see: docker compose logs ${service})`);
+      }
+    }
   } finally {
     sh('docker', ['compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.unbound.yml', 'down']);
   }
+}
+
+/** The compose state of one service ('running', 'exited', 'restarting', …). */
+function composeServiceState(service) {
+  const r = sh('docker', [
+    'compose',
+    '-f',
+    'docker-compose.yml',
+    '-f',
+    'docker-compose.unbound.yml',
+    'ps',
+    '--format',
+    '{{.State}}',
+    service,
+  ]);
+  if (r.error) return `unknown (${r.stderr || r.error.message})`;
+  const lines = String(r)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  return lines.at(-1) ?? 'unknown';
 }
 
 // ── Smoke 2: prod overlay on fresh volume ───────────────────────────

@@ -34,31 +34,49 @@ function assertDb(db: Database.Database | null, cmd: string): Database.Database 
 }
 
 export function registerBacktestCommand(program: Command, deps: BacktestCommandDeps): void {
-  const rawDb = assertDb(deps.db, 'backtest');
   const backtest = program
     .command('backtest')
     .description('Backtest the scoring engine against realised outcomes (sold only)');
 
+  /**
+   * The SQLite requirement is checked when a backtest subcommand RUNS, not
+   * when the CLI is built.
+   *
+   * It used to be checked at registration time, and the check called
+   * process.exit(1): in PostgreSQL mode — the Cloud edition — that killed
+   * the WHOLE command line before a single command could run, including
+   * `dominus keys create` (the documented way to mint the first API key
+   * of a fresh Cloud deployment) and `dominus scheduler run`. A command
+   * that cannot run in this deployment must not take the other commands
+   * down with it.
+   */
+  const requireDb = (cmd: string): Database.Database => assertDb(deps.db, `backtest ${cmd}`);
+
   const weights = deps.currentWeights ?? DEFAULT_WEIGHTS;
 
-  const makeEngine = (): BacktestEngine =>
-    new BacktestEngine(
+  const makeEngine = (cmd: string): BacktestEngine => {
+    const rawDb = requireDb(cmd);
+    return new BacktestEngine(
       new SqliteProvider(rawDb),
       deps.outcomeRepo,
       new BacktestSignalsRepository(new SqliteProvider(rawDb)),
     );
+  };
 
-  const makeSuggester = (): WeightSuggester =>
-    new WeightSuggester(
+  const makeSuggester = (cmd: string): WeightSuggester => {
+    const rawDb = requireDb(cmd);
+    return new WeightSuggester(
       new SqliteProvider(rawDb),
       new BacktestSignalsRepository(new SqliteProvider(rawDb)),
       new ScoringRepository(new SqliteProvider(rawDb)),
       weights,
     );
+  };
 
-  const makeAutoTuner = (): AutoWeightTuner | null => {
+  const makeAutoTuner = (cmd: string): AutoWeightTuner | null => {
     const config = loadConfig();
     if (!config.AUTO_TUNE_ENABLED) return null;
+    const rawDb = requireDb(cmd);
     const backtestSignalsRepo = new BacktestSignalsRepository(new SqliteProvider(rawDb));
     const scoringRepo = new ScoringRepository(new SqliteProvider(rawDb));
     const sqliteProvider = new SqliteProvider(rawDb);
@@ -84,7 +102,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
       'Rebuild the backtest_signals table from current outcomes and scoring_runs (idempotent)',
     )
     .action(async () => {
-      const engine = makeEngine();
+      const engine = makeEngine('snapshot');
       const summary = await engine.snapshot();
       process.stdout.write(
         `Snapshot: scanned ${summary.scanned} sold outcomes, ` +
@@ -97,7 +115,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .description('Aggregate the backtest_signals table into MAE, bias, and per-bucket calibration')
     .option('--json', 'emit machine-readable JSON instead of a human report', false)
     .action(async (options: { json: boolean }) => {
-      const engine = makeEngine();
+      const engine = makeEngine('report');
       const report = await engine.report();
       if (options.json) {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -112,7 +130,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .option('--json', 'emit machine-readable JSON instead of a human report', false)
     .option('--no-snapshot', 'skip the snapshot step and report on the existing table')
     .action(async (options: { json: boolean; snapshot: boolean }) => {
-      const engine = makeEngine();
+      const engine = makeEngine('run');
       let snapshotNote = '';
       if (options.snapshot) {
         const summary = await engine.snapshot();
@@ -139,7 +157,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
       false,
     )
     .action(async (options: { json: boolean; apply: boolean }) => {
-      const suggester = makeSuggester();
+      const suggester = makeSuggester('suggest-weights');
       const report = await suggester.suggest();
       if (options.json) {
         process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -188,7 +206,7 @@ export function registerBacktestCommand(program: Command, deps: BacktestCommandD
     .description('Run the closed-loop weight tuning cycle (backtest + safety + apply)')
     .option('--dry-run', 'preview only — do not write override file', undefined)
     .action(async (_options: { dryRun?: boolean }) => {
-      const tuner = makeAutoTuner();
+      const tuner = makeAutoTuner('auto-tune');
       if (!tuner) {
         process.stderr.write(
           'Auto-tuner is disabled. Set AUTO_TUNE_ENABLED=true in .env to enable.\n',

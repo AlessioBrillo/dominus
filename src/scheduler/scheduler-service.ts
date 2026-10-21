@@ -102,6 +102,12 @@ export class SchedulerService {
   private readonly lock: LockProvider | undefined;
   private readonly pitrHealthService: PitrHealthService | undefined;
   private running = false;
+  /**
+   * Whether the cron timers are armed while the jobs are registered.
+   * start() arms them; registerJobs() only defines the jobs, so a manual
+   * one-shot run does not leave a schedule behind.
+   */
+  #scheduleEnabled = false;
 
   constructor(options: SchedulerOptions) {
     this.config = options.config;
@@ -124,7 +130,30 @@ export class SchedulerService {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.#defineJobs(true);
+    logger.info(`Scheduler started with ${this.jobs.size} job(s)`);
+  }
 
+  /**
+   * Register the job definitions WITHOUT arming their cron timers.
+   *
+   * `dominus scheduler run <job>` needs the definitions to exist, and it must
+   * not arm the schedule: a manual one-shot run that also started the cron
+   * timers would fire the job again on the next tick. The definitions used
+   * to be created only by start(), so the manual run answered "Unknown job:
+   * data-prune. Available: " — the documented way to trigger a job by hand
+   * never worked.
+   */
+  registerJobs(): void {
+    this.#defineJobs(false);
+  }
+
+  /**
+   * The job catalogue. `schedule` decides whether the cron timers are armed
+   * as well: start() arms them, registerJobs() only defines them.
+   */
+  #defineJobs(schedule: boolean): void {
+    this.#scheduleEnabled = schedule;
     this.#register(
       'renewal-check',
       this.config.SCHEDULER_RENEWAL_CHECK_CRON,
@@ -287,7 +316,7 @@ export class SchedulerService {
       logger.debug('pitr-health job disabled (PitrHealthService not provided)');
     }
 
-    logger.info(`Scheduler started with ${this.jobs.size} job(s)`);
+    this.#scheduleEnabled = false;
   }
 
   stop(): void {
@@ -372,6 +401,11 @@ export class SchedulerService {
     this.jobRepo?.upsert({ jobName: name, cronExpression, description }).catch(() => {
       // DB persistence is best-effort
     });
+
+    // Definitions only (registerJobs): the job exists, but no cron timer
+    // is armed for it. A manual one-shot run must not leave a schedule
+    // behind.
+    if (!this.#scheduleEnabled) return;
 
     if (cron.validate(cronExpression)) {
       const task = cron.schedule(cronExpression, () => {

@@ -80,6 +80,36 @@ phases (see `scripts/deploy/` and [ADR-0061](../adr/0061-release-migrate-before-
    stack, verifies the running image and health, and auto-rolls on failure
    when the migration gate permits.
 
+### Two targets: production and staging
+
+The Deploy workflow has two targets, and they are not interchangeable:
+
+| Target       | Trigger              | Environment  | Secrets                             |
+| ------------ | -------------------- | ------------ | ----------------------------------- |
+| `production` | a `vX.Y.Z` tag       | `production` | the `production` environment secrets |
+| `staging`    | an explicit dispatch | `staging`    | the `staging` environment secrets    |
+
+```bash
+# Rehearse a release on staging. Never happens by accident: a tag does
+# not reach staging, and a dispatch does not reach production.
+gh workflow run deploy.yml -f environment=staging -f tag=v1.3.1
+
+# Production: the tag is the event. The environment requires an
+# approval, so the tag alone is not enough to change what the customers
+# are served.
+git tag v1.3.1 && git push origin v1.3.1
+```
+
+The deploy secrets (`DEPLOY_SSH_HOST`, `DEPLOY_SSH_KEY`) live at the
+**environment** level, not at the repository level: a repository secret
+would reach both targets, and the whole point of the split is that it
+does not. The `production` environment accepts only `v*` tags and
+requires a reviewer; `staging` accepts `master` and `v*` tags.
+
+The staging stack is a **second Hetzner project** with its own state,
+domain, B2 bucket and secrets — see the
+[staging runbook](../releases/cloud-acceptance.md#2-the-staging-runbook).
+
 ## Backups
 
 The SQLite database lives at `DATABASE_PATH` (default: `./data/dominus.db`). **This file is your entire portfolio and configuration — back it up.**

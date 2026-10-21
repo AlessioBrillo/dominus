@@ -39,7 +39,7 @@ terraform {
   # Remote state: the state is not a cache of the plan, it is a secret
   # store. It holds every secret that is rendered into cloud-init
   # user_data — the three DB passwords, the B2 application key and the
-  # whole app_env map (JWT_SECRET, STRIPE_*, API_KEYS) — and every
+  # whole app_env map (STRIPE_*, METRICS_TOKEN, API_KEYS) — and every
   # apply rewrites it. A local terraform.tfstate is therefore plaintext
   # secrets on a machine that can be lost, stolen or swept into a backup
   # service: the state must not live on a laptop. (The Hetzner API token
@@ -127,13 +127,12 @@ variable "domain" {
 
 variable "image_tag" {
   type        = string
-  default     = "v1.2.0"
-  description = "GHCR image tag rendered into cloud-init user_data at provision time (digest-pinned, ADR-0046). Only consulted at first provision: the rendered compose references DOMINUS_IMAGE_TAG from .env at runtime, and user_data carries ignore_changes so a later `terraform apply` never recreates the node (and destroys its volumes). Release bumps go through the deploy pipeline (deploy.yml → rollout.sh), not a Terraform apply."
+  description = "GHCR image tag rendered into cloud-init user_data at provision time (digest-pinned, ADR-0046). Only consulted at first provision: the rendered compose references DOMINUS_IMAGE_TAG from .env at runtime, and user_data carries ignore_changes so a later `terraform apply` never recreates the node (and destroys its volumes). Release bumps go through the deploy pipeline (deploy.yml → rollout.sh), not a Terraform apply. There is no default on purpose: a default is a release frozen at the time this file was written — the v1.3.0 tree still defaulted to v1.2.0, so a first apply booted the previous release's image while the operator believed they were deploying the current one. The tag is a per-deployment decision, and scripts/check-release-consistency.mjs fails the build if a default comes back."
 }
 
 variable "app_env" {
   type        = map(string)
-  description = "Extra environment variables for api/worker/scheduler (API_KEYS, STRIPE_*, JWT_*, ...)."
+  description = "Extra environment variables for api/worker/scheduler (API_KEYS, STRIPE_*, METRICS_TOKEN, ...)."
   default     = {}
   sensitive   = true
 }

@@ -178,6 +178,16 @@ committer's machine with Docker:
   starts base+Unbound and prod-overlay to assert `/api/v1/health` on a
   fresh Postgres volume. Run this before any tag or any change to
   compose/Dockerfile/deploy/.
+- **Cloud acceptance:** `npm run acceptance:cloud` is the Cloud edition's
+  own gate (ADR-0095): it builds the working tree's images, starts
+  PostgreSQL with the production init script, applies the migrations as
+  the owner role, runs the api/worker/scheduler against the non-superuser
+  app role, and asserts tenant isolation (API and database), the Stripe
+  webhook, the plan and usage surface, the GDPR export and erasure, the
+  metrics token, the scheduler → queue → worker path, and three browser
+  smokes. It needs Docker and the Chromium build (`npm run e2e:install`).
+  It is not part of `npm run gate` (minutes, not seconds); CI runs it as
+  its own job on every pull request.
 - **Pre-push:** husky `pre-push` → `npm run gate`. Bypass only with an
   explicit `--no-verify`.
 - **Done / merge-ready** means this gate is green on the final tree.

@@ -59,6 +59,41 @@ describe('ApiKeyRepository', () => {
     await expect(new ApiKeyRepository(db).findById(1)).resolves.not.toBeNull();
   });
 
+  it('create reads the row back for the tenant it wrote to', async () => {
+    // The bootstrap of a Cloud deployment writes a key outside any tenant
+    // context (`dominus keys create --tenant <id>`). Reading the row back
+    // with the AMBIENT context ('default') found nothing, and the command
+    // crashed on a null row: the operator could not mint the first key.
+    const db = mockDb();
+    vi.mocked(db.queryOne).mockResolvedValue({ ...row, tenant_id: 'tenant-a' });
+    const repo = new ApiKeyRepository(db);
+    const result = await repo.create({
+      tenantId: 'tenant-a',
+      name: 'ops',
+      keyHash: 'h',
+      keyPrefix: 'sk-',
+      role: 'admin',
+      expiresAt: null,
+    });
+    expect(result.tenantId).toBe('tenant-a');
+    expect(db.queryOne).toHaveBeenCalledWith(expect.stringContaining('api_keys'), [1, 'tenant-a']);
+  });
+
+  it('create fails loudly when the row cannot be read back', async () => {
+    const db = mockDb();
+    vi.mocked(db.queryOne).mockResolvedValue(null);
+    await expect(
+      new ApiKeyRepository(db).create({
+        tenantId: 'tenant-a',
+        name: 'ops',
+        keyHash: 'h',
+        keyPrefix: 'sk-',
+        role: 'admin',
+        expiresAt: null,
+      }),
+    ).rejects.toThrow(/could not be read back/);
+  });
+
   it('findByPrefix returns a row', async () => {
     const db = mockDb();
     vi.mocked(db.queryOne).mockResolvedValue(row);

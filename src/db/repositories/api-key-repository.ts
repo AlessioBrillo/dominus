@@ -65,13 +65,25 @@ export class ApiKeyRepository {
       ],
     );
     const id = result.lastInsertRowid as number;
-    return this.findById(id) as Promise<StoredApiKey>;
+    // The row is read back by the tenant it was written FOR, not by the
+    // ambient tenant context. `dominus keys create --tenant <id>` writes
+    // outside any tenant scope on purpose — it is the bootstrap of the
+    // first key of a deployment — so reading it back with the ambient
+    // context ('default') found nothing, and the command crashed with a
+    // TypeError on a null row.
+    const stored = await this.findById(id, input.tenantId);
+    if (!stored) {
+      throw new Error(
+        `The API key for tenant '${input.tenantId}' could not be read back after the insert`,
+      );
+    }
+    return stored;
   }
 
-  async findById(id: number): Promise<StoredApiKey | null> {
+  async findById(id: number, tenantId?: string): Promise<StoredApiKey | null> {
     const row = await this.db.queryOne<ApiKeyRow>(
       'SELECT * FROM api_keys WHERE id = ? AND tenant_id = ?',
-      [id, resolveTenantId()],
+      [id, resolveTenantId(tenantId)],
     );
     return row ? rowToStored(row) : null;
   }
