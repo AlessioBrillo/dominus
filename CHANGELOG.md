@@ -2,6 +2,55 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.2](https://github.com/AlessioBrillo/dominus/compare/v1.3.1...v1.3.2) (2026-10-22)
+
+### Features
+
+* **cli:** the decision profile. `dominus score example.com` builds the
+  scoring engine and the trademark gate and nothing else: no database, no
+  job worker, no resolver probe, no RDAP bootstrap. The command took 12.4
+  seconds, created a SQLite database next to the user and printed 14.8 KB
+  of JSON log on stdout; it now takes about two seconds, writes nothing to
+  the disk and prints the decision and nothing else (ADR-0097).
+* **cli:** `dominus score --json` prints the decision as a machine-readable
+  object - the same numbers, the trademark verdict and the recommendation -
+  on stdout alone, so it can be piped.
+* **cli:** the diagnostics moved to stderr. A command's stdout is its
+  output channel; the logs are still there, on the stream meant for them.
+* **cli:** `--help` and `--version` are answered from the command line
+  alone: they used to build the whole application (a database, its
+  migrations, a job worker, a resolver probe) to print a list of commands
+  — ten seconds to answer the first question a user asks.
+* **gate:** the quickstart gate (`npm run check:quickstart`). It runs the
+  command the README advertises, in a throwaway directory, and asserts the
+  contract a reader is entitled to: exit 0, no log lines on stdout, the
+  five numbers, nothing written to the disk, a time budget - and that the
+  output documented in the README is the output the command produces.
+* **release:** the release doctor (`npm run release:doctor`). The version
+  `package.json` announces must have a tag, a clean tree and, with
+  `--remote`, a package and an image. The v1.3.1 release commit sat on
+  master for days with no tag and no artifact while every gate was green:
+  the gates check the repository against itself, and the repository was
+  internally consistent.
+* **release:** the verified tarball and its checksum are attached to the
+  GitHub Release, so the community edition is installable even while the
+  npm trusted publisher is not configured.
+
+### Bug Fixes
+
+* **trademark:** the USPTO and the TSDR provider fail closed. A source
+  that answers with a non-OK status, a body that is not JSON or a shape
+  the provider cannot read is an ERROR now, not an empty result set: an
+  empty result set claimed that no mark exists for a request that never
+  happened, and the gate cleared the domain on it. A domain whose
+  trademark was not checked is reported as unverified, and an unverified
+  domain is never recommended (ADR-0012, Principle 6).
+* **trademark:** the live USPTO Elasticsearch endpoint
+  (`POST https://tmsearch.uspto.gov/tmsearch`) answers `405 Method Not
+  Allowed` from Amazon S3 - the path now serves the static assets of the
+  search site. The gate therefore runs unverified until the endpoint is
+  migrated; the CLI says so instead of pretending the check happened.
+
 ## [1.3.1](https://github.com/AlessioBrillo/dominus/compare/v1.3.0...v1.3.1) (2026-10-20)
 
 ### Features

@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-only
+import { setLogDestination } from './logger.js';
+import { loadConfig } from './config.js';
+import { createDependencies } from './app/composition-root.js';
+import { createDecisionDependencies } from './app/decision-root.js';
+import { createCatalogCli, createCli, createDecisionCli } from './cli/index.js';
+import { resolveCliProfile } from './cli/profile.js';
+import { closeDatabase } from './db/database.js';
+import type { KeyManager } from './providers/auth/auth-provider.js';
+
+async function main(): Promise<void> {
+  // stdout is the command's OUTPUT channel: the decision a command prints.
+  // The logs are diagnostics and belong on stderr, so that
+  // `dominus score example.com | jq` reads the decision and nothing else.
+  setLogDestination('stderr');
+
+  // Three profiles, resolved before anything is built: building the full
+  // application opens the database, applies the migrations, starts the job
+  // worker and probes the resolver. A command that only answers a question
+  // about a domain must not pay for any of that, and a command that only
+  // prints the command line must not pay for anything at all.
+  const profile = resolveCliProfile(process.argv);
+
+  if (profile === 'catalog') {
+    const catalog = createCatalogCli();
+    await catalog.parseAsync(process.argv);
+    return;
+  }
+
+  const config = loadConfig();
+
+  if (profile === 'decision') {
+    const decision = createDecisionDependencies(config);
+    const cli = createDecisionCli({
+      config,
+      engine: decision.engine,
+      gate: decision.gate,
+    });
+    await cli.parseAsync(process.argv);
+    return;
+  }
+
+  const deps = await createDependencies(config);
+  const cli = createCli({
+    db: deps.db,
+    runService: deps.runService,
+    manager: deps.portfolioManager,
+    engine: deps.engine,
+    outcomeRepo: deps.outcomeRepo,
+    config: deps.config,
+    candidateRepo: deps.candidateRepo,
+    scoringRepo: deps.scoringRepo,
+    trademarkRepo: deps.trademarkRepo,
+    providerCacheRepo: deps.providerCacheRepo,
+    runsRepo: deps.pipelineRunsRepo,
+    gate: deps.trademarkGate,
+    alertEngine: deps.alertEngine,
+    alertRepo: deps.alertRepo,
+    scheduler: deps.scheduler,
+    jobQueueService: deps.jobQueueService,
+    watchlistService: deps.watchlistService,
+    currentWeights: deps.currentWeights,
+    reportService: deps.reportService,
+    accuracyAnalyzer: deps.accuracyAnalyzer,
+    acquisitionService: deps.acquisitionService,
+    funnelService: deps.funnelService,
+    listingManager: deps.listingManager,
+    postAcquisitionService: deps.postAcquisitionService,
+    keyManager: deps.authProvider.asKeyManager() as KeyManager | undefined,
+    apiKeyRepo: deps.apiKeyRepo,
+    provider: deps.provider,
+  });
+
+  // parseAsync, not parse: the actions are asynchronous, and the resources
+  // below may only be released once the action has finished.
+  await cli.parseAsync(process.argv);
+
+  // The CLI is a one-shot process. It must release the connection pool
+  // and the Redis client before returning to the shell: in PostgreSQL mode
+  // they keep the event loop alive, so every command printed its output
+  // and then hung - `dominus keys create` returned the key and never
+  // exited.
+  //
+  // The in-process job worker (ADR-0023: the CLI runs the queued jobs
+  // itself) is stopped first, so that no poll is in flight when the
+  // database goes away.
+  await deps.worker?.stop();
+  await deps.redisClient?.shutdown();
+  await deps.provider.close();
+  closeDatabase();
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -7,6 +7,8 @@ adapters remain blocked on vendor access).
 v1.3.0 - Launch readiness: the legal surface, the tax and consent
 compliance, the data-subject rights, the launch gate and the verified
 artifact (released).
+v1.3.2 - The front door: a decision command that answers, a trademark
+gate that fails closed, and a release state that is real (released).
 Next: the infrastructure provisioned for real, the operator identity, and
 the paid tiers behind the third-party audit.
 This roadmap outlines the planned releases and their scope. Timelines are
@@ -312,6 +314,38 @@ estimates and subject to change.
 - [ ] The third-party security audit, before the paid tiers
 - [ ] The npm trusted publisher, so `dominus-oss` is installable
 - [ ] Public launch: Product Hunt, Hacker News, domain investor communities
+
+## v1.3.2 — The front door (ADR-0097)
+
+> **Status**: Released
+> **Focus**: the first command a stranger runs, and the truth of what the
+> repository announces about itself
+
+- [x] The decision profile: `dominus score` builds the scoring engine and
+  the trademark gate and nothing else — no database, no job worker, no
+  resolver probe (12.4 s → ~2.5 s, and nothing written to the disk)
+- [x] The catalog profile: `--help` and `--version` are answered from the
+  command line alone (10.4 s → ~1.4 s), with a test that keeps the two
+  command lines identical
+- [x] The diagnostics moved to stderr: stdout carries the decision and
+  nothing else, so the output can be piped
+- [x] `dominus score --json`: the same decision, as an object
+- [x] The trademark providers fail closed: a source that cannot answer is
+  an error, not "no matches". A domain whose trademark was not checked is
+  reported as unverified, and an unverified domain is never recommended
+- [x] The quickstart gate (`npm run check:quickstart`): the advertised
+  command is executed and its contract is asserted, and the output
+  documented in the README is compared with the output produced
+- [x] The release doctor (`npm run release:doctor`): the version
+  `package.json` announces must have a tag, a clean tree and — with
+  `--remote` — a package and an image
+- [x] The verified tarball and its checksum are attached to the GitHub
+  Release: the community edition is installable without the npm registry
+- [ ] **The USPTO endpoint migration** — the live Elasticsearch endpoint
+  (`POST https://tmsearch.uspto.gov/tmsearch`) answers `405` from Amazon
+  S3 and the TSDR fallback answers `429`; until a source answers, the
+  gate is unverified and nothing is recommended. This is the next
+  blocker, and it is upstream, not code
 
 ## Post-1.0
 

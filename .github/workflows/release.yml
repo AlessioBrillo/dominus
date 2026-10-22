@@ -133,6 +133,31 @@ jobs:
           # instead of shipping a package whose SPA route is a 404.
           npm run check:pack
 
+      # The tarball is built ONCE and used for every channel: the asset
+      # attached to the GitHub Release and the package published to npm are
+      # the same bytes. Building it twice (once for the asset, once inside
+      # `npm publish`) would produce two artifacts that look identical and
+      # are not, and the "published artifact is verified" rule (ADR-0091)
+      # would be a claim about a file nobody checked.
+      - name: Build the distributable tarball
+        id: tarball
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-artifacts
+          npm pack --pack-destination /tmp/release-artifacts
+          tarball="/tmp/release-artifacts/dominus-oss-${VERSION}.tgz"
+          if [ ! -f "${tarball}" ]; then
+            echo "::error title=Missing tarball::npm pack did not produce ${tarball}."
+            exit 1
+          fi
+          # The checksum travels with the artifact: a user who downloads the
+          # tarball can verify it without trusting the release page.
+          ( cd /tmp/release-artifacts && sha256sum "dominus-oss-${VERSION}.tgz" > "dominus-oss-${VERSION}.tgz.sha256" )
+          echo "path=${tarball}" >> "$GITHUB_OUTPUT"
+          echo "checksum=/tmp/release-artifacts/dominus-oss-${VERSION}.tgz.sha256" >> "$GITHUB_OUTPUT"
+
       # ------------------------------------------------------------------
       # GitHub Release
       # ------------------------------------------------------------------
@@ -181,6 +206,24 @@ jobs:
             gh release create "${tag}" --notes-file /tmp/release-notes.md
           fi
 
+      # The tarball is a distribution channel in its own right. The npm
+      # trusted publisher has failed twice (E404: the publisher is not
+      # configured on the npm account), and until it is, the registry is the
+      # ONLY channel the community edition has - and a release that depends
+      # on an account setting nobody can automate is one click away from
+      # being no channel at all. The asset is the tarball the release
+      # workflow built and verified, with its checksum beside it.
+      - name: Attach the tarball and its checksum to the release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          TARBALL: ${{ steps.tarball.outputs.path }}
+          CHECKSUM: ${{ steps.tarball.outputs.checksum }}
+        run: |
+          set -euo pipefail
+          gh release upload "${TAG}" "${TARBALL}" "${CHECKSUM}" --clobber
+
       # ------------------------------------------------------------------
       # npm package
       # ------------------------------------------------------------------
@@ -191,7 +234,9 @@ jobs:
       # this commit, by this workflow.
       - name: Publish to npm (dry run)
         if: env.DRY_RUN == 'true'
-        run: npm publish --dry-run --provenance
+        env:
+          TARBALL: ${{ steps.tarball.outputs.path }}
+        run: npm publish "${TARBALL}" --dry-run --provenance
 
       # The publish is idempotent. npm refuses to overwrite a version that
       # is already on the registry (E403), and the only way to claim the
@@ -219,7 +264,9 @@ jobs:
 
       - name: Publish to npm
         if: env.DRY_RUN != 'true' && steps.npm-version-state.outputs.published != 'true'
-        run: npm publish --provenance --access public
+        env:
+          TARBALL: ${{ steps.tarball.outputs.path }}
+        run: npm publish "${TARBALL}" --provenance --access public
 
       - name: Report the npm state
         if: always() && env.DRY_RUN != 'true'

@@ -137,10 +137,12 @@ describe('UsptoCasesProvider', () => {
     expect(results[0]!.markName).toBe('LIVEMARK');
   });
 
-  it('returns empty array when response is unexpected shape', async () => {
+  it('fails closed when the response shape is unexpected', async () => {
+    // An unrecognised body is not an answer: reporting "no matches" for a
+    // response the provider cannot read would clear a domain nobody
+    // checked (ADR-0012, Principle 6).
     mockFetch.mockResolvedValue(mockOkResponse({ unexpected: 'shape' }));
-    const results = await provider.search('test');
-    expect(results).toEqual([]);
+    await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
   });
 
   it('throws ProviderError on network failure', async () => {
@@ -148,17 +150,21 @@ describe('UsptoCasesProvider', () => {
     await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
   });
 
-  it('returns empty array on non-OK HTTP status (graceful degrade)', async () => {
-    // 403 with non-HTML content (WAF check fails, falls through to graceful degrade).
-    // We must NOT trigger the WAF retry path; use a 500 status for a pure graceful degrade.
+  it('fails closed on a non-OK HTTP status (no empty result set)', async () => {
+    // A non-OK answer is not an answer. The provider used to degrade to an
+    // empty result set, which reported "this mark does not exist" for a
+    // request that never happened - and the gate cleared the domain on it.
+    // It throws now, so the failover tries the next source and the gate
+    // reports Unverified when every source is down (ADR-0012).
     mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('') });
-    const results = await provider.search('nike');
-    expect(results).toEqual([]);
+    await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
+    // The error names the status: an operator has to be able to tell a
+    // 405 (the endpoint moved) from a 500 (the service is down).
+    const error = await provider.search('nike').catch((e: unknown) => e);
+    expect((error as ProviderError).message).toMatch(/500/);
   });
 
-  it('returns empty array on malformed JSON response (graceful degrade)', async () => {
-    mockFetch.mockResolvedValue(mockOkResponse({}));
-    // Override json to reject after ok response is set up
+  it('fails closed on a malformed JSON response', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -166,8 +172,7 @@ describe('UsptoCasesProvider', () => {
       json: () => Promise.reject(new SyntaxError('Unexpected token')),
       text: () => Promise.resolve(''),
     });
-    const results = await provider.search('test');
-    expect(results).toEqual([]);
+    await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
   });
 
   // ── WAF resilience ───────────────────────────────────────────────
@@ -274,8 +279,10 @@ describe('UsptoCasesProvider', () => {
     };
     mockFetch.mockResolvedValue(json403);
 
-    const results = await provider.search('test');
-    expect(results).toEqual([]);
+    // The status is a definitive answer ("forbidden"), not a WAF challenge:
+    // no retry, and no empty result set either - the error is thrown so the
+    // failover can try the next source.
+    await expect(provider.search('test')).rejects.toBeInstanceOf(ProviderError);
     // No retry for a JSON 403 (not a WAF block)
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });

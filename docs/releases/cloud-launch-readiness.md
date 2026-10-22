@@ -179,6 +179,29 @@ Terraform module does not hit this. A multi-instance Cloud deployment needs
 either a shared store on the protected router or a global throttle at the
 proxy. This is a limiter change, not a config change.
 
+### 7. The trademark sources do not answer — MISSING (upstream)
+
+The gate is the one feature the product cannot be without (Principle 6),
+and it is the one feature that depends on somebody else's free endpoint.
+On 2026-10-22:
+
+- `POST https://tmsearch.uspto.gov/tmsearch` answers **405 Method Not
+  Allowed** from Amazon S3 — the path now serves the static assets of the
+  search site, and the Elasticsearch backend is gone;
+- the TSDR fallback answers **429 Too Many Requests**.
+
+Before v1.3.2, a `405` was read by the provider as an empty result set:
+"this mark does not exist". The gate cleared domains on a request that
+never happened, and the CLI recommended buying them. The providers now
+fail closed (ADR-0097): an unanswerable source is an error, the gate
+reports **unverified**, and an unverified domain is never recommended.
+
+**What it means for the launch:** the tool is honest and conservative, and
+it recommends nothing until a source answers. The closing work is the
+migration to the current USPTO endpoint, plus the free EUIPO credentials as
+a second independent source. The reproduction and the two options are in
+[launch-checklist.md](launch-checklist.md), step 0.
+
 ## Decisions on record
 
 | Topic | Decision |
@@ -194,7 +217,7 @@ proxy. This is a limiter change, not a config change.
 | Ingress | Closed by default; the operator writes the decision down at apply time (ADR-0094) |
 | Plan granted on checkout | Derived from the Stripe price id, never from the session metadata (ADR-0093) |
 | Release | The published artifact is installed and run before and after the publish (ADR-0091) |
-| Version | v1.3.0 |
+| Version | v1.3.2 |
 
 ## Recommended sequence
 
@@ -243,6 +266,16 @@ it is `npm run launch:check`.
 4. **Remediate, then release the tiers.** The tiers stay behind the existing
    fail-closed billing gate until the operator has a fiscal position and the
    gate passes.
+
+## What changed in v1.3.2
+
+| Was | Now |
+|---|---|
+| The first command a stranger runs built the whole application: 12.4 s, a SQLite database next to the user, a job worker, 14.8 KB of JSON log on stdout | The decision profile: engine and trademark gate only, ~2.5 s, nothing written to the disk, the decision alone on stdout (ADR-0097) |
+| A trademark source that answered `405` was read as "this mark does not exist", and the gate cleared the domain on it | The sources fail closed: an unanswerable source is an error, the verdict is unverified, and an unverified domain is never recommended (ADR-0097) |
+| The repository announced `1.3.1` with no tag, no image and no package, and every gate was green | `npm run release:doctor` compares the announced version with the tags, the tree and (with `--remote`) the registries |
+| The documented quickstart output was not the output the command produced | `npm run check:quickstart` runs the advertised command and compares the documented output with the real one |
+| The npm registry was the only channel, and the trusted publisher had failed twice | The verified tarball and its checksum are attached to the GitHub Release |
 
 ## What changed in v1.3.1
 

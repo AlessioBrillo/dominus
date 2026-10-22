@@ -24,6 +24,7 @@ import {
   type UnboundHostDnssecResult,
 } from '../providers/dns/index.js';
 import { PriorityRateLimiter, type RateLimiterLike } from '../providers/rate-limiter.js';
+import { buildLocalRateLimiter } from './rate-limiter-factory.js';
 import { AnonBudgetGate } from '../providers/anon-budget-gate.js';
 import {
   RedisRateLimiter,
@@ -783,7 +784,7 @@ export function buildRateLimiters(
         namespace: `dominus:${namespace}:`,
       } as RedisRateLimiterConfig);
     }
-    return new PriorityRateLimiter({ maxTokens: tokens, tokensPerInterval: tokens, intervalMs }, 0);
+    return buildLocalRateLimiter(tokens, intervalMs);
   };
 
   return {

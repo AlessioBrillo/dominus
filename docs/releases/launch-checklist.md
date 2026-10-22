@@ -41,6 +41,48 @@ data-rights endpoints.
 
 ## The human steps, in order
 
+### 0. The trademark sources answer
+
+The trademark gate is the one feature the product cannot be without
+(Principle 6), and it depends on two free public endpoints that are not
+ours:
+
+| Source | Endpoint | State on 2026-10-22 |
+|---|---|---|
+| USPTO (Elasticsearch) | `POST https://tmsearch.uspto.gov/tmsearch` | **`405 Method Not Allowed`**, answered by Amazon S3: the path now serves the static assets of the search site |
+| USPTO (TSDR fallback) | `GET https://tsdr.uspto.gov/tsdr/tmsearch/data?searchType=basic&search=<term>` | **`429 Too Many Requests`** from the launch network |
+
+Reproduce it:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://tmsearch.uspto.gov/tmsearch \
+  -H 'Content-Type: application/json' --data '{"query":{"bool":{"should":[{"match_phrase":{"WM":{"query":"nike"}}}],"minimum_should_match":1}},"size":5}'
+# 405
+```
+
+Until a source answers, the gate reports **unverified** and the domain is
+**not** recommended — the conservative behaviour, and the reason the CLI
+prints `Recommended: NO (TM unverified)` instead of a `YES` it cannot
+justify. The providers were changed to fail closed in v1.3.2 (ADR-0097):
+before that, a `405` was read as "this mark does not exist" and the gate
+cleared the domain on a request that never happened.
+
+What closes it:
+
+- migrate the provider to the current USPTO search endpoint (the search
+  site at `https://tmsearch.uspto.gov/search/search-results` is a
+  JavaScript application whose backend is the replacement), or
+- configure the free EUIPO credentials (`EUIPO_CLIENT_ID`,
+  `EUIPO_CLIENT_SECRET`), which give the gate a second, independent
+  source, or
+- both.
+
+Verify it before the launch, with the gate and not with a document:
+
+```bash
+dominus score nike.com          # the verdict must be "clear" or "blocked", never "unverified"
+```
+
 ### 1. The fiscal position
 
 Selling subscriptions needs a tax position. This is an accountant's task and
@@ -218,6 +260,7 @@ publishing.
 
 | Step | Evidence | Where |
 |---|---|---|
+| trademark sources | the verdict of `dominus score <domain>` is not "unverified" | the operations log |
 | fiscal position | the tax registration and the accountant's advice | private; the conclusion in the ADR |
 | operator identity | the gate passing | the output of `npm run launch:check` |
 | Stripe | the three scenarios | the table in [billing-tax-verification.md](billing-tax-verification.md) |

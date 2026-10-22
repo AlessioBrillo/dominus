@@ -30,7 +30,8 @@ import { ProviderHealthCheck } from '../providers/provider-health.js';
 import type { WhoisProvider } from '../providers/whois/whois-provider.js';
 import { AutoWeightTuner, type ScoringEngine, type ScoringWeights } from '../scoring/index.js';
 import { BacktestEngine, WeightSuggester } from '../scoring/backtest/index.js';
-import { GateVerdict, TrademarkGate } from '../trademark/index.js';
+import { GateVerdict } from '../trademark/index.js';
+import type { TrademarkGate } from '../trademark/trademark-gate.js';
 import {
   PipelineOrchestrator,
   CandidateGenerationStage,
@@ -53,19 +54,13 @@ import { SchedulerService, BackupService, PitrHealthService } from '../scheduler
 import { WatchlistService } from '../watchlist/watchlist-service.js';
 import { PredictionAccuracyAnalyzer } from '../analytics/index.js';
 import {
-  EuipoProvider,
-  FailoverTrademarkProvider,
-  TsdrTrademarkProvider,
-  UsptoCasesProvider,
-} from '../providers/trademark/index.js';
-import {
   PipelineRunService,
   CachedTrademarkProvider,
-  RetryingTrademarkProvider,
   warnEuipoIfMissing,
   MetricsCollector,
   PipelineProgressService,
 } from './index.js';
+import { buildTrademarkGate, buildTrademarkSources } from './trademark-stack.js';
 import { type RateLimiterLike } from '../providers/rate-limiter.js';
 import {
   RedisLock,
@@ -419,27 +414,30 @@ function buildTrademarkProviderStack(
   trademarkGate: TrademarkGate;
   usptoWafStats: () => { wafBlockCount: number; requestCount: number; wafBlockRate: number };
 } {
-  const rawUsptoProvider = new UsptoCasesProvider({
-    searchUrl: config.USPTO_SEARCH_URL,
-    rateLimiter: usptoRateLimiter,
-  });
-
-  const usptoFallbackProvider = new TsdrTrademarkProvider(
-    config.USPTO_TSDR_SEARCH_URL,
-    usptoRateLimiter,
-  );
-
-  const usptoFailoverProvider = new FailoverTrademarkProvider([
-    rawUsptoProvider,
-    usptoFallbackProvider,
-  ]);
-
+  // The shared breaker is the Redis one when Redis is connected: the
+  // breaker state belongs to the deployment, not to the process.
   const usptoCircuitBreaker: ICircuitBreaker = redisClient?.isConnected
     ? new DistributedCircuitBreaker('uspto', USPTO_CIRCUIT_BREAKER, redisClient)
     : new CircuitBreaker(USPTO_CIRCUIT_BREAKER);
 
+  const euipoCircuitBreaker: ICircuitBreaker = redisClient?.isConnected
+    ? new DistributedCircuitBreaker('euipo', EUIPO_CIRCUIT_BREAKER, redisClient)
+    : new CircuitBreaker(EUIPO_CIRCUIT_BREAKER);
+
+  // The provider stack itself (USPTO with its TSDR fallback, EUIPO, each
+  // behind a retry policy and a breaker) is built in one place, so the
+  // server and the decision path cannot drift apart.
+  const sources = buildTrademarkSources(config, {
+    usptoRateLimiter,
+    euipoRateLimiter,
+    usptoBreaker: usptoCircuitBreaker,
+    euipoBreaker: euipoCircuitBreaker,
+  });
+
+  // The server caches the answers in the database; the decision path does
+  // not (a one-shot command has no second call to cache for).
   const usptoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(usptoFailoverProvider, {}, usptoCircuitBreaker),
+    sources.uspto,
     providerCacheRepo,
     'USPTO',
     config.TM_CACHE_TTL_DAYS,
@@ -447,24 +445,8 @@ function buildTrademarkProviderStack(
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
 
-  const euipoCircuitBreaker: ICircuitBreaker = redisClient?.isConnected
-    ? new DistributedCircuitBreaker('euipo', EUIPO_CIRCUIT_BREAKER, redisClient)
-    : new CircuitBreaker(EUIPO_CIRCUIT_BREAKER);
-
   const euipoTmProvider = new CachedTrademarkProvider(
-    new RetryingTrademarkProvider(
-      new EuipoProvider({
-        clientId: config.EUIPO_CLIENT_ID,
-        clientSecret: config.EUIPO_CLIENT_SECRET,
-        authUrl: config.EUIPO_AUTH_URL,
-        apiUrl: config.EUIPO_API_URL,
-        pageSize: config.EUIPO_PAGE_SIZE,
-        maxPages: config.EUIPO_MAX_PAGES,
-        rateLimiter: euipoRateLimiter,
-      }),
-      {},
-      euipoCircuitBreaker,
-    ),
+    sources.euipo,
     providerCacheRepo,
     'EUIPO',
     config.TM_CACHE_TTL_DAYS,
@@ -472,14 +454,11 @@ function buildTrademarkProviderStack(
     config.PROVIDER_MEMORY_CACHE_TTL_SECONDS,
   );
 
-  const matchDetectorConfig = {
-    minTokenLengthForFuzzy: config.TRADEMARK_MIN_TOKEN_LENGTH_FUZZY,
-    minMarkTokenLengthForSubstring: config.TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING,
-    maxLevenshteinDistance: config.TRADEMARK_MAX_LEVENSHTEIN,
-  };
-  const trademarkGate = new TrademarkGate(usptoTmProvider, euipoTmProvider, matchDetectorConfig, {
-    providerTimeoutMs: config.TRADEMARK_PROVIDER_TIMEOUT_MS,
-    onResult: (stats): void => {
+  const trademarkGate = buildTrademarkGate(
+    config,
+    usptoTmProvider,
+    euipoTmProvider,
+    (stats): void => {
       metrics.recordTrademarkGate({
         verdict:
           stats.verdict === GateVerdict.Blocked
@@ -492,7 +471,10 @@ function buildTrademarkProviderStack(
         euipoOk: stats.euipoOk,
       });
     },
-  });
+  );
+
+  // The WAF counters live on the raw USPTO provider, which the stack owns.
+  const rawUsptoProvider = sources.rawUspto;
 
   return {
     usptoTmProvider,

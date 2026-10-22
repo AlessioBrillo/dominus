@@ -110,13 +110,21 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.3.0 — launch readiness: the legal surface for the EU operator
-(art. 7 D.Lgs. 70/2003), the tax inputs and the withdrawal consent at
-checkout, the data-subject rights (GDPR art. 15 and 17), a launch gate that
-can be executed, and a published artifact that is verified before and after
-the publish. v1.0.0 introduced the DOMINUS Cloud MVP. Next: the
-infrastructure provisioned for real, the operator identity, and the paid
-tiers behind the third-party audit.
+DOMINUS v1.3.2 — the front door: the first command a stranger runs
+answers in about two seconds, creates nothing on disk and prints the
+decision alone on stdout (the diagnostics moved to stderr, `--json` gives
+the same decision to a script); `--help` and `--version` are answered from
+the command line alone. The trademark gate fails closed: a source that
+cannot answer leaves the domain unverified, and an unverified domain is
+never recommended. The release state is checked against the world
+(`npm run release:doctor`), and the documented quickstart is verified by
+the gate (`npm run check:quickstart`). Before it: the legal surface for the
+EU operator (art. 7 D.Lgs. 70/2003), the tax inputs and the withdrawal
+consent at checkout, the data-subject rights (GDPR art. 15 and 17), a
+launch gate that can be executed, and a published artifact that is verified
+before and after the publish. v1.0.0 introduced the DOMINUS Cloud MVP.
+Next: the infrastructure provisioned for real, the operator identity, the
+USPTO endpoint migration, and the paid tiers behind the third-party audit.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
@@ -164,9 +172,21 @@ committer's machine with Docker:
 - **Local:** `npm run gate` from the repo root. Exit 0 = green.
   It runs typecheck → build → db:sync:check → lint → format:check →
   check:migration-compat → check:sql-portability → notices:check →
-  adr:index:check → check:pack → check:doc-drift → backend tests with
-  coverage → frontend typecheck/lint/test-with-coverage/build → the
-  end-to-end smoke gate (`npm run test:e2e:smoke`).
+  adr:index:check → check:pack → release:verify --pack → check:doc-drift →
+  check:release-consistency → **check:quickstart** → check:workflows →
+  check:legal-placeholders → backend tests with coverage → frontend
+  typecheck/lint/test-with-coverage/build → the end-to-end smoke gate
+  (`npm run test:e2e:smoke`).
+- **The quickstart gate:** `npm run check:quickstart` runs the command the
+  README advertises, in a throwaway directory, and asserts the contract a
+  reader is entitled to: exit 0, no log lines on stdout, the five numbers,
+  nothing written to the disk, a time budget — and that the output
+  documented in the README is the output the command produces.
+- **The release state:** `npm run release:doctor` compares the version
+  `package.json` announces with the world: a clean tree, a tag for the
+  version, the tag on the remote, and — with `--remote` — the package on
+  npm and the image in the registry. A release that is announced but not
+  published is a command that fails, not a discovery days later.
 - **End-to-end smoke:** the gate ends with a Playwright subset — auth,
   portfolio and the WCAG 2.1 AA gate — so the local gate cannot be green
   while the shipped SPA is broken. It needs the Chromium build once per

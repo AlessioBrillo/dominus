@@ -51,22 +51,40 @@ export class TsdrTrademarkProvider implements TrademarkProvider {
     }
 
     if (!response.ok) {
-      logger.warn({ httpStatus: response.status, term }, 'TSDR returned non-OK status');
-      return [];
+      // Fail closed (ADR-0012, Principle 6): a non-OK answer is not an
+      // answer. An empty result set here would claim that no mark exists
+      // for a request that never ran.
+      logger.warn(
+        { httpStatus: response.status, term },
+        'TSDR returned non-OK status — failing closed.',
+      );
+      throw new ProviderError(
+        `TSDR returned HTTP ${response.status} for term "${term}" — the search could not be performed.`,
+        this.name,
+        'TSDR_REQUEST_FAILED',
+      );
     }
 
     const contentType = response.headers?.get?.('content-type') ?? '';
     if (!contentType.includes('application/json') && !contentType.includes('text/json')) {
-      logger.warn({ contentType, term }, 'TSDR returned non-JSON response');
-      return [];
+      logger.warn({ contentType, term }, 'TSDR returned non-JSON response — failing closed.');
+      throw new ProviderError(
+        `TSDR returned a non-JSON response for term "${term}" — the search could not be performed.`,
+        this.name,
+        'TSDR_INVALID_RESPONSE',
+      );
     }
 
     let data: unknown;
     try {
       data = await response.json();
     } catch {
-      logger.warn({ term }, 'TSDR response not valid JSON');
-      return [];
+      logger.warn({ term }, 'TSDR response was not valid JSON — failing closed.');
+      throw new ProviderError(
+        `TSDR response was not valid JSON for term "${term}" — the search could not be performed.`,
+        this.name,
+        'TSDR_INVALID_RESPONSE',
+      );
     }
 
     const parsed = this.#parseResponse(data);
