@@ -3,6 +3,10 @@ export { PipelineRunService } from './pipeline-run-service.js';
 export type { PipelineRunResult, PersistenceSummary } from './pipeline-run-service.js';
 export { CachedTrademarkProvider } from './cached-trademark-provider.js';
 export { RetryingTrademarkProvider } from './retrying-trademark-provider.js';
+export { buildTrademarkGate, buildTrademarkSources } from './trademark-stack.js';
+export type { TrademarkSources } from './trademark-stack.js';
+export { createDecisionDependencies } from './decision-root.js';
+export type { DecisionDependencies } from './decision-root.js';
 export {
   RetryingWhoisProvider,
   WHOIS_RETRY_POLICY,

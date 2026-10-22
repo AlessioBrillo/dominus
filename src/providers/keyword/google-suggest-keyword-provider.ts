@@ -5,6 +5,16 @@ const SUGGEST_URL = 'https://suggestqueries.google.com/complete/search';
 
 const CACHE_TTL_MS = 86_400_000;
 
+/**
+ * The deadline of a single suggestion lookup.
+ *
+ * The commercial signal is an enrichment, not a gate: a provider that does
+ * not answer must not hold the command. Without a deadline a hanging
+ * network makes `dominus score` hang with it, and a command that never
+ * finishes is worse than a command that answers with less evidence.
+ */
+const SUGGEST_TIMEOUT_MS = 3_000;
+
 interface CacheEntry {
   metrics: KeywordMetrics;
   expiresAt: number;
@@ -59,7 +69,9 @@ export class GoogleSuggestKeywordProvider implements KeywordProvider {
 
     let response: Response;
     try {
-      response = await fetch(url.toString(), { signal: signal ?? null });
+      const deadline = AbortSignal.timeout(SUGGEST_TIMEOUT_MS);
+      const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      response = await fetch(url.toString(), { signal: combined });
     } catch {
       return [];
     }

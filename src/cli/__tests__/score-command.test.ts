@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { registerScoreCommand } from '../commands/score-command.js';
 import type { ScoringEngine } from '../../scoring/scoring-engine.js';
+import type { TrademarkGate } from '../../trademark/trademark-gate.js';
+import { GateVerdict } from '../../trademark/trademark-gate.js';
 
 function makeStubEngine(): ScoringEngine {
   return {
@@ -136,5 +138,70 @@ describe('CLI: dominus score (input validation)', () => {
       }
     });
     expect(err).toMatch(/not a syntactically valid domain/);
+  });
+
+  // ── The machine-readable form ─────────────────────────────────────
+
+  it('prints the decision as JSON and nothing else', async () => {
+    const out = await captureStdout(async () => {
+      await program.parseAsync(['node', 'dominus', 'score', 'example.com', '--json']);
+    });
+    // stdout must be parseable as JSON on its own: a command whose output
+    // carries log lines cannot be piped.
+    const parsed = JSON.parse(out) as {
+      domain: string;
+      recommended: boolean;
+      score: { expectedValue: number; suggestedBuyMax: number };
+      trademark: { verdict: string };
+    };
+    expect(parsed.domain).toBe('example.com');
+    expect(parsed.score.expectedValue).toBe(100);
+    expect(parsed.score.suggestedBuyMax).toBe(50);
+    // No trademark gate was given: the domain could not be checked, and a
+    // domain that could not be checked is never recommended (Principle 6).
+    expect(parsed.recommended).toBe(false);
+    expect(parsed.trademark.verdict).toBe('not-run');
+  });
+
+  it('recommends a domain the trademark gate cleared', async () => {
+    const clearGate = {
+      check: () =>
+        Promise.resolve({
+          domain: 'example.com',
+          verdict: GateVerdict.Clear,
+          verifiedSources: ['USPTO'],
+        }),
+    } as unknown as TrademarkGate;
+
+    const cleared = new Command();
+    registerScoreCommand(cleared, makeStubEngine(), clearGate);
+    const out = await captureStdout(async () => {
+      await cleared.parseAsync(['node', 'dominus', 'score', 'example.com', '--json']);
+    });
+    const parsed = JSON.parse(out) as { recommended: boolean; trademark: { verdict: string } };
+    expect(parsed.recommended).toBe(true);
+    expect(parsed.trademark.verdict).toBe(GateVerdict.Clear);
+  });
+
+  it('never recommends a domain the trademark gate did not clear', async () => {
+    const blockedGate = {
+      check: () =>
+        Promise.resolve({
+          domain: 'example.com',
+          verdict: GateVerdict.Blocked,
+          verifiedSources: ['USPTO'],
+          matchedMark: 'EXAMPLE',
+          matchSource: 'USPTO',
+        }),
+    } as unknown as TrademarkGate;
+
+    const blocked = new Command();
+    registerScoreCommand(blocked, makeStubEngine(), blockedGate);
+    const out = await captureStdout(async () => {
+      await blocked.parseAsync(['node', 'dominus', 'score', 'example.com', '--json']);
+    });
+    const parsed = JSON.parse(out) as { recommended: boolean; trademark: { matchedMark: string } };
+    expect(parsed.recommended).toBe(false);
+    expect(parsed.trademark.matchedMark).toBe('EXAMPLE');
   });
 });

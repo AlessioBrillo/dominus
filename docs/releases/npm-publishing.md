@@ -143,7 +143,38 @@ A failure after the publish cannot un-publish the package. The response is
 job is that the failure is a red workflow instead of a support ticket days
 later.
 
-## 6. What a consumer can verify
+## 6. The second channel: the tarball on the GitHub Release
+
+The npm registry is the *convenient* channel, not the only one. The
+trusted publisher failed twice (v1.2.0 and v1.3.0, both `E404`: the
+publisher is not configured on the npm account), and a distribution that
+depends on an account setting nobody can automate is one click away from
+being no distribution at all.
+
+Since v1.3.2 the release workflow builds the tarball **once** and uses it
+for both channels:
+
+- the asset attached to the GitHub Release, with its SHA-256 checksum
+  beside it;
+- the package published to npm (`npm publish <tarball>`).
+
+They are the same bytes, so the artifact a user verifies against the
+checksum is the artifact npm serves.
+
+```bash
+# No registry, no clone: the verified tarball and its checksum
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz.sha256
+sha256sum -c dominus-oss-1.3.2.tgz.sha256
+npm install -g ./dominus-oss-1.3.2.tgz
+dominus score vintagecoffee.com
+```
+
+The tarball is the same artifact the local gate verifies before the tag
+(`npm run release:verify -- --pack`) and the release workflow verifies
+after the publish.
+
+## 7. What a consumer can verify
 
 Because the package is published with `--provenance`, npm emits a Sigstore
 attestation linking the tarball to this repository, this workflow and the

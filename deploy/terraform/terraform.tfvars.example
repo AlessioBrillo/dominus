@@ -14,7 +14,7 @@ domain            = "app.dominus.example"
 #
 # Bump this at every release. `npm run check:release-consistency` fails the
 # build when it disagrees with package.json.
-image_tag         = "v1.3.1"   # must name a RELEASED tag; bump per deploy
+image_tag         = "v1.3.2"   # must name a RELEASED tag; bump per deploy
 
 # SSH ingress allowlist (both nodes). The default is EMPTY and an apply
 # with an empty allowlist is refused by a precondition on both firewalls:

@@ -215,11 +215,21 @@ export class UsptoCasesProvider implements TrademarkProvider {
     }
 
     if (!response.ok) {
-      logger.warn(
+      // Fail closed (ADR-0012, Principle 6). A non-OK answer is NOT an
+      // answer: returning an empty result set here would report "this
+      // mark does not exist" for a request that never happened, and the
+      // gate would clear a domain nobody checked. The error is thrown so
+      // the failover can try the next source, and so the gate reports
+      // Unverified when every source is down.
+      logger.error(
         { httpStatus: response.status, term },
-        'USPTO returned non-OK HTTP status — degrading to empty result set.',
+        'USPTO returned a non-OK HTTP status — failing closed so another source can answer.',
       );
-      return [];
+      throw new ProviderError(
+        `USPTO returned HTTP ${response.status} for term "${term}" — the search could not be performed.`,
+        'UsptoCasesProvider',
+        'USPTO_REQUEST_FAILED',
+      );
     }
 
     const contentType = response.headers?.get?.('content-type') ?? '';
@@ -252,12 +262,18 @@ export class UsptoCasesProvider implements TrademarkProvider {
     try {
       data = await response.json();
     } catch (err: unknown) {
-      logger.warn(
+      // A body that is not JSON is not an answer either (ADR-0012): the
+      // backend may have changed, and an empty result set would be a
+      // negative result carrying no weight.
+      logger.error(
         { err, term },
-        'USPTO response not valid JSON — backend may have changed. ' +
-          'Degrading: treating as no matches found.',
+        'USPTO response was not valid JSON — failing closed (the backend may have changed).',
       );
-      return [];
+      throw new ProviderError(
+        `USPTO response was not valid JSON for term "${term}" — the backend may have changed.`,
+        'UsptoCasesProvider',
+        'USPTO_INVALID_RESPONSE',
+      );
     }
 
     const result = this.#parseResponse(data);
@@ -265,11 +281,15 @@ export class UsptoCasesProvider implements TrademarkProvider {
 
     if (!isUsptoResponse(data)) {
       const preview = JSON.stringify(data).slice(0, 300);
-      logger.warn(
+      logger.error(
         { term, preview },
-        'USPTO response structure unrecognised — expected { hits: { hits: [...] } }. ' +
-          'The USPTO Elasticsearch backend may have changed its response format. ' +
-          'Degrading: treating as no matches found. If this persists, check tmsearch.uspto.gov.',
+        'USPTO response structure was unrecognised — expected { hits: { hits: [...] } }. ' +
+          'The USPTO Elasticsearch backend may have changed its response format. Failing closed.',
+      );
+      throw new ProviderError(
+        `USPTO response structure was unrecognised for term "${term}" — expected { hits: { hits: [...] } }.`,
+        'UsptoCasesProvider',
+        'USPTO_INVALID_RESPONSE',
       );
     }
 

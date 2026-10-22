@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.3.1-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.3.2-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -111,7 +111,18 @@ npx dominus-oss@latest score vintagecoffee.com
 publishing and a provenance attestation
 ([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)). If the
 registry has no version yet — the first release of a new line, or a mirror
-that lags — the source and Docker paths below are equivalent.
+that lags — the tarball attached to the
+[GitHub Release](https://github.com/AlessioBrillo/dominus/releases) is the
+same artifact, with its checksum beside it:
+
+```bash
+# No registry, no clone: the verified tarball and its checksum
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz.sha256
+sha256sum -c dominus-oss-1.3.2.tgz.sha256
+npm install -g ./dominus-oss-1.3.2.tgz
+dominus score vintagecoffee.com
+```
 
 Or run from source:
 
@@ -144,15 +155,28 @@ node dist/cli.js score vintagecoffee.com
 
 ```
 Score: vintagecoffee.com
-  Expected value:    €247.73
-  Suggested buy max: €123.87
-  List price:        €619.33
+  Expected value:    €246.13
+  Suggested buy max: €123.06
+  List price:        €615.31
   Confidence:        51.8%
-  Recommended:       YES
+  Recommended:       NO (TM unverified)
+
+  Trademark gate:
+    Verdict:   unverified
+    Sources:   none
+    (unverified - no trademark source answered; a domain in this state is never recommended)
 ```
 
 That is the whole decision: a conservative expected value, a purchase
 ceiling derived from it, a list price, and how much evidence supports it.
+
+The command answers in about two seconds, writes nothing to your disk and
+prints the decision on stdout — the diagnostics go to stderr, so the output
+can be piped (`dominus score example.com --json` prints the same decision
+as an object). The trademark verdict is the live one: a register that does
+not answer leaves the domain **unverified**, and an unverified domain is
+never recommended (ADR-0012). That is the conservative behaviour, not a
+defect: a "yes" on a domain nobody checked is how capital is lost.
 
 ### Running the full pipeline
 
@@ -374,8 +398,11 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.3.1 — full release integrity: all five pipeline stages, the
-heuristic scoring engine, the mandatory trademark gate enforced on every
+DOMINUS v1.3.2 — the front door works: `dominus score example.com` answers
+in about two seconds, creates nothing on disk and prints the decision and
+nothing else on stdout (the diagnostics moved to stderr, and `--json` gives
+the same decision to a script). All five pipeline stages, the heuristic
+scoring engine, the mandatory trademark gate enforced on every
 purchase path (API, CLI, auto-approval, bid), real USPTO/EUIPO providers
 with caching, the portfolio tracker with renewal clock and keep/drop
 verdicts, outcomes, the backtest engine and the React dashboard are
