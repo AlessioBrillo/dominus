@@ -20,6 +20,8 @@ build/
 *.swp
 *.swo
 *~
+# --- Local tool configuration (per-machine, never committed) ---
+.claude/
 
 # --- OS ---
 .DS_Store
