@@ -25,36 +25,15 @@ import { getLogger } from '../../logger.js';
  * and allows the trademark gate to degrade gracefully (Principle 1 / §6).
  */
 
-interface UsptoBucket {
-  WM?: string;
-  PM?: string; // pseudo mark
-  ST?: string;
-  ON?: string;
-  SN?: string;
-  RN?: string;
-}
-
-interface UsptoHit {
-  _source?: UsptoBucket;
-}
-
-interface UsptoResponse {
-  hits?: {
-    total?: { value?: number };
-    hits?: UsptoHit[];
-  };
-}
-
 const ACTIVE_STATUS_PREFIX = '6-'; // USPTO status codes starting with 6 are registered/active
 
 const logger = getLogger();
 
-const USER_AGENTS: readonly string[] = [
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
-  'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0',
-];
+/** Honest client identifier. The USPTO search backend no longer serves a WAF
+ *  challenge on the production search path, so there is no reason to rotate
+ *  browser user-agents. Identifying the tool is both polite and useful for
+ *  the USPTO's own operations. Update the version segment at each release. */
+const USER_AGENT = 'dominus-oss/1.3.3 (+https://github.com/AlessioBrillo/dominus)';
 
 const MAX_WAF_RETRIES = 3;
 
@@ -144,13 +123,27 @@ export class UsptoCasesProvider implements TrademarkProvider {
           minimum_should_match: 1,
         },
       },
-      _source: ['WM', 'PM', 'ST', 'ON', 'SN', 'RN'],
+      // Request the current response field names. `_source` is the envelope
+      // key the current backend uses; projecting only the fields we read
+      // keeps the response small and makes schema drift visible (a missing
+      // projected field is an unrecognized schema, not an empty result set).
+      _source: [
+        'wordmark',
+        'wordmarkPseudoText',
+        'statusCode',
+        'statusDescription',
+        'alive',
+        'ownerName',
+        'registrationId',
+        'id',
+      ],
       from: 0,
-      size: 50,
+      size: 100,
     });
 
-    // Random User-Agent selection instead of round-robin to avoid WAF fingerprinting
-    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]!;
+    // Random User-Agent selection instead of round-robin to avoid WAF
+    // fingerprinting
+    const userAgent = USER_AGENT;
 
     let response: Response;
     try {
@@ -276,42 +269,95 @@ export class UsptoCasesProvider implements TrademarkProvider {
       );
     }
 
-    const result = this.#parseResponse(data);
-    if (result.length > 0) return result;
+    return this.#parseResponse(data);
+  }
 
-    if (!isUsptoResponse(data)) {
-      const preview = JSON.stringify(data).slice(0, 300);
-      logger.error(
-        { term, preview },
-        'USPTO response structure was unrecognised — expected { hits: { hits: [...] } }. ' +
-          'The USPTO Elasticsearch backend may have changed its response format. Failing closed.',
-      );
+  #parseResponse(raw: unknown): TrademarkMatch[] {
+    if (!isUsptoResponse(raw)) {
+      const preview = JSON.stringify(raw).slice(0, 300);
       throw new ProviderError(
-        `USPTO response structure was unrecognised for term "${term}" — expected { hits: { hits: [...] } }.`,
+        `USPTO response structure was unrecognised — expected { hits: { hits: [...] } }, got ${preview}.`,
         'UsptoCasesProvider',
         'USPTO_INVALID_RESPONSE',
       );
     }
 
-    return result;
-  }
+    const hits = (raw.hits?.hits ?? []) as unknown[];
+    if (!Array.isArray(hits)) {
+      throw new ProviderError(
+        'USPTO response structure was unrecognised — hits.hits is not an array.',
+        'UsptoCasesProvider',
+        'USPTO_INVALID_RESPONSE',
+      );
+    }
 
-  #parseResponse(raw: unknown): TrademarkMatch[] {
-    if (!isUsptoResponse(raw)) return [];
+    const results: TrademarkMatch[] = [];
+    let recognizableFields = 0;
 
-    const hits = raw.hits?.hits ?? [];
-    return hits
-      .map((hit) => hit._source)
-      .filter((src): src is UsptoBucket => src !== undefined && src !== null)
-      .filter((src) => isActiveStatus(src.ST))
-      .map((src) => ({
-        markName: src.WM ?? src.PM ?? '',
-        owner: src.ON ?? '',
-        status: src.ST ?? '',
+    for (const rawHit of hits) {
+      const hit = rawHit as Record<string, unknown>;
+      const src = (hit.source ?? hit._source) as Record<string, unknown> | undefined;
+      if (!src || typeof src !== 'object') continue;
+
+      // The current backend nests fields under `source` with current names
+      // (wordmark, alive, statusCode, ownerName, registrationId, id); the
+      // legacy backend nested them under `_source` with WM/ST/ON/SN/RN.
+      // Recognize either envelope and either field naming.
+      const markName = String(
+        src.wordmark ?? src.WM ?? src.wordmarkPseudoText ?? src.PM ?? '',
+      ).trim();
+      const owner = String(src.ownerName ?? src.ON ?? '');
+      const registrationNumber = src.registrationId ?? src.RN ?? src.SN ?? src.id;
+
+      let status: string;
+      let active: boolean;
+      if (src.alive !== undefined) {
+        // `alive` is the authoritative activity flag on the current backend.
+        active = src.alive === true;
+        status = String(src.statusDescription ?? '');
+      } else {
+        status = String(src.ST ?? src.statusCode ?? '');
+        active = isActiveStatus(status);
+      }
+
+      const hasReadableField =
+        src.wordmark != null ||
+        src.WM != null ||
+        src.wordmarkPseudoText != null ||
+        src.PM != null ||
+        src.alive != null ||
+        src.ST != null ||
+        src.statusCode != null ||
+        src.ownerName != null ||
+        src.ON != null;
+      if (hasReadableField) recognizableFields += 1;
+
+      if (!markName) continue;
+      if (!active) continue;
+
+      results.push({
+        markName,
+        owner,
+        status,
         source: 'USPTO',
-        registrationNumber: src.RN ?? src.SN,
-      }))
-      .filter((m) => m.markName.length > 0);
+        registrationNumber: registrationNumber ? String(registrationNumber) : undefined,
+      });
+    }
+
+    // Fail closed: hits were returned but none carry a readable field, which
+    // means the backend changed its shape and we cannot trust an empty list.
+    // Reporting "no matches" here would clear a domain nobody checked
+    // (Principle 6).
+    if (hits.length > 0 && recognizableFields === 0) {
+      const preview = JSON.stringify(hits).slice(0, 300);
+      throw new ProviderError(
+        `USPTO response schema was unrecognised: ${hits.length} hit(s) present but no readable mark fields (${preview}).`,
+        'UsptoCasesProvider',
+        'USPTO_INVALID_RESPONSE',
+      );
+    }
+
+    return results;
   }
 }
 
@@ -323,7 +369,7 @@ function isActiveStatus(st: string | undefined): boolean {
   return !st.startsWith('7-') && !st.startsWith('8-');
 }
 
-function isUsptoResponse(v: unknown): v is UsptoResponse {
+function isUsptoResponse(v: unknown): v is { hits?: { hits?: unknown[] } } {
   return typeof v === 'object' && v !== null && 'hits' in v;
 }
 

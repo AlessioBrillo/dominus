@@ -40,6 +40,13 @@ export interface TrademarkGateOptions {
    * provider stack's own retry/timeout policies apply.
    */
   providerTimeoutMs?: number;
+  /**
+   * Sources the operator has configured. A source not listed here is not
+   * expected to answer, so its absence does not make a verdict `partial`.
+   * Only a configured source that fails does. Defaults to both sources
+   * (backward compatible).
+   */
+  configuredSources?: ReadonlySet<string>;
   /** Optional telemetry sink invoked once per check() with the outcome. */
   onResult?: (stats: TrademarkGateStats) => void;
 }
@@ -94,10 +101,20 @@ function isTruncation(err: unknown): boolean {
   return typeof code === 'string' && INCOMPLETE_RESULT_CODES.has(code);
 }
 
-/** Outcome of one source lookup. `truncated` implies `ok === false`. */
+/** True when the provider was never set up (EUIPO without credentials) — as
+ *  opposed to a configured source that failed to answer. */
+function isUnconfigured(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  return (err as { code?: unknown }).code === 'EUIPO_MISSING_CREDENTIALS';
+}
+
+/** Outcome of one source lookup. `truncated` implies `ok === false`.
+ * `unconfigured` means the source was never set up (e.g. EUIPO without
+ * credentials): it is not expected to answer, so its absence does not make
+ * a verdict `partial`. Only a configured source that fails does (D7). */
 type SourceOutcome =
-  | { ok: true; matches: TrademarkMatch[]; truncated: false }
-  | { ok: false; matches: never[]; truncated: boolean };
+  | { ok: true; matches: TrademarkMatch[]; truncated: false; unconfigured: false }
+  | { ok: false; matches: never[]; truncated: boolean; unconfigured: boolean };
 
 function isStrictTld(domain: string): boolean {
   return STRICT_USPTO_TLDS.has(parseDomain(domain).tld);
@@ -120,6 +137,7 @@ export class TrademarkGate {
   private matchConfig: MatchDetectorConfig;
   private providerTimeoutMs: number | undefined;
   private onResult: (stats: TrademarkGateStats) => void;
+  #configuredSources: ReadonlySet<string>;
 
   constructor(
     usptoProvider: TrademarkProvider,
@@ -131,6 +149,7 @@ export class TrademarkGate {
     this.euipoProvider = euipoProvider;
     this.matchConfig = matchConfig;
     this.providerTimeoutMs = options.providerTimeoutMs;
+    this.#configuredSources = options.configuredSources ?? new Set(['USPTO', 'EUIPO']);
     this.onResult = options.onResult ?? ((): void => {});
   }
 
@@ -206,7 +225,7 @@ export class TrademarkGate {
           domain,
           verdict: GateVerdict.Unverified,
           verifiedSources,
-          partial: verifiedSources.length < 2,
+          partial: this.#computePartial(usptoResult, euipoResult),
         };
       } else if (!usptoResult.ok && isStrictTld(domain)) {
         logger.warn(
@@ -229,7 +248,11 @@ export class TrademarkGate {
         );
         result = { domain, verdict: GateVerdict.Unverified, verifiedSources };
       } else {
-        const partial = verifiedSources.length < 2;
+        // `partial` is true only when a configured source failed. A source
+        // that is simply not configured (e.g. EUIPO without credentials) is
+        // not expected to answer, so it does not make the verdict partial
+        // (D7).
+        const partial = this.#computePartial(usptoResult, euipoResult);
         if (partial) {
           logger.warn(
             {
@@ -237,7 +260,7 @@ export class TrademarkGate {
               sources: verifiedSources,
               partial: true,
             },
-            'Trademark gate: only one source responded — verdict: Clear (partial)',
+            'Trademark gate: a configured source failed — verdict: Clear (partial)',
           );
         }
         result = { domain, verdict: GateVerdict.Clear, verifiedSources, partial };
@@ -264,15 +287,36 @@ export class TrademarkGate {
   ): Promise<SourceOutcome> {
     try {
       const matches = await provider.search(sld, combinedSignal);
-      return { ok: true as const, matches, truncated: false as const };
+      return {
+        ok: true as const,
+        matches,
+        truncated: false as const,
+        unconfigured: false as const,
+      };
     } catch (err) {
       if (runSignal !== undefined && runSignal.aborted) throw err;
       // A truncated result set is not an outage: the register answered, but
       // only partly. `truncated` forces Unverified below, because a partly
       // enumerated register cannot support "no match found" — unlike a
       // hard failure, which ADR-0012 already accepts for non-strict TLDs.
-      return { ok: false as const, matches: [], truncated: isTruncation(err) };
+      // `unconfigured` separates "source not set up" from "source failed":
+      // the former is not expected to answer and never makes a verdict
+      // partial (D7).
+      return {
+        ok: false as const,
+        matches: [],
+        truncated: isTruncation(err),
+        unconfigured: isUnconfigured(err),
+      };
     }
+  }
+
+  #computePartial(usptoResult: SourceOutcome, euipoResult: SourceOutcome): boolean {
+    const bySource = { USPTO: usptoResult, EUIPO: euipoResult } as Record<string, SourceOutcome>;
+    return [...this.#configuredSources].some((source) => {
+      const outcome = bySource[source];
+      return outcome && !outcome.ok && !outcome.unconfigured;
+    });
   }
 
   #emitStats(stats: TrademarkGateStats): void {

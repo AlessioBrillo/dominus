@@ -159,12 +159,11 @@ Score: vintagecoffee.com
   Suggested buy max: €123.06
   List price:        €615.31
   Confidence:        51.8%
-  Recommended:       NO (TM unverified)
+  Recommended:       YES (TM clear)
 
   Trademark gate:
-    Verdict:   unverified
-    Sources:   none
-    (unverified - no trademark source answered; a domain in this state is never recommended)
+    Verdict:   clear
+    Sources:   USPTO
 ```
 
 That is the whole decision: a conservative expected value, a purchase

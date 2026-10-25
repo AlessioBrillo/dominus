@@ -287,35 +287,143 @@ describe('UsptoCasesProvider', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('rotates User-Agent across retry attempts', async () => {
+  it('sends an honest, versioned User-Agent on every attempt', async () => {
     const nikeResponse = mockOkResponse({
       hits: { hits: [{ _source: { WM: 'NIKE', ST: '6-REGISTERED', ON: 'Nike', SN: '1' } }] },
     });
-    mockFetch
-      .mockResolvedValueOnce(mockHtmlResponse(403))
-      .mockResolvedValueOnce(mockHtmlResponse(503))
-      .mockResolvedValueOnce(nikeResponse);
+    mockFetch.mockResolvedValueOnce(mockHtmlResponse(403)).mockResolvedValueOnce(nikeResponse);
 
-    // UA selection is Math.random()-based (4 agents): pin the first pick to
-    // index 0 and everything after (incl. backoff jitter) to the last index
-    // so rotation is deterministic instead of 1-in-16 flaky.
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValue(0.99);
-    try {
-      await provider.search('nike');
-    } finally {
-      randomSpy.mockRestore();
-    }
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    await provider.search('nike');
 
-    // Verify different User-Agents used
-    const agents = mockFetch.mock.calls
-      .slice(0, 3)
-      .map(
-        (call: unknown[]) => (call[1] as { headers: Record<string, string> }).headers['User-Agent'],
-      );
-    const uniqueAgents = new Set(agents);
-    // At least 2 different UAs used across 3 attempts
-    expect(uniqueAgents.size).toBeGreaterThanOrEqual(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const agents = mockFetch.mock.calls.map(
+      (call: unknown[]) => (call[1] as { headers: Record<string, string> }).headers['User-Agent'],
+    );
+    // One honest UA identifies the tool; no browser fingerprinting rotation.
+    expect(new Set(agents).size).toBe(1);
+    expect(agents[0]).toContain('dominus-oss');
+    expect(agents[0]).toContain('github.com/AlessioBrillo/dominus');
+  });
+
+  // ── Current backend shape: `source` envelope with current field names ──
+  it('parses active trademark matches from the current `source` response shape', async () => {
+    mockFetch.mockResolvedValue(
+      mockOkResponse({
+        hits: {
+          totalValue: 2,
+          hits: [
+            {
+              source: {
+                wordmark: 'NIKE',
+                statusCode: 800,
+                statusDescription: 'REGISTERED AND RENEWED',
+                alive: true,
+                ownerName: ['NIKE, INC.'],
+                registrationId: '0978952',
+                id: '75187260',
+              },
+            },
+            {
+              source: {
+                wordmark: 'NIKE AIR',
+                statusCode: 800,
+                statusDescription: 'REGISTERED AND RENEWED',
+                alive: true,
+                ownerName: ['NIKE, INC.'],
+                registrationId: '2000001',
+                id: '75187261',
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const results = await provider.search('nike');
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({
+      markName: 'NIKE',
+      owner: 'NIKE, INC.',
+      status: 'REGISTERED AND RENEWED',
+      source: 'USPTO',
+      registrationNumber: '0978952',
+    });
+    expect(results[1]).toMatchObject({
+      markName: 'NIKE AIR',
+      owner: 'NIKE, INC.',
+      registrationNumber: '2000001',
+    });
+  });
+
+  it('filters out inactive marks using the `alive` flag in the current shape', async () => {
+    mockFetch.mockResolvedValue(
+      mockOkResponse({
+        hits: {
+          totalValue: 3,
+          hits: [
+            {
+              source: {
+                wordmark: 'DEADMARK',
+                statusCode: 700,
+                statusDescription: 'ABANDONED',
+                alive: false,
+                ownerName: ['Acme'],
+                registrationId: '12345',
+                id: '1',
+              },
+            },
+            {
+              source: {
+                wordmark: 'LIVE',
+                statusCode: 800,
+                statusDescription: 'REGISTERED AND RENEWED',
+                alive: true,
+                ownerName: ['Acme'],
+                registrationId: '12346',
+                id: '2',
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const results = await provider.search('mark');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.markName).toBe('LIVE');
+  });
+
+  it('returns an empty array (clear) when the register has no matching records', async () => {
+    mockFetch.mockResolvedValue(mockOkResponse({ hits: { totalValue: 0, hits: [] } }));
+    const results = await provider.search('xqzbrk12345');
+    expect(results).toEqual([]);
+  });
+
+  it('fails closed when hits carry no readable field (schema drift, not an empty set)', async () => {
+    // Simulates the observed failure: the new backend returns `source`
+    // envelopes, but with the old field names all null. Returning an empty
+    // list here would falsely clear the domain - the provider must throw
+    // instead so the gate reports Unverified.
+    mockFetch.mockResolvedValue(
+      mockOkResponse({
+        hits: {
+          totalValue: 170,
+          hits: [
+            {
+              source: {
+                WM: null,
+                PM: null,
+                ST: null,
+                ON: null,
+                SN: null,
+                RN: null,
+              },
+            },
+          ],
+        },
+      }),
+    );
+    await expect(provider.search('nike')).rejects.toBeInstanceOf(ProviderError);
   });
 });
 

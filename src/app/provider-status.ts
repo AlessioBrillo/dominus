@@ -50,7 +50,7 @@ export function reportProviderStatuses(config: Config): ProviderStatus[] {
     {
       name: 'USPTO',
       configured: true,
-      note: `Public TSDR endpoint ${config.USPTO_SEARCH_URL} (no key required).`,
+      note: `Public trademark search endpoint ${config.USPTO_SEARCH_URL} (no key required; fail-closed).`,
     },
     {
       name: 'EUIPO',

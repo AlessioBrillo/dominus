@@ -103,6 +103,7 @@ re-running the original arguments.
 | [0094](0094-launch-posture-single-replica-external-probe.md)                   | One replica, one external probe: the launch posture is measured, not promised                        | 2026-10-20 | Accepted                            |
 | [0095](0095-cloud-acceptance-suite.md)                                         | The Cloud acceptance suite: production parity before the first paid deployment                       | 2026-10-20 | Accepted                            |
 | [0097](0097-cli-front-door-and-release-state.md)                               | The front door: a decision command that answers, and a release state that is real                    | 2026-10-22 | Accepted                            |
+| [0098](0098-uspto-endpoint-migration.md)                                       | USPTO trademark search endpoint migration to prod-stage-v1-0-0                                       | 2026-10-25 | Accepted                            |
 
 ## Conventions
 

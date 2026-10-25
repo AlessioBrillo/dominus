@@ -114,8 +114,14 @@ export function buildTrademarkGate(
     minMarkTokenLengthForSubstring: config.TRADEMARK_MIN_MARK_TOKEN_LENGTH_SUBSTRING,
     maxLevenshteinDistance: config.TRADEMARK_MAX_LEVENSHTEIN,
   };
+  // USPTO is always configured (a search URL always exists); EUIPO only when
+  // the operator provided credentials. An unconfigured source is not
+  // expected to answer and never makes a verdict `partial` (D7).
+  const configuredSources = new Set(['USPTO']);
+  if (config.EUIPO_CLIENT_ID) configuredSources.add('EUIPO');
   return new TrademarkGate(uspto, euipo, matchDetectorConfig, {
     providerTimeoutMs: config.TRADEMARK_PROVIDER_TIMEOUT_MS,
+    configuredSources,
     ...(onResult ? { onResult } : {}),
   });
 }

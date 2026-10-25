@@ -151,7 +151,7 @@ describe('Trademark endpoint URLs — empty string means unset (compose ${VAR:-}
     process.env.USPTO_TSDR_SEARCH_URL = '';
 
     const config = loadConfig();
-    expect(config.USPTO_SEARCH_URL).toBe('https://tmsearch.uspto.gov/tmsearch');
+    expect(config.USPTO_SEARCH_URL).toBe('https://tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch');
     expect(config.EUIPO_AUTH_URL).toBe('https://auth.tmdn.org/oidc/access_token');
     expect(config.EUIPO_API_URL).toBe('https://api.euipo.europa.eu/trademark-search/trademarks');
     expect(config.USPTO_TSDR_SEARCH_URL).toBe('https://tsdr.uspto.gov/tsdr/tmsearch/data');

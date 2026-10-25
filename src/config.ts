@@ -145,13 +145,21 @@ const configSchema = z
     /**
      * USPTO public trademark search base URL (no API key required).
      * Default: the official US tmsearch.uspto.gov JSON backend.
+     *
+     * The `tmsearch.uspto.gov/tmsearch` Elasticsearch path was retired by
+     * USPTO in 2026 and now serves static assets (HTTP 405). The search SPA
+     * backs onto `tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch`, which is
+     * the default below. The endpoint is not covered by a USPTO SLA and may
+     * move again — override `USPTO_SEARCH_URL` when it does. A source that
+     * cannot answer is an error, not an empty result set (ADR-0012).
      */
     /**
-     * USPTO tmsearch Elasticsearch backend endpoint.
-     * Accepts POST with an ES-style query body; fields: WM (word mark), ST (status),
-     * ON (owner name), SN (serial number), RN (registration number).
+     * USPTO tmsearch backend endpoint. Accepts POST with an ES-style query
+     * body; reads both the current `source` shape (wordmark, statusCode,
+     * alive, ownerName, registrationId) and the legacy `_source` shape
+     * (WM, ST, ON, SN, RN).
      */
-    USPTO_SEARCH_URL: urlWithDefault('https://tmsearch.uspto.gov/tmsearch'),
+    USPTO_SEARCH_URL: urlWithDefault('https://tmsearch.uspto.gov/prod-stage-v1-0-0/tmsearch'),
     /**
      * EUIPO OAuth2 credentials (free registration at https://euipo.europa.eu/ohimportal/en/open-data).
      * The same `EUIPO_CLIENT_ID` is reused as the `X-IBM-Client-Id` header on the
