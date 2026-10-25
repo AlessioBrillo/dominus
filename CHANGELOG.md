@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.3](https://github.com/AlessioBrillo/dominus/compare/v1.3.0...v1.3.3) (2026-10-25)
+
+
+### Features
+
+* **cli:** front door — decision and catalog profiles, fail-closed trademark gate ([#509](https://github.com/AlessioBrillo/dominus/issues/509)) ([ae6ed8e](https://github.com/AlessioBrillo/dominus/commit/ae6ed8ee84ace4b78bd0cad26fe2d46e84c4fc0a))
+* **trademark:** migrate USPTO provider to prod-stage-v1-0-0 endpoint, gate answers again ([4123f7a](https://github.com/AlessioBrillo/dominus/commit/4123f7ade34c39360b4a98e810d54da988ef1bf3))
+
+
+### Bug Fixes
+
+* **ops:** the deploy workflow must parse, and the gates that say so ([8193c8b](https://github.com/AlessioBrillo/dominus/commit/8193c8b4cb643254fa01f34f38ec21791ba22e88))
+
+
+### Documentation
+
+* **release:** the npm publish state, as it is ([#505](https://github.com/AlessioBrillo/dominus/issues/505)) ([a1b53b7](https://github.com/AlessioBrillo/dominus/commit/a1b53b75e9a3e635766261ca69502a9bed481790))
+
 ## [1.3.2](https://github.com/AlessioBrillo/dominus/compare/v1.3.1...v1.3.2) (2026-10-22)
 
 ### Features

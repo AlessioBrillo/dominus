@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.3.2-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.3.3-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -397,7 +397,7 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.3.2 — the front door works: `dominus score example.com` answers
+DOMINUS v1.3.3 — the front door works: `dominus score example.com` answers
 in about two seconds, creates nothing on disk and prints the decision and
 nothing else on stdout (the diagnostics moved to stderr, and `--json` gives
 the same decision to a script). All five pipeline stages, the heuristic
