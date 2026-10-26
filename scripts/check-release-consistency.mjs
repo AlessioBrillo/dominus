@@ -128,7 +128,35 @@ if (changelog) {
   }
 }
 
+// ── 7: no hardcoded versioned tarball URLs in release documentation ─────
+// The public channel must point at the alias (`dominus-oss.tgz`), never at
+// a `dominus-oss-X.Y.Z.tgz` that is one bump away from a 404. Versioned
+// tarballs belong in historical ADRs, not in the instructions a reader
+// follows today.
+const RELEASE_DOCS = [
+  'README.md',
+  'docs/releases/npm-publishing.md',
+  'docs/releases/cloud-launch-readiness.md',
+  'docs/releases/launch-checklist.md',
+];
+const versionedTarball = /dominus-oss-\d+\.\d+\.\d+(?:[^\]\s]*)?\.tgz/;
+for (const doc of RELEASE_DOCS) {
+  const text = read(doc);
+  if (!text) continue;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!versionedTarball.test(line)) continue;
+    findings.push(
+      `${doc}:${i + 1} hardcodes a versioned tarball URL (${line.trim().slice(0, 120)}…). ` +
+        'Use the versionless alias `dominus-oss.tgz` instead; versioned tarballs ' +
+        'belong in historical ADRs, not in the instructions a reader follows.',
+    );
+  }
+}
+
 report();
+
 
 function report() {
   if (findings.length > 0) {

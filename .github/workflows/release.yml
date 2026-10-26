@@ -155,8 +155,27 @@ jobs:
           # The checksum travels with the artifact: a user who downloads the
           # tarball can verify it without trusting the release page.
           ( cd /tmp/release-artifacts && sha256sum "dominus-oss-${VERSION}.tgz" > "dominus-oss-${VERSION}.tgz.sha256" )
+          # The alias is the stable, versionless URL an installer and a
+          # reader rely on: `dominus-oss.tgz` always resolves to the latest
+          # release. It is a copy of the same bytes, never a different build.
+          cp "${tarball}" "/tmp/release-artifacts/dominus-oss.tgz"
+          cp "/tmp/release-artifacts/dominus-oss-${VERSION}.tgz.sha256" "/tmp/release-artifacts/dominus-oss.tgz.sha256"
           echo "path=${tarball}" >> "$GITHUB_OUTPUT"
+          echo "alias=/tmp/release-artifacts/dominus-oss.tgz" >> "$GITHUB_OUTPUT"
+          echo "alias_checksum=/tmp/release-artifacts/dominus-oss.tgz.sha256" >> "$GITHUB_OUTPUT"
           echo "checksum=/tmp/release-artifacts/dominus-oss-${VERSION}.tgz.sha256" >> "$GITHUB_OUTPUT"
+
+      # The installers are the one-command on-ramps for Linux/macOS and
+      # Windows. They download the alias tarball, verify its checksum, and
+      # install with npm into a user-owned prefix (no sudo / admin required).
+      # They ship beside the release, not inside the npm tarball.
+      - name: Make the installers executable
+        id: installers
+        run: |
+          set -euo pipefail
+          chmod +x scripts/install.sh
+          echo "shell=${{ github.workspace }}/scripts/install.sh" >> "$GITHUB_OUTPUT"
+          echo "powershell=${{ github.workspace }}/scripts/install.ps1" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
       # GitHub Release
@@ -213,16 +232,26 @@ jobs:
       # on an account setting nobody can automate is one click away from
       # being no channel at all. The asset is the tarball the release
       # workflow built and verified, with its checksum beside it.
-      - name: Attach the tarball and its checksum to the release
+      - name: Attach the tarball, its alias, checksums and installers to the release
         if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           TARBALL: ${{ steps.tarball.outputs.path }}
           CHECKSUM: ${{ steps.tarball.outputs.checksum }}
+          ALIAS: ${{ steps.tarball.outputs.alias }}
+          ALIAS_CHECKSUM: ${{ steps.tarball.outputs.alias_checksum }}
+          INSTALLER_SHELL: ${{ steps.installers.outputs.shell }}
+          INSTALLER_POWERSHELL: ${{ steps.installers.outputs.powershell }}
         run: |
           set -euo pipefail
+          # The versioned tarball and checksum are the immutable record.
           gh release upload "${TAG}" "${TARBALL}" "${CHECKSUM}" --clobber
+          # The alias is the stable channel an installer and a reader rely
+          # on: `dominus-oss.tgz` always resolves to the latest release.
+          gh release upload "${TAG}" "${ALIAS}" "${ALIAS_CHECKSUM}" --clobber
+          # One-command installers for Linux/macOS and Windows.
+          gh release upload "${TAG}" "${INSTALLER_SHELL}" "${INSTALLER_POWERSHELL}" --clobber
 
       # ------------------------------------------------------------------
       # npm package

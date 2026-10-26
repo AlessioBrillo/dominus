@@ -101,27 +101,45 @@ See the [automation runbook](docs/guides/automation-runbook.md).
 
 ## Quick Start
 
-Install the CLI from npm, no clone required:
+Install the CLI in one command, no clone required:
 
 ```bash
-npx dominus-oss@latest score vintagecoffee.com
+# Linux / macOS
+curl -fsSL https://github.com/AlessioBrillo/dominus/releases/latest/download/install.sh | sh
+
+# Windows (PowerShell)
+iwr -useb https://github.com/AlessioBrillo/dominus/releases/latest/download/install.ps1 | iex
+
+dominus score vintagecoffee.com
 ```
 
-`dominus-oss` is published by the release workflow with OIDC trusted
-publishing and a provenance attestation
-([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)). If the
-registry has no version yet — the first release of a new line, or a mirror
-that lags — the tarball attached to the
-[GitHub Release](https://github.com/AlessioBrillo/dominus/releases) is the
-same artifact, with its checksum beside it:
+The installers download the tarball attached to the latest GitHub Release,
+verify its sha256 checksum, and install `dominus-oss` into a user-owned
+prefix (`~/.local` on Linux/macOS, `%USERPROFILE%\.local` on Windows) — no
+sudo or admin required. Add the install prefix's `bin` directory to your
+`PATH` if `dominus` is not found after installation.
+
+The installers use the release alias `dominus-oss.tgz`, which always
+resolves to the latest release. If you prefer to download the tarball
+yourself:
 
 ```bash
 # No registry, no clone: the verified tarball and its checksum
-curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz
-curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz.sha256
-sha256sum -c dominus-oss-1.3.2.tgz.sha256
-npm install -g ./dominus-oss-1.3.2.tgz
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss.tgz
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss.tgz.sha256
+sha256sum -c dominus-oss.tgz.sha256
+npm install -g ./dominus-oss.tgz
 dominus score vintagecoffee.com
+```
+
+`dominus-oss` is also published to npm by the release workflow with OIDC
+trusted publishing and a provenance attestation
+([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)). If the
+registry has no version yet — the first release of a new line, or a mirror
+that lags — the GitHub Release above is the same artifact:
+
+```bash
+npx dominus-oss@latest score vintagecoffee.com
 ```
 
 Or run from source:

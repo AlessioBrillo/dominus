@@ -16,8 +16,9 @@
 //   2. the version in package.json has a tag (the release is cut);
 //   3. the tag is on the remote (the release is reachable);
 //   4. the repository is internally consistent (the existing gate);
-//   5. with --remote: the package is on npm and the image is in the
-//      registry.
+//   5. with --remote: the package is on npm, the image is in the
+//      registry, and the public release alias (tarball + checksum) exists
+//      and carries the announced version.
 //
 // Usage:
 //   node scripts/release-doctor.mjs           # offline checks
@@ -27,6 +28,7 @@
 // published.
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -143,6 +145,76 @@ if (remote) {
     );
   } else {
     record('pass', 'npm package', `dominus-oss@${npmView.output}`);
+  }
+
+  // ── 5a. the public release channel: alias tarball + checksum ─────────
+  // The alias (`dominus-oss.tgz`) is the channel an installer and a reader
+  // rely on: it must exist, its checksum must match, and the tarball must
+  // carry the announced version.
+  const aliasUrl = `https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss.tgz`;
+  const aliasChecksumUrl = `${aliasUrl}.sha256`;
+
+  try {
+    const aliasRes = await fetch(aliasUrl);
+    if (!aliasRes.ok) {
+      record('warn', 'release alias tarball', `could not download ${aliasUrl}: HTTP ${aliasRes.status}`);
+    } else {
+      const aliasBytes = Buffer.from(await aliasRes.arrayBuffer());
+      const actualChecksum = createHash('sha256').update(aliasBytes).digest('hex');
+
+      const checksumRes = await fetch(aliasChecksumUrl);
+      if (!checksumRes.ok) {
+        record('fail', 'release alias checksum', `could not download ${aliasChecksumUrl}: HTTP ${checksumRes.status}`);
+      } else {
+        const checksumText = await checksumRes.text();
+        const expectedMatch = /^[0-9a-fA-F]{64}/.exec(checksumText.trim());
+        const expectedChecksum = expectedMatch ? expectedMatch[0].toLowerCase() : null;
+
+        if (expectedChecksum === null) {
+          record('fail', 'release alias checksum', `could not parse a checksum from ${aliasChecksumUrl}`);
+        } else if (actualChecksum !== expectedChecksum) {
+          record(
+            'fail',
+            'release alias checksum',
+            `alias tarball sha256 is ${actualChecksum}, the release publishes ${expectedChecksum}`,
+          );
+        } else {
+          record('pass', 'release alias checksum', 'alias tarball checksum verified');
+        }
+      }
+
+      // The tarball must carry the announced version: extract package/package.json.
+      try {
+        const { extract } = await import('node:tar');
+        let pkgJson = null;
+        await extract(aliasBytes, {
+          onentry: (entry) => {
+            if (entry.file === 'package/package.json') {
+              const chunks = [];
+              entry.on('data', (chunk) => chunks.push(chunk));
+              entry.on('end', () => {
+                try {
+                  pkgJson = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                } catch {
+                  // ignore parse errors
+                }
+              });
+            }
+          },
+        });
+        if (pkgJson === null) {
+          record('fail', 'release alias contents', 'alias tarball has no package/package.json');
+        } else if (pkgJson.version === version) {
+          record('pass', 'release alias contents', `alias tarball carries ${pkgJson.name}@${pkgJson.version}`);
+        } else {
+          record('fail', 'release alias contents', `alias tarball carries ${pkgJson.name}@${pkgJson.version}, expected ${version}`);
+        }
+      } catch (err) {
+        record('warn', 'release alias contents', `could not inspect tarball contents: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    record('warn', 'release alias tarball', `could not reach ${aliasUrl}: ${err.message}`);
   }
 
   const packages = sh([
