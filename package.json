@@ -76,6 +76,7 @@
     "release:verify": "node scripts/verify-release.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
     "check:quickstart": "node scripts/check-quickstart.mjs",
+    "check:published-install": "node scripts/check-published-install.mjs",
     "check:trademarks": "node scripts/check-trademarks.mjs",
     "check:doc-drift": "node scripts/check-doc-drift.mjs",
     "check:release-consistency": "node scripts/check-release-consistency.mjs",

@@ -163,10 +163,10 @@ checksum is the artifact npm serves.
 
 ```bash
 # No registry, no clone: the verified tarball and its checksum
-curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz
-curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss-1.3.2.tgz.sha256
-sha256sum -c dominus-oss-1.3.2.tgz.sha256
-npm install -g ./dominus-oss-1.3.2.tgz
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss.tgz
+curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss.tgz.sha256
+sha256sum -c dominus-oss.tgz.sha256
+npm install -g ./dominus-oss.tgz
 dominus score vintagecoffee.com
 ```
 
