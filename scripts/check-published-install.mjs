@@ -34,27 +34,51 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 
 const root = process.cwd();
 
 // A URL pointing at a tag (releases/tag/vX.Y.Z) is accepted: the alias
-// tarball is resolved from the tag's latest release.
+// tarball is resolved from that tag's release. The header promised this and
+// the implementation used to append `.sha256` to the tag URL instead, which
+// answered 404 for every tag - a gate that could not run on the artifact it
+// was written to check.
+function resolveTarballUrl(input) {
+  const tagMatch = /\/releases\/tag\/([^/?#]+)\/?$/.exec(input);
+  if (tagMatch !== null) {
+    return `https://github.com/AlessioBrillo/dominus/releases/download/${tagMatch[1]}/dominus-oss.tgz`;
+  }
+  return input;
+}
+
 function defaultTarballUrl() {
   return 'https://github.com/AlessioBrillo/dominus/releases/latest/download/dominus-oss.tgz';
 }
 
 const args = process.argv.slice(2);
 const urlIndex = args.indexOf('--url');
-const tarballUrl = urlIndex >= 0 ? args[urlIndex + 1] : defaultTarballUrl();
+const tarballUrl = resolveTarballUrl(urlIndex >= 0 ? args[urlIndex + 1] : defaultTarballUrl());
 
 // The checksum travels beside the tarball: a user who downloads the
 // tarball can verify it without trusting the release page.
 const checksumUrl = tarballUrl.endsWith('.tgz')
   ? tarballUrl.replace(/\.tgz$/, '.tgz.sha256')
   : `${tarballUrl}.sha256`;
+
+/** Resolve the npm CLI without a shell (the same cascade as check-pack). */
+function resolveNpm() {
+  const execPath = process.env.npm_execpath;
+  if (execPath !== undefined && existsSync(execPath)) {
+    return { file: process.execPath, args: [execPath], shell: false };
+  }
+  const bundled = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  if (existsSync(bundled)) {
+    return { file: process.execPath, args: [bundled], shell: false };
+  }
+  return { file: 'npm', args: [], shell: true };
+}
 
 const DECISION_LABELS = [
   'Expected value:',
@@ -170,12 +194,12 @@ async function main() {
     const tarballPath = join(workdir, 'dominus-oss.tgz');
     writeFileSync(tarballPath, tarballBytes);
 
+    const npm = resolveNpm();
     const { exitCode: installExitCode, stderr: installStderr } = await new Promise((resolve) => {
       execFile(
-        process.execPath,
+        npm.file,
         [
-          join(root, 'node_modules', '.bin', 'npx') ?? 'npx',
-          'npm',
+          ...npm.args,
           'install',
           '--no-save',
           '--no-audit',
@@ -190,6 +214,7 @@ async function main() {
           encoding: 'utf8',
           stdio: ['pipe', 'pipe', 'pipe'],
           timeout: 300000,
+          shell: npm.shell,
         },
         (err, out, errOut) => {
           resolve({
@@ -216,9 +241,12 @@ async function main() {
       return;
     }
 
-    const url = `http://127.0.0.1:${fixturePort}/tmsearch`;
+    // The fixture must be listening before its port is written into the
+    // environment: `fixturePort` is 0 until `listen` resolves.
     await startFixture();
+    const url = `http://127.0.0.1:${fixturePort}/tmsearch`;
 
+    const started = Date.now();
     const { stdout: scoreStdout, stderr: scoreStderr, exitCode: scoreExit } =
       await new Promise((resolve) => {
         execFile(
@@ -247,7 +275,6 @@ async function main() {
         );
       });
 
-    const started = Date.now();
     const durationMs = Date.now() - started;
 
     // ── 4. the exit code ─────────────────────────────────────────────────
@@ -285,6 +312,20 @@ async function main() {
       } else {
         fail(`the decision does not carry "${label}"`);
       }
+    }
+
+    // ── 6b. the trademark fixture was actually consulted ─────────────────
+    // Without this the gate passes while the gate is unverified: the fixture
+    // port used to be read before `listen` resolved, so the CLI was pointed
+    // at port 0 and the output said "TM unverified" - and the check below
+    // only looked for the label.
+    if (/Verdict:\s+clear/.test(scoreStdout)) {
+      ok('the decision carries a clear trademark verdict from the fixture');
+    } else {
+      fail(
+        'the decision does not carry "Verdict: clear" - the trademark fixture was not consulted, ' +
+          'so the artifact answered without its gate',
+      );
     }
 
     // ── 7. nothing written to the disk ───────────────────────────────────

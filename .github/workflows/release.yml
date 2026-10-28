@@ -36,10 +36,36 @@ permissions:
   contents: read
 
 jobs:
+  # ADR-0098 says the live canary "fails the release workflow if the endpoint
+  # drifts". Until v1.3.4 the canary existed and no workflow ran it, so the
+  # claim was false and the one non-negotiable gate (Principle 6) could drift
+  # silently between releases. This job makes the claim true: a tag does not
+  # publish if the gate cannot answer.
+  trademark-canary:
+    name: Trademark gate canary (live registers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Assert the gate answers (registered -> blocked, free -> clear)
+        run: npm run check:trademarks
+
   release:
     name: Publish GitHub Release and npm package
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: trademark-canary
     permissions:
       contents: write # release notes + release asset
       # Required for OIDC trusted publishing: `npm publish` requests a
@@ -360,3 +386,53 @@ jobs:
             --expect-version "${VERSION}" \
             --retries 12 \
             --retry-delay 15000
+
+  # The GitHub Release is the channel that works without an account setting,
+  # so it is the channel a stranger uses. Until v1.3.4 it was the only
+  # published channel and the only one no workflow verified: `verify` above
+  # installs from npm, which had never been published at all.
+  #
+  # `always()` is deliberate: a failed npm publish must not skip the
+  # verification of the channel users actually download. If the release job
+  # died before attaching the assets, this job fails too - on the asset list.
+  verify-github-release:
+    name: Verify the GitHub Release channel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: release
+    if: always() && github.ref_type == 'tag' && inputs.dry_run != true
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Assert the release carries the public channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG}" ]; then
+            echo "FATAL: the release job did not report a tag"
+            exit 1
+          fi
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for asset in dominus-oss.tgz dominus-oss.tgz.sha256 install.sh install.ps1; do
+            if ! grep -qx "$asset" <<<"$assets"; then
+              echo "FATAL: $TAG does not carry $asset"
+              echo "$assets"
+              exit 1
+            fi
+          done
+          echo "the release carries the alias tarball, its checksum and both installers"
+
+      - name: Install from the public channel and run the first command
+        run: |
+          set -euo pipefail
+          npm run check:published-install -- \
+            --url "https://github.com/AlessioBrillo/dominus/releases/tag/${{ needs.release.outputs.tag }}"
