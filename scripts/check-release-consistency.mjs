@@ -117,7 +117,10 @@ if (smoke) {
 // ── 6: the CHANGELOG must know the current version ─────────────────
 const changelog = read('CHANGELOG.md');
 if (changelog) {
-  const sections = [...changelog.matchAll(/^## \[?(\d+\.\d+\.\d+[^\]\s]*)\]?/gm)].map((m) => m[1]);
+  // standard-version writes `##` for a minor/major bump and `###` for a
+  // patch, so accepting only `##` made this gate fail on every patch
+  // release - including v1.3.4, where it was the only red check.
+  const sections = [...changelog.matchAll(/^#{2,3} \[?(\d+\.\d+\.\d+[^\]\s]*)\]?/gm)].map((m) => m[1]);
   if (sections.length === 0) {
     findings.push('CHANGELOG.md: no version section found');
   } else if (sections[0] !== version) {

@@ -250,6 +250,13 @@ async function installOnce({ installer, baseUrl, prefix }) {
     DOMINUS_INSTALL_PREFIX: prefix,
   };
 
+  // PowerShell 7 exports its own PSModulePath. Windows PowerShell 5.1 then
+  // cannot find its own modules (`Get-FileHash` among them), which is an
+  // artifact of the CI shell, not of the installer. Let 5.1 build its own.
+  if (usePowerShell) {
+    delete env.PSModulePath;
+  }
+
   return usePowerShell
     ? await run(
         'powershell.exe',

@@ -63,8 +63,24 @@ try {
     exit 1
   }
 
-  $actual  = (Get-FileHash -Algorithm SHA256 $tarballPath).Hash.ToLower()
-  $expected = (Get-Content $checksumPath | Select-Object -First 1).Split(' ')[0].ToLower()
+  # Compute the digest with .NET rather than `Get-FileHash`: a PowerShell
+  # session whose PSModulePath came from PowerShell 7 cannot autoload the
+  # Utility module, and the installer must not depend on the caller's shell
+  # environment to verify a checksum.
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [System.IO.File]::OpenRead($tarballPath)
+    try {
+      $actual = ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace('-', '').ToLower()
+    }
+    finally {
+      $stream.Dispose()
+    }
+  }
+  finally {
+    $sha256.Dispose()
+  }
+  $expected = ([System.IO.File]::ReadAllLines($checksumPath)[0]).Split(' ')[0].ToLower()
 
   if ($actual -ne $expected) {
     Write-Error "install.ps1: checksum mismatch (expected $expected, got $actual)"
@@ -93,7 +109,7 @@ try {
   }
 
   $bin = Join-Path $prefix 'dominus.cmd'
-  if (-not (Test-Path $bin)) {
+  if (-not [System.IO.File]::Exists($bin)) {
     # A silent success here is the v1.3.3 defect: the installer said "not on
     # PATH" and exited 0 after installing nothing usable.
     Write-Error "install.ps1: npm did not install the command at $bin"
