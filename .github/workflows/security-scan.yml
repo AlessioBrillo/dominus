@@ -57,7 +57,7 @@ jobs:
         # GitHub's native secret scanning covers the rest of the history.
         if: github.event_name == 'push'
         # Pinned to the v3.96.0 commit: trufflehog publishes no rolling `v3` tag.
-        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2
         with:
           # --no-update is already injected by the action itself.
           extra_args: --results=verified,unknown
@@ -79,7 +79,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         # Pinned to a fixed commit (supply-chain hardening): never track a
         # branch (`@master`) for third-party actions.
-        uses: aquasecurity/trivy-action@6abccf398f78b4c337599c0656f933d91efb91a0
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87
         with:
           image-ref: dominus-api:scan
           format: sarif
