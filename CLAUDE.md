@@ -110,7 +110,10 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.3.2 — the front door: the first command a stranger runs
+DOMINUS v1.3.4 — the front door is verified: the one-command installers
+and the release tarball are exercised before they ship and after they are
+published, on Linux and Windows, and a tag does not publish while the live
+trademark canary is red (ADR-0099). The first command a stranger runs
 answers in about two seconds, creates nothing on disk and prints the
 decision alone on stdout (the diagnostics moved to stderr, `--json` gives
 the same decision to a script); `--help` and `--version` are answered from
@@ -123,8 +126,8 @@ EU operator (art. 7 D.Lgs. 70/2003), the tax inputs and the withdrawal
 consent at checkout, the data-subject rights (GDPR art. 15 and 17), a
 launch gate that can be executed, and a published artifact that is verified
 before and after the publish. v1.0.0 introduced the DOMINUS Cloud MVP.
-Next: the infrastructure provisioned for real, the operator identity, the
-USPTO endpoint migration, and the paid tiers behind the third-party audit.
+Next: the infrastructure provisioned for real, the operator identity, and
+the paid tiers behind the third-party audit.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
@@ -172,10 +175,10 @@ committer's machine with Docker:
 - **Local:** `npm run gate` from the repo root. Exit 0 = green.
   It runs typecheck → build → db:sync:check → lint → format:check →
   check:migration-compat → check:sql-portability → notices:check →
-  adr:index:check → check:pack → release:verify --pack → check:doc-drift →
-  check:release-consistency → **check:quickstart** → check:workflows →
-  check:legal-placeholders → backend tests with coverage → frontend
-  typecheck/lint/test-with-coverage/build → the end-to-end smoke gate
+  adr:index:check → check:pack → release:verify --pack → test:installers →
+  check:doc-drift → check:release-consistency → **check:quickstart** →
+  check:workflows → check:legal-placeholders → backend tests with coverage →
+  frontend typecheck/lint/test-with-coverage/build → the end-to-end smoke gate
   (`npm run test:e2e:smoke`).
 - **The quickstart gate:** `npm run check:quickstart` runs the command the
   README advertises, in a throwaway directory, and asserts the contract a

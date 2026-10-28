@@ -116,8 +116,10 @@ dominus score vintagecoffee.com
 The installers download the tarball attached to the latest GitHub Release,
 verify its sha256 checksum, and install `dominus-oss` into a user-owned
 prefix (`~/.local` on Linux/macOS, `%USERPROFILE%\.local` on Windows) — no
-sudo or admin required. Add the install prefix's `bin` directory to your
-`PATH` if `dominus` is not found after installation.
+sudo or admin required. On Linux/macOS the command lands in `~/.local/bin`;
+on Windows it lands in `%USERPROFILE%\.local`. Add that directory to your
+`PATH` if `dominus` is not found after installation. Both installers are
+exercised against a real tarball in CI, on both platforms.
 
 The installers use the release alias `dominus-oss.tgz`, which always
 resolves to the latest release. If you prefer to download the tarball
@@ -132,11 +134,13 @@ npm install -g ./dominus-oss.tgz
 dominus score vintagecoffee.com
 ```
 
-`dominus-oss` is also published to npm by the release workflow with OIDC
-trusted publishing and a provenance attestation
-([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)). If the
-registry has no version yet — the first release of a new line, or a mirror
-that lags — the GitHub Release above is the same artifact:
+The release workflow also publishes `dominus-oss` to npm with OIDC trusted
+publishing and a provenance attestation
+([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)) once the
+npm-side trusted publisher is configured. The GitHub Release above is the
+primary channel and the one the release workflow verifies end-to-end: it is
+the same artifact, and it does not depend on a registry account setting. When
+the registry has the version, the same command works from npm:
 
 ```bash
 npx dominus-oss@latest score vintagecoffee.com
@@ -415,10 +419,13 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.3.3 — the front door works: `dominus score example.com` answers
-in about two seconds, creates nothing on disk and prints the decision and
-nothing else on stdout (the diagnostics moved to stderr, and `--json` gives
-the same decision to a script). All five pipeline stages, the heuristic
+DOMINUS v1.3.4 — the front door is verified: the one-command installers and
+the release tarball are exercised before they ship and after they are
+published, on Linux and Windows, and a tag does not publish while the live
+trademark canary is red (the gate answers, or nothing is recommended).
+`dominus score example.com` answers in about two seconds, creates nothing on
+disk and prints the decision and nothing else on stdout (the diagnostics
+moved to stderr, and `--json` gives the same decision to a script). All five pipeline stages, the heuristic
 scoring engine, the mandatory trademark gate enforced on every
 purchase path (API, CLI, auto-approval, bid), real USPTO/EUIPO providers
 with caching, the portfolio tracker with renewal clock and keep/drop

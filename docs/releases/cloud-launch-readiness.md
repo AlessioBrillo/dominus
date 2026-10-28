@@ -5,7 +5,7 @@ roadmap entry. It records what was verified, what is missing, and who
 decides what. It is written to be read by someone joining the effort, so it
 states facts with file paths rather than intentions.
 
-Everything below was checked against the repository on 2026-10-20.
+Everything below was checked against the repository on 2026-10-28.
 
 ## What is solid
 
@@ -31,38 +31,29 @@ Everything below was checked against the repository on 2026-10-20.
 
 ## Blockers, in the order they must be cleared
 
-### 1. The community CLI is not installable — ONE ACCOUNT-SIDE STEP LEFT
+### 1. The community CLI is installable — GitHub Release primary, npm best-effort
 
-`package.json` was publish-shaped from the start (`bin.dominus`, `files[]`,
-`prepublishOnly`) and CI validated the tarball with `check-pack`, but no
-workflow published it and no documented command installed it. `npx dominus`
-in the deployment matrix pointed at a package name held by an unrelated
-project. The CLI now ships as `dominus-oss@latest` with an OIDC
-trusted-publishing release and a `--provenance` attestation. See
-[npm-publishing.md](npm-publishing.md).
+The community edition ships as a **GitHub Release**: a versioned tarball, a
+stable alias (`dominus-oss.tgz`), both checksums, and one-command installers
+for Linux/macOS and Windows. Since v1.3.4 the release workflow verifies that
+channel end-to-end (ADR-0099): the assets must be attached, the alias
+tarball must install from the public URL, and the first command must answer.
+The installers themselves are tested in CI on both platforms before they
+ship.
 
-> **Correction (2026-10-20):** the publish step of the `v1.3.0` release
-> workflow failed with `npm error 404 Not Found — PUT
-> https://registry.npmjs.org/dominus-oss`, exactly like the `v1.2.0` one:
-> the trusted publisher is not configured on the npm account for this
-> repository. The package is **not** on npm yet. The workflow, the tarball,
-> the GitHub Release and the container images (`v1.3.0`, `v1.3.0-worker`,
-> `v1.3.0-scheduler`) are in place; the remaining step is the npm-side
-> one-time setup described in [npm-publishing.md](npm-publishing.md), after
-> which the publish is re-runnable with
-> `gh workflow run release.yml --ref v1.3.1`.
->
-> The npm provenance attestation is part of that missing step, not of what
-> is already published: npm attaches the attestation to the published
-> tarball, so there is no attestation to read while the package is absent.
-> The container images carry their own BuildKit provenance, which is a
-> different mechanism and does not stand in for it.
->
-> What the release taught: `check-pack` was green throughout, because it
-> inspects the tarball the workflow builds and cannot see the artifact a
-> consumer receives. The published artifact is now verified on both sides
-> of the publish (ADR-0091), and a distribution failure is a red workflow
-> instead of a discovery days later.
+npm remains **best-effort**: `dominus-oss` is published with OIDC trusted
+publishing and a provenance attestation when the npm-side trusted publisher
+is configured. The publishes of `v1.2.0` and `v1.3.0` failed with
+`E404` because it was not; the one-time setup is in
+[npm-publishing.md](npm-publishing.md). The README names the GitHub Release
+as the primary channel, so a missing npm version is a documented
+best-effort gap, not a broken promise.
+
+What the failed publishes taught: `check-pack` was green throughout, because
+it inspects the tarball the workflow builds and cannot see the artifact a
+consumer receives. The artifact is now verified before the tag and after the
+publish, on both channels (ADR-0091, ADR-0099), and a distribution failure
+is a red workflow instead of a discovery days later.
 
 ### 2. Legal documentation — SURFACE BUILT, IDENTITY MISSING
 
@@ -179,28 +170,25 @@ Terraform module does not hit this. A multi-instance Cloud deployment needs
 either a shared store on the protected router or a global throttle at the
 proxy. This is a limiter change, not a config change.
 
-### 7. The trademark sources do not answer — MISSING (upstream)
+### 7. The trademark source answers — CLOSED IN CODE (v1.3.3), GATED (v1.3.4)
 
 The gate is the one feature the product cannot be without (Principle 6),
-and it is the one feature that depends on somebody else's free endpoint.
-On 2026-10-22:
+and the one feature that depends on somebody else's free endpoint.
 
-- `POST https://tmsearch.uspto.gov/tmsearch` answers **405 Method Not
-  Allowed** from Amazon S3 — the path now serves the static assets of the
-  search site, and the Elasticsearch backend is gone;
-- the TSDR fallback answers **429 Too Many Requests**.
+- The USPTO provider was migrated to the `prod-stage-v1-0-0` search
+  endpoint in v1.3.3 (ADR-0098) and answers again: `nike` is blocked,
+  `vintagecoffee` is clear.
+- The fail-closed behaviour remains (ADR-0097): an unanswerable source is
+  an error, the verdict is **unverified**, and an unverified domain is
+  never recommended.
+- Since v1.3.4 the live canary is a release gate (ADR-0099): the `release`
+  job does not publish while `npm run check:trademarks` is red, and a daily
+  schedule opens an issue when the endpoint drifts between releases.
 
-Before v1.3.2, a `405` was read by the provider as an empty result set:
-"this mark does not exist". The gate cleared domains on a request that
-never happened, and the CLI recommended buying them. The providers now
-fail closed (ADR-0097): an unanswerable source is an error, the gate
-reports **unverified**, and an unverified domain is never recommended.
-
-**What it means for the launch:** the tool is honest and conservative, and
-it recommends nothing until a source answers. The closing work is the
-migration to the current USPTO endpoint, plus the free EUIPO credentials as
-a second independent source. The reproduction and the two options are in
-[launch-checklist.md](launch-checklist.md), step 0.
+**What remains:** the dependency itself. The endpoint is not ours and can
+move again; the canary turns that into a blocked release or an issue
+instead of a silent degradation. EUIPO credentials remain the way to add an
+independent second source, and are optional.
 
 ## Decisions on record
 
@@ -217,7 +205,7 @@ a second independent source. The reproduction and the two options are in
 | Ingress | Closed by default; the operator writes the decision down at apply time (ADR-0094) |
 | Plan granted on checkout | Derived from the Stripe price id, never from the session metadata (ADR-0093) |
 | Release | The published artifact is installed and run before and after the publish (ADR-0091) |
-| Version | v1.3.2 |
+| Version | v1.3.4 |
 
 ## Recommended sequence
 
@@ -266,6 +254,18 @@ it is `npm run launch:check`.
 4. **Remediate, then release the tiers.** The tiers stay behind the existing
    fail-closed billing gate until the operator has a fiscal position and the
    gate passes.
+
+## What changed in v1.3.4
+
+| Was | Now |
+|---|---|
+| The README's first command answered **404** on all four release URLs: the installers and the alias tarball were merged after the `v1.3.3` tag and no release carried them | A release attaches the alias tarball, both checksums and both installers, and the workflow asserts it |
+| `install.sh` / `install.ps1` ran `npm install --prefix` without `-g`: the command landed in `<prefix>/node_modules/.bin` while the script looked in `<prefix>/bin`, printed "not on PATH" and exited 0 | `npm install -g`: the command is where the script and the README say it is; a corrupted checksum is refused |
+| The installers had no test at all | `npm run test:installers` runs the real installer against a local release channel, on Linux and Windows, and asserts a working `dominus score` |
+| `check:published-install` pointed the CLI at port `0`, measured its time budget between two adjacent statements, and 404'd on a release tag URL | The fixture starts first, the budget measures the command, a tag URL resolves to the alias, and the verdict must be `clear` |
+| The release workflow verified only npm — the channel that had never been published — and never the GitHub Release | `verify-github-release` installs the public alias tarball and runs the first command, even when npm fails |
+| ADR-0098 said the canary "fails the release workflow"; no workflow ran it | `trademark-canary` blocks the `release` job, and a daily schedule opens an issue on drift (ADR-0099) |
+| The README said `dominus-oss` "is also published to npm", which was false | The README names the GitHub Release as primary and npm as best-effort until the trusted publisher exists |
 
 ## What changed in v1.3.2
 
