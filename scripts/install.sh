@@ -15,7 +15,9 @@
 set -euo pipefail
 
 REPO="AlessioBrillo/dominus"
-BASE="https://github.com/${REPO}/releases/latest/download"
+# The release base is overridable so the installer can be exercised against a
+# local fixture before it is shipped (scripts/test-installers.mjs).
+BASE="${DOMINUS_RELEASE_BASE:-https://github.com/${REPO}/releases/latest/download}"
 TARBALL="dominus-oss.tgz"
 CHECKSUM="dominus-oss.tgz.sha256"
 INSTALL_PREFIX="${DOMINUS_INSTALL_PREFIX:-$HOME/.local}"
@@ -46,14 +48,21 @@ echo "install.sh: checksum verified"
 mkdir -p "$INSTALL_PREFIX"
 
 echo "install.sh: installing into $INSTALL_PREFIX ..."
-npm install --no-save --no-audit --no-fund --prefix "$INSTALL_PREFIX" \
+# `-g` is what puts the binary in `$INSTALL_PREFIX/bin`. Without it npm
+# installs under `$INSTALL_PREFIX/node_modules/.bin`, which is not on PATH
+# and is not where this script says the command lives.
+npm install -g --no-save --no-audit --no-fund --prefix "$INSTALL_PREFIX" \
   "$TMPDIR/$TARBALL" >/dev/null 2>&1
 
-if ! command -v dominus >/dev/null 2>&1; then
-  echo "install.sh: installed, but 'dominus' is not on PATH." >&2
-  echo "install.sh: add $INSTALL_PREFIX/bin to PATH, or run $INSTALL_PREFIX/bin/dominus" >&2
-  exit 0
+# Check the path the script promises, not PATH: the prefix is user-owned and
+# is normally not on PATH yet, so `command -v dominus` would report failure
+# after a perfectly good install - and the old script exited 0 in that case,
+# which is how a silent success with no usable command happened.
+BIN="$INSTALL_PREFIX/bin/dominus"
+if [ ! -x "$BIN" ]; then
+  echo "install.sh: npm did not install the command at $BIN" >&2
+  exit 1
 fi
 
-echo "install.sh: done — $(dominus --version)"
-echo "install.sh: try 'dominus score vintagecoffee.com'"
+echo "install.sh: done — $("$BIN" --version)"
+echo "install.sh: add $INSTALL_PREFIX/bin to PATH, then run 'dominus score vintagecoffee.com'"

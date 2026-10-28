@@ -44,43 +44,35 @@ data-rights endpoints.
 ### 0. The trademark sources answer
 
 The trademark gate is the one feature the product cannot be without
-(Principle 6), and it depends on two free public endpoints that are not
-ours:
+(Principle 6), and it depends on free public endpoints that are not ours.
+The upstream endpoint moved once and the failure was read as "this mark does
+not exist" until v1.3.2 (ADR-0097); the provider was migrated in v1.3.3
+(ADR-0098) and the gate answers again.
 
-| Source | Endpoint | State on 2026-10-22 |
-|---|---|---|
-| USPTO (Elasticsearch) | `POST https://tmsearch.uspto.gov/tmsearch` | **`405 Method Not Allowed`**, answered by Amazon S3: the path now serves the static assets of the search site |
-| USPTO (TSDR fallback) | `GET https://tsdr.uspto.gov/tsdr/tmsearch/data?searchType=basic&search=<term>` | **`429 Too Many Requests`** from the launch network |
+| Source | State on 2026-10-28 |
+|---|---|
+| USPTO (`prod-stage-v1-0-0` search endpoint) | answers; `nike` is blocked, `vintagecoffee` is clear |
+| EUIPO | optional second source; unverified until `EUIPO_CLIENT_ID` / `EUIPO_CLIENT_SECRET` are configured |
 
-Reproduce it:
+The failure mode is still fail-closed: if every source is unanswerable the
+gate reports **unverified**, and an unverified domain is **never**
+recommended. The CLI prints `Recommended: NO (TM unverified)` instead of a
+`YES` it cannot justify.
 
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://tmsearch.uspto.gov/tmsearch \
-  -H 'Content-Type: application/json' --data '{"query":{"bool":{"should":[{"match_phrase":{"WM":{"query":"nike"}}}],"minimum_should_match":1}},"size":5}'
-# 405
-```
+Since v1.3.4 the canary is a gate, not a document (ADR-0099):
 
-Until a source answers, the gate reports **unverified** and the domain is
-**not** recommended — the conservative behaviour, and the reason the CLI
-prints `Recommended: NO (TM unverified)` instead of a `YES` it cannot
-justify. The providers were changed to fail closed in v1.3.2 (ADR-0097):
-before that, a `405` was read as "this mark does not exist" and the gate
-cleared the domain on a request that never happened.
-
-What closes it:
-
-- migrate the provider to the current USPTO search endpoint (the search
-  site at `https://tmsearch.uspto.gov/search/search-results` is a
-  JavaScript application whose backend is the replacement), or
-- configure the free EUIPO credentials (`EUIPO_CLIENT_ID`,
-  `EUIPO_CLIENT_SECRET`), which give the gate a second, independent
-  source, or
-- both.
+- the `release` workflow runs `npm run check:trademarks` **before** it
+  publishes, so a drifted endpoint blocks the tag;
+- `.github/workflows/trademark-canary.yml` runs it daily, opens an issue
+  when it is red and closes it on the next green run;
+- EUIPO credentials remain the way to add an independent second source, and
+  are optional.
 
 Verify it before the launch, with the gate and not with a document:
 
 ```bash
-dominus score nike.com          # the verdict must be "clear" or "blocked", never "unverified"
+npm run check:trademarks       # live: nike -> blocked, vintagecoffee -> clear
+dominus score nike.com         # the verdict must be "clear" or "blocked", never "unverified"
 ```
 
 ### 1. The fiscal position
@@ -197,27 +189,34 @@ for the auditor, not a substitute for it.
 Put the report in `docs/security/` with a name that contains "external" or
 "third-party": that is what the gate looks for.
 
-### 7. The npm distribution
+### 7. The public distribution channel
 
-The community edition is distributed as `dominus-oss` on npm, published by
-the release workflow through OIDC trusted publishing with a provenance
-attestation. The publish of `v1.2.0` failed with `E404`, and the publish
-of `v1.3.0` (20 October 2026) failed with the same error: the trusted
-publisher is not configured on the npm account. The one-time setup is in
-[npm-publishing.md](npm-publishing.md).
+Since v1.3.4 the **GitHub Release is the primary channel** (ADR-0099). It
+does not depend on a registry account setting, and it is the channel the
+release workflow verifies end-to-end:
 
-Until that is done, `npx dominus-oss` does not exist, and the README must
-not claim otherwise. The GitHub Release and the container images are
-published. The npm package is missing — and so is its provenance
-attestation: npm attaches the attestation to the published tarball, so
-there is nothing to verify while the package itself is absent. (The
-container images carry their own BuildKit provenance, which is a different
-mechanism and not a substitute.)
+- `install.sh` and `install.ps1`, attached to the release, download the
+  alias tarball `dominus-oss.tgz`, verify its sha256 and install the
+  command into a user-owned prefix;
+- `dominus-oss.tgz` and `dominus-oss.tgz.sha256` are attached for a manual
+  install (`npm install -g ./dominus-oss.tgz`);
+- the `verify-github-release` job asserts the assets are there and installs
+  the published artifact, then runs the first command. It uses `always()`,
+  so an npm failure cannot skip the verification of the channel users
+  actually download.
+
+**npm is best-effort.** `dominus-oss` is published with OIDC trusted
+publishing and a provenance attestation when the npm-side trusted publisher
+is configured; the publishes of `v1.2.0` and `v1.3.0` failed with `E404`
+because it was not. The one-time setup is in
+[npm-publishing.md](npm-publishing.md). Until it is done, `npx dominus-oss`
+does not exist, the README says so, and the GitHub Release is the same
+artifact.
 
 The publish is re-runnable. Once the trusted publisher is configured:
 
 ```bash
-gh workflow run release.yml --ref v1.3.1
+gh workflow run release.yml --ref v1.3.4
 ```
 
 It rebuilds the same commit, updates the existing GitHub Release, and
@@ -226,16 +225,26 @@ and runs it. The publish step skips the versions that are already on the
 registry, so a re-run of an already published version updates the release
 notes and still runs the verification instead of failing and skipping it.
 
-The publish is now verified twice (ADR-0091):
+The publish is now verified on both sides of the publish and on both
+channels (ADR-0091, ADR-0099):
 
 - **before the tag**, by `npm run release:verify -- --pack` in the local
   gate: the tarball is installed in a throwaway directory and run, so an
   artifact that does not boot never reaches a tag;
+- **before the tag**, by `npm run test:installers` in the local gate and in
+  the `Installers` CI matrix: the real `install.sh` / `install.ps1` runs
+  against a local HTTP server that serves the real tarball and checksum, on
+  Linux and Windows, and must install a command that answers. A corrupted
+  checksum must be refused;
 - **after the publish**, by the `verify` job of the release workflow: the
   published package is installed from the registry, the CLI is run, and
   the provenance attestation is read. A failure there cannot un-publish the
   package — the response is `npm deprecate` and a patch release — but it
-  turns a silent distribution failure into a red workflow.
+  turns a silent distribution failure into a red workflow;
+- **after the publish**, by the `verify-github-release` job: the assets are
+  asserted, the alias tarball is installed from the public URL, and the
+  first command is run. This is the channel a stranger uses, and it is
+  verified even when npm fails.
 
 The rehearsal of the publish itself is `gh workflow run release.yml -f
 dry_run=true`, which exercises the OIDC exchange for real without

@@ -36,10 +36,36 @@ permissions:
   contents: read
 
 jobs:
+  # ADR-0098 says the live canary "fails the release workflow if the endpoint
+  # drifts". Until v1.3.4 the canary existed and no workflow ran it, so the
+  # claim was false and the one non-negotiable gate (Principle 6) could drift
+  # silently between releases. This job makes the claim true: a tag does not
+  # publish if the gate cannot answer.
+  trademark-canary:
+    name: Trademark gate canary (live registers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Assert the gate answers (registered -> blocked, free -> clear)
+        run: npm run check:trademarks
+
   release:
     name: Publish GitHub Release and npm package
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: trademark-canary
     permissions:
       contents: write # release notes + release asset
       # Required for OIDC trusted publishing: `npm publish` requests a
@@ -52,6 +78,11 @@ jobs:
       # is not visible across jobs.
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      # npm is best-effort until the trusted publisher exists (ADR-0099).
+      # The GitHub Release is the primary channel; a failed npm publish must
+      # not turn a successful release red, and must not skip the verification
+      # of the channel users actually download.
+      npm_available: ${{ steps.npm-state.outputs.available }}
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
 
@@ -112,7 +143,7 @@ jobs:
           set -euo pipefail
           if [ "${VERSION}" != "${PACKAGE_VERSION}" ]; then
             echo "::error title=Version mismatch::The tag is v${VERSION} but package.json says ${PACKAGE_VERSION}."
-          echo "The published artifact and the repository would disagree. Bump the version, merge it, and tag the merge commit."
+            echo "The published artifact and the repository would disagree. Bump the version, merge it, and tag the merge commit."
             exit 1
           fi
           echo "tag v${VERSION} matches package.json"
@@ -191,16 +222,20 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
-          if ! grep -q "^## \[${version}\]" CHANGELOG.md; then
+          # `standard-version` writes `##` for a minor/major bump and `###`
+          # for a patch. Accepting only `##` made this step refuse to publish
+          # any patch release, with the notes sitting right there in the file.
+          if ! grep -qE "^#{2,3} \[${version}\]" CHANGELOG.md; then
             echo "::error title=Missing CHANGELOG section::CHANGELOG.md has no section for ${version}.
           Add '## [${version}]' before tagging. Refusing to publish a release with no notes."
             exit 1
           fi
-          # From the version's header to the next top-level header, so the
-          # section body is isolated rather than the whole document.
+          # From the version's header to the next version header, so the
+          # section body is isolated rather than the whole document. The
+          # terminator must not match `### Features` inside the section.
           awk -v v="${version}" '
-            $0 ~ "^## \\[" v "\\]" || $0 ~ "^## " v " " { insec=1; next }
-            insec && /^## / { exit }
+            $0 ~ "^## \\[" v "\\]" || $0 ~ "^### \\[" v "\\]" || $0 ~ "^## " v " " || $0 ~ "^### " v " " { insec=1; next }
+            insec && ($0 ~ "^## \\[[0-9]" || $0 ~ "^### \\[[0-9]") { exit }
             insec { print }
           ' CHANGELOG.md > /tmp/release-notes.md
           test -s /tmp/release-notes.md || { echo "::error title=Empty CHANGELOG section::Section for ${version} is empty."; exit 1; }
@@ -225,13 +260,13 @@ jobs:
             gh release create "${tag}" --notes-file /tmp/release-notes.md
           fi
 
-      # The tarball is a distribution channel in its own right. The npm
-      # trusted publisher has failed twice (E404: the publisher is not
-      # configured on the npm account), and until it is, the registry is the
-      # ONLY channel the community edition has - and a release that depends
-      # on an account setting nobody can automate is one click away from
-      # being no channel at all. The asset is the tarball the release
-      # workflow built and verified, with its checksum beside it.
+      # The tarball is a distribution channel in its own right, and since
+      # v1.3.4 it is the PRIMARY one (ADR-0099). The npm trusted publisher
+      # has failed three times (E404: the publisher is not configured on the
+      # npm account), and a channel that depends on an account setting
+      # nobody can automate is one click away from being no channel at all.
+      # The asset is the tarball this workflow built and verified, with its
+      # checksum beside it.
       - name: Attach the tarball, its alias, checksums and installers to the release
         if: env.DRY_RUN != 'true'
         env:
@@ -292,22 +327,31 @@ jobs:
           fi
 
       - name: Publish to npm
+        id: npm-publish
         if: env.DRY_RUN != 'true' && steps.npm-version-state.outputs.published != 'true'
+        # Best-effort by policy (ADR-0099): the GitHub Release is primary.
+        # A missing trusted publisher must leave a warning, not a red release.
+        continue-on-error: true
         env:
           TARBALL: ${{ steps.tarball.outputs.path }}
         run: npm publish "${TARBALL}" --provenance --access public
 
-      - name: Report the npm state
+      - name: Record whether npm has the version
+        id: npm-state
         if: always() && env.DRY_RUN != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          PUBLISHED: ${{ steps.npm-version-state.outputs.published }}
+          PACKAGE_NAME: dominus-oss
+          ALREADY_PUBLISHED: ${{ steps.npm-version-state.outputs.published }}
+          PUBLISH_OUTCOME: ${{ steps.npm-publish.outcome }}
         run: |
           set -euo pipefail
-          if [ "${PUBLISHED}" = "true" ]; then
-            echo "::notice title=npm::${VERSION} was already published — the verify job still checks the published artifact."
+          if [ "${ALREADY_PUBLISHED}" = "true" ] || [ "${PUBLISH_OUTCOME}" = "success" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=npm::${PACKAGE_NAME}@${VERSION} is on the registry; the verify job will check it."
           else
-            echo "::notice title=npm::${VERSION} publish step completed."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=npm is best-effort::${PACKAGE_NAME}@${VERSION} was not published. The GitHub Release is published and verified; configure the trusted publisher (docs/releases/npm-publishing.md) and re-run."
           fi
 
   # --------------------------------------------------------------------
@@ -336,7 +380,10 @@ jobs:
     timeout-minutes: 15
     needs: release
     # `env` is not available in a job-level `if`; the dispatch input is.
-    if: github.ref_type == 'tag' && inputs.dry_run != true
+    # The npm verification runs only when npm actually has the version: a
+    # best-effort publish that did not happen must not fail the release, and
+    # `verify-github-release` below still checks the primary channel.
+    if: github.ref_type == 'tag' && inputs.dry_run != true && needs.release.outputs.npm_available == 'true'
     permissions:
       contents: read
     steps:
@@ -360,3 +407,53 @@ jobs:
             --expect-version "${VERSION}" \
             --retries 12 \
             --retry-delay 15000
+
+  # The GitHub Release is the channel that works without an account setting,
+  # so it is the channel a stranger uses. Until v1.3.4 it was the only
+  # published channel and the only one no workflow verified: `verify` above
+  # installs from npm, which had never been published at all.
+  #
+  # `always()` is deliberate: a failed npm publish must not skip the
+  # verification of the channel users actually download. If the release job
+  # died before attaching the assets, this job fails too - on the asset list.
+  verify-github-release:
+    name: Verify the GitHub Release channel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: release
+    if: always() && github.ref_type == 'tag' && inputs.dry_run != true
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Assert the release carries the public channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAG}" ]; then
+            echo "FATAL: the release job did not report a tag"
+            exit 1
+          fi
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for asset in dominus-oss.tgz dominus-oss.tgz.sha256 install.sh install.ps1; do
+            if ! grep -qx "$asset" <<<"$assets"; then
+              echo "FATAL: $TAG does not carry $asset"
+              echo "$assets"
+              exit 1
+            fi
+          done
+          echo "the release carries the alias tarball, its checksum and both installers"
+
+      - name: Install from the public channel and run the first command
+        run: |
+          set -euo pipefail
+          npm run check:published-install -- \
+            --url "https://github.com/AlessioBrillo/dominus/releases/tag/${{ needs.release.outputs.tag }}"

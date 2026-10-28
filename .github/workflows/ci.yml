@@ -557,10 +557,40 @@ jobs:
         run: npm run prepublishOnly
 
       # The docker-smoke job builds the Docker image, which copies the SPA
-      # from source — so it can never catch a broken npm artifact. This job
+      # from source - so it can never catch a broken npm artifact. This job
       # is the only one that exercises the path a consumer actually receives.
       - name: Verify the tarball is a complete, usable artifact
         run: npm run check:pack
+
+  installers:
+    name: Installers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # The installer downloads the real tarball from a local HTTP server, so
+      # the artifact must exist exactly as `npm publish` would build it.
+      - name: Build backend + SPA
+        run: npm run prepublishOnly
+
+      # The first code a stranger executes. It had no test until v1.3.4, and
+      # a single run would have caught `npm install --prefix` without `-g`
+      # installing the command where the script does not look for it.
+      - name: Install from the local release channel and run the command
+        run: npm run test:installers
 
   deploy-script:
     name: Deploy rollout script check

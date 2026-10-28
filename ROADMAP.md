@@ -9,6 +9,11 @@ compliance, the data-subject rights, the launch gate and the verified
 artifact (released).
 v1.3.2 - The front door: a decision command that answers, a trademark
 gate that fails closed, and a release state that is real (released).
+v1.3.3 - The trademark gate answers again on the migrated USPTO endpoint
+(ADR-0098, released).
+v1.3.4 - The front door is verified: the installers and the published
+tarball are exercised on both platforms, and a tag does not publish while
+the live trademark canary is red (released).
 Next: the infrastructure provisioned for real, the operator identity, and
 the paid tiers behind the third-party audit.
 This roadmap outlines the planned releases and their scope. Timelines are
@@ -341,11 +346,43 @@ estimates and subject to change.
   `--remote` — a package and an image
 - [x] The verified tarball and its checksum are attached to the GitHub
   Release: the community edition is installable without the npm registry
-- [ ] **The USPTO endpoint migration** — the live Elasticsearch endpoint
-  (`POST https://tmsearch.uspto.gov/tmsearch`) answers `405` from Amazon
-  S3 and the TSDR fallback answers `429`; until a source answers, the
-  gate is unverified and nothing is recommended. This is the next
-  blocker, and it is upstream, not code
+- [x] **The USPTO endpoint migration** — closed in v1.3.3 (ADR-0098): the
+  provider reads the `prod-stage-v1-0-0` endpoint and the gate answers
+  `clear`/`blocked` again
+
+## v1.3.3 — The trademark gate answers again (ADR-0098)
+
+> **Status**: Released
+> **Focus**: the one non-negotiable gate, after the upstream endpoint moved
+
+- [x] USPTO provider migrated to the `prod-stage-v1-0-0` search endpoint
+- [x] The gate reports `clear` or `blocked` instead of `unverified` on a
+      live query, and still fails closed on an unanswerable source
+
+## v1.3.4 — The front door is verified
+
+> **Status**: Released
+> **Focus**: the release is verified against what a stranger downloads and
+> runs, not against the repository's opinion of itself
+
+- [x] The installers install a working command: `npm install -g` puts the
+      binary in `<prefix>/bin` on Linux/macOS and in the prefix on Windows,
+      which is where the scripts say it is
+- [x] `npm run test:installers` runs the real installer against a local
+      HTTP server that serves the real tarball, on Linux and Windows, and
+      asserts a working `dominus score` and a refused corrupted checksum
+- [x] `check:published-install` is fixed and wired: it starts the trademark
+      fixture before reading its port, measures the time budget, resolves a
+      release tag URL to the alias tarball, and asserts a `clear` verdict
+- [x] The release workflow verifies the GitHub Release channel after the
+      publish, even when the npm publish fails, and asserts the alias
+      tarball, its checksum and both installers are attached
+- [x] The live trademark canary blocks the release: a tag does not publish
+      while `npm run check:trademarks` is red (ADR-0098's claim, made true),
+      and a daily schedule opens an issue when the endpoint drifts
+- [x] The npm channel is documented for what it is: best-effort until the
+      trusted publisher is configured; the GitHub Release is primary and
+      verified end-to-end
 
 ## Post-1.0
 

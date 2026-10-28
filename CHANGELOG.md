@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.3.4](https://github.com/AlessioBrillo/dominus/compare/v1.3.3...v1.3.4) (2026-10-28)
+
+
+### Features
+
+* **release:** verified public install channel, alias tarball, installers ([#511](https://github.com/AlessioBrillo/dominus/issues/511)) ([fa422be](https://github.com/AlessioBrillo/dominus/commit/fa422be9f61381edbb9798469f8b5a891be97608))
+* **release:** verify the GitHub Release channel and gate the tag on the canary ([701e5d4](https://github.com/AlessioBrillo/dominus/commit/701e5d46d8e10a7b22f9033a939595a3a575ef66))
+
+
+### Bug Fixes
+
+* **release:** installers install the command where they say it is ([1a32fee](https://github.com/AlessioBrillo/dominus/commit/1a32feea00ec9fb731ab0bfa09d77b67704ab6d2))
+* **release:** read `###` patch sections in the changelog gate; `standard-version` writes `###` for a patch, so the gate rejected every patch release
+* **release:** publish patch releases: the release-notes extraction reads `###` sections, and a failed npm publish is a warning instead of a failed primary channel
+
+
+### Documentation
+
+* **release:** v1.3.4 - the front door is verified (ADR-0099) ([65bca5b](https://github.com/AlessioBrillo/dominus/commit/65bca5b12569c4d7a8325e610cced4a2e379be0c))
+
 ## [1.3.3](https://github.com/AlessioBrillo/dominus/compare/v1.3.0...v1.3.3) (2026-10-25)
 
 

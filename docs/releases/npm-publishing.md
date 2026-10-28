@@ -143,23 +143,32 @@ A failure after the publish cannot un-publish the package. The response is
 job is that the failure is a red workflow instead of a support ticket days
 later.
 
-## 6. The second channel: the tarball on the GitHub Release
+## 6. The primary channel: the tarball on the GitHub Release
 
-The npm registry is the *convenient* channel, not the only one. The
-trusted publisher failed twice (v1.2.0 and v1.3.0, both `E404`: the
-publisher is not configured on the npm account), and a distribution that
-depends on an account setting nobody can automate is one click away from
-being no distribution at all.
+The npm registry is the *convenient* channel, not the primary one. Since
+v1.3.4 the GitHub Release is primary (ADR-0099): it does not depend on an
+account setting, and it is the channel the release workflow verifies
+end-to-end. The trusted publisher failed three times (v1.2.0, v1.3.0 and
+the first v1.3.3 attempts, all `E404`: the publisher is not configured on
+the npm account), and a distribution that depends on an account setting
+nobody can automate is one click away from being no distribution at all.
 
-Since v1.3.2 the release workflow builds the tarball **once** and uses it
-for both channels:
+The release workflow builds the tarball **once** and uses it for both
+channels:
 
 - the asset attached to the GitHub Release, with its SHA-256 checksum
-  beside it;
-- the package published to npm (`npm publish <tarball>`).
+  beside it, the stable alias `dominus-oss.tgz`, and the two installers;
+- the package published to npm (`npm publish <tarball>`), when the trusted
+  publisher is configured.
 
 They are the same bytes, so the artifact a user verifies against the
 checksum is the artifact npm serves.
+
+The GitHub channel is verified on both sides of the publish: the installers
+run against a local release channel before the tag
+(`npm run test:installers`, also in the `Installers` CI matrix), and the
+`verify-github-release` job installs the public alias tarball and runs the
+first command after the publish — even when the npm publish fails.
 
 ```bash
 # No registry, no clone: the verified tarball and its checksum
