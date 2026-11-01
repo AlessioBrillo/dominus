@@ -31,11 +31,42 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 const root = process.cwd();
 const remote = process.argv.includes('--remote');
 
 const results = [];
+
+/**
+ * Read one file from a .tgz without a tar dependency.
+ *
+ * This used to `import('node:tar')`, which does not exist: the check threw
+ * on every run and degraded to a warning, so the alias contents were never
+ * inspected. npm ships no built-in tar reader either; the archive format is
+ * simple enough to walk directly (512-byte headers, ustar prefix, octal
+ * size, data padded to 512 bytes).
+ */
+function readFromTarball(tgzBytes, wanted) {
+  const tar = gunzipSync(tgzBytes);
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) {
+      return null; // end-of-archive marker
+    }
+    const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
+    const prefix = header.subarray(345, 500).toString('utf8').replace(/\0.*$/, '');
+    const size = parseInt(header.subarray(124, 136).toString('ascii').replace(/\0.*$/, '').trim(), 8) || 0;
+    const type = String.fromCharCode(header[156]);
+    const dataStart = offset + 512;
+    if ((prefix ? `${prefix}/${name}` : name) === wanted && (type === '0' || type === '\0')) {
+      return tar.subarray(dataStart, dataStart + size);
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+  return null;
+}
 
 function record(status, name, detail) {
   results.push({ status, name, detail });
@@ -183,31 +214,18 @@ if (remote) {
         }
       }
 
-      // The tarball must carry the announced version: extract package/package.json.
+      // The tarball must carry the announced version: read package/package.json.
       try {
-        const { extract } = await import('node:tar');
-        let pkgJson = null;
-        await extract(aliasBytes, {
-          onentry: (entry) => {
-            if (entry.file === 'package/package.json') {
-              const chunks = [];
-              entry.on('data', (chunk) => chunks.push(chunk));
-              entry.on('end', () => {
-                try {
-                  pkgJson = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-                } catch {
-                  // ignore parse errors
-                }
-              });
-            }
-          },
-        });
-        if (pkgJson === null) {
+        const pkgJsonBytes = readFromTarball(aliasBytes, 'package/package.json');
+        if (pkgJsonBytes === null) {
           record('fail', 'release alias contents', 'alias tarball has no package/package.json');
-        } else if (pkgJson.version === version) {
-          record('pass', 'release alias contents', `alias tarball carries ${pkgJson.name}@${pkgJson.version}`);
         } else {
-          record('fail', 'release alias contents', `alias tarball carries ${pkgJson.name}@${pkgJson.version}, expected ${version}`);
+          const pkgJson = JSON.parse(pkgJsonBytes.toString('utf8'));
+          if (pkgJson.version === version) {
+            record('pass', 'release alias contents', `alias tarball carries ${pkgJson.name}@${pkgJson.version}`);
+          } else {
+            record('fail', 'release alias contents', `alias tarball carries ${pkgJson.name}@${pkgJson.version}, expected ${version}`);
+          }
         }
       } catch (err) {
         record('warn', 'release alias contents', `could not inspect tarball contents: ${err.message}`);
