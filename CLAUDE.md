@@ -110,24 +110,21 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.3.4 — the front door is verified: the one-command installers
-and the release tarball are exercised before they ship and after they are
-published, on Linux and Windows, and a tag does not publish while the live
-trademark canary is red (ADR-0099). The first command a stranger runs
-answers in about two seconds, creates nothing on disk and prints the
-decision alone on stdout (the diagnostics moved to stderr, `--json` gives
-the same decision to a script); `--help` and `--version` are answered from
-the command line alone. The trademark gate fails closed: a source that
-cannot answer leaves the domain unverified, and an unverified domain is
-never recommended. The release state is checked against the world
-(`npm run release:doctor`), and the documented quickstart is verified by
-the gate (`npm run check:quickstart`). Before it: the legal surface for the
-EU operator (art. 7 D.Lgs. 70/2003), the tax inputs and the withdrawal
-consent at checkout, the data-subject rights (GDPR art. 15 and 17), a
-launch gate that can be executed, and a published artifact that is verified
-before and after the publish. v1.0.0 introduced the DOMINUS Cloud MVP.
-Next: the infrastructure provisioned for real, the operator identity, and
-the paid tiers behind the third-party audit.
+DOMINUS v1.4.0 — First Light: the launch bar is executable in both editions.
+`npm run launch:check` judges a community deployment and a Cloud deployment
+with the same implementation (profiles, auto-detection, `--paid`), writes
+JSON and Markdown evidence on pass and on fail, and checks the things that
+break silently in public: the canonical origin, TLS, HSTS/CSP, HTML/JSON
+parity, robots → sitemap and the live trademark canary (ADR-0100).
+`npm run launch:rehearse` builds the production-parity Cloud stack, runs the
+gate against it and writes the evidence, with no credentials and no spend.
+The community edition is the first soft launch; the Cloud stays behind the
+fiscal position, the third-party audit ([audit-scope.md](docs/security/audit-scope.md))
+and a real staging deployment ([first-apply.md](docs/deployment/first-apply.md)).
+Before it: the verified install channel, the legal surface, the
+data-subject rights and a release state checked against the world. v1.0.0
+introduced the DOMINUS Cloud MVP.
+Next: execute the first staging apply, the audit, and the fiscal position.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 

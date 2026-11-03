@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.4.0](https://github.com/AlessioBrillo/dominus/compare/v1.3.4...v1.4.0) (2026-11-03)
+
+
+### Features
+
+* **launch:** the gate judges both editions. `launch:check` has `--community`
+  and `--cloud` profiles, auto-detects the mode with the server's own rule
+  (`DATABASE_URL` or a non-`env` auth provider), and `--paid` raises the
+  Cloud contracts (Stripe, backups, proxy depth, external probe, audit,
+  alerting) from warnings to failures (ADR-0100).
+* **launch:** evidence is an artifact. `--evidence <dir>` writes
+  `launch-evidence-<version>-<sha>.json` and `.md` on pass and on fail; the
+  JSON carries every check, its detail and its duration, and never a secret
+  value.
+* **launch:** the public-surface checks. The canonical origin (configured and
+  rendered), TLS and HSTS/CSP, HTTP→HTTPS, HTML/JSON parity for the same
+  page, robots → sitemap, public input validation, the data-rights endpoints
+  and the live trademark canary (`nike` blocked, `vintagecoffee` clear,
+  never unverified).
+* **launch:** `npm run launch:rehearse`. It builds the production-parity
+  Cloud topology with the acceptance suite, runs the gate against it with a
+  complete fixture environment, writes the evidence and tears the stack
+  down. `--url` judges an existing deployment; `--keep` leaves the stack up;
+  `--with-pitr --pitr-base --pitr-wal` runs the recovery drill when a real
+  base backup and WAL archive exist, and records a SKIP otherwise.
+* **docs:** `docs/deployment/first-apply.md` — from an empty Hetzner
+  project to a gate-green staging deployment, with the accounts, the remote
+  state, the tfvars, the bootstrap, the restore drill and the promotion.
+* **docs:** `docs/security/audit-scope.md` — the third-party audit as a
+  statement of work; `docs/security/evidence-index.md` — every claim mapped
+  to the command and artifact that prove it.
+* **docs:** `docs/releases/soft-launch-community.md` — the community soft
+  launch: preconditions, the release commands, the announcement, the
+  support posture and what not to claim.
+* **ci:** a `launch-rehearse` job runs the gate against the stack built from
+  the release, separately from the fast `npm run gate`.
+
+
+### Bug Fixes
+
+* **public:** the GET and POST rate limiters no longer share one Redis
+  store. A shared store let a page view consume the score quota (and the
+  library refused the reuse), so `POST /public/scores` could answer 429
+  after ordinary browsing; each limiter now has its own key prefix.
+
+### Documentation
+
+* the launch checklist is profile-aware and names the evidence for every
+  row; the Cloud readiness document points at the audit scope and the
+  first-apply runbook.
+
 ### [1.3.4](https://github.com/AlessioBrillo/dominus/compare/v1.3.3...v1.3.4) (2026-10-28)
 
 

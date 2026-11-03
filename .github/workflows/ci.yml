@@ -356,6 +356,41 @@ jobs:
           path: .acceptance/
           retention-days: 14
 
+  # The launch rehearsal: the gate that judged the release is the gate
+  # that runs against the stack built from the release. It is separate
+  # from cloud-acceptance because it asserts a different thing (the launch
+  # bar, not the Cloud behaviour) and because a red rehearsal blocks a
+  # release without blocking every pull request's acceptance run.
+  #
+  # The browser smokes are skipped here: they are the acceptance job's
+  # job, and this job spends its minutes on the gate and its evidence.
+  launch-rehearse:
+    name: Launch rehearsal (gate + evidence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ACCEPTANCE_PORT: '3210'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run the launch rehearsal
+        run: npm run launch:rehearse
+
+      - name: Upload the launch evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: launch-evidence
+          path: .acceptance/
+          retention-days: 30
+
   compose-config:
     name: Compose topology & monitoring config
     runs-on: ubuntu-latest

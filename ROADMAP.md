@@ -14,8 +14,12 @@ v1.3.3 - The trademark gate answers again on the migrated USPTO endpoint
 v1.3.4 - The front door is verified: the installers and the published
 tarball are exercised on both platforms, and a tag does not publish while
 the live trademark canary is red (released).
-Next: the infrastructure provisioned for real, the operator identity, and
-the paid tiers behind the third-party audit.
+v1.4.0 - First Light: mode-aware launch gate with evidence, a launch
+rehearsal on the production-parity stack, the audit scope and the
+first-apply runbook; the community edition is the first soft launch
+(released).
+Next: execute the first staging apply, the third-party audit, the fiscal
+position, and only then the paid Cloud tiers.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 
@@ -384,9 +388,33 @@ estimates and subject to change.
       trusted publisher is configured; the GitHub Release is primary and
       verified end-to-end
 
+## v1.4.0 — First Light (ADR-0100)
+
+> **Status**: Released
+> **Focus**: the launch bar is executable before the infrastructure exists,
+> and the community edition ships first
+
+- [x] `launch:check` has `--community` and `--cloud` profiles, auto-detects
+      the mode with the server's own rule, and adds `--paid` for the Cloud
+      contracts
+- [x] `--evidence` writes `launch-evidence-<version>-<sha>.json` and `.md`
+      on pass and on fail
+- [x] the gate checks the canonical origin (configured and rendered), TLS,
+      HSTS/CSP, HTTP→HTTPS, HTML/JSON parity, robots → sitemap, public
+      input validation, data-rights endpoints and the live trademark canary
+- [x] `npm run launch:rehearse` builds the production-parity Cloud stack,
+      runs the gate against it, writes the evidence and tears it down; PITR
+      is opt-in and a missing prerequisite is a SKIP, never a pass
+- [x] the audit scope is a statement of work, and the evidence index maps
+      every claim to the command that produces it
+- [x] the first-apply runbook goes from an empty Hetzner project to a
+      gate-green staging deployment
+- [x] the community soft-launch runbook, with the announcement and the
+      support posture
+
 ## Post-1.0
 
-- **Internationalisation** (v1.4.0) — the legal documents and the
+- **Internationalisation** (after v1.4.0) — the legal documents and the
   interface as a translatable catalogue, with machine-assisted
   translation that opens a pull request and a check that no user-facing
   string can bypass the catalogue. Runtime translation is excluded: it

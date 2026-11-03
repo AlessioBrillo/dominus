@@ -14,11 +14,14 @@ const script = join(here, '..', '..', 'scripts', 'launch-check.mjs');
  * run is a document. These tests run the real script and assert both the
  * failure and the success path.
  */
-function runGate(env: Record<string, string | undefined>): {
+function runGate(
+  env: Record<string, string | undefined>,
+  args: string[] = ['--cloud'],
+): {
   status: number | null;
   output: string;
 } {
-  const result = spawnSync(process.execPath, [script], {
+  const result = spawnSync(process.execPath, [script, ...args], {
     env: { PATH: process.env.PATH, ...env },
     encoding: 'utf-8',
   });

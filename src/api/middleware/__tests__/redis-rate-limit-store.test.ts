@@ -112,6 +112,25 @@ describe('RedisRateLimitStore', () => {
     expect(redis.pexpire).toHaveBeenCalledWith('dominus:rl:ip-1', 60_000);
   });
 
+  it('keeps two limiters apart with distinct prefixes', async () => {
+    const redis = makeFakeRedis();
+    const client = makeConnectedRedisClient(redis);
+    const publicStore = new RedisRateLimitStore(client, 60_000, 'rl:public');
+    const postStore = new RedisRateLimitStore(client, 60_000, 'rl:post');
+
+    await publicStore.increment('ip-1');
+    await postStore.increment('ip-1');
+
+    expect(redis.pexpire).toHaveBeenCalledWith('dominus:rl:public:ip-1', 60_000);
+    expect(redis.pexpire).toHaveBeenCalledWith('dominus:rl:post:ip-1', 60_000);
+  });
+
+  it('rejects an empty prefix', () => {
+    expect(
+      () => new RedisRateLimitStore(makeConnectedRedisClient(makeFakeRedis()), 60_000, ''),
+    ).toThrow();
+  });
+
   it('returns a resetTime when a TTL is present', async () => {
     const redis = makeFakeRedis({ 'dominus:rl:ip-1': 3 });
     const store = new RedisRateLimitStore(makeConnectedRedisClient(redis), 60_000);

@@ -17,21 +17,30 @@ export class RedisRateLimitStore implements Store {
   readonly #client: RedisClient;
   readonly #fallback: MemoryStore;
   readonly #windowMs: number;
+  readonly #prefix: string;
 
-  constructor(client: RedisClient, windowMs: number) {
+  constructor(client: RedisClient, windowMs: number, prefix = 'rl') {
     if (!Number.isFinite(windowMs) || windowMs <= 0) {
       throw new Error(`RedisRateLimitStore requires a positive windowMs, got ${windowMs}`);
     }
+    if (prefix.length === 0) {
+      throw new Error('RedisRateLimitStore requires a non-empty prefix');
+    }
     this.#client = client;
     this.#windowMs = windowMs;
+    this.#prefix = prefix;
     this.#fallback = new MemoryStore();
     // MemoryStore only learns its window through init(); without it the
     // resetTime of every client stays invalid and counters never recycle.
     this.#fallback.init({ windowMs } as Parameters<MemoryStore['init']>[0]);
   }
 
+  #key(key: string): string {
+    return this.#client.prefixed(`${this.#prefix}:${key}`);
+  }
+
   async increment(key: string): Promise<ClientRateLimitInfo> {
-    const redisKey = this.#client.prefixed(`rl:${key}`);
+    const redisKey = this.#key(key);
     return this.#client.withRedis(
       async (redis: Redis) => {
         const pipeline = redis.pipeline();
@@ -61,7 +70,7 @@ export class RedisRateLimitStore implements Store {
   }
 
   async decrement(key: string): Promise<void> {
-    const redisKey = this.#client.prefixed(`rl:${key}`);
+    const redisKey = this.#key(key);
     return this.#client.withRedis(
       async (redis: Redis) => {
         const raw = await redis.get(redisKey);
@@ -78,7 +87,7 @@ export class RedisRateLimitStore implements Store {
   }
 
   async resetKey(key: string): Promise<void> {
-    const redisKey = this.#client.prefixed(`rl:${key}`);
+    const redisKey = this.#key(key);
     return this.#client.withRedis(
       async (redis: Redis) => {
         await redis.del(redisKey);

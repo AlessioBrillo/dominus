@@ -1,43 +1,82 @@
-# Launch checklist — DOMINUS Cloud
+# Launch checklist — DOMINUS Cloud and Community
 
 Two halves: the **mechanical gate** (`npm run launch:check`) and the
 **human steps** that no script can do. The gate exists because a checklist
 in a document is only as good as the reader's memory; the gate answers with
 exit 0 or exit 1, and it can run in CI against a deployment.
 
-```bash
-# the environment and the repository
-npm run launch:check
+The gate has two profiles, because the two editions make different
+promises (ADR-0100). The profile is auto-detected from the environment with
+the same rule the server uses (`DATABASE_URL` or a non-`env` auth
+provider), and can always be forced.
 
-# a deployment, with the paid-launch preconditions
-npm run launch:check -- --url https://dominus.example --paid
+```bash
+# the community edition: the AGPL and the self-hosted data flow,
+# no operator identity and no billing surface (12 checks)
+npm run launch:check -- --community
+
+# the Cloud edition, environment and repository only (13 checks)
+npm run launch:check -- --cloud
+
+# a live deployment, with the paid-launch preconditions
+npm run launch:check -- --cloud --url https://dominus.example --paid
+
+# write the evidence the release attaches
+npm run launch:check -- --cloud --url https://staging.example \
+  --evidence .acceptance/staging
 ```
 
-Run it where the environment is defined — on the app node, with the
-deployment's environment loaded — because the checks that matter (the
-identity, the metrics token, the backup configuration) read the
-environment, not the repository. The `--url` probes then add what only a
-live deployment can show: the published documents, the legal footer and the
-data-rights endpoints.
+Run it where the environment is defined — on the app node, or on a
+workstation with the deployment's environment loaded (`node --env-file`) —
+because the checks that matter (the identity, the metrics token, the backup
+configuration) read the environment, not the repository. The `--url` probes
+then add what only a live deployment can show: TLS, HSTS/CSP, the canonical
+origin, the published documents, the legal footer, the HTML/JSON parity,
+the sitemap, the trademark canary and the data-rights endpoints.
+
+The **community soft launch** is a separate, earlier step: it needs the
+community profile, a verified GitHub Release and no Cloud contracts. The
+runbook is [soft-launch-community.md](soft-launch-community.md). The Cloud
+steps below apply to the paid launch.
 
 ## What the gate checks
 
 | Check | Fails when |
 |---|---|
-| legal identity | any `LEGAL_*` field is missing or still a placeholder |
-| metrics access control | `METRICS_TOKEN` is unset (the server refuses to boot without it in cloud mode) |
-| backups | `BACKUP_DIR` is unset, or `BACKUP_RETENTION_DAYS` is zero |
-| billing configuration | Stripe is configured but a published plan has no price id, or the webhook secret is missing |
-| billing webhooks | `STRIPE_WEBHOOK_SECRET` is missing |
+| profile (cloud) | the environment says Cloud but the gate was forced to community, or vice versa (the check names the mode it judged) |
+| legal identity (cloud) | any `LEGAL_*` field is missing or still a placeholder; the community profile reports this as informational |
+| metrics access control (cloud) | `METRICS_TOKEN` is unset (the server refuses to boot without it in cloud mode); a community deployment may leave it open |
+| proxy depth (`--paid`) | `TRUST_PROXY_DEPTH` is unset behind a proxy |
+| backups | `BACKUP_DIR` is unset or `BACKUP_RETENTION_DAYS` is zero; a warning in community, a failure in Cloud, `--paid` raises it further |
+| billing configuration (cloud) | Stripe is configured but a published plan has no price id, or the webhook secret is missing; `--paid` fails when Stripe is not configured at all |
+| billing webhooks (cloud) | `STRIPE_WEBHOOK_SECRET` is missing |
 | security audit | `--paid` and no third-party review is on file |
 | external monitoring | `--paid` and `EXTERNAL_PROBE_URL` is unset (the app node's own monitor cannot report the app node's outage) |
+| job notifications | `NOTIFIER_WEBHOOK_URL` is unset (warning; `--paid` fails) |
+| alerting | the Alertmanager webhook is still the placeholder (warning; `--paid` fails) |
 | legal text | the published documents are more than a year old (warning) |
-| proxy depth | `TRUST_PROXY_DEPTH` is unset behind a proxy (warning) |
-| alerting | the Alertmanager webhook is still the placeholder (warning) |
-| job notifications | the dead-letter webhook is unset (warning) |
-| legal documents (live) | `GET /public/legal` does not answer 200 with the three documents |
-| legal footer (live) | a public page does not carry the legal footer |
-| data rights (live) | the export endpoint does not exist |
+| canonical origin | `PUBLIC_APP_URL` is unset or disagrees with `--url` on a public deployment |
+| TLS certificate (live, HTTPS) | the certificate is expired, expires within 14 days (warning), or negotiates below TLS 1.2 |
+| HTTP → HTTPS (live, HTTPS) | the HTTP origin does not redirect to HTTPS |
+| HTTPS security headers | HSTS or CSP is missing |
+| health (live) | `/api/health` does not answer 200 with `status: ok` |
+| legal documents (live) | `GET /public/legal` does not answer 200 with exactly `legal-notice`, `privacy`, `terms`, in the mode the gate is judging |
+| legal footer (live) | a public page does not carry `data-legal-footer` |
+| canonical origin (rendered) | the page's canonical link does not point at the deployment |
+| public HTML and JSON agree | the HTML does not carry the expected value the JSON reports |
+| sitemap and robots | `robots.txt` does not point at the sitemap, or the sitemap does not use the deployment origin |
+| public surface headers | `nosniff`, CSP or a rate-limit header is missing |
+| public input validation | an invalid domain is not refused with `INVALID_DOMAIN` |
+| data rights (live) | the export or erasure endpoint does not exist, or answers without authentication |
+| trademark canary (live) | `nike.com` is not blocked, `vintagecoffee.com` is not clear, or either is unverified |
+
+`--json` prints the same result as a single JSON object; `--evidence`
+writes `<dir>/launch-evidence-<version>-<commit>.{json,md}` even when the
+gate fails. `--skip-trademark` exists for debugging only: the evidence
+records that the canary was skipped, and a paid launch must not use it.
+
+The warnings are not blockers, but they are not done either: they are the
+work a human still has to do, named so it is not forgotten.
 
 ## The human steps, in order
 
@@ -114,7 +153,24 @@ the evidence in the table of that document, and repeat them live.
 
 ### 4. The infrastructure
 
-This work has never been done. It is the largest technical unknown:
+**First, rehearse without credentials.** The application topology can be
+proven before an account exists:
+
+```bash
+npm run launch:rehearse              # build the Cloud stack, gate it, tear down
+npm run launch:rehearse -- --keep    # leave it up for inspection
+```
+
+It builds the production-parity stack with the acceptance suite, runs the
+launch gate against it with a complete fixture environment, writes the
+evidence, and names what it does not prove (Hetzner, TLS, B2, the real
+PITR target, Stripe Tax, the OIDC provider, the audit). The evidence is
+described in [evidence-index.md](../security/evidence-index.md).
+
+**Then provision staging.** This work has never been done, and it is the
+largest technical unknown. The step-by-step runbook, from an empty Hetzner
+project to a gate-green staging deployment, is
+[first-apply.md](../deployment/first-apply.md). The short version:
 
 ```bash
 cd deploy/terraform
@@ -180,9 +236,12 @@ request, so a Cloud regression cannot reach `master`.
 ### 6. The third-party security audit
 
 The decision on record is that the audit happens **before** the paid launch,
-not after. The scope is the multi-tenant surface (RLS, `runWithTenant`,
-pooled PostgreSQL), the OIDC session and CSRF, the public namespace, and the
-Stripe webhook. The first-party review of the same surface is in
+not after. The scope, the rules of engagement, the deliverables and the
+evidence pack are in [audit-scope.md](../security/audit-scope.md): it is
+written to be sent to the auditor as the statement of work. The scope is
+the multi-tenant surface (RLS, `runWithTenant`, pooled PostgreSQL), the
+OIDC session and CSRF, the public namespace, and the Stripe webhook. The
+first-party review of the same surface is in
 [audit-2026-08.md](../security/audit-2026-08.md): it is the starting point
 for the auditor, not a substitute for it.
 
@@ -271,13 +330,18 @@ publishing.
 |---|---|---|
 | trademark sources | the verdict of `dominus score <domain>` is not "unverified" | the operations log |
 | fiscal position | the tax registration and the accountant's advice | private; the conclusion in the ADR |
-| operator identity | the gate passing | the output of `npm run launch:check` |
+| operator identity | the gate passing | `launch-evidence-*.json` / `.md` |
+| the application rehearsal | the gate green on the production-parity stack | `.acceptance/launch/rehearsal-*.md` |
 | Stripe | the three scenarios | the table in [billing-tax-verification.md](billing-tax-verification.md) |
-| Cloud behaviour | the acceptance report | the output of `npm run acceptance:cloud` |
-| infrastructure | the applied plan, the TLS certificate, the health check | the deployment |
-| restore drill | the drill output | the operations log |
+| Cloud behaviour | the acceptance report | `.acceptance/report.json` |
+| infrastructure | the applied plan, the TLS certificate, the health check | the deployment + the gate evidence |
+| restore drill | the drill output and the measured RTO/RPO | the operations log |
 | audit | the report | `docs/security/` |
 | npm | the published package and its provenance attestation | the release on npm |
+
+The full map — claim, command, artifact, location, visibility — is
+[evidence-index.md](../security/evidence-index.md). A row without an
+artifact is open, not done.
 
 ## If something goes wrong
 
