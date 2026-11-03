@@ -226,9 +226,16 @@ export function createPublicRouter(
     redisClient,
   );
 
-  const sharedStore: Store | undefined =
+  // One store per limiter. express-rate-limit keys a counter by client IP
+  // alone, so a shared store would let a GET consume the POST quota (and
+  // a POST consume the GET quota); the library also refuses the reuse.
+  const publicStore: Store | undefined =
     redisClient?.isConnected === true
-      ? new RedisRateLimitStore(redisClient, publicWindowMs)
+      ? new RedisRateLimitStore(redisClient, publicWindowMs, 'rl:public')
+      : undefined;
+  const postStore: Store | undefined =
+    redisClient?.isConnected === true
+      ? new RedisRateLimitStore(redisClient, postWindowMs, 'rl:post')
       : undefined;
 
   const publicRateLimiter = rateLimit({
@@ -236,7 +243,7 @@ export function createPublicRouter(
     max: publicMax,
     standardHeaders: true,
     legacyHeaders: false,
-    ...(sharedStore === undefined ? {} : { store: sharedStore }),
+    ...(publicStore === undefined ? {} : { store: publicStore }),
     message: {
       error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later' },
     },
@@ -247,7 +254,7 @@ export function createPublicRouter(
     max: postMax,
     standardHeaders: true,
     legacyHeaders: false,
-    ...(sharedStore === undefined ? {} : { store: sharedStore }),
+    ...(postStore === undefined ? {} : { store: postStore }),
     message: {
       error: {
         code: 'RATE_LIMITED',

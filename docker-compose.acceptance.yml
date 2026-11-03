@@ -122,6 +122,14 @@ services:
       - LEGAL_CONTACT_EMAIL=acceptance@example.invalid
       - LEGAL_PRIVACY_EMAIL=privacy@example.invalid
       - RATE_LIMIT_MAX=10000
+      # The launch gate probes the public surface repeatedly from one IP, and
+      # the acceptance suite runs it after its own requests. The production
+      # limits stay untouched; the throwaway stack raises them so a 429 is
+      # never mistaken for a defect (and the input-validation check sees the
+      # 400 it is testing).
+      - PUBLIC_RATE_LIMIT_MAX=10000
+      - PER_DOMAIN_RATE_LIMIT_MAX=10000
+      - POST_RATE_LIMIT_MAX=10000
       - TRUST_PROXY_DEPTH=0
       - LOG_LEVEL=info
       - WORKER_ENABLED=false

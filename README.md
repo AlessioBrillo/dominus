@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.3.4-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.4.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -419,14 +419,21 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.3.4 — the front door is verified: the one-command installers and
-the release tarball are exercised before they ship and after they are
-published, on Linux and Windows, and a tag does not publish while the live
-trademark canary is red (the gate answers, or nothing is recommended).
-`dominus score example.com` answers in about two seconds, creates nothing on
-disk and prints the decision and nothing else on stdout (the diagnostics
-moved to stderr, and `--json` gives the same decision to a script). All five pipeline stages, the heuristic
-scoring engine, the mandatory trademark gate enforced on every
+DOMINUS v1.4.0 — First Light: the launch bar is executable in both editions.
+`npm run launch:check` now judges a **community** deployment (the AGPL and
+the self-hosted data flow, no operator identity to publish) and a **Cloud**
+deployment (identity, Stripe, backups, probe, audit) with the same
+implementation, and `--paid` turns the Cloud contracts into hard failures.
+The gate writes evidence (`launch-evidence-<version>-<sha>.json` and `.md`)
+on pass and on fail, so a release can attach what approved it.
+`npm run launch:rehearse` builds the production-parity Cloud stack, runs the
+gate against it and tears it down, with no credentials and no spend; the
+community edition is the first soft launch, and the Cloud stays behind the
+fiscal position, the third-party audit and a real staging deployment
+([first-apply.md](docs/deployment/first-apply.md)). `dominus score
+example.com` still answers in about two seconds, creates nothing on disk and
+prints the decision and nothing else on stdout. All five pipeline stages,
+the heuristic scoring engine, the mandatory trademark gate enforced on every
 purchase path (API, CLI, auto-approval, bid), real USPTO/EUIPO providers
 with caching, the portfolio tracker with renewal clock and keep/drop
 verdicts, outcomes, the backtest engine and the React dashboard are

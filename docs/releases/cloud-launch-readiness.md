@@ -5,14 +5,15 @@ roadmap entry. It records what was verified, what is missing, and who
 decides what. It is written to be read by someone joining the effort, so it
 states facts with file paths rather than intentions.
 
-Everything below was checked against the repository on 2026-10-28.
+Everything below was checked against the repository on 2026-11-03, at
+v1.4.0.
 
 ## What is solid
 
-- 2,575 backend tests and 407 frontend tests green; 18 CI jobs including a
+- The backend and frontend suites are green; 19 CI jobs including a
   PostgreSQL matrix, Docker smoke, OpenAPI contract coverage and a WCAG 2.1
   AA a11y gate.
-- 90 accepted ADRs. The architecture record is genuinely current —
+- 95 ADRs. The architecture record is genuinely current —
   `check-doc-drift` derives route/repository/handler/CLI counts from the
   source tree, so the documents cannot silently rot.
 - Fail-closed posture on the parts that matter: DNS consensus (ADR-0039,
@@ -205,7 +206,7 @@ independent second source, and are optional.
 | Ingress | Closed by default; the operator writes the decision down at apply time (ADR-0094) |
 | Plan granted on checkout | Derived from the Stripe price id, never from the session metadata (ADR-0093) |
 | Release | The published artifact is installed and run before and after the publish (ADR-0091) |
-| Version | v1.3.4 |
+| Version | v1.4.0 |
 
 ## Recommended sequence
 
@@ -214,7 +215,14 @@ code instead of by hand. The full checklist, with the evidence to record,
 is in [launch-checklist.md](launch-checklist.md), and the mechanical half of
 it is `npm run launch:check`.
 
-0. **Prove the Cloud topology runs** — `npm run acceptance:cloud`
+0. **Prove the launch bar before the infrastructure** — `npm run launch:rehearse`
+   (ADR-0100). It builds the production-parity Cloud topology, runs
+   `launch:check --cloud` against it with a complete fixture environment,
+   writes the evidence and tears the stack down. It needs Docker, not a
+   Hetzner account. A green rehearsal narrows the first staging run to the
+   infrastructure's unknowns. **The browser smokes stay in the acceptance
+   suite**; the rehearsal judges the gate.
+1. **Prove the Cloud topology runs** — `npm run acceptance:cloud`
    (ADR-0095). The suite builds the working tree's images, starts
    PostgreSQL with the production init script, applies the migrations as
    the owner role, runs the api/worker/scheduler against the
@@ -227,7 +235,7 @@ it is `npm run launch:check`.
    minted, the manual run of a scheduled job did not work, and the CLI
    never released its connections). The scope and the boundaries are in
    [cloud-acceptance.md](cloud-acceptance.md).
-1. **Legal + VAT** — longest lead time, blocks revenue, can proceed in
+2. **Legal + VAT** — longest lead time, blocks revenue, can proceed in
    parallel with everything else. **Done in code** (ADR-0090): the legal
    notice, the terms of service and the privacy notice are server-owned
    data, published and linked from every public page, guarded by
@@ -235,25 +243,43 @@ it is `npm run launch:check`.
    the VAT ID and takes the withdrawal consent. **Left for a human**: the
    operator identity (`LEGAL_*`), the fiscal position, the review of the
    texts, and the three Stripe verification scenarios.
-2. **Provision the infrastructure for real** — `terraform apply` with the
-   remote state, point DNS, confirm TLS and the health check, wire a real
-   Alertmanager webhook, configure the external probe, run an actual
-   restore drill against real B2 with `--pg-restore`. This is the work that
-   has never been done and is the largest technical unknown. **Partly done
-   in code** (ADR-0094): the fail-closed ingress, the remote state and the
-   real rehearsal are implemented; **the execution is still undone.** The
-   deploy pipeline now has a `staging` target (an explicit dispatch) and a
-   `production` target (a release tag, with an approval), each with its
-   own secrets.
-3. **Security audit** — external, scoped to the multi-tenant surface (RLS,
+3. **Provision the infrastructure for real** — the step-by-step runbook is
+   [first-apply.md](../deployment/first-apply.md): `terraform apply` with
+   the remote state, DNS, TLS, a real Alertmanager webhook, the external
+   probe, and an actual restore drill against real B2 with `--pg-restore`.
+   This is the work that has never been done and is the largest technical
+   unknown. **Partly done in code** (ADR-0094): the fail-closed ingress,
+   the remote state and the real rehearsal are implemented; **the
+   execution is still undone.** The deploy pipeline has a `staging` target
+   (an explicit dispatch) and a `production` target (a release tag, with an
+   approval), each with its own secrets.
+4. **Security audit** — external, scoped to the multi-tenant surface (RLS,
    `runWithTenant`, pooled PostgreSQL), the OIDC session and CSRF, the public
    namespace (`/public/*`, `AnonScoringService`, trademark budget), and the
-   Stripe webhook. The first-party review of those four areas is in
-   [audit-2026-08.md](../security/audit-2026-08.md), and the metadata-trust
-   finding it recorded is closed (ADR-0093). **Unchanged: still undone.**
-4. **Remediate, then release the tiers.** The tiers stay behind the existing
+   Stripe webhook. The scope, the rules of engagement and the evidence pack
+   are [audit-scope.md](../security/audit-scope.md); the first-party review
+   of those four areas is in [audit-2026-08.md](../security/audit-2026-08.md),
+   and the metadata-trust finding it recorded is closed (ADR-0093).
+   **Unchanged: still undone.**
+5. **Remediate, then release the tiers.** The tiers stay behind the existing
    fail-closed billing gate until the operator has a fiscal position and the
    gate passes.
+
+The community edition does not wait for steps 2–5: it has no multi-tenant
+boundary and no payment surface, and it is the first soft launch
+([soft-launch-community.md](soft-launch-community.md)).
+
+## What changed in v1.4.0
+
+| Was | Now |
+|---|---|
+| `launch:check` demanded a Cloud operator identity from a self-hosted community deployment, which has none to publish | two profiles (`--community`, `--cloud`), auto-detected with the server's own rule, and `--paid` for the Cloud contracts (ADR-0100) |
+| the gate printed a verdict and forgot it | `--evidence` writes JSON and Markdown on pass and on fail; a release can attach what approved it |
+| the gate judged the environment and a few endpoints | it also checks the canonical origin (configured and rendered), TLS, HSTS/CSP, HTTP→HTTPS, HTML/JSON parity, robots → sitemap, public input validation, the data-rights endpoints and the live trademark canary |
+| the Cloud topology could only be judged after the infrastructure existed | `npm run launch:rehearse` builds the production-parity stack, runs the gate against it and writes the evidence, with no credentials |
+| the audit was a paragraph in the checklist | `docs/security/audit-scope.md` is a statement of work, and `docs/security/evidence-index.md` maps every claim to its artifact |
+| the first apply was a list of commands in the checklist | `docs/deployment/first-apply.md` is the step-by-step runbook, from the accounts to the promotion |
+| the community edition had no launch runbook | `docs/releases/soft-launch-community.md`, with the preconditions, the announcement and the support posture |
 
 ## What changed in v1.3.4
 
