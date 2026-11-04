@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type Database from 'better-sqlite3';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import type { DatabaseProvider } from './provider/interface.js';
 import { getMigrations, getPgMigrations, getMigrationNames } from './migrations/registry.js';
 import {
@@ -15,6 +25,80 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 )
 `;
+
+export interface MigrationGuardOptions {
+  /** Directory where pre-migration backups are written (SQLite only). */
+  backupDir?: string;
+  /** Retention days for pre-migration backups. 0 = keep forever. */
+  retentionDays?: number;
+  /** Lock TTL in milliseconds (default: 5 minutes). */
+  lockTtlMs?: number;
+  /** Path to the SQLite database file, used for a file-based migration lock.
+   *  Required for SQLite: the pipeline_locks table does not exist yet on a
+   *  fresh database, and separate pool connections do not share in-memory
+   *  databases, so the advisory-lock table cannot be used before the first
+   *  migration. A file-based lock avoids both problems. */
+  lockPath?: string;
+}
+
+const MIGRATION_LOCK_NAME = 'migration:run';
+const MIGRATION_LOCK_TTL_MS = 300_000; // 5 minutes
+
+function hasRawDb(
+  provider: DatabaseProvider,
+): provider is DatabaseProvider & { rawDb: Database.Database } {
+  return provider.dialect === 'sqlite' && 'rawDb' in provider && provider.rawDb !== undefined;
+}
+
+/**
+ * Take a pre-migration backup of a SQLite database before any DDL runs.
+ *
+ * The backup is a VACUUM INTO copy: a consistent, self-contained snapshot
+ * that can be restored with `sqlite3 .restore` or `cp`. If the backup fails
+ * the migration is refused — a partial schema is worse than no schema.
+ *
+ * Old backups are pruned by `retentionDays` so the backup directory does
+ * not grow without bound.
+ */
+async function preMigrationBackup(
+  provider: { rawDb: Database.Database },
+  backupDir: string,
+  retentionDays: number,
+): Promise<void> {
+  const dir = join(backupDir, 'migrations');
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  const dest = join(dir, `pre-migration-${Date.now()}.db`);
+  try {
+    provider.rawDb.pragma('wal_checkpoint(TRUNCATE)');
+    provider.rawDb.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Pre-migration backup failed: ${message}`, { cause: err });
+  }
+
+  // Prune backups older than retentionDays.
+  if (retentionDays > 0) {
+    const cutoff = Date.now() - retentionDays * 86_400_000;
+    try {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        try {
+          const st = statSync(full);
+          if (st.isFile() && st.mtimeMs < cutoff) {
+            unlinkSync(full);
+          }
+        } catch {
+          // A file that cannot be stat'ed is skipped, not fatal.
+        }
+      }
+    } catch {
+      // Directory listing failure is not fatal: the fresh backup is safe.
+    }
+  }
+}
 
 export function runMigrations(db: Database.Database): void {
   db.exec(SCHEMA_MIGRATIONS_DDL);
@@ -179,7 +263,34 @@ export async function rollbackMigration(
  * Used by the application boot (composition root) and by the standalone
  * migrate CLI (migrate-before-roll, ADR-0061).
  */
-export async function ensureSchemaUpToDate(provider: DatabaseProvider): Promise<void> {
+const MIGRATION_FILE_LOCK_SUFFIX = '.migrate.lock';
+
+function isMemoryDatabase(lockPath?: string): boolean {
+  return !lockPath || lockPath === ':memory:' || lockPath.startsWith(':memory:');
+}
+
+/**
+ * Run the migration gate without a cross-process lock.
+ *
+ * Used for in-memory SQLite databases (each process has its own private
+ * database, so there is no cross-process contention) and as the shared body
+ * for both lock implementations.
+ */
+async function runMigrationsUnlocked(
+  provider: DatabaseProvider,
+  options: MigrationGuardOptions,
+): Promise<void> {
+  // The lock table is created by migration 0032. Create it idempotently so
+  // it exists before the first migration runs on a fresh database.
+  await provider.exec(
+    `CREATE TABLE IF NOT EXISTS pipeline_locks (
+      lock_name   TEXT    NOT NULL PRIMARY KEY,
+      locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      expires_at  TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+  );
+
   const appliedMigrations = await readAppliedMigrations(provider);
   const schemaCompat = assertSchemaCompatible(appliedMigrations, getMigrationManifest());
   if (!schemaCompat.ok) {
@@ -187,7 +298,125 @@ export async function ensureSchemaUpToDate(provider: DatabaseProvider): Promise<
       `Schema migration gate failed for ${provider.dialect} database: ${schemaCompat.reason}`,
     );
   }
+
+  // Pre-migration backup (SQLite only): never run DDL against a database
+  // without a restorable snapshot. A failed backup blocks the migration —
+  // fail-closed, not fail-open.
+  if (provider.dialect === 'sqlite' && options.backupDir && hasRawDb(provider)) {
+    await preMigrationBackup(provider, options.backupDir, options.retentionDays ?? 0);
+  }
+
   await provider.runMigrations();
+}
+
+/**
+ * SQLite-specific migration guard using a file-based lock.
+ *
+ * The pipeline_locks advisory-lock table is created by migration 0032, but we
+ * need a lock BEFORE the first migration runs on a fresh database. Separate
+ * pool connections also don't share in-memory databases, so the table cannot
+ * be used reliably before migrations. A file-based lock (a lockfile beside the
+ * database file) solves both problems: it exists independently of the database
+ * and is visible to all processes.
+ */
+async function ensureSchemaUpToDateSqliteFileLock(
+  provider: DatabaseProvider & { rawDb: Database.Database },
+  options: MigrationGuardOptions,
+): Promise<void> {
+  if (!options.lockPath) {
+    throw new Error('SQLite migration guard requires lockPath for a file-based lock.');
+  }
+
+  const lockPath = options.lockPath + MIGRATION_FILE_LOCK_SUFFIX;
+  let lockFd: number | null = null;
+
+  try {
+    // Try to create the lock file exclusively. O_CREAT|O_EXCL fails if the
+    // file already exists, which means another process holds the lock.
+    try {
+      lockFd = openSync(lockPath, 'wx');
+    } catch {
+      throw new Error(
+        `Could not acquire migration lock — another process may already be migrating. ` +
+          `Lockfile: ${lockPath}`,
+      );
+    }
+
+    // The lock table is created by migration 0032, but we need it before the
+    // first migration. Create it idempotently on the raw connection so all
+    // pool connections see it.
+    provider.rawDb.exec(
+      `CREATE TABLE IF NOT EXISTS pipeline_locks (
+        lock_name   TEXT    NOT NULL PRIMARY KEY,
+        locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+      )`,
+    );
+
+    const appliedMigrations = await readAppliedMigrations(provider);
+    const schemaCompat = assertSchemaCompatible(appliedMigrations, getMigrationManifest());
+    if (!schemaCompat.ok) {
+      throw new Error(`Schema migration gate failed for sqlite database: ${schemaCompat.reason}`);
+    }
+
+    if (options.backupDir) {
+      await preMigrationBackup(provider, options.backupDir, options.retentionDays ?? 0);
+    }
+
+    await provider.runMigrations();
+  } finally {
+    if (lockFd !== null) {
+      try {
+        closeSync(lockFd);
+      } catch {
+        /* best-effort close */
+      }
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        /* best-effort cleanup */
+      }
+    }
+  }
+}
+
+export async function ensureSchemaUpToDate(
+  provider: DatabaseProvider,
+  options: MigrationGuardOptions = {},
+): Promise<void> {
+  // SQLite in-memory: each process has its own private database, so there is
+  // no cross-process contention and no lock is needed.
+  if (provider.dialect === 'sqlite' && isMemoryDatabase(options.lockPath)) {
+    await runMigrationsUnlocked(provider, options);
+    return;
+  }
+
+  // SQLite on disk: use a file-based lock beside the database file. The
+  // advisory-lock table (pipeline_locks) is created by migration 0032 and
+  // doesn't exist yet on a fresh database, and separate pool connections
+  // don't share in-memory databases, so it cannot be used before the first
+  // migration.
+  if (provider.dialect === 'sqlite' && options.lockPath && hasRawDb(provider)) {
+    await ensureSchemaUpToDateSqliteFileLock(provider, options);
+    return;
+  }
+
+  // PostgreSQL (or SQLite without lockPath): use the advisory-lock table.
+  const lockTtlMs = options.lockTtlMs ?? MIGRATION_LOCK_TTL_MS;
+  const acquired = await provider.tryLock(MIGRATION_LOCK_NAME, lockTtlMs);
+  if (!acquired) {
+    throw new Error(
+      `Could not acquire migration lock '${MIGRATION_LOCK_NAME}' within ${lockTtlMs}ms — ` +
+        'another process may already be migrating. Wait and retry, or inspect pipeline_locks.',
+    );
+  }
+
+  try {
+    await runMigrationsUnlocked(provider, options);
+  } finally {
+    await provider.unlock(MIGRATION_LOCK_NAME);
+  }
 }
 
 /**

@@ -68,6 +68,7 @@ import { registerReportCommand } from './commands/report-command.js';
 import { registerAnalyticsCommand } from './commands/analytics-command.js';
 import { registerKeysCommand } from './commands/keys-command.js';
 import { registerTenantCommand } from './commands/tenant-command.js';
+import { registerDoctorCommand } from './commands/doctor-command.js';
 
 export interface CreateCliOptions {
   db: Database.Database | null;
@@ -352,4 +353,6 @@ function registerCommands(program: Command, options: CreateCliOptions, catalog: 
   if (options.provider) {
     registerTenantCommand(program, { provider: options.provider });
   }
+
+  registerDoctorCommand(program, { db, config });
 }

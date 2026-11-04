@@ -75,7 +75,11 @@ export async function runMigrateCli(
   let appliedBefore = 0;
   try {
     appliedBefore = (await readAppliedMigrations(provider)).length;
-    await ensureSchemaUpToDate(provider);
+    await ensureSchemaUpToDate(provider, {
+      backupDir: config.BACKUP_DIR,
+      retentionDays: config.BACKUP_RETENTION_DAYS,
+      lockPath: config.DATABASE_PATH,
+    });
     const appliedAfter = (await readAppliedMigrations(provider)).length;
     process.stdout.write(
       `migrations applied: ${appliedAfter - appliedBefore} (${appliedBefore} → ${appliedAfter})\n`,

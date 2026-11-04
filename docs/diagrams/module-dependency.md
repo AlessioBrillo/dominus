@@ -7,7 +7,7 @@ consumer to consumed module.
 flowchart LR
     subgraph Entry[Entry Points]
         INDEX["src/index.ts<br/>Express server bootstrap"]
-        CLI["src/cli/index.ts<br/>Commander 22 commands"]
+        CLI["src/cli/index.ts<br/>Commander 23 commands"]
     end
 
     subgraph App[Application Layer]
