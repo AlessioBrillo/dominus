@@ -29,9 +29,16 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 
 const root = process.cwd();
 const findings = [];
+
+function semverToTuple(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(v);
+  if (!m) throw new Error(`not a semver: ${v}`);
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
 
 function read(rel) {
   try {
@@ -129,6 +136,44 @@ if (changelog) {
         'The release workflow refuses to publish a tag without its notes — bump them together.',
     );
   }
+}
+
+// ── 6b: package.json must not regress below the latest tag ────────────
+// A version bump that goes backwards (e.g. 1.4.0 -> 1.0.0) would ship older
+// code under a newer-looking number and break every consumer who trusts
+// the version the repository announces. Fail the gate before the tag can
+// be cut.
+try {
+  const tagOutput = execSync('git tag --sort=-creatordate', {
+    cwd: root,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
+  const latestTag = tagOutput
+    .split('\n')
+    .map((t) => t.trim())
+    .filter((t) => /^v\d+\.\d+\.\d+$/.test(t))
+    .sort((a, b) => {
+      const [ma, mb] = [semverToTuple(a.slice(1)), semverToTuple(b.slice(1))];
+      return mb[0] - ma[0] || mb[1] - ma[1] || mb[2] - ma[2];
+    })[0];
+  if (latestTag) {
+    const tagVersion = latestTag.slice(1);
+    try {
+      if (semverToTuple(version)[0] < semverToTuple(tagVersion)[0] ||
+          (semverToTuple(version)[0] === semverToTuple(tagVersion)[0] && semverToTuple(version)[1] < semverToTuple(tagVersion)[1]) ||
+          (semverToTuple(version)[0] === semverToTuple(tagVersion)[0] && semverToTuple(version)[1] === semverToTuple(tagVersion)[1] && semverToTuple(version)[2] < semverToTuple(tagVersion)[2])) {
+        findings.push(
+          `package.json: version ${version} is older than the latest tag ${latestTag}. ` +
+            'A release must not regress below an already-published version — bump the version or retag.',
+        );
+      }
+    } catch {
+      // semver parse failure is reported by check 1 already
+    }
+  }
+} catch {
+  // git not available or not a repository — skip, the tag check is best-effort
 }
 
 // ── 7: no hardcoded versioned tarball URLs in release documentation ─────

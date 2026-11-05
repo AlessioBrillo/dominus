@@ -705,7 +705,18 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // understand. Restore from a PITR backup instead
   // (docs/releases/migration-policy.md). Same path as the standalone
   // migrate CLI (migrate-before-roll, ADR-0061).
-  await ensureSchemaUpToDate(provider);
+  //
+  // On SQLite (community edition) api, worker and scheduler share one file.
+  // The migration gate now takes a cross-process lock and takes a
+  // pre-migration VACUUM INTO backup before running DDL, so a concurrent
+  // boot never corrupts the schema and a failed migration is always
+  // restorable (ADR-0080 read/write separation keeps the lock hot path
+  // short).
+  await ensureSchemaUpToDate(provider, {
+    backupDir: config.BACKUP_DIR,
+    retentionDays: config.BACKUP_RETENTION_DAYS,
+    lockPath: config.DATABASE_PATH,
+  });
 
   // Open raw SQLite connection for SQLite-specific consumers (CLI maintenance, health check).
   // When using PostgreSQL (DATABASE_URL set), rawDb is undefined — these consumers

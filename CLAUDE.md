@@ -30,7 +30,7 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 | ------------------ | -------------------------------------------------------------- |
 | **Backend**        | Node.js 22+, Express 5                                         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)                        |
-| **CLI**            | Commander (22 commands)                                        |
+| **CLI**            | Commander (23 commands)                                        |
 | **API**            | Express REST (34 route modules)                                |
 | **Frontend**       | React 19 + Vite 8 + Tailwind CSS 4 + Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2                       |

@@ -96,6 +96,9 @@ services:
       dockerfile: Dockerfile
       target: worker
     image: dominus-worker:latest
+    depends_on:
+      api:
+        condition: service_healthy
     volumes:
       - ${DATA_DIR:-./data}:/app/data
       - backups:/backups
@@ -147,6 +150,9 @@ services:
       dockerfile: Dockerfile
       target: scheduler
     image: dominus-scheduler:latest
+    depends_on:
+      api:
+        condition: service_healthy
     volumes:
       - ${DATA_DIR:-./data}:/app/data
       - backups:/backups

@@ -86,6 +86,7 @@
     "launch:check": "node scripts/launch-check.mjs",
     "launch:rehearse": "node scripts/launch-rehearse.mjs",
     "acceptance:cloud": "node scripts/acceptance/cloud-acceptance.mjs",
+    "selfhost:up": "node scripts/selfhost-up.mjs",
     "prepare": "husky"
   },
   "lint-staged": {
