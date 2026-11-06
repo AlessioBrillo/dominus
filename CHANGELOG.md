@@ -2,7 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.4.0](https://github.com/AlessioBrillo/dominus/compare/v1.3.4...v1.4.0) (2026-11-03)
+## [1.5.0](https://github.com/AlessioBrillo/dominus/compare/v1.4.0...v1.5.0) (2026-11-06)
+
+
+### Features
+
+* **migration:** `ensureSchemaUpToDate` creates `pipeline_locks` before
+  `tryLock` on PostgreSQL, so a fresh Cloud database boots instead of
+  failing with “Could not acquire migration lock”; DDL is converted via
+  `execPg` for portable types
+* **migration:** pre-migration `VACUUM INTO` backup runs only when there
+  are pending migrations; `BACKUP_DIR` defaults to `<db-dir>/backup`
+* **doctor:** new `diagnostic` CLI profile — `dominus doctor` opens SQLite
+  in read-only mode, runs no migrations, starts no worker, takes no backup
+* **selfhost:** `selfhost:up` awaits the health check, persists the
+  generated API key to `.env`, is ESM-safe, and reads the version from
+  `package.json` instead of hardcoding it
+* **release:** new `npm run gate:release` that adds PostgreSQL integration
+  tests, Cloud acceptance, launch rehearsal, full E2E and `npm audit` to
+  the standard gate; `npm audit --audit-level=high --omit=dev` reports 0
+  vulnerabilities
 
 
 ### Features

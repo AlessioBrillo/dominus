@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue)](package.json)
 [![CI](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/ci.yml?branch=master&label=CI)](https://github.com/AlessioBrillo/dominus/actions/workflows/ci.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/AlessioBrillo/dominus/codeql.yml?branch=master&label=CodeQL)](https://github.com/AlessioBrillo/dominus/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/AlessioBrillo/dominus/branch/master/graph/badge.svg)](https://codecov.io/gh/AlessioBrillo/dominus)
@@ -419,7 +419,10 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.4.0 — First Light: the launch bar is executable in both editions.
+DOMINUS v1.5.0 — First Boot, verified: the migration gate takes a
+cross-process lock and a pre-migration snapshot, `dominus doctor` inspects
+without mutating, and `selfhost:up` brings a stack from zero to healthy in
+one command.
 `npm run launch:check` now judges a **community** deployment (the AGPL and
 the self-hosted data flow, no operator identity to publish) and a **Cloud**
 deployment (identity, Stripe, backups, probe, audit) with the same
