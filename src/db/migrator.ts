@@ -9,7 +9,7 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { DatabaseProvider } from './provider/interface.js';
 import { getMigrations, getPgMigrations, getMigrationNames } from './migrations/registry.js';
 import {
@@ -17,6 +17,7 @@ import {
   getMigrationManifest,
   readAppliedMigrations,
 } from './migration-manifest.js';
+import { execPg } from './pg-ddl.js';
 
 const SCHEMA_MIGRATIONS_DDL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -281,15 +282,31 @@ async function runMigrationsUnlocked(
   options: MigrationGuardOptions,
 ): Promise<void> {
   // The lock table is created by migration 0032. Create it idempotently so
-  // it exists before the first migration runs on a fresh database.
-  await provider.exec(
-    `CREATE TABLE IF NOT EXISTS pipeline_locks (
-      lock_name   TEXT    NOT NULL PRIMARY KEY,
-      locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-      expires_at  TEXT    NOT NULL,
-      created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-    )`,
-  );
+  // it exists before the first migration runs on a fresh database. On
+  // PostgreSQL the DDL must be converted (datetime('now') → CURRENT_TIMESTAMP,
+  // etc.) because the migration registry emits SQLite-flavoured DDL.
+  if (provider.dialect === 'postgres') {
+    await execPg(
+      provider,
+      `
+      CREATE TABLE IF NOT EXISTS pipeline_locks (
+        lock_name   TEXT    NOT NULL PRIMARY KEY,
+        locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+      )
+      `,
+    );
+  } else {
+    await provider.exec(
+      `CREATE TABLE IF NOT EXISTS pipeline_locks (
+        lock_name   TEXT    NOT NULL PRIMARY KEY,
+        locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+      )`,
+    );
+  }
 
   const appliedMigrations = await readAppliedMigrations(provider);
   const schemaCompat = assertSchemaCompatible(appliedMigrations, getMigrationManifest());
@@ -299,10 +316,21 @@ async function runMigrationsUnlocked(
     );
   }
 
+  const manifest = getMigrationManifest();
+  // Only take a pre-migration backup when there are pending migrations. A
+  // boot with an up-to-date schema must not rewrite the backup directory
+  // (and must not depend on a writable backup dir at all).
+  const hasPendingMigrations = appliedMigrations.length < manifest.length;
+
   // Pre-migration backup (SQLite only): never run DDL against a database
   // without a restorable snapshot. A failed backup blocks the migration —
   // fail-closed, not fail-open.
-  if (provider.dialect === 'sqlite' && options.backupDir && hasRawDb(provider)) {
+  if (
+    provider.dialect === 'sqlite' &&
+    options.backupDir &&
+    hasRawDb(provider) &&
+    hasPendingMigrations
+  ) {
     await preMigrationBackup(provider, options.backupDir, options.retentionDays ?? 0);
   }
 
@@ -385,6 +413,18 @@ export async function ensureSchemaUpToDate(
   provider: DatabaseProvider,
   options: MigrationGuardOptions = {},
 ): Promise<void> {
+  // Default backup directory: alongside the SQLite database file. Only
+  // meaningful for SQLite on disk; PostgreSQL has no file-based backup path
+  // here (PITR is the Cloud story).
+  if (
+    provider.dialect === 'sqlite' &&
+    options.lockPath &&
+    !options.backupDir &&
+    !isMemoryDatabase(options.lockPath)
+  ) {
+    options.backupDir = join(dirname(options.lockPath), 'backup');
+  }
+
   // SQLite in-memory: each process has its own private database, so there is
   // no cross-process contention and no lock is needed.
   if (provider.dialect === 'sqlite' && isMemoryDatabase(options.lockPath)) {
@@ -403,6 +443,23 @@ export async function ensureSchemaUpToDate(
   }
 
   // PostgreSQL (or SQLite without lockPath): use the advisory-lock table.
+  // On PostgreSQL the pipeline_locks table is created by migration 0032, but
+  // we need it BEFORE the first migration runs on a fresh database. Create it
+  // idempotently here so tryLock never fails on a missing table.
+  if (provider.dialect === 'postgres') {
+    await execPg(
+      provider,
+      `
+      CREATE TABLE IF NOT EXISTS pipeline_locks (
+        lock_name   TEXT    NOT NULL PRIMARY KEY,
+        locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT    NOT NULL,
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+      )
+      `,
+    );
+  }
+
   const lockTtlMs = options.lockTtlMs ?? MIGRATION_LOCK_TTL_MS;
   const acquired = await provider.tryLock(MIGRATION_LOCK_NAME, lockTtlMs);
   if (!acquired) {

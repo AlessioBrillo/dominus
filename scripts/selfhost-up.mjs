@@ -13,14 +13,18 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const root = process.cwd();
 const DATA_DIR = join(root, 'data');
 const COMPOSE_FILES = ['docker-compose.yml', 'docker-compose.unbound.yml'];
 const HEALTH_URL = 'http://127.0.0.1:3000/api/v1/health';
+
+const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const VERSION = (pkg.version ?? '0.0.0') as string;
 
 let failures = 0;
 
@@ -84,21 +88,29 @@ function main() {
   // ── 2. Generate an API key if none is set ─────────────────────────────
   const env = { ...process.env };
   let apiKey = env.API_KEYS;
+  let keyGenerated = false;
   if (!apiKey || !apiKey.includes('=')) {
     apiKey = `admin=${randomBytes(32).toString('hex')}`;
     env.API_KEYS = apiKey;
+    keyGenerated = true;
     ok('generated a new API key (API_KEYS was unset)');
   } else {
     ok('API_KEYS already set — reusing');
   }
   const [, keyValue] = apiKey.split('=');
 
-  // ── 3. Ensure an empty .env for compose (it refuses to render without it) ──
+  // ── 3. Ensure .env exists for compose, persisting a generated API key ──
   const envFile = join(root, '.env');
   const envFileExisted = existsSync(envFile);
   if (!envFileExisted) {
     writeFileSync(envFile, '', 'utf8');
     ok('created empty .env for compose');
+  }
+  // Persist a generated key so it survives restarts. Only write when the key
+  // was just generated and the file did not already carry API_KEYS.
+  if (keyGenerated && !envFileExisted) {
+    appendFileSync(envFile, `API_KEYS=${apiKey}\n`, 'utf8');
+    ok(`persisted API_KEYS to ${envFile}`);
   }
 
   // ── 4. Bring the stack up ────────────────────────────────────────────
@@ -106,14 +118,14 @@ function main() {
   if (up.error) {
     fail(`docker compose up failed: ${up.stderr || up.error.message}`);
     if (!envFileExisted) {
-      try { require('node:fs').unlinkSync(envFile); } catch {}
+      try { unlinkSync(envFile); } catch {}
     }
     process.exit(1);
   }
   ok('docker compose stack started');
 
   // ── 5. Wait for the health endpoint ───────────────────────────────────
-  const health = waitForHealth(120);
+  const health = await waitForHealth(120);
   if (!health.ok) {
     fail(`API did not become healthy: ${health.last}`);
     process.exit(1);
@@ -123,7 +135,7 @@ function main() {
   // ── 6. Print the on-ramp ─────────────────────────────────────────────
   process.stdout.write(`
 ╔════════════════════════════════════════════════════════════════════╗
-║  DOMINUS v1.5.0 — self-hosted, up and healthy                      ║
+║  DOMINUS v${VERSION} — self-hosted, up and healthy                 ║
 ╠════════════════════════════════════════════════════════════════════╣
 ║  URL:        http://127.0.0.1:3000                                 ║
 ║  Health:     http://127.0.0.1:3000/api/v1/health                   ║
@@ -140,9 +152,9 @@ function main() {
 ╚════════════════════════════════════════════════════════════════════╝
 `);
 
-  // Clean up the ephemeral .env we created.
-  if (!envFileExisted) {
-    try { require('node:fs').unlinkSync(envFile); } catch {}
+  // Clean up the ephemeral .env we created, unless we persisted API_KEYS to it.
+  if (!envFileExisted && !keyGenerated) {
+    try { unlinkSync(envFile); } catch {}
   }
 
   if (failures > 0) process.exit(1);

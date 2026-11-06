@@ -1,13 +1,29 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
+import Database from 'better-sqlite3';
+import { Command } from 'commander';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { setLogDestination } from './logger.js';
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
 import { createDecisionDependencies } from './app/decision-root.js';
 import { createCatalogCli, createCli, createDecisionCli } from './cli/index.js';
+import { registerDoctorCommand } from './cli/commands/doctor-command.js';
 import { resolveCliProfile } from './cli/profile.js';
 import { closeDatabase } from './db/database.js';
 import type { KeyManager } from './providers/auth/auth-provider.js';
+
+function readCliVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8')) as {
+      version?: string;
+    };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 async function main(): Promise<void> {
   // stdout is the command's OUTPUT channel: the decision a command prints.
@@ -15,16 +31,37 @@ async function main(): Promise<void> {
   // `dominus score example.com | jq` reads the decision and nothing else.
   setLogDestination('stderr');
 
-  // Three profiles, resolved before anything is built: building the full
+  // Four profiles, resolved before anything is built: building the full
   // application opens the database, applies the migrations, starts the job
   // worker and probes the resolver. A command that only answers a question
   // about a domain must not pay for any of that, and a command that only
-  // prints the command line must not pay for anything at all.
+  // prints the command line must not pay for anything at all. The
+  // diagnostic profile inspects an installation without mutating it.
   const profile = resolveCliProfile(process.argv);
 
   if (profile === 'catalog') {
     const catalog = createCatalogCli();
     await catalog.parseAsync(process.argv);
+    return;
+  }
+
+  if (profile === 'diagnostic') {
+    // Read-only diagnostic profile: opens SQLite without running migrations,
+    // without starting the worker, and without probing external services.
+    // Used by `dominus doctor` so the command never mutates the database.
+    const config = loadConfig();
+    let db: Database.Database | null = null;
+    if (!config.DATABASE_URL) {
+      db = new Database(config.DATABASE_PATH, { readonly: true });
+    }
+    const program = new Command();
+    program
+      .name('dominus')
+      .description('Personal DNS domain investment decision-support tool')
+      .version(readCliVersion());
+    registerDoctorCommand(program, { db, config });
+    await program.parseAsync(process.argv);
+    db?.close();
     return;
   }
 
