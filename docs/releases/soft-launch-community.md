@@ -1,4 +1,4 @@
-# Community soft launch — v1.4.0
+# Community soft launch — v1.5.0
 
 The community edition is the first public release, and it is a **soft
 launch**: publish the artifact, make it installable, open a place to
@@ -42,15 +42,15 @@ that is not backed by a fiscal position.
       passes, and the evidence is attached to the release.
 - [ ] `npm run launch:rehearse` is green (application topology, gate,
       evidence).
-- [ ] `npm run release:doctor` reports the tree, the version and the tag
-      consistently.
-- [ ] `npm run release:verify -- --pack` installs the tarball and runs
-      `dominus score vintagecoffee.com`.
-- [ ] `npm run test:installers` passes on Linux and Windows.
+- [ ] `npm run release:cut -- --dry-run` passes (preflight, tarball,
+      verify-release, test-installers).
+- [ ] `npm run release:cut -- --publish` passes: tag, GitHub Release,
+      six assets, public-channel verification, `release:doctor --remote`,
+      gate on the final tree, evidence.
+- [ ] `npm run release:doctor -- --remote` reports the tag, the remote
+      tag, the alias tarball and its checksum consistently.
 - [ ] `npm run check:trademarks` is green (`nike` blocked,
       `vintagecoffee` clear).
-- [ ] the `release` workflow is green, and its `verify` and
-      `verify-github-release` jobs passed.
 - [ ] the GitHub Release has: `install.sh`, `install.ps1`,
       `dominus-oss.tgz`, `dominus-oss.tgz.sha256`, the versioned tarball
       and its checksum.
@@ -80,46 +80,42 @@ that is not backed by a fiscal position.
 
 ## 3. Cut the release
 
-The version bump and the tag are a separate, reviewed commit. The
-release workflow is the only thing that publishes.
+The version and the tag are a cut by the local release engine
+(`scripts/release-cut.mjs`, ADR-0101). GitHub Actions is a mirror; while
+runners are unassigned the local engine is authoritative.
 
 ```bash
-# 1. The version is consistent everywhere.
-npm version 1.4.0 --no-git-tag-version
-# package.json, README badge, CHANGELOG, Terraform example, docker smoke
+# 1. The version is consistent everywhere (already 1.5.0 in package.json).
 npm run check:release-consistency
 
-# 2. The gate on the final tree.
-npm run gate
-npm run gate:docker          # if the diff touches compose/Dockerfile/deploy
-npm run launch:rehearse
+# 2. Dry run: preflight + build + local verification, nothing remote.
+npm run release:cut -- --dry-run
 
-# 3. Commit, push, open the PR, merge to master.
-git add -A
-git commit -m "release: v1.4.0 — launch gate profiles, rehearsal, first-apply runbook"
-git push -u origin release/1.4.0
-gh pr create --base master --title "Release v1.4.0 — First Light" --body-file -
+# 3. Publish: tag, GitHub Release, assets, public-channel verification,
+#    release:doctor --remote, gate on the final tree, evidence.
+npm run release:cut -- --publish
 
-# 4. After the merge, tag the merge commit.
-git switch master && git pull
-git tag -a v1.4.0 -m "DOMINUS v1.4.0 — First Light"
-git push origin v1.4.0
-
-# 5. Watch the release workflow; it publishes and verifies.
-gh run watch "$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-
-# 6. Confirm the artifacts a stranger will download.
-gh release view v1.4.0 --json assets \
+# 4. Confirm the tag and the artifacts a stranger will download.
+git tag --list v1.5.0
+gh release view v1.5.0 --json assets \
   --jq '.assets[] | "\(.name) \(.size) bytes"'
+
+# 5. Confirm the release state is real against the world.
+npm run release:doctor -- --remote
 ```
 
-If the release workflow fails **after** publishing, the artifact is not
-un-published: fix forward with a patch release. If it fails before
+If the publish fails **after** the GitHub Release exists, the artifact is
+not un-published: fix forward with a patch release. If it fails before
 publishing, the tag can be deleted and re-cut:
 
 ```bash
-git tag -d v1.4.0
-git push origin :refs/tags/v1.4.0
+git tag -d v1.5.0
+git push origin :refs/tags/v1.5.0
+```
+
+```bash
+git tag -d v1.5.0
+git push origin :refs/tags/v1.5.0
 ```
 
 Deleting a tag that already has a GitHub Release is a last resort; the
@@ -181,7 +177,7 @@ copy.
 
 ### 5.1 GitHub Discussion (day 0)
 
-Title: **DOMINUS v1.4.0 — open-source domain valuation, now installable in one command**
+Title: **DOMINUS v1.5.0 — open-source domain valuation, now installable in one command**
 
 ```markdown
 DOMINUS is an open-source decision-support tool for domain investors:
@@ -189,7 +185,7 @@ it scores a domain, checks the trademark, and tells you whether the
 price leaves a margin. It also tracks a portfolio's renewal clock and
 gives keep/drop/reprice verdicts.
 
-v1.4.0 is the first release I am comfortable calling installable:
+v1.5.0 is the first release I am comfortable calling installable:
 
 - one-command install on Linux/macOS and Windows, with a verified
   checksum and no telemetry;
@@ -210,7 +206,7 @@ Install:
   dominus score vintagecoffee.com
 
 The release, the checksums and the source are here:
-https://github.com/AlessioBrillo/dominus/releases/tag/v1.4.0
+https://github.com/AlessioBrillo/dominus/releases/tag/v1.5.0
 
 I am looking for two kinds of feedback: a domain where the verdict
 looks wrong (with the domain and the output), and an installation that
