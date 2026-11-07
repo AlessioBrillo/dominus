@@ -284,6 +284,33 @@ async function waitForApi(timeoutMs = 180_000) {
   throw new Error(`the API did not become healthy in ${timeoutMs}ms (${last})`);
 }
 
+/** `docker compose up -d` restituisce appena i container sono creati, non quando
+ * PostgreSQL accetta connessioni. Senza questa attesa la migration CLI gira
+ * troppo presto, il `tryLock` becca un errore di connessione e lo ingoia
+ * restituendo false: si legge come "lock non acquisito" ma è un problema di
+ * timing del container. */
+async function waitForPostgres(timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = 'no attempt';
+  while (Date.now() < deadline) {
+    try {
+      const out = composeExec('postgres', [
+        'pg_isready',
+        '-U',
+        'dominus',
+        '-d',
+        'dominus',
+      ]);
+      if (String(out).includes('accepting connections')) return;
+      last = out.trim().slice(0, 200);
+    } catch (err) {
+      last = err.message;
+    }
+    await sleep(2000);
+  }
+  throw new Error(`PostgreSQL did not become ready in ${timeoutMs}ms (${last})`);
+}
+
 async function stackUp() {
   process.stdout.write('Building the acceptance images from the working tree…\n');
   if (!SKIP_BUILD) {
@@ -302,6 +329,7 @@ async function stackUp() {
   }
   process.stdout.write('Starting PostgreSQL and Redis…\n');
   compose(['up', '-d', 'postgres', 'redis']);
+  await waitForPostgres();
   process.stdout.write('Applying the migrations as the database owner…\n');
   // `docker compose run` replaces the command of the api service: the
   // image entrypoint is `node`, so this is `node dist/db/migrate-cli.js`.

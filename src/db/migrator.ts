@@ -284,7 +284,11 @@ async function runMigrationsUnlocked(
   // The lock table is created by migration 0032. Create it idempotently so
   // it exists before the first migration runs on a fresh database. On
   // PostgreSQL the DDL must be converted (datetime('now') → CURRENT_TIMESTAMP,
-  // etc.) because the migration registry emits SQLite-flavoured DDL.
+  // etc.) because the migration registry emits SQLite-flavoured DDL. The
+  // columns added by later migrations (worker_id 0036, renewal tracking
+  // 0051, fence_token 0054) are included here too, so the lock functions
+  // can use them before any migration runs; those migrations then skip
+  // their ADD COLUMN because the column already exists.
   if (provider.dialect === 'postgres') {
     await execPg(
       provider,
@@ -293,7 +297,11 @@ async function runMigrationsUnlocked(
         lock_name   TEXT    NOT NULL PRIMARY KEY,
         locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
         expires_at  TEXT    NOT NULL,
-        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        worker_id   TEXT,
+        renewed_count INTEGER NOT NULL DEFAULT 0,
+        last_renewed_at TEXT,
+        fence_token TEXT
       )
       `,
     );
@@ -303,7 +311,11 @@ async function runMigrationsUnlocked(
         lock_name   TEXT    NOT NULL PRIMARY KEY,
         locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
         expires_at  TEXT    NOT NULL,
-        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        worker_id   TEXT,
+        renewed_count INTEGER NOT NULL DEFAULT 0,
+        last_renewed_at TEXT,
+        fence_token TEXT
       )`,
     );
   }
@@ -445,7 +457,8 @@ export async function ensureSchemaUpToDate(
   // PostgreSQL (or SQLite without lockPath): use the advisory-lock table.
   // On PostgreSQL the pipeline_locks table is created by migration 0032, but
   // we need it BEFORE the first migration runs on a fresh database. Create it
-  // idempotently here so tryLock never fails on a missing table.
+  // idempotently here so tryLock never fails on a missing table. Columns added
+  // by later migrations are included here too (see runMigrationsUnlocked).
   if (provider.dialect === 'postgres') {
     await execPg(
       provider,
@@ -454,7 +467,11 @@ export async function ensureSchemaUpToDate(
         lock_name   TEXT    NOT NULL PRIMARY KEY,
         locked_at   TEXT    NOT NULL DEFAULT (datetime('now')),
         expires_at  TEXT    NOT NULL,
-        created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+        worker_id   TEXT,
+        renewed_count INTEGER NOT NULL DEFAULT 0,
+        last_renewed_at TEXT,
+        fence_token TEXT
       )
       `,
     );

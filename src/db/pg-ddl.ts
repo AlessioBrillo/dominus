@@ -33,7 +33,7 @@ export function toPgDdl(sql: string): string {
       .replace(/TEXT\s+DEFAULT\s+\(datetime\('now'\)\)/gi, 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
       // TEXT used as date/time column (by naming convention _at or _date)
       .replace(
-        /\b(TEXT)\b(?=\s+(NOT\s+)?NULL\s+(DEFAULT\s+)?)/gi,
+        /\b(TEXT)\b(?=\s+(NOT\s+)?NULL\s*(DEFAULT\s+)?)/gi,
         (match, _p1, _p2, _p3, offset, source) => {
           const before = source.slice(Math.max(0, offset - 20), offset).toLowerCase();
           if (before.includes('_at') || before.includes('_date') || before.includes('_time')) {

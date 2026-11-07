@@ -76,6 +76,8 @@
     "check:pack": "node scripts/check-pack.mjs",
     "release:verify": "node scripts/verify-release.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
+    "release:cut": "node scripts/release-cut.mjs",
+    "release:verify:public": "node scripts/check-published-install.mjs",
     "check:quickstart": "node scripts/check-quickstart.mjs",
     "check:published-install": "node scripts/check-published-install.mjs",
     "test:installers": "node scripts/test-installers.mjs",
