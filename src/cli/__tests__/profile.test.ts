@@ -40,6 +40,17 @@ describe('the CLI profile', () => {
     expect(resolveCliProfile(['node', 'dominus', '--version'])).toBe('catalog');
   });
 
+  it('treats help/version as catalogue wherever they appear', () => {
+    // `dominus score --help` must not build the scoring engine or the gate.
+    expect(resolveCliProfile(['node', 'dominus', 'score', '--help'])).toBe('catalog');
+    expect(resolveCliProfile(['node', 'dominus', 'score', '-h'])).toBe('catalog');
+    expect(resolveCliProfile(['node', 'dominus', 'score', '--version'])).toBe('catalog');
+    expect(resolveCliProfile(['node', 'dominus', 'score', '-V'])).toBe('catalog');
+    // A decision still wins over a bare flag-like argument that is not a
+    // help/version flag.
+    expect(resolveCliProfile(['node', 'dominus', 'score', 'example.com'])).toBe('decision');
+  });
+
   it('keeps the decision commands free of persistence', () => {
     // A command that writes a result down is not a decision command: the
     // record is the point of it.

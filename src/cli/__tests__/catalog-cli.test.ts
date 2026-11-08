@@ -89,4 +89,30 @@ describe('the catalog program', () => {
     expect(buffer).toMatch(/score/);
     expect(buffer).toMatch(/Commands:/);
   });
+
+  it('prints --version and command help without stderr', async () => {
+    // The catalog prints on stdout; nothing (warnings, diagnostics) must
+    // leak to stderr, so the output can be piped.
+    for (const args of [['--version'], ['score', '--help'], ['run', '--help']]) {
+      const originalStderr = process.stderr.write.bind(process.stderr);
+      let stderr = '';
+      (process.stderr.write as unknown) = (chunk: unknown): boolean => {
+        stderr += typeof chunk === 'string' ? chunk : String(chunk);
+        return true;
+      };
+      const originalExit = process.exit;
+      (process as unknown as { exit: (code: number) => never }).exit = ((code: number) => {
+        throw new Error(`__exit:${code}`);
+      }) as never;
+      try {
+        await createCatalogCli().parseAsync(['node', 'dominus', ...args]);
+      } catch {
+        // commander exits after printing help/version.
+      } finally {
+        process.stderr.write = originalStderr;
+        (process as unknown as { exit: (code: number) => never }).exit = originalExit;
+      }
+      expect(stderr).toBe('');
+    }
+  });
 });

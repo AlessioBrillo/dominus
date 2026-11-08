@@ -6,7 +6,6 @@ import type { ScoringEngine, ScoringWeights } from '../scoring/index.js';
 import type { TrademarkGate } from '../trademark/index.js';
 import { buildScoringEngine } from './scoring-factory.js';
 import { buildTrademarkGate, buildTrademarkSources } from './trademark-stack.js';
-import { warnEuipoIfMissing } from './provider-status.js';
 
 /**
  * The decision dependencies: everything a single decision needs, and
@@ -59,8 +58,6 @@ export function createDecisionDependencies(config: Config): DecisionDependencies
   // been checked against the registers does not get a buy recommendation.
   const sources = buildTrademarkSources(config);
   const gate = buildTrademarkGate(config, sources.uspto, sources.euipo);
-
-  warnEuipoIfMissing(config);
 
   return { engine, currentWeights, gate };
 }

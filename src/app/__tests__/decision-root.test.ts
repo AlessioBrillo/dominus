@@ -47,4 +47,20 @@ describe('the decision root', () => {
       rmSync(dbPath, { force: true });
     }
   });
+
+  it('does not warn about missing EUIPO credentials', () => {
+    // The EUIPO source is optional; a missing credential is reported by
+    // `dominus providers status`, not as a startup warning on every command.
+    const warns: string[] = [];
+    const previousWarn = console.warn;
+    console.warn = (msg: unknown): void => {
+      warns.push(String(msg));
+    };
+    try {
+      createDecisionDependencies(loadConfig());
+    } finally {
+      console.warn = previousWarn;
+    }
+    expect(warns.some((m) => m.includes('EUIPO credentials are missing'))).toBe(false);
+  });
 });

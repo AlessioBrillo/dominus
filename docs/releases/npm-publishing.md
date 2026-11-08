@@ -1,13 +1,19 @@
 # Publishing `dominus-oss` to npm
 
-The release workflow uses **OIDC trusted publishing**: there is no
-long-lived `NPM_TOKEN` secret in the repository. Instead, the workflow
-requests a short-lived token from GitHub's OIDC provider, npm verifies it
-against a trusted-publisher record configured on npmjs.com, and that token
-is valid for one repository, one workflow file and a bounded time.
+The tarball is built once by the local-first release engine
+(`scripts/release-cut.mjs`, ADR-0101) and used for every channel: the
+GitHub Release asset (primary), the alias tarball `dominus-oss.tgz`, the
+checksums and the two installers. Publishing to npm is **best-effort**:
+it uses OIDC trusted publishing (no long-lived `NPM_TOKEN` secret), so the
+workflow requests a short-lived token and npm verifies it against a
+trusted-publisher record on npmjs.com. Until that record is configured,
+npm publish is skipped and the GitHub Release remains the only channel —
+which is sufficient, because it is the channel the release engine
+verifies end-to-end.
 
-This page is the one-time setup. Do it before the first `v*` tag is pushed,
-otherwise the publish step fails with a trusted-publisher error.
+This page is the one-time setup for the npm channel. Do it before the
+first `v*` tag you want on npm; until then the release is complete without
+it.
 
 ## 1. Confirm the name is claimable
 

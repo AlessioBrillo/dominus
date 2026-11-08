@@ -176,7 +176,7 @@ location       = "fsn1"
 image_tag      = "v1.4.0"       # must name a RELEASED tag
 
 # The db node is operator-only and can be restricted freely.
-# The app node is reached by deploy.yml from GitHub runners with dynamic
+# The app node is reached by the rollout script from the operator host
 # egress; until a static-egress runner exists, the explicit opt-in is the
 # honest choice. See deploy/terraform/README.md § SSH ingress.
 ssh_allowed_cidrs = ["<your public IP>/32"]
@@ -488,18 +488,21 @@ bucket, plus the paid preconditions:
    --url https://dominus.example --paid --evidence .acceptance/production`
    is green.
 
-Then the release path is the documented one, not a manual compose edit:
+Then the release path is the documented one, not a manual compose edit.
+GitHub Actions is a billing-blocked mirror, so the release is cut with the
+local-first engine and rolled out with the shared rollout script:
 
 ```bash
-git tag v1.4.0
-git push origin v1.4.0
-gh workflow run deploy.yml -f environment=production -f tag=v1.4.0
+git tag v1.5.1
+git push origin v1.5.1
+node scripts/release-cut.mjs --publish
+# Then, on the target host (staging or production):
+./scripts/deploy/rollout.sh --tag v1.5.1 --environment staging
 ```
 
-The `production` environment requires an approval; the tag alone does not
-change what customers are served. The rollback is the previous
-`DOMINUS_IMAGE_TAG` through the same pipeline, with the migration gate
-refusing a downgrade across a schema change
+The tag alone does not change what customers are served; the rollout does.
+The rollback is the previous `DOMINUS_IMAGE_TAG` through the same pipeline,
+with the migration gate refusing a downgrade across a schema change
 ([migration-policy.md](../releases/migration-policy.md)).
 
 ---

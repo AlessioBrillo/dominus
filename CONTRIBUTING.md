@@ -55,8 +55,18 @@ DOMINUS follows **trunk-based development** on the `master` branch.
    npm run ci:backend    # typecheck, build, lint, format, test with coverage
    npm run ci:frontend   # typecheck, lint, test, build
    ```
+   Then run the full gate locally on a throwaway copy of the tree:
+   ```bash
+   ci-local
+   ```
+   (`ci-local` executes `.woodpecker/ci.yml` with Docker. It never touches
+   your checkout.) Exit 0 = green. GitHub Actions is a billing-blocked
+   mirror and is not part of the merge gate.
 
-4. Push, create a PR, wait for CI to pass, then squash-merge.
+4. Push, create a PR, run `ci-local` green on the final tree, then merge.
+   External contributors without write access open the PR; a maintainer
+   runs `ci-local` on the PR branch and notes the result before merging.
+   All contributors must sign the CLA (see below).
 
 ## Architecture
 
