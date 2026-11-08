@@ -1,4 +1,4 @@
-# Community soft launch — v1.4.0
+# Community soft launch - v1.5.1
 
 The community edition is the first public release, and it is a **soft
 launch**: publish the artifact, make it installable, open a place to
@@ -81,11 +81,13 @@ that is not backed by a fiscal position.
 ## 3. Cut the release
 
 The version bump and the tag are a separate, reviewed commit. The
-release workflow is the only thing that publishes.
+local-first release engine (`scripts/release-cut.mjs`, ADR-0101) is the
+only thing that publishes. GitHub Actions is a billing-blocked mirror and
+does not publish.
 
 ```bash
 # 1. The version is consistent everywhere.
-npm version 1.4.0 --no-git-tag-version
+npm version 1.5.1 --no-git-tag-version
 # package.json, README badge, CHANGELOG, Terraform example, docker smoke
 npm run check:release-consistency
 
@@ -94,32 +96,36 @@ npm run gate
 npm run gate:docker          # if the diff touches compose/Dockerfile/deploy
 npm run launch:rehearse
 
-# 3. Commit, push, open the PR, merge to master.
+# 3. Preflight dry run (builds once, verifies the tarball, installs and runs it).
+node scripts/release-cut.mjs --dry-run
+
+# 4. Commit, push, open the PR, merge to master.
 git add -A
-git commit -m "release: v1.4.0 — launch gate profiles, rehearsal, first-apply runbook"
-git push -u origin release/1.4.0
-gh pr create --base master --title "Release v1.4.0 — First Light" --body-file -
+git commit -m "release: v1.5.1 — the gate leaves GitHub"
+git push -u origin release/1.5.1
+gh pr create --base master --title "Release v1.5.1 — The Gate Leaves GitHub" --body-file -
 
-# 4. After the merge, tag the merge commit.
+# 5. After the merge, cut the release from master.
 git switch master && git pull
-git tag -a v1.4.0 -m "DOMINUS v1.4.0 — First Light"
-git push origin v1.4.0
-
-# 5. Watch the release workflow; it publishes and verifies.
-gh run watch "$(gh run list --workflow=release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+node scripts/release-cut.mjs --publish
 
 # 6. Confirm the artifacts a stranger will download.
-gh release view v1.4.0 --json assets \
+gh release view v1.5.1 --json assets \
   --jq '.assets[] | "\(.name) \(.size) bytes"'
+# Verify end to end like a stranger (section 4).
+
+# 7. Evidence.
+npm run launch:check -- --community --evidence .acceptance/launch
+gh release upload v1.5.1 .acceptance/launch/launch-evidence-*.json .acceptance/launch/launch-evidence-*.md
 ```
 
-If the release workflow fails **after** publishing, the artifact is not
+If the release engine fails **after** publishing, the artifact is not
 un-published: fix forward with a patch release. If it fails before
 publishing, the tag can be deleted and re-cut:
 
 ```bash
-git tag -d v1.4.0
-git push origin :refs/tags/v1.4.0
+git tag -d v1.5.1
+git push origin :refs/tags/v1.5.1
 ```
 
 Deleting a tag that already has a GitHub Release is a last resort; the
@@ -181,7 +187,7 @@ copy.
 
 ### 5.1 GitHub Discussion (day 0)
 
-Title: **DOMINUS v1.4.0 — open-source domain valuation, now installable in one command**
+Title: **DOMINUS v1.5.1 — open-source domain valuation, now installable in one command**
 
 ```markdown
 DOMINUS is an open-source decision-support tool for domain investors:
@@ -189,7 +195,7 @@ it scores a domain, checks the trademark, and tells you whether the
 price leaves a margin. It also tracks a portfolio's renewal clock and
 gives keep/drop/reprice verdicts.
 
-v1.4.0 is the first release I am comfortable calling installable:
+v1.5.1 is the first release I am comfortable calling installable:
 
 - one-command install on Linux/macOS and Windows, with a verified
   checksum and no telemetry;

@@ -134,12 +134,14 @@ target until this has run.
 npm run release:doctor
 npm run release:verify -- --pack
 npm run test:installers
-gh release view v1.4.0 --json assets
+node scripts/release-cut.mjs --dry-run
+node scripts/release-cut.mjs --publish
+gh release view v1.5.1 --json assets
 ```
 
-The release workflow's `verify` and `verify-github-release` jobs are the
-post-publish half. The local commands are the pre-tag half, and both are
-in `npm run gate`.
+The release-cut engine's `verify-release` and the public-installer checks
+are the post-publish half. The local commands are the pre-tag half, and
+both are in `npm run gate` plus `.woodpecker/ci.yml`.
 
 ---
 

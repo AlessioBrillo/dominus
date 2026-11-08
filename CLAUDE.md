@@ -166,17 +166,24 @@ See [ADR-0004](docs/adr/0004-provider-abstraction-pattern.md).
 
 ## CI gate
 
-GitHub Actions is CI mirroring; the authoritative gate runs locally on the
-committer's machine with Docker:
+The authoritative gate is the Woodpecker pipeline
+(`.woodpecker/ci.yml`), run locally on the committer's machine with Docker
+via `ci-local` (or on a Woodpecker server when one is registered). GitHub
+Actions is a billing-blocked mirror: its workflows are disabled, its badge
+is absent, and it is not part of the merge gate.
 
-- **Local:** `npm run gate` from the repo root. Exit 0 = green.
-  It runs typecheck → build → db:sync:check → lint → format:check →
-  check:migration-compat → check:sql-portability → notices:check →
-  adr:index:check → check:pack → release:verify --pack → test:installers →
+- **Local:** `ci-local` (runs `.woodpecker/ci.yml` on a throwaway copy of
+  the tree, never the checkout). Exit 0 = green. Equivalent to
+  `npm run gate`, plus PostgreSQL integration, frontend, pack/installer
+  and e2e smoke jobs.
+- **The local gate (`npm run gate`)** runs typecheck → build →
+  db:sync:check → lint → format:check → check:migration-compat →
+  check:sql-portability → notices:check → adr:index:check →
+  check:pack → release:verify --pack → test:installers →
   check:doc-drift → check:release-consistency → **check:quickstart** →
   check:workflows → check:legal-placeholders → backend tests with coverage →
-  frontend typecheck/lint/test-with-coverage/build → the end-to-end smoke gate
-  (`npm run test:e2e:smoke`).
+  frontend typecheck/lint/test-with-coverage/build → the end-to-end smoke
+  gate (`npm run test:e2e:smoke`).
 - **The quickstart gate:** `npm run check:quickstart` runs the command the
   README advertises, in a throwaway directory, and asserts the contract a
   reader is entitled to: exit 0, no log lines on stdout, the five numbers,
@@ -199,18 +206,11 @@ committer's machine with Docker:
   fresh Postgres volume. Run this before any tag or any change to
   compose/Dockerfile/deploy/.
 - **Cloud acceptance:** `npm run acceptance:cloud` is the Cloud edition's
-  own gate (ADR-0095): it builds the working tree's images, starts
-  PostgreSQL with the production init script, applies the migrations as
-  the owner role, runs the api/worker/scheduler against the non-superuser
-  app role, and asserts tenant isolation (API and database), the Stripe
-  webhook, the plan and usage surface, the GDPR export and erasure, the
-  metrics token, the scheduler → queue → worker path, and three browser
-  smokes. It needs Docker and the Chromium build (`npm run e2e:install`).
-  It is not part of `npm run gate` (minutes, not seconds); CI runs it as
-  its own job on every pull request.
+  own gate (ADR-0095). It is not part of `npm run gate`; run it before any
+  Cloud deploy.
 - **Pre-push:** husky `pre-push` → `npm run gate`. Bypass only with an
   explicit `--no-verify`.
-- **Done / merge-ready** means this gate is green on the final tree.
+- **Done / merge-ready** means the gate is green on the final tree.
   See `~/.agents/CI.md`.
 - **Secret scanning:** TruffleHog runs in CI over the pushed diff with
   verification enabled, so any credential-shaped URI in a tracked file is

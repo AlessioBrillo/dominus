@@ -64,6 +64,16 @@ export function resolveCliCommand(argv: readonly string[]): string | undefined {
  * and nothing else, so they must not cost an application.
  */
 export function resolveCliProfile(argv: readonly string[]): CliProfile {
+  // Help/version are catalogue invocations wherever they appear:
+  // `dominus --help`, `dominus score --help`, `dominus --version`.
+  // They print the command line and nothing else, so they must not cost
+  // an application (ADR-0097).
+  for (const arg of argv.slice(2)) {
+    if (arg === '--help' || arg === '-h' || arg === '--version' || arg === '-V') {
+      return 'catalog';
+    }
+  }
+
   const command = resolveCliCommand(argv);
   if (command === undefined) return 'catalog';
   if (DECISION_COMMANDS.has(command)) return 'decision';

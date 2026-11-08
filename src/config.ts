@@ -2428,16 +2428,22 @@ export function loadConfig(): Config {
   // Startup validation: warn if configured data file paths do not exist.
   // File-based providers (keyword, comps, weights, TLD bonuses) will fail
   // silently at runtime if the path is missing; catching it early prevents
-  // silent scoring degradation.
-  const filePaths: { key: string; path: string | undefined }[] = [
+  // silent scoring degradation. AUTO_TUNE_WEIGHTS_PATH is only consulted
+  // when auto-tuning is enabled, so a missing default path is not a warning
+  // on every cold start.
+  const filePaths: { key: string; path: string | undefined; enabled?: boolean }[] = [
     { key: 'KEYWORD_DATA_PATH', path: _config.KEYWORD_DATA_PATH },
     { key: 'COMPS_DATA_PATH', path: _config.COMPS_DATA_PATH },
     { key: 'TLD_BONUSES_PATH', path: _config.TLD_BONUSES_PATH },
     { key: 'SCORING_WEIGHTS_OVERRIDE', path: _config.SCORING_WEIGHTS_OVERRIDE },
-    { key: 'AUTO_TUNE_WEIGHTS_PATH', path: _config.AUTO_TUNE_WEIGHTS_PATH },
+    {
+      key: 'AUTO_TUNE_WEIGHTS_PATH',
+      path: _config.AUTO_TUNE_WEIGHTS_PATH,
+      enabled: _config.AUTO_TUNE_ENABLED === true,
+    },
   ];
-  for (const { key, path } of filePaths) {
-    if (path !== undefined && !existsSync(path)) {
+  for (const { key, path, enabled } of filePaths) {
+    if (enabled !== false && path !== undefined && !existsSync(path)) {
       console.warn(`[config] ${key}=${path} — file not found, will use defaults`);
     }
   }

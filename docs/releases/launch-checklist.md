@@ -252,17 +252,17 @@ Put the report in `docs/security/` with a name that contains "external" or
 
 Since v1.3.4 the **GitHub Release is the primary channel** (ADR-0099). It
 does not depend on a registry account setting, and it is the channel the
-release workflow verifies end-to-end:
+local-first release engine (`scripts/release-cut.mjs`, ADR-0101) verifies
+end-to-end:
 
 - `install.sh` and `install.ps1`, attached to the release, download the
   alias tarball `dominus-oss.tgz`, verify its sha256 and install the
   command into a user-owned prefix;
 - `dominus-oss.tgz` and `dominus-oss.tgz.sha256` are attached for a manual
   install (`npm install -g ./dominus-oss.tgz`);
-- the `verify-github-release` job asserts the assets are there and installs
-  the published artifact, then runs the first command. It uses `always()`,
-  so an npm failure cannot skip the verification of the channel users
-  actually download.
+- `release-cut --publish` asserts the assets are there, installs the
+  published alias tarball and runs the first command, so an npm failure
+  cannot skip the verification of the channel users actually download.
 
 **npm is best-effort.** `dominus-oss` is published with OIDC trusted
 publishing and a provenance attestation when the npm-side trusted publisher
@@ -272,17 +272,13 @@ because it was not. The one-time setup is in
 does not exist, the README says so, and the GitHub Release is the same
 artifact.
 
-The publish is re-runnable. Once the trusted publisher is configured:
-
-```bash
-gh workflow run release.yml --ref v1.3.4
-```
-
-It rebuilds the same commit, updates the existing GitHub Release, and
-publishes the package; the `verify` job then installs it from the registry
-and runs it. The publish step skips the versions that are already on the
-registry, so a re-run of an already published version updates the release
-notes and still runs the verification instead of failing and skipping it.
+The publish is re-runnable. Once the trusted publisher is configured,
+`release-cut --publish` (from master) rebuilds the same commit, updates the
+existing GitHub Release, and publishes the package; `release:verify` then
+installs it from the registry and runs it. The publish step skips the
+versions that are already on the registry, so a re-run of an already
+published version updates the release notes and still runs the verification
+instead of failing and skipping it.
 
 The publish is now verified on both sides of the publish and on both
 channels (ADR-0091, ADR-0099):
@@ -295,12 +291,12 @@ channels (ADR-0091, ADR-0099):
   against a local HTTP server that serves the real tarball and checksum, on
   Linux and Windows, and must install a command that answers. A corrupted
   checksum must be refused;
-- **after the publish**, by the `verify` job of the release workflow: the
-  published package is installed from the registry, the CLI is run, and
+- **after the publish**, by `release-cut --publish` (and `release:verify`):
+  the published package is installed from the registry, the CLI is run, and
   the provenance attestation is read. A failure there cannot un-publish the
   package — the response is `npm deprecate` and a patch release — but it
   turns a silent distribution failure into a red workflow;
-- **after the publish**, by the `verify-github-release` job: the assets are
+- **after the publish**, by `release-cut --publish`: the assets are
   asserted, the alias tarball is installed from the public URL, and the
   first command is run. This is the channel a stranger uses, and it is
   verified even when npm fails.

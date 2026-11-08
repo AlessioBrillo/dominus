@@ -18,8 +18,15 @@ v1.4.0 - First Light: mode-aware launch gate with evidence, a launch
 rehearsal on the production-parity stack, the audit scope and the
 first-apply runbook; the community edition is the first soft launch
 (released).
-Next: execute the first staging apply, the third-party audit, the fiscal
-position, and only then the paid Cloud tiers.
+v1.5.0 - First Boot: local-first release engine, PostgreSQL migration lock
+fixes, pre-migration backup, `dominus doctor`, `selfhost:up` (released).
+v1.5.1 - The Gate Leaves GitHub: the merge gate moves from GitHub Actions
+(billing-blocked) to Woodpecker (`.woodpecker/ci.yml`, local-first via
+`ci-local`); ADR-0101 documents the local-first release engine; front-door
+polish (`--help`/`--version`/`score --help` silent on stderr); release and
+launch documentation describe the real publishing path (released).
+Next: execute the first staging apply (v1.6.0), the third-party audit,
+the fiscal position, and only then the paid Cloud tiers.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 

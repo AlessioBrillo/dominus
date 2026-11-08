@@ -1,0 +1,138 @@
+# DOMINUS CI gate — Woodpecker (self-hosted).
+# The authoritative gate runs locally with `ci-local` (this file, a throwaway
+# copy) or on a Woodpecker server. GitHub Actions is a billing-blocked mirror;
+# its badges are intentionally absent.
+#
+# Local run: ci-local            (default pipeline file .woodpecker/ci.yml)
+# Server run: git push           (when a Woodpecker server is registered)
+when:
+  - event: [push, pull_request, manual]
+
+clone:
+  depth: 0
+
+workspace:
+  base: /dominus
+  path: dominus
+
+steps:
+  # ------------------------------------------------------------------ static
+  - name: static
+    image: node:22-bookworm
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - npm run typecheck
+      - npm run lint
+      - npm run format:check
+      - npm run db:sync:check
+      - npm run check:sql-portability
+      - npm run check:migration-compat
+      - npm run notices:check
+      - npm run adr:index:check
+      - npm run check:doc-drift
+      - npm run check:release-consistency
+      - npm run check:workflows
+      - npm run check:legal-placeholders
+      - npm run check:image-pins
+      - npm run release:verify -- --pack
+
+  # ------------------------------------------------------------------ backend
+  - name: backend
+    image: node:22-bookworm
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - npm run build
+      - npm run test -- --coverage
+
+  # ------------------------------------------------------------------ postgres (integration)
+  - name: postgres
+    image: node:22-bookworm
+    environment:
+      DATABASE_URL: postgresql://postgres@postgres:5432/dominus
+    services:
+      - name: postgres
+        image: postgres:16-alpine
+        environment:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: dominus
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - npx tsx src/db/migrate-cli.ts
+      - npx vitest run src/db src/__tests__ src/services src/api
+
+  # ------------------------------------------------------------------ frontend
+  - name: frontend
+    image: node:22-bookworm
+    volumes:
+      - ci-frontend-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+        working-directory: frontend
+      - npm run typecheck
+        working-directory: frontend
+      - npm run lint
+        working-directory: frontend
+      - npm test
+        working-directory: frontend
+      - npm run build
+        working-directory: frontend
+
+  # ------------------------------------------------------------------ pack
+  - name: pack
+    image: node:22-bookworm
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - npm --prefix frontend ci
+      - npm run build:frontend
+      - npm run build
+      - npm run check:pack
+      - npm run test:installers
+
+  # ------------------------------------------------------------------ e2e smoke
+  - name: e2e-smoke
+    image: mcr.microsoft.com/playwright:v1.64.1-noble
+    environment:
+      API_KEYS: ci-e2e-dummy-key
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - npm ci
+        working-directory: frontend
+      - npm run build:frontend
+        working-directory: frontend
+      - npm run build
+      - node scripts/run-e2e-smoke.mjs
+
+  # ------------------------------------------------------------------ trademark canary (daily + manual)
+  - name: trademark-canary
+    image: node:22-bookworm
+    environment:
+      EUIPO_CLIENT_ID: ${EUIPO_CLIENT_ID:-}
+      EUIPO_CLIENT_SECRET: ${EUIPO_CLIENT_SECRET:-}
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - npm run check:trademarks
+    when:
+      - event: [cron, manual]
+
+volumes:
+  ci-npm:
+  ci-frontend-npm:

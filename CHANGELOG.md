@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.5.1](https://github.com/AlessioBrillo/dominus/compare/v1.5.0...v1.5.1) (2026-11-08)
+
+
+### Features
+
+* **ci:** woodpecker gate, adr-0101 local-first release, front-door polish ([841e288](https://github.com/AlessioBrillo/dominus/commit/841e2885e96341e63b86fb8a7a922cad0d0af02d))
+
 ## [1.5.0](https://github.com/AlessioBrillo/dominus/compare/v1.4.0...v1.5.0) (2026-11-06)
 
 
