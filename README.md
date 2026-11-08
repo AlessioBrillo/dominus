@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.5.1-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.5.2-blue)](package.json)
 
 <!-- The gate is the Woodpecker pipeline (.woodpecker/ci.yml), run locally with `ci-local` (needs Docker) or on a Woodpecker server. GitHub Actions is a billing-blocked mirror, so its badges are not shown. -->
 
@@ -431,7 +431,8 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.5.1 — The gate leaves GitHub: the merge gate is the Woodpecker
+DOMINUS v1.5.2 — The artifact tells the truth: `dominus doctor` reports its own version,
+database state, backup age and disk space on any installation, fresh or existing.
 pipeline (`.woodpecker/ci.yml`), run locally with `ci-local` (needs Docker)
 or on a Woodpecker server; GitHub Actions is a billing-blocked mirror and
 its badges are not shown. The migration gate takes a cross-process lock and
