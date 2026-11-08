@@ -259,6 +259,19 @@ API_KEYS="admin=$(openssl rand -hex 32)" \
   docker run -d -p 3000:3000 -e API_KEYS -v ./data:/app/data dominus
 ```
 
+### One-command self-hosted start
+
+If you have cloned the repository, `npm run selfhost:up` brings the full
+community stack (api, worker, scheduler and the Unbound validating resolver)
+from zero to healthy in a single command: it generates an API key, creates
+`./data`, starts Compose, waits for `/api/v1/health` and prints the URL and
+the admin key. Nothing is written to disk except `./data`.
+
+```bash
+npm run selfhost:up
+# Open http://127.0.0.1:3000 and sign in with the admin key printed above.
+```
+
 ## Current Stack
 
 | Layer              | Technology                                      | Why                                                        |

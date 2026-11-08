@@ -3,7 +3,8 @@
 import Database from 'better-sqlite3';
 import { Command } from 'commander';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { setLogDestination } from './logger.js';
 import { loadConfig } from './config.js';
 import { createDependencies } from './app/composition-root.js';
@@ -16,9 +17,15 @@ import type { KeyManager } from './providers/auth/auth-provider.js';
 
 function readCliVersion(): string {
   try {
-    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8')) as {
-      version?: string;
-    };
+    // Resolve the package.json from this module's location, not from the
+    // caller's working directory: the installed CLI must report its own
+    // version regardless of where the user runs it from.
+    const pkg = JSON.parse(
+      readFileSync(
+        join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'),
+        'utf-8',
+      ),
+    ) as { version?: string };
     return pkg.version ?? '0.0.0';
   } catch {
     return '0.0.0';
@@ -52,7 +59,14 @@ async function main(): Promise<void> {
     const config = loadConfig();
     let db: Database.Database | null = null;
     if (!config.DATABASE_URL) {
-      db = new Database(config.DATABASE_PATH, { readonly: true });
+      try {
+        db = new Database(config.DATABASE_PATH, { readonly: true });
+      } catch {
+        // No database yet: doctor still runs its read-only checks and
+        // reports the missing database as a fail check instead of crashing
+        // with a raw SQLite stack trace.
+        db = null;
+      }
     }
     const program = new Command();
     program

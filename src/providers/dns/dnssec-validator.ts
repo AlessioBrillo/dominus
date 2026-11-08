@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { getLogger } from '../../logger.js';
 import { LRUCache } from 'lru-cache';
+import { randomBytes } from 'node:crypto';
 
 const logger = getLogger();
 
@@ -372,7 +373,7 @@ export async function validateDnssecChain(
 export function buildDnssecQuery(
   domain: string,
   qtype: number,
-  rng: (size: number) => Buffer = (size) => require('node:crypto').randomBytes(size),
+  rng: (size: number) => Buffer = (size) => randomBytes(size),
 ): Buffer {
   const header = Buffer.alloc(12);
   // Random ID

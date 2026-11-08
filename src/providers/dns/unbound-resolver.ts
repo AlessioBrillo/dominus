@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Resolver as NodeResolver } from 'node:dns';
+import net from 'node:net';
 import { LRUCache } from 'lru-cache';
 import type { DnsCheckResult } from '../../types/domain-status.js';
 import type { DnsProvider, DnsCheckOptions } from './dns-provider.js';
@@ -1784,14 +1785,14 @@ export class UnboundResolver implements DnsProvider {
     port: number,
   ): Promise<{ valid: boolean; details?: Record<string, unknown> }> {
     return new Promise((resolve, reject) => {
-      const net = require('net');
       const socket = new net.Socket();
       const timeout = setTimeout(() => {
         socket.destroy();
         reject(new Error('Control connection timeout'));
       }, 5000);
 
-      socket.connect({ host, port, timeout: 5000 }, () => {
+      socket.connect(port, host, () => {
+        socket.setTimeout(5000);
         // Send unbound-control "list_local_zones" command
         // Protocol: 4-byte length (network order) + command string
         const cmd = 'list_local_zones';

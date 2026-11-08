@@ -7,15 +7,16 @@
  * default; `--json` emits a single JSON object for operators and
  * monitoring.
  */
-import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type Database from 'better-sqlite3';
 import type { Command } from 'commander';
 import type { Config } from '../../config.js';
 import { readAppliedMigrations } from '../../db/migration-manifest.js';
 import { getMigrationManifest } from '../../db/migration-manifest.js';
 import { createSqliteProvider } from '../../db/index.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 
 interface DoctorCheck {
   name: string;
@@ -39,8 +40,9 @@ export function registerDoctorCommand(
       'Diagnose the installation: config, DB, schema, DNS, trademark canary, backups, disk',
     )
     .option('--json', 'Emit JSON instead of a human-readable report', false)
-    .action(async (options: { json: boolean }) => {
-      const result = await runDoctor(deps.config, deps.db);
+    .option('--skip-trademark', 'Skip the live trademark-gate canary (for smoke tests)', false)
+    .action(async (options: { json: boolean; skipTrademark: boolean }) => {
+      const result = await runDoctor(deps.config, deps.db, options.skipTrademark);
 
       if (options.json) {
         process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -52,7 +54,11 @@ export function registerDoctorCommand(
     });
 }
 
-async function runDoctor(config: Config, db: Database.Database | null): Promise<DoctorResult> {
+async function runDoctor(
+  config: Config,
+  db: Database.Database | null,
+  skipTrademark = false,
+): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
 
   // ── 1: version ──────────────────────────────────────────────────────
@@ -109,11 +115,17 @@ async function runDoctor(config: Config, db: Database.Database | null): Promise<
         detail: err instanceof Error ? err.message : String(err),
       });
     }
-  } else {
+  } else if (cloudMode) {
     checks.push({
       name: 'database integrity',
       status: 'ok',
       detail: 'not a SQLite connection (cloud mode)',
+    });
+  } else {
+    checks.push({
+      name: 'database integrity',
+      status: 'fail',
+      detail: `database not initialized at ${config.DATABASE_PATH} — run \`dominus run\` once to create it`,
     });
   }
 
@@ -148,40 +160,57 @@ async function runDoctor(config: Config, db: Database.Database | null): Promise<
   });
 
   // ── 6: trademark gate canary ────────────────────────────────────────
-  try {
-    const cliPath = join(process.cwd(), 'dist', 'cli.js');
-    const canRun = existsSync(cliPath);
-    if (!canRun) {
-      checks.push({
-        name: 'trademark canary',
-        status: 'warn',
-        detail: 'dist/cli.js not built — run `npm run build` first',
-      });
-    } else {
-      const nike = execFileSync(process.execPath, [cliPath, 'score', 'nike.com'], {
-        encoding: 'utf8',
-        timeout: 30000,
-        env: { ...process.env, NODE_ENV: 'test' },
-      });
-      const vintage = execFileSync(process.execPath, [cliPath, 'score', 'vintagecoffee.com'], {
-        encoding: 'utf8',
-        timeout: 30000,
-        env: { ...process.env, NODE_ENV: 'test' },
-      });
-      const nikeBlocked = /blocked/i.test(nike);
-      const vintageClear = /clear/i.test(vintage);
-      checks.push({
-        name: 'trademark canary',
-        status: nikeBlocked && vintageClear ? 'ok' : 'fail',
-        detail: `nike=${nikeBlocked ? 'blocked' : 'not blocked'}, vintagecoffee=${vintageClear ? 'clear' : 'not clear'}`,
-      });
-    }
-  } catch (err) {
+  if (skipTrademark) {
     checks.push({
       name: 'trademark canary',
-      status: 'fail',
-      detail: err instanceof Error ? err.message : String(err),
+      status: 'ok',
+      detail: 'skipped (--skip-trademark)',
     });
+  } else {
+    try {
+      // Resolve the CLI entry point relative to this module, so the check
+      // works whether dominus is run from source or from an installed prefix.
+      const cliPath = join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        '..',
+        'dist',
+        'cli.js',
+      );
+      const canRun = existsSync(cliPath);
+      if (!canRun) {
+        checks.push({
+          name: 'trademark canary',
+          status: 'warn',
+          detail: 'dist/cli.js not built — run `npm run build` first',
+        });
+      } else {
+        const nike = execFileSync(process.execPath, [cliPath, 'score', 'nike.com'], {
+          encoding: 'utf8',
+          timeout: 30000,
+          env: { ...process.env, NODE_ENV: 'test' },
+        });
+        const vintage = execFileSync(process.execPath, [cliPath, 'score', 'vintagecoffee.com'], {
+          encoding: 'utf8',
+          timeout: 30000,
+          env: { ...process.env, NODE_ENV: 'test' },
+        });
+        const nikeBlocked = /blocked/i.test(nike);
+        const vintageClear = /clear/i.test(vintage);
+        checks.push({
+          name: 'trademark canary',
+          status: nikeBlocked && vintageClear ? 'ok' : 'fail',
+          detail: `nike=${nikeBlocked ? 'blocked' : 'not blocked'}, vintagecoffee=${vintageClear ? 'clear' : 'not clear'}`,
+        });
+      }
+    } catch (err) {
+      checks.push({
+        name: 'trademark canary',
+        status: 'fail',
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // ── 7: backup age ───────────────────────────────────────────────────
@@ -190,7 +219,7 @@ async function runDoctor(config: Config, db: Database.Database | null): Promise<
     if (existsSync(backupDir)) {
       let newest: Date | null = null;
       try {
-        for (const name of require('node:fs').readdirSync(backupDir)) {
+        for (const name of readdirSync(backupDir)) {
           const full = join(backupDir, name);
           try {
             const st = statSync(full);
@@ -233,7 +262,6 @@ async function runDoctor(config: Config, db: Database.Database | null): Promise<
 
   // ── 8: disk space ───────────────────────────────────────────────────
   try {
-    const { execSync } = require('node:child_process');
     let free = 0;
     if (process.platform === 'win32') {
       try {
@@ -290,8 +318,11 @@ function formatDoctorReport(result: DoctorResult): string {
 
 function readCliVersion(): string {
   try {
-    const here = join(__dirname, '..', '..', '..', 'package.json');
-    const raw = require('node:fs').readFileSync(here, 'utf8');
+    // Resolve the package.json from this module's location, not from the
+    // caller's working directory: the installed CLI must report its own
+    // version regardless of where the user runs it from.
+    const here = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'package.json');
+    const raw = readFileSync(here, 'utf8');
     const parsed = JSON.parse(raw) as { version?: unknown };
     return typeof parsed.version === 'string' ? parsed.version : '0.0.0';
   } catch {

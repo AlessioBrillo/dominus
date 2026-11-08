@@ -40,6 +40,10 @@ export default [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // ESM-only codebase: `require`/`__dirname`/`__filename` are not
+      // available in `"type": "module"` modules. Fail lint on any use so
+      // the defect never ships in a published artifact.
+      '@typescript-eslint/no-require-imports': 'error',
       'no-restricted-imports': [
         'error',
         {
@@ -59,12 +63,23 @@ export default [
     rules: {
       '@typescript-eslint/no-floating-promises': 'off',
       'no-restricted-imports': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
   {
     // CLI commands legitimately use console.log for stdout output
     files: ['src/cli/**/*.ts'],
     rules: { 'no-console': 'off' },
+  },
+  {
+    // Release and test scripts are CommonJS/ESM scripts that use Node
+    // globals (console, process, __dirname, require) directly.
+    files: ['scripts/**/*.mjs', 'scripts/**/*.cjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
   },
   {
     // Database migration validation is a standalone script

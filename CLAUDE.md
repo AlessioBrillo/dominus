@@ -110,7 +110,8 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.4.0 — First Light: the launch bar is executable in both editions.
+DOMINUS v1.5.2 — the artifact tells the truth: `dominus doctor` reports its own version,
+database state, backup age and disk space on any installation, fresh or existing.
 `npm run launch:check` judges a community deployment and a Cloud deployment
 with the same implementation (profiles, auto-detection, `--paid`), writes
 JSON and Markdown evidence on pass and on fail, and checks the things that
