@@ -31,14 +31,13 @@ useful artifact it produces. Secrets are never echoed — the checks record
 | Claim | Command that proves it | Artifact | Location | Visibility |
 |---|---|---|---|---|
 | the repository is internally consistent | `npm run gate` | exit code, CI log | Woodpecker (or `ci-local`) | public |
-| the Docker topology builds and boots | `npm run gate:docker` | exit code | Woodpecker `docker` step | public |
+| the Docker topology builds and boots | `npm run gate:docker` | exit code | `ci-local` (local) or Woodpecker | public |
 | the community edition is launchable | `npm run launch:check -- --community --evidence .acceptance/launch` | `launch-evidence-*.json` / `.md` | `.acceptance/launch/` | git-ignored |
 | the Cloud edition is launchable | `npm run launch:check -- --cloud --url … --evidence …` | `launch-evidence-*.json` / `.md` | `.acceptance/staging/` | git-ignored |
 | the production-parity Cloud stack runs | `npm run launch:rehearse` | `rehearsal-*.json` / `.md` + `.acceptance/report.json` | `.acceptance/launch/` | git-ignored |
 | the paid preconditions are met | `npm run launch:check -- --cloud --url … --paid` | `launch-evidence-*.json` / `.md` | `.acceptance/production/` | attached to the release |
 | the published artifact installs and runs | `npm run release:verify -- --pack` | exit code + the installed command | local gate | public |
-| the GitHub Release is complete | the `verify-github-release` job | workflow log + asset list | the release page | public |
-| the npm package is published with provenance | the `verify` job | registry metadata | npm | public |
+| the GitHub Release is complete | `release-cut --publish` + `check-published-install` | workflow log + asset list | the release page | public |
 | the trademark source answers | `npm run check:trademarks` | verdict for `nike` / `vintagecoffee` | daily workflow + release log | public |
 | the legal surface is published | `GET /public/legal` | the live response | the deployment | public |
 | the operator identity is real | `npm run launch:check -- --cloud --url …` | gate evidence | `.acceptance/staging/` | private |

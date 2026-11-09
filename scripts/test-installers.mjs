@@ -27,9 +27,15 @@
 //   5. serve a corrupted checksum and assert the installer refuses to
 //      install anything.
 //
+// With `--public`, the tarball is downloaded from the public GitHub Release
+// instead of being packed from the working tree, so the gate exercises the
+// exact artifact a stranger downloads.
+//
 // Usage:
 //   node scripts/test-installers.mjs                  # pack, then test this platform
 //   node scripts/test-installers.mjs --tarball x.tgz  # test a given artifact
+//   node scripts/test-installers.mjs --public --url https://github.com/AlessioBrillo/dominus/releases/tag/v1.5.3
+//                                                     # test the public release artifact
 //   node scripts/test-installers.mjs --shell          # force install.sh
 //   node scripts/test-installers.mjs --powershell     # force install.ps1
 //
@@ -37,14 +43,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -67,11 +66,17 @@ function argValue(flag) {
 }
 
 const tarballArg = argValue('--tarball');
+const publicUrl = argValue('--public');
 const forcedShell = args.includes('--shell');
 const forcedPowerShell = args.includes('--powershell');
 
 if (forcedShell && forcedPowerShell) {
   console.error('test-installers: --shell and --powershell are mutually exclusive');
+  process.exit(2);
+}
+
+if (publicUrl && tarballArg) {
+  console.error('test-installers: --public and --tarball are mutually exclusive');
   process.exit(2);
 }
 
@@ -132,14 +137,7 @@ function packArtifact() {
   const npm = resolveNpm();
   const raw = execFileSync(
     npm.file,
-    [
-      ...npm.args,
-      'pack',
-      '--ignore-scripts',
-      '--json',
-      '--pack-destination',
-      destination,
-    ],
+    [...npm.args, 'pack', '--ignore-scripts', '--json', '--pack-destination', destination],
     { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, shell: npm.shell === true },
   );
   const start = raw.search(/[[{]/);
@@ -183,6 +181,17 @@ function findCli(prefix) {
     return null;
   };
   return walk(prefix, 0);
+}
+
+async function fetchBytes(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(
+      `GET ${url} answered ${response.status}${body ? `: ${body.slice(0, 200)}` : ''}`,
+    );
+  }
+  return Buffer.from(await response.arrayBuffer());
 }
 
 function startServer(tarballBytes) {
@@ -277,14 +286,26 @@ async function main() {
   let workdir;
   let server;
   try {
-    const tarball = tarballArg ? tarballArg : packArtifact();
-    if (!existsSync(tarball)) {
-      fail(`the tarball does not exist: ${tarball}`);
-      return;
+    let tarballBytes;
+    if (publicUrl) {
+      // ── public mode: download the real artifact from the release channel ──
+      const tarballUrl = publicUrl.replace(
+        /\/releases\/tag\/([^/?#]+)\/?$/,
+        (_, tag) =>
+          `https://github.com/AlessioBrillo/dominus/releases/download/${tag}/dominus-oss.tgz`,
+      );
+      ok(`downloading public artifact: ${tarballUrl}`);
+      tarballBytes = await fetchBytes(tarballUrl);
+    } else {
+      const tarball = tarballArg ? tarballArg : packArtifact();
+      if (!existsSync(tarball)) {
+        fail(`the tarball does not exist: ${tarball}`);
+        return;
+      }
+      ok(`artifact: ${tarball}`);
+      tarballBytes = readFileSync(tarball);
     }
-    ok(`artifact: ${tarball}`);
 
-    const tarballBytes = readFileSync(tarball);
     const digest = createHash('sha256').update(tarballBytes).digest('hex');
 
     workdir = mkdtempSync(join(tmpdir(), 'dominus-installer-'));

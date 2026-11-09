@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.5.3](https://github.com/AlessioBrillo/dominus/compare/v1.5.2...v1.5.3) (2026-11-09)
+
+### Features
+
+* **release:** GitHub Release is the sole distribution channel (ADR-0102);
+  `dominus-oss` is not published to npm. README, launch checklist and cloud
+  launch readiness name the GitHub Release as the only channel.
+* **release:** `scripts/test-installers.mjs` supports `--public --url <tag>`
+  to verify the installer against the live public release artifact, closing
+  the gap between local packing and the artifact a stranger downloads.
+* **docs:** truth pass — evidence-index, terraform README, launch checklist
+  and cloud launch readiness no longer reference disabled GitHub Actions jobs
+  or a Woodpecker `docker` step that does not exist.
+* **docs:** "What It Is Not" added to README — decision support, not financial
+  advice, not a legal opinion, no SLA, not DOMINUS Cloud.
+
 ### [1.5.2](https://github.com/AlessioBrillo/dominus/compare/v1.5.1...v1.5.2) (2026-11-08)
 
 ### Features

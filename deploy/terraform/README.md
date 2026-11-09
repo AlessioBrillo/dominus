@@ -167,11 +167,11 @@ SSH + `ALTER ROLE` instead, following
 
 ## Validation
 
-`.github/workflows/iac.yml` runs `terraform fmt`, `terraform init
--backend=false`, `terraform validate` and a YAML smoke-render of both
-cloud-init templates on every PR touching `deploy/terraform/`. The smoke
-render also verifies the rendered app compose mounts the `backups` volume
-on the worker and scheduler (`BACKUP_DIR=/backups`, see
-`.env.example`) and that the alertmanager webhook placeholder is
-substituted from `alertmanager_webhook_url` (mirror of the module's HCL
-replace chain — a node that keeps the example.com URL alerts nowhere).
+Terraform fmt/validate and the cloud-init YAML smoke render are run
+locally (and are part of the Woodpecker gate on push to
+`deploy/terraform/**`). The smoke render verifies the rendered app compose
+mounts the `backups` volume on the worker and scheduler
+(`BACKUP_DIR=/backups`, see `.env.example`) and that the alertmanager
+webhook placeholder is substituted from `alertmanager_webhook_url`
+(mirror of the module's HCL replace chain - a node that keeps the
+example.com URL alerts nowhere).
