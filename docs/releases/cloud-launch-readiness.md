@@ -32,28 +32,25 @@ v1.4.0.
 
 ## Blockers, in the order they must be cleared
 
-### 1. The community CLI is installable — GitHub Release primary, npm best-effort
+### 1. The community CLI is installable — GitHub Release is the sole channel
 
 The community edition ships as a **GitHub Release**: a versioned tarball, a
 stable alias (`dominus-oss.tgz`), both checksums, and one-command installers
-for Linux/macOS and Windows. Since v1.3.4 the release workflow verifies that
-channel end-to-end (ADR-0099): the assets must be attached, the alias
+for Linux/macOS and Windows. The release workflow verifies that channel
+end-to-end (ADR-0099, ADR-0102): the assets must be attached, the alias
 tarball must install from the public URL, and the first command must answer.
 The installers themselves are tested in CI on both platforms before they
 ship.
 
-npm remains **best-effort**: `dominus-oss` is published with OIDC trusted
-publishing and a provenance attestation when the npm-side trusted publisher
-is configured. The publishes of `v1.2.0` and `v1.3.0` failed with
-`E404` because it was not; the one-time setup is in
-[npm-publishing.md](npm-publishing.md). The README names the GitHub Release
-as the primary channel, so a missing npm version is a documented
-best-effort gap, not a broken promise.
+**npm is not used.** `dominus-oss` is not published to the npm registry.
+The GitHub Release tarball and its checksum are the artifact, and the
+installers are the install path. This avoids a second, unverified channel
+and a registry account that cannot be automated.
 
-What the failed publishes taught: `check-pack` was green throughout, because
-it inspects the tarball the workflow builds and cannot see the artifact a
-consumer receives. The artifact is now verified before the tag and after the
-publish, on both channels (ADR-0091, ADR-0099), and a distribution failure
+What the release process learned: `check-pack` was green throughout,
+because it inspects the tarball the release engine builds and cannot see
+the artifact a consumer receives. The artifact is now verified before the
+tag and after the publish (ADR-0091, ADR-0099), and a distribution failure
 is a red workflow instead of a discovery days later.
 
 ### 2. Legal documentation — SURFACE BUILT, IDENTITY MISSING

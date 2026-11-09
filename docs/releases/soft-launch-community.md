@@ -1,4 +1,4 @@
-# Community soft launch - v1.5.1
+# Community soft launch - v1.5.3
 
 The community edition is the first public release, and it is a **soft
 launch**: publish the artifact, make it installable, open a place to
@@ -63,8 +63,8 @@ that is not backed by a fiscal position.
 
 - [ ] the README says what the product is, what it is not, and that the
       community edition is free and self-hosted;
-- [ ] the README names the GitHub Release as the primary channel and npm
-      as best-effort (until the trusted publisher is configured);
+- [ ] the README names the GitHub Release as the sole distribution channel
+      (no npm publish; npm is not a supported install path for this release);
 - [ ] the limitations are stated: the trademark gate depends on public
       endpoints, the community edition has no SLA, the automation ships
       dark, and the scoring is decision support, not financial advice;
@@ -87,7 +87,7 @@ does not publish.
 
 ```bash
 # 1. The version is consistent everywhere.
-npm version 1.5.1 --no-git-tag-version
+npm version 1.5.3 --no-git-tag-version
 # package.json, README badge, CHANGELOG, Terraform example, docker smoke
 npm run check:release-consistency
 
@@ -101,22 +101,22 @@ node scripts/release-cut.mjs --dry-run
 
 # 4. Commit, push, open the PR, merge to master.
 git add -A
-git commit -m "release: v1.5.1 — the gate leaves GitHub"
-git push -u origin release/1.5.1
-gh pr create --base master --title "Release v1.5.1 — The Gate Leaves GitHub" --body-file -
+git commit -m "release: v1.5.3 — community soft launch, verified"
+git push -u origin release/1.5.3
+gh pr create --base master --title "Release v1.5.3 — Community soft launch, verified" --body-file -
 
 # 5. After the merge, cut the release from master.
 git switch master && git pull
 node scripts/release-cut.mjs --publish
 
 # 6. Confirm the artifacts a stranger will download.
-gh release view v1.5.1 --json assets \
+gh release view v1.5.3 --json assets \
   --jq '.assets[] | "\(.name) \(.size) bytes"'
-# Verify end to end like a stranger (section 4).
+# Verify end to end like a stranger (section 4): tarball + public installer.
 
 # 7. Evidence.
 npm run launch:check -- --community --evidence .acceptance/launch
-gh release upload v1.5.1 .acceptance/launch/launch-evidence-*.json .acceptance/launch/launch-evidence-*.md
+gh release upload v1.5.3 .acceptance/launch/launch-evidence-*.json .acceptance/launch/launch-evidence-*.md
 ```
 
 If the release engine fails **after** publishing, the artifact is not
@@ -124,8 +124,8 @@ un-published: fix forward with a patch release. If it fails before
 publishing, the tag can be deleted and re-cut:
 
 ```bash
-git tag -d v1.5.1
-git push origin :refs/tags/v1.5.1
+git tag -d v1.5.3
+git push origin :refs/tags/v1.5.3
 ```
 
 Deleting a tag that already has a GitHub Release is a last resort; the
@@ -162,6 +162,12 @@ npm install -g ./dominus-oss.tgz
 dominus score vintagecoffee.com
 ```
 
+And the installer gate against the live release (same check the release engine runs after publish):
+
+```bash
+node scripts/test-installers.mjs --public --url https://github.com/AlessioBrillo/dominus/releases/tag/v1.5.3
+```
+
 And the self-hosted path, because that is the edition the soft launch is
 about:
 
@@ -187,7 +193,7 @@ copy.
 
 ### 5.1 GitHub Discussion (day 0)
 
-Title: **DOMINUS v1.5.1 — open-source domain valuation, now installable in one command**
+Title: **DOMINUS v1.5.3 — open-source domain valuation, now installable in one command**
 
 ```markdown
 DOMINUS is an open-source decision-support tool for domain investors:
@@ -216,7 +222,7 @@ Install:
   dominus score vintagecoffee.com
 
 The release, the checksums and the source are here:
-https://github.com/AlessioBrillo/dominus/releases/tag/v1.4.0
+https://github.com/AlessioBrillo/dominus/releases/tag/v1.5.3
 
 I am looking for two kinds of feedback: a domain where the verdict
 looks wrong (with the domain and the output), and an installation that

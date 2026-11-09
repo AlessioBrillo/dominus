@@ -5,7 +5,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
 [![TypeScript](https://img.shields.io/badge/typescript-6.x-3178C6)](tsconfig.json)
-[![Version](https://img.shields.io/badge/version-1.5.2-blue)](package.json)
+[![Version](https://img.shields.io/badge/version-1.5.3-blue)](package.json)
 
 <!-- The gate is the Woodpecker pipeline (.woodpecker/ci.yml), run locally with `ci-local` (needs Docker) or on a Woodpecker server. GitHub Actions is a billing-blocked mirror, so its badges are not shown. -->
 
@@ -131,18 +131,6 @@ curl -LO https://github.com/AlessioBrillo/dominus/releases/latest/download/domin
 sha256sum -c dominus-oss.tgz.sha256
 npm install -g ./dominus-oss.tgz
 dominus score vintagecoffee.com
-```
-
-The release workflow also publishes `dominus-oss` to npm with OIDC trusted
-publishing and a provenance attestation
-([docs/releases/npm-publishing.md](docs/releases/npm-publishing.md)) once the
-npm-side trusted publisher is configured. The GitHub Release above is the
-primary channel and the one the release workflow verifies end-to-end: it is
-the same artifact, and it does not depend on a registry account setting. When
-the registry has the version, the same command works from npm:
-
-```bash
-npx dominus-oss@latest score vintagecoffee.com
 ```
 
 Or run from source:
@@ -302,6 +290,25 @@ npm run selfhost:up
 | **Support**           | GitHub Issues                         | Email/Slack — Enterprise: 4 business hours, see [SLA](docs/operations/sla.md) |
 | **Cost**              | €0                                    | Free tier + paid plans            |
 
+## What It Is Not
+
+DOMINUS is decision support, not a guarantee. Before you install:
+
+- **Not financial advice.** Scores, buy ceilings and list prices are heuristic
+  estimates, not appraisals. Every weight and threshold is visible and tunable;
+  you are responsible for your own purchase decisions.
+- **Not a guarantee of a sale.** A high score means the domain looks attractive
+  against the configured signals, not that it will sell.
+- **Not a legal opinion.** The trademark gate checks public USPTO/EUIPO sources.
+  A "clear" verdict is not conclusive, and a match is not legal advice. When
+  the sources cannot answer, the domain is reported as **unverified** and is
+  never recommended — that is fail-closed behaviour, not a defect.
+- **Not a service with an SLA.** The community edition is self-hosted: you own
+  the data, the backups and the uptime. There is no response-time commitment.
+- **Not DOMINUS Cloud.** Managed hosting, multi-tenancy, automated PITR
+  backups and paid tiers are a separate offering and are not part of this
+  release.
+
 ## Fork & Customize
 
 DOMINUS is designed from the ground up to be forked and personalized. Here's what you can change without touching core code:
@@ -338,7 +345,7 @@ DOMINUS scales from a personal CLI tool to a containerized service managing thou
 
 | Scenario                    | Stack                            | Command                                                                 |
 | --------------------------- | -------------------------------- | ----------------------------------------------------------------------- |
-| **Personal** (1-50 domains) | CLI only                         | `npx dominus-oss@latest run --sync --closeout-csv ./candidates.csv`      |
+| **Personal** (1-50 domains) | CLI only                         | `curl -fsSL https://github.com/AlessioBrillo/dominus/releases/latest/download/install.sh | sh && dominus run --sync --closeout-csv ./candidates.csv`      |
 | **Growing** (50-500)        | Docker (SQLite) + Unbound        | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d` |
 | **Large** (500+)            | Docker + PostgreSQL + Unbound    | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml -f docker-compose.prod.yml up -d` |
 | **Enterprise** (5000+)      | Terraform (Hetzner) + PostgreSQL | see `deploy/terraform/`                                                 |
@@ -431,7 +438,7 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.5.2 — The artifact tells the truth: `dominus doctor` reports its own version,
+DOMINUS v1.5.3 — The artifact tells the truth: `dominus doctor` reports its own version,
 database state, backup age and disk space on any installation, fresh or existing.
 pipeline (`.woodpecker/ci.yml`), run locally with `ci-local` (needs Docker)
 or on a Woodpecker server; GitHub Actions is a billing-blocked mirror and
@@ -504,26 +511,26 @@ Third-party dependencies and bundled data licenses are listed in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Dependency licenses are
 enforced in CI (`license:check`).
 
-### Corresponding Source (npm installations)
+### Corresponding Source (GitHub Release installations)
 
-When you install DOMINUS from the `dominus-oss` npm package you receive
-`dist/`, which is compiled output — it is not the Corresponding Source the
-AGPL requires you be able to obtain and rebuild.
+When you install DOMINUS from the GitHub Release tarball
+(`dominus-oss.tgz`) you receive `dist/`, which is compiled output — it is
+not the Corresponding Source the AGPL requires you be able to obtain and
+rebuild.
 
 The complete source for every published version is available, free of
-charge, at the exact tag the package was built from:
+charge, at the exact tag the release was built from:
 
 ```bash
-npm view dominus-oss@<version> repository.url   # GitHub repository
 git clone https://github.com/AlessioBrillo/dominus.git
 git checkout v<version>
 npm ci && npm run build
 ```
 
-Every file the package ships under `files` in `package.json` is generated by
-that build, and `npm run check:pack` verifies the artifact is complete. The
-build needs no paid credentials: providers that would require an API key
-degrade to free or manual sources (ADR-0002, ADR-0004).
+Every file the release ships under `files` in `package.json` is generated
+by that build, and `npm run check:pack` verifies the artifact is complete.
+The build needs no paid credentials: providers that would require an API
+key degrade to free or manual sources (ADR-0002, ADR-0004).
 
 This section is a written offer for the Corresponding Source, valid for
 three years from the date you received the object code, as AGPL §6(b)

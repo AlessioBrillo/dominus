@@ -107,6 +107,7 @@ re-running the original arguments.
 | [0099](0099-release-verified-against-the-world.md)                             | The release is verified against the world — the installer gate and the canary that blocks a tag      | 2026-10-28 | Accepted                            |
 | [0100](0100-launch-gate-profiles-and-evidence.md)                              | The launch gate has profiles and produces evidence, and the rehearsal is a command                   | 2026-11-02 | Accepted                            |
 | [0101](0101-local-first-release-engine.md)                                     | Local-first release engine                                                                           | 2026-11-08 | Accepted                            |
+| [0102](0102-github-release-sole-distribution-channel.md)                       | GitHub Release as the sole distribution channel                                                      | 2026-11-09 | Accepted                            |
 
 ## Conventions
 

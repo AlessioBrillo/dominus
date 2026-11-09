@@ -250,8 +250,8 @@ Put the report in `docs/security/` with a name that contains "external" or
 
 ### 7. The public distribution channel
 
-Since v1.3.4 the **GitHub Release is the primary channel** (ADR-0099). It
-does not depend on a registry account setting, and it is the channel the
+The **GitHub Release is the sole distribution channel** (ADR-0102). It does
+not depend on a registry account setting, and it is the channel the
 local-first release engine (`scripts/release-cut.mjs`, ADR-0101) verifies
 end-to-end:
 
@@ -261,27 +261,20 @@ end-to-end:
 - `dominus-oss.tgz` and `dominus-oss.tgz.sha256` are attached for a manual
   install (`npm install -g ./dominus-oss.tgz`);
 - `release-cut --publish` asserts the assets are there, installs the
-  published alias tarball and runs the first command, so an npm failure
-  cannot skip the verification of the channel users actually download.
+  published alias tarball and runs the first command, so a distribution
+  failure cannot skip the verification of the channel users actually download.
 
-**npm is best-effort.** `dominus-oss` is published with OIDC trusted
-publishing and a provenance attestation when the npm-side trusted publisher
-is configured; the publishes of `v1.2.0` and `v1.3.0` failed with `E404`
-because it was not. The one-time setup is in
-[npm-publishing.md](npm-publishing.md). Until it is done, `npx dominus-oss`
-does not exist, the README says so, and the GitHub Release is the same
-artifact.
+**npm is not used.** `dominus-oss` is not published to the npm registry.
+The GitHub Release tarball and its checksum are the artifact, and the
+installers are the install path. This avoids a second, unverified channel
+and a registry account that cannot be automated.
 
-The publish is re-runnable. Once the trusted publisher is configured,
-`release-cut --publish` (from master) rebuilds the same commit, updates the
-existing GitHub Release, and publishes the package; `release:verify` then
-installs it from the registry and runs it. The publish step skips the
-versions that are already on the registry, so a re-run of an already
-published version updates the release notes and still runs the verification
-instead of failing and skipping it.
+The publish is re-runnable. `release-cut --publish` (from master) rebuilds
+the same commit, updates the existing GitHub Release, and verifies the
+public channel end-to-end even when the tag push succeeds but a downstream
+step fails.
 
-The publish is now verified on both sides of the publish and on both
-channels (ADR-0091, ADR-0099):
+The publish is verified on both sides of the tag (ADR-0091, ADR-0099):
 
 - **before the tag**, by `npm run release:verify -- --pack` in the local
   gate: the tarball is installed in a throwaway directory and run, so an
@@ -291,15 +284,10 @@ channels (ADR-0091, ADR-0099):
   against a local HTTP server that serves the real tarball and checksum, on
   Linux and Windows, and must install a command that answers. A corrupted
   checksum must be refused;
-- **after the publish**, by `release-cut --publish` (and `release:verify`):
-  the published package is installed from the registry, the CLI is run, and
-  the provenance attestation is read. A failure there cannot un-publish the
-  package — the response is `npm deprecate` and a patch release — but it
-  turns a silent distribution failure into a red workflow;
 - **after the publish**, by `release-cut --publish`: the assets are
   asserted, the alias tarball is installed from the public URL, and the
   first command is run. This is the channel a stranger uses, and it is
-  verified even when npm fails.
+  verified end-to-end.
 
 The rehearsal of the publish itself is `gh workflow run release.yml -f
 dry_run=true`, which exercises the OIDC exchange for real without
@@ -333,7 +321,7 @@ publishing.
 | infrastructure | the applied plan, the TLS certificate, the health check | the deployment + the gate evidence |
 | restore drill | the drill output and the measured RTO/RPO | the operations log |
 | audit | the report | `docs/security/` |
-| npm | the published package and its provenance attestation | the release on npm |
+| distribution | the GitHub Release assets + installer verification | the release page |
 
 The full map — claim, command, artifact, location, visibility — is
 [evidence-index.md](../security/evidence-index.md). A row without an
