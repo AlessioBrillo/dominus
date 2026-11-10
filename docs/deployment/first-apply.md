@@ -79,7 +79,7 @@ The application topology can be proven before any account exists:
 ```bash
 git clone https://github.com/alessiobrillo/dominus.git
 cd dominus
-git switch v1.4.0          # the release being deployed
+git switch <the released tag>      # the release being deployed
 npm ci
 npm run launch:rehearse    # Docker required; builds the Cloud stack,
                            # runs the gate against it, writes evidence
@@ -173,7 +173,7 @@ hcloud_token   = "<the dominus-staging token>"
 ssh_public_key = "ssh-ed25519 AAAA... operator@laptop"
 domain         = "staging.example.com"
 location       = "fsn1"
-image_tag      = "v1.4.0"       # must name a RELEASED tag
+image_tag      = "<the released tag>"   # must name a RELEASED tag that exists on GHCR
 
 # The db node is operator-only and can be restricted freely.
 # The app node is reached by the rollout script from the operator host
@@ -345,7 +345,7 @@ ssh root@<app_public_ip> 'cat /opt/dominus/.env' > ~/.dominus/staging.env
 chmod 600 ~/.dominus/staging.env
 
 cd dominus
-git switch v1.4.0
+git switch <the released tag>
 node --env-file="$HOME/.dominus/staging.env" \
   scripts/launch-check.mjs --cloud \
   --url https://staging.example.com \
@@ -413,7 +413,7 @@ once and clone the same tag:
 ```bash
 ssh root@<db_private_ip>    # via the app node or the private network
 apt-get update && apt-get install -y nodejs npm git
-git clone --depth 1 --branch v1.4.0 \
+git clone --depth 1 --branch <the released tag> \
   https://github.com/alessiobrillo/dominus.git /opt/dominus/repo
 cd /opt/dominus/repo && npm ci --omit=dev
 ```
@@ -493,11 +493,19 @@ GitHub Actions is a billing-blocked mirror, so the release is cut with the
 local-first engine and rolled out with the shared rollout script:
 
 ```bash
-git tag v1.5.1
-git push origin v1.5.1
 node scripts/release-cut.mjs --publish
 # Then, on the target host (staging or production):
-./scripts/deploy/rollout.sh --tag v1.5.1 --environment staging
+DOMINUS_TAG=<the released tag> ./scripts/deploy/rollout.sh
+```
+
+The rollout script is the low-level primitive. The preferred operator entry point
+is `deploy-cut.mjs`, which runs preflight (tag + image verified), migrate,
+rollout, health poll, `launch:check --cloud --url`, and writes evidence — in
+one command:
+
+```bash
+# From the operator workstation, against a provisioned app node:
+npm run deploy:staging -- --tag <the released tag> --url https://staging.example.com
 ```
 
 The tag alone does not change what customers are served; the rollout does.

@@ -1,116 +1,40 @@
 version: 2
 updates:
-  - package-ecosystem: 'npm'
-    directory: '/'
+  # Production dependencies - weekly checks, auto-merge patch/minor on green CI
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '08:00'
+      interval: "weekly"
+      day: "monday"
     open-pull-requests-limit: 5
-    ignore:
-      # @types/psl ≥ 1.4.0 is a stub that delegates to psl's own types,
-      # but psl's package.json "exports" doesn't expose them under
-      # NodeNext resolution — the types become unresolvable.
-      # Pin at 1.1.3 which ships real declarations.
-      - dependency-name: '@types/psl'
-        versions: ['>=1.4.0']
-      # better-sqlite3 ≥ 13: no prebuilt binaries for Windows/Node 22-24,
-      # node-gyp rebuild fails on the Windows runners (EPERM).
-      # Pin at 12.x which ships prebuilds.
-      - dependency-name: 'better-sqlite3'
-        versions: ['>=13.0.0']
-      # typescript ≥ 7.0.0: typescript-eslint refuses to load with TS 7
-      # ("does not support TS 7.0") until it catches up.
-      - dependency-name: 'typescript'
-        versions: ['>=7.0.0']
-      # vitest ≥ 5.0.0 removed the `bench` export (vitest-dev/vitest#10113),
-      # which breaks src/benchmarks/*.bench.ts with TS2724, and moved `vite`
-      # to a required non-optional peer. Because .npmrc sets
-      # legacy-peer-deps=true, npm will not auto-install it, so `vitest run`
-      # dies with ERR_MODULE_NOT_FOUND. Port the benchmarks to the v5 API and
-      # add vite to devDependencies first — see the tracking issue. Unblock by
-      # removing this rule; the failure is deterministic, not flaky.
-      - dependency-name: 'vitest'
-        versions: ['>=5.0.0']
-      # The @vitest/* packages share vitest's version line. coverage-v8 5.x
-      # declares vitest 5 as a required peer, so a standalone bump of it while
-      # vitest stays on 4 is an install-time ERESOLVE, not a runtime problem:
-      # `npm ci` cannot resolve the tree at all. Blocking only `vitest`
-      # itself left the door open, which is exactly what PR #482 walked
-      # through. Same remedy: lift this when the benchmarks are ported.
-      - dependency-name: '@vitest/coverage-v8'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/expect'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/runner'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/snapshot'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/spy'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/mocker'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/utils'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/browser'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/pretty-format'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/istanbul-lib-coverage'
-        versions: ['>=5.0.0']
-      - dependency-name: '@vitest/istanbul-lib-report'
-        versions: ['>=5.0.0']
     groups:
       production:
-        dependency-type: 'production'
-          # Semantic-versioning majors in the development group are not worth
-          # a weekly PR: they never affect a shipped artifact, they break the
-          # test suite in ways that take real work to fix, and the lockfile
-          # churn makes review of the unrelated production bump harder. Keep
-          # majors opt-in via a manual, scoped PR.
-        exclude-patterns:
-          - '@vitest/*'
-      development:
-        dependency-type: 'development'
-        exclude-patterns:
-          - '@vitest/*'
-    labels:
-      - 'dependencies'
-
-  - package-ecosystem: 'npm'
-    directory: '/frontend'
-    schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '08:00'
-    open-pull-requests-limit: 3
+        patterns:
+          - "*"
     ignore:
-      # typescript ≥ 7.0.0: the frontend toolchain (typescript-eslint,
-      # tsx, vitest) does not yet accept TS 7 — ERESOLVE on install.
-      # Root workspace already migrated via PR #303; unblock here when
-      # the toolchain catches up.
-      - dependency-name: 'typescript'
-        versions: ['>=7.0.0']
-      # @tanstack/react-table ≥ 9: API rewrite (useReactTable removed,
-      # createReactTable model). Pin at 8.x.
-      - dependency-name: '@tanstack/react-table'
-        versions: ['>=9.0.0']
-    groups:
-      production:
-        dependency-type: 'production'
-      development:
-        dependency-type: 'development'
-    labels:
-      - 'dependencies'
-      - 'frontend'
+      # Major version bumps require manual review - they can change behavior
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  - package-ecosystem: 'github-actions'
-    directory: '/'
+  # Frontend dependencies
+  - package-ecosystem: "npm"
+    directory: "/frontend"
     schedule:
-      interval: 'weekly'
-      day: 'monday'
-      time: '08:00'
-    open-pull-requests-limit: 3
-    labels:
-      - 'dependencies'
-      - 'ci'
+      interval: "weekly"
+      day: "tuesday"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-production:
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+    open-pull-requests-limit: 5

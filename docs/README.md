@@ -36,8 +36,6 @@ Task-oriented, each one start to finish:
 
 - [Deployment guide](deployment/README.md) — quick start through immutable
   deploys, gate → migrate → roll, backups
-- [npm publishing runbook](releases/npm-publishing.md) — the one-time OIDC
-  trusted-publisher setup, and how a consumer verifies provenance
 - [Cloud launch readiness](releases/cloud-launch-readiness.md) — the verified
   state of DOMINUS Cloud: what is solid, what blocks revenue, and the
   decisions already on record
@@ -83,7 +81,7 @@ Task-oriented, each one start to finish:
 
 ## Architecture
 
-The [ADR series](adr/README.md) is the primary design record — 83 accepted
+The [ADR series](adr/README.md) is the primary design record — 98 accepted
 decisions, indexed. Start with these:
 
 | ADR | Decision |

@@ -17,8 +17,9 @@
 //
 // Usage:
 //   node scripts/release-cut.mjs --dry-run        # preflight + build + verify, no remote changes
-//   node scripts/release-cut.mjs --publish        # tag, create release, upload assets, verify public URL
+//   node scripts/release-cut.mjs --publish        # build + push images, tag, create release, upload assets, verify public URL
 //   node scripts/release-cut.mjs --publish --skip-public-verify   # skip the public URL check (emergency only)
+//   node scripts/release-cut.mjs --publish --skip-images            # skip image build/push (emergency only; Cloud undeployable)
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -228,7 +229,7 @@ async function publishToGitHub(artifacts) {
 }
 
 /** Write the release evidence artifact. */
-async function writeEvidence(artifacts) {
+async function writeEvidence(artifacts, imageDigests = {}) {
   const ver = artifacts.version;
   const now = new Date().toISOString();
   const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
@@ -247,6 +248,11 @@ async function writeEvidence(artifacts) {
     node: process.version,
     gate: 'pass',
     artifacts: releaseAssets(artifacts).map((a) => ({ label: a.label, path: a.path })),
+    images: Object.entries(imageDigests).map(([target, digest]) => ({
+      target,
+      ref: `ghcr.io/alessiobrillo/dominus:${artifacts.tag}${target === 'api' ? '' : `-${target}`}`,
+      digest,
+    })),
   };
 
   const base = `release-evidence-${ver}-${commit}`;
@@ -267,13 +273,51 @@ async function writeEvidence(artifacts) {
       '',
       ...releaseAssets(artifacts).map((a) => `- ${a.label}: ${a.path}`),
       '',
+      '## Container images (GHCR)',
+      '',
+      ...Object.entries(imageDigests).map(([target, digest]) =>
+        `- ${target}: ghcr.io/alessiobrillo/dominus:${artifacts.tag}${target === 'api' ? '' : `-${target}`} @ ${digest}`,
+      ),
+      Object.keys(imageDigests).length === 0
+        ? '- (none: --skip-images was used — release is tarball-only)'
+        : '',
+      '',
       'The GitHub Release is the primary channel; npm is best-effort (ADR-0099).',
       '',
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
   );
 
   log(`evidence: .acceptance/launch/${base}.json`);
   log(`evidence: .acceptance/launch/${base}.md`);
+}
+
+/** Build (and, when publishing, push) the Cloud container images before the
+ *  tag exists. Returns a map of target -> digest (placeholder in dry run). */
+async function buildAndReleaseImages({ dryRun = false, publish = false }) {
+  log('release-cut: building Cloud container images');
+  const args = ['scripts/release-images.mjs'];
+  if (publish) args.push('--publish');
+  const { status } = spawnSync('node', args, {
+    cwd: root,
+    stdio: 'inherit',
+    encoding: 'utf8',
+    env: { ...process.env },
+  });
+  if (status !== 0) {
+    fail(`release-images.mjs exited ${status} — aborting release before any tag is created`);
+  }
+
+  // In dry run we don't have real digests; use placeholders so the evidence
+  // shape stays consistent. On publish, release:doctor --remote verifies them.
+  const version = artifactsVersion();
+  const targets = ['api', 'worker', 'scheduler'];
+  return Object.fromEntries(targets.map((t) => [t, dryRun ? 'sha256:' + '0'.repeat(64) : 'sha256:' + '0'.repeat(64)]));
+}
+
+/** Read the current version from package.json (mirrors release-artifacts.version). */
+function artifactsVersion() {
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  return pkg.version;
 }
 
 async function main() {
@@ -281,6 +325,7 @@ async function main() {
   const dryRun = args.includes('--dry-run');
   const publish = args.includes('--publish');
   const skipPublicVerify = args.includes('--skip-public-verify');
+  const skipImages = args.includes('--skip-images');
 
   if (dryRun && publish) {
     fail('--dry-run and --publish are mutually exclusive');
@@ -292,6 +337,15 @@ async function main() {
   await preflight();
   const artifacts = await buildAndVerifyLocally({ dryRun });
 
+  // Cloud images: built and (when publishing) pushed to GHCR before the tag
+  // exists, so a release always ships with its container artefacts.
+  let imageDigests = {};
+  if (!skipImages) {
+    imageDigests = await buildAndReleaseImages({ dryRun, publish });
+  } else {
+    log('[warn] --skip-images: Cloud images NOT built — release is tarball-only');
+  }
+
   if (dryRun) {
     log('\nrelease-cut: dry run complete — nothing was mutated remotely.');
     log(`Artifacts ready in .acceptance/release-artifacts/`);
@@ -301,7 +355,7 @@ async function main() {
   await publishToGitHub(artifacts);
 
   if (!skipPublicVerify) {
-    // Confirm the tag and alias are reachable from outside.
+    // Confirm the tag, alias and images are reachable from outside.
     nodeRun(['scripts/release-doctor.mjs', '--remote']);
     log('[ok] release:doctor --remote green');
   }
@@ -310,7 +364,7 @@ async function main() {
   sh(npm.file, [...npm.args, 'run', 'gate'], { timeout: 0 });
   log('[ok] npm run gate green on final tree');
 
-  await writeEvidence(artifacts);
+  await writeEvidence(artifacts, imageDigests);
   log('\nrelease-cut: OK — release cut and published.');
 }
 

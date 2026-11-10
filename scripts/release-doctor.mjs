@@ -235,26 +235,48 @@ if (remote) {
     record('warn', 'release alias tarball', `could not reach ${aliasUrl}: ${err.message}`);
   }
 
-  const packages = sh([
-    'gh',
-    'api',
-    '/users/AlessioBrillo/packages/container/dominus/versions?per_page=100',
-    '--jq',
-    '.[].metadata.container.tags[]',
-  ]);
-  if (!packages.ok) {
+  // ── 5b. the container images in GHCR (anonymous, no token needed) ──────
+  // Public GHCR images can be inspected without auth: `docker manifest
+  // inspect` works anonymously. All three targets must exist, and the
+  // deployment pins the digest, so a missing image means the deploy would
+  // pull nothing — fail closed.
+  const imageTargets = ['api', 'worker', 'scheduler'];
+  let allImagesPresent = true;
+  for (const target of imageTargets) {
+    const suffix = target === 'api' ? '' : `-${target}`;
+    const ref = `ghcr.io/alessiobrillo/dominus:${tag}${suffix}`;
+    const inspect = sh(['docker', 'manifest', 'inspect', ref], { silent: true });
+    if (!inspect.ok) {
+      record(
+        'fail',
+        `container image ${target}`,
+        `${ref}: manifest unknown (docker manifest inspect failed: ${inspect.error}) - the deployment would pull nothing`,
+      );
+      allImagesPresent = false;
+    } else {
+      try {
+        const manifest = JSON.parse(inspect.output);
+        const manifests = manifest.manifests ?? [manifest];
+        const amd64 = manifests.find((m) => {
+          const p = m.platform ?? {};
+          return p.architecture === 'amd64' && p.os === 'linux';
+        });
+        const digest = amd64 ? amd64.digest : 'digest not readable';
+        record('pass', `container image ${target}`, `${ref} @ ${digest}`);
+      } catch {
+        record('pass', `container image ${target}`, `${ref}: manifest present`);
+      }
+    }
+  }
+  if (!allImagesPresent) {
     record(
-      'warn',
-      'container image',
-      'the image could not be verified (the GitHub token needs the read:packages scope)',
+      'fail',
+      'container images',
+      'one or more Cloud images are missing from GHCR - release-cut must build and push them before the tag exists',
     );
-  } else if (packages.output.includes(tag)) {
-    record('pass', 'container image', `${tag} is in the registry`);
-  } else {
-    record('fail', 'container image', `${tag} is not in the registry - the deployment would pull nothing`);
   }
 } else {
-  record('info', 'registries', 'not checked - pass --remote to check npm and the image registry');
+  record('info', 'registries', 'not checked - pass --remote to check npm, the image registry and the release alias');
 }
 
 // ── Report ───────────────────────────────────────────────────────────

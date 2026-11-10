@@ -133,6 +133,40 @@ steps:
     when:
       - event: [cron, manual]
 
+  # ------------------------------------------------------------------ terraform (IaC gate)
+  # Terraform fmt + validate + cloud-init render run on every push/PR.
+  # Credential-free: tfvars are gitignored and CI has no Hetzner token.
+  # This is the gate parity step — the first apply runs the same HCL that CI
+  # validates here.
+  - name: terraform
+    image: hashicorp/terraform:1.9.8
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - terraform fmt -check -recursive
+        working-directory: deploy/terraform
+      - terraform init -backend=false
+        working-directory: deploy/terraform
+      - terraform validate
+        working-directory: deploy/terraform
+
+  # ------------------------------------------------------------------ deploy scripts (behavior tests)
+  # rollout.sh, migrate.sh and migration-gate.sh run on the app node during
+  # every Cloud deploy. These tests exercise the full roll / verify / health /
+  # rollback state machine against a mocked stack — no live node required.
+  # They must run in the gate that decides whether a release is cut.
+  - name: deploy-scripts
+    image: node:22-bookworm
+    volumes:
+      - ci-npm:/root/.npm
+    commands:
+      - git config --global --add safe.directory '*'
+      - npm ci
+      - bash scripts/deploy/test-rollout.sh
+      - bash scripts/deploy/test-migrate.sh
+      - bash scripts/deploy/test-migration-gate.sh
+
 volumes:
   ci-npm:
   ci-frontend-npm:

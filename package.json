@@ -77,6 +77,7 @@
     "release:verify": "node scripts/verify-release.mjs",
     "release:doctor": "node scripts/release-doctor.mjs",
     "release:cut": "node scripts/release-cut.mjs",
+    "deploy:staging": "node scripts/deploy-cut.mjs",
     "release:verify:public": "node scripts/check-published-install.mjs",
     "check:quickstart": "node scripts/check-quickstart.mjs",
     "check:published-install": "node scripts/check-published-install.mjs",
