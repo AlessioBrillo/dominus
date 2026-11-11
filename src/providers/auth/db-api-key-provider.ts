@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { AuthResult, KeyManager } from './auth-provider.js';
-import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
+import type { ApiKeyRepository, StoredApiKey } from '../../db/repositories/api-key-repository.js';
 import { getLogger } from '../../logger.js';
 
 const logger = getLogger();
 
-const KEY_PREFIX_LENGTH = 8;
+const KEY_PREFIX_LENGTH = 12;
+
+/**
+ * Prefix length used by the keys minted before the widening. A key is
+ * looked up by its prefix, so a key created with the old length must
+ * still be found: the lookup tries the current length first and falls
+ * back to the legacy one.
+ */
+const LEGACY_KEY_PREFIX_LENGTH = 8;
 const KEY_BYTES = 32;
 
 export interface GeneratedApiKey {
@@ -64,8 +72,8 @@ export class DbApiKeyProvider implements KeyManager {
   }
 
   async validate(apiKey: string): Promise<AuthResult> {
-    const prefix = apiKey.slice(0, KEY_PREFIX_LENGTH);
-    const stored = await this.repo.findByPrefix(prefix);
+    const stored = await this.#findByPrefix(apiKey);
+
     if (!stored) {
       return { authenticated: false };
     }
@@ -90,6 +98,18 @@ export class DbApiKeyProvider implements KeyManager {
       tenantId: stored.tenantId,
       role: stored.role,
     };
+  }
+
+  /**
+   * Find the stored key by its prefix. The prefix is an index, not the
+   * secret: the lookup tries the current prefix width and then the legacy
+   * one, so a key minted before the widening keeps working.
+   */
+  async #findByPrefix(apiKey: string): Promise<StoredApiKey | null> {
+    const current = await this.repo.findByPrefix(apiKey.slice(0, KEY_PREFIX_LENGTH));
+    if (current) return current;
+    if (KEY_PREFIX_LENGTH <= LEGACY_KEY_PREFIX_LENGTH) return null;
+    return this.repo.findByPrefix(apiKey.slice(0, LEGACY_KEY_PREFIX_LENGTH));
   }
 }
 

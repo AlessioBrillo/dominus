@@ -7,6 +7,8 @@ vi.mock('@/hooks/useBilling', () => ({
   useSubscription: vi.fn(),
   useCreateCheckoutSession: vi.fn(),
   useCreatePortalSession: vi.fn(),
+  useChangeSubscription: vi.fn(),
+  useCancelSubscription: vi.fn(),
 }));
 
 import { BillingPage } from '../BillingPage';
@@ -14,6 +16,8 @@ import {
   useSubscription,
   useCreateCheckoutSession,
   useCreatePortalSession,
+  useChangeSubscription,
+  useCancelSubscription,
 } from '@/hooks/useBilling';
 
 const plans = [
@@ -29,6 +33,14 @@ beforeEach(() => {
     isPending: false,
   } as never);
   vi.mocked(useCreatePortalSession).mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  } as never);
+  vi.mocked(useChangeSubscription).mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  } as never);
+  vi.mocked(useCancelSubscription).mockReturnValue({
     mutate: vi.fn(),
     isPending: false,
   } as never);
@@ -75,5 +87,54 @@ describe('BillingPage', () => {
 
     await waitFor(() => expect(screen.getByText('2,500 candidates/month')).toBeInTheDocument());
     expect(screen.queryByText(/runs\/day/)).not.toBeInTheDocument();
+  });
+
+  it('offers the cancellation to a subscriber', async () => {
+    vi.mocked(useSubscription).mockReturnValue({
+      data: {
+        subscription: {
+          plan: 'pro',
+          status: 'active',
+          stripeCustomerId: 'cus_1',
+          stripeSubscriptionId: 'sub_1',
+        },
+        isStripeConfigured: true,
+        plans,
+      },
+      isLoading: false,
+    } as never);
+
+    render(<BillingPage />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Cancel subscription' })).toBeInTheDocument(),
+    );
+  });
+
+  it('changes the plan on the existing subscription instead of opening a checkout', async () => {
+    const mutate = vi.fn();
+    vi.mocked(useChangeSubscription).mockReturnValue({ mutate, isPending: false } as never);
+    vi.mocked(useSubscription).mockReturnValue({
+      data: {
+        subscription: {
+          plan: 'pro',
+          status: 'active',
+          stripeCustomerId: 'cus_1',
+          stripeSubscriptionId: 'sub_1',
+        },
+        isStripeConfigured: true,
+        plans,
+      },
+      isLoading: false,
+    } as never);
+
+    render(<BillingPage />, { wrapper: createWrapper() });
+
+    const switchButtons = await screen.findAllByRole('button', { name: 'Switch plan' });
+    expect(switchButtons.length).toBeGreaterThan(0);
+    switchButtons[0]!.click();
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0]?.[0]).toMatchObject({ interval: 'month' });
   });
 });

@@ -265,11 +265,13 @@ const configSchema = z
      * ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS returns an 'unverified' verdict (buy
      * signal stripped) instead of waiting or erroring — quality degrades
      * gracefully while provider cost stays bounded.
-     * Default: false (community edition keeps today's behaviour).
+     * Default: true in the Cloud (the anonymous namespace must never draw
+     * from the capacity a paying tenant's pipeline gate needs), false in the
+     * community edition (a single operator has no tenant to starve).
      */
     ANON_TRADEMARK_BUDGET_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
-      .default(false),
+      .default(() => detectCloudMode(process.env)),
     /** Rate limiting: max burst of anonymous trademark checks per interval. */
     ANON_TRADEMARK_RATE_LIMIT_TOKENS: z.coerce.number().int().min(1).max(100).default(2),
     /** Rate limiting: refill interval in ms for the anonymous trademark budget. */

@@ -48,19 +48,20 @@ export function createKeyManagementRouter(
     return router;
   }
 
-  // Free/pro/team seat limits (ADR-0038): the number of active API keys is
-  // the tenant's practical user count, so key mint is the enforcement
-  // point for the "single user" free tier. Enterprise is unlimited.
-  async function assertSeatAvailable(): Promise<void> {
+  // Machine-credential quota (ADR-0038): the number of active API keys a
+  // tenant may hold. The quota is separate from the seat quota: a key is
+  // not a person, and a tenant whose three seats are taken by three
+  // humans still needs a key for its CI.
+  async function assertKeyQuotaAvailable(): Promise<void> {
     if (!apiKeyRepo || !usageService) {
       return;
     }
     const tenantId = resolveTenantId();
     const plan = await usageService.effectivePlan(tenantId);
-    const seats = TEAM_PLAN_LIMITS[plan].seats;
+    const limit = TEAM_PLAN_LIMITS[plan].apiKeys;
     const activeKeys = await apiKeyRepo.countActiveByTenant(tenantId);
-    if (activeKeys >= seats) {
-      throw new SeatLimitExceededError(plan, seats);
+    if (activeKeys >= limit) {
+      throw new SeatLimitExceededError(plan, limit);
     }
   }
 
@@ -77,7 +78,7 @@ export function createKeyManagementRouter(
           .json({ error: { code: 'INVALID_INPUT', message: "role must be 'admin' or 'member'" } });
         return;
       }
-      await assertSeatAvailable();
+      await assertKeyQuotaAvailable();
       const generated = await provider.generate({
         tenantId: resolveTenantId(),
         name: name.trim(),

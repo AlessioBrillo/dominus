@@ -383,8 +383,8 @@ function privacyPolicy(identity: LegalIdentity, cloudMode: boolean): LegalDocume
       paragraphs: [
         'You have the right to access your data, to have it rectified, to have it erased, to restrict or object to the processing, to receive it in a portable format, and to complain to the supervisory authority.',
         `The supervisory authority is the ${identity.supervisoryAuthority || 'Garante per la protezione dei dati personali (Italy)'}.`,
-        'You can exercise the access and portability rights yourself: the API exposes an export function that returns everything the service holds about your tenant, and a deletion function that removes it. For the remaining rights, write to the data protection contact. We answer within one month, and we may ask you to confirm your identity first.',
-        'Deletion does not extend to copies that must be kept for legal reasons, such as issued invoices, or to backups that are overwritten on a rolling window; we explain this in the confirmation.',
+        'You can exercise the access and portability rights yourself: the API exposes an export function that returns everything the service holds about your tenant, and a deletion function that removes it. The export contains your personal data and the configuration you created; the credentials themselves (your API key hashes, your invitation tokens, the encrypted provider credentials you stored) are withheld, because a copy of your data is not a copy of our secrets. For the remaining rights, write to the data protection contact. We answer within one month, and we may ask you to confirm your identity first.',
+        'Deletion does not extend to copies that must be kept for legal reasons, such as issued invoices, or to backups that are overwritten on a rolling window; we explain this in the confirmation. Deleting your workspace also cancels your subscription: you are not invoiced for a service you cancelled.',
       ],
     });
     sections.push({

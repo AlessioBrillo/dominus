@@ -230,8 +230,21 @@ npm run acceptance:cloud
 It is a command, not a document: exit 0 means the assertions passed. The
 scope and the boundaries are in
 [cloud-acceptance.md](cloud-acceptance.md) — the boundaries are the work
-list of the staging phase, not a disclaimer. It runs in CI on every pull
-request, so a Cloud regression cannot reach `master`.
+list of the staging phase, not a disclaimer. It also asserts the **customer
+journey** (register → use → subscribe → erase), which is the part a
+paying tenant walks and the part no internal test can judge.
+
+```bash
+npm run acceptance:cloud   # the suite
+npm run gate:cloud         # the suite + the launch rehearsal
+```
+
+It is part of the Cloud release path (`npm run gate:release`). It is not
+part of the Woodpecker merge gate: the pipeline steps run in containers
+without the Docker CLI, and the GitHub mirror that has the job is
+billing-blocked. Until a Woodpecker agent with the Docker socket exists,
+this is a command the operator runs before a Cloud release — and the
+launch-readiness document says exactly that.
 
 ### 6. The third-party security audit
 

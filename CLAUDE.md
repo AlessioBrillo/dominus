@@ -110,7 +110,7 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.5.2 — the artifact tells the truth: `dominus doctor` reports its own version,
+DOMINUS v1.5.3 — the artifact tells the truth: `dominus doctor` reports its own version,
 database state, backup age and disk space on any installation, fresh or existing.
 `npm run launch:check` judges a community deployment and a Cloud deployment
 with the same implementation (profiles, auto-detection, `--paid`), writes
@@ -128,6 +128,18 @@ introduced the DOMINUS Cloud MVP.
 Next: execute the first staging apply, the audit, and the fiscal position.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
+
+The paid path is now a contract, not a description (ADR-0103 through
+ADR-0106): a tenant has one Stripe subscription and a plan change mutates
+it; the plan is granted only from the price id; the subscription event
+identifies the tenant; the data-subject erasure cancels the invoice and
+the export redacts the credentials; the signup workspace is linked to the
+single sign-on identity; the usage meter counts the work and not the
+reads; the public front door answers "what is it, what does it cost, how
+do I start". `npm run acceptance:cloud` asserts the customer journey
+(register → use → subscribe → erase) and `npm run gate:cloud` runs it with
+the launch rehearsal: it needs Docker and is part of the Cloud release
+path, not of the Woodpecker merge gate.
 
 Resolved design decisions:
 

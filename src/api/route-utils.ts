@@ -19,3 +19,25 @@ export function getRouteParam(req: Request, key: string): string | undefined {
   }
   return value;
 }
+
+/**
+ * True when a caller-supplied URL belongs to the deployment's own origin.
+ *
+ * The checkout and the billing portal take a redirect target from the
+ * client. A prefix comparison (`url.startsWith(appOrigin)`) accepts
+ * `https://dominus.app.attacker.tld`, because the string starts with the
+ * allowed origin: the customer would be sent to a lookalike host with the
+ * session id in the query string. The comparison is therefore done on the
+ * parsed origin, which is the only part that identifies the site.
+ *
+ * When no origin is configured the check is a no-op: the deployment has
+ * not declared a canonical origin, so there is nothing to compare against.
+ */
+export function isAllowedAppUrl(candidate: string, appOrigin: string | undefined): boolean {
+  if (appOrigin === undefined || appOrigin === '') return true;
+  try {
+    return new URL(candidate).origin === new URL(appOrigin).origin;
+  } catch {
+    return false;
+  }
+}

@@ -3,6 +3,8 @@ import {
   useSubscription,
   useCreateCheckoutSession,
   useCreatePortalSession,
+  useChangeSubscription,
+  useCancelSubscription,
 } from '@/hooks/useBilling';
 import type { BillingInterval, BillingPlan } from '@/api/billing';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -43,13 +45,24 @@ export function BillingPage() {
   const { data, isLoading } = useSubscription();
   const checkoutMutation = useCreateCheckoutSession();
   const portalMutation = useCreatePortalSession();
+  const changeMutation = useChangeSubscription();
+  const cancelMutation = useCancelSubscription();
   const [interval, setInterval] = useState<BillingInterval>('month');
 
   const subscription = data?.subscription;
   const isStripeConfigured = data?.isStripeConfigured ?? false;
   const plans = data?.plans ?? [];
 
+  // A tenant that already subscribes changes its plan on the existing
+  // subscription (ADR-0103). A tenant that does not subscribes starts a
+  // checkout.
+  const hasSubscription = Boolean(subscription?.stripeSubscriptionId);
+
   const handleUpgrade = (plan: BillingPlan) => {
+    if (hasSubscription) {
+      changeMutation.mutate({ plan, interval });
+      return;
+    }
     const baseUrl = `${window.location.protocol}//${window.location.host}`;
     checkoutMutation.mutate({
       plan,
@@ -110,6 +123,15 @@ export function BillingPage() {
                     disabled={portalMutation.isPending}
                   >
                     {portalMutation.isPending ? 'Opening...' : 'Manage Billing'}
+                  </Button>
+                )}
+                {isStripeConfigured && subscription.stripeSubscriptionId && (
+                  <Button
+                    variant="outline"
+                    onClick={() => cancelMutation.mutate('period_end')}
+                    disabled={cancelMutation.isPending}
+                  >
+                    {cancelMutation.isPending ? 'Cancelling...' : 'Cancel subscription'}
                   </Button>
                 )}
               </div>
@@ -181,7 +203,10 @@ export function BillingPage() {
                         ? undefined
                         : () => handleUpgrade(plan.id as BillingPlan)
                     }
-                    upgrading={checkoutMutation.isPending}
+                    upgrading={checkoutMutation.isPending || changeMutation.isPending}
+                    actionLabel={
+                      hasSubscription && subscription?.plan !== plan.id ? 'Switch plan' : 'Upgrade'
+                    }
                   />
                 ))}
             </div>
@@ -200,6 +225,7 @@ function PlanCard({
   highlighted,
   onUpgrade,
   upgrading,
+  actionLabel,
 }: {
   name: string;
   price: string;
@@ -208,6 +234,7 @@ function PlanCard({
   highlighted?: boolean;
   onUpgrade?: () => void;
   upgrading?: boolean;
+  actionLabel?: string;
 }) {
   return (
     <div
@@ -237,7 +264,7 @@ function PlanCard({
           variant={highlighted ? 'default' : 'outline'}
           className="mt-4 w-full"
         >
-          {upgrading ? 'Redirecting...' : 'Upgrade'}
+          {upgrading ? 'Working...' : (actionLabel ?? 'Upgrade')}
         </Button>
       )}
     </div>

@@ -102,6 +102,67 @@ describe('IdentityTenantResolver', () => {
     expect(await seats.findActiveByUserId('auth0|new')).toHaveLength(0);
   });
 
+  describe('linking a signup workspace to the single sign-on identity', () => {
+    it('lands the person in the workspace they created with their email', async () => {
+      // The self-serve signup creates the owner seat with the email: at
+      // signup time there is no identity-provider subject.
+      await join('tenant-signup', 'owner@example.com', 'admin');
+
+      const r = await resolver(false).resolve({
+        sub: 'auth0|u1',
+        email: 'owner@example.com',
+      });
+
+      expect(r).toEqual({ tenantId: 'tenant-signup', role: 'admin' });
+    });
+
+    it('re-links the seat to the identity-provider subject', async () => {
+      await join('tenant-signup', 'owner@example.com', 'admin');
+
+      await resolver(false).resolve({ sub: 'auth0|u1', email: 'owner@example.com' });
+
+      const bySubject = await seats.findActiveByUserId('auth0|u1');
+      expect(bySubject).toHaveLength(1);
+      expect(bySubject[0]?.tenantId).toBe('tenant-signup');
+      expect(await seats.findActiveByUserId('owner@example.com')).toHaveLength(0);
+    });
+
+    it('matches the email case-insensitively', async () => {
+      await join('tenant-signup', 'owner@example.com', 'admin');
+
+      const r = await resolver(false).resolve({
+        sub: 'auth0|u1',
+        email: 'Owner@Example.com',
+      });
+
+      expect(r.tenantId).toBe('tenant-signup');
+    });
+
+    it('does not link a workspace whose email does not match', async () => {
+      await join('tenant-signup', 'owner@example.com', 'admin');
+
+      const r = await resolver(false).resolve({
+        sub: 'auth0|u2',
+        email: 'someone.else@example.com',
+      });
+
+      expect(r.tenantId).toBeUndefined();
+    });
+
+    it('keeps the subject seat when the subject already has one', async () => {
+      await join('tenant-signup', 'owner@example.com', 'admin');
+      await join('tenant-team', 'auth0|u1', 'member');
+
+      const r = await resolver(false).resolve({
+        sub: 'auth0|u1',
+        email: 'owner@example.com',
+      });
+
+      // The seat of the subject wins: the person is already in a team.
+      expect(r).toEqual({ tenantId: 'tenant-team', role: 'member' });
+    });
+  });
+
   describe('validateSession (live check of an 8-hour session)', () => {
     it('passes an active seat and returns the current role', async () => {
       await join('team-a', 'auth0|u1', 'admin');

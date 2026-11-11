@@ -30,7 +30,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useMe } from '@/hooks/useMe';
 import { useTheme } from '@/hooks/useTheme';
-import { LoginForm } from '@/components/LoginForm';
+import { LandingPage } from '@/pages/LandingPage';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { inviteTokenFromPath, rememberInvite, takeInvite } from '@/lib/pending-invite';
@@ -102,7 +102,7 @@ export function Layout() {
   }
 
   if (!isAuthenticated) {
-    return <LoginForm />;
+    return <LandingPage />;
   }
 
   return (

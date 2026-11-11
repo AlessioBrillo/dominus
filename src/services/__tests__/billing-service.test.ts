@@ -5,13 +5,16 @@ import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
 import { SubscriptionRepository } from '../../db/repositories/subscription-repository.js';
 import { WebhookEventsRepository } from '../../db/repositories/webhook-events-repository.js';
 import { CustomPriceRepository } from '../../db/repositories/custom-price-repository.js';
-import { BillingService, isStripeSignatureError } from '../billing-service.js';
+import { BillingService, isStripeSignatureError, mapStripeStatus } from '../billing-service.js';
 
 const mockStripeApi = {
   constructEvent: vi.fn(),
   createSession: vi.fn(),
   createPortal: vi.fn(),
   retrieveSession: vi.fn(),
+  retrieveSubscription: vi.fn(),
+  updateSubscription: vi.fn(),
+  cancelSubscription: vi.fn(),
 };
 
 vi.mock('stripe', () => ({
@@ -23,6 +26,11 @@ vi.mock('stripe', () => ({
         create: mockStripeApi.createSession,
         retrieve: mockStripeApi.retrieveSession,
       },
+    };
+    subscriptions = {
+      retrieve: mockStripeApi.retrieveSubscription,
+      update: mockStripeApi.updateSubscription,
+      cancel: mockStripeApi.cancelSubscription,
     };
   },
 }));
@@ -266,7 +274,10 @@ describe('BillingService.checkout', () => {
       'https://dominus.app/billing?cancel=1',
     );
     const firstCall = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(firstCall.subscription_data).toEqual({ trial_period_days: 14 });
+    expect(firstCall.subscription_data).toEqual({
+      trial_period_days: 14,
+      metadata: { tenantId: 'tenant-1', plan: 'pro' },
+    });
 
     await subRepo.upsert({
       tenantId: 'tenant-1',
@@ -283,7 +294,11 @@ describe('BillingService.checkout', () => {
       'https://dominus.app/billing?cancel=1',
     );
     const secondCall = mockStripeApi.createSession.mock.calls[1]?.[0] as Record<string, unknown>;
-    expect(secondCall.subscription_data).toBeUndefined();
+    // The subscription always carries the tenant, so the subscription event
+    // identifies it even when it arrives before the checkout event.
+    expect(secondCall.subscription_data).toEqual({
+      metadata: { tenantId: 'tenant-1', plan: 'team' },
+    });
     expect(secondCall.line_items).toEqual([{ price: 'price_team_yearly', quantity: 1 }]);
   });
 });
@@ -316,6 +331,7 @@ describe('BillingService webhook handling', () => {
         metadata: { tenantId: 'tenant-1', plan: 'pro' },
         customer: 'cus_1',
         subscription: 'sub_1',
+        line_items: { data: [{ price: { id: 'price_pro_monthly' } }] },
       },
     });
     const service = new BillingService(baseConfig, subRepo, webhookRepo);
@@ -341,6 +357,7 @@ describe('BillingService webhook handling', () => {
         metadata: { tenantId: 'tenant-1', plan: 'pro' },
         customer: 'cus_1',
         subscription: 'sub_1',
+        line_items: { data: [{ price: { id: 'price_pro_monthly' } }] },
       },
     });
     const service = new BillingService(baseConfig, subRepo, webhookRepo);
@@ -361,6 +378,7 @@ describe('BillingService webhook handling', () => {
         metadata: { tenantId: 'tenant-1', plan: 'pro' },
         customer: 'cus_1',
         subscription: 'sub_1',
+        line_items: { data: [{ price: { id: 'price_pro_monthly' } }] },
       },
     });
     const service = new BillingService(baseConfig, subRepo, webhookRepo);
@@ -622,7 +640,10 @@ describe('BillingService checkout.session.completed plan derivation', () => {
     expect(sub?.plan).toBe('team');
   });
 
-  it('falls back to the metadata plan when the session cannot be retrieved', async () => {
+  it('refuses to grant a plan when the session cannot be retrieved', async () => {
+    // The price could not be established: the event is released and Stripe
+    // redelivers it. Granting the plan from the session metadata would let
+    // a checkout for one price grant another plan (ADR-0093).
     mockStripeApi.retrieveSession.mockRejectedValue(new Error('stripe unreachable'));
     stubWebhookEvent({
       id: 'evt_retrieve_failed',
@@ -636,10 +657,255 @@ describe('BillingService checkout.session.completed plan derivation', () => {
       },
     });
 
-    await expect(service().handleWebhookEvent(RAW, 'sig')).resolves.not.toThrow();
+    await expect(service().handleWebhookEvent(RAW, 'sig')).rejects.toThrow(/resolvable price/);
+
+    expect(await subRepo.findByTenantId('tenant-1')).toBeUndefined();
+    // The claim is released, so the redelivery is processed.
+    expect(await webhookRepo.isProcessed('stripe', 'evt_retrieve_failed')).toBe(false);
+  });
+});
+
+describe('BillingService subscription lifecycle', () => {
+  let db: SqliteProvider;
+  let subRepo: SubscriptionRepository;
+  let webhookRepo: WebhookEventsRepository;
+
+  beforeEach(async () => {
+    db = SqliteProvider.openInMemory();
+    await db.runMigrations();
+    subRepo = new SubscriptionRepository(db);
+    webhookRepo = new WebhookEventsRepository(db);
+    vi.clearAllMocks();
+    mockStripeApi.retrieveSubscription.mockResolvedValue({
+      id: 'sub_1',
+      status: 'active',
+      items: { data: [{ id: 'si_1', price: { id: 'price_pro_monthly' } }] },
+    });
+    mockStripeApi.updateSubscription.mockResolvedValue({
+      id: 'sub_1',
+      status: 'active',
+      items: { data: [{ id: 'si_1', price: { id: 'price_team_monthly' } }] },
+    });
+    mockStripeApi.cancelSubscription.mockResolvedValue({ id: 'sub_1', status: 'canceled' });
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  async function subscribe(plan: 'pro' | 'team' = 'pro'): Promise<void> {
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan,
+      status: 'active',
+      stripeCustomerId: 'cus_1',
+      stripeSubscriptionId: 'sub_1',
+    });
+  }
+
+  it('changes the plan on the EXISTING subscription, never with a second checkout', async () => {
+    await subscribe('pro');
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    const changed = await service.changeSubscription('tenant-1', 'team', 'month');
+
+    expect(changed).toEqual({
+      subscriptionId: 'sub_1',
+      priceId: 'price_team_monthly',
+      plan: 'team',
+    });
+    expect(mockStripeApi.updateSubscription).toHaveBeenCalledTimes(1);
+    const [id, params] = mockStripeApi.updateSubscription.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(id).toBe('sub_1');
+    expect(params.items).toEqual([{ id: 'si_1', price: 'price_team_monthly' }]);
+    expect(params.proration_behavior).toBe('create_prorations');
+    expect(params.metadata).toMatchObject({ tenantId: 'tenant-1', plan: 'team' });
+    // The defect this endpoint exists for: no second subscription.
+    expect(mockStripeApi.createSession).not.toHaveBeenCalled();
+  });
+
+  it('does not create a subscription when the tenant has none', async () => {
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    const changed = await service.changeSubscription('tenant-1', 'team', 'month');
+
+    expect(changed).toBeNull();
+    expect(mockStripeApi.updateSubscription).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the price of the requested plan is not configured', async () => {
+    await subscribe('pro');
+    const cfg = {
+      ...baseConfig,
+      STRIPE_PRICE_ID_TEAM_MONTHLY: undefined,
+    } as Config;
+    const service = new BillingService(cfg, subRepo, webhookRepo);
+
+    const changed = await service.changeSubscription('tenant-1', 'team', 'month');
+
+    expect(changed).toBeNull();
+    expect(mockStripeApi.updateSubscription).not.toHaveBeenCalled();
+  });
+
+  it('cancels immediately when asked to', async () => {
+    await subscribe();
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    const cancelled = await service.cancelSubscription('tenant-1', 'immediate');
+
+    expect(cancelled).toEqual({ subscriptionId: 'sub_1', cancelAtPeriodEnd: false });
+    expect(mockStripeApi.cancelSubscription).toHaveBeenCalledWith('sub_1');
+  });
+
+  it('cancels at the end of the period when asked to', async () => {
+    await subscribe();
+    mockStripeApi.updateSubscription.mockResolvedValue({
+      id: 'sub_1',
+      status: 'active',
+      cancel_at_period_end: true,
+      items: { data: [{ id: 'si_1', price: { id: 'price_pro_monthly' } }] },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    const cancelled = await service.cancelSubscription('tenant-1', 'period_end');
+
+    expect(cancelled).toEqual({ subscriptionId: 'sub_1', cancelAtPeriodEnd: true });
+    expect(mockStripeApi.cancelSubscription).not.toHaveBeenCalled();
+    const [, params] = mockStripeApi.updateSubscription.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(params.cancel_at_period_end).toBe(true);
+  });
+
+  it('reports that there is nothing to cancel for a tenant without a subscription', async () => {
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await expect(service.cancelSubscriptionForTenant('tenant-1')).resolves.toBe(false);
+    expect(mockStripeApi.cancelSubscription).not.toHaveBeenCalled();
+  });
+
+  it('cancels the subscription when a tenant is erased', async () => {
+    await subscribe();
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await expect(service.cancelSubscriptionForTenant('tenant-1')).resolves.toBe(true);
+    expect(mockStripeApi.cancelSubscription).toHaveBeenCalledWith('sub_1');
+  });
+});
+
+describe('BillingService subscription events', () => {
+  let db: SqliteProvider;
+  let subRepo: SubscriptionRepository;
+  let webhookRepo: WebhookEventsRepository;
+
+  beforeEach(async () => {
+    db = SqliteProvider.openInMemory();
+    await db.runMigrations();
+    subRepo = new SubscriptionRepository(db);
+    webhookRepo = new WebhookEventsRepository(db);
+    vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  const RAW = Buffer.from('{"id":"evt_1","type":"customer.subscription.updated"}', 'utf8');
+
+  it('resolves the tenant from the subscription metadata, before the checkout event', async () => {
+    // The subscription event arrives before checkout.session.completed often
+    // enough that the customer lookup alone lost it.
+    stubWebhookEvent({
+      id: 'evt_sub',
+      type: 'customer.subscription.updated',
+      object: {
+        id: 'sub_9',
+        customer: 'cus_unknown',
+        status: 'active',
+        metadata: { tenantId: 'tenant-1', plan: 'pro' },
+        items: { data: [{ price: { id: 'price_pro_monthly' } }] },
+      },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.handleWebhookEvent(RAW, 'sig');
 
     const sub = await subRepo.findByTenantId('tenant-1');
     expect(sub?.plan).toBe('pro');
+    expect(sub?.status).toBe('active');
+    expect(sub?.stripeSubscriptionId).toBe('sub_9');
+  });
+
+  it('keeps the current plan when the price id maps to no plan', async () => {
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'active',
+      stripeCustomerId: 'cus_1',
+    });
+    stubWebhookEvent({
+      id: 'evt_unknown',
+      type: 'customer.subscription.updated',
+      object: {
+        id: 'sub_9',
+        customer: 'cus_1',
+        status: 'active',
+        items: { data: [{ price: { id: 'price_made_up' } }] },
+      },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.plan).toBe('pro');
+  });
+
+  it('fails closed on a status that grants nothing', async () => {
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'active',
+      stripeCustomerId: 'cus_1',
+    });
+    stubWebhookEvent({
+      id: 'evt_unpaid',
+      type: 'customer.subscription.updated',
+      object: {
+        id: 'sub_9',
+        customer: 'cus_1',
+        status: 'unpaid',
+        items: { data: [{ price: { id: 'price_pro_monthly' } }] },
+      },
+    });
+    const service = new BillingService(baseConfig, subRepo, webhookRepo);
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    const sub = await subRepo.findByTenantId('tenant-1');
+    expect(sub?.status).toBe('past_due');
+  });
+});
+
+describe('mapStripeStatus', () => {
+  it('grants the plan for the statuses that mean the customer is paying', () => {
+    expect(mapStripeStatus('active')).toBe('active');
+    expect(mapStripeStatus('trialing')).toBe('trialing');
+  });
+
+  it('fails closed for every other status', () => {
+    expect(mapStripeStatus('past_due')).toBe('past_due');
+    expect(mapStripeStatus('unpaid')).toBe('past_due');
+    expect(mapStripeStatus('paused')).toBe('past_due');
+    expect(mapStripeStatus('canceled')).toBe('canceled');
+    expect(mapStripeStatus('incomplete')).toBe('incomplete');
+    expect(mapStripeStatus('incomplete_expired')).toBe('canceled');
+    expect(mapStripeStatus(undefined)).toBe('incomplete');
+    expect(mapStripeStatus('something-new')).toBe('incomplete');
   });
 });
 

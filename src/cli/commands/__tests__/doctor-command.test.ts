@@ -39,7 +39,11 @@ Score: vintagecoffee.com
     if (cmd.includes('fsutil')) {
       return 'Volume label: C:\nFree bytes   : 107374182400\nTotal bytes  : 214748364800\nTotal free bytes : 107374182400\n';
     }
-    return 'Filesystem     1K-blocks    Used Available Use% Mounted on\n/dev/sda1       104857600 20971520 83886080  20% /\n';
+    // The command is `df -P / | tail -1`: ONE line, the data row. The
+    // header line must not be in the mock: the probe reads the fourth
+    // column of the line it gets, and a two-line mock made the check
+    // read the word "Available" as a number (NaN) on Linux.
+    return '/dev/sda1       104857600 20971520 83886080  20% /\n';
   }),
 }));
 

@@ -25,8 +25,18 @@ v1.5.1 - The Gate Leaves GitHub: the merge gate moves from GitHub Actions
 `ci-local`); ADR-0101 documents the local-first release engine; front-door
 polish (`--help`/`--version`/`score --help` silent on stderr); release and
 launch documentation describe the real publishing path (released).
-Next: execute the first staging apply (v1.6.0), the third-party audit,
-the fiscal position, and only then the paid Cloud tiers.
+v1.6.0 - The Customer Journey Contract: the paid path is executed, not
+  described. A tenant has ONE Stripe subscription and a plan change mutates
+  it (ADR-0103); the plan is granted only from the price id and the
+  subscription event identifies the tenant (no more lost events, no more
+  metadata-trust); the data-subject erasure cancels the subscription and
+  the export redacts the credentials (ADR-0106); the signup workspace is
+  linked to the single sign-on identity by the verified email, and the
+  seat quota and the machine-key quota are separate (ADR-0104); the usage
+  meter counts the work and not the reads (ADR-0105); the public front
+  door (landing, pricing, signup) replaces the bare login form.
+Next: execute the first staging apply, the third-party audit, the fiscal
+position, and only then the paid Cloud tiers.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 

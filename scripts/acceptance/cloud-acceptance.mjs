@@ -709,6 +709,114 @@ async function main() {
     assert(res.status === 400, `expected 400, got ${res.status}`);
   });
 
+  process.stdout.write('\nThe customer journey\n');
+
+  // The journey of a customer who signs up, uses the product, subscribes
+  // and erases their account. The suite asserted the internals of the
+  // Cloud (isolation, RLS, the webhook, the usage surface) but never the
+  // path a customer actually walks, which is where the defects that cost
+  // money lived: a plan change that opened a second subscription, a
+  // subscription event lost to an ordering race, an export that carried
+  // the credentials.
+
+  const journeyTenantId = 'acceptance-journey-tenant';
+  let registeredTenantId = '';
+
+  await check('a customer registers a workspace and receives a key', async () => {
+    const res = await http('/api/v1/auth/register', {
+      method: 'POST',
+      body: { name: 'Journey Customer', email: 'journey@example.com' },
+    });
+    assert(res.status === 201, `expected 201, got ${res.status}: ${res.text.slice(0, 300)}`);
+    assert(typeof res.json?.key === 'string', 'the registration did not return a key');
+    assert(typeof res.json?.tenantId === 'string', 'the registration did not return a tenant id');
+    registeredTenantId = res.json.tenantId;
+    keys[registeredTenantId] = res.json.key;
+  });
+
+  await check('the new workspace can use the API with its key', async () => {
+    const res = await api(keys[registeredTenantId], '/api/v1/usage/limits');
+    assert(res.status === 200, `expected 200, got ${res.status}: ${res.text.slice(0, 200)}`);
+    const limits = Array.isArray(res.json) ? res.json : [];
+    assert(limits.length > 0, 'the usage limits are empty');
+    assert(
+      limits.every((limit) => limit?.plan === 'free'),
+      `expected the free plan, got ${JSON.stringify(limits.map((l) => l?.plan))}`,
+    );
+  });
+
+  await check('the subscription event grants the plan to the registered workspace', async () => {
+    // The subscription carries the tenant: the event identifies the
+    // customer even when it arrives before the checkout event.
+    const payload = JSON.stringify({
+      id: 'evt_acceptance_subscription',
+      object: 'event',
+      type: 'customer.subscription.updated',
+      created: Math.floor(Date.now() / 1000),
+      livemode: false,
+      api_version: '2024-06-20',
+      data: {
+        object: {
+          id: 'sub_acceptance_journey',
+          object: 'subscription',
+          customer: 'cus_acceptance_journey',
+          status: 'active',
+          metadata: { tenantId: registeredTenantId, plan: 'pro' },
+          items: {
+            object: 'list',
+            data: [{ object: 'item', price: { id: PRICE_PRO_MONTHLY, object: 'price' } }],
+          },
+        },
+      },
+    });
+    const signature = stripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: STRIPE_WEBHOOK_SECRET,
+    });
+    const res = await http('/api/v1/billing/webhook', {
+      method: 'POST',
+      rawBody: payload,
+      raw: true,
+      headers: { 'content-type': 'application/json', 'stripe-signature': signature },
+    });
+    assert(res.status === 200, `expected 200, got ${res.status}: ${res.text.slice(0, 300)}`);
+  });
+
+  await check('the workspace has exactly one subscription row', async () => {
+    const rows = sqlOwner(
+      `SELECT count(*) FROM tenant_subscriptions WHERE tenant_id = '${registeredTenantId}'`,
+    );
+    assert(rows === '1', `expected exactly one subscription row, got ${rows}`);
+    const plan = sqlOwner(
+      `SELECT plan FROM tenant_subscriptions WHERE tenant_id = '${registeredTenantId}'`,
+    );
+    assert(plan === 'pro', `expected the pro plan, got ${plan}`);
+  });
+
+  await check('the export does not carry the API key hash', async () => {
+    const res = await api(keys[registeredTenantId], '/api/v1/tenant/export');
+    assert(res.status === 200, `expected 200, got ${res.status}: ${res.text.slice(0, 200)}`);
+    const apiKeys = (res.json?.tables ?? []).find((t) => t?.table === 'api_keys');
+    assert(apiKeys, 'the export does not contain the api_keys table');
+    assert(
+      (apiKeys.rows ?? []).every((row) => row?.key_hash === '[redacted]'),
+      'the export carries the API key hash',
+    );
+  });
+
+  await check('the customer erases their workspace', async () => {
+    const res = await api(keys[registeredTenantId], '/api/v1/tenant', {
+      method: 'DELETE',
+      body: { confirm: registeredTenantId },
+    });
+    assert(res.status === 200, `expected 200, got ${res.status}: ${res.text.slice(0, 300)}`);
+    assert(res.json?.liveDataErased === true, 'the erasure did not report the erasure');
+    const rows = sqlOwner(
+      `SELECT count(*) FROM tenant_subscriptions WHERE tenant_id = '${registeredTenantId}'`,
+    );
+    assert(rows === '0', `the erasure left ${rows} subscription row(s) behind`);
+  });
+
   process.stdout.write('\nThe worker and the scheduler\n');
 
   await check('the scheduler enqueues a job the worker consumes', async () => {
