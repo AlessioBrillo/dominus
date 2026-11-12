@@ -32,6 +32,43 @@ v1.4.0.
 
 ## Blockers, in the order they must be cleared
 
+### 0. The customer journey is now executed, not described (v1.6.0)
+
+The scan that preceded the public launch found that the paid path had
+never been walked end to end: the acceptance suite asserted the internals
+of the Cloud (isolation, RLS, the webhook, the usage surface) and not the
+path a customer walks. Four defects lived in that gap, and three of them
+cost money:
+
+- a plan change opened a **second** Stripe subscription (two invoices);
+- the plan could be granted from the session metadata, against ADR-0093;
+- a subscription event was **lost** when it arrived before the checkout
+  event, because the subscription carried no tenant;
+- the data-subject erasure deleted the rows but left the **invoice**
+  running.
+
+They are closed (ADR-0103, ADR-0104, ADR-0105, ADR-0106) and the journey
+is asserted by the acceptance suite:
+
+| Assertion | What it protects |
+|---|---|
+| a customer registers a workspace and receives a key | the acquisition path exists |
+| the new workspace can use the API with its key | the key is a working credential |
+| the subscription event grants the plan to the registered workspace | the event is not lost |
+| the workspace has exactly one subscription row | no second subscription, no double invoice |
+| the export does not carry the API key hash | the data-subject copy carries data, not secrets |
+| the customer erases their workspace | the erasure works and the subscription stops |
+
+The suite runs in `npm run acceptance:cloud` and, with the rehearsal, in
+`npm run gate:cloud`. **It is not part of the Woodpecker merge gate**:
+the pipeline steps run in containers without the Docker CLI, so a step
+that starts the stack cannot run there yet. The GitHub mirror has the job
+(`.github/workflows/ci.yml`, `cloud-acceptance`), but GitHub Actions is
+billing-blocked. Until a Woodpecker agent with the Docker socket exists,
+the Cloud gate is a command the operator runs before a Cloud release, and
+the launch-readiness document says so instead of claiming a CI run that
+does not happen.
+
 ### 1. The community CLI is installable — GitHub Release is the sole channel
 
 The community edition ships as a **GitHub Release**: a versioned tarball, a

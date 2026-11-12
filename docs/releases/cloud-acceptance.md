@@ -46,7 +46,21 @@ Useful switches:
 Requirements: Docker, and the Playwright browser once per machine
 (`npm run e2e:install`).
 
-In CI the suite runs on every pull request (Linux) as its own job.
+In the GitHub mirror the suite runs on every pull request (Linux) as its
+own job. GitHub Actions is billing-blocked, so the **authoritative** gate
+is the Woodpecker pipeline, and the suite is **not** part of it: the
+pipeline steps run in containers without the Docker CLI, so a step that
+starts the stack cannot run there yet. The command that gates a Cloud
+release is therefore:
+
+```bash
+npm run gate:cloud   # acceptance:cloud + launch:rehearse
+```
+
+and it is part of `npm run gate:release`. Adding the suite to the
+Woodpecker pipeline needs an agent with the Docker socket and a step
+image that carries the Docker CLI; until then the document says this
+instead of claiming a CI run that does not happen.
 
 ### The stack
 

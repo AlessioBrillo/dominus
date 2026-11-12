@@ -110,6 +110,23 @@ export class TeamSeatsRepository {
     return row ? teamSeatFromRow(row) : undefined;
   }
 
+  /**
+   * Move a seat from one user identifier to another.
+   *
+   * The self-serve signup creates the owner seat with the EMAIL as the user
+   * identifier, because at that moment there is no identity-provider
+   * subject. When the same person signs in with single sign-on, the seat is
+   * re-linked to the provider subject: without it the person would land in
+   * a second, empty tenant and lose sight of the workspace they created.
+   */
+  async relinkUser(tenantId: string, fromUserId: string, toUserId: string): Promise<void> {
+    await this.#db.exec('UPDATE team_seats SET user_id = ? WHERE tenant_id = ? AND user_id = ?', [
+      toUserId,
+      tenantId,
+      fromUserId,
+    ]);
+  }
+
   async invite(tenantId: string, userId: string, role: TeamRole, invitedBy: string): Promise<void> {
     await this.#db.exec(
       `INSERT INTO team_seats (tenant_id, user_id, role, invited_by, status)

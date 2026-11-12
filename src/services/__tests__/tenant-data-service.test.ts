@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SqliteProvider } from '../../db/provider/sqlite-adapter.js';
-import { TenantDataService } from '../tenant-data-service.js';
+import { TenantDataService, REDACTED_VALUE } from '../tenant-data-service.js';
 
 /**
  * The data-subject export and erasure.
@@ -148,6 +148,100 @@ describe('TenantDataService', () => {
       await service.deleteTenant('tenant-a');
       const second = await service.deleteTenant('tenant-a');
       expect(second.totalRows).toBe(0);
+    });
+  });
+
+  describe('subscription cancellation', () => {
+    it('cancels the subscription before erasing the rows', async () => {
+      const order: string[] = [];
+      const canceller = vi.fn(async (tenantId: string) => {
+        order.push(`cancel:${tenantId}`);
+        return true;
+      });
+      const withBilling = new TenantDataService(db, { subscriptionCanceller: canceller });
+
+      const report = await withBilling.deleteTenant('tenant-a');
+
+      expect(canceller).toHaveBeenCalledWith('tenant-a');
+      expect(order).toEqual(['cancel:tenant-a']);
+      expect(report.subscriptionCancelled).toBe(true);
+    });
+
+    it('erases the rows even when the cancellation fails, and says so', async () => {
+      const canceller = vi.fn(async () => {
+        throw new Error('stripe unreachable');
+      });
+      const withBilling = new TenantDataService(db, { subscriptionCanceller: canceller });
+
+      const report = await withBilling.deleteTenant('tenant-a');
+
+      expect(report.subscriptionCancelled).toBe(false);
+      const remaining = await db.query<{ domain: string }>(
+        `SELECT domain FROM candidates WHERE tenant_id = 'tenant-a'`,
+      );
+      expect(remaining).toHaveLength(0);
+    });
+
+    it('reports no subscription when the tenant has none', async () => {
+      const canceller = vi.fn(async () => false);
+      const withBilling = new TenantDataService(db, { subscriptionCanceller: canceller });
+
+      const report = await withBilling.deleteTenant('tenant-a');
+
+      expect(report.subscriptionCancelled).toBe(false);
+    });
+
+    it('does not touch the subscription when no canceller is configured', async () => {
+      const report = await service.deleteTenant('tenant-a');
+      expect(report.subscriptionCancelled).toBeNull();
+    });
+  });
+
+  describe('secret redaction', () => {
+    beforeEach(async () => {
+      await db.exec(
+        `INSERT INTO api_keys (tenant_id, name, key_hash, key_prefix, role)
+         VALUES ('tenant-a', 'ops', 'salt:derived', 'abcdef123456', 'admin')`,
+      );
+      await db.exec(
+        `INSERT INTO team_invitations (tenant_id, email, role, token_hash, expires_at)
+         VALUES ('tenant-a', 'member@example.com', 'member', 'invitationhash', '2027-01-01')`,
+      );
+      await db.exec(
+        `INSERT INTO tenant_credentials (tenant_id, provider_type, provider_name, encrypted_credential)
+         VALUES ('tenant-a', 'registrar', 'cloudflare', 'ciphertext')`,
+      );
+    });
+
+    it('does not export the API key hash', async () => {
+      const exported = await service.exportTenant('tenant-a');
+      const apiKeys = exported.tables.find((t) => t.table === 'api_keys');
+      expect(apiKeys?.rows).toHaveLength(1);
+      expect(apiKeys?.rows[0]?.['key_hash']).toBe(REDACTED_VALUE);
+      expect(JSON.stringify(exported)).not.toContain('salt:derived');
+    });
+
+    it('does not export the invitation token hash', async () => {
+      const exported = await service.exportTenant('tenant-a');
+      expect(JSON.stringify(exported)).not.toContain('invitationhash');
+    });
+
+    it('does not export the stored provider credential', async () => {
+      const exported = await service.exportTenant('tenant-a');
+      expect(JSON.stringify(exported)).not.toContain('ciphertext');
+    });
+
+    it('keeps the non-secret columns of the same rows', async () => {
+      const exported = await service.exportTenant('tenant-a');
+      const apiKeys = exported.tables.find((t) => t.table === 'api_keys');
+      expect(apiKeys?.rows[0]?.['name']).toBe('ops');
+      expect(apiKeys?.rows[0]?.['key_prefix']).toBe('abcdef123456');
+    });
+
+    it('redacts only the credential columns of the listed tables', () => {
+      const rows = [{ domain: 'alpha.com', key_hash: 'x' }];
+      expect(TenantDataService.redact('candidates', rows)).toEqual(rows);
+      expect(TenantDataService.redact('api_keys', rows)[0]?.['key_hash']).toBe(REDACTED_VALUE);
     });
   });
 });

@@ -15,6 +15,8 @@ type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 interface OperationSpec {
   tag: string;
   summary: string;
+  /** Longer explanation, appended to the role note. */
+  description?: string;
   /** Request has a JSON body. */
   body?: boolean;
   /** Required caller role beyond authentication. */
@@ -115,6 +117,18 @@ const ROWS: readonly Row[] = [
     { tag: 'Billing', summary: 'Start a Stripe checkout session', body: true },
   ],
   ['post', '/billing/portal', { tag: 'Billing', summary: 'Open the Stripe customer portal' }],
+  [
+    'post',
+    '/billing/subscription',
+    {
+      tag: 'Billing',
+      summary: 'Change the plan or cancel the subscription',
+      description:
+        'Mutates the EXISTING Stripe subscription: a plan change never opens a second one ' +
+        '(ADR-0103). The plan is granted when the payment provider confirms the change.',
+      body: true,
+    },
+  ],
   ['get', '/usage', { tag: 'Usage', summary: 'Metered usage for the current period' }],
   ['get', '/usage/history', { tag: 'Usage', summary: 'Usage history by day' }],
   ['get', '/usage/limits', { tag: 'Usage', summary: 'Plan limits' }],
@@ -420,10 +434,11 @@ function operationFor(path: string, spec: OperationSpec): Record<string, unknown
       : spec.role === 'admin'
         ? ' Requires the tenant admin role.'
         : '';
+  const description = [roleNote.trim(), spec.description].filter(Boolean).join(' ');
   return {
     tags: [spec.tag],
     summary: spec.summary,
-    ...(roleNote ? { description: roleNote.trim() } : {}),
+    ...(description ? { description } : {}),
     ...(pathParams.length + queryParams.length > 0
       ? { parameters: [...pathParams, ...queryParams] }
       : {}),

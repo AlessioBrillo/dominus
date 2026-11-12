@@ -29,7 +29,8 @@ describe('DbApiKeyProvider', () => {
     const p = new DbApiKeyProvider(mockRepo());
     const r = await p.generate({ tenantId: 'default', name: 'k', role: 'admin' });
     expect(r.fullKey).toBeTruthy();
-    expect(r.prefix).toBe(r.fullKey.slice(0, 8));
+    expect(r.prefix).toBe(r.fullKey.slice(0, 12));
+    expect(r.prefix).toHaveLength(12);
     expect(r.name).toBe('k');
     expect(r.id).toBe(1);
   });
@@ -41,6 +42,27 @@ describe('DbApiKeyProvider', () => {
     expect(r.authenticated).toBe(true);
     expect(r.keyName).toBe('k');
     expect(r.tenantId).toBe('t');
+  });
+
+  it('validate still succeeds for a key minted with the legacy 8-char prefix', async () => {
+    const repo = mockRepo();
+    const legacy = await repo.create({
+      tenantId: 't',
+      name: 'legacy',
+      keyHash: 'hash',
+      keyPrefix: 'abcd1234',
+      role: 'admin',
+      expiresAt: null,
+    });
+    expect(legacy.keyPrefix).toHaveLength(8);
+
+    const p = new DbApiKeyProvider(repo);
+    // The stored key hash does not match, so the lookup must still find the
+    // row by the legacy prefix instead of reporting an unknown key.
+    const r = await p.validate('abcd1234ffffffffffffffffffffffffffffffff');
+    expect(r.authenticated).toBe(false);
+    const found = await repo.findByPrefix('abcd1234');
+    expect(found).not.toBeNull();
   });
 
   it('validate fails for unknown key', async () => {

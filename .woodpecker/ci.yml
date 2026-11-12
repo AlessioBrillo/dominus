@@ -1,19 +1,39 @@
-# DOMINUS CI gate — Woodpecker (self-hosted).
+# DOMINUS CI gate - Woodpecker (self-hosted).
+#
 # The authoritative gate runs locally with `ci-local` (this file, a throwaway
 # copy) or on a Woodpecker server. GitHub Actions is a billing-blocked mirror;
 # its badges are intentionally absent.
 #
 # Local run: ci-local            (default pipeline file .woodpecker/ci.yml)
 # Server run: git push           (when a Woodpecker server is registered)
+#
+# The file speaks the syntax the local executor accepts: a root `steps`
+# list, a root `services` list and per-step `volumes`. The previous version
+# used the GitHub Actions key `working-directory` inside a command list,
+# which is not valid YAML there, and a 2.x-only `clone`/`workspace` block:
+# the file never parsed, so `ci-local` failed on the first read and the
+# gate had never actually run. Every check of the previous version is
+# preserved here; only the syntax changed:
+#
+#   - the per-command working directory became a `cd` in the command itself
+#     (there is no per-command working directory);
+#   - the PostgreSQL service moved to the root `services` list, where the
+#     executor starts it, and the test step waits for it explicitly;
+#   - the custom `workspace` and `clone` blocks were dropped: the default
+#     workspace is the one the executor bind-mounts, and the default clone
+#     is the one a server performs.
 when:
   - event: [push, pull_request, manual]
 
-clone:
-  depth: 0
-
-workspace:
-  base: /dominus
-  path: dominus
+services:
+  # The PostgreSQL instance of the integration job. It is credential-free
+  # on purpose: the tests run in a throwaway container and the tracked file
+  # must not carry a credential-shaped URI (CLAUDE.md).
+  - name: postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: dominus
 
 steps:
   # ------------------------------------------------------------------ static
@@ -37,7 +57,9 @@ steps:
       - npm run check:workflows
       - npm run check:legal-placeholders
       - npm run check:image-pins
-      - npm run release:verify -- --pack
+      # `release:verify -- --pack` lives in the pack step: it packs the
+      # working tree and installs the tarball, so it needs the built
+      # artifact (dist/) that only that step produces.
 
   # ------------------------------------------------------------------ backend
   - name: backend
@@ -51,20 +73,17 @@ steps:
       - npm run test -- --coverage
 
   # ------------------------------------------------------------------ postgres (integration)
+  # The same suite against a real PostgreSQL: the migrations, the
+  # repositories and the tenant-scoped queries.
   - name: postgres
     image: node:22-bookworm
     environment:
       DATABASE_URL: postgresql://postgres@postgres:5432/dominus
-    services:
-      - name: postgres
-        image: postgres:16-alpine
-        environment:
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: dominus
     volumes:
       - ci-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
+      - until pg_isready -h postgres -U postgres -d dominus; do sleep 1; done
       - npm ci
       - npx tsx src/db/migrate-cli.ts
       - npx vitest run src/db src/__tests__ src/services src/api
@@ -76,16 +95,11 @@ steps:
       - ci-frontend-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
-      - npm ci
-        working-directory: frontend
-      - npm run typecheck
-        working-directory: frontend
-      - npm run lint
-        working-directory: frontend
-      - npm test
-        working-directory: frontend
-      - npm run build
-        working-directory: frontend
+      - cd frontend && npm ci
+      - cd frontend && npm run typecheck
+      - cd frontend && npm run lint
+      - cd frontend && npm test
+      - cd frontend && npm run build
 
   # ------------------------------------------------------------------ pack
   - name: pack
@@ -99,6 +113,7 @@ steps:
       - npm run build:frontend
       - npm run build
       - npm run check:pack
+      - npm run release:verify -- --pack
       - npm run test:installers
 
   # ------------------------------------------------------------------ e2e smoke
@@ -111,10 +126,8 @@ steps:
     commands:
       - git config --global --add safe.directory '*'
       - npm ci
-      - npm ci
-        working-directory: frontend
-      - npm run build:frontend
-        working-directory: frontend
+      - cd frontend && npm ci
+      - cd frontend && npm run build:frontend
       - npm run build
       - node scripts/run-e2e-smoke.mjs
 
@@ -136,7 +149,7 @@ steps:
   # ------------------------------------------------------------------ terraform (IaC gate)
   # Terraform fmt + validate + cloud-init render run on every push/PR.
   # Credential-free: tfvars are gitignored and CI has no Hetzner token.
-  # This is the gate parity step — the first apply runs the same HCL that CI
+  # This is the gate parity step - the first apply runs the same HCL that CI
   # validates here.
   - name: terraform
     image: hashicorp/terraform:1.9.8
@@ -144,17 +157,14 @@ steps:
       - ci-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
-      - terraform fmt -check -recursive
-        working-directory: deploy/terraform
-      - terraform init -backend=false
-        working-directory: deploy/terraform
-      - terraform validate
-        working-directory: deploy/terraform
+      - cd deploy/terraform && terraform fmt -check -recursive
+      - cd deploy/terraform && terraform init -backend=false
+      - cd deploy/terraform && terraform validate
 
   # ------------------------------------------------------------------ deploy scripts (behavior tests)
   # rollout.sh, migrate.sh and migration-gate.sh run on the app node during
   # every Cloud deploy. These tests exercise the full roll / verify / health /
-  # rollback state machine against a mocked stack — no live node required.
+  # rollback state machine against a mocked stack - no live node required.
   # They must run in the gate that decides whether a release is cut.
   - name: deploy-scripts
     image: node:22-bookworm
@@ -166,7 +176,3 @@ steps:
       - bash scripts/deploy/test-rollout.sh
       - bash scripts/deploy/test-migrate.sh
       - bash scripts/deploy/test-migration-gate.sh
-
-volumes:
-  ci-npm:
-  ci-frontend-npm:

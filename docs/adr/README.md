@@ -108,6 +108,10 @@ re-running the original arguments.
 | [0100](0100-launch-gate-profiles-and-evidence.md)                              | The launch gate has profiles and produces evidence, and the rehearsal is a command                   | 2026-11-02 | Accepted                            |
 | [0101](0101-local-first-release-engine.md)                                     | Local-first release engine                                                                           | 2026-11-08 | Accepted                            |
 | [0102](0102-github-release-sole-distribution-channel.md)                       | GitHub Release as the sole distribution channel                                                      | 2026-11-09 | Accepted                            |
+| [0103](0103-one-subscription-per-tenant.md)                                    | One subscription per tenant, and the plan comes only from the price                                  | 2026-11-11 | Accepted                            |
+| [0104](0104-identity-continuity-signup-and-sso.md)                             | Identity continuity between the self-serve signup and single sign-on                                 | 2026-11-11 | Accepted                            |
+| [0105](0105-metering-counts-work-not-reads.md)                                 | Metering counts the work, not the reads                                                              | 2026-11-11 | Accepted                            |
+| [0106](0106-launch-posture-of-the-saas-surface.md)                             | The launch posture of the SaaS surface                                                               | 2026-11-11 | Accepted                            |
 
 ## Conventions
 

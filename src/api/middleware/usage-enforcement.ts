@@ -11,7 +11,25 @@ export interface UsageEnforcementOptions {
   periodStart?: () => string;
   /** Skip enforcement (and recording) for these path prefixes. */
   skipPaths?: string[];
+  /**
+   * Meter the read-only requests too (default: false).
+   *
+   * The dashboard reads: every page load is a handful of GETs, and the
+   * query cache polls. Metering the reads burned the tenant's monthly
+   * `api_calls` allowance in a few hours of ordinary use, and wrote a
+   * counter row for every page view. The plan is gated by the limits that
+   * describe the work the platform does (`candidates_scored`,
+   * `domains_tracked`), and the platform itself is protected by the
+   * per-IP rate limit.
+   */
+  meterReads?: boolean;
 }
+
+/**
+ * The HTTP methods that change something. They are the ones that cost the
+ * platform work worth metering.
+ */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
  * Pre-flight usage enforcement for the protected API.
@@ -24,7 +42,7 @@ export interface UsageEnforcementOptions {
  * same atomic counter, so they can never double-count.
  *
  * The middleware is a pass-through when the enforcement feature is disabled
- * (USAGE_ENFORCEMENT_ENABLED=false, the default) — it never records, so
+ * (USAGE_ENFORCEMENT_ENABLED=false, the default) - it never records, so
  * existing deployments observe zero behavior change.
  */
 export function createUsageEnforcementMiddleware(
@@ -37,6 +55,7 @@ export function createUsageEnforcementMiddleware(
   const periodStart: () => string = options.periodStart ?? defaultPeriodStart;
   // Admin/self-serve control-plane routes are never metered.
   const skipPaths = options.skipPaths ?? ['/usage', '/billing', '/system', '/keys'];
+  const meterReads = options.meterReads ?? false;
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!enabled) {
@@ -45,6 +64,11 @@ export function createUsageEnforcementMiddleware(
     }
 
     if (skipPaths.some((p) => req.path.startsWith(p))) {
+      next();
+      return;
+    }
+
+    if (!meterReads && !WRITE_METHODS.has(req.method)) {
       next();
       return;
     }

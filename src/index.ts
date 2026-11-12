@@ -12,6 +12,7 @@ import { closeDatabase } from './db/database.js';
 import { JobQueueRepository } from './db/repositories/job-queue-repository.js';
 import type { PublicRouterOptions } from './api/index.js';
 import { createAuthMiddleware, parseOperatorSubjects } from './api/middleware/auth.js';
+import { buildIdentityRateLimitKey } from './api/middleware/rate-limit-identity.js';
 import { sessionRoleFor } from './services/identity-tenant-resolver.js';
 import { isStripeSignatureError } from './services/billing-service.js';
 import { buildLegalContent } from './services/legal-content.js';
@@ -360,6 +361,9 @@ async function main(): Promise<void> {
             sub,
             orgId: tenantId,
             claimedRole: role,
+            // The verified email links the person to the workspace they
+            // created through the self-serve signup.
+            ...(email !== undefined ? { email } : {}),
           });
           return deps.sessionJwt.mint({
             sub,
@@ -412,7 +416,13 @@ async function main(): Promise<void> {
 
   // Per-token rate limit for authenticated API calls. This prevents a single
   // API key holder from overwhelming the backend or exhausting the global
-  // per-IP rate limit. Key is derived from the authenticated API key hash.
+  // per-IP rate limit.
+  //
+  // The bucket key is the authenticated principal (the API key id, or the
+  // session subject), never the credential itself: the previous key was the
+  // raw Authorization header, which kept the secret in the limiter keyspace
+  // and collapsed every cookie session onto one shared bucket.
+  // See src/api/middleware/rate-limit-identity.ts.
   if (config.RATE_LIMIT_MAX > 0) {
     protectedRouter.use(
       rateLimit({
@@ -420,10 +430,7 @@ async function main(): Promise<void> {
         max: config.RATE_LIMIT_MAX * 2,
         standardHeaders: true,
         legacyHeaders: false,
-        keyGenerator: (req) => {
-          const header = req.headers['authorization'] ?? 'unknown';
-          return `token:${header}`;
-        },
+        keyGenerator: buildIdentityRateLimitKey,
         message: {
           error: {
             code: 'RATE_LIMITED',
@@ -439,8 +446,17 @@ async function main(): Promise<void> {
     createBacktestRouter(deps.provider, deps.outcomeRepo, deps.currentWeights, deps.autoTuner),
   );
   // Data-subject rights: export (art. 15) and erasure (art. 17) of the
-  // caller's tenant.
-  protectedRouter.use('/tenant', createTenantDataRouter(new TenantDataService(deps.provider)));
+  // caller's tenant. The erasure cancels the payment subscription first: a
+  // tenant that deletes its account must not keep being invoiced.
+  protectedRouter.use(
+    '/tenant',
+    createTenantDataRouter(
+      new TenantDataService(deps.provider, {
+        subscriptionCanceller: (tenantId: string): Promise<boolean> =>
+          deps.billingService.cancelSubscriptionForTenant(tenantId),
+      }),
+    ),
+  );
   protectedRouter.use('/providers', createProvidersRouter(deps.config));
   protectedRouter.use(
     '/outcomes',

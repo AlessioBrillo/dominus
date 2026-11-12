@@ -6,6 +6,13 @@ import { TenantDataService } from '../../services/tenant-data-service.js';
 
 export interface TenantCommandDeps {
   provider: DatabaseProvider;
+  /**
+   * Cancels the tenant's payment subscription as part of the erasure.
+   * Present when the deployment has Stripe configured: the invoice is
+   * issued by the payment provider, so erasing the rows alone would leave
+   * a deleted account on the invoice.
+   */
+  subscriptionCanceller?: ((tenantId: string) => Promise<boolean>) | undefined;
 }
 
 /**
@@ -21,7 +28,9 @@ export interface TenantCommandDeps {
  * to happen.
  */
 export function registerTenantCommand(program: Command, deps: TenantCommandDeps): void {
-  const service = new TenantDataService(deps.provider);
+  const service = new TenantDataService(deps.provider, {
+    subscriptionCanceller: deps.subscriptionCanceller,
+  });
   const tenant = program
     .command('tenant')
     .description('Data-subject rights: export or erase the data of a tenant');
@@ -61,6 +70,11 @@ export function registerTenantCommand(program: Command, deps: TenantCommandDeps)
       process.stdout.write(
         `Erased ${report.totalRows} row(s) across ${report.tables.length} table(s) for tenant ${report.tenantId}.\n`,
       );
+      if (report.subscriptionCancelled === false) {
+        process.stderr.write(
+          'The payment subscription could NOT be cancelled: cancel it in the Stripe dashboard.\n',
+        );
+      }
       process.stdout.write(
         'Backups are outside this operation: the rolling backup window is overwritten by the rotation.\n',
       );

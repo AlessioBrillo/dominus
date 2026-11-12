@@ -262,20 +262,7 @@ async function runDoctor(
 
   // ── 8: disk space ───────────────────────────────────────────────────
   try {
-    let free = 0;
-    if (process.platform === 'win32') {
-      try {
-        const out = execSync('fsutil volume diskfree C:', { encoding: 'utf8' });
-        const m = /Free bytes\s*:\s*(\d+)/.exec(out);
-        if (m) free = Number(m[1]);
-      } catch {
-        // Disk space could not be determined — report as a warning.
-      }
-    } else {
-      const out = execSync('df -P / | tail -1', { encoding: 'utf8' });
-      const parts = out.trim().split(/\s+/);
-      free = Number(parts[3]) * 1024;
-    }
+    const free = freeDiskBytes();
     const freeGb = (free / 1_073_741_824).toFixed(1);
     checks.push({
       name: 'disk space',
@@ -292,6 +279,31 @@ async function runDoctor(
 
   const ok = checks.every((c) => c.status !== 'fail');
   return { version, checks, ok };
+}
+
+/**
+ * The free bytes of the filesystem the installation lives on.
+ *
+ * The probe is a function of the machine, and the machine is not the same
+ * in every environment: a CI container can have less than a gigabyte free
+ * on its root filesystem. The check therefore reports what it finds, and
+ * the TEST decides what it asserts (the disk probe is injectable), instead
+ * of the test depending on the free space of whoever runs it.
+ */
+export function freeDiskBytes(): number {
+  if (process.platform === 'win32') {
+    try {
+      const out = execSync('fsutil volume diskfree C:', { encoding: 'utf8' });
+      const m = /Free bytes\s*:\s*(\d+)/.exec(out);
+      if (m) return Number(m[1]);
+    } catch {
+      // The probe could not run: zero free bytes, and the check warns.
+    }
+    return 0;
+  }
+  const out = execSync('df -P / | tail -1', { encoding: 'utf8' });
+  const parts = out.trim().split(/\s+/);
+  return Number(parts[3]) * 1024;
 }
 
 function formatDoctorReport(result: DoctorResult): string {

@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3';
 import type { PortfolioManager } from '../portfolio/portfolio-manager.js';
 import type { ScoringEngine } from '../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../trademark/trademark-gate.js';
+import { buildCliSubscriptionCanceller } from './subscription-canceller.js';
 import type { PipelineRunService } from '../app/pipeline-run-service.js';
 import type { JobQueueService } from '../app/job-queue-service.js';
 import type { CandidateRepository } from '../db/repositories/candidate-repository.js';
@@ -351,7 +352,12 @@ function registerCommands(program: Command, options: CreateCliOptions, catalog: 
   });
 
   if (options.provider) {
-    registerTenantCommand(program, { provider: options.provider });
+    // The erasure must also stop the invoice: the rows live in the
+    // database, the invoice lives in the payment provider.
+    const subscriptionCanceller = config.STRIPE_SECRET_KEY
+      ? buildCliSubscriptionCanceller(options.provider, config)
+      : undefined;
+    registerTenantCommand(program, { provider: options.provider, subscriptionCanceller });
   }
 
   registerDoctorCommand(program, { db, config });

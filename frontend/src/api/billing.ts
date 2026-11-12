@@ -59,3 +59,36 @@ export function createCheckoutSession(
 export function createPortalSession(returnUrl: string): Promise<PortalResponse> {
   return api.post<PortalResponse>('/billing/portal', { returnUrl });
 }
+
+/**
+ * Change the plan or cancel the subscription.
+ *
+ * The plan change mutates the EXISTING subscription (ADR-0103): opening a
+ * second Checkout for a customer who already subscribes leaves them with
+ * two subscriptions and two invoices.
+ */
+export function changeSubscription(
+  plan: BillingPlan,
+  interval: BillingInterval,
+): Promise<SubscriptionChangeResponse> {
+  return api.post<SubscriptionChangeResponse>('/billing/subscription', {
+    action: 'change',
+    plan,
+    interval,
+  });
+}
+
+export function cancelSubscription(mode: 'immediate' | 'period_end'): Promise<CancelResponse> {
+  return api.post<CancelResponse>('/billing/subscription', { action: 'cancel', mode });
+}
+
+export interface SubscriptionChangeResponse {
+  subscriptionId: string;
+  priceId: string;
+  plan: BillingPlan;
+}
+
+export interface CancelResponse {
+  subscriptionId: string;
+  cancelAtPeriodEnd: boolean;
+}

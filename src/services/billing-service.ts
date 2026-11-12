@@ -7,6 +7,7 @@ import type {
   Subscription,
   BillingPortalResponse,
   SubscriptionPlan,
+  SubscriptionStatus,
 } from '../types/subscription.js';
 import { getLogger } from '../logger.js';
 
@@ -67,7 +68,10 @@ type StripeSdk = {
           success_url: string;
           cancel_url: string;
           metadata?: Record<string, string>;
-          subscription_data?: { trial_period_days?: number };
+          subscription_data?: {
+            trial_period_days?: number;
+            metadata?: Record<string, string>;
+          };
           idempotency_key?: string;
           automatic_tax?: { enabled: boolean };
           billing_address_collection?: 'auto' | 'required';
@@ -85,6 +89,11 @@ type StripeSdk = {
         }>;
       };
     };
+    subscriptions: {
+      retrieve: (id: string) => Promise<StripeSubscription>;
+      update: (id: string, params: StripeSubscriptionUpdate) => Promise<StripeSubscription>;
+      cancel: (id: string) => Promise<{ id: string; status?: string }>;
+    };
     webhooks: {
       constructEvent: (
         payload: Buffer | string,
@@ -94,6 +103,57 @@ type StripeSdk = {
     };
   };
 };
+
+/** The parts of a Stripe subscription this service reads or writes. */
+export interface StripeSubscription {
+  id: string;
+  status?: string;
+  cancel_at_period_end?: boolean;
+  current_period_end?: number;
+  metadata?: Record<string, string>;
+  items?: { data?: Array<{ id?: string; price?: { id?: string } }> };
+}
+
+/** The parameters of a subscription mutation (plan change, cancellation). */
+export interface StripeSubscriptionUpdate {
+  items?: Array<{ id?: string; price?: string }>;
+  proration_behavior?: 'create_prorations' | 'none' | 'always_invoice';
+  cancel_at_period_end?: boolean;
+  metadata?: Record<string, string>;
+}
+
+/**
+ * Map a Stripe subscription status to the status the enforcement reads.
+ *
+ * The mapping is fail-closed: only the statuses that mean "the customer
+ * is paying" grant the paid plan (`active` and `trialing`, see
+ * effective-plan.ts). `unpaid` and `paused` are recorded as `past_due`,
+ * because the money has not arrived; an unknown or missing status is
+ * recorded as `incomplete`, which grants nothing. Under-serving a
+ * customer whose card bounced is better than granting paid capacity to a
+ * subscription nobody confirmed.
+ */
+export function mapStripeStatus(status: string | undefined): SubscriptionStatus {
+  switch (status) {
+    case 'active':
+      return 'active';
+    case 'trialing':
+      return 'trialing';
+    case 'past_due':
+      return 'past_due';
+    case 'canceled':
+      return 'canceled';
+    case 'incomplete':
+      return 'incomplete';
+    case 'unpaid':
+    case 'paused':
+      return 'past_due';
+    case 'incomplete_expired':
+      return 'canceled';
+    default:
+      return 'incomplete';
+  }
+}
 
 /**
  * True for the error stripe-node throws when a webhook signature does not
@@ -346,11 +406,120 @@ export class BillingService {
       // account, which must be the /terms page of this deployment.
       consent_collection: { terms_of_service: 'required' },
       custom_text: { terms_of_service_acceptance: { message: CHECKOUT_TERMS_CONSENT_MESSAGE } },
-      ...(firstCheckout ? { subscription_data: { trial_period_days: 14 } } : {}),
+      // The subscription carries the tenant and the plan as metadata, so the
+      // `customer.subscription.*` events identify the tenant without having
+      // to wait for the checkout event to be processed first. Stripe delivers
+      // the subscription event BEFORE `checkout.session.completed` often
+      // enough that relying on the customer lookup alone lost the event.
+      subscription_data: {
+        ...(firstCheckout ? { trial_period_days: 14 } : {}),
+        metadata: { tenantId, plan },
+      },
       idempotency_key: idempotencyKey,
     });
 
     return session.url ? { url: session.url, plan } : null;
+  }
+
+  /**
+   * Change the plan of an existing subscription.
+   *
+   * A customer who buys a different plan must land on the SAME Stripe
+   * subscription: creating a second one through Checkout leaves the
+   * customer with two active subscriptions and two invoices, which is the
+   * most expensive defect a subscription product can ship. The price item
+   * is replaced on the existing subscription and Stripe prorates the
+   * difference.
+   *
+   * The plan is granted when Stripe confirms it (the `customer.subscription.
+   * updated` event), not here: the local row follows the payment
+   * provider, never the other way round.
+   */
+  async changeSubscription(
+    tenantId: string,
+    plan: SubscriptionPlan,
+    interval: BillingInterval,
+  ): Promise<{ subscriptionId: string; priceId: string; plan: SubscriptionPlan } | null> {
+    const stripe = await this.#getStripe();
+    if (!stripe) return null;
+
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    if (!sub?.stripeSubscriptionId) return null;
+
+    const priceId = this.resolvePriceId(plan, interval);
+    if (!priceId) return null;
+
+    const subscription = await stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+    const itemId = subscription.items?.data?.[0]?.id;
+    if (!itemId) return null;
+
+    const currentPriceId = subscription.items?.data?.[0]?.price?.id;
+    if (currentPriceId === priceId) {
+      return { subscriptionId: subscription.id, priceId, plan };
+    }
+
+    const updated = await stripe.subscriptions.update(subscription.id, {
+      items: [{ id: itemId, price: priceId }],
+      proration_behavior: 'create_prorations',
+      metadata: { tenantId, plan },
+    });
+
+    logger.info(
+      { tenantId, plan, priceId, subscriptionId: updated.id },
+      'Subscription plan changed',
+    );
+
+    return { subscriptionId: updated.id, priceId, plan };
+  }
+
+  /**
+   * Cancel a subscription.
+   *
+   * `immediate` ends the subscription now (the access is revoked by the
+   * webhook); `period_end` keeps it alive until the period is over, which
+   * is what a customer who paid for the period expects.
+   */
+  async cancelSubscription(
+    tenantId: string,
+    mode: 'immediate' | 'period_end',
+  ): Promise<{ subscriptionId: string; cancelAtPeriodEnd: boolean } | null> {
+    const stripe = await this.#getStripe();
+    if (!stripe) return null;
+
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    if (!sub?.stripeSubscriptionId) return null;
+
+    if (mode === 'period_end') {
+      const updated = await stripe.subscriptions.update(sub.stripeSubscriptionId, {
+        cancel_at_period_end: true,
+      });
+      logger.info({ tenantId, subscriptionId: updated.id }, 'Subscription cancelled at period end');
+      return { subscriptionId: updated.id, cancelAtPeriodEnd: true };
+    }
+
+    const cancelled = await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+    logger.info({ tenantId, subscriptionId: cancelled.id }, 'Subscription cancelled');
+    return { subscriptionId: cancelled.id, cancelAtPeriodEnd: false };
+  }
+
+  /**
+   * Cancel whatever subscription a tenant has, and report whether one was
+   * found. Used by the data-subject erasure: a tenant that deletes its
+   * account must not keep being invoiced.
+   */
+  async cancelSubscriptionForTenant(tenantId: string): Promise<boolean> {
+    const sub = await this.#subRepo.findByTenantId(tenantId);
+    if (!sub?.stripeSubscriptionId) return false;
+    try {
+      await this.cancelSubscription(tenantId, 'immediate');
+      return true;
+    } catch (err) {
+      // The erasure must not be blocked by the payment provider, but the
+      // failure has to be visible: a tenant erased with a live subscription
+      // is a customer who is invoiced for a service they cancelled.
+      logger.error({ tenantId, err }, 'Failed to cancel the subscription during the erasure');
+      throw err;
+    }
   }
 
   async createPortalSession(
@@ -464,10 +633,7 @@ export class BillingService {
     if (fromEvent) return fromEvent;
 
     if (!session.id) {
-      logger.warn(
-        { eventId },
-        'Checkout session without line items or id — falling back to metadata plan',
-      );
+      logger.warn({ eventId }, 'Checkout session without line items or id — the price is unknown');
       return undefined;
     }
 
@@ -475,7 +641,7 @@ export class BillingService {
     if (!stripe) {
       logger.warn(
         { eventId, sessionId: session.id },
-        'Stripe client unavailable — falling back to metadata plan',
+        'Stripe client unavailable — the price is unknown',
       );
       return undefined;
     }
@@ -486,16 +652,13 @@ export class BillingService {
       });
       const priceId = retrieved.line_items?.data?.[0]?.price?.id;
       if (!priceId) {
-        logger.warn(
-          { eventId, sessionId: session.id },
-          'Checkout session without line items — falling back to metadata plan',
-        );
+        logger.warn({ eventId, sessionId: session.id }, 'Checkout session without line items');
       }
       return priceId;
     } catch (err) {
       logger.warn(
         { err, eventId, sessionId: session.id },
-        'Failed to retrieve checkout session — falling back to metadata plan',
+        'Failed to retrieve the checkout session',
       );
       return undefined;
     }
@@ -521,57 +684,60 @@ export class BillingService {
 
         // The price id is the only trustworthy source of the plan: the session
         // metadata is written by us at checkout creation, but nothing in it
-        // proves which price the customer actually paid for.
+        // proves which price the customer actually paid for (ADR-0093).
         const priceId = await this.#resolveCheckoutPriceId(event.id, session);
 
-        let plan: SubscriptionPlan;
-        if (priceId) {
-          const planFromPrice = await this.resolvePlanForPriceId(priceId, tenantId);
-          if (!planFromPrice) {
-            // Fail closed: an unknown price id grants nothing. Throwing here
-            // would release the event claim and make Stripe retry forever a
-            // price id that is never going to become known.
+        if (!priceId) {
+          // The price could not be established. This is a TRANSIENT failure
+          // (the session could not be retrieved), not a decision: the event
+          // is released and Stripe redelivers it. Granting the plan from
+          // the session metadata would let a checkout for one price grant
+          // another plan, which is the metadata-trust defect ADR-0093
+          // closed.
+          throw new Error(`The checkout session ${session.id ?? ''} has no resolvable price`);
+        }
+
+        const planFromPrice = await this.resolvePlanForPriceId(priceId, tenantId);
+        if (!planFromPrice) {
+          // Fail closed: an unknown price id grants nothing. Throwing here
+          // would release the event claim and make Stripe retry forever a
+          // price id that is never going to become known.
+          logger.warn(
+            { eventId: event.id, tenantId, priceId },
+            'Checkout price id does not map to a plan — rejecting grant',
+          );
+          return;
+        }
+        const plan = planFromPrice;
+
+        // A custom price carries a negotiated amount the customer must have
+        // paid: the price id alone does not authorise the grant, so the
+        // tenant and the amount are checked before the plan is honoured.
+        const customPrice = this.#customPriceRepo
+          ? await this.#customPriceRepo.findByPriceId(priceId)
+          : undefined;
+        if (customPrice) {
+          if (customPrice.tenantId !== tenantId) {
             logger.warn(
-              { eventId: event.id, tenantId, priceId },
-              'Checkout price id does not map to a plan — rejecting grant',
+              { eventId: event.id, tenantId, expectedTenant: customPrice.tenantId, priceId },
+              'Custom price tenant mismatch — rejecting grant',
             );
             return;
           }
-          plan = planFromPrice;
-
-          // A custom price carries a negotiated amount the customer must have
-          // paid: the price id alone does not authorise the grant, so the
-          // tenant and the amount are checked before the plan is honoured.
-          const customPrice = this.#customPriceRepo
-            ? await this.#customPriceRepo.findByPriceId(priceId)
-            : undefined;
-          if (customPrice) {
-            if (customPrice.tenantId !== tenantId) {
-              logger.warn(
-                { eventId: event.id, tenantId, expectedTenant: customPrice.tenantId, priceId },
-                'Custom price tenant mismatch — rejecting grant',
-              );
-              return;
-            }
-            const amountPaidEur = Math.round((session.amount_total ?? 0) / 100);
-            if (amountPaidEur !== customPrice.expectedAmountEur) {
-              logger.warn(
-                {
-                  eventId: event.id,
-                  tenantId,
-                  priceId,
-                  amountPaidEur,
-                  expectedAmountEur: customPrice.expectedAmountEur,
-                },
-                'Custom price amount mismatch — rejecting grant',
-              );
-              return;
-            }
+          const amountPaidEur = Math.round((session.amount_total ?? 0) / 100);
+          if (amountPaidEur !== customPrice.expectedAmountEur) {
+            logger.warn(
+              {
+                eventId: event.id,
+                tenantId,
+                priceId,
+                amountPaidEur,
+                expectedAmountEur: customPrice.expectedAmountEur,
+              },
+              'Custom price amount mismatch — rejecting grant',
+            );
+            return;
           }
-        } else {
-          // No price id could be established — fall back to the plan the
-          // session was created with (the helper logged why).
-          plan = (session.metadata?.plan as SubscriptionPlan | undefined) ?? 'pro';
         }
 
         await this.#subRepo.upsert({
@@ -598,44 +764,93 @@ export class BillingService {
         };
 
         const priceId = sub.items?.data?.[0]?.price?.id ?? null;
-        const tenantId = sub.metadata?.tenantId;
-        const planFromPrice = await this.resolvePlanForPriceId(priceId, tenantId ?? undefined);
-        const plan = planFromPrice ?? (sub.metadata?.plan as SubscriptionPlan | undefined);
+        // The tenant comes from the subscription metadata, which the
+        // checkout writes (the subscription carries the tenant so the event
+        // identifies it even when it arrives before the checkout event).
+        // The customer lookup is the fallback for the subscriptions created
+        // outside the checkout flow.
+        const tenantId = sub.metadata?.tenantId ?? undefined;
 
-        if (tenantId) {
-          await this.#subRepo.updateStripeSubscription(
-            tenantId,
-            sub.id ?? '',
-            (sub.status as 'active' | 'past_due' | 'canceled' | 'incomplete') ?? 'active',
-            sub.current_period_start
-              ? new Date(sub.current_period_start * 1000).toISOString()
-              : new Date().toISOString(),
-            sub.current_period_end
-              ? new Date(sub.current_period_end * 1000).toISOString()
-              : new Date().toISOString(),
-            plan,
-          );
-          return;
+        let targetTenantId = tenantId;
+        let existing: Subscription | null;
+        if (!targetTenantId) {
+          const custSub = await this.#subRepo.findByStripeCustomerId(sub.customer ?? '');
+          if (!custSub) {
+            logger.warn(
+              { eventId: event.id, customerId: sub.customer },
+              'Subscription event for unknown customer',
+            );
+            return;
+          }
+          targetTenantId = custSub.tenantId;
+          existing = custSub;
+        } else {
+          existing = (await this.#subRepo.findByTenantId(targetTenantId)) ?? null;
         }
 
-        const custSub = await this.#subRepo.findByStripeCustomerId(sub.customer ?? '');
-        if (!custSub) {
+        // The plan comes from the price id only. A price id that maps to no
+        // plan leaves the current plan untouched: the event is neither a
+        // grant (unknown price) nor a revocation (the customer keeps what
+        // they paid for until a price we know is confirmed).
+        const planFromPrice = await this.resolvePlanForPriceId(priceId, targetTenantId);
+        const plan = planFromPrice ?? existing?.plan;
+
+        const status = mapStripeStatus(sub.status);
+        const periodStart = sub.current_period_start
+          ? new Date(sub.current_period_start * 1000).toISOString()
+          : new Date().toISOString();
+        const periodEnd = sub.current_period_end
+          ? new Date(sub.current_period_end * 1000).toISOString()
+          : new Date().toISOString();
+
+        if (!plan) {
+          // Neither a known price nor a local row. The row is created on the
+          // free plan (fail closed): the checkout event grants the real one
+          // when it arrives. Without the row the event would be lost.
           logger.warn(
-            { eventId: event.id, customerId: sub.customer },
-            'Subscription event for unknown customer',
+            { eventId: event.id, tenantId: targetTenantId, priceId },
+            'Subscription event without a known price — the row is created on the free plan',
           );
+          await this.#subRepo.upsert({
+            tenantId: targetTenantId,
+            plan: 'free',
+            status,
+            stripeCustomerId: sub.customer ?? null,
+            stripeSubscriptionId: sub.id ?? '',
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+          });
           return;
         }
+        if (!planFromPrice) {
+          logger.warn(
+            { eventId: event.id, tenantId: targetTenantId, priceId },
+            'Subscription price id does not map to a plan — keeping the current plan',
+          );
+        }
+
+        if (!existing) {
+          // The subscription event arrived BEFORE the checkout event: the
+          // row does not exist yet, so it is created here instead of being
+          // dropped. This ordering is common in Stripe.
+          await this.#subRepo.upsert({
+            tenantId: targetTenantId,
+            plan,
+            status,
+            stripeCustomerId: sub.customer ?? null,
+            stripeSubscriptionId: sub.id ?? '',
+            currentPeriodStart: periodStart,
+            currentPeriodEnd: periodEnd,
+          });
+          return;
+        }
+
         await this.#subRepo.updateStripeSubscription(
-          custSub.tenantId,
+          targetTenantId,
           sub.id ?? '',
-          (sub.status as 'active' | 'past_due' | 'canceled' | 'incomplete') ?? 'active',
-          sub.current_period_start
-            ? new Date(sub.current_period_start * 1000).toISOString()
-            : new Date().toISOString(),
-          sub.current_period_end
-            ? new Date(sub.current_period_end * 1000).toISOString()
-            : new Date().toISOString(),
+          status,
+          periodStart,
+          periodEnd,
           plan,
         );
         break;
@@ -657,9 +872,13 @@ export class BillingService {
       }
 
       case 'customer.subscription.deleted': {
-        const deletedSub = event.data.object as { customer?: string };
-        const delTenantId = (await this.#subRepo.findByStripeCustomerId(deletedSub.customer ?? ''))
-          ?.tenantId;
+        const deletedSub = event.data.object as {
+          customer?: string;
+          metadata?: Record<string, string>;
+        };
+        const delTenantId =
+          deletedSub.metadata?.tenantId ??
+          (await this.#subRepo.findByStripeCustomerId(deletedSub.customer ?? ''))?.tenantId;
         if (delTenantId) {
           await this.#subRepo.cancel(delTenantId, new Date().toISOString());
         }
