@@ -6,17 +6,19 @@ import type { KeyManager, GeneratedKeyResult } from '../providers/auth/auth-prov
 
 export interface ProvisionedTenant {
   tenantId: string;
-  apiKey: GeneratedKeyResult;
 }
 
 /**
  * Self-serve tenant provisioning for the Cloud edition: creates a fresh
- * tenant with a free subscription, an active owner seat, and the first
- * admin API key (shown exactly once). This is the customer-acquisition
- * path — without it tenants only appear implicitly via auto-provision.
+ * tenant with a free subscription and the owner seat.
  *
  * The owner seat is stored with the email as user_id, so operators can
  * reach the owner for billing/support without a schema change.
+ *
+ * The seat is created PENDING and no API key is issued: the address was
+ * never proven, and a key handed to whoever typed an address is a key
+ * handed to whoever typed it first. The seat is activated (and the key
+ * issued) by the email verification flow — see EmailVerificationService.
  */
 export class TenantProvisioningService {
   constructor(
@@ -25,25 +27,39 @@ export class TenantProvisioningService {
     private readonly keyManager: KeyManager | undefined,
   ) {}
 
-  async provisionTenant(input: {
-    name: string;
-    email?: string | undefined;
-  }): Promise<ProvisionedTenant> {
+  async provisionTenant(input: { name: string; email: string }): Promise<ProvisionedTenant> {
     const tenantId = `tenant-${randomBytes(8).toString('hex')}`;
-    const ownerId = input.email ?? `${tenantId}-owner`;
+    const ownerId = input.email.trim().toLowerCase();
 
     await this.subscriptionRepo.ensureDefault(tenantId);
+    // Pending, not active: an active seat is one the identity resolver may
+    // re-link to a single-sign-on identity.
     await this.teamSeatsRepo.invite(tenantId, ownerId, 'admin', ownerId);
-    await this.teamSeatsRepo.acceptInvite(tenantId, ownerId);
 
+    return { tenantId };
+  }
+
+  /**
+   * Activate the owner seat and issue the first API key.
+   *
+   * Used by the verification flow (the address is proven) and by the
+   * deployments that run without an email transport (the address is never
+   * proven, so the seat stays unverified and cannot be claimed through
+   * single sign-on).
+   */
+  async activateOwner(input: {
+    tenantId: string;
+    email: string;
+    name: string;
+  }): Promise<GeneratedKeyResult> {
+    const ownerId = input.email.trim().toLowerCase();
+    await this.teamSeatsRepo.acceptInvite(input.tenantId, ownerId);
     if (!this.keyManager) throw new Error('API key management is not available');
-    const apiKey = await this.keyManager.generate({
-      tenantId,
+    return this.keyManager.generate({
+      tenantId: input.tenantId,
       name: input.name,
       role: 'admin',
     });
-
-    return { tenantId, apiKey };
   }
 
   /**

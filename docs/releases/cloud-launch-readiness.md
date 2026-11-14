@@ -5,15 +5,16 @@ roadmap entry. It records what was verified, what is missing, and who
 decides what. It is written to be read by someone joining the effort, so it
 states facts with file paths rather than intentions.
 
-Everything below was checked against the repository on 2026-11-03, at
-v1.4.0.
+Everything below was checked against the repository on 2026-11-12, at
+v1.5.3 (the trust-boundary work of ADR-0107 landed on top of the v1.5.3
+tree).
 
 ## What is solid
 
 - The backend and frontend suites are green; 19 CI jobs including a
   PostgreSQL matrix, Docker smoke, OpenAPI contract coverage and a WCAG 2.1
   AA a11y gate.
-- 95 ADRs. The architecture record is genuinely current —
+- 102 ADRs. The architecture record is genuinely current —
   `check-doc-drift` derives route/repository/handler/CLI counts from the
   source tree, so the documents cannot silently rot.
 - Fail-closed posture on the parts that matter: DNS consensus (ADR-0039,
@@ -22,7 +23,13 @@ v1.4.0.
   `AUTOMATION_ENABLED` both defaulting off (ADR-0083).
 - Tenant isolation with RLS and a `dominus_app` role that is never the
   PostgreSQL owner, precisely so `FORCE ROW LEVEL SECURITY` cannot be
-  bypassed.
+  bypassed. The policies now cover **22** of the 32 tenant-scoped tables and
+  they **deny** when no tenant context is active: a missing context is an
+  error, not a silent write to a phantom tenant (ADR-0107).
+- The trust boundary of a paying tenant is closed (ADR-0107): the email of
+  the owner is proven before the workspace carries a key, the keys issued
+  before the proof are revoked, the scheduled jobs run once per tenant, the
+  alerts of a customer go to the customer, and the queue is fair.
 - Release engineering: migrate-before-roll (ADR-0061), additive-migration
   gate, PITR backup with a restore drill script, rollback on health-poll
   failure.
@@ -59,6 +66,11 @@ is asserted by the acceptance suite:
 | the export does not carry the API key hash | the data-subject copy carries data, not secrets |
 | the customer erases their workspace | the erasure works and the subscription stops |
 
+The trust-boundary work added four more assertions to the same suite (the
+erasure removes the queued work, the notification channels belong to their
+tenant, the scheduler is reserved to the operator, and the signup does not
+hand a key to a stranger).
+
 The suite runs in `npm run acceptance:cloud` and, with the rehearsal, in
 `npm run gate:cloud`. **It is not part of the Woodpecker merge gate**:
 the pipeline steps run in containers without the Docker CLI, so a step
@@ -68,6 +80,47 @@ billing-blocked. Until a Woodpecker agent with the Docker socket exists,
 the Cloud gate is a command the operator runs before a Cloud release, and
 the launch-readiness document says so instead of claiming a CI run that
 does not happen.
+
+### 0-bis. The signup needs a mail transport (ADR-0107)
+
+A public deployment must be able to deliver the verification email: in the
+`required` mode (the default) the signup **refuses** to create a workspace
+when `SMTP_URL` is unset, because a workspace whose verification link can
+never be delivered is a workspace nobody can use.
+
+What this means for the launch: the deployment needs an SMTP relay (and a
+`PUBLIC_APP_URL` to build the links), and the privacy notice must mention
+the address as personal data. The `optional` mode exists for the
+deployments with no mail transport (the acceptance stack), and it keeps the
+pre-account takeover closed: the seat stays unverified and can therefore
+never be claimed through single sign-on.
+
+
+### 0-ter. The scheduled jobs never ran at all (ADR-0107)
+
+While the trust-boundary work was being implemented, the acceptance suite
+found something worse than the tenant scope: **the scheduler process ran no
+scheduled job, for any tenant, ever.**
+
+The `SchedulerService` builds its job catalogue when it is created, but the
+cron timers are armed by `start()`. The scheduler entrypoint created the
+service, started the health server and waited — it never called `start()`.
+The container reported itself healthy the whole time, and the renewal
+check, the portfolio rescore, the watchlist poll and the prune were dead.
+
+Three defects were in the same area, and they are now covered by tests
+(`src/scheduler/__tests__/`):
+
+- the entrypoint never armed the timers;
+- the condition that separates "define the catalogue" from "arm the
+  timers" was inverted, so the CLI armed them (and never exited) while the
+  scheduler did not;
+- the CLI closed only the main database pool: the read and the write pools
+  (ADR-0080) kept their sockets open and the one-shot process hung after
+  printing its output.
+
+The scheduler now runs its jobs once per tenant, inside the tenant context,
+and the containers stop cleanly on SIGTERM.
 
 ### 1. The community CLI is installable — GitHub Release is the sole channel
 

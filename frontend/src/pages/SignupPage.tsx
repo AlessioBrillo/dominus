@@ -13,6 +13,7 @@ export function SignupPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,14 +21,24 @@ export function SignupPage() {
       setError('Name is required');
       return;
     }
+    // The address identifies the owner of the workspace: it is how the
+    // workspace is verified, recovered and claimed through single sign-on.
+    if (!email.trim()) {
+      setError('Email is required');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
       const result = await registerTenant({
         name: name.trim(),
-        email: email.trim() ? email.trim() : undefined,
+        email: email.trim(),
       });
-      setApiKey(result.key);
+      if (result.key) {
+        setApiKey(result.key);
+      } else {
+        setVerificationSent(true);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
@@ -60,6 +71,19 @@ export function SignupPage() {
                 Go to sign in
               </Button>
             </div>
+          ) : verificationSent ? (
+            <div className="space-y-4">
+              <p className="text-sm text-text-primary">
+                Check your inbox: we sent a verification link to <strong>{email}</strong>.
+              </p>
+              <p className="text-xs text-text-muted">
+                The workspace is activated by that link. It is the only proof that the address
+                belongs to you, so nobody else can claim it.
+              </p>
+              <Button type="button" className="w-full" onClick={() => navigate('/')}>
+                Go to sign in
+              </Button>
+            </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <Input
@@ -71,8 +95,8 @@ export function SignupPage() {
               />
               <Input
                 type="email"
-                placeholder="Email (optional)"
-                aria-label="Email (optional)"
+                placeholder="Email"
+                aria-label="Email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />

@@ -1879,6 +1879,36 @@ const configSchema = z
     AUTH_PROVIDER: z.enum(['env', 'auth0', 'db']).default('env'),
 
     /**
+     * How the self-serve signup treats the email address.
+     *
+     * - 'required' (default): the workspace is created INERT. No API key is
+     *   issued before the owner proves the address by opening the emailed
+     *   link. This is the only mode a public deployment may use: a key given
+     *   to whoever typed an address is a key given to whoever typed it
+     *   first.
+     * - 'optional': the key is issued immediately and the address is proven
+     *   later. The seat stays UNVERIFIED until then, so it can never be
+     *   claimed through single sign-on. It exists for the deployments with
+     *   no mail transport (a private beta, the acceptance stack).
+     *
+     * Signup refuses to create anything when the mode is 'required' and no
+     * mail transport is configured: a workspace whose verification link can
+     * never be delivered is a workspace nobody can use.
+     */
+    SIGNUP_EMAIL_VERIFICATION: z.enum(['required', 'optional']).default('required'),
+
+    /** Lifetime of a signup verification link, in hours (default 24). */
+    SIGNUP_VERIFICATION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+
+    /**
+     * Whether a customer can ask for a new API key by mail (the key is
+     * shown exactly once and cannot be read back from the database).
+     */
+    AUTH_RECOVERY_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(true),
+
+    /**
      * Auth0 domain (e.g., 'dominus.eu.auth0.com').
      * Required when AUTH_PROVIDER=auth0.
      */
@@ -2116,6 +2146,24 @@ const configSchema = z
      * Default: 1000
      */
     JOB_QUEUE_MAX_DEPTH: z.coerce.number().int().min(0).max(100000).default(1000),
+
+    /**
+     * Maximum number of PENDING jobs (queued + running) of a single tenant.
+     *
+     * The queue is shared by every customer: without a per-tenant cap, one
+     * tenant can fill it and starve the others. Set to 0 to disable.
+     * Default: 100
+     */
+    JOB_QUEUE_MAX_DEPTH_PER_TENANT: z.coerce.number().int().min(0).max(100000).default(100),
+
+    /**
+     * Maximum number of jobs of the same tenant running at the same time.
+     *
+     * Without the cap, one customer with a thousand queued jobs keeps every
+     * worker busy and the other customers wait. Set to 0 to disable.
+     * Default: 4
+     */
+    WORKER_MAX_RUNNING_PER_TENANT: z.coerce.number().int().min(0).max(100).default(4),
 
     // ── Usage Metering / Enforcement ─────────────────────────────────
 

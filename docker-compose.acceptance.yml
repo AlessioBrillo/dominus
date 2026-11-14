@@ -28,7 +28,10 @@
 # be applied by the OWNER role before the app role connects — exactly the
 # split the production deployment has.
 
-name: dominus-acceptance
+# The project name is configurable: a fixed name means that two runs (or a
+# run of the local gate from another checkout) share ONE set of containers,
+# and the teardown of one tears down the other. The runner sets it.
+name: ${COMPOSE_PROJECT_NAME:-dominus-acceptance}
 
 services:
   postgres:
@@ -75,6 +78,19 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  mailpit:
+    # The SMTP sink of the acceptance stack: the signup verification and
+    # the key recovery are DELIVERED, not simulated, so the suite proves the
+    # path a customer walks (ADR-0107).
+    image: axllent/mailpit:v1.21@sha256:81370195cd4a0eab9604d17c2617a7525b0486f9365555253b6c5376c6350f1a
+    ports:
+      - "127.0.0.1:${ACCEPTANCE_MAILPIT_PORT:-3211}:8025"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   api:
     build:
       context: .
@@ -94,6 +110,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - AUTH_PROVIDER=db
       - AUTO_PROVISION_TENANTS=true
+      # The signup is the production one: the key is issued only after the
+      # owner proves the address. The mail goes to the Mailpit sink of the
+      # stack, and the suite reads the link from it.
+      - SIGNUP_EMAIL_VERIFICATION=required
+      - SMTP_URL=smtp://mailpit:1025
+      - PUBLIC_APP_URL=http://127.0.0.1:${ACCEPTANCE_PORT:-3210}
       - USAGE_ENFORCEMENT_ENABLED=true
       - METRICS_TOKEN=acceptance-metrics-token
       # Stripe is configured with test-shaped values: the webhook route is
@@ -139,6 +161,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     healthcheck:
       test: ["CMD", "node", "dist/app/healthcheck-cli.js"]
       interval: 5s

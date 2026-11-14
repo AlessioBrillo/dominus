@@ -44,6 +44,35 @@ export interface MigrationGuardOptions {
 
 const MIGRATION_LOCK_NAME = 'migration:run';
 const MIGRATION_LOCK_TTL_MS = 300_000; // 5 minutes
+/** How often a waiting process retries the migration lock. */
+const MIGRATION_LOCK_RETRY_MS = 500;
+
+/**
+ * Acquire the migration lock, waiting for the holder to release it.
+ *
+ * A Cloud deployment starts the api, the worker and the scheduler at the
+ * same time, and all three run the schema gate at boot. With a single-shot
+ * `tryLock` the two losers died at boot ("Could not acquire migration
+ * lock"): the container exited, the deployment had a missing process, and
+ * nothing said why. The lock is a SERIALIZATION mechanism, not a
+ * failure mode: the winner holds it for the seconds the migration takes
+ * and the others wait for it.
+ */
+async function acquireMigrationLockWithRetry(
+  provider: DatabaseProvider,
+  lockName: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  let acquired = false;
+  while (!acquired && Date.now() < deadline) {
+    acquired = await provider.tryLock(lockName, timeoutMs);
+    if (!acquired) {
+      await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_RETRY_MS));
+    }
+  }
+  return acquired;
+}
 
 function hasRawDb(
   provider: DatabaseProvider,
@@ -373,11 +402,21 @@ async function ensureSchemaUpToDateSqliteFileLock(
   try {
     // Try to create the lock file exclusively. O_CREAT|O_EXCL fails if the
     // file already exists, which means another process holds the lock.
-    try {
-      lockFd = openSync(lockPath, 'wx');
-    } catch {
+    //
+    // The lock is waited for, not failed on: the community edition runs
+    // the CLI and the API on the same database file, and a one-shot
+    // acquisition killed the second process at boot.
+    const deadline = Date.now() + (options.lockTtlMs ?? MIGRATION_LOCK_TTL_MS);
+    while (lockFd === null && Date.now() < deadline) {
+      try {
+        lockFd = openSync(lockPath, 'wx');
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, MIGRATION_LOCK_RETRY_MS));
+      }
+    }
+    if (lockFd === null) {
       throw new Error(
-        `Could not acquire migration lock — another process may already be migrating. ` +
+        `Could not acquire migration lock - another process may already be migrating. ` +
           `Lockfile: ${lockPath}`,
       );
     }
@@ -478,10 +517,10 @@ export async function ensureSchemaUpToDate(
   }
 
   const lockTtlMs = options.lockTtlMs ?? MIGRATION_LOCK_TTL_MS;
-  const acquired = await provider.tryLock(MIGRATION_LOCK_NAME, lockTtlMs);
+  const acquired = await acquireMigrationLockWithRetry(provider, MIGRATION_LOCK_NAME, lockTtlMs);
   if (!acquired) {
     throw new Error(
-      `Could not acquire migration lock '${MIGRATION_LOCK_NAME}' within ${lockTtlMs}ms — ` +
+      `Could not acquire migration lock '${MIGRATION_LOCK_NAME}' within ${lockTtlMs}ms - ` +
         'another process may already be migrating. Wait and retry, or inspect pipeline_locks.',
     );
   }

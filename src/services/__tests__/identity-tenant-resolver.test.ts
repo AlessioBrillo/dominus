@@ -38,6 +38,16 @@ describe('IdentityTenantResolver', () => {
     await seats.acceptInvite(tenantId, userId);
   };
 
+  /** A signup workspace whose email address was proven by its owner. */
+  const joinVerified = async (
+    tenantId: string,
+    email: string,
+    role: 'admin' | 'member',
+  ): Promise<void> => {
+    await join(tenantId, email, role);
+    await seats.markEmailVerified(tenantId, email);
+  };
+
   it('maps seat roles to session roles (owner/admin manage, member does not)', () => {
     expect(sessionRoleFor('owner')).toBe('admin');
     expect(sessionRoleFor('admin')).toBe('admin');
@@ -105,8 +115,9 @@ describe('IdentityTenantResolver', () => {
   describe('linking a signup workspace to the single sign-on identity', () => {
     it('lands the person in the workspace they created with their email', async () => {
       // The self-serve signup creates the owner seat with the email: at
-      // signup time there is no identity-provider subject.
-      await join('tenant-signup', 'owner@example.com', 'admin');
+      // signup time there is no identity-provider subject. The address must
+      // have been proven by its owner before the seat can be claimed.
+      await joinVerified('tenant-signup', 'owner@example.com', 'admin');
 
       const r = await resolver(false).resolve({
         sub: 'auth0|u1',
@@ -117,7 +128,7 @@ describe('IdentityTenantResolver', () => {
     });
 
     it('re-links the seat to the identity-provider subject', async () => {
-      await join('tenant-signup', 'owner@example.com', 'admin');
+      await joinVerified('tenant-signup', 'owner@example.com', 'admin');
 
       await resolver(false).resolve({ sub: 'auth0|u1', email: 'owner@example.com' });
 
@@ -128,7 +139,7 @@ describe('IdentityTenantResolver', () => {
     });
 
     it('matches the email case-insensitively', async () => {
-      await join('tenant-signup', 'owner@example.com', 'admin');
+      await joinVerified('tenant-signup', 'owner@example.com', 'admin');
 
       const r = await resolver(false).resolve({
         sub: 'auth0|u1',
@@ -138,8 +149,40 @@ describe('IdentityTenantResolver', () => {
       expect(r.tenantId).toBe('tenant-signup');
     });
 
-    it('does not link a workspace whose email does not match', async () => {
+    it('does NOT link a workspace whose email was never proven', async () => {
+      // The pre-account takeover: whoever types the address of somebody
+      // else creates the workspace, and the somebody else inherits it on
+      // their next sign-in while the first writer keeps the API key. An
+      // unverified address proves nothing, so the seat is not claimable.
       await join('tenant-signup', 'owner@example.com', 'admin');
+
+      const r = await resolver(false).resolve({
+        sub: 'auth0|u1',
+        email: 'owner@example.com',
+      });
+
+      expect(r.tenantId).toBeUndefined();
+      // The seat is untouched: nobody stole it.
+      const bySubject = await seats.findActiveByUserId('auth0|u1');
+      expect(bySubject).toHaveLength(0);
+    });
+
+    it('does not link when several workspaces share the same verified address', async () => {
+      await joinVerified('tenant-one', 'owner@example.com', 'admin');
+      await joinVerified('tenant-two', 'owner@example.com', 'admin');
+
+      const r = await resolver(false).resolve({
+        sub: 'auth0|u1',
+        email: 'owner@example.com',
+      });
+
+      // "The most recent one" is a coin toss: the person gets no workspace
+      // instead of the wrong one.
+      expect(r.tenantId).toBeUndefined();
+    });
+
+    it('does not link a workspace whose email does not match', async () => {
+      await joinVerified('tenant-signup', 'owner@example.com', 'admin');
 
       const r = await resolver(false).resolve({
         sub: 'auth0|u2',
@@ -150,7 +193,7 @@ describe('IdentityTenantResolver', () => {
     });
 
     it('keeps the subject seat when the subject already has one', async () => {
-      await join('tenant-signup', 'owner@example.com', 'admin');
+      await joinVerified('tenant-signup', 'owner@example.com', 'admin');
       await join('tenant-team', 'auth0|u1', 'member');
 
       const r = await resolver(false).resolve({

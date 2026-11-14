@@ -38,30 +38,41 @@ export interface PnlReport {
   monthlyTrend: PnlMonthlyTrend[];
 }
 
+/**
+ * Where the outcomes come from.
+ *
+ * A loader is the only correct choice in a multi-tenant deployment: the
+ * outcomes of the 'default' tenant (or of no tenant at all) captured at
+ * boot time are not the outcomes of the customer who asks for the report.
+ */
+export type OutcomeSource = Outcome[] | (() => Promise<Outcome[]>);
+
 export class PnlService {
   constructor(
     private readonly portfolioRepo: PortfolioRepository,
-    private readonly outcomes: Outcome[],
+    private readonly outcomes: OutcomeSource,
   ) {}
 
   static async create(
     portfolioRepo: PortfolioRepository,
-    outcomes: Outcome[],
+    outcomes: OutcomeSource,
   ): Promise<PnlService> {
     return new PnlService(portfolioRepo, outcomes);
   }
 
-  private getOutcomes(): Outcome[] {
-    return this.outcomes;
+  /** The outcomes of the tenant of the current request. */
+  private async getOutcomes(): Promise<Outcome[]> {
+    return typeof this.outcomes === 'function' ? await this.outcomes() : this.outcomes;
   }
 
-  private getSoldOutcomes(): Outcome[] {
-    return this.getOutcomes().filter((o) => o.type === 'sold');
+  private getSoldOutcomes(outcomes: Outcome[]): Outcome[] {
+    return outcomes.filter((o) => o.type === 'sold');
   }
 
   async generate(): Promise<PnlReport> {
     const allEntries = await this.portfolioRepo.findAll();
-    const soldOutcomes = this.getSoldOutcomes();
+    const outcomes = await this.getOutcomes();
+    const soldOutcomes = this.getSoldOutcomes(outcomes);
 
     const totalInvestment = allEntries.reduce((sum, e) => sum + e.acquisitionCost, 0);
     const totalReturns = soldOutcomes.reduce((sum, o) => sum + (o.salePriceEur ?? 0), 0);
@@ -72,7 +83,7 @@ export class PnlService {
     const roiPct = denominator > 0 ? (netPnl / denominator) * 100 : 0;
 
     const perDomain: PnlPerDomain[] = allEntries.map((entry) => {
-      const domainOutcomes = this.getOutcomes().filter((o) => o.domain === entry.domain);
+      const domainOutcomes = outcomes.filter((o) => o.domain === entry.domain);
       const sold = domainOutcomes.find((o) => o.type === 'sold');
 
       const acquisitionCost = entry.acquisitionCost;

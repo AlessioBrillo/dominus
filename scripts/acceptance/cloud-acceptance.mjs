@@ -81,6 +81,10 @@ const COMPOSE_ENV = {
   ACCEPTANCE_POSTGRES_PASSWORD: DB_PASSWORD,
   ACCEPTANCE_APP_PASSWORD: DB_PASSWORD,
   ACCEPTANCE_APP_DATABASE_URL: APP_URL,
+  // The project name is unique per run: a fixed name means that two runs
+  // (or the local gate running from another checkout) share one set of
+  // containers, and the teardown of one tears down the other.
+  COMPOSE_PROJECT_NAME: process.env.COMPOSE_PROJECT_NAME ?? `dominus-acceptance-${PORT}`,
 };
 const APP_ROLE = 'dominus_app';
 const METRICS_TOKEN = 'acceptance-metrics-token';
@@ -234,6 +238,36 @@ function api(key, path, options = {}) {
   });
 }
 
+/** The mail sink of the stack (Mailpit), where the sent emails land. */
+const MAILPIT_URL = `http://127.0.0.1:${process.env.ACCEPTANCE_MAILPIT_PORT ?? 3211}`;
+
+/**
+ * The token of the signup verification email, read from the mail sink.
+ *
+ * The suite reads the link exactly like the customer reads it from their
+ * inbox: the verification is not simulated, it is delivered.
+ */
+async function verificationTokenFor(address, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const list = await fetch(`${MAILPIT_URL}/api/v1/messages`).then((r) => r.json());
+    const matching = (list.messages ?? []).filter((m) =>
+      (m.To ?? []).some((to) => to.Address === address),
+    );
+    // The most recent one: an address can have several signups (the
+    // stranger check and the journey check), and the token of the last
+    // email is the one of the workspace under test.
+    const message = matching[matching.length - 1];
+    if (message) {
+      const full = await fetch(`${MAILPIT_URL}/api/v1/message/${message.ID}`).then((r) => r.json());
+      const match = /verify-email\?token=([A-Za-z0-9_-]+)/.exec(full.Text ?? '');
+      if (match) return match[1];
+    }
+    await sleep(500);
+  }
+  throw new Error(`no verification email arrived for ${address}`);
+}
+
 /** The last balanced JSON object in a stream of logs and output. */
 function parseLastJson(text) {
   const end = text.lastIndexOf('}');
@@ -367,11 +401,33 @@ function composeServiceStatus(service) {
     .at(-1) ?? 'unknown';
 }
 
+/**
+ * Wait for a service to be running AND healthy.
+ *
+ * The health of a container is a moving target: the healthcheck runs on an
+ * interval, and a container that was just (re)created reports 'starting'
+ * until its first probe succeeds. Reading the status once is a race: the
+ * check must wait for the state it asserts.
+ */
+async function waitForServiceHealthy(service, timeoutMs = 120_000) {
+  const deadline = Date.now() + timeoutMs;
+  let status = 'unknown';
+  while (Date.now() < deadline) {
+    status = composeServiceStatus(service);
+    if (status.includes('running') && status.includes('healthy')) return status;
+    if (status.includes('exited') || status.includes('dead')) return status;
+    await sleep(2000);
+  }
+  return status;
+}
+
 // ── the suite ─────────────────────────────────────────────────────────
 
 async function main() {
   process.stdout.write('\nDOMINUS Cloud acceptance suite\n');
-  process.stdout.write(`stack: ${BASE_URL} (compose project dominus-acceptance)\n\n`);
+  process.stdout.write(
+    `stack: ${BASE_URL} (compose project ${COMPOSE_ENV.COMPOSE_PROJECT_NAME})\n\n`,
+  );
 
   await stackUp();
 
@@ -709,6 +765,100 @@ async function main() {
     assert(res.status === 400, `expected 400, got ${res.status}`);
   });
 
+  await check('the erasure removes the queued work of the tenant', async () => {
+    // The queue is global, but the rows of a tenant are its own: the
+    // payloads carry its domains and must not survive the erasure.
+    const tenantId = 'acceptance-tenant-queue';
+    const out = composeExec('api', [
+      'node',
+      'dist/cli.js',
+      'keys',
+      'create',
+      '--tenant',
+      tenantId,
+      '--name',
+      'acceptance',
+      '--role',
+      'admin',
+      '--json',
+    ], { env: { LOG_LEVEL: 'error' } });
+    const key = parseLastJson(out).key;
+
+    // A pipeline run is enqueued: the job carries the tenant, and its
+    // payload carries the domains of the customer.
+    const run = await api(key, '/api/v1/runs', {
+      method: 'POST',
+      body: { keywords: ['queued-deletion'] },
+    });
+    assert(
+      run.status === 202 || run.status === 200,
+      `expected 202, got ${run.status}: ${run.text.slice(0, 200)}`,
+    );
+    const before = sqlOwner(`SELECT count(*) FROM job_queue WHERE tenant_id = '${tenantId}'`);
+    assert(Number(before) >= 1, `the tenant has no queued work (${before})`);
+
+    const res = await api(key, '/api/v1/tenant', {
+      method: 'DELETE',
+      body: { confirm: tenantId },
+    });
+    assert(res.status === 200, `expected 200, got ${res.status}: ${res.text.slice(0, 300)}`);
+    const after = sqlOwner(`SELECT count(*) FROM job_queue WHERE tenant_id = '${tenantId}'`);
+    assert(after === '0', `the erasure left ${after} queued job(s) of the tenant`);
+  });
+
+  process.stdout.write('\nThe trust boundary of a paying tenant\n');
+
+  await check('the notification channels of a tenant belong to that tenant', async () => {
+    const saved = await api(keys[TENANT_B], '/api/v1/tenant/notifications', {
+      method: 'PUT',
+      body: { email: 'alerts@b.example.com' },
+    });
+    assert(saved.status === 200, `expected 200, got ${saved.status}: ${saved.text.slice(0, 200)}`);
+    assert(saved.json?.email === 'alerts@b.example.com', 'the channel was not stored');
+
+    const read = await api(keys[TENANT_B], '/api/v1/tenant/notifications');
+    assert(read.status === 200, `expected 200, got ${read.status}`);
+    assert(read.json?.email === 'alerts@b.example.com', 'the channel was not read back');
+
+    // The other tenant sees nothing of it.
+    const other = await api(keys[TENANT_A], '/api/v1/tenant/notifications');
+    assert(other.status === 200, `expected 200, got ${other.status}`);
+    assert(other.json?.email !== 'alerts@b.example.com', 'the channel leaked to another tenant');
+  });
+
+  await check('the scheduler surface is reserved to the operator', async () => {
+    // In the split deployment the API process does not host the scheduler at
+    // all, so the surface is absent (404). Where it IS mounted (a single
+    // process install), it is behind the operator role (403). Either way a
+    // tenant cannot fire a platform-wide job.
+    const res = await api(keys[TENANT_A], '/api/v1/scheduler/run/renewal-check', { method: 'POST' });
+    assert(
+      res.status === 403 || res.status === 404,
+      `expected 403 or 404, got ${res.status}: ${res.text.slice(0, 200)}`,
+    );
+  });
+
+  await check('the signup does not issue a key to a stranger', async () => {
+    // The self-serve signup creates the workspace and the key of the person
+    // who typed the address: the address is not proven yet, so the seat
+    // cannot be claimed through single sign-on (ADR-0107).
+    const res = await http('/api/v1/auth/register', {
+      method: 'POST',
+      body: { name: 'Acceptance Stranger', email: 'stranger@example.com' },
+    });
+    assert(res.status === 201, `expected 201, got ${res.status}: ${res.text.slice(0, 300)}`);
+    assert(res.json?.key === undefined, 'the registration returned a key before the verification');
+    assert(typeof res.json?.tenantId === 'string', 'the registration did not return a tenant id');
+
+    const seat = sqlOwner(
+      "SELECT status, email_verified_at FROM team_seats WHERE user_id = 'stranger@example.com'",
+    );
+    assert(
+      seat.includes('pending') || seat.includes('active'),
+      `the signup did not create a seat (${seat})`,
+    );
+  });
+
   process.stdout.write('\nThe customer journey\n');
 
   // The journey of a customer who signs up, uses the product, subscribes
@@ -728,10 +878,34 @@ async function main() {
       body: { name: 'Journey Customer', email: 'journey@example.com' },
     });
     assert(res.status === 201, `expected 201, got ${res.status}: ${res.text.slice(0, 300)}`);
-    assert(typeof res.json?.key === 'string', 'the registration did not return a key');
+    // The key is NOT issued before the address is proven (ADR-0107): the
+    // workspace is inert until the link of the email is opened.
+    assert(res.json?.key === undefined, 'the registration returned a key before the verification');
+    assert(res.json?.verificationRequired === true, 'the registration did not ask for a verification');
     assert(typeof res.json?.tenantId === 'string', 'the registration did not return a tenant id');
     registeredTenantId = res.json.tenantId;
-    keys[registeredTenantId] = res.json.key;
+
+    // The link is delivered: the suite reads it from the mail sink of the
+    // stack, exactly like the customer would from their inbox.
+    const token = await verificationTokenFor('journey@example.com');
+    const verified = await http('/api/v1/auth/verify-email', {
+      method: 'POST',
+      body: { token },
+    });
+    assert(
+      verified.status === 200,
+      `expected 200, got ${verified.status}: ${verified.text.slice(0, 300)}`,
+    );
+    assert(typeof verified.json?.key === 'string', 'the verification did not return a key');
+    keys[registeredTenantId] = verified.json.key;
+  });
+
+  await check('the verification link works only once', async () => {
+    const res = await http('/api/v1/auth/verify-email', {
+      method: 'POST',
+      body: { token: 'a-token-that-was-already-used' },
+    });
+    assert(res.status === 400, `expected 400, got ${res.status}`);
   });
 
   await check('the new workspace can use the API with its key', async () => {
@@ -821,13 +995,21 @@ async function main() {
 
   await check('the scheduler enqueues a job the worker consumes', async () => {
     const before = Number(sqlOwner("SELECT count(*) FROM job_queue WHERE job_type = 'PRUNE'"));
-    const out = composeExec('scheduler', [
-      'node',
-      'dist/cli.js',
-      'scheduler',
-      'run',
-      'data-prune',
-    ], { env: { LOG_LEVEL: 'error' } });
+    let out = '';
+    try {
+      out = composeExec('scheduler', [
+        'node',
+        'dist/cli.js',
+        'scheduler',
+        'run',
+        'data-prune',
+      ], { env: { LOG_LEVEL: 'error' } });
+    } catch (err) {
+      // The message of the failing command is not enough: the reason the
+      // scheduler was not there is in its own logs.
+      const logs = compose(['logs', '--tail', '20', 'scheduler'], { allowFailure: true });
+      throw new Error(`${err.message}\n--- scheduler logs ---\n${logs}`);
+    }
     assert(out.trim().length > 0, 'the scheduler printed nothing');
 
     const deadline = Date.now() + 60_000;
@@ -850,10 +1032,10 @@ async function main() {
     // own health server on 9090/9091, which is what the container
     // healthcheck probes — and what the deployment's health gate uses.
     for (const service of ['worker', 'scheduler']) {
-      const status = composeServiceStatus(service);
+      const status = await waitForServiceHealthy(service);
       assert(
         status.includes('running') && status.includes('healthy'),
-        `${service} is "${status}" — it must be running and healthy`,
+        `${service} is "${status}" - it must be running and healthy`,
       );
     }
   });

@@ -77,6 +77,10 @@ async function main(): Promise<void> {
     }
     logger.info('Worker entrypoint: database providers closed');
     shutdownComplete();
+    // The event loop is not empty yet (the logger, the DNS pool): exit
+    // explicitly, like the API server does after its shutdown. Without it
+    // the container waits for the grace period and is killed (exit 137).
+    process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));

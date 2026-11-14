@@ -127,4 +127,16 @@ export class ApiKeyRepository {
       resolveTenantId(),
     ]);
   }
+
+  /**
+   * Revoke every key of a tenant and return how many were removed.
+   *
+   * The tenant id is an explicit parameter (not the ambient context): the
+   * caller is the ownership transfer of a workspace, which happens outside
+   * any tenant scope by definition.
+   */
+  async revokeAllByTenant(tenantId: string): Promise<number> {
+    const result = await this.db.exec('DELETE FROM api_keys WHERE tenant_id = ?', [tenantId]);
+    return result.changes;
+  }
 }

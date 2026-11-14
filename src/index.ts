@@ -20,6 +20,7 @@ import { identityFromConfig, missingIdentityFields } from './services/legal-iden
 import { TenantDataService } from './services/tenant-data-service.js';
 import { setLegalFooterContext } from './api/views/legal-footer.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
+import { requireRole } from './api/middleware/require-role.js';
 import { createUsageEnforcementMiddleware } from './api/middleware/usage-enforcement.js';
 import { isMultiTenantAuth, isUsageEnforcementActive } from './app/auth-factory.js';
 import { securityHeaders } from './api/middleware/security-headers.js';
@@ -61,6 +62,7 @@ import {
   createDocsRouter,
   createWorkerRouter,
   createTenantCredentialsRouter,
+  createTenantNotificationsRouter,
   createTenantDataRouter,
   createPublicRouter,
   createRobotsTxtHandler,
@@ -334,7 +336,15 @@ async function main(): Promise<void> {
       }),
     );
   }
-  app.use('/api/v1/auth', createAuthRouter(deps.authProvider, deps.provisioningService));
+  app.use(
+    '/api/v1/auth',
+    createAuthRouter(
+      deps.authProvider,
+      deps.provisioningService,
+      deps.verificationService,
+      config.SIGNUP_EMAIL_VERIFICATION,
+    ),
+  );
 
   // Interactive SSO login flow (OIDC Authorization Code + PKCE, ADR-0062).
   // Mounted only when fully configured — otherwise the /oidc endpoints 404
@@ -485,7 +495,13 @@ async function main(): Promise<void> {
     createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }),
   );
   if (deps.scheduler) {
-    protectedRouter.use('/scheduler', createSchedulerRouter(deps.scheduler));
+    // The scheduler drives the work of every tenant: it is an operator
+    // surface, not a tenant one. A tenant member must not be able to fire
+    // a platform-wide job.
+    protectedRouter.use(
+      '/scheduler',
+      createSchedulerRouter(deps.scheduler, requireRole('operator')),
+    );
   }
   protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
   protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
@@ -515,8 +531,17 @@ async function main(): Promise<void> {
   );
   protectedRouter.use('/sustainability', createSustainabilityRouter(deps.sustainabilityService));
   protectedRouter.use('/tenant/credentials', createTenantCredentialsRouter(deps.credentialVault));
+  protectedRouter.use(
+    '/tenant/notifications',
+    createTenantNotificationsRouter(deps.tenantNotificationService),
+  );
   if (deps.worker) {
-    protectedRouter.use('/system', createWorkerRouter(deps.worker, deps.jobQueueService));
+    // The queue is shared by every customer: its stats and its dead letters
+    // are the work of the platform, not of the caller.
+    protectedRouter.use(
+      '/system',
+      createWorkerRouter(deps.worker, deps.jobQueueService, requireRole('operator')),
+    );
   }
   app.use('/api/v1', protectedRouter);
 

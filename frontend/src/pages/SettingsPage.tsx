@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiKeysCard } from '@/components/ApiKeysCard';
+import { NotificationChannelsCard } from '@/components/NotificationChannelsCard';
 
 export function SettingsPage() {
   const { logout } = useAuth();
@@ -31,6 +32,8 @@ export function SettingsPage() {
       </Card>
 
       <ApiKeysCard />
+
+      <NotificationChannelsCard />
 
       <Card>
         <CardHeader>

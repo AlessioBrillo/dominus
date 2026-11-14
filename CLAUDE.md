@@ -31,7 +31,7 @@ decisions (superseded by ADR-0026, ADR-0027 for the SaaS era).
 | **Backend**        | Node.js 22+, Express 5                                         |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)                        |
 | **CLI**            | Commander (23 commands)                                        |
-| **API**            | Express REST (34 route modules)                                |
+| **API**            | Express REST (35 route modules)                                |
 | **Frontend**       | React 19 + Vite 8 + Tailwind CSS 4 + Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2                       |
 | **Infrastructure** | Docker, Docker Compose, Terraform (Hetzner), GitHub Actions    |
@@ -143,6 +143,14 @@ path, not of the Woodpecker merge gate.
 
 Resolved design decisions:
 
+0. **The trust boundary of a paying tenant** — the email of the owner is
+   proven before the workspace carries a key, the proof revokes the keys
+   issued before it, and an unverified seat can never be claimed through
+   single sign-on; the scheduled jobs run once per tenant; the alerts of a
+   customer go to the customer; the queue is fair per tenant; the
+   row-level-security policies cover every tenant table and deny when no
+   tenant context is active. See
+   [ADR-0107](docs/adr/0107-trust-boundary-of-a-paying-tenant.md).
 1. **Starting segment: economic closeouts first** — Stage 1 imports closeout
    CSVs (`run --closeout-csv`), carrying age/backlinks/wayback into the
    expiry signal. See [ADR-0003](docs/adr/0003-pipeline-stage-separation.md).

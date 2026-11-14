@@ -1,11 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import {
-  createDecipheriv,
-  createCipheriv,
-  randomBytes,
-  scryptSync,
-  type BinaryLike,
-} from 'node:crypto';
 import type { TenantCredentialRepository } from '../db/repositories/tenant-credential-repository.js';
 import type {
   CredentialVault,
@@ -13,18 +6,12 @@ import type {
   TenantCredentialView,
 } from '../types/tenant-credential.js';
 import { VaultDecryptionError, VaultNotConfiguredError } from '../types/tenant-credential.js';
+import { createSecretBox, type SecretBox } from '../utils/secret-box.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
 
 const VAULT_KEY_ENV = 'VAULT_ENCRYPTION_KEY';
-const SALT_LENGTH = 16;
-const NONCE_LENGTH = 12;
-const TAG_LENGTH = 16;
-const SCRYPT_KEY_LENGTH = 32;
-const SCRYPT_COST = 16384;
-const SCRYPT_BLOCK_SIZE = 8;
-const SCRYPT_PARALLEL = 1;
 
 /**
  * Encrypted credential storage format (base64):
@@ -35,16 +22,20 @@ const SCRYPT_PARALLEL = 1;
  * the operator's VAULT_ENCRYPTION_KEY. AES-256-GCM provides authenticated
  * encryption: tampered ciphertext fails decryption before any plaintext is
  * ever returned.
+ *
+ * The envelope is implemented by the shared secret box (src/utils/secret-box.ts),
+ * so the vault and the per-tenant notification settings use one format and
+ * one master key.
  */
 export class CredentialVaultService implements CredentialVault {
-  readonly #masterKey: Buffer | null;
+  readonly #box: SecretBox | null;
   readonly #repo: TenantCredentialRepository;
   readonly isConfigured: boolean;
 
   constructor(masterKey: string | undefined, repo: TenantCredentialRepository) {
     this.#repo = repo;
     if (masterKey === undefined || masterKey.length === 0) {
-      this.#masterKey = null;
+      this.#box = null;
       this.isConfigured = false;
       logger.warn(
         { env: VAULT_KEY_ENV },
@@ -52,30 +43,16 @@ export class CredentialVaultService implements CredentialVault {
       );
       return;
     }
-    this.#masterKey = Buffer.from(masterKey, 'utf8');
+    this.#box = createSecretBox(masterKey);
     this.isConfigured = true;
   }
 
   async set(input: NewTenantCredential): Promise<void> {
-    if (!this.isConfigured || this.#masterKey === null) {
+    if (!this.isConfigured || this.#box === null) {
       throw new VaultNotConfiguredError();
     }
 
-    const salt = randomBytes(SALT_LENGTH);
-    const derived = scryptSync(this.#masterKey, salt, SCRYPT_KEY_LENGTH, {
-      N: SCRYPT_COST,
-      r: SCRYPT_BLOCK_SIZE,
-      p: SCRYPT_PARALLEL,
-    });
-
-    const nonce = randomBytes(NONCE_LENGTH);
-    const cipher = createCipheriv('aes-256-gcm', derived, nonce);
-    const secretBuffer = Buffer.from(input.secret, 'utf8');
-    const encrypted = Buffer.concat([cipher.update(secretBuffer), cipher.final()]);
-    const tag = cipher.getAuthTag();
-
-    const payload = Buffer.concat([salt, nonce, encrypted, tag]);
-    const encoded = payload.toString('base64');
+    const encoded = this.#box.encrypt(input.secret);
 
     await this.#repo.set(
       input.tenantId,
@@ -92,7 +69,7 @@ export class CredentialVaultService implements CredentialVault {
     providerType: 'registrar' | 'parking' | 'adsense' | 'gsc' | 'marketplace',
     providerName: string,
   ): Promise<string | null> {
-    if (!this.isConfigured || this.#masterKey === null) {
+    if (!this.isConfigured || this.#box === null) {
       return null;
     }
 
@@ -100,7 +77,7 @@ export class CredentialVaultService implements CredentialVault {
     if (row === null) return null;
 
     try {
-      return this.#decrypt(row.encrypted_credential);
+      return this.#box.decrypt(row.encrypted_credential);
     } catch (err: unknown) {
       logger.warn(
         {
@@ -124,7 +101,7 @@ export class CredentialVaultService implements CredentialVault {
     providerType: 'registrar' | 'parking' | 'adsense' | 'gsc' | 'marketplace',
     providerName: string,
   ): Promise<boolean> {
-    if (!this.isConfigured || this.#masterKey === null) {
+    if (!this.isConfigured || this.#box === null) {
       throw new VaultNotConfiguredError();
     }
     return this.#repo.delete(tenantId, providerType, providerName);
@@ -132,30 +109,6 @@ export class CredentialVaultService implements CredentialVault {
 
   async list(tenantId: string): Promise<TenantCredentialView[]> {
     return this.#repo.list(tenantId);
-  }
-
-  #decrypt(encoded: string): string {
-    const payload = Buffer.from(encoded, 'base64');
-    if (payload.length < SALT_LENGTH + NONCE_LENGTH + TAG_LENGTH) {
-      throw new VaultDecryptionError();
-    }
-
-    const salt = payload.subarray(0, SALT_LENGTH);
-    const nonce = payload.subarray(SALT_LENGTH, SALT_LENGTH + NONCE_LENGTH);
-    const tagStart = payload.length - TAG_LENGTH;
-    const ciphertext = payload.subarray(SALT_LENGTH + NONCE_LENGTH, tagStart);
-    const tag = payload.subarray(tagStart);
-
-    const derived = scryptSync(this.#masterKey as Buffer, salt, SCRYPT_KEY_LENGTH, {
-      N: SCRYPT_COST,
-      r: SCRYPT_BLOCK_SIZE,
-      p: SCRYPT_PARALLEL,
-    });
-
-    const decipher = createDecipheriv('aes-256-gcm', derived, nonce);
-    decipher.setAuthTag(tag as BinaryLike);
-    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    return decrypted.toString('utf8');
   }
 }
 

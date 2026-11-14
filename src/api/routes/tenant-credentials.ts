@@ -20,10 +20,20 @@ const setBodySchema = z.object({
 export function createTenantCredentialsRouter(credentialVault: CredentialVaultService): Router {
   const router = Router();
 
+  /**
+   * The tenant of the request.
+   *
+   * The vault is keyed by tenant: every tenant has its own registrar
+   * credentials. The hardcoded 'default' that this route used to carry made
+   * every customer of a Cloud deployment share ONE set of credentials — a
+   * customer could read (and overwrite) the credentials of another one.
+   */
+  const tenantOf = (req: Request): string => req.tenantId ?? 'default';
+
   /** Metadata for all configured credentials of the current tenant. Never returns secrets. */
-  router.get('/', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  router.get('/', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const views = await credentialVault.list('default');
+      const views = await credentialVault.list(tenantOf(req));
       res.json({ credentials: views });
     } catch (err) {
       next(err);
@@ -53,7 +63,7 @@ export function createTenantCredentialsRouter(credentialVault: CredentialVaultSe
         }
 
         await credentialVault.set({
-          tenantId: 'default',
+          tenantId: tenantOf(req),
           providerType: providerType as CredentialProviderType,
           providerName,
           secret,
@@ -95,7 +105,7 @@ export function createTenantCredentialsRouter(credentialVault: CredentialVaultSe
         }
 
         const deleted = await credentialVault.clear(
-          'default',
+          tenantOf(req),
           providerType as CredentialProviderType,
           providerName,
         );
