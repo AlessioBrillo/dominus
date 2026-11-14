@@ -20,6 +20,14 @@ export interface WorkerConfig {
   heartbeatIntervalMs: number;
   /** Optional notifier chain for dead-letter and critical job failures. */
   notifiers?: Notifier[];
+  /**
+   * Maximum number of jobs of the same tenant running at the same time.
+   *
+   * The queue is shared by every customer: without the cap, one tenant
+   * with a thousand queued jobs keeps every worker busy and the others
+   * wait. 0 disables the cap.
+   */
+  maxRunningPerTenant?: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,6 +62,7 @@ export class JobWorker {
       maxRunningAgeMs: config.maxRunningAgeMs ?? 300000,
       gracefulShutdownTimeoutMs: config.gracefulShutdownTimeoutMs ?? 30000,
       heartbeatIntervalMs: config.heartbeatIntervalMs ?? 15000,
+      maxRunningPerTenant: config.maxRunningPerTenant ?? 4,
     };
   }
 
@@ -134,7 +143,7 @@ export class JobWorker {
     let dequeued = 0;
     for (let i = 0; i < availableSlots; i++) {
       try {
-        const job = await this.#repo.dequeue(this.#workerId);
+        const job = await this.#repo.dequeue(this.#workerId, this.#config.maxRunningPerTenant ?? 0);
         if (!job) break;
         dequeued++;
         void this.#processJob(job);
@@ -206,7 +215,9 @@ export class JobWorker {
 
     try {
       const payload = JSON.parse(job.payloadJson) as JobPayload & { tenantId?: string };
-      const tenantId = payload.tenantId;
+      // The tenant of the job is the column (authoritative); the payload is
+      // the fallback for the jobs enqueued before the column existed.
+      const tenantId = job.tenantId ?? payload.tenantId;
 
       const execute = async (): Promise<void> => {
         const result = await handler.handle(payload as JobPayload, controller.signal);

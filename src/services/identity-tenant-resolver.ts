@@ -2,6 +2,9 @@
 import type { TeamSeatsRepository } from '../db/repositories/team-seats-repository.js';
 import type { TeamRole, TeamSeat } from '../types/team.js';
 import type { TenantProvisioningService } from './tenant-provisioning-service.js';
+import { getLogger } from '../logger.js';
+
+const logger = getLogger();
 
 /** Request role for a team seat: owner/admin manage the tenant, members do not. */
 export function sessionRoleFor(seatRole: TeamRole): 'admin' | 'member' {
@@ -18,9 +21,13 @@ export interface ResolvedIdentity {
  * is the source of truth for humans; the IdP only proves who they are.
  *
  *   1. an active seat          → that team (most recently joined), role from the seat
- *   2. a seat held by the email → that team, and the seat is re-linked to the
- *      identity-provider subject (the self-serve signup creates the owner
- *      seat with the email, because at that moment there is no subject yet)
+ *   2. a seat held by a VERIFIED email → that team, and the seat is re-linked
+ *      to the identity-provider subject (the self-serve signup creates the
+ *      owner seat with the email, because at that moment there is no subject
+ *      yet). The email must have been proven by its owner: an address typed
+ *      by somebody else proves nothing, and linking it would hand the
+ *      workspace to the person whose mailbox it is — while the person who
+ *      typed it keeps the API key (pre-account takeover).
  *   3. an IdP org_id           → that tenant, role from the token (Auth0 Organizations)
  *   4. neither                 → a fresh tenant with the user as admin, when
  *                                auto-provisioning is on
@@ -65,7 +72,13 @@ export class IdentityTenantResolver {
     // When the same person signs in with single sign-on, the seat is
     // re-linked to the subject, so the person lands in the workspace they
     // created instead of a second, empty one.
-    const byEmail = await this.#findSeatByEmail(input.email);
+    //
+    // The email must have been PROVEN (email_verified_at). A signup with an
+    // unverified address creates a seat that nobody may claim through
+    // single sign-on: without that rule, whoever types the address of
+    // somebody else creates the workspace, and the somebody else inherits
+    // it on their next login while the first writer keeps the API key.
+    const byEmail = await this.#findVerifiedSeatByEmail(input.email);
     if (byEmail) {
       await this.#relink(byEmail, input.sub);
       return { tenantId: byEmail.tenantId, role: sessionRoleFor(byEmail.role) };
@@ -80,13 +93,29 @@ export class IdentityTenantResolver {
     return { tenantId: undefined, role: input.claimedRole };
   }
 
-  /** The active seat whose user identifier is the given email, if any. */
-  async #findSeatByEmail(email: string | undefined): Promise<TeamSeat | undefined> {
+  /**
+   * The active seat whose user identifier is the given email AND whose
+   * email was proven.
+   *
+   * When several workspaces were created with the same address, the seat is
+   * NOT resolved: "the most recent one" is a coin toss, and the wrong
+   * choice silently moves a person into somebody else's workspace. The
+   * user gets a fresh workspace instead, and the operator sees the warning.
+   */
+  async #findVerifiedSeatByEmail(email: string | undefined): Promise<TeamSeat | undefined> {
     if (!email) return undefined;
     const normalized = email.trim().toLowerCase();
     if (normalized === '') return undefined;
-    const [seat] = await this.seats.findActiveByUserId(normalized);
-    return seat;
+    const seats = await this.seats.findActiveVerifiedByEmail(normalized);
+    if (seats.length === 0) return undefined;
+    if (seats.length > 1) {
+      logger.warn(
+        { email: normalized, tenants: seats.map((s) => s.tenantId) },
+        'IdentityTenantResolver: several workspaces share this verified address — not linking any of them',
+      );
+      return undefined;
+    }
+    return seats[0];
   }
 
   /**

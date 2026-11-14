@@ -35,6 +35,13 @@ v1.6.0 - The Customer Journey Contract: the paid path is executed, not
   seat quota and the machine-key quota are separate (ADR-0104); the usage
   meter counts the work and not the reads (ADR-0105); the public front
   door (landing, pricing, signup) replaces the bare login form.
+v1.7.0 - The Trust Boundary of a Paying Tenant: the email of the owner is
+  PROVEN before the workspace carries a key, the proof revokes the keys
+  issued before it, and an unverified seat can never be claimed through
+  single sign-on (ADR-0107); the scheduled jobs run once per tenant, the
+  alerts of a customer go to the customer, the queue is fair per tenant and
+  the erasure removes the queued work; the row-level-security policies
+  cover every tenant table and DENY when no tenant context is active.
 Next: execute the first staging apply, the third-party audit, the fiscal
 position, and only then the paid Cloud tiers.
 This roadmap outlines the planned releases and their scope. Timelines are

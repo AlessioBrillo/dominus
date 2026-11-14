@@ -35,6 +35,13 @@ async function main(): Promise<void> {
     check: async () => true,
   });
 
+  // Arm the cron timers. The job catalogue exists as soon as the service is
+  // built, but the timers are armed by start(): without this call the
+  // scheduler process ran NO scheduled job, ever, for any tenant - the whole
+  // platform automation (renewal check, rescore, watchlist poll, prune) was
+  // dead in the Cloud while the container reported itself healthy.
+  scheduler.start();
+
   logger.info(
     { healthcheckPort: HEALTHCHECK_PORT },
     'Scheduler entrypoint: SchedulerService started successfully',
@@ -51,6 +58,13 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Scheduler entrypoint: received shutdown signal');
     healthcheck.close();
     scheduler.stop();
+    // The Redis client reconnects on its own after a disconnect: without
+    // closing it, its reconnect timer keeps the event loop alive and the
+    // process never exits. The container is then killed by the grace
+    // period (exit 137) instead of stopping cleanly.
+    if (deps.redisClient) {
+      await deps.redisClient.shutdown().catch(() => {});
+    }
     // ADR-0080 explicit lifecycle: close write, read, then main.
     if (deps.writeProvider && deps.writeProvider !== deps.provider) {
       await deps.writeProvider.close().catch(() => {});
@@ -63,6 +77,9 @@ async function main(): Promise<void> {
     }
     logger.info('Scheduler entrypoint: database providers closed');
     shutdownComplete();
+    // The event loop is not empty yet (the logger, the DNS pool): exit
+    // explicitly, like the API server does after its shutdown.
+    process.exit(0);
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));

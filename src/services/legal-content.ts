@@ -337,6 +337,7 @@ function privacyPolicy(identity: LegalIdentity, cloudMode: boolean): LegalDocume
       heading: '2. What we process and why',
       paragraphs: [
         'Account and team data: email address, name, role and seat membership, used to provide the service and to send the invitations you request (art. 6(1)(b) GDPR).',
+        'Verification data: the address you signed up with is verified by a single-use link sent to it, so that nobody else can take your workspace. Only the hash of the token is stored, and the token is deleted when it is used (art. 6(1)(b) GDPR).',
         'Authentication data: API key metadata, session tokens and single sign-on identifiers, used to authenticate you and to keep tenants isolated (art. 6(1)(b) GDPR).',
         'Usage data: number of pipeline runs and API calls per tenant, used to enforce the plan limits you subscribed to (art. 6(1)(b) GDPR).',
         'Billing data: customer identifier, invoice details, tax identification number and transaction records, used to invoice you and to meet the accounting and tax obligations (art. 6(1)(c) GDPR).',
@@ -356,6 +357,7 @@ function privacyPolicy(identity: LegalIdentity, cloudMode: boolean): LegalDocume
         'Stripe Payments Europe Ltd. (Ireland) — subscription billing and tax calculation.',
         'Okta, Inc. / Auth0 (United States) — single sign-on, for tenants that use it.',
         'Your chosen SMTP provider — delivery of the team invitations you send.',
+        'Your chosen SMTP provider — delivery of the signup verification and of the API key recovery links.',
       ],
     });
     sections.push({

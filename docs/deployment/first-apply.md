@@ -227,6 +227,15 @@ app_env = {
   AUTO_PROVISION_TENANTS = "true"
   USAGE_ENFORCEMENT_ENABLED = "true"
 
+  # The self-serve signup needs a mail transport: the workspace is inert
+  # until the owner proves the address with the link that is emailed to it
+  # (ADR-0107). Without SMTP_URL the signup refuses to create anything.
+  SMTP_URL = "smtp://user:pass@smtp.example.com:587"
+
+  # The master key of the credential vault: it encrypts the provider
+  # credentials and the webhook URL of the notification channels.
+  VAULT_ENCRYPTION_KEY = "<generated, 32+ bytes>"
+
   # Optional second trademark source.
   # EUIPO_CLIENT_ID     = "..."
   # EUIPO_CLIENT_SECRET = "..."

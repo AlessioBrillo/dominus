@@ -42,7 +42,9 @@ export function registerDoctorCommand(
     .option('--json', 'Emit JSON instead of a human-readable report', false)
     .option('--skip-trademark', 'Skip the live trademark-gate canary (for smoke tests)', false)
     .action(async (options: { json: boolean; skipTrademark: boolean }) => {
-      const result = await runDoctor(deps.config, deps.db, options.skipTrademark);
+      const result = await runDoctor(deps.config, deps.db, {
+        skipTrademark: options.skipTrademark,
+      });
 
       if (options.json) {
         process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -54,11 +56,29 @@ export function registerDoctorCommand(
     });
 }
 
-async function runDoctor(
+export interface DoctorOptions {
+  /** Skip the live trademark-gate canary (smoke tests, offline installs). */
+  skipTrademark?: boolean;
+  /**
+   * The free bytes of the filesystem, injected by the caller.
+   *
+   * The probe is a function of the machine, and the machine is not the same
+   * in every environment: a CI container can have less than a gigabyte free
+   * on its root filesystem, and a Windows host reports the volume differently
+   * than a Linux container. The check therefore reports what it finds, and the
+   * TEST decides what it asserts (the disk probe is injectable) instead of the
+   * machine deciding whether the suite is green.
+   */
+  freeDiskBytes?: () => number;
+}
+
+export async function runDoctor(
   config: Config,
   db: Database.Database | null,
-  skipTrademark = false,
+  options: DoctorOptions = {},
 ): Promise<DoctorResult> {
+  const skipTrademark = options.skipTrademark === true;
+  const diskProbe = options.freeDiskBytes ?? freeDiskBytes;
   const checks: DoctorCheck[] = [];
 
   // ── 1: version ──────────────────────────────────────────────────────
@@ -262,7 +282,7 @@ async function runDoctor(
 
   // ── 8: disk space ───────────────────────────────────────────────────
   try {
-    const free = freeDiskBytes();
+    const free = diskProbe();
     const freeGb = (free / 1_073_741_824).toFixed(1);
     checks.push({
       name: 'disk space',
@@ -301,9 +321,19 @@ export function freeDiskBytes(): number {
     }
     return 0;
   }
-  const out = execSync('df -P / | tail -1', { encoding: 'utf8' });
-  const parts = out.trim().split(/\s+/);
-  return Number(parts[3]) * 1024;
+  try {
+    const out = execSync('df -P / | tail -1', { encoding: 'utf8' });
+    const parts = out.trim().split(/\s+/);
+    // `df -P` prints: filesystem blocks used available capacity mountpoint.
+    // The fourth column is the available blocks (1 KB units). A short or
+    // unexpected line must never produce NaN: NaN fails every comparison,
+    // and the check would report a status nobody can explain.
+    const available = Number(parts[3]);
+    if (!Number.isFinite(available)) return 0;
+    return available * 1024;
+  } catch {
+    return 0;
+  }
 }
 
 function formatDoctorReport(result: DoctorResult): string {

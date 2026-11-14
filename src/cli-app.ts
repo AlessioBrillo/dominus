@@ -138,6 +138,20 @@ async function main(): Promise<void> {
   // database goes away.
   await deps.worker?.stop();
   await deps.redisClient?.shutdown();
+
+  // The read and the write providers are SEPARATE pools (ADR-0080): each
+  // one keeps its own sockets open. Closing only the main provider left
+  // those sockets behind, and the one-shot CLI never exited: the command
+  // printed its output and the process hung until it was killed. The API
+  // server closes all three (src/index.ts, step 6); the CLI must do the
+  // same.
+  if (deps.writeProvider && deps.writeProvider !== deps.provider) {
+    await deps.writeProvider.close();
+  }
+  if (deps.readProvider && deps.readProvider !== deps.provider) {
+    await deps.readProvider.close();
+  }
+
   await deps.provider.close();
   closeDatabase();
 }

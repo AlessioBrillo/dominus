@@ -32,6 +32,14 @@ export interface JobQueueRow {
   updatedAt: string;
   lockedBy?: string;
   heartbeatAt?: string;
+  /**
+   * The tenant that owns the job, when it belongs to one.
+   *
+   * Platform jobs (backup, PITR health, the weight tuner) have no tenant.
+   * The column exists so the queue can be fair per tenant and so the
+   * erasure of an account can remove the work it left behind.
+   */
+  tenantId?: string | undefined;
 }
 
 export interface DeadLetterJobRow {
@@ -43,6 +51,7 @@ export interface DeadLetterJobRow {
   attempts: number;
   failedAt: string;
   originalCreatedAt: string;
+  tenantId?: string | undefined;
 }
 
 export interface JobQueueStats {

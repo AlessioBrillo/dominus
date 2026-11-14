@@ -15,6 +15,7 @@ import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
 import type { JobQueueService } from '../app/job-queue-service.js';
 import type { LockProvider } from '../types/lock.js';
+import { runWithTenant } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -82,7 +83,30 @@ export interface SchedulerOptions {
    * SCHEDULER_PITR_HEALTH_CRON and records the dominus_pitr_* gauges.
    */
   pitrHealthService?: PitrHealthService;
+  /**
+   * The tenants the tenant-scoped jobs have to run for.
+   *
+   * A scheduled job that touches tenant data (the renewal check, the
+   * portfolio rescore, the watchlist poll, the prune) must run ONCE PER
+   * TENANT, inside the tenant context: the repositories resolve the tenant
+   * from the ambient context, and a job that runs outside one writes to the
+   * 'default' tenant — a tenant that belongs to nobody. In the Cloud the
+   * automation of every customer was silently a no-op.
+   *
+   * Omitted = a single-tenant installation (the community edition), where
+   * the job runs once, exactly as before.
+   */
+  tenantEnumerator?: () => Promise<string[]>;
 }
+
+/**
+ * Whether a job belongs to one tenant or to the platform.
+ *
+ * - `tenant`: the job works on tenant data and runs once per tenant.
+ * - `global`: the job works on the platform (backup, PITR health, the
+ *   weight tuner) and runs once.
+ */
+export type ScheduledJobScope = 'tenant' | 'global';
 
 export class SchedulerService {
   private readonly jobs: Map<string, ScheduledTask> = new Map();
@@ -101,6 +125,7 @@ export class SchedulerService {
   private readonly revenueIngestionService: RevenueIngestionService | undefined;
   private readonly lock: LockProvider | undefined;
   private readonly pitrHealthService: PitrHealthService | undefined;
+  private readonly tenantEnumerator: (() => Promise<string[]>) | undefined;
   private running = false;
   /**
    * Whether the cron timers are armed while the jobs are registered.
@@ -125,6 +150,7 @@ export class SchedulerService {
     this.revenueIngestionService = options.revenueIngestionService;
     this.lock = options.lock;
     this.pitrHealthService = options.pitrHealthService;
+    this.tenantEnumerator = options.tenantEnumerator;
   }
 
   start(): void {
@@ -165,6 +191,7 @@ export class SchedulerService {
         return msg;
       },
       'RENEWAL_CHECK',
+      'tenant',
     );
 
     if (this.portfolioHealthcheckService) {
@@ -179,6 +206,7 @@ export class SchedulerService {
           return msg;
         },
         'PORTFOLIO_HEALTHCHECK',
+        'tenant',
       );
     } else {
       logger.warn('portfolio-healthcheck job disabled (PortfolioRdapService not provided)');
@@ -196,6 +224,7 @@ export class SchedulerService {
           return msg;
         },
         'PORTFOLIO_RESCORE',
+        'tenant',
       );
     } else {
       logger.warn('portfolio-rescore job disabled (PortfolioManager not provided)');
@@ -220,6 +249,7 @@ export class SchedulerService {
           return msg;
         },
         'REVENUE_SYNC',
+        'tenant',
       );
     } else {
       logger.warn('revenue-sync job disabled (RevenueIngestionService not provided)');
@@ -239,6 +269,7 @@ export class SchedulerService {
           return msg;
         },
         'PRUNE',
+        'tenant',
       );
     } else {
       logger.warn(
@@ -273,6 +304,7 @@ export class SchedulerService {
           return msg;
         },
         'WATCHLIST_POLL',
+        'tenant',
       );
     } else {
       logger.warn('watchlist-poll job disabled (WatchlistService not provided)');
@@ -357,6 +389,7 @@ export class SchedulerService {
     description: string,
     execute: () => Promise<string>,
     jobType?: string,
+    scope: ScheduledJobScope = 'global',
   ): void {
     const wrappedExec =
       this.jobQueueService && jobType
@@ -395,7 +428,12 @@ export class SchedulerService {
             return `Job enqueued: ${jobId}`;
           }
         : execute;
-    this.#setJobDefinition(name, cronExpression, description, wrappedExec);
+    // A tenant-scoped job runs once per tenant, inside the tenant context.
+    const scopedExec =
+      scope === 'tenant'
+        ? async (): Promise<string> => this.#runForEachTenant(wrappedExec)
+        : wrappedExec;
+    this.#setJobDefinition(name, cronExpression, description, scopedExec);
 
     // Persist job definition to DB
     this.jobRepo?.upsert({ jobName: name, cronExpression, description }).catch(() => {
@@ -409,12 +447,55 @@ export class SchedulerService {
 
     if (cron.validate(cronExpression)) {
       const task = cron.schedule(cronExpression, () => {
-        void this.#runScheduled(name, wrappedExec);
+        void this.#runScheduled(name, scopedExec);
       });
       this.jobs.set(name, task);
     } else {
       logger.warn(`Invalid cron expression for job "${name}": ${cronExpression}. Job disabled.`);
     }
+  }
+
+  /**
+   * Run a tenant-scoped job once per tenant, inside the tenant context.
+   *
+   * The repositories resolve the tenant from the ambient context
+   * (AsyncLocalStorage) and the PostgreSQL adapter turns it into the
+   * `app.tenant_id` setting the row-level-security policies read. A job
+   * that runs outside a tenant context therefore writes to the 'default'
+   * tenant — a tenant that belongs to nobody — and the automation of every
+   * customer is a silent no-op.
+   *
+   * One failing tenant must not stop the others: the failures are
+   * collected and reported in the result of the job.
+   */
+  async #runForEachTenant(execute: () => Promise<string>): Promise<string> {
+    const enumerator = this.tenantEnumerator;
+    if (!enumerator) {
+      // A single-tenant installation (the community edition): the job runs
+      // once, exactly as before.
+      return await execute();
+    }
+
+    const tenants = await enumerator();
+    const failures: string[] = [];
+    let succeeded = 0;
+
+    for (const tenantId of tenants) {
+      try {
+        await runWithTenant(tenantId, execute);
+        succeeded += 1;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        failures.push(`${tenantId}: ${message}`);
+        logger.error({ tenantId, err }, 'Scheduled job failed for a tenant');
+      }
+    }
+
+    const summary = `Ran for ${succeeded}/${tenants.length} tenant(s)`;
+    if (failures.length > 0) {
+      return `${summary} — ${failures.length} failure(s): ${failures.join('; ')}`;
+    }
+    return summary;
   }
 
   async #runScheduled(name: string, execute: () => Promise<string>): Promise<void> {

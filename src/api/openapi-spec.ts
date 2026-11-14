@@ -314,14 +314,14 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         tags: ['System'],
         summary: 'Register a new workspace (Cloud edition only)',
         description:
-          'Provisions a tenant with the free plan and returns the first admin API key (shown exactly once). Not available in the community edition.',
+          'Provisions a tenant with the free plan. The workspace is INERT until the owner proves the email address: the key is issued by the verification link (ADR-0107). With SIGNUP_EMAIL_VERIFICATION=optional the key is returned right away and the seat stays unverified — it can then never be claimed through single sign-on. Not available in the community edition.',
         requestBody: {
           required: true,
           content: {
             'application/json': {
               schema: {
                 type: 'object',
-                required: ['name'],
+                required: ['name', 'email'],
                 properties: {
                   name: { type: 'string', maxLength: 80 },
                   email: { type: 'string', format: 'email' },
@@ -332,7 +332,51 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         },
         responses: {
           '201': {
-            description: 'Tenant provisioned',
+            description: 'Workspace created',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tenantId: { type: 'string' },
+                    key: {
+                      type: 'string',
+                      description: 'One-time admin API key (optional mode only)',
+                    },
+                    prefix: { type: 'string' },
+                    verificationRequired: { type: 'boolean' },
+                    message: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { $ref: '#/components/responses/ValidationError' },
+          '503': { description: 'The verification email cannot be delivered (no SMTP transport)' },
+        },
+      },
+    },
+    '/api/v1/auth/verify-email': {
+      post: {
+        tags: ['System'],
+        summary: 'Redeem the signup verification token',
+        description:
+          'Consumes the single-use token of the verification email: the workspace is activated, the email is recorded as proven, the keys issued before the proof are revoked and a new key is returned (ADR-0107).',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['token'],
+                properties: { token: { type: 'string', minLength: 16, maxLength: 256 } },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Workspace activated',
             content: {
               'application/json': {
                 schema: {
@@ -347,7 +391,94 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
               },
             },
           },
+          '400': { description: 'The token is invalid, expired or already used' },
+        },
+      },
+    },
+    '/api/v1/auth/resend-verification': {
+      post: {
+        tags: ['System'],
+        summary: 'Ask for a new signup verification email',
+        description:
+          'The answer is always the same, whether the address has a workspace or not: the endpoint must not be an account oracle.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email'],
+                properties: { email: { type: 'string', format: 'email' } },
+              },
+            },
+          },
+        },
+        responses: {
+          '202': { description: 'Accepted (always)' },
           '400': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+    },
+    '/api/v1/auth/recover': {
+      post: {
+        tags: ['System'],
+        summary: 'Ask for an API key recovery email',
+        description:
+          'The key is shown exactly once and only its hash is stored: a lost key is replaced by a link to the address of the workspace. The answer is always the same.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email'],
+                properties: { email: { type: 'string', format: 'email' } },
+              },
+            },
+          },
+        },
+        responses: {
+          '202': { description: 'Accepted (always)' },
+          '400': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+    },
+    '/api/v1/auth/recover/confirm': {
+      post: {
+        tags: ['System'],
+        summary: 'Redeem the recovery token and receive a new API key',
+        description:
+          'The other keys of the workspace keep working: the recovery exists because a key was lost, and the surviving keys may be the machine credentials of the customer.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['token'],
+                properties: { token: { type: 'string', minLength: 16, maxLength: 256 } },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'A new key was issued',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tenantId: { type: 'string' },
+                    key: { type: 'string', description: 'One-time admin API key' },
+                    prefix: { type: 'string' },
+                    message: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { description: 'The token is invalid, expired or already used' },
         },
       },
     },
@@ -824,6 +955,114 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
             },
           },
           '501': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+    },
+    '/api/v1/tenant/notifications': {
+      get: {
+        tags: ['Tenant Notifications'],
+        summary: 'The notification channels of the current tenant',
+        description:
+          'The channels the alerts of this workspace are delivered to. The webhook URL is never returned: it is stored encrypted.',
+        responses: {
+          '200': {
+            description: 'Notification channels',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tenantId: { type: 'string' },
+                    email: { type: ['string', 'null'] },
+                    hasWebhook: { type: 'boolean' },
+                    telegramChatId: { type: ['string', 'null'] },
+                    enabled: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      put: {
+        tags: ['Tenant Notifications'],
+        summary: 'Store the notification channels of the current tenant',
+        description:
+          'The webhook URL is a bearer secret: it is encrypted at rest with the operator master key and never returned.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  email: { type: ['string', 'null'], format: 'email' },
+                  webhookUrl: { type: ['string', 'null'], format: 'uri' },
+                  telegramChatId: { type: ['string', 'null'] },
+                  enabled: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Channels stored',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    tenantId: { type: 'string' },
+                    email: { type: ['string', 'null'] },
+                    hasWebhook: { type: 'boolean' },
+                    telegramChatId: { type: ['string', 'null'] },
+                    enabled: { type: 'boolean' },
+                  },
+                },
+              },
+            },
+          },
+          '400': { $ref: '#/components/responses/ValidationError' },
+        },
+      },
+      delete: {
+        tags: ['Tenant Notifications'],
+        summary: 'Remove the notification channels of the current tenant',
+        responses: {
+          '200': {
+            description: 'Channels removed',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { deleted: { type: 'boolean' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/api/v1/tenant/notifications/test': {
+      post: {
+        tags: ['Tenant Notifications'],
+        summary: 'Send a test alert to the channels of the current tenant',
+        responses: {
+          '200': {
+            description: 'The channels the test was delivered to',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    channels: { type: 'array', items: { type: 'string' } },
+                  },
+                },
+              },
+            },
+          },
+          '409': { description: 'No channel is configured' },
         },
       },
     },

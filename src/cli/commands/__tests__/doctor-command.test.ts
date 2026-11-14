@@ -88,23 +88,44 @@ function parseDoctorOutput(out: string): {
   return JSON.parse(out.slice(jsonStart, jsonEnd));
 }
 
+function doctorConfig(configOverrides: Partial<Config> = {}): Config {
+  return {
+    DATABASE_URL: undefined,
+    DATABASE_PATH: './data/dominus.db',
+    BACKUP_DIR: './data/backup',
+    DNS_UNBOUND_ENABLED: true,
+    API_KEYS: undefined,
+    ...configOverrides,
+  } as unknown as Config;
+}
+
 async function runDoctor(configOverrides: Partial<Config> = {}): Promise<void> {
   const { registerDoctorCommand } = await import('../doctor-command.js');
   const program = new Command();
   program.name('dominus');
   program.version('1.5.2');
   registerDoctorCommand(program, {
-    config: {
-      DATABASE_URL: undefined,
-      DATABASE_PATH: './data/dominus.db',
-      BACKUP_DIR: './data/backup',
-      DNS_UNBOUND_ENABLED: true,
-      API_KEYS: undefined,
-      ...configOverrides,
-    } as unknown as Config,
+    config: doctorConfig(configOverrides),
     db: null,
   });
   await program.parseAsync(['node', 'dominus', 'doctor', '--json']);
+}
+
+/**
+ * The disk probe is injected: the free space of the machine running the
+ * suite must never decide whether the suite is green (a CI container can
+ * have less than a gigabyte free on its root filesystem).
+ */
+async function runDoctorWithProbe(
+  freeBytes: number,
+  configOverrides: Partial<Config> = {},
+): Promise<{
+  version: string;
+  checks: Array<{ name: string; status: string; detail: string }>;
+  ok: boolean;
+}> {
+  const { runDoctor: doctor } = await import('../doctor-command.js');
+  return doctor(doctorConfig(configOverrides), null, { freeDiskBytes: () => freeBytes });
 }
 
 describe('CLI: dominus doctor', () => {
@@ -180,14 +201,27 @@ describe('CLI: dominus doctor', () => {
   });
 
   it('reports disk space as ok when free space exceeds 1 GB', async () => {
-    try {
-      await runDoctor();
-    } catch {
-      // process.exit is mocked to throw
-    }
-    const parsed = parseDoctorOutput(capturedStdout);
+    const parsed = await runDoctorWithProbe(10 * 1024 * 1024 * 1024);
     const disk = parsed.checks.find((c) => c.name === 'disk space');
     expect(disk?.status).toBe('ok');
     expect(disk?.detail).toContain('GB free');
+  });
+
+  it('reports disk space as warn when free space is below 1 GB', async () => {
+    const parsed = await runDoctorWithProbe(512 * 1024 * 1024);
+    const disk = parsed.checks.find((c) => c.name === 'disk space');
+    expect(disk?.status).toBe('warn');
+  });
+
+  it('reports disk space as warn when the probe fails', async () => {
+    const { runDoctor: doctor } = await import('../doctor-command.js');
+    const parsed = await doctor(doctorConfig(), null, {
+      freeDiskBytes: () => {
+        throw new Error('probe failed');
+      },
+    });
+    const disk = parsed.checks.find((c) => c.name === 'disk space');
+    expect(disk?.status).toBe('warn');
+    expect(disk?.detail).toContain('could not determine free space');
   });
 });
