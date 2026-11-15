@@ -7,6 +7,7 @@ import { EmailNotifier } from '../notifiers/email-notifier.js';
 import { WebhookNotifier } from '../notifiers/webhook-notifier.js';
 import { TelegramNotifier } from '../notifiers/telegram-notifier.js';
 import type { Notification } from '../types/alert.js';
+import { isPubliclyRoutableHost } from '../utils/public-host.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -106,6 +107,19 @@ export class TenantNotificationService {
         if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
           throw new TenantNotificationSettingsError('The webhook URL must be an http(s) URL');
         }
+        // The URL is chosen by the tenant and fetched by the server: a
+        // loopback, private or link-local address would make the platform
+        // reach services that only trust the network (SSRF).
+        if (parsed.username !== '' || parsed.password !== '') {
+          throw new TenantNotificationSettingsError(
+            'The webhook URL must not carry credentials in the address',
+          );
+        }
+        if (!isPubliclyRoutableHost(parsed.hostname)) {
+          throw new TenantNotificationSettingsError(
+            'The webhook URL must point to a public host (not loopback, private or link-local)',
+          );
+        }
         webhookUrlEncrypted = this.#deps.secretBox.encrypt(input.webhookUrl);
       }
     }
@@ -172,7 +186,9 @@ export class TenantNotificationService {
       } else {
         try {
           const url = this.#deps.secretBox.decrypt(settings.webhookUrlEncrypted);
-          notifiers.push(new WebhookNotifier({ url }));
+          // No redirects: a public URL that answers 302 to an internal one
+          // would bypass the check made when the URL was stored.
+          notifiers.push(new WebhookNotifier({ url, followRedirects: false }));
         } catch (err) {
           logger.warn(
             { err: err instanceof Error ? err.message : String(err) },

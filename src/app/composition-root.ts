@@ -707,7 +707,13 @@ function buildSchedulerIfEnabled(
     // The tenant-scoped jobs run once per tenant, inside the tenant
     // context. Without the enumerator they would write to the 'default'
     // tenant and the automation of every customer would be a no-op.
-    tenantEnumerator: () => adminRepo.listTenantIds(),
+    //
+    // In the community edition the enumerator is NOT installed: there is
+    // one tenant, nobody ever wrote a subscription row for it, and
+    // enumerating would run the job for nobody at all — the very bug this
+    // fixes, moved to the single-tenant install. `#runForEachTenant` falls
+    // back to one run when the enumerator is absent.
+    ...(isMultiTenantAuth(config) ? { tenantEnumerator: () => adminRepo.listTenantIds() } : {}),
     ...(pitrHealthService ? { pitrHealthService } : {}),
     ...(lockProvider ? { lock: lockProvider } : {}),
     ...(autoTuner ? { autoTuner } : {}),

@@ -2,15 +2,15 @@
 
 ## Metadata
 
-| Field          | Value                                                                 |
-|----------------|-----------------------------------------------------------------------|
-| **Status**     | Accepted                                                              |
-| **Date**       | 2026-11-12                                                            |
-| **Authors**    | Alessio Brillo                                                        |
-| **Deciders**   | Alessio Brillo                                                        |
-| **Supersedes** | -                                                                     |
-| **Relates to** | ADR-0038, ADR-0034, ADR-0104, ADR-0106, ADR-0018, ADR-0023          |
-| **Project**    | DOMINUS                                                               |
+| Field          | Value                                                      |
+| -------------- | ---------------------------------------------------------- |
+| **Status**     | Accepted                                                   |
+| **Date**       | 2026-11-12                                                 |
+| **Authors**    | Alessio Brillo                                             |
+| **Deciders**   | Alessio Brillo                                             |
+| **Supersedes** | -                                                          |
+| **Relates to** | ADR-0038, ADR-0034, ADR-0104, ADR-0106, ADR-0018, ADR-0023 |
+| **Project**    | DOMINUS                                                    |
 
 ## Context
 
@@ -39,7 +39,7 @@ The two halves together are a pre-account takeover:
    the identity provider, the seat is re-linked to their subject, and they
    land in that workspace — while the first writer keeps a working key.
 
-The verification of the identity provider proves that the *colleague* owns
+The verification of the identity provider proves that the _colleague_ owns
 the mailbox. It proves nothing about who wrote the address down. The
 address was never proven, and the seat was claimable anyway.
 
@@ -135,6 +135,23 @@ never armed, so the platform automation never ran for anybody), and the
 condition that separates "define the catalogue" from "arm the timers" was
 inverted.
 
+The tenant enumerator is installed **only in a multi-tenant deployment**.
+The community edition has one tenant and no subscription row to enumerate:
+an enumerator there would run the job for nobody. The single-tenant path
+runs the job once **inside the tenant of the installation** — not outside
+any context — because on PostgreSQL the strict policies deny a query made
+without one.
+
+### An inert workspace can be pruned, an invitation cannot
+
+The prune removes the workspaces whose address was never proven, so a typo
+in a signup form does not leave a tenant behind forever. The rule is
+narrow: **no** seat of the workspace was ever active or verified, and **no**
+API key was ever issued. A pending seat alone is not enough to call a
+workspace abandoned — it is also the shape of an invitation to a colleague
+— and deleting on that signal would erase the seats and the subscription of
+a paying customer because a colleague ignored an email.
+
 ### The queue is fair
 
 Two caps: a tenant may not have more than `JOB_QUEUE_MAX_DEPTH_PER_TENANT`
@@ -170,6 +187,17 @@ The channels of a tenant live in `tenant_notification_settings` (email,
 webhook URL, Telegram chat). The webhook URL is a bearer secret: it is
 encrypted with the operator master key, in the same envelope as the
 credential vault, and it is never returned by the API.
+
+The webhook URL is chosen by the tenant and fetched by the **server**, so it
+is an SSRF surface: a loopback, private, link-local or single-label address
+would make the platform reach services that only trust the network (the
+cloud metadata service is the classic target). The URL is refused unless its
+host is publicly routable, it may not carry credentials, and the tenant
+webhook **does not follow redirects** — a public URL answering `302` to an
+internal one would bypass the check. A public name that _resolves_ to a
+private address (a hostile record, DNS rebinding) is not caught here: that
+residual risk is bounded by the egress policy of the deployment, which is
+listed as a prerequisite in the launch readiness document.
 
 The notifier chain is **tenant-scoped**: with a tenant context (an API
 request, a worker job, a per-tenant scheduled job) the alert goes to that
@@ -248,7 +276,16 @@ tenant) and `/api/v1/admin`.
   the type of a bound parameter, and the Cloud only runs PostgreSQL.
 - `src/services/__tests__/tenant-notification-service.test.ts` — the
   webhook is encrypted, the channels of a tenant do not leak into another
-  one, the operator's channels stay silent for a tenant alert.
+  one, the operator's channels stay silent for a tenant alert, and a URL
+  that points inside the network is refused.
+- `src/utils/__tests__/public-host.test.ts` — the public-host check: the
+  loopback, the private ranges, link-local, carrier-grade NAT, a
+  single-label name and a private IPv4 mapped into IPv6 are all refused.
+- `src/db/repositories/__tests__/signup-verification-repository.test.ts` —
+  the prune removes an inert workspace and **keeps** an established one
+  whose invitation was never accepted.
+- `src/api/routes/__tests__/auth.test.ts` — the recovery endpoints are
+  absent when `AUTH_RECOVERY_ENABLED=false`.
 - `src/db/__tests__/tenant-data-registry.test.ts` — the classification
   matches the migration.
 - `src/db/provider/__tests__/rls-isolation.pg.test.ts` — the cross-tenant
@@ -267,6 +304,6 @@ tenant) and `/api/v1/admin`.
 
 ---
 
-*This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs
+_This ADR was created following the MADR 4.0.0 standard. All DOMINUS ADRs
 should be consistent with the ADR series starting at
-`docs/adr/0001-project-architecture.md`.*
+`docs/adr/0001-project-architecture.md`._

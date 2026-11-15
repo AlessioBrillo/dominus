@@ -52,10 +52,14 @@ function buildApp(
   provisioning?: TenantProvisioningService,
   verification?: EmailVerificationService,
   mode: SignupVerificationMode = 'required',
+  recoveryEnabled = true,
 ): Application {
   const app = express();
   app.use(express.json());
-  app.use('/api/v1/auth', createAuthRouter(makeAuthProvider(), provisioning, verification, mode));
+  app.use(
+    '/api/v1/auth',
+    createAuthRouter(makeAuthProvider(), provisioning, verification, mode, recoveryEnabled),
+  );
   app.use(errorHandler);
   return app;
 }
@@ -193,5 +197,22 @@ describe('API: /api/v1/auth/recover', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.key).toBe('cafebabe');
+  });
+
+  it('is not mounted when AUTH_RECOVERY_ENABLED=false', async () => {
+    const verification = makeVerificationService(true);
+    const app = buildApp(makeProvisioningService(), verification, 'required', false);
+
+    const ask = await request(app).post('/api/v1/auth/recover').send({ email: 'a@example.com' });
+    const confirm = await request(app)
+      .post('/api/v1/auth/recover/confirm')
+      .send({ token: 'a-verification-token-with-enough-entropy' });
+
+    // The documented configuration variable has to do something: the two
+    // endpoints do not exist for the operator who turned recovery off.
+    expect(ask.status).toBe(404);
+    expect(confirm.status).toBe(404);
+    expect(verification.requestRecovery).not.toHaveBeenCalled();
+    expect(verification.confirmRecovery).not.toHaveBeenCalled();
   });
 });

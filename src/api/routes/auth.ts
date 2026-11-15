@@ -66,6 +66,7 @@ export function createAuthRouter(
   provisioningService?: TenantProvisioningService,
   verificationService?: EmailVerificationService,
   signupVerificationMode: SignupVerificationMode = 'required',
+  recoveryEnabled = true,
 ): Router {
   const router = Router();
 
@@ -234,50 +235,56 @@ export function createAuthRouter(
 
     // Ask for a recovery link. Same rule: the answer never says whether the
     // address has an account.
-    router.post('/recover', async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        const parsed = emailSchema.safeParse(req.body);
-        if (!parsed.success) {
-          res.status(400).json({
-            error: { code: 'VALIDATION_ERROR', message: 'A valid email is required' },
+    //
+    // AUTH_RECOVERY_ENABLED=false removes the two recovery endpoints: an
+    // operator who prefers to hand keys out through support (or who has no
+    // mail transport) should not advertise a path that cannot work.
+    if (recoveryEnabled) {
+      router.post('/recover', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+          const parsed = emailSchema.safeParse(req.body);
+          if (!parsed.success) {
+            res.status(400).json({
+              error: { code: 'VALIDATION_ERROR', message: 'A valid email is required' },
+            });
+            return;
+          }
+          const email = parsed.data.email.trim().toLowerCase();
+          await verificationService.requestRecovery(email).catch((err: unknown) => {
+            logger.warn({ err }, 'The recovery email could not be sent');
           });
-          return;
+          res.status(202).json({ sent: true });
+        } catch (err) {
+          next(err);
         }
-        const email = parsed.data.email.trim().toLowerCase();
-        await verificationService.requestRecovery(email).catch((err: unknown) => {
-          logger.warn({ err }, 'The recovery email could not be sent');
-        });
-        res.status(202).json({ sent: true });
-      } catch (err) {
-        next(err);
-      }
-    });
+      });
 
-    // Redeem a recovery token and receive a fresh key.
-    router.post('/recover/confirm', async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        const parsed = tokenSchema.safeParse(req.body);
-        if (!parsed.success) {
-          res.status(400).json({
-            error: { code: 'VALIDATION_ERROR', message: 'A recovery token is required' },
+      // Redeem a recovery token and receive a fresh key.
+      router.post('/recover/confirm', async (req: Request, res: Response, next: NextFunction) => {
+        try {
+          const parsed = tokenSchema.safeParse(req.body);
+          if (!parsed.success) {
+            res.status(400).json({
+              error: { code: 'VALIDATION_ERROR', message: 'A recovery token is required' },
+            });
+            return;
+          }
+          const recovered = await verificationService.confirmRecovery(parsed.data.token);
+          res.json({
+            tenantId: recovered.tenantId,
+            key: recovered.key.fullKey,
+            prefix: recovered.key.prefix,
+            message: 'Save this key — it will not be shown again.',
           });
-          return;
+        } catch (err) {
+          if (err instanceof VerificationInvalidError) {
+            res.status(400).json({ error: { code: err.code, message: err.message } });
+            return;
+          }
+          next(err);
         }
-        const recovered = await verificationService.confirmRecovery(parsed.data.token);
-        res.json({
-          tenantId: recovered.tenantId,
-          key: recovered.key.fullKey,
-          prefix: recovered.key.prefix,
-          message: 'Save this key — it will not be shown again.',
-        });
-      } catch (err) {
-        if (err instanceof VerificationInvalidError) {
-          res.status(400).json({ error: { code: err.code, message: err.message } });
-          return;
-        }
-        next(err);
-      }
-    });
+      });
+    }
   }
 
   return router;

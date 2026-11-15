@@ -424,7 +424,7 @@ The \`/public\` and \`/api/health\` endpoints are unauthenticated.`,
         tags: ['System'],
         summary: 'Ask for an API key recovery email',
         description:
-          'The key is shown exactly once and only its hash is stored: a lost key is replaced by a link to the address of the workspace. The answer is always the same.',
+          'The key is shown exactly once and only its hash is stored: a lost key is replaced by a link to the address of the workspace. The answer is always the same. Mounted only when AUTH_RECOVERY_ENABLED is true (default).',
         requestBody: {
           required: true,
           content: {

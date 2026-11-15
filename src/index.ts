@@ -343,6 +343,7 @@ async function main(): Promise<void> {
       deps.provisioningService,
       deps.verificationService,
       config.SIGNUP_EMAIL_VERIFICATION,
+      config.AUTH_RECOVERY_ENABLED,
     ),
   );
 

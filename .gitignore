@@ -77,4 +77,3 @@ test-results/
 # --- Local gate run logs (the gate is the log, not a committed artifact) ---
 .ci-local.log
 .ci-local*.log
-

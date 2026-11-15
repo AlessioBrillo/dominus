@@ -15,7 +15,7 @@ import type { Config } from '../config.js';
 import { type SchedulerJobRepository } from '../db/repositories/scheduler-job-repository.js';
 import type { JobQueueService } from '../app/job-queue-service.js';
 import type { LockProvider } from '../types/lock.js';
-import { runWithTenant } from '../utils/tenant-context.js';
+import { runWithTenant, resolveTenantId } from '../utils/tenant-context.js';
 import { getLogger } from '../logger.js';
 
 const logger = getLogger();
@@ -94,7 +94,7 @@ export interface SchedulerOptions {
    * automation of every customer was silently a no-op.
    *
    * Omitted = a single-tenant installation (the community edition), where
-   * the job runs once, exactly as before.
+   * the job runs once, in the tenant of the installation.
    */
   tenantEnumerator?: () => Promise<string[]>;
 }
@@ -472,8 +472,11 @@ export class SchedulerService {
     const enumerator = this.tenantEnumerator;
     if (!enumerator) {
       // A single-tenant installation (the community edition): the job runs
-      // once, exactly as before.
-      return await execute();
+      // once, in the tenant of the installation. The context is explicit
+      // and not a detail: on PostgreSQL the strict row-level-security
+      // policies deny a query made outside a tenant context, so a job that
+      // ran without one would read nothing and write nothing.
+      return await runWithTenant(resolveTenantId(), execute);
     }
 
     const tenants = await enumerator();

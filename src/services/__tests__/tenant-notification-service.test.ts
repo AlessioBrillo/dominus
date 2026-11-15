@@ -74,6 +74,34 @@ describe('TenantNotificationService', () => {
     ).rejects.toThrow(/vault is not configured/);
   });
 
+  it('refuses a webhook that points inside the network (SSRF)', async () => {
+    const svc = service();
+
+    // The server would POST to the loopback, to a private range or to the
+    // cloud metadata service.
+    for (const url of [
+      'http://127.0.0.1:8080/hook',
+      'http://localhost/hook',
+      'http://[::1]/hook',
+      'http://10.0.0.5/hook',
+      'http://192.168.1.10/hook',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://intranet/hook',
+    ]) {
+      await expect(svc.save('tenant-a', { webhookUrl: url })).rejects.toThrow(/public host/);
+    }
+
+    // Nothing was stored.
+    expect((await svc.get('tenant-a')).hasWebhook).toBe(false);
+  });
+
+  it('refuses a webhook that carries credentials in the address', async () => {
+    const svc = service();
+    await expect(
+      svc.save('tenant-a', { webhookUrl: 'https://user:pass@hooks.example.com/x' }),
+    ).rejects.toThrow(/credentials/);
+  });
+
   it('delivers the alert to the channels of the tenant', async () => {
     const svc = service();
     await svc.save('tenant-a', { email: 'owner@example.com' });

@@ -117,17 +117,31 @@ export class SignupVerificationRepository {
   /**
    * Remove the workspaces that were never verified.
    *
-   * A workspace is "unverified" when its only seat is still pending: nobody
-   * ever proved the address, so nobody ever received a key. The rows are
-   * removed in the reverse order of their creation (token, seat,
-   * subscription).
+   * A workspace is "unverified" when NO seat of it was ever active and no
+   * key was ever issued: nobody proved the address and nobody received a
+   * key, so the tenant is inert. The rows are removed in an order that
+   * respects the references (token, seats, subscription).
+   *
+   * The two NOT EXISTS are the whole point, not a refinement: a pending
+   * seat is also the shape of an INVITATION to a colleague. Without them,
+   * an established workspace with an invitation nobody accepted for a week
+   * would lose every seat and its subscription row — the prune would delete
+   * a paying customer because a colleague ignored an email.
    */
   async deleteUnverifiedWorkspaces(cutoff: string): Promise<number> {
     const rows = await this.#db.query<{ tenant_id: string }>(
-      `SELECT tenant_id FROM team_seats
-       WHERE status = 'pending'
-         AND email_verified_at IS NULL
-         AND invited_at < ?`,
+      `SELECT s.tenant_id FROM team_seats s
+       WHERE s.status = 'pending'
+         AND s.email_verified_at IS NULL
+         AND s.invited_at < ?
+         AND NOT EXISTS (
+           SELECT 1 FROM team_seats used
+           WHERE used.tenant_id = s.tenant_id
+             AND (used.email_verified_at IS NOT NULL OR used.status = 'active')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM api_keys k WHERE k.tenant_id = s.tenant_id
+         )`,
       [cutoff],
     );
     const tenantIds = [...new Set(rows.map((r) => r.tenant_id))];

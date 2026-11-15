@@ -65,7 +65,7 @@ describe('the tenant scope of the scheduled jobs', () => {
     expect(seen).toEqual(['tenant-a', 'tenant-b']);
   });
 
-  it('runs the job once when the installation is single-tenant', async () => {
+  it('runs the job once, in the tenant of the installation, when it is single-tenant', async () => {
     const seen: Array<string | undefined> = [];
     const scheduler = makeScheduler({
       checkAll: async () => {
@@ -76,7 +76,10 @@ describe('the tenant scope of the scheduled jobs', () => {
 
     await scheduler.runOnce('renewal-check');
 
-    expect(seen).toEqual([undefined]);
+    // Not `undefined`: on PostgreSQL the strict policies deny a query made
+    // outside a tenant context, so the community edition has to run the job
+    // in its own tenant explicitly.
+    expect(seen).toEqual(['default']);
   });
 
   it('keeps the other tenants running when one fails', async () => {
