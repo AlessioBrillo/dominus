@@ -54,9 +54,16 @@ silent no-op — and the operator's channels received the alerts.
 
 ### 3. The isolation was 15 tables out of 32, and it failed open
 
-The registry of the tenant-scoped tables knew 32 tables; the row-level
-security policies of migration 0030 covered 15. The other 17 relied on the
-repository filter alone.
+The registry of the tenant-scoped tables knew 32 tables when the work
+started; the row-level security policies of migration 0030 covered 15. The
+other 17 relied on the repository filter alone. The registry knows 36
+tables now (this branch adds the queue, the signup tokens and the tenant
+notification channels), and **22** of them are enforced by the database.
+The remaining 14 are control-plane: they have to be readable _before_ a
+tenant context exists (auth, billing, the queue) or they are the platform's
+own records, so their boundary is the repository that always carries the
+tenant id — and the registry, which the tests compare with the migration,
+is what keeps the two lists from drifting.
 
 Worse, the policy itself failed open: `tenant_id = COALESCE(
 current_setting('app.tenant_id', true), 'default')`. A query made outside

@@ -23,8 +23,9 @@ tree).
   `AUTOMATION_ENABLED` both defaulting off (ADR-0083).
 - Tenant isolation with RLS and a `dominus_app` role that is never the
   PostgreSQL owner, precisely so `FORCE ROW LEVEL SECURITY` cannot be
-  bypassed. The policies now cover **22** of the 32 tenant-scoped tables and
-  they **deny** when no tenant context is active: a missing context is an
+  bypassed. The policies now cover **22 of the 36** tenant-scoped tables —
+  the other 14 are control-plane, readable before a tenant context exists —
+  and they **deny** when no tenant context is active: a missing context is an
   error, not a silent write to a phantom tenant (ADR-0107).
 - The trust boundary of a paying tenant is closed (ADR-0107): the email of
   the owner is proven before the workspace carries a key, the keys issued

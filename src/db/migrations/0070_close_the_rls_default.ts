@@ -11,9 +11,11 @@ export const backwardCompatible = true;
  * Two gaps are closed here.
  *
  * 1. **Seven tenant tables had no policy at all.** The registry
- *    (src/db/tenant-data-registry.ts) knows 32 tenant-scoped tables; the
- *    policies of migration 0030 covered 15. The other 17 (now 22 with the
- *    control-plane ones) relied on the repository filter alone: a single
+ *    (src/db/tenant-data-registry.ts) knew 32 tenant-scoped tables when the
+ *    work started and knows 36 now; the policies of migration 0030 covered
+ *    15. The other 17 (7 of which get a policy here, for 22 protected;
+ *    the remaining 10 are control-plane and are read before a tenant
+ *    context exists) relied on the repository filter alone: a single
  *    forgotten `WHERE tenant_id = ?` was a cross-tenant read with no
  *    database-layer backstop.
  *
