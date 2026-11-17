@@ -26,8 +26,12 @@ describe.runIf(PG_URL)('the tenant statements on PostgreSQL', () => {
 
   beforeAll(async () => {
     adapter = await PostgresAdapter.create(PG_URL);
+    // The whole schema, on a shared container: the default 10 s budget is the
+    // time a single migration takes on an idle machine, and this hook runs
+    // all of them. The gate's migrate step exists precisely because that is
+    // not instantaneous.
     await adapter.runMigrations();
-  });
+  }, 180_000);
 
   afterAll(async () => {
     if (adapter?.isOpen()) await adapter.close();

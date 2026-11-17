@@ -16,7 +16,11 @@
 # preserved here; only the syntax changed:
 #
 #   - the per-command working directory became a `cd` in the command itself
-#     (there is no per-command working directory);
+#     (there is no per-command working directory). The commands of a step run
+#     in ONE shell, so a bare `cd` leaks into the commands that follow: the
+#     repeated `cd frontend && ...` of this file left the shell inside
+#     `frontend`, the second `cd` failed, and two steps never ran. Use
+#     `npm --prefix <dir>` or `terraform -chdir=<dir>` instead of a `cd`;
 #   - the PostgreSQL service moved to the root `services` list, where the
 #     executor starts it, and the test step waits for it explicitly;
 #   - the custom `workspace` and `clone` blocks were dropped: the default
@@ -102,11 +106,14 @@ steps:
       - ci-frontend-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
-      - cd frontend && npm ci
-      - cd frontend && npm run typecheck
-      - cd frontend && npm run lint
-      - cd frontend && npm test
-      - cd frontend && npm run build
+      # `--prefix` runs the script with the prefix as its working directory and
+      # does not move the shell: a bare `cd frontend` would stay in effect for
+      # the next command and the second `cd frontend` would fail.
+      - npm --prefix frontend ci
+      - npm --prefix frontend run typecheck
+      - npm --prefix frontend run lint
+      - npm --prefix frontend test
+      - npm --prefix frontend run build
 
   # ------------------------------------------------------------------ pack
   - name: pack
@@ -133,8 +140,11 @@ steps:
     commands:
       - git config --global --add safe.directory '*'
       - npm ci
-      - cd frontend && npm ci
-      - cd frontend && npm run build:frontend
+      - npm --prefix frontend ci
+      # The root script, which is the one that builds the frontend into the
+      # artefact the smoke test serves (the frontend package has no
+      # `build:frontend` script of its own).
+      - npm run build:frontend
       - npm run build
       - node scripts/run-e2e-smoke.mjs
 
@@ -164,9 +174,9 @@ steps:
       - ci-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
-      - cd deploy/terraform && terraform fmt -check -recursive
-      - cd deploy/terraform && terraform init -backend=false
-      - cd deploy/terraform && terraform validate
+      - terraform -chdir=deploy/terraform fmt -check -recursive
+      - terraform -chdir=deploy/terraform init -backend=false
+      - terraform -chdir=deploy/terraform validate
 
   # ------------------------------------------------------------------ deploy scripts (behavior tests)
   # rollout.sh, migrate.sh and migration-gate.sh run on the app node during
