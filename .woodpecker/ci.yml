@@ -112,10 +112,7 @@ steps:
       - npm --prefix frontend ci
       - npm --prefix frontend run typecheck
       - npm --prefix frontend run lint
-      # Four workers: with one fork per CPU (12) the jsdom workers start
-      # together from a slow bind mount and Vitest gives up on them
-      # ("Timeout waiting for worker to respond").
-      - npm --prefix frontend test -- --maxWorkers=4
+      - npm --prefix frontend test
       - npm --prefix frontend run build
 
   # ------------------------------------------------------------------ pack
