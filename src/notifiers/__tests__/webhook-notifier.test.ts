@@ -83,4 +83,29 @@ describe('WebhookNotifier', () => {
     expect(stderrBuffer.join('')).toContain('Webhook failed for example.com');
     expect(stderrBuffer.join('')).toContain('ECONNREFUSED');
   });
+
+  it('refuses to follow a redirect when asked to', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const notifier = new WebhookNotifier({
+      url: 'https://hooks.example.com/alerts',
+      followRedirects: false,
+    });
+    await notifier.send(makeAlert());
+
+    // A public URL that answers 302 to an internal one would bypass the
+    // check made when the tenant stored it.
+    expect((fetchMock.mock.calls[0]![1] as { redirect: string }).redirect).toBe('error');
+  });
+
+  it('follows a redirect by default (the operator webhook)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const notifier = new WebhookNotifier({ url: 'https://hooks.example.com/alerts' });
+    await notifier.send(makeAlert());
+
+    expect((fetchMock.mock.calls[0]![1] as { redirect: string }).redirect).toBe('follow');
+  });
 });

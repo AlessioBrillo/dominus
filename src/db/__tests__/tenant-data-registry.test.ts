@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { SqliteProvider } from '../provider/sqlite-adapter.js';
-import { TENANT_SCOPED_TABLES, TENANT_TABLE_NAMES } from '../tenant-data-registry.js';
+import {
+  TENANT_SCOPED_TABLES,
+  TENANT_TABLE_NAMES,
+  RLS_PROTECTED_TABLES,
+} from '../tenant-data-registry.js';
+import { RLS_STRICT_TABLES } from '../migrations/0070_close_the_rls_default.js';
 
 /**
  * The registry must describe the real schema.
@@ -79,5 +84,24 @@ describe('tenant data registry', () => {
       expect(typeof spec.table).toBe('string');
       expect(spec.table.length).toBeGreaterThan(0);
     }
+  });
+
+  it('classifies every table as RLS-protected or control-plane', () => {
+    for (const spec of TENANT_SCOPED_TABLES) {
+      expect(['rls', 'control-plane']).toContain(spec.isolation);
+    }
+    const rls = TENANT_SCOPED_TABLES.filter((t) => t.isolation === 'rls').map((t) => t.table);
+    const control = TENANT_SCOPED_TABLES.filter((t) => t.isolation === 'control-plane').map(
+      (t) => t.table,
+    );
+    expect(new Set([...rls, ...control]).size).toBe(TENANT_SCOPED_TABLES.length);
+  });
+
+  it('protects with RLS exactly the tables the migration installs a policy on', () => {
+    // The registry and the migration must not drift: a table classified as
+    // RLS-protected without a policy is a table with no backstop, and a
+    // table with a policy but classified as control-plane hides the fact
+    // that the database (and not the repository) is the boundary.
+    expect([...RLS_PROTECTED_TABLES].sort()).toEqual([...RLS_STRICT_TABLES].sort());
   });
 });

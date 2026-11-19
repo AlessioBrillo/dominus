@@ -25,7 +25,8 @@ v1.5.1 - The Gate Leaves GitHub: the merge gate moves from GitHub Actions
 `ci-local`); ADR-0101 documents the local-first release engine; front-door
 polish (`--help`/`--version`/`score --help` silent on stderr); release and
 launch documentation describe the real publishing path (released).
-v1.6.0 - The Customer Journey Contract: the paid path is executed, not
+v1.6.0 (merged in #542, not tagged on its own: released together with
+  v1.7.0) - The Customer Journey Contract: the paid path is executed, not
   described. A tenant has ONE Stripe subscription and a plan change mutates
   it (ADR-0103); the plan is granted only from the price id and the
   subscription event identifies the tenant (no more lost events, no more
@@ -35,8 +36,25 @@ v1.6.0 - The Customer Journey Contract: the paid path is executed, not
   seat quota and the machine-key quota are separate (ADR-0104); the usage
   meter counts the work and not the reads (ADR-0105); the public front
   door (landing, pricing, signup) replaces the bare login form.
-Next: execute the first staging apply, the third-party audit, the fiscal
-position, and only then the paid Cloud tiers.
+v1.7.0 (PR #543, unreleased until the tag) - The Trust Boundary of a Paying
+  Tenant: the email of the owner is
+  PROVEN before the workspace carries a key, the proof revokes the keys
+  issued before it, and an unverified seat can never be claimed through
+  single sign-on (ADR-0107); the scheduled jobs run once per tenant, the
+  alerts of a customer go to the customer, the queue is fair per tenant and
+  the erasure removes the queued work; the row-level-security policies
+  cover the 22 of 36 tenant-scoped tables that carry a tenant context and
+  DENY when no tenant context is active (the other 14 are control-plane
+  tables, scoped by the repository until v1.8.0).
+v1.8.0 (planned) - The Contract With The Real World: the defects that only
+  show against real services. Billing typed against the real Stripe SDK and
+  verified in Stripe test mode; isolation that fails closed on the pooled
+  connection; row-level security and a service role for the control plane;
+  an availability and trademark engine that never says "available" or
+  "clear" on a guess; an infrastructure that can be applied (remote state,
+  a WAL archive that archives); the breach procedure.
+Next: v1.8.0, then the first staging apply, the third-party audit, the
+fiscal position, and only then the paid Cloud tiers.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 

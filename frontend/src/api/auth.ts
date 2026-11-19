@@ -15,6 +15,16 @@ export interface LoginResponse {
 
 export interface RegisterResponse {
   tenantId: string;
+  /** The one-time API key. Absent when the address must be verified first. */
+  key?: string;
+  prefix?: string;
+  /** True when the workspace is inert until the emailed link is opened. */
+  verificationRequired?: boolean;
+  message: string;
+}
+
+export interface VerificationResponse {
+  tenantId: string;
   key: string;
   prefix: string;
   message: string;
@@ -29,9 +39,29 @@ export interface SsoSession {
 
 export async function registerTenant(input: {
   name: string;
-  email?: string;
+  email: string;
 }): Promise<RegisterResponse> {
   return api.post<RegisterResponse>('/auth/register', input);
+}
+
+/** Redeem the signup token: the workspace becomes usable and the key is shown. */
+export async function verifyEmail(token: string): Promise<VerificationResponse> {
+  return api.post<VerificationResponse>('/auth/verify-email', { token });
+}
+
+/** Ask for a new signup link. The answer is the same for every address. */
+export async function resendVerification(email: string): Promise<{ sent: boolean }> {
+  return api.post<{ sent: boolean }>('/auth/resend-verification', { email });
+}
+
+/** Ask for a recovery link. The answer is the same for every address. */
+export async function requestRecovery(email: string): Promise<{ sent: boolean }> {
+  return api.post<{ sent: boolean }>('/auth/recover', { email });
+}
+
+/** Redeem a recovery token and receive a new API key. */
+export async function confirmRecovery(token: string): Promise<VerificationResponse> {
+  return api.post<VerificationResponse>('/auth/recover/confirm', { token });
 }
 
 export async function verifyAndStoreKey(apiKey: string): Promise<AuthResult> {

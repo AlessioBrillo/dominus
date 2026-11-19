@@ -120,6 +120,11 @@ import { UsageMeterService } from '../services/usage-meter-service.js';
 import { TenantProvisioningService } from '../services/tenant-provisioning-service.js';
 import { IdentityTenantResolver } from '../services/identity-tenant-resolver.js';
 import { TeamInvitationsRepository } from '../db/repositories/team-invitations-repository.js';
+import { SignupVerificationRepository } from '../db/repositories/signup-verification-repository.js';
+import { TenantNotificationSettingsRepository } from '../db/repositories/tenant-notification-settings-repository.js';
+import { EmailVerificationService } from '../services/email-verification-service.js';
+import { TenantNotificationService } from '../services/tenant-notification-service.js';
+import { createSecretBox } from '../utils/secret-box.js';
 import { createMailer } from '../providers/email/index.js';
 import type { SubscriptionPlan } from '../types/subscription.js';
 import { PipelineUsageEnforcer } from '../services/pipeline-usage-enforcer.js';
@@ -232,6 +237,10 @@ export interface DominusDependencies {
 
   notifiers: Notifier[];
   alertEngine: RenewalAlertEngine;
+  /** The notification channels of each tenant (ADR-0107). */
+  tenantNotificationService: TenantNotificationService;
+  /** The signup verification and the key recovery (ADR-0107). */
+  verificationService: EmailVerificationService;
 
   watchlistService: WatchlistService;
   scheduler: SchedulerService | undefined;
@@ -306,6 +315,8 @@ interface BuiltRepositories {
   tenantListingSettingsRepo: TenantListingSettingsRepository;
   domainSiteRepo: DomainSiteRepository;
   tenantCredentialRepo: TenantCredentialRepository;
+  signupVerificationRepo: SignupVerificationRepository;
+  tenantNotificationSettingsRepo: TenantNotificationSettingsRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
   teamSeatsRepo: TeamSeatsRepository;
@@ -386,6 +397,8 @@ function buildMainRepositories(
   | 'tenantListingSettingsRepo'
   | 'domainSiteRepo'
   | 'tenantCredentialRepo'
+  | 'signupVerificationRepo'
+  | 'tenantNotificationSettingsRepo'
 > {
   return {
     apiKeyRepo: new ApiKeyRepository(provider),
@@ -398,6 +411,8 @@ function buildMainRepositories(
     tenantListingSettingsRepo: new TenantListingSettingsRepository(provider),
     domainSiteRepo: new DomainSiteRepository(provider),
     tenantCredentialRepo: new TenantCredentialRepository(provider),
+    signupVerificationRepo: new SignupVerificationRepository(provider),
+    tenantNotificationSettingsRepo: new TenantNotificationSettingsRepository(provider),
   };
 }
 
@@ -510,6 +525,7 @@ export interface JobHandlerDeps {
   autoListingService: AutoListingService;
   postAcquisitionService: PostAcquisitionService;
   automationAuditRepo: AutomationAuditRepository;
+  signupVerificationRepo: SignupVerificationRepository;
   revenueIngestionService: RevenueIngestionService;
 }
 
@@ -548,6 +564,7 @@ export function buildJobHandlers(deps: JobHandlerDeps): JobHandler<JobPayload, J
     providerCacheRepo: deps.providerCacheRepo,
     jobQueueRepo: deps.jobQueueRepo,
     automationAuditRepo: deps.automationAuditRepo,
+    signupVerificationRepo: deps.signupVerificationRepo,
     db: deps.db,
     provider: deps.provider,
     publicScoresRetentionDays: config.PUBLIC_SCORES_RETENTION_DAYS,
@@ -603,6 +620,7 @@ function buildWorkerIfEnabled(
     pollIntervalMs: config.JOB_QUEUE_POLL_INTERVAL_MS,
     maxRunningAgeMs: config.JOB_MAX_RUNNING_AGE_MS,
     heartbeatIntervalMs: config.JOB_HEARTBEAT_INTERVAL_MS,
+    maxRunningPerTenant: config.WORKER_MAX_RUNNING_PER_TENANT,
   });
   worker.start();
   return worker;
@@ -652,6 +670,7 @@ function buildSchedulerIfEnabled(
   lockProvider: LockProvider | undefined,
   metrics: MetricsCollector,
   revenueIngestionService: RevenueIngestionService,
+  adminRepo: AdminRepository,
 ): SchedulerService | undefined {
   if (!config.SCHEDULER_ENABLED) return undefined;
 
@@ -685,6 +704,16 @@ function buildSchedulerIfEnabled(
     jobRepo: new SchedulerJobRepository(provider),
     jobQueueService,
     portfolioHealthcheckService,
+    // The tenant-scoped jobs run once per tenant, inside the tenant
+    // context. Without the enumerator they would write to the 'default'
+    // tenant and the automation of every customer would be a no-op.
+    //
+    // In the community edition the enumerator is NOT installed: there is
+    // one tenant, nobody ever wrote a subscription row for it, and
+    // enumerating would run the job for nobody at all — the very bug this
+    // fixes, moved to the single-tenant install. `#runForEachTenant` falls
+    // back to one run when the enumerator is absent.
+    ...(isMultiTenantAuth(config) ? { tenantEnumerator: () => adminRepo.listTenantIds() } : {}),
     ...(pitrHealthService ? { pitrHealthService } : {}),
     ...(lockProvider ? { lock: lockProvider } : {}),
     ...(autoTuner ? { autoTuner } : {}),
@@ -844,6 +873,28 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     isUsageEnforcementActive(config),
     repos.adminRepo,
   );
+
+  // The per-tenant services are built here so that the routes, the worker
+  // and the scheduler all share the same instances (and the same tables).
+  const tenantNotificationService = new TenantNotificationService({
+    repo: repos.tenantNotificationSettingsRepo,
+    secretBox: config.VAULT_ENCRYPTION_KEY
+      ? createSecretBox(config.VAULT_ENCRYPTION_KEY)
+      : undefined,
+    mailer,
+    telegramBotToken: config.NOTIFIER_TELEGRAM_BOT_TOKEN,
+  });
+
+  // Email verification of the self-serve signup (ADR-0107): no API key is
+  // issued before the owner of the mailbox proves the address.
+  const verificationService = new EmailVerificationService({
+    verifications: repos.signupVerificationRepo,
+    seats: repos.teamSeatsRepo,
+    keyManager,
+    mailer,
+    appUrl: config.PUBLIC_APP_URL,
+    signupTtlHours: config.SIGNUP_VERIFICATION_TTL_HOURS,
+  });
 
   // Single write provider (ADR-0080): orchestrator busy-timeout policy and
   // run-service persistence share writeProvider. The legacy bulkWriteProvider
@@ -1377,7 +1428,11 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     revenueRepo: repos.monetizationRevenueRepo,
   });
 
-  const jobQueueService = createJobQueueService(provider, { usageEnforcer });
+  const jobQueueService = createJobQueueService(provider, {
+    usageEnforcer,
+    maxQueueDepth: config.JOB_QUEUE_MAX_DEPTH,
+    maxQueueDepthPerTenant: config.JOB_QUEUE_MAX_DEPTH_PER_TENANT,
+  });
 
   const autoListEnqueuer: AutoListEnqueuer = {
     async enqueue(domain: string, source: string, scoreJson?: string | null): Promise<string> {
@@ -1471,7 +1526,15 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // revenue of a domain does not cover its renewal. Never auto-drops.
   portfolioManager.setCarryCostSignal(sustainabilityService);
 
-  const notifiers = buildNotifiers(config);
+  // The notifier chain is tenant-scoped ONLY in a multi-tenant deployment:
+  // in the community edition the operator IS the customer, and their
+  // webhook and Telegram chat are the channels of their domains. In the
+  // Cloud the alerts of a customer go to that customer, and the operator's
+  // channels stay silent (ADR-0107).
+  const notifiers = buildNotifiers(
+    config,
+    isMultiTenantAuth(config) ? tenantNotificationService : undefined,
+  );
   const alertEngine = new RenewalAlertEngine(
     repos.portfolioRepo,
     repos.alertRepo,
@@ -1581,8 +1644,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   );
 
   // --- P&L ---
-  const allOutcomes = await repos.outcomeRepo.findAll();
-  const pnlService = new PnlService(repos.portfolioRepo, allOutcomes);
+  // The outcomes are read per request, inside the tenant context of the
+  // request: a snapshot taken at boot belongs to no customer (and, under the
+  // strict row-level-security policies, to nobody at all).
+  const pnlService = new PnlService(repos.portfolioRepo, () => repos.outcomeRepo.findAll());
 
   // --- Backup (ADR-0054: onSuccess feeds the BackupStale alert metric) ---
   const backupService = new BackupService({
@@ -1613,6 +1678,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     autoListingService,
     postAcquisitionService,
     automationAuditRepo: repos.automationAuditRepo,
+    signupVerificationRepo: repos.signupVerificationRepo,
     revenueIngestionService: revenueIngestion,
   });
 
@@ -1633,6 +1699,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     lockProvider,
     metrics,
     revenueIngestion,
+    repos.adminRepo,
   );
 
   return {
@@ -1680,6 +1747,8 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     worker,
     authProvider,
     provisioningService,
+    tenantNotificationService,
+    verificationService,
     oidcDeps,
     sessionJwt,
     anonScoringService,

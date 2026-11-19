@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { PostgresAdapter } from '../postgres-adapter.js';
 import { runWithTenant } from '../../../utils/tenant-context.js';
+import { RLS_PROTECTED_TABLES } from '../../tenant-data-registry.js';
 
 const PG_URL = process.env.DATABASE_URL ?? '';
 
@@ -77,40 +78,51 @@ describe.runIf(PG_URL)('RLS tenant isolation', () => {
     }
   });
 
-  it('migration 0047 forces RLS on every tenant-scoped table in the db', async () => {
+  it('the RLS policies cover every tenant-scoped table of the registry', async () => {
     adapter = await PostgresAdapter.create(PG_URL);
 
-    // Keep in sync with the entity list in migration 0047 and 0030.
-    const tables = [
-      'candidates',
-      'scoring_runs',
-      'portfolio_entries',
-      'trademark_results',
-      'outcomes',
-      'outcome_scores',
-      'watchlist_entries',
-      'listings',
-      'listing_offers',
-      'bids',
-      'renewal_alerts',
-      'auto_listings',
-      'events',
-      'onboarding_state',
-      'public_scores',
-    ];
+    // The registry is the source of truth: every table it classifies as
+    // RLS-protected must have the policy enabled AND forced (ADR-0038,
+    // ADR-0107). The control-plane tables (the ones that are read before
+    // a tenant context exists) are not in the list, on purpose.
+    const tables = [...RLS_PROTECTED_TABLES];
 
-    const rows = await adapter.query<{ table_name: string; forced: boolean }>(
-      `SELECT c.relname AS table_name, c.relforcerowsecurity AS forced
+    const rows = await adapter.query<{ table_name: string; forced: boolean; enabled: boolean }>(
+      `SELECT c.relname AS table_name,
+              c.relforcerowsecurity AS forced,
+              c.relrowsecurity AS enabled
          FROM pg_class c
          JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = current_schema() AND c.relkind = 'r'`,
     );
-    const byName = new Map(rows.map((r) => [r.table_name, r.forced]));
+    const byName = new Map(rows.map((r) => [r.table_name, r]));
 
     const absent = tables.filter((t) => !byName.has(t));
     expect(absent).toEqual([]);
     for (const t of tables) {
-      expect(byName.get(t), `${t} must be FORCE ROW LEVEL SECURITY`).toBe(true);
+      expect(byName.get(t)?.enabled, `${t} must have Row-Level Security enabled`).toBe(true);
+      expect(byName.get(t)?.forced, `${t} must be FORCE ROW LEVEL SECURITY`).toBe(true);
     }
+  });
+
+  it('the policy of a tenant table denies the rows when there is no context', async () => {
+    adapter = await PostgresAdapter.create(PG_URL);
+    if (await isSuperuser()) {
+      // A superuser bypasses RLS by design: the assertion is only
+      // meaningful for the dedicated non-superuser app role.
+      return;
+    }
+
+    // The policy of migration 0070 has no fallback tenant: without the
+    // `app.tenant_id` setting the row is invisible.
+    const rows = await adapter.query<{ count: string }>(
+      'SELECT count(*) AS count FROM portfolio_entries',
+    );
+    expect(rows[0]?.count).toBe('0');
+
+    const asTenant = await runWithTenant('tenant-a', () =>
+      adapter.query<{ count: string }>('SELECT count(*) AS count FROM portfolio_entries'),
+    );
+    expect(typeof asTenant[0]?.count).toBe('string');
   });
 });

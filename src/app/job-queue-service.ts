@@ -33,6 +33,14 @@ export interface JobQueueServiceOptions {
    */
   maxQueueDepth?: number;
   /**
+   * Maximum number of PENDING jobs of a single tenant (queued + running).
+   *
+   * The queue is shared by every customer: without this cap, one tenant
+   * can fill it and starve the others. 0 disables the per-tenant cap.
+   * Default: 100
+   */
+  maxQueueDepthPerTenant?: number;
+  /**
    * Entry-point usage guard for pipeline runs. When set, every
    * enqueuePipelineRun() atomically meters the estimated candidate count
    * against the tenant's candidates_scored allowance before the job is
@@ -83,11 +91,12 @@ export function createJobQueueService(
 ): JobQueueService {
   const repo = new JobQueueRepository(provider);
   const maxDepth = options.maxQueueDepth ?? 1000;
+  const maxDepthPerTenant = options.maxQueueDepthPerTenant ?? 100;
 
   async function enqueue(
     jobType: JobType,
     payload: JobPayload,
-    options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
+    enqueueOptions: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
   ): Promise<string> {
     // Inject the current tenant context into the job payload so the worker
     // can re-establish it when processing. The worker reads .tenantId and
@@ -99,13 +108,22 @@ export function createJobQueueService(
       : payload;
 
     // Atomically check depth and insert — prevents TOCTOU races when
-    // multiple workers or API servers enqueue concurrently.
+    // multiple workers or API servers enqueue concurrently. The depth is
+    // checked globally AND per tenant: one customer must not be able to
+    // starve the others.
     const jobId =
       maxDepth > 0
-        ? await repo.enqueueWithDepthCheck(jobType, augmentedPayload, maxDepth, options)
-        : await repo.enqueue(jobType, augmentedPayload, options);
+        ? await repo.enqueueWithDepthCheck(jobType, augmentedPayload, maxDepth, {
+            ...enqueueOptions,
+            ...(tenantId !== undefined ? { tenantId } : {}),
+            maxDepthPerTenant,
+          })
+        : await repo.enqueue(jobType, augmentedPayload, {
+            ...enqueueOptions,
+            ...(tenantId !== undefined ? { tenantId } : {}),
+          });
 
-    logger.info({ jobId, jobType }, 'Job enqueued');
+    logger.info({ jobId, jobType, tenantId }, 'Job enqueued');
     return String(jobId);
   }
 

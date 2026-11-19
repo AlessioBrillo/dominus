@@ -42,4 +42,12 @@ export interface KeyManager extends AuthProvider {
     role?: string;
     expiresAt?: string;
   }): Promise<GeneratedKeyResult>;
+  /**
+   * Revoke every key of a tenant and return how many were revoked.
+   *
+   * Used when the ownership of the workspace changes hands: proving the
+   * ownership of the email address must invalidate the credentials that
+   * were issued to whoever created the workspace first.
+   */
+  revokeAll(tenantId: string): Promise<number>;
 }

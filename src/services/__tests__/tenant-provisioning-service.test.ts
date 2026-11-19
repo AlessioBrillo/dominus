@@ -17,6 +17,7 @@ function makeDeps(overrides: Partial<Record<string, unknown>> = {}): {
   const teamSeatsRepo = {
     invite: vi.fn().mockResolvedValue(undefined),
     acceptInvite: vi.fn().mockResolvedValue(undefined),
+    findByTenantAndUser: vi.fn().mockResolvedValue(undefined),
     ...(overrides.teamSeatsRepo as object | undefined),
   } as unknown as TeamSeatsRepository;
   const keyManager = {
@@ -26,20 +27,20 @@ function makeDeps(overrides: Partial<Record<string, unknown>> = {}): {
       prefix: 'deadbeef',
       name: 'owner',
     }),
+    revokeAll: vi.fn().mockResolvedValue(0),
     ...(overrides.keyManager as object | undefined),
   } as unknown as KeyManager;
   return { subscriptionRepo, teamSeatsRepo, keyManager };
 }
 
 describe('TenantProvisioningService', () => {
-  it('provisions a tenant with free plan, active owner seat, and admin key', async () => {
+  it('provisions a tenant with a free plan and a PENDING owner seat, and no key', async () => {
     const { subscriptionRepo, teamSeatsRepo, keyManager } = makeDeps();
     const service = new TenantProvisioningService(subscriptionRepo, teamSeatsRepo, keyManager);
 
     const result = await service.provisionTenant({ name: 'Alessio', email: 'a@example.com' });
 
     expect(result.tenantId).toMatch(/^tenant-[0-9a-f]{16}$/);
-    expect(result.apiKey.fullKey).toBe('deadbeef');
     expect(subscriptionRepo.ensureDefault).toHaveBeenCalledWith(result.tenantId);
     expect(teamSeatsRepo.invite).toHaveBeenCalledWith(
       result.tenantId,
@@ -47,15 +48,14 @@ describe('TenantProvisioningService', () => {
       'admin',
       'a@example.com',
     );
-    expect(teamSeatsRepo.acceptInvite).toHaveBeenCalledWith(result.tenantId, 'a@example.com');
-    expect(keyManager.generate).toHaveBeenCalledWith({
-      tenantId: result.tenantId,
-      name: 'Alessio',
-      role: 'admin',
-    });
+    // The seat stays pending and NO key is issued: the address was never
+    // proven, and a key handed to whoever typed an address is a key handed
+    // to whoever typed it first.
+    expect(teamSeatsRepo.acceptInvite).not.toHaveBeenCalled();
+    expect(keyManager.generate).not.toHaveBeenCalled();
   });
 
-  it('generates a synthetic owner id when no email is provided', async () => {
+  it('normalizes the email of the owner', async () => {
     const { teamSeatsRepo } = makeDeps();
     const service = new TenantProvisioningService(
       makeDeps().subscriptionRepo,
@@ -63,9 +63,32 @@ describe('TenantProvisioningService', () => {
       makeDeps().keyManager,
     );
 
-    await service.provisionTenant({ name: 'Anonymous' });
+    await service.provisionTenant({ name: 'Alessio', email: '  Alessio@Example.COM ' });
 
     const inviteCall = (teamSeatsRepo.invite as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(String(inviteCall[1])).toMatch(/^tenant-[0-9a-f]{16}-owner$/);
+    expect(String(inviteCall[1])).toBe('alessio@example.com');
+  });
+
+  it('activates the owner seat and issues the key on demand', async () => {
+    const { teamSeatsRepo, keyManager } = makeDeps();
+    const service = new TenantProvisioningService(
+      makeDeps().subscriptionRepo,
+      teamSeatsRepo,
+      keyManager,
+    );
+
+    const key = await service.activateOwner({
+      tenantId: 'tenant-abc',
+      email: 'a@example.com',
+      name: 'Alessio',
+    });
+
+    expect(key.fullKey).toBe('deadbeef');
+    expect(teamSeatsRepo.acceptInvite).toHaveBeenCalledWith('tenant-abc', 'a@example.com');
+    expect(keyManager.generate).toHaveBeenCalledWith({
+      tenantId: 'tenant-abc',
+      name: 'Alessio',
+      role: 'admin',
+    });
   });
 });

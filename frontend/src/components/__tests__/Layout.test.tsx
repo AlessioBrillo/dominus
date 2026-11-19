@@ -57,7 +57,6 @@ const NAV_LABELS = [
   'Watchlist',
   'Backtest',
   'Analytics',
-  'Scheduler',
   'Providers',
   'Billing',
   'Settings',
@@ -123,6 +122,17 @@ describe('Layout', () => {
     meState.isOperator = true;
     renderLayout();
     expect(screen.getByText('Admin')).toBeInTheDocument();
+  });
+
+  it('hides the scheduler link from regular users (it is an operator surface)', () => {
+    renderLayout();
+    expect(screen.queryByText('Scheduler')).not.toBeInTheDocument();
+  });
+
+  it('shows the scheduler link to platform operators', () => {
+    meState.isOperator = true;
+    renderLayout();
+    expect(screen.getByText('Scheduler')).toBeInTheDocument();
   });
 
   it('renders dark mode label when the theme is dark', () => {

@@ -79,6 +79,12 @@ const SettingsPage = lazy(() =>
 const SignupPage = lazy(() =>
   import('@/pages/SignupPage').then((m) => ({ default: m.SignupPage })),
 );
+const VerifyEmailPage = lazy(() =>
+  import('@/pages/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })),
+);
+const RecoverPage = lazy(() =>
+  import('@/pages/RecoverPage').then((m) => ({ default: m.RecoverPage })),
+);
 const LegalDocumentPage = lazy(() =>
   import('@/pages/LegalDocumentPage').then((m) => ({ default: m.LegalDocumentPage })),
 );
@@ -155,6 +161,11 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>
                     <Route path="signup" element={<SignupPage />} />
+                    {/* The signup verification and the key recovery: the
+                        links of the emails land here, outside the
+                        authenticated shell. */}
+                    <Route path="verify-email" element={<VerifyEmailPage />} />
+                    <Route path="recover" element={<RecoverPage />} />
                     {/* Legal documents: served from the backend, outside the
                         authenticated shell so anyone can read them. */}
                     <Route path="terms" element={<LegalDocumentPage slug="terms" />} />

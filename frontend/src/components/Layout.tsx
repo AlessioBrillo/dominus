@@ -48,7 +48,6 @@ const navItems = [
   { to: '/watchlist', label: 'Watchlist', icon: Eye },
   { to: '/backtest', label: 'Backtest', icon: TrendingUp },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/scheduler', label: 'Scheduler', icon: Clock },
   { to: '/automation', label: 'Automation', icon: Bot },
   { to: '/sustainability', label: 'Sustainability', icon: Gauge },
   { to: '/credentials', label: 'Credentials', icon: ShieldCheck },
@@ -61,7 +60,12 @@ const navItems = [
 ] as const;
 
 /** Cross-tenant operator panel: only shown to platform operators. */
-const operatorNavItems = [{ to: '/admin', label: 'Admin', icon: ShieldCheck }] as const;
+const operatorNavItems = [
+  { to: '/admin', label: 'Admin', icon: ShieldCheck },
+  // The scheduler drives the work of every tenant: it is behind the
+  // operator role, so the link belongs to the operator group.
+  { to: '/scheduler', label: 'Scheduler', icon: Clock },
+] as const;
 
 export function Layout() {
   const { isAuthenticated, isLoading, logout: authLogout } = useAuth();

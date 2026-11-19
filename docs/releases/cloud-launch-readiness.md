@@ -5,15 +5,16 @@ roadmap entry. It records what was verified, what is missing, and who
 decides what. It is written to be read by someone joining the effort, so it
 states facts with file paths rather than intentions.
 
-Everything below was checked against the repository on 2026-11-03, at
-v1.4.0.
+Everything below was checked against the repository on 2026-11-12, at
+v1.5.3 (the trust-boundary work of ADR-0107 landed on top of the v1.5.3
+tree).
 
 ## What is solid
 
 - The backend and frontend suites are green; 19 CI jobs including a
   PostgreSQL matrix, Docker smoke, OpenAPI contract coverage and a WCAG 2.1
   AA a11y gate.
-- 95 ADRs. The architecture record is genuinely current —
+- 102 ADRs. The architecture record is genuinely current —
   `check-doc-drift` derives route/repository/handler/CLI counts from the
   source tree, so the documents cannot silently rot.
 - Fail-closed posture on the parts that matter: DNS consensus (ADR-0039,
@@ -22,7 +23,14 @@ v1.4.0.
   `AUTOMATION_ENABLED` both defaulting off (ADR-0083).
 - Tenant isolation with RLS and a `dominus_app` role that is never the
   PostgreSQL owner, precisely so `FORCE ROW LEVEL SECURITY` cannot be
-  bypassed.
+  bypassed. The policies now cover **22 of the 36** tenant-scoped tables —
+  the other 14 are control-plane, readable before a tenant context exists —
+  and they **deny** when no tenant context is active: a missing context is an
+  error, not a silent write to a phantom tenant (ADR-0107).
+- The trust boundary of a paying tenant is closed (ADR-0107): the email of
+  the owner is proven before the workspace carries a key, the keys issued
+  before the proof are revoked, the scheduled jobs run once per tenant, the
+  alerts of a customer go to the customer, and the queue is fair.
 - Release engineering: migrate-before-roll (ADR-0061), additive-migration
   gate, PITR backup with a restore drill script, rollback on health-poll
   failure.
@@ -50,14 +58,19 @@ cost money:
 They are closed (ADR-0103, ADR-0104, ADR-0105, ADR-0106) and the journey
 is asserted by the acceptance suite:
 
-| Assertion | What it protects |
-|---|---|
-| a customer registers a workspace and receives a key | the acquisition path exists |
-| the new workspace can use the API with its key | the key is a working credential |
-| the subscription event grants the plan to the registered workspace | the event is not lost |
-| the workspace has exactly one subscription row | no second subscription, no double invoice |
-| the export does not carry the API key hash | the data-subject copy carries data, not secrets |
-| the customer erases their workspace | the erasure works and the subscription stops |
+| Assertion                                                          | What it protects                                |
+| ------------------------------------------------------------------ | ----------------------------------------------- |
+| a customer registers a workspace and receives a key                | the acquisition path exists                     |
+| the new workspace can use the API with its key                     | the key is a working credential                 |
+| the subscription event grants the plan to the registered workspace | the event is not lost                           |
+| the workspace has exactly one subscription row                     | no second subscription, no double invoice       |
+| the export does not carry the API key hash                         | the data-subject copy carries data, not secrets |
+| the customer erases their workspace                                | the erasure works and the subscription stops    |
+
+The trust-boundary work added four more assertions to the same suite (the
+erasure removes the queued work, the notification channels belong to their
+tenant, the scheduler is reserved to the operator, and the signup does not
+hand a key to a stranger).
 
 The suite runs in `npm run acceptance:cloud` and, with the rehearsal, in
 `npm run gate:cloud`. **It is not part of the Woodpecker merge gate**:
@@ -68,6 +81,53 @@ billing-blocked. Until a Woodpecker agent with the Docker socket exists,
 the Cloud gate is a command the operator runs before a Cloud release, and
 the launch-readiness document says so instead of claiming a CI run that
 does not happen.
+
+### 0-bis. The signup needs a mail transport (ADR-0107)
+
+A public deployment must be able to deliver the verification email: in the
+`required` mode (the default) the signup **refuses** to create a workspace
+when `SMTP_URL` is unset, because a workspace whose verification link can
+never be delivered is a workspace nobody can use.
+
+What this means for the launch: the deployment needs an SMTP relay (and a
+`PUBLIC_APP_URL` to build the links), and the privacy notice must mention
+the address as personal data. The `optional` mode exists for the
+deployments with no mail transport (the acceptance stack), and it keeps the
+pre-account takeover closed: the seat stays unverified and can therefore
+never be claimed through single sign-on.
+
+The customer's webhook is fetched by the **server**, so the app node needs an
+egress policy that refuses loopback, private and link-local destinations
+(cloud metadata included). The application refuses a literal private address
+and does not follow redirects on a tenant webhook, but a public name that
+resolves to a private address (DNS rebinding) is only stopped at the network
+layer: this is a staging prerequisite, not a code switch.
+
+### 0-ter. The scheduled jobs never ran at all (ADR-0107)
+
+While the trust-boundary work was being implemented, the acceptance suite
+found something worse than the tenant scope: **the scheduler process ran no
+scheduled job, for any tenant, ever.**
+
+The `SchedulerService` builds its job catalogue when it is created, but the
+cron timers are armed by `start()`. The scheduler entrypoint created the
+service, started the health server and waited — it never called `start()`.
+The container reported itself healthy the whole time, and the renewal
+check, the portfolio rescore, the watchlist poll and the prune were dead.
+
+Three defects were in the same area, and they are now covered by tests
+(`src/scheduler/__tests__/`):
+
+- the entrypoint never armed the timers;
+- the condition that separates "define the catalogue" from "arm the
+  timers" was inverted, so the CLI armed them (and never exited) while the
+  scheduler did not;
+- the CLI closed only the main database pool: the read and the write pools
+  (ADR-0080) kept their sockets open and the one-shot process hung after
+  printing its output.
+
+The scheduler now runs its jobs once per tenant, inside the tenant context,
+and the containers stop cleanly on SIGTERM.
 
 ### 1. The community CLI is installable — GitHub Release is the sole channel
 
@@ -97,13 +157,13 @@ to the public. They were written for the wrong jurisdiction, so they were
 rewritten: the operator is an Italian economic operator, so the applicable
 rule is art. 7 of D.Lgs. 70/2003, not the German Impressum.
 
-| Document | State |
-|---|---|
-| Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; **the operator identity is still a placeholder** |
-| Terms of Service | published at `/terms`; withdrawal (art. 52/59 Consumer Code) and reverse charge included |
-| Privacy Notice | published at `/privacy`; sub-processors, transfers and retention included |
-| DPA / AVV (GDPR art. 28) | **template published, not executed** — `docs/legal/data-processing-agreement.md`; the operator's fields and the review with the accountant and the lawyer are still open |
-| Cookie/consent notice | folded into the privacy notice: no third-party analytics, no tracking cookies, so no consent is required |
+| Document                             | State                                                                                                                                                                    |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; **the operator identity is still a placeholder**                                                                                           |
+| Terms of Service                     | published at `/terms`; withdrawal (art. 52/59 Consumer Code) and reverse charge included                                                                                 |
+| Privacy Notice                       | published at `/privacy`; sub-processors, transfers and retention included                                                                                                |
+| DPA / AVV (GDPR art. 28)             | **template published, not executed** — `docs/legal/data-processing-agreement.md`; the operator's fields and the review with the accountant and the lawyer are still open |
+| Cookie/consent notice                | folded into the privacy notice: no third-party analytics, no tracking cookies, so no consent is required                                                                 |
 
 The documents are server-owned structured data (`src/services/legal-content.ts`),
 served unauthenticated at `GET /public/legal`, rendered by the SPA and linked
@@ -227,20 +287,20 @@ independent second source, and are optional.
 
 ## Decisions on record
 
-| Topic | Decision |
-|---|---|
-| Write path for M3 (ADR-0083) | Same fail-closed consensus gate as the read path (ADR-0002), not write-then-compensate |
-| Entità legale | EU (Italy); the legal notice follows art. 7 D.Lgs. 70/2003, not the German Impressum (ADR-0090) |
-| VAT | Stripe Tax (`automatic_tax`), prices exclusive, VAT ID collected for the EU reverse charge (ADR-0090) |
-| Tiers at launch | Free + Pro + Team; Enterprise on contract |
-| Third-party security audit | Before the launch, not after |
-| Legal texts | Drafted without a formal review; recorded as an accepted risk in ADR-0090 |
-| Protected rate limiter | Single replica at launch; the shared store comes with the multi-replica topology (ADR-0094) |
-| Availability | One replica, measured by an external probe outside the app node (ADR-0094) |
-| Ingress | Closed by default; the operator writes the decision down at apply time (ADR-0094) |
-| Plan granted on checkout | Derived from the Stripe price id, never from the session metadata (ADR-0093) |
-| Release | The published artifact is installed and run before and after the publish (ADR-0091) |
-| Version | v1.4.0 |
+| Topic                        | Decision                                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Write path for M3 (ADR-0083) | Same fail-closed consensus gate as the read path (ADR-0002), not write-then-compensate                |
+| Entità legale                | EU (Italy); the legal notice follows art. 7 D.Lgs. 70/2003, not the German Impressum (ADR-0090)       |
+| VAT                          | Stripe Tax (`automatic_tax`), prices exclusive, VAT ID collected for the EU reverse charge (ADR-0090) |
+| Tiers at launch              | Free + Pro + Team; Enterprise on contract                                                             |
+| Third-party security audit   | Before the launch, not after                                                                          |
+| Legal texts                  | Drafted without a formal review; recorded as an accepted risk in ADR-0090                             |
+| Protected rate limiter       | Single replica at launch; the shared store comes with the multi-replica topology (ADR-0094)           |
+| Availability                 | One replica, measured by an external probe outside the app node (ADR-0094)                            |
+| Ingress                      | Closed by default; the operator writes the decision down at apply time (ADR-0094)                     |
+| Plan granted on checkout     | Derived from the Stripe price id, never from the session metadata (ADR-0093)                          |
+| Release                      | The published artifact is installed and run before and after the publish (ADR-0091)                   |
+| Version                      | v1.7.0 (v1.6.0 ships with it); the Cloud launch waits for v1.8.0                                      |
 
 ## Recommended sequence
 
@@ -305,65 +365,65 @@ boundary and no payment surface, and it is the first soft launch
 
 ## What changed in v1.4.0
 
-| Was | Now |
-|---|---|
-| `launch:check` demanded a Cloud operator identity from a self-hosted community deployment, which has none to publish | two profiles (`--community`, `--cloud`), auto-detected with the server's own rule, and `--paid` for the Cloud contracts (ADR-0100) |
-| the gate printed a verdict and forgot it | `--evidence` writes JSON and Markdown on pass and on fail; a release can attach what approved it |
-| the gate judged the environment and a few endpoints | it also checks the canonical origin (configured and rendered), TLS, HSTS/CSP, HTTP→HTTPS, HTML/JSON parity, robots → sitemap, public input validation, the data-rights endpoints and the live trademark canary |
-| the Cloud topology could only be judged after the infrastructure existed | `npm run launch:rehearse` builds the production-parity stack, runs the gate against it and writes the evidence, with no credentials |
-| the audit was a paragraph in the checklist | `docs/security/audit-scope.md` is a statement of work, and `docs/security/evidence-index.md` maps every claim to its artifact |
-| the first apply was a list of commands in the checklist | `docs/deployment/first-apply.md` is the step-by-step runbook, from the accounts to the promotion |
-| the community edition had no launch runbook | `docs/releases/soft-launch-community.md`, with the preconditions, the announcement and the support posture |
+| Was                                                                                                                  | Now                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `launch:check` demanded a Cloud operator identity from a self-hosted community deployment, which has none to publish | two profiles (`--community`, `--cloud`), auto-detected with the server's own rule, and `--paid` for the Cloud contracts (ADR-0100)                                                                             |
+| the gate printed a verdict and forgot it                                                                             | `--evidence` writes JSON and Markdown on pass and on fail; a release can attach what approved it                                                                                                               |
+| the gate judged the environment and a few endpoints                                                                  | it also checks the canonical origin (configured and rendered), TLS, HSTS/CSP, HTTP→HTTPS, HTML/JSON parity, robots → sitemap, public input validation, the data-rights endpoints and the live trademark canary |
+| the Cloud topology could only be judged after the infrastructure existed                                             | `npm run launch:rehearse` builds the production-parity stack, runs the gate against it and writes the evidence, with no credentials                                                                            |
+| the audit was a paragraph in the checklist                                                                           | `docs/security/audit-scope.md` is a statement of work, and `docs/security/evidence-index.md` maps every claim to its artifact                                                                                  |
+| the first apply was a list of commands in the checklist                                                              | `docs/deployment/first-apply.md` is the step-by-step runbook, from the accounts to the promotion                                                                                                               |
+| the community edition had no launch runbook                                                                          | `docs/releases/soft-launch-community.md`, with the preconditions, the announcement and the support posture                                                                                                     |
 
 ## What changed in v1.3.4
 
-| Was | Now |
-|---|---|
-| The README's first command answered **404** on all four release URLs: the installers and the alias tarball were merged after the `v1.3.3` tag and no release carried them | A release attaches the alias tarball, both checksums and both installers, and the workflow asserts it |
-| `install.sh` / `install.ps1` ran `npm install --prefix` without `-g`: the command landed in `<prefix>/node_modules/.bin` while the script looked in `<prefix>/bin`, printed "not on PATH" and exited 0 | `npm install -g`: the command is where the script and the README say it is; a corrupted checksum is refused |
-| The installers had no test at all | `npm run test:installers` runs the real installer against a local release channel, on Linux and Windows, and asserts a working `dominus score` |
-| `check:published-install` pointed the CLI at port `0`, measured its time budget between two adjacent statements, and 404'd on a release tag URL | The fixture starts first, the budget measures the command, a tag URL resolves to the alias, and the verdict must be `clear` |
-| The release workflow verified only npm — the channel that had never been published — and never the GitHub Release | `verify-github-release` installs the public alias tarball and runs the first command, even when npm fails |
-| ADR-0098 said the canary "fails the release workflow"; no workflow ran it | `trademark-canary` blocks the `release` job, and a daily schedule opens an issue on drift (ADR-0099) |
-| The README said `dominus-oss` "is also published to npm", which was false | The README names the GitHub Release as primary and npm as best-effort until the trusted publisher exists |
+| Was                                                                                                                                                                                                    | Now                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The README's first command answered **404** on all four release URLs: the installers and the alias tarball were merged after the `v1.3.3` tag and no release carried them                              | A release attaches the alias tarball, both checksums and both installers, and the workflow asserts it                                          |
+| `install.sh` / `install.ps1` ran `npm install --prefix` without `-g`: the command landed in `<prefix>/node_modules/.bin` while the script looked in `<prefix>/bin`, printed "not on PATH" and exited 0 | `npm install -g`: the command is where the script and the README say it is; a corrupted checksum is refused                                    |
+| The installers had no test at all                                                                                                                                                                      | `npm run test:installers` runs the real installer against a local release channel, on Linux and Windows, and asserts a working `dominus score` |
+| `check:published-install` pointed the CLI at port `0`, measured its time budget between two adjacent statements, and 404'd on a release tag URL                                                        | The fixture starts first, the budget measures the command, a tag URL resolves to the alias, and the verdict must be `clear`                    |
+| The release workflow verified only npm — the channel that had never been published — and never the GitHub Release                                                                                      | `verify-github-release` installs the public alias tarball and runs the first command, even when npm fails                                      |
+| ADR-0098 said the canary "fails the release workflow"; no workflow ran it                                                                                                                              | `trademark-canary` blocks the `release` job, and a daily schedule opens an issue on drift (ADR-0099)                                           |
+| The README said `dominus-oss` "is also published to npm", which was false                                                                                                                              | The README names the GitHub Release as primary and npm as best-effort until the trusted publisher exists                                       |
 
 ## What changed in v1.3.2
 
-| Was | Now |
-|---|---|
-| The first command a stranger runs built the whole application: 12.4 s, a SQLite database next to the user, a job worker, 14.8 KB of JSON log on stdout | The decision profile: engine and trademark gate only, ~2.5 s, nothing written to the disk, the decision alone on stdout (ADR-0097) |
-| A trademark source that answered `405` was read as "this mark does not exist", and the gate cleared the domain on it | The sources fail closed: an unanswerable source is an error, the verdict is unverified, and an unverified domain is never recommended (ADR-0097) |
-| The repository announced `1.3.1` with no tag, no image and no package, and every gate was green | `npm run release:doctor` compares the announced version with the tags, the tree and (with `--remote`) the registries |
-| The documented quickstart output was not the output the command produced | `npm run check:quickstart` runs the advertised command and compares the documented output with the real one |
-| The npm registry was the only channel, and the trusted publisher had failed twice | The verified tarball and its checksum are attached to the GitHub Release |
+| Was                                                                                                                                                    | Now                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The first command a stranger runs built the whole application: 12.4 s, a SQLite database next to the user, a job worker, 14.8 KB of JSON log on stdout | The decision profile: engine and trademark gate only, ~2.5 s, nothing written to the disk, the decision alone on stdout (ADR-0097)               |
+| A trademark source that answered `405` was read as "this mark does not exist", and the gate cleared the domain on it                                   | The sources fail closed: an unanswerable source is an error, the verdict is unverified, and an unverified domain is never recommended (ADR-0097) |
+| The repository announced `1.3.1` with no tag, no image and no package, and every gate was green                                                        | `npm run release:doctor` compares the announced version with the tags, the tree and (with `--remote`) the registries                             |
+| The documented quickstart output was not the output the command produced                                                                               | `npm run check:quickstart` runs the advertised command and compares the documented output with the real one                                      |
+| The npm registry was the only channel, and the trusted publisher had failed twice                                                                      | The verified tarball and its checksum are attached to the GitHub Release                                                                         |
 
 ## What changed in v1.3.1
 
-| Was | Now |
-|---|---|
-| The Cloud topology had never run as a system | `npm run acceptance:cloud` (ADR-0095) — the production data topology, with the assertions that only it can produce |
-| The CLI died in PostgreSQL mode: every command, including `dominus keys create` | The SQLite-only commands refuse at invocation; the rest of the CLI works in the Cloud |
-| The worker and the scheduler images could not boot (`PORT=0`) | Both boot; the docker smoke asserts that they are running, not merely present |
-| The first API key of a Cloud deployment could not be minted | `dominus keys create` reads the row back for the tenant it wrote it for |
-| `dominus scheduler run <job>` answered "Unknown job" | The job catalogue is registered without arming the cron timers |
-| A tag pushed to `master` deployed to the only host, with no approval | Two targets: `staging` (an explicit dispatch) and `production` (a tag, with an environment approval) |
-| The repository could announce a version the deployment did not run | `npm run check:release-consistency` compares the README, the Terraform example, the docker smoke and the CHANGELOG with `package.json` |
+| Was                                                                             | Now                                                                                                                                    |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| The Cloud topology had never run as a system                                    | `npm run acceptance:cloud` (ADR-0095) — the production data topology, with the assertions that only it can produce                     |
+| The CLI died in PostgreSQL mode: every command, including `dominus keys create` | The SQLite-only commands refuse at invocation; the rest of the CLI works in the Cloud                                                  |
+| The worker and the scheduler images could not boot (`PORT=0`)                   | Both boot; the docker smoke asserts that they are running, not merely present                                                          |
+| The first API key of a Cloud deployment could not be minted                     | `dominus keys create` reads the row back for the tenant it wrote it for                                                                |
+| `dominus scheduler run <job>` answered "Unknown job"                            | The job catalogue is registered without arming the cron timers                                                                         |
+| A tag pushed to `master` deployed to the only host, with no approval            | Two targets: `staging` (an explicit dispatch) and `production` (a tag, with an environment approval)                                   |
+| The repository could announce a version the deployment did not run              | `npm run check:release-consistency` compares the README, the Terraform example, the docker smoke and the CHANGELOG with `package.json` |
 
 ## What changed in v1.3.0
 
-| Was | Now |
-|---|---|
-| Legal pages were React components with a German Impressum and a placeholder email | Server-owned structured data, published for the right jurisdiction, linked from every public page, guarded by the gate |
-| No VAT ID could be collected, no address was required, the withdrawal right was never waived | Stripe Tax collects what it needs and the art. 59(1)(o) consent is taken at checkout |
-| No way to export or erase a tenant's data | `GET /api/v1/tenant/export`, `DELETE /api/v1/tenant` and the `dominus tenant` commands |
-| The launch state was a document | `npm run launch:check` answers with exit 0 or exit 1 |
-| The E2E suite was not in the local gate, and master was red | The smoke gate is in `npm run gate`; master is green |
-| The plan granted on checkout was read from the session metadata | It is derived from the Stripe price id, and an unknown price id grants nothing (ADR-0093) |
-| The release workflow could not be rehearsed from a branch | The version is resolved explicitly and the dry run works; the published artifact is installed and run (ADR-0091) |
-| The restore drill checked the layout of a base backup | `--pg-restore` restores, replays the WAL, waits for the recovery and compares row counts (ADR-0094) |
-| The availability figure had no instrument | An external probe outside the app node, with a dead-man's switch (ADR-0094) |
-| SSH ingress was open to the internet by default | The apply is refused until the operator writes the decision down (ADR-0094) |
-| The community first run waited 30 s for a resolver that is usually not there | Five seconds in the community edition, thirty in the cloud (ADR-0092) |
+| Was                                                                                          | Now                                                                                                                    |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Legal pages were React components with a German Impressum and a placeholder email            | Server-owned structured data, published for the right jurisdiction, linked from every public page, guarded by the gate |
+| No VAT ID could be collected, no address was required, the withdrawal right was never waived | Stripe Tax collects what it needs and the art. 59(1)(o) consent is taken at checkout                                   |
+| No way to export or erase a tenant's data                                                    | `GET /api/v1/tenant/export`, `DELETE /api/v1/tenant` and the `dominus tenant` commands                                 |
+| The launch state was a document                                                              | `npm run launch:check` answers with exit 0 or exit 1                                                                   |
+| The E2E suite was not in the local gate, and master was red                                  | The smoke gate is in `npm run gate`; master is green                                                                   |
+| The plan granted on checkout was read from the session metadata                              | It is derived from the Stripe price id, and an unknown price id grants nothing (ADR-0093)                              |
+| The release workflow could not be rehearsed from a branch                                    | The version is resolved explicitly and the dry run works; the published artifact is installed and run (ADR-0091)       |
+| The restore drill checked the layout of a base backup                                        | `--pg-restore` restores, replays the WAL, waits for the recovery and compares row counts (ADR-0094)                    |
+| The availability figure had no instrument                                                    | An external probe outside the app node, with a dead-man's switch (ADR-0094)                                            |
+| SSH ingress was open to the internet by default                                              | The apply is refused until the operator writes the decision down (ADR-0094)                                            |
+| The community first run waited 30 s for a resolver that is usually not there                 | Five seconds in the community edition, thirty in the cloud (ADR-0092)                                                  |
 
 ## What this document does not cover
 

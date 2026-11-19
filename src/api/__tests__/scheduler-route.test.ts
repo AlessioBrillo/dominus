@@ -87,6 +87,23 @@ describe('POST /api/v1/scheduler/run/:job', () => {
     });
     const app = buildApp(scheduler);
     const res = await request(app).post('/api/v1/scheduler/run/test');
-    expect(res.status).toBe(404);
+    // An unknown job is a 404; anything else is an internal error and goes
+    // to the error handler.
+    expect(res.status).toBe(500);
+  });
+
+  it('refuses the surface to a caller without the operator role', async () => {
+    const scheduler = mockScheduler();
+    const app = express();
+    app.use(express.json());
+    app.use(
+      '/api/v1/scheduler',
+      createSchedulerRouter(scheduler, (_req, res) => {
+        res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Insufficient role' } });
+      }),
+    );
+    const res = await request(app).post('/api/v1/scheduler/run/renewal-check');
+    expect(res.status).toBe(403);
+    expect(scheduler.runOnce).not.toHaveBeenCalled();
   });
 });

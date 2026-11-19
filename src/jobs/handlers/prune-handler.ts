@@ -6,6 +6,7 @@ import type { PipelineRunsRepository } from '../../db/repositories/pipeline-runs
 import type { ProviderCacheRepository } from '../../db/repositories/provider-cache-repository.js';
 import type { JobQueueRepository } from '../../db/repositories/job-queue-repository.js';
 import type { AutomationAuditRepository } from '../../db/repositories/automation-audit-repository.js';
+import type { SignupVerificationRepository } from '../../db/repositories/signup-verification-repository.js';
 import type { DatabaseProvider } from '../../db/provider/interface.js';
 import type { PrunePayload, PruneResult, JobHandler } from '../../types/job-queue.js';
 import { getLogger } from '../../logger.js';
@@ -22,6 +23,9 @@ export interface PruneHandlerDeps {
   /** Automation audit trail retention (default: 90). Optional: the audit
    *  table only exists on installations that ran migration 0061. */
   automationAuditRepo?: AutomationAuditRepository | undefined;
+  /** Expired signup/recovery tokens. Optional: the table exists on every
+   *  installation that ran migration 0067. */
+  signupVerificationRepo?: SignupVerificationRepository | undefined;
   /** Raw SQLite connection for wayback_cache cleanup. null when using PostgreSQL. */
   db: Database.Database | null;
   /** DatabaseProvider for cross-dialect queries (public_scores, events). */
@@ -32,6 +36,8 @@ export interface PruneHandlerDeps {
   eventsRetentionDays: number;
   /** Retention days for automation_audit entries (default: 90). */
   automationAuditRetentionDays?: number;
+  /** Days a workspace may stay unverified before it is removed (default: 7). */
+  unverifiedTenantRetentionDays?: number;
 }
 
 export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
@@ -78,6 +84,24 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
         )
       : 0;
 
+    // The tokens of the signup verification and of the key recovery expire:
+    // an expired token must not stay usable.
+    const deletedVerifications = this.deps.signupVerificationRepo
+      ? await this.deps.signupVerificationRepo.deleteExpired()
+      : 0;
+
+    // A workspace whose address was never proven is an inert tenant: it
+    // holds a subscription row, a pending seat and a token. Nobody can use
+    // it, and it would stay there forever. After the retention window it
+    // is removed.
+    const unverifiedRetentionDays = this.deps.unverifiedTenantRetentionDays ?? 7;
+    const unverifiedCutoff = new Date(
+      Date.now() - unverifiedRetentionDays * 86400000,
+    ).toISOString();
+    const deletedUnverifiedTenants = this.deps.signupVerificationRepo
+      ? await this.deps.signupVerificationRepo.deleteUnverifiedWorkspaces(unverifiedCutoff)
+      : 0;
+
     logger.info(
       {
         deletedCandidates,
@@ -89,6 +113,8 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
         deletedPublicScores,
         deletedEvents,
         deletedAutomationAudit,
+        deletedVerifications,
+        deletedUnverifiedTenants,
       },
       'PruneHandler: completed',
     );

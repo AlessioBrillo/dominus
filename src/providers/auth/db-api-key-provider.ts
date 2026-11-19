@@ -71,6 +71,21 @@ export class DbApiKeyProvider implements KeyManager {
     return { fullKey: rawKey, prefix, name: input.name, id: stored.id };
   }
 
+  /**
+   * Revoke every key of a tenant.
+   *
+   * Used when the ownership of the workspace changes hands: the credentials
+   * issued to whoever created the workspace first must not survive the proof
+   * that the mailbox belongs to somebody else.
+   */
+  async revokeAll(tenantId: string): Promise<number> {
+    const revoked = await this.repo.revokeAllByTenant(tenantId);
+    if (revoked > 0) {
+      logger.info({ tenantId, revoked }, 'API keys revoked');
+    }
+    return revoked;
+  }
+
   async validate(apiKey: string): Promise<AuthResult> {
     const stored = await this.#findByPrefix(apiKey);
 

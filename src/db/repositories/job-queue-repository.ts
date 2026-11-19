@@ -39,6 +39,7 @@ export class JobQueueRepository {
       updatedAt: row.updated_at,
       lockedBy: row.locked_by ?? undefined,
       heartbeatAt: row.heartbeat_at ?? undefined,
+      tenantId: row.tenant_id ?? undefined,
     };
   }
 
@@ -52,23 +53,30 @@ export class JobQueueRepository {
       attempts: row.attempts,
       failedAt: row.failed_at,
       originalCreatedAt: row.original_created_at,
+      tenantId: row.tenant_id ?? undefined,
     };
   }
 
   async enqueue(
     jobType: string,
     payload: object,
-    options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
+    options: {
+      priority?: number;
+      maxAttempts?: number;
+      scheduledAt?: string;
+      tenantId?: string | undefined;
+    } = {},
   ): Promise<number> {
     const result = await this.#db.exec(
-      `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
         jobType,
         JSON.stringify(payload),
         options.priority ?? 0,
         options.maxAttempts ?? 3,
         options.scheduledAt ?? this.#ts(),
+        options.tenantId ?? null,
       ],
     );
     return result.lastInsertRowid as number;
@@ -79,18 +87,37 @@ export class JobQueueRepository {
    * Prevents TOCTOU races between depth check and insert in concurrent scenarios
    * (multiple workers or API servers sharing the same queue).
    *
+   * The depth is checked globally AND per tenant: a single tenant must not
+   * be able to fill the whole queue and starve every other customer.
+   *
    * Returns the new job id on success, or throws an error if the queue is full.
    */
   async enqueueWithDepthCheck(
     jobType: string,
     payload: object,
     maxDepth: number,
-    options: { priority?: number; maxAttempts?: number; scheduledAt?: string } = {},
+    options: {
+      priority?: number;
+      maxAttempts?: number;
+      scheduledAt?: string;
+      tenantId?: string | undefined;
+      maxDepthPerTenant?: number | undefined;
+    } = {},
   ): Promise<number> {
+    const tenantId = options.tenantId ?? null;
+    const maxDepthPerTenant = options.maxDepthPerTenant ?? 0;
     const row = await this.#db.queryOne<{ id: number }>(
-      `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at)
-       SELECT ?, ?, ?, ?, ?
+      `INSERT INTO job_queue (job_type, payload_json, priority, max_attempts, scheduled_at, tenant_id)
+       SELECT ?, ?, ?, ?, ?, ?
        WHERE (SELECT COUNT(*) FROM job_queue WHERE status IN ('queued', 'running')) < ?
+         AND (
+           CAST(? AS INTEGER) = 0
+           OR CAST(? AS TEXT) IS NULL
+           OR (
+             SELECT COUNT(*) FROM job_queue
+             WHERE status IN ('queued', 'running') AND tenant_id = CAST(? AS TEXT)
+           ) < CAST(? AS INTEGER)
+         )
        RETURNING id`,
       [
         jobType,
@@ -98,10 +125,26 @@ export class JobQueueRepository {
         options.priority ?? 0,
         options.maxAttempts ?? 3,
         options.scheduledAt ?? this.#ts(),
+        tenantId,
         maxDepth,
+        maxDepthPerTenant,
+        tenantId,
+        tenantId,
+        maxDepthPerTenant,
       ],
     );
     if (!row) {
+      if (maxDepthPerTenant > 0 && tenantId !== null) {
+        const perTenant = await this.#db.queryOne<{ count: number }>(
+          `SELECT COUNT(*) as count FROM job_queue WHERE status IN ('queued', 'running') AND tenant_id = ?`,
+          [tenantId],
+        );
+        if ((perTenant?.count ?? 0) >= maxDepthPerTenant) {
+          throw new Error(
+            `Job queue depth limit reached for this tenant (${maxDepthPerTenant}) — rejecting enqueue of ${jobType}.`,
+          );
+        }
+      }
       throw new Error(
         `Job queue depth limit reached (${maxDepth}) — rejecting enqueue of ${jobType}. ` +
           'Increase JOB_QUEUE_MAX_DEPTH or wait for the worker to drain pending jobs.',
@@ -120,20 +163,33 @@ export class JobQueueRepository {
    * double-claiming it. SQLite has a single writer (better-sqlite3 is
    * synchronous), so the plain SELECT is already atomic there and
    * FOR UPDATE SKIP LOCKED is not valid SQLite syntax.
+   *
+   * A tenant may not occupy more than `maxRunningPerTenant` workers at the
+   * same time: without the cap, one customer with a thousand queued jobs
+   * keeps every worker busy and the other customers wait.
    */
-  async dequeue(workerId = 'unknown'): Promise<JobQueueRow | null> {
+  async dequeue(workerId = 'unknown', maxRunningPerTenant = 0): Promise<JobQueueRow | null> {
+    const tenantLimitClause = `
+        AND (
+          ? = 0
+          OR jq.tenant_id IS NULL
+          OR (
+            SELECT COUNT(*) FROM job_queue running
+            WHERE running.tenant_id = jq.tenant_id AND running.status = 'running'
+          ) < ?
+        )`;
     const selectClause =
       this.#db.dialect === 'postgres'
-        ? `SELECT id FROM job_queue
-           WHERE status = 'queued'
-             AND scheduled_at <= ?
-           ORDER BY priority DESC, scheduled_at ASC
+        ? `SELECT jq.id FROM job_queue jq
+           WHERE jq.status = 'queued'
+             AND jq.scheduled_at <= ?${tenantLimitClause}
+           ORDER BY jq.priority DESC, jq.scheduled_at ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED`
-        : `SELECT id FROM job_queue
-           WHERE status = 'queued'
-             AND scheduled_at <= ?
-           ORDER BY priority DESC, scheduled_at ASC
+        : `SELECT jq.id FROM job_queue jq
+           WHERE jq.status = 'queued'
+             AND jq.scheduled_at <= ?${tenantLimitClause}
+           ORDER BY jq.priority DESC, jq.scheduled_at ASC
            LIMIT 1`;
 
     const row = await this.#db.queryOne<any>(
@@ -150,7 +206,7 @@ export class JobQueueRepository {
       // enqueue()/fail(). CURRENT_TIMESTAMP is the database's clock: on Windows the
       // two can differ by a few ms, so a job enqueued just before a second boundary
       // looked not-yet-due and dequeue() returned null (flaky CI).
-      [workerId, this.#ts()],
+      [workerId, this.#ts(), maxRunningPerTenant, maxRunningPerTenant],
     );
     return row ? this.#rowToJob(row) : null;
   }
@@ -219,9 +275,17 @@ export class JobQueueRepository {
 
     await this.#db.transaction(async () => {
       await this.#db.exec(
-        `INSERT INTO dead_letter_jobs (original_job_id, job_type, payload_json, error, attempts, original_created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [job.id, job.jobType, job.payloadJson, error, attempts, job.createdAt],
+        `INSERT INTO dead_letter_jobs (original_job_id, job_type, payload_json, error, attempts, original_created_at, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          job.id,
+          job.jobType,
+          job.payloadJson,
+          error,
+          attempts,
+          job.createdAt,
+          job.tenantId ?? null,
+        ],
       );
 
       await this.#db.exec('DELETE FROM job_queue WHERE id = ?', [jobId]);
@@ -360,10 +424,31 @@ export class JobQueueRepository {
     const jobId = await this.enqueue(dl.job_type, JSON.parse(dl.payload_json), {
       priority: 10,
       maxAttempts: 3,
+      tenantId: dl.tenant_id ?? undefined,
     });
 
     await this.#db.exec('DELETE FROM dead_letter_jobs WHERE id = ?', [deadLetterId]);
     return jobId;
+  }
+
+  /**
+   * Remove the queued work of a tenant.
+   *
+   * The erasure of a data subject must not leave the domains of the account
+   * in the queue: the payloads carry them, and the queue is read by the
+   * worker of the platform.
+   */
+  async deleteByTenant(tenantId: string): Promise<number> {
+    const result = await this.#db.exec('DELETE FROM job_queue WHERE tenant_id = ?', [tenantId]);
+    return result.changes;
+  }
+
+  /** Remove the dead-lettered work of a tenant. */
+  async deleteDeadLetterByTenant(tenantId: string): Promise<number> {
+    const result = await this.#db.exec('DELETE FROM dead_letter_jobs WHERE tenant_id = ?', [
+      tenantId,
+    ]);
+    return result.changes;
   }
 
   async deleteCompleted(olderThanDays: number = 7): Promise<number> {

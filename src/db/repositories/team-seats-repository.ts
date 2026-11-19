@@ -14,6 +14,16 @@ export interface TeamSeat {
   invitedAt: string;
   joinedAt: string | null;
   status: TeamSeatStatus;
+  /**
+   * When the email that identifies this seat was proven by its owner.
+   *
+   * A seat created by the self-serve signup is held by an EMAIL: at that
+   * moment there is no identity-provider subject, and the address was never
+   * proven. Until this timestamp is set, the seat cannot be claimed by a
+   * single-sign-on identity — otherwise whoever typed the address of someone
+   * else would take over that person's workspace (pre-account takeover).
+   */
+  emailVerifiedAt: string | null;
 }
 
 interface TeamSeatRow {
@@ -25,6 +35,7 @@ interface TeamSeatRow {
   invited_at: string;
   joined_at: string | null;
   status: string;
+  email_verified_at: string | null;
 }
 
 function teamSeatFromRow(row: TeamSeatRow): TeamSeat {
@@ -37,6 +48,7 @@ function teamSeatFromRow(row: TeamSeatRow): TeamSeat {
     invitedAt: row.invited_at,
     joinedAt: row.joined_at,
     status: row.status as TeamSeatStatus,
+    emailVerifiedAt: row.email_verified_at ?? null,
   };
 }
 
@@ -74,6 +86,55 @@ export class TeamSeatsRepository {
       [userId],
     );
     return rows.map(teamSeatFromRow);
+  }
+
+  /**
+   * Every seat held by an identifier, whatever its status.
+   *
+   * Used by the signup flow: the pending seat of a signup that has not been
+   * verified yet must be findable by its email, so the verification link can
+   * activate it.
+   */
+  async findByUserId(userId: string): Promise<TeamSeat[]> {
+    const rows = await this.#db.query<TeamSeatRow>(
+      'SELECT * FROM team_seats WHERE user_id = ? ORDER BY id DESC',
+      [userId],
+    );
+    return rows.map(teamSeatFromRow);
+  }
+
+  /**
+   * The active seats held by an email address whose ownership was PROVEN.
+   *
+   * Only these seats may be re-linked to a single-sign-on identity: an
+   * unverified signup seat proves nothing about who owns the mailbox, and
+   * linking it would hand the workspace to whoever owns the address later
+   * (and to whoever typed it first, in the meantime).
+   *
+   * The list can hold more than one seat: two workspaces may have been
+   * created with the same address. The caller must treat "more than one" as
+   * "do not link", never as "the most recent one".
+   */
+  async findActiveVerifiedByEmail(email: string): Promise<TeamSeat[]> {
+    const rows = await this.#db.query<TeamSeatRow>(
+      `SELECT * FROM team_seats
+       WHERE user_id = ? AND status = 'active' AND email_verified_at IS NOT NULL
+       ORDER BY joined_at DESC, id DESC`,
+      [email],
+    );
+    return rows.map(teamSeatFromRow);
+  }
+
+  /** Record that the seat's email address was proven by its owner. */
+  async markEmailVerified(tenantId: string, userId: string): Promise<void> {
+    // CAST, not the `::text` shorthand: the same statement runs on SQLite
+    // (where CURRENT_TIMESTAMP is a string) and on PostgreSQL (where it is a
+    // timestamp), and COALESCE refuses to mix the two types.
+    await this.#db.exec(
+      `UPDATE team_seats SET email_verified_at = COALESCE(email_verified_at, CAST(CURRENT_TIMESTAMP AS TEXT))
+       WHERE tenant_id = ? AND user_id = ?`,
+      [tenantId, userId],
+    );
   }
 
   async countActiveSeats(tenantId: string): Promise<number> {

@@ -64,6 +64,30 @@ describe('migration guard (lock + pre-migration backup)', () => {
       await providerB.close().catch(() => {});
     });
 
+    it('waits for the lock instead of failing at once', async () => {
+      const lockPath = dbPath + '.migrate.lock';
+
+      // Another process holds the lock and releases it shortly after: the
+      // three processes of a Cloud deployment (api, worker, scheduler) all
+      // run the schema gate at boot, and the two that lose the race must
+      // WAIT, not die. A one-shot acquisition killed the loser at boot.
+      require('node:fs').writeFileSync(lockPath, 'locked-by-process-a');
+      setTimeout(() => {
+        try {
+          require('node:fs').unlinkSync(lockPath);
+        } catch {
+          /* best-effort */
+        }
+      }, 300);
+
+      const provider = createSqliteProvider({ DATABASE_PATH: dbPath } as never);
+      await expect(
+        ensureSchemaUpToDate(provider, { lockTtlMs: 10_000, lockPath: dbPath }),
+      ).resolves.toBeUndefined();
+
+      await provider.close().catch(() => {});
+    });
+
     it('applies migrations on a fresh database under lock', async () => {
       const provider = createSqliteProvider({ DATABASE_PATH: dbPath } as never);
       await expect(ensureSchemaUpToDate(provider)).resolves.toBeUndefined();

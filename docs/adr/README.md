@@ -112,6 +112,7 @@ re-running the original arguments.
 | [0104](0104-identity-continuity-signup-and-sso.md)                             | Identity continuity between the self-serve signup and single sign-on                                 | 2026-11-11 | Accepted                            |
 | [0105](0105-metering-counts-work-not-reads.md)                                 | Metering counts the work, not the reads                                                              | 2026-11-11 | Accepted                            |
 | [0106](0106-launch-posture-of-the-saas-surface.md)                             | The launch posture of the SaaS surface                                                               | 2026-11-11 | Accepted                            |
+| [0107](0107-trust-boundary-of-a-paying-tenant.md)                              | The trust boundary of a paying tenant                                                                | 2026-11-12 | Accepted                            |
 
 ## Conventions
 

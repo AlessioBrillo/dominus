@@ -102,6 +102,15 @@ export function LoginForm({ embedded = false }: { embedded?: boolean }) {
             >
               New here? Create a workspace
             </a>
+            {/* The key is shown exactly once and only its hash is stored: a
+                lost key is replaced by a link to the address of the
+                workspace. */}
+            <a
+              href="/recover"
+              className="block w-full text-center text-xs text-text-muted hover:text-text-primary"
+            >
+              Lost your API key? Recover it
+            </a>
           </form>
         </CardContent>
       </Card>

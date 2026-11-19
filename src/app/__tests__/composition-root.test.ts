@@ -628,6 +628,11 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       MONETIZATION_REVENUE_PATH: undefined,
       REVENUE_SYNC_LOOKBACK_DAYS: 90,
       SCHEDULER_REVENUE_SYNC_CRON: '0 7 * * *',
+      SIGNUP_EMAIL_VERIFICATION: 'required' as const,
+      SIGNUP_VERIFICATION_TTL_HOURS: 24,
+      AUTH_RECOVERY_ENABLED: true,
+      JOB_QUEUE_MAX_DEPTH_PER_TENANT: 100,
+      WORKER_MAX_RUNNING_PER_TENANT: 4,
     } as const;
 
     const notifiers = buildNotifiers(config as Parameters<typeof buildNotifiers>[0]);

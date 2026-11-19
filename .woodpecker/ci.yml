@@ -16,7 +16,11 @@
 # preserved here; only the syntax changed:
 #
 #   - the per-command working directory became a `cd` in the command itself
-#     (there is no per-command working directory);
+#     (there is no per-command working directory). The commands of a step run
+#     in ONE shell, so a bare `cd` leaks into the commands that follow: the
+#     repeated `cd frontend && ...` of this file left the shell inside
+#     `frontend`, the second `cd` failed, and two steps never ran. Use
+#     `npm --prefix <dir>` or `terraform -chdir=<dir>` instead of a `cd`;
 #   - the PostgreSQL service moved to the root `services` list, where the
 #     executor starts it, and the test step waits for it explicitly;
 #   - the custom `workspace` and `clone` blocks were dropped: the default
@@ -83,6 +87,13 @@ steps:
       - ci-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
+      # `pg_isready` ships with the PostgreSQL client, not with node:*: without
+      # this line the wait below never ends and the whole pipeline dies at the
+      # timeout (it did, on every run, with `pg_isready: not found`, while the
+      # service was healthy). The wait is over TCP, and PostgreSQL during
+      # initdb listens on the unix socket only, so a success here means the
+      # real server is accepting connections - not the temporary one.
+      - apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
       - until pg_isready -h postgres -U postgres -d dominus; do sleep 1; done
       - npm ci
       - npx tsx src/db/migrate-cli.ts
@@ -95,15 +106,25 @@ steps:
       - ci-frontend-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
-      - cd frontend && npm ci
-      - cd frontend && npm run typecheck
-      - cd frontend && npm run lint
-      - cd frontend && npm test
-      - cd frontend && npm run build
+      # `--prefix` runs the script with the prefix as its working directory and
+      # does not move the shell: a bare `cd frontend` would stay in effect for
+      # the next command and the second `cd frontend` would fail.
+      - npm --prefix frontend ci
+      - npm --prefix frontend run typecheck
+      - npm --prefix frontend run lint
+      - npm --prefix frontend test
+      - npm --prefix frontend run build
 
   # ------------------------------------------------------------------ pack
   - name: pack
     image: node:22-bookworm
+    environment:
+      # `ci-local` bind-mounts the tree from Windows: every Node start of
+      # `dist/` costs ~30 s there (measured: `node dist/cli.js --version`
+      # 29 s in the container, 0.9 s on the host), so the 30 s default of the
+      # quickstart budget can never hold on that executor. The command itself
+      # stays at ~1.8 s on a normal file system; this only widens the window.
+      QUICKSTART_BUDGET_MS: "180000"
     volumes:
       - ci-npm:/root/.npm
     commands:
@@ -112,6 +133,11 @@ steps:
       - npm --prefix frontend ci
       - npm run build:frontend
       - npm run build
+      # The two checks of `npm run gate` that read the built `dist/`: the
+      # artifact answers (version, score, doctor) and the command the README
+      # advertises produces the output the README documents.
+      - npm run test:artifact
+      - npm run check:quickstart
       - npm run check:pack
       - npm run release:verify -- --pack
       - npm run test:installers
@@ -126,8 +152,11 @@ steps:
     commands:
       - git config --global --add safe.directory '*'
       - npm ci
-      - cd frontend && npm ci
-      - cd frontend && npm run build:frontend
+      - npm --prefix frontend ci
+      # The root script, which is the one that builds the frontend into the
+      # artefact the smoke test serves (the frontend package has no
+      # `build:frontend` script of its own).
+      - npm run build:frontend
       - npm run build
       - node scripts/run-e2e-smoke.mjs
 
@@ -157,9 +186,9 @@ steps:
       - ci-npm:/root/.npm
     commands:
       - git config --global --add safe.directory '*'
-      - cd deploy/terraform && terraform fmt -check -recursive
-      - cd deploy/terraform && terraform init -backend=false
-      - cd deploy/terraform && terraform validate
+      - terraform -chdir=deploy/terraform fmt -check -recursive
+      - terraform -chdir=deploy/terraform init -backend=false
+      - terraform -chdir=deploy/terraform validate
 
   # ------------------------------------------------------------------ deploy scripts (behavior tests)
   # rollout.sh, migrate.sh and migration-gate.sh run on the app node during
