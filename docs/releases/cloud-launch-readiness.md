@@ -300,7 +300,7 @@ independent second source, and are optional.
 | Ingress                      | Closed by default; the operator writes the decision down at apply time (ADR-0094)                     |
 | Plan granted on checkout     | Derived from the Stripe price id, never from the session metadata (ADR-0093)                          |
 | Release                      | The published artifact is installed and run before and after the publish (ADR-0091)                   |
-| Version                      | v1.4.0                                                                                                |
+| Version                      | v1.7.0 (v1.6.0 ships with it); the Cloud launch waits for v1.8.0                                      |
 
 ## Recommended sequence
 

@@ -125,7 +125,10 @@ and a real staging deployment ([first-apply.md](docs/deployment/first-apply.md))
 Before it: the verified install channel, the legal surface, the
 data-subject rights and a release state checked against the world. v1.0.0
 introduced the DOMINUS Cloud MVP.
-Next: execute the first staging apply, the audit, and the fiscal position.
+Next: v1.8.0 (billing typed against the real Stripe SDK, fail-closed
+isolation, an honest availability and trademark engine, an infrastructure
+that can be applied), then the first staging apply, the audit, and the
+fiscal position.
 See the [ADR series](docs/adr/README.md) for the full architecture documentation,
 and [ROADMAP.md](ROADMAP.md) for planned releases.
 
@@ -196,7 +199,12 @@ is absent, and it is not part of the merge gate.
 - **Local:** `ci-local` (runs `.woodpecker/ci.yml` on a throwaway copy of
   the tree, never the checkout). Exit 0 = green. Equivalent to
   `npm run gate`, plus PostgreSQL integration, frontend, pack/installer
-  and e2e smoke jobs.
+  and e2e smoke jobs. When memory is short, run it one step at a time:
+  `ci-local` accepts the absolute POSIX path (`/c/...`) of a pipeline file
+  that holds a single step of `.woodpecker/ci.yml`. On a Windows host the
+  bind mount makes every Node start inside the container take ~30 s: the
+  `frontend` step (Vitest workers time out) does not pass there, so run the
+  same commands natively (`npm --prefix frontend test`) and say so in the PR.
 - **The local gate (`npm run gate`)** runs typecheck → build →
   db:sync:check → lint → format:check → check:migration-compat →
   check:sql-portability → notices:check → adr:index:check →
