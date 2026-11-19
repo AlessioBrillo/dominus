@@ -112,12 +112,22 @@ steps:
       - npm --prefix frontend ci
       - npm --prefix frontend run typecheck
       - npm --prefix frontend run lint
-      - npm --prefix frontend test
+      # Four workers: with one fork per CPU (12) the jsdom workers start
+      # together from a slow bind mount and Vitest gives up on them
+      # ("Timeout waiting for worker to respond").
+      - npm --prefix frontend test -- --maxWorkers=4
       - npm --prefix frontend run build
 
   # ------------------------------------------------------------------ pack
   - name: pack
     image: node:22-bookworm
+    environment:
+      # `ci-local` bind-mounts the tree from Windows: every Node start of
+      # `dist/` costs ~30 s there (measured: `node dist/cli.js --version`
+      # 29 s in the container, 0.9 s on the host), so the 30 s default of the
+      # quickstart budget can never hold on that executor. The command itself
+      # stays at ~1.8 s on a normal file system; this only widens the window.
+      QUICKSTART_BUDGET_MS: "180000"
     volumes:
       - ci-npm:/root/.npm
     commands:
@@ -126,6 +136,11 @@ steps:
       - npm --prefix frontend ci
       - npm run build:frontend
       - npm run build
+      # The two checks of `npm run gate` that read the built `dist/`: the
+      # artifact answers (version, score, doctor) and the command the README
+      # advertises produces the output the README documents.
+      - npm run test:artifact
+      - npm run check:quickstart
       - npm run check:pack
       - npm run release:verify -- --pack
       - npm run test:installers

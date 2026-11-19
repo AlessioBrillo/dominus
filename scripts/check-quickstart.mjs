@@ -51,7 +51,10 @@ const DECISION_LABELS = [
 ];
 
 /** A generous budget: the point is to catch "it builds the whole app". */
-const TIME_BUDGET_MS = 30_000;
+// Overridable for executors whose file system makes every Node start slow
+// (a Windows bind mount inside Docker: ~30 s for `dominus --version` against
+// 0.9 s on the host). The default is the contract; the override is a knob.
+const TIME_BUDGET_MS = Number(process.env.QUICKSTART_BUDGET_MS) || 30_000;
 
 // ── Fixture trademark source ──────────────────────────────────────────
 //
