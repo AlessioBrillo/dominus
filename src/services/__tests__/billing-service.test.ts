@@ -174,7 +174,7 @@ describe('BillingService.checkout', () => {
     expect(call.tax_id_collection).toEqual({ enabled: true });
   });
 
-  it('collects the express consent that the withdrawal waiver depends on', async () => {
+  it('keeps the withdrawal right and explains the pro-rata refund at checkout', async () => {
     const service = new BillingService(baseConfig, subRepo, webhookRepo);
 
     await service.createCheckoutSession(
@@ -189,10 +189,12 @@ describe('BillingService.checkout', () => {
     const call = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(call.consent_collection).toEqual({ terms_of_service: 'required' });
     const customText = call.custom_text as { terms_of_service_acceptance?: { message: string } };
-    expect(customText.terms_of_service_acceptance?.message).toContain('art. 59(1)(o)');
-    expect(customText.terms_of_service_acceptance?.message).toContain(
-      'immediate performance of the service',
-    );
+    const message = customText.terms_of_service_acceptance?.message ?? '';
+    expect(message).toContain('14-day right of withdrawal');
+    expect(message).toContain('proportional part');
+    // The operator does not rely on the art. 59(1)(o) waiver.
+    expect(message).not.toContain('59(1)(o)');
+    expect(message).not.toContain('lose the right of withdrawal');
   });
 
   it('does not send customer_update without a customer, and does once there is one', async () => {

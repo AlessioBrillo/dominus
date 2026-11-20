@@ -23,16 +23,22 @@ beforeEach(() => {
   getLegalContent.mockReset();
   getLegalContent.mockResolvedValue({
     mode: 'cloud',
+    status: 'cloud_paid',
+    version: '2026-11-20',
+    updatedAt: '2026-11-20',
+    securityContactAvailable: false,
     identity: {
       entityName: 'Example Operator SRL',
       entityKind: 'company',
       registeredAddress: 'Via Roma 1, 00100 Roma (RM), Italy',
       vatId: 'IT12345678901',
       reaNumber: 'RM-123456',
+      registroImprese: 'Registro Imprese di Roma',
       pec: 'example@pec.it',
       contactEmail: 'hello@example.it',
       privacyEmail: 'privacy@example.it',
       supervisoryAuthority: 'Garante per la protezione dei dati personali (Italy)',
+      vatRegime: 'ordinary',
     },
     documents: [
       {

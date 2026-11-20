@@ -2,7 +2,11 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createPublicRouter, createIndexNowKeyHandler } from '../public-router.js';
+import {
+  createPublicRouter,
+  createIndexNowKeyHandler,
+  createSecurityTxtHandler,
+} from '../public-router.js';
 import { errorHandler } from '../middleware/error-handler.js';
 import { renderScorePage, renderDomainPage, renderComparePage } from '../views/index.js';
 import { generateOgPng } from '../open-graph.js';
@@ -861,6 +865,35 @@ describe('Public Router — /public', () => {
       const res = await request(app).get('/public/robots.txt').set('Host', 'selfhost.example.com');
 
       expect(res.text).toContain('Sitemap: http://selfhost.example.com/public/sitemap.xml');
+    });
+
+    it('serves security.txt with the configured contact and an expiry in the future', async () => {
+      const app = express();
+      app.get(
+        '/.well-known/security.txt',
+        createSecurityTxtHandler({
+          publicAppUrl: 'https://app.example.com',
+          securityContact: 'security@example.com',
+        }),
+      );
+
+      const res = await request(app).get('/.well-known/security.txt');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Contact: mailto:security@example.com');
+      expect(res.text).toContain('Canonical: https://app.example.com/.well-known/security.txt');
+      const expires = res.text.match(/^Expires: (.+)$/m)?.[1];
+      expect(expires).toBeDefined();
+      expect(new Date(expires as string).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('returns 404 when no security contact is configured', async () => {
+      const app = express();
+      app.get('/.well-known/security.txt', createSecurityTxtHandler());
+
+      const res = await request(app).get('/.well-known/security.txt');
+
+      expect(res.status).toBe(404);
     });
 
     it('renderDomainPage footer and Organization JSON-LD use the configured site URL', () => {

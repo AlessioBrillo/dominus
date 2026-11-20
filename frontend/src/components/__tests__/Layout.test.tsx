@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { Layout } from '../Layout.js';
 import { takeInvite } from '@/lib/pending-invite';
@@ -17,6 +18,30 @@ vi.mock('@/hooks/useTheme', () => ({
   useTheme: () => themeState,
 }));
 
+vi.mock('@/api/legal', () => ({
+  getLegalContent: vi.fn().mockResolvedValue({
+    mode: 'community',
+    status: 'community',
+    version: '2026-11-20',
+    updatedAt: '2026-11-20',
+    securityContactAvailable: false,
+    identity: {
+      entityName: 'The operator of this deployment',
+      entityKind: 'individual',
+      registeredAddress: 'Not applicable - this is a self-hosted deployment',
+      vatId: '',
+      reaNumber: '',
+      registroImprese: '',
+      pec: '',
+      contactEmail: '',
+      privacyEmail: '',
+      supervisoryAuthority: '',
+      vatRegime: 'none',
+    },
+    documents: [],
+  }),
+}));
+
 const { authState, themeState, meState } = vi.hoisted(() => ({
   meState: { isOperator: false },
   authState: { isAuthenticated: true, isLoading: false, logout: vi.fn(), login: vi.fn() },
@@ -24,15 +49,18 @@ const { authState, themeState, meState } = vi.hoisted(() => ({
 }));
 
 function renderLayout(initialPath = '/') {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<div>Home content</div>} />
-          <Route path="invite/:token" element={<div>Invite content</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<div>Home content</div>} />
+            <Route path="invite/:token" element={<div>Invite content</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -73,6 +101,7 @@ describe('Layout', () => {
     authState.isAuthenticated = false;
     renderLayout();
     expect(screen.getByText('Sign In')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('API Key')).toBeInTheDocument();
   });
 
   it('renders navigation items, content and theme label when authenticated', () => {

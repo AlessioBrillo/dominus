@@ -2254,10 +2254,38 @@ const configSchema = z
     // ── Billing / Subscription (DOMINUS Cloud) ────────────────────────
 
     /**
+     * Whether DOMINUS Cloud is actually on sale.
+     *
+     * This is deliberately separate from IS_CLOUD_MODE: a Cloud deployment
+     * can exist to run the waitlist, the documentation and a private beta
+     * while nothing is sold. Checkout, plan changes and self-serve signup
+     * stay closed until this is true, and the paid clauses of the legal
+     * documents stay dormant. Turning it on requires a registered business
+     * identity and a complete LEGAL_* configuration: the server refuses to
+     * boot otherwise.
+     */
+    CLOUD_PAID_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
+
+    /**
+     * Public waitlist destination shown while CLOUD_PAID_ENABLED is false.
+     * It may be an external form (the form must name its provider and link
+     * its privacy notice) or a project page. When unset, the landing page
+     * points at the repository instead.
+     */
+    CLOUD_WAITLIST_URL: z
+      .string()
+      .url()
+      .refine((value) => /^https?:\/\//i.test(value), 'must be an http(s) URL')
+      .optional(),
+
+    /**
      * Stripe secret key for server-side API calls.
      * When set, billing features are enabled (DOMINUS Cloud).
      * When unset (community edition), the billing API returns
      * a free/community status without Stripe interaction.
+     * Checkout still requires CLOUD_PAID_ENABLED=true.
      */
     STRIPE_SECRET_KEY: z.string().optional(),
 
@@ -2344,16 +2372,29 @@ const configSchema = z
      * hold a placeholder.
      */
     LEGAL_ENTITY_NAME: z.string().optional(),
-    /** 'individual' for a sole trader, 'company' for a registered company. */
-    LEGAL_ENTITY_KIND: z.enum(['individual', 'company']).default('individual'),
+    /**
+     * The legal form of the operator.
+     *
+     * - `individual`: a natural person running the project website and the
+     *   waitlist before a business exists. No VAT number, REA or PEC is
+     *   required, and the paid Cloud cannot be enabled.
+     * - `sole_trader`: a registered ditta individuale. VAT, REA and PEC are
+     *   required.
+     * - `company`: a registered company. VAT, REA and PEC are required.
+     */
+    LEGAL_ENTITY_KIND: z.enum(['individual', 'sole_trader', 'company']).default('individual'),
     /** Registered address, as it must appear on the legal notice. */
     LEGAL_REGISTERED_ADDRESS: z.string().optional(),
     /** VAT identification number (Partita IVA). */
     LEGAL_VAT_ID: z.string().optional(),
-    /** Business register number (REA) — companies only. */
+    /** Business register number (REA) - business entities only. */
     LEGAL_REA_NUMBER: z.string().optional(),
-    /** Certified electronic address (PEC) — companies only. */
+    /** Register office, for example "Registro Imprese di Roma". */
+    LEGAL_REGISTRO_IMPRESE: z.string().optional(),
+    /** Certified electronic address (PEC) - business entities only. */
     LEGAL_PEC: z.string().optional(),
+    /** VAT regime that the documents use to describe prices. */
+    LEGAL_VAT_REGIME: z.enum(['ordinary', 'forfettario', 'none']).default('ordinary'),
     /** General contact address shown on the legal notice. */
     LEGAL_CONTACT_EMAIL: z.string().optional(),
     /** Address for data-subject requests shown in the privacy notice. */
@@ -2362,6 +2403,14 @@ const configSchema = z
     LEGAL_SUPERVISORY_AUTHORITY: z
       .string()
       .default('Garante per la protezione dei dati personali (Italy)'),
+
+    /**
+     * Contact published in `/.well-known/security.txt`.
+     * Falls back to the legal contact and privacy addresses. When none is
+     * set, the file is not served: an empty security contact is worse than
+     * an honest 404.
+     */
+    SECURITY_CONTACT_EMAIL: z.string().email().optional(),
   })
   .refine(
     (data) => {

@@ -20,6 +20,7 @@ export interface BillingResponse {
   subscription: SubscriptionData;
   plans: PlanCatalogEntry[];
   isStripeConfigured: boolean;
+  checkoutEnabled?: boolean;
   publishableKey: string | null;
 }
 

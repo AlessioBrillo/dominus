@@ -11,7 +11,12 @@ vi.mock('@/hooks/useBilling', () => ({
   useCancelSubscription: vi.fn(),
 }));
 
+vi.mock('@/api/legal', () => ({
+  getLegalContent: vi.fn(),
+}));
+
 import { BillingPage } from '../BillingPage';
+import { getLegalContent } from '@/api/legal';
 import {
   useSubscription,
   useCreateCheckoutSession,
@@ -28,6 +33,9 @@ const plans = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(getLegalContent).mockResolvedValue({
+    identity: { vatRegime: 'ordinary' },
+  } as never);
   vi.mocked(useCreateCheckoutSession).mockReturnValue({
     mutate: vi.fn(),
     isPending: false,
@@ -63,7 +71,7 @@ describe('BillingPage', () => {
     expect(screen.getByText(/You are on the Pro plan/)).toBeInTheDocument();
   });
 
-  it('shows ADR-0026 prices (Pro €29, Team €79, Enterprise Custom)', async () => {
+  it('shows consumer prices including VAT (Pro €35.38, Team €96.38, Enterprise Custom)', async () => {
     vi.mocked(useSubscription).mockReturnValue({
       data: { subscription: null, isStripeConfigured: true, plans },
       isLoading: false,
@@ -72,9 +80,28 @@ describe('BillingPage', () => {
     render(<BillingPage />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(screen.getByText('Plans')).toBeInTheDocument());
-    expect(screen.getByText('€29/mo')).toBeInTheDocument();
-    expect(screen.getByText('€79/mo')).toBeInTheDocument();
+    expect(screen.getByText('€35.38/mo')).toBeInTheDocument();
+    expect(screen.getByText('€96.38/mo')).toBeInTheDocument();
     expect(screen.getByText('Custom')).toBeInTheDocument();
+    // Business customers see the net price: the reverse charge applies.
+    expect(screen.getByText('€29/mo + VAT for business')).toBeInTheDocument();
+    expect(screen.getByText('€79/mo + VAT for business')).toBeInTheDocument();
+  });
+
+  it('does not add VAT to prices outside the VAT scope', async () => {
+    vi.mocked(getLegalContent).mockResolvedValue({
+      identity: { vatRegime: 'forfettario' },
+    } as never);
+    vi.mocked(useSubscription).mockReturnValue({
+      data: { subscription: null, isStripeConfigured: true, plans },
+      isLoading: false,
+    } as never);
+
+    render(<BillingPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('€29/mo')).toBeInTheDocument());
+    expect(screen.queryByText('€35.38/mo')).not.toBeInTheDocument();
+    expect(screen.getAllByText('VAT not applicable (flat-rate regime)').length).toBeGreaterThan(0);
   });
 
   it('advertises candidates/month quotas, not runs/day', async () => {

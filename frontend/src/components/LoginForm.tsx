@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-export function LoginForm({ embedded = false }: { embedded?: boolean }) {
+export function LoginForm({
+  embedded = false,
+  signupHref = '/signup',
+}: {
+  embedded?: boolean;
+  /** Where to send a new user; null hides the link (waitlist mode). */
+  signupHref?: string | null;
+}) {
   const { login } = useAuth();
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
@@ -96,12 +103,14 @@ export function LoginForm({ embedded = false }: { embedded?: boolean }) {
                 Sign in with SSO
               </Button>
             )}
-            <a
-              href="/signup"
-              className="block w-full text-center text-xs text-text-muted hover:text-text-primary"
-            >
-              New here? Create a workspace
-            </a>
+            {signupHref && (
+              <a
+                href={signupHref}
+                className="block w-full text-center text-xs text-text-muted hover:text-text-primary"
+              >
+                New here? Create a workspace
+              </a>
+            )}
             {/* The key is shown exactly once and only its hash is stored: a
                 lost key is replaced by a link to the address of the
                 workspace. */}

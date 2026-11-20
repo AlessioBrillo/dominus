@@ -67,6 +67,7 @@ export function createAuthRouter(
   verificationService?: EmailVerificationService,
   signupVerificationMode: SignupVerificationMode = 'required',
   recoveryEnabled = true,
+  signupEnabled = true,
 ): Router {
   const router = Router();
 
@@ -101,6 +102,21 @@ export function createAuthRouter(
   if (provisioningService) {
     router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
       try {
+        // A Cloud deployment that is not on sale does not create workspaces:
+        // a tenant is a service commitment (privacy notice, support, backups,
+        // invoices), not a mailing-list entry. The waitlist lives outside the
+        // tenant table, and the landing page points at it.
+        if (!signupEnabled) {
+          res.status(503).json({
+            error: {
+              code: 'SIGNUP_CLOSED',
+              message:
+                'DOMINUS Cloud is not open for paid subscriptions yet. Join the waitlist from the landing page.',
+            },
+          });
+          return;
+        }
+
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) {
           res.status(400).json({

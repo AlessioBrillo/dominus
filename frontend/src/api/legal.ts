@@ -2,6 +2,7 @@
 import { api } from './client';
 
 export type LegalDocumentSlug = 'legal-notice' | 'terms' | 'privacy';
+export type LegalServiceStatus = 'community' | 'cloud_waitlist' | 'cloud_paid';
 
 export interface LegalSection {
   heading: string;
@@ -18,18 +19,25 @@ export interface LegalDocument {
 
 export interface LegalIdentity {
   entityName: string;
-  entityKind: 'individual' | 'company';
+  entityKind: 'individual' | 'sole_trader' | 'company';
   registeredAddress: string;
   vatId: string;
   reaNumber: string;
+  registroImprese: string;
   pec: string;
   contactEmail: string;
   privacyEmail: string;
   supervisoryAuthority: string;
+  vatRegime: 'ordinary' | 'forfettario' | 'none';
 }
 
 export interface LegalContent {
   mode: 'cloud' | 'community';
+  status: LegalServiceStatus;
+  version: string;
+  updatedAt: string;
+  waitlistUrl?: string;
+  securityContactAvailable: boolean;
   identity: LegalIdentity;
   documents: LegalDocument[];
 }

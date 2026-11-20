@@ -15,14 +15,17 @@
  *
  *   1. no placeholder ever reaches the published documents;
  *   2. the operator identity fields art. 7 D.Lgs. 70/2003 requires are
- *      rendered by the legal notice;
- *   3. the clauses the EU consumer and data protection law requires are
- *      present in the documents (withdrawal, reverse charge, sub-processors,
- *      supervisory authority);
- *   4. the legal documents are reachable from every public page: the
+ *      rendered by the legal notice, and the business-only fields are not
+ *      demanded from a natural person;
+ *   3. the clauses EU consumer and data protection law requires are present
+ *      in the documents, and the clauses the operator decided not to rely on
+ *      (the art. 59(1)(o) withdrawal waiver) are absent;
+ *   4. a waitlist is not a shop: the paid terms are dormant until
+ *      CLOUD_PAID_ENABLED is true, and the runtime enforces it;
+ *   5. the legal documents are reachable from every public page: the
  *      server-rendered template carries the footer, and the SPA registers
  *      the three routes;
- *   5. the deployment surface is documented: the identity environment
+ *   6. the deployment surface is documented: the identity environment
  *      variables exist in the configuration and in .env.example.
  *
  * The runtime counterpart is `npm run launch:check`, which verifies the same
@@ -54,6 +57,7 @@ const PLACEHOLDERS = [
   { pattern: /\bTBD\b/, what: 'an unresolved "TBD"' },
   { pattern: /\bTODO\b/, what: 'an unresolved "TODO"' },
   { pattern: /CHANGE_ME/, what: 'a "CHANGE_ME" placeholder' },
+  { pattern: /\[●\]/, what: 'an unfilled "[●]" clause' },
   { pattern: /\.example\b/, what: 'a reserved ".example" domain' },
   { pattern: /privacy@dominus/, what: 'the placeholder privacy address' },
   { pattern: /lorem ipsum/i, what: 'lorem ipsum' },
@@ -63,7 +67,7 @@ for (const { pattern, what } of PLACEHOLDERS) {
   const match = legalSource.match(pattern);
   if (match) {
     const line = legalSource.slice(0, match.index).split('\n').length;
-    failures.push(`${LEGAL_SOURCE}:${line} contains ${what} — it would be published as-is`);
+    failures.push(`${LEGAL_SOURCE}:${line} contains ${what} - it would be published as-is`);
   }
 }
 
@@ -71,7 +75,10 @@ for (const { pattern, what } of PLACEHOLDERS) {
  * 2. The identity fields the law requires are rendered
  * ------------------------------------------------------------------ */
 const REQUIRED_IDENTITY_RENDERINGS = [
+  { field: 'entityKind', what: 'legal form of the operator' },
+  { field: 'registeredAddress', what: 'registered address' },
   { field: 'vatId', what: 'VAT identification number' },
+  { field: 'registroImprese', what: 'business register office' },
   { field: 'reaNumber', what: 'business register number' },
   { field: 'pec', what: 'certified electronic address' },
   { field: 'contactEmail', what: 'contact address' },
@@ -85,15 +92,24 @@ for (const { field, what } of REQUIRED_IDENTITY_RENDERINGS) {
 }
 
 /* ------------------------------------------------------------------ *
- * 3. The clauses the law requires are present
+ * 3. The clauses the law requires, and the waiver that must be absent
  * ------------------------------------------------------------------ */
 const REQUIRED_CLAUSES = [
   { pattern: /right of withdrawal/i, what: 'the right of withdrawal' },
+  { pattern: /14 days/i, what: 'the 14-day withdrawal period' },
+  { pattern: /art\. 57\(3\)/, what: 'the pro-rata rule of art. 57(3) Consumer Code' },
+  { pattern: /arts?\. 128-135/, what: 'the consumer legal guarantee (arts. 128-135)' },
   { pattern: /reverse charge/i, what: 'the reverse charge mechanism' },
+  { pattern: /SdI/, what: 'the Italian e-invoicing system' },
   { pattern: /sub-processor/i, what: 'the sub-processor list' },
+  { pattern: /standard contractual clauses/i, what: 'the transfer safeguards' },
   { pattern: /supervisory authority/i, what: 'the supervisory authority' },
   { pattern: /art\. 7/, what: 'the art. 7 D.Lgs. 70/2003 reference' },
-  { pattern: /art\. 59/, what: 'the art. 59 Consumer Code reference' },
+  { pattern: /art\. 1341/, what: 'the art. 1341 c.c. specific-approval clause' },
+  { pattern: /not an appraisal/i, what: 'the "not an appraisal" disclaimer' },
+  { pattern: /art\. 13 and 14 of the GDPR/i, what: 'the arts. 13-14 GDPR reference' },
+  { pattern: /only binding version/i, what: 'the language-prevalence statement' },
+  { pattern: /do not ask you to waive/i, what: 'the refusal of the art. 59(1)(o) waiver' },
 ];
 
 for (const { pattern, what } of REQUIRED_CLAUSES) {
@@ -102,13 +118,73 @@ for (const { pattern, what } of REQUIRED_CLAUSES) {
   }
 }
 
+// The waiver text is the defect this release removed. A document that
+// claims the consumer loses the withdrawal right once performance begins is
+// wrong for a service supplied over time, and wrong for the operator's
+// stated policy even where it could be used.
+const WAIVER_CLAIM = /you (?:lose|will lose) the right of withdrawal/i;
+if (WAIVER_CLAIM.test(legalSource)) {
+  failures.push(
+    `${LEGAL_SOURCE} claims the consumer loses the right of withdrawal - the operator does not rely on art. 59(1)(o)`,
+  );
+}
+
+const BILLING_SERVICE = 'src/services/billing-service.ts';
+const billingService = read(BILLING_SERVICE);
+if (WAIVER_CLAIM.test(billingService)) {
+  failures.push(
+    `${BILLING_SERVICE} claims the consumer loses the right of withdrawal - the checkout must not use the art. 59(1)(o) waiver`,
+  );
+}
+if (!billingService.includes('proportional part')) {
+  failures.push(`${BILLING_SERVICE} does not state the pro-rata refund at checkout`);
+}
+
 /* ------------------------------------------------------------------ *
- * 4. The documents are reachable from every public page
+ * 4. A waitlist is not a shop
+ * ------------------------------------------------------------------ */
+const CONFIG = 'src/config.ts';
+const config = read(CONFIG);
+const INDEX = 'src/index.ts';
+const indexSource = read(INDEX);
+const BILLING_ROUTE = 'src/api/routes/billing.ts';
+const billingRoute = read(BILLING_ROUTE);
+const AUTH_ROUTE = 'src/api/routes/auth.ts';
+const authRoute = read(AUTH_ROUTE);
+
+if (!config.includes('CLOUD_PAID_ENABLED')) {
+  failures.push(`${CONFIG} does not declare CLOUD_PAID_ENABLED`);
+}
+if (!indexSource.includes("missingIdentityFields(legalContent.identity, { paidService: true })")) {
+  failures.push(
+    `${INDEX} does not fail closed on an incomplete identity when CLOUD_PAID_ENABLED=true`,
+  );
+}
+if (!billingRoute.includes('CHECKOUT_DISABLED')) {
+  failures.push(`${BILLING_ROUTE} does not close checkout while the deployment is not on sale`);
+}
+if (!authRoute.includes('SIGNUP_CLOSED')) {
+  failures.push(`${AUTH_ROUTE} does not close self-serve signup while the deployment is not on sale`);
+}
+
+// A price is a statement about a contract. The landing page may only publish
+// one when the server says the hosted edition is on sale.
+const LANDING_PAGE = 'frontend/src/pages/LandingPage.tsx';
+const landingPage = read(LANDING_PAGE);
+if (!landingPage.includes('useLegalContent')) {
+  failures.push(`${LANDING_PAGE} does not read the service status from the server`);
+}
+if (!landingPage.includes("status === 'cloud_paid'")) {
+  failures.push(`${LANDING_PAGE} does not gate the pricing section on cloud_paid`);
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. The documents are reachable from every public page
  * ------------------------------------------------------------------ */
 const TEMPLATE = 'src/api/views/page-template.ts';
 const template = read(TEMPLATE);
 if (!template.includes('legalFooterHtml')) {
-  failures.push(`${TEMPLATE} does not render the legal footer — the public pages would not identify the operator`);
+  failures.push(`${TEMPLATE} does not render the legal footer - the public pages would not identify the operator`);
 }
 
 const FOOTER = 'src/api/views/legal-footer.ts';
@@ -132,12 +208,16 @@ const publicRouter = read(PUBLIC_ROUTER);
 if (!publicRouter.includes("router.get('/legal'")) {
   failures.push(`${PUBLIC_ROUTER} does not serve /public/legal`);
 }
+if (!publicRouter.includes('createSecurityTxtHandler')) {
+  failures.push(`${PUBLIC_ROUTER} does not serve /.well-known/security.txt`);
+}
+if (!indexSource.includes("'/.well-known/security.txt'")) {
+  failures.push(`${INDEX} does not mount /.well-known/security.txt`);
+}
 
 /* ------------------------------------------------------------------ *
- * 5. The deployment surface is documented
+ * 6. The deployment surface is documented
  * ------------------------------------------------------------------ */
-const CONFIG = 'src/config.ts';
-const config = read(CONFIG);
 const ENV_EXAMPLE = '.env.example';
 const envExample = read(ENV_EXAMPLE);
 
@@ -147,13 +227,25 @@ const IDENTITY_VARS = [
   'LEGAL_REGISTERED_ADDRESS',
   'LEGAL_VAT_ID',
   'LEGAL_REA_NUMBER',
+  'LEGAL_REGISTRO_IMPRESE',
   'LEGAL_PEC',
+  'LEGAL_VAT_REGIME',
   'LEGAL_CONTACT_EMAIL',
   'LEGAL_PRIVACY_EMAIL',
   'LEGAL_SUPERVISORY_AUTHORITY',
+  'SECURITY_CONTACT_EMAIL',
 ];
 
 for (const name of IDENTITY_VARS) {
+  if (!config.includes(name)) {
+    failures.push(`${CONFIG} does not declare ${name}`);
+  }
+  if (!envExample.includes(name)) {
+    failures.push(`${ENV_EXAMPLE} does not document ${name}`);
+  }
+}
+
+for (const name of ['CLOUD_PAID_ENABLED', 'CLOUD_WAITLIST_URL']) {
   if (!config.includes(name)) {
     failures.push(`${CONFIG} does not declare ${name}`);
   }
@@ -170,12 +262,12 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`  - ${f}`);
   console.error(
     '\nThe legal surface is published as written. A placeholder or a missing ' +
-      'clause is a compliance defect, not a typo — fix the document, not the check.',
+      'clause is a compliance defect, not a typo - fix the document, not the check.',
   );
   process.exit(1);
 }
 
 console.log(
-  `check-legal-placeholders: OK — ${PLACEHOLDERS.length} placeholder patterns, ` +
+  `check-legal-placeholders: OK - ${PLACEHOLDERS.length} placeholder patterns, ` +
     `${REQUIRED_CLAUSES.length} required clauses, ${IDENTITY_VARS.length} identity variables`,
 );

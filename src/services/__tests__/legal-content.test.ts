@@ -13,10 +13,12 @@ const IDENTITY = {
   registeredAddress: 'Via Roma 1, 00100 Roma (RM), Italy',
   vatId: 'IT12345678901',
   reaNumber: 'RM-123456',
+  registroImprese: 'Registro Imprese di Roma',
   pec: 'example@pec.it',
   contactEmail: 'hello@example.it',
   privacyEmail: 'privacy@example.it',
   supervisoryAuthority: 'Garante per la protezione dei dati personali (Italy)',
+  vatRegime: 'ordinary' as const,
 };
 
 describe('buildLegalContent', () => {
@@ -33,21 +35,59 @@ describe('buildLegalContent', () => {
     expect(text).toContain(IDENTITY.entityName);
     expect(text).toContain(IDENTITY.vatId);
     expect(text).toContain(IDENTITY.reaNumber);
+    expect(text).toContain(IDENTITY.registroImprese);
     expect(text).toContain(IDENTITY.pec);
     expect(text).toContain(IDENTITY.contactEmail);
   });
 
-  it('states the withdrawal right and the reverse charge in the cloud terms', () => {
+  it('describes a Cloud deployment without a sale as a waitlist', () => {
     const content = buildLegalContent({ identity: IDENTITY, cloudMode: true });
+    expect(content.status).toBe('cloud_waitlist');
+    const text = JSON.stringify(content.documents);
+    expect(text).toContain('not open for paid subscriptions');
+    expect(text).toContain('No subscription can be bought here');
+    // A waitlist is not a shop: no price, no withdrawal policy over a
+    // contract that cannot be concluded.
+    expect(text).not.toContain('reverse charge');
+    expect(text).not.toContain('right of withdrawal');
+  });
+
+  it('states the withdrawal right and the reverse charge in the paid cloud terms', () => {
+    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true, paidService: true });
+    expect(content.status).toBe('cloud_paid');
     const terms = content.documents.find((d) => d.slug === 'terms');
     const text = JSON.stringify(terms);
     expect(text).toContain('right of withdrawal');
+    expect(text).toContain('14 days');
+    expect(text).toContain('art. 57(3)');
     expect(text).toContain('reverse charge');
-    expect(text).toContain('art. 59');
+    // The operator does not rely on the art. 59(1)(o) waiver: the consumer
+    // keeps the withdrawal right and pays only the service already supplied.
+    expect(text).not.toContain('you lose the right of withdrawal');
+    expect(text).toContain('do not ask you to waive');
+  });
+
+  it('does not claim that the Italian text prevails', () => {
+    const paid = buildLegalContent({ identity: IDENTITY, cloudMode: true, paidService: true });
+    const waitlist = buildLegalContent({ identity: IDENTITY, cloudMode: true });
+    for (const content of [paid, waitlist]) {
+      const text = JSON.stringify(content.documents);
+      expect(text).not.toContain('Italian version prevails');
+      expect(text).toContain('English text is the only binding version');
+    }
+  });
+
+  it('cites art. 7 of the e-commerce decree, not the Consumer Code', () => {
+    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true });
+    const notice = content.documents.find((d) => d.slug === 'legal-notice');
+    const text = JSON.stringify(notice);
+    expect(text).toContain('art. 7');
+    expect(text).toContain('Legislative Decree 70/2003');
+    expect(text).not.toContain('art. 7 of the Italian Consumer Code');
   });
 
   it('lists the sub-processors and the supervisory authority in the privacy notice', () => {
-    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true });
+    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true, paidService: true });
     const privacy = content.documents.find((d) => d.slug === 'privacy');
     const text = JSON.stringify(privacy);
     expect(text).toContain('Hetzner');
@@ -55,9 +95,21 @@ describe('buildLegalContent', () => {
     expect(text).toContain(IDENTITY.supervisoryAuthority);
   });
 
+  it('names the waitlist provider when one is configured', () => {
+    const content = buildLegalContent({
+      identity: IDENTITY,
+      cloudMode: true,
+      waitlistUrl: 'https://waitlist.example.net/dominus',
+    });
+    const text = JSON.stringify(content.documents);
+    expect(text).toContain('https://waitlist.example.net/dominus');
+    expect(text).toContain('names the provider');
+  });
+
   it('does not publish the operator identity in the community edition', () => {
     const content = buildLegalContent({ identity: IDENTITY, cloudMode: false });
     expect(content.mode).toBe('community');
+    expect(content.status).toBe('community');
     const text = JSON.stringify(content);
     expect(text).not.toContain(IDENTITY.vatId);
     expect(text).not.toContain(IDENTITY.reaNumber);
@@ -70,6 +122,7 @@ describe('buildLegalContent', () => {
     const content = buildLegalContent({ identity: IDENTITY, cloudMode: true });
     expect(LEGAL_DOCUMENTS_UPDATED_AT).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(content.documents).toHaveLength(3);
+    expect(content.updatedAt).toBe(LEGAL_DOCUMENTS_UPDATED_AT);
   });
 });
 
@@ -87,6 +140,7 @@ describe('identityFromConfig', () => {
     expect(identity.entityKind).toBe('company');
     expect(identity.vatId).toBe('IT12345678901');
     expect(identity.reaNumber).toBe('');
+    expect(identity.vatRegime).toBe('ordinary');
   });
 
   it('defaults to an individual operator', () => {
@@ -95,12 +149,11 @@ describe('identityFromConfig', () => {
 });
 
 describe('missingIdentityFields', () => {
-  it('reports every required field of an empty identity', () => {
+  it('reports the fields a natural person must publish', () => {
     const identity = identityFromConfig({});
     expect(missingIdentityFields(identity)).toEqual([
       'entityName',
       'registeredAddress',
-      'vatId',
       'contactEmail',
       'privacyEmail',
     ]);
@@ -113,11 +166,23 @@ describe('missingIdentityFields', () => {
       LEGAL_REGISTERED_ADDRESS: IDENTITY.registeredAddress,
       LEGAL_VAT_ID: IDENTITY.vatId,
       LEGAL_REA_NUMBER: IDENTITY.reaNumber,
+      LEGAL_REGISTRO_IMPRESE: IDENTITY.registroImprese,
       LEGAL_PEC: IDENTITY.pec,
       LEGAL_CONTACT_EMAIL: IDENTITY.contactEmail,
       LEGAL_PRIVACY_EMAIL: IDENTITY.privacyEmail,
     });
     expect(missingIdentityFields(identity)).toEqual([]);
+  });
+
+  it('rejects a natural person for a paid service even when every field is set', () => {
+    const identity = identityFromConfig({
+      LEGAL_ENTITY_NAME: 'Ada Lovelace',
+      LEGAL_REGISTERED_ADDRESS: 'Via Roma 1',
+      LEGAL_CONTACT_EMAIL: 'ada@example.it',
+      LEGAL_PRIVACY_EMAIL: 'privacy@example.it',
+    });
+    expect(missingIdentityFields(identity)).toEqual([]);
+    expect(missingIdentityFields(identity, { paidService: true })).toContain('entityKind');
   });
 
   it('treats a placeholder as missing', () => {

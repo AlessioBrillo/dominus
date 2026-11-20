@@ -13,7 +13,7 @@ DOMINUS is an **open-source domain investment tool** that helps you make better 
 
 **DOMINUS Community** (AGPL v3) — self-hosted, all features, unlimited use, forever free.
 
-**DOMINUS Cloud** — managed hosting with multi-tenant support, PostgreSQL, automated backups with point-in-time recovery, and priority support. Billing, usage metering, and the admin panel ship ahead of the managed hosting launch (v1.0.0).
+**DOMINUS Cloud** — the managed edition: multi-tenant workspaces, PostgreSQL, automated backups, team seats and SSO. It is **not on sale yet**: the hosted edition is a waitlist while the operator identity and the fiscal position are completed. The self-hosted community edition is available now and has the same engine.
 
 ---
 
@@ -270,7 +270,7 @@ npm run selfhost:up
 | **API**            | Express REST (35 route modules)                 | Dashboard-ready, swappable frontend                        |
 | **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
 | **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
-| **Infrastructure** | Docker, Docker Compose, GitHub Actions          | Deploy anywhere, CI built-in                               |
+| **Infrastructure** | Docker, Docker Compose, Woodpecker CI       | Deploy anywhere, one pipeline as the gate                  |
 
 ## Editions
 
@@ -286,9 +286,9 @@ npm run selfhost:up
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
 | **Multi-tenancy**     | —                                     | ✓ Managed                         |
-| **Backups**           | Manual (`dominus maintenance backup`) | Automated, point-in-time recovery |
+| **Backups**           | Manual (`dominus maintenance backup`) | Automated daily backups           |
 | **Support**           | GitHub Issues                         | Email/Slack — Enterprise: 4 business hours, see [SLA](docs/operations/sla.md) |
-| **Cost**              | €0                                    | Free tier + paid plans            |
+| **Cost**              | €0                                    | Waitlist — not on sale yet        |
 
 ## What It Is Not
 
@@ -305,9 +305,8 @@ DOMINUS is decision support, not a guarantee. Before you install:
   never recommended — that is fail-closed behaviour, not a defect.
 - **Not a service with an SLA.** The community edition is self-hosted: you own
   the data, the backups and the uptime. There is no response-time commitment.
-- **Not DOMINUS Cloud.** Managed hosting, multi-tenancy, automated PITR
-  backups and paid tiers are a separate offering and are not part of this
-  release.
+- **Not DOMINUS Cloud.** Managed hosting, multi-tenancy, automated backups
+  and paid tiers are a separate offering and are not part of this release.
 
 ## Fork & Customize
 
@@ -349,7 +348,7 @@ DOMINUS scales from a personal CLI tool to a containerized service managing thou
 | **Growing** (50-500)        | Docker (SQLite) + Unbound        | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml up -d` |
 | **Large** (500+)            | Docker + PostgreSQL + Unbound    | `docker compose -f docker-compose.yml -f docker-compose.unbound.yml -f docker-compose.prod.yml up -d` |
 | **Enterprise** (5000+)      | Terraform (Hetzner) + PostgreSQL | see `deploy/terraform/`                                                 |
-| **Managed**                 | DOMINUS Cloud                    | Managed PostgreSQL, automated PITR backups, team seats — availability on request |
+| **Managed**                 | DOMINUS Cloud                    | Managed PostgreSQL, automated backups, team seats — waitlist, not on sale yet |
 
 See [Deployment Guide](docs/deployment/README.md).
 
@@ -374,6 +373,8 @@ Key variables:
 | `TLD_BONUSES_PATH`         | (optional)          | Custom TLD multiplier bonuses JSON                                          |
 | `EUIPO_CLIENT_ID`          | (optional)          | EUIPO trademark search (free registration)                                  |
 | `API_KEYS`                 | (optional)          | REST API authentication                                                     |
+| `CLOUD_PAID_ENABLED`       | `false`             | Turns checkout and the paid legal terms on; requires a registered business identity |
+| `CLOUD_WAITLIST_URL`       | (optional)          | Public waitlist shown while the hosted edition is not on sale               |
 
 Post-acquisition automation (ADR-0083) is off by default and dry-run by default:
 
@@ -438,11 +439,12 @@ list above is a subset of what the binary registers.
 
 ## Project Status
 
-DOMINUS v1.5.3 — The artifact tells the truth: `dominus doctor` reports its own version,
-database state, backup age and disk space on any installation, fresh or existing.
-pipeline (`.woodpecker/ci.yml`), run locally with `ci-local` (needs Docker)
-or on a Woodpecker server; GitHub Actions is a billing-blocked mirror and
-its badges are not shown. The migration gate takes a cross-process lock and
+DOMINUS v1.5.3 — The artifact tells the truth: `dominus doctor` reports its
+own version, database state, backup age and disk space on any installation,
+fresh or existing. The gate is the Woodpecker pipeline
+(`.woodpecker/ci.yml`), run locally with `ci-local` (needs Docker) or on a
+Woodpecker server; GitHub Actions is a billing-blocked mirror and its badges
+are not shown. The migration gate takes a cross-process lock and
 a pre-migration snapshot, `dominus doctor` inspects without mutating, and
 `selfhost:up` brings a stack from zero to healthy in one command.
 `npm run launch:check` now judges a **community** deployment (the AGPL and
@@ -455,7 +457,10 @@ on pass and on fail, so a release can attach what approved it.
 gate against it and tears it down, with no credentials and no spend; the
 community edition is the first soft launch, and the Cloud stays behind the
 fiscal position, the third-party audit and a real staging deployment
-([first-apply.md](docs/deployment/first-apply.md)). `dominus score
+([first-apply.md](docs/deployment/first-apply.md)). The hosted edition is a
+waitlist, not a shop: `CLOUD_PAID_ENABLED=false` is the default, checkout and
+self-serve signup stay closed, and the paid legal terms are dormant until the
+flag is turned on with a registered business identity. `dominus score
 example.com` still answers in about two seconds, creates nothing on disk and
 prints the decision and nothing else on stdout. All five pipeline stages,
 the heuristic scoring engine, the mandatory trademark gate enforced on every
@@ -465,7 +470,9 @@ verdicts, outcomes, the backtest engine and the React dashboard are
 implemented and tested. Post-acquisition automation (ADR-0083) ships dark
 by default (`AUTOMATION_ENABLED=false`). The community edition is fully
 functional; DOMINUS Cloud adds multi-tenancy, team accounts with email
-invitations, SSO and Stripe billing. See [docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)
+invitations, SSO and Stripe billing, and is sold only when the operator
+identity and fiscal position are complete. See
+[docs/releases/upgrade-1.1.0.md](docs/releases/upgrade-1.1.0.md)
 and the [CHANGELOG](CHANGELOG.md) for the release history.
 
 ## FAQ
@@ -538,8 +545,9 @@ requires.
 
 ### Trademark
 
-The name "DOMINUS" identifies this project and is claimed by its author,
-AlessioBrillo, as a project mark. The AGPL license grants you the right to
+The name "DOMINUS" identifies this project. The project does not claim a
+registered trademark: no registration has been granted, and nothing here is a
+representation that one exists. The AGPL license grants you the right to
 copy, modify, and distribute the code — it does **not** grant you the right
 to use the DOMINUS name or logo to promote your fork or a competing
 service. Forks and derived services must use a different name and must not

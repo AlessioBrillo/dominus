@@ -24,5 +24,8 @@ export function useLegalDocument(slug: LegalDocumentSlug) {
     ...query,
     document: query.data?.documents.find((d) => d.slug === slug),
     mode: query.data?.mode,
+    status: query.data?.status,
+    version: query.data?.version ?? 'unknown',
+    updatedAt: query.data?.updatedAt,
   };
 }

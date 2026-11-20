@@ -67,6 +67,7 @@ import {
   createPublicRouter,
   createRobotsTxtHandler,
   createIndexNowKeyHandler,
+  createSecurityTxtHandler,
   errorHandler,
   createRequestLogger,
   responseCache,
@@ -113,24 +114,61 @@ async function main(): Promise<void> {
   // The legal surface: identity, terms of service, privacy notice. Built
   // once at boot from the configuration and served at /public/legal; the same
   // identity is injected into the footer of every server-rendered page.
+  const securityContact =
+    config.SECURITY_CONTACT_EMAIL ??
+    config.LEGAL_PRIVACY_EMAIL ??
+    config.LEGAL_CONTACT_EMAIL ??
+    undefined;
   const legalContent = buildLegalContent({
     identity: identityFromConfig(config),
     cloudMode: config.IS_CLOUD_MODE,
+    paidService: config.CLOUD_PAID_ENABLED,
+    securityContactAvailable: securityContact !== undefined,
+    ...(config.CLOUD_WAITLIST_URL ? { waitlistUrl: config.CLOUD_WAITLIST_URL } : {}),
   });
   setLegalFooterContext({
     mode: legalContent.mode,
     entityName: legalContent.identity.entityName,
+    entityKind: legalContent.identity.entityKind,
+    registeredAddress: legalContent.identity.registeredAddress,
     vatId: legalContent.identity.vatId,
+    reaNumber: legalContent.identity.reaNumber,
+    registroImprese: legalContent.identity.registroImprese,
+    pec: legalContent.identity.pec,
     contactEmail: legalContent.identity.contactEmail,
   });
-  if (config.IS_CLOUD_MODE) {
+  if (config.CLOUD_PAID_ENABLED) {
+    // Selling a managed service is the point at which the identity stops
+    // being a documentation detail. A missing VAT number, REA or PEC means
+    // an invoice nobody can issue and a processor nobody can identify, so
+    // the process refuses to start instead of publishing an incomplete
+    // notice over a working checkout.
+    if (!config.IS_CLOUD_MODE) {
+      logger.fatal(
+        'FATAL: CLOUD_PAID_ENABLED=true requires cloud mode (PostgreSQL or a managed auth provider). ' +
+          'A self-hosted deployment is operated by whoever installed it and cannot sell DOMINUS Cloud.',
+      );
+      process.exit(1);
+    }
+    const missing = missingIdentityFields(legalContent.identity, { paidService: true });
+    if (missing.length > 0) {
+      logger.fatal(
+        { missing },
+        'FATAL: CLOUD_PAID_ENABLED=true but the operator identity is incomplete. Set the LEGAL_* ' +
+          'variables for a registered business (sole_trader or company, with VAT ID, register office, REA and PEC). ' +
+          'The server does not start a paid service without a published identity.',
+      );
+      process.exit(1);
+    }
+  } else if (config.IS_CLOUD_MODE) {
     const missing = missingIdentityFields(legalContent.identity);
     if (missing.length > 0) {
       logger.warn(
         { missing },
-        'Cloud mode: the legal identity is incomplete. The legal notice, the terms of service and ' +
-          'the privacy notice are published without it. Set the LEGAL_* environment variables — ' +
-          '`npm run launch:check` refuses to declare a deployment launchable while they are missing.',
+        'Cloud mode: the project identity is incomplete. The website and the waitlist are published ' +
+          'with a generic operator. Set LEGAL_ENTITY_NAME, LEGAL_REGISTERED_ADDRESS, ' +
+          'LEGAL_CONTACT_EMAIL and LEGAL_PRIVACY_EMAIL before inviting anyone to the waitlist. ' +
+          'Paid subscriptions stay disabled until the business identity is complete.',
       );
     }
   }
@@ -296,6 +334,16 @@ async function main(): Promise<void> {
   // /public/sitemap.xml route.
   app.get('/robots.txt', createRobotsTxtHandler(publicAppUrlOption(config)));
 
+  // RFC 9116 security contact. Generated, not committed: a fork must publish
+  // its own address, and an Expires field in the past is worse than no file.
+  app.get(
+    '/.well-known/security.txt',
+    createSecurityTxtHandler({
+      ...publicAppUrlOption(config),
+      securityContact,
+    }),
+  );
+
   // IndexNow ownership verification file (ADR-0083, M2):
   // https://<host>/<INDEXNOW_KEY>.txt must serve the key as plain text.
   // Registered before the SPA catch-all; 404 for any other filename.
@@ -344,6 +392,7 @@ async function main(): Promise<void> {
       deps.verificationService,
       config.SIGNUP_EMAIL_VERIFICATION,
       config.AUTH_RECOVERY_ENABLED,
+      !config.IS_CLOUD_MODE || config.CLOUD_PAID_ENABLED,
     ),
   );
 

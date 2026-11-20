@@ -42,6 +42,7 @@ export function createBillingRouter(config: Config, billingService: BillingServi
   router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const subscription = await billingService.getSubscription(req.tenantId ?? 'default');
+      const sellable = config.CLOUD_PAID_ENABLED && billingService.isConfigured;
       const plans: Array<{
         id: SubscriptionPlan;
         name: string;
@@ -54,27 +55,28 @@ export function createBillingRouter(config: Config, billingService: BillingServi
           name: 'Pro',
           monthlyPriceId: billingService.resolvePriceId('pro', 'month') ?? null,
           yearlyPriceId: billingService.resolvePriceId('pro', 'year') ?? null,
-          available: billingService.isConfigured,
+          available: sellable,
         },
         {
           id: 'team',
           name: 'Team',
           monthlyPriceId: billingService.resolvePriceId('team', 'month') ?? null,
           yearlyPriceId: billingService.resolvePriceId('team', 'year') ?? null,
-          available: billingService.isConfigured,
+          available: sellable,
         },
         {
           id: 'enterprise',
           name: 'Enterprise',
           monthlyPriceId: billingService.resolvePriceId('enterprise', 'month') ?? null,
           yearlyPriceId: billingService.resolvePriceId('enterprise', 'year') ?? null,
-          available: billingService.isConfigured,
+          available: sellable,
         },
       ];
       res.json({
         subscription,
         plans,
         isStripeConfigured: billingService.isConfigured,
+        checkoutEnabled: config.CLOUD_PAID_ENABLED,
         publishableKey: config.STRIPE_PUBLISHABLE_KEY ?? null,
       });
     } catch (err) {
@@ -84,6 +86,20 @@ export function createBillingRouter(config: Config, billingService: BillingServi
 
   router.post('/checkout', async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // CLOUD_PAID_ENABLED is the difference between a waitlist and a shop.
+      // Closing checkout here is fail-closed: a Stripe key left in the
+      // environment does not turn the sale back on.
+      if (!config.CLOUD_PAID_ENABLED) {
+        res.status(503).json({
+          error: {
+            code: 'CHECKOUT_DISABLED',
+            message:
+              'DOMINUS Cloud is not open for paid subscriptions yet. Join the waitlist from the landing page.',
+          },
+        });
+        return;
+      }
+
       const parsed = checkoutSchema.safeParse(req.body);
       if (!parsed.success) {
         res.status(400).json({
@@ -200,6 +216,17 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       }
 
       const tenantId = req.tenantId ?? 'default';
+
+      if (parsed.data.action === 'change' && !config.CLOUD_PAID_ENABLED) {
+        res.status(503).json({
+          error: {
+            code: 'CHECKOUT_DISABLED',
+            message:
+              'Plan changes are disabled until DOMINUS Cloud is open for paid subscriptions.',
+          },
+        });
+        return;
+      }
 
       if (!billingService.isConfigured) {
         res.status(400).json({
