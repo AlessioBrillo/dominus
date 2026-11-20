@@ -15,11 +15,12 @@ const NAV: { slug: LegalDocumentSlug; label: string; to: string }[] = [
  *
  * The document body comes from the server as structured data
  * (headings, paragraphs, bullets), so the same text is rendered here and by
- * the server-rendered public pages, and the i18n work planned for v1.4.0
- * can translate it without touching this component.
+ * the server-rendered public pages. The text is English only: there is no
+ * translated version, and the documents say the English text is binding.
  */
 export function LegalDocumentPage({ slug }: { slug: LegalDocumentSlug }) {
-  const { document, isLoading, isError } = useLegalDocument(slug);
+  const { document, version, updatedAt, isLoading, isError } = useLegalDocument(slug);
+  const lastUpdated = updatedAt ? new Date(updatedAt).toLocaleDateString() : 'unknown';
 
   if (isLoading) {
     return (
@@ -48,7 +49,14 @@ export function LegalDocumentPage({ slug }: { slug: LegalDocumentSlug }) {
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-bold text-text-primary">{document.title}</h1>
-        <p className="text-text-muted text-sm">{document.scope} Last updated: October 2026.</p>
+        <p className="text-text-muted text-sm">
+          {document.scope} Version {version} · last updated {lastUpdated}.
+        </p>
+        <div className="flex flex-wrap gap-2 print:hidden">
+          <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+            Print or save as PDF
+          </Button>
+        </div>
       </header>
 
       {document.sections.map((section) => (

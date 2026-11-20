@@ -40,6 +40,7 @@ export {
   createPublicRouter,
   createRobotsTxtHandler,
   createIndexNowKeyHandler,
+  createSecurityTxtHandler,
 } from './public-router.js';
 export type { PublicRouterOptions } from './public-router.js';
 export { createAuthMiddleware } from './middleware/auth.js';

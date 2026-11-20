@@ -5,10 +5,16 @@ import request from 'supertest';
 import { createBillingRouter } from '../routes/billing.js';
 import type { BillingService } from '../../services/billing-service.js';
 
-function buildApp(service: BillingService): express.Express {
+function buildApp(service: BillingService, paid = true): express.Express {
   const app = express();
   app.use(express.json());
-  app.use('/billing', createBillingRouter({} as never, service));
+  app.use(
+    '/billing',
+    createBillingRouter(
+      { CLOUD_PAID_ENABLED: paid, STRIPE_PUBLISHABLE_KEY: undefined } as never,
+      service,
+    ),
+  );
   return app;
 }
 
@@ -65,5 +71,18 @@ describe('billing router', () => {
       cancelUrl: 'https://dominus.app/billing?cancel=1',
     });
     expect(res.status).toBe(400);
+  });
+
+  it('refuses checkout while the deployment is not on sale', async () => {
+    const service = fakeBillingService();
+    const res = await request(buildApp(service, false)).post('/billing/checkout').send({
+      plan: 'team',
+      interval: 'year',
+      successUrl: 'https://dominus.app/billing?ok=1',
+      cancelUrl: 'https://dominus.app/billing?cancel=1',
+    });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('CHECKOUT_DISABLED');
+    expect(service.createCheckoutSession).not.toHaveBeenCalled();
   });
 });

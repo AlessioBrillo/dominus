@@ -22,15 +22,31 @@ const PLAN_LABELS: Record<string, string> = {
 };
 
 const PLAN_PRICES: Record<BillingPlan, { month: string; year: string }> = {
+  pro: { month: '€35.38/mo', year: '€353.80/yr' },
+  team: { month: '€96.38/mo', year: '€963.80/yr' },
+  enterprise: { month: 'Custom', year: 'Custom' },
+};
+
+const PLAN_NET_PRICES: Record<BillingPlan, { month: string; year: string }> = {
   pro: { month: '€29/mo', year: '€290/yr' },
   team: { month: '€79/mo', year: '€790/yr' },
   enterprise: { month: 'Custom', year: 'Custom' },
 };
 
 const PLAN_FEATURES: Record<BillingPlan, string[]> = {
-  pro: ['Multi-tenant', 'PostgreSQL database', '500 candidates/month', 'Priority support'],
-  team: ['Everything in Pro', '10 team seats', '2,500 candidates/month', 'Slack support'],
-  enterprise: ['Everything in Team', 'Unlimited candidates', 'Dedicated support', 'Custom SLA'],
+  pro: [
+    '500 candidates/month',
+    '250 domains tracked',
+    '3 people, 5 machine keys',
+    'Priority support',
+  ],
+  team: [
+    '2,500 candidates/month',
+    '1,000 domains tracked',
+    '10 people, 20 machine keys',
+    'Shared workspaces',
+  ],
+  enterprise: ['Everything in Team', 'Custom limits', 'Dedicated support', 'Custom SLA'],
 };
 
 const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'default'> = {
@@ -50,7 +66,8 @@ export function BillingPage() {
   const [interval, setInterval] = useState<BillingInterval>('month');
 
   const subscription = data?.subscription;
-  const isStripeConfigured = data?.isStripeConfigured ?? false;
+  const checkoutEnabled = data?.checkoutEnabled ?? data?.isStripeConfigured ?? false;
+  const isStripeConfigured = checkoutEnabled && (data?.isStripeConfigured ?? false);
   const plans = data?.plans ?? [];
 
   // A tenant that already subscribes changes its plan on the existing
@@ -79,6 +96,23 @@ export function BillingPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <h2 className="text-2xl font-bold text-text-primary">Billing</h2>
+
+      {!isLoading && !checkoutEnabled && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Billing is not active</CardTitle>
+            <CardDescription>
+              DOMINUS Cloud is not open for paid subscriptions on this deployment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-text-secondary">
+              No price is offered and no checkout is available. See the landing page for the
+              waitlist and the community edition.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -116,7 +150,7 @@ export function BillingPage() {
               )}
 
               <div className="flex gap-3 pt-2">
-                {isStripeConfigured && subscription.stripeCustomerId && (
+                {subscription.stripeCustomerId && (
                   <Button
                     variant="outline"
                     onClick={handleManageBilling}
@@ -125,7 +159,7 @@ export function BillingPage() {
                     {portalMutation.isPending ? 'Opening...' : 'Manage Billing'}
                   </Button>
                 )}
-                {isStripeConfigured && subscription.stripeSubscriptionId && (
+                {subscription.stripeSubscriptionId && (
                   <Button
                     variant="outline"
                     onClick={() => cancelMutation.mutate('period_end')}
@@ -136,11 +170,10 @@ export function BillingPage() {
                 )}
               </div>
 
-              {!isStripeConfigured && subscription.plan === 'free' && (
+              {!checkoutEnabled && subscription.plan === 'free' && (
                 <p className="text-sm text-text-muted italic">
-                  Billing is not configured on this instance. Set{' '}
-                  <code className="text-xs bg-bg-elevated px-1 rounded">STRIPE_SECRET_KEY</code> to
-                  enable subscriptions.
+                  Billing and checkout are disabled on this deployment. The community edition does
+                  not need a subscription.
                 </p>
               )}
             </>
@@ -195,6 +228,11 @@ export function BillingPage() {
                     key={plan.id}
                     name={PLAN_LABELS[plan.id] ?? plan.id}
                     price={PLAN_PRICES[plan.id][interval]}
+                    netPrice={
+                      plan.id === 'enterprise'
+                        ? undefined
+                        : `${PLAN_NET_PRICES[plan.id][interval]} + VAT for business`
+                    }
                     features={PLAN_FEATURES[plan.id]}
                     current={subscription?.plan === plan.id}
                     highlighted={plan.id === 'pro'}
@@ -210,6 +248,12 @@ export function BillingPage() {
                   />
                 ))}
             </div>
+            <p className="mt-4 text-xs text-text-muted">
+              Prices include VAT; the rate for your country of residence is applied before payment.
+              Business customers see the price excluding VAT at checkout and need a valid VAT
+              identification number for the reverse charge. The total payable is shown before
+              payment.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -220,6 +264,7 @@ export function BillingPage() {
 function PlanCard({
   name,
   price,
+  netPrice,
   features,
   current,
   highlighted,
@@ -229,6 +274,7 @@ function PlanCard({
 }: {
   name: string;
   price: string;
+  netPrice?: string;
   features: string[];
   current?: boolean;
   highlighted?: boolean;
@@ -244,6 +290,7 @@ function PlanCard({
     >
       <h3 className="font-semibold text-text-primary">{name}</h3>
       <p className="text-2xl font-bold text-text-primary mt-1">{price}</p>
+      {netPrice && <p className="text-xs text-text-muted">{netPrice}</p>}
       <ul className="mt-3 space-y-1.5">
         {features.map((f) => (
           <li key={f} className="text-sm text-text-muted flex items-center gap-2">

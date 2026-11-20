@@ -8,20 +8,37 @@
  * because a guardrail that scans a file containing its own detection strings
  * either cries wolf or gets weakened. The text file is scanned for
  * placeholders; this file is the detector.
+ *
+ * Two identities exist, and conflating them was the defect this model closes:
+ *
+ * - an **individual** runs the project website and the community edition
+ *   before a business exists. That person still has to name themselves as the
+ *   data controller, but they have no VAT number, REA number or PEC yet;
+ * - a **sole trader** or a **company** sells the managed service. Art. 7 of
+ *   D.Lgs. 70/2003 and the VAT rules require the registration data, and a
+ *   paid deployment must not boot without it.
  */
+
+/** The legal form of the operator. */
+export type LegalEntityKind = 'individual' | 'sole_trader' | 'company';
+
+/** The VAT regime that applies to the operator. */
+export type LegalVatRegime = 'ordinary' | 'forfettario' | 'none';
 
 export interface LegalIdentity {
   /** Registered name of the operator (individual or company). */
   entityName: string;
-  /** 'individual' (sole trader) or 'company'. */
-  entityKind: 'individual' | 'company';
+  /** Natural person, registered sole trader, or registered company. */
+  entityKind: LegalEntityKind;
   /** Registered address, as it must appear on the legal notice. */
   registeredAddress: string;
   /** VAT identification number (Partita IVA). */
   vatId: string;
-  /** Business register number (REA), companies only. */
+  /** Business register number (REA), business entities only. */
   reaNumber: string;
-  /** Certified electronic address (PEC), companies only. */
+  /** Register office, for example "Registro Imprese di Roma". */
+  registroImprese: string;
+  /** Certified electronic address (PEC), business entities only. */
   pec: string;
   /** General contact address. */
   contactEmail: string;
@@ -29,16 +46,53 @@ export interface LegalIdentity {
   privacyEmail: string;
   /** Supervisory authority for data protection. */
   supervisoryAuthority: string;
+  /** VAT regime, used by the documents to describe prices correctly. */
+  vatRegime: LegalVatRegime;
 }
 
-/** The identity fields the operator must publish, in the order they appear. */
+/**
+ * The identity fields every deployment must publish, whatever its form.
+ *
+ * A natural person who runs a website is still a data controller: name,
+ * address and a contact are not optional. The business-only fields are added
+ * by `requiredIdentityFields()`.
+ */
 export const REQUIRED_IDENTITY_FIELDS = [
   'entityName',
   'registeredAddress',
-  'vatId',
   'contactEmail',
   'privacyEmail',
 ] as const;
+
+/** The additional fields a registered business must publish. */
+export const BUSINESS_IDENTITY_FIELDS = ['vatId', 'registroImprese', 'reaNumber', 'pec'] as const;
+
+/** True when the entity is a registered business that can sell a service. */
+export function isBusinessEntity(kind: LegalEntityKind): boolean {
+  return kind === 'sole_trader' || kind === 'company';
+}
+
+/**
+ * The fields this identity must publish.
+ *
+ * `paidService` is the distinction that matters: a natural person may run a
+ * free website and a waitlist, but a paid subscription needs an economic
+ * operator that can issue an invoice. The paid gate therefore rejects
+ * `individual` even when every free-text field is filled in.
+ */
+export function requiredIdentityFields(
+  kind: LegalEntityKind,
+  options: { paidService?: boolean } = {},
+): readonly string[] {
+  const fields: string[] = [...REQUIRED_IDENTITY_FIELDS];
+  if (options.paidService === true) {
+    if (!isBusinessEntity(kind)) fields.push('entityKind');
+    fields.push(...BUSINESS_IDENTITY_FIELDS);
+  } else if (isBusinessEntity(kind)) {
+    fields.push(...BUSINESS_IDENTITY_FIELDS);
+  }
+  return fields;
+}
 
 /**
  * The identity of the operator, read from the configuration.
@@ -48,14 +102,16 @@ export const REQUIRED_IDENTITY_FIELDS = [
  */
 export function identityFromConfig(config: {
   LEGAL_ENTITY_NAME?: string | undefined;
-  LEGAL_ENTITY_KIND?: 'individual' | 'company' | undefined;
+  LEGAL_ENTITY_KIND?: LegalEntityKind | undefined;
   LEGAL_REGISTERED_ADDRESS?: string | undefined;
   LEGAL_VAT_ID?: string | undefined;
   LEGAL_REA_NUMBER?: string | undefined;
+  LEGAL_REGISTRO_IMPRESE?: string | undefined;
   LEGAL_PEC?: string | undefined;
   LEGAL_CONTACT_EMAIL?: string | undefined;
   LEGAL_PRIVACY_EMAIL?: string | undefined;
   LEGAL_SUPERVISORY_AUTHORITY?: string | undefined;
+  LEGAL_VAT_REGIME?: LegalVatRegime | undefined;
 }): LegalIdentity {
   return {
     entityName: config.LEGAL_ENTITY_NAME ?? '',
@@ -63,25 +119,35 @@ export function identityFromConfig(config: {
     registeredAddress: config.LEGAL_REGISTERED_ADDRESS ?? '',
     vatId: config.LEGAL_VAT_ID ?? '',
     reaNumber: config.LEGAL_REA_NUMBER ?? '',
+    registroImprese: config.LEGAL_REGISTRO_IMPRESE ?? '',
     pec: config.LEGAL_PEC ?? '',
     contactEmail: config.LEGAL_CONTACT_EMAIL ?? '',
     privacyEmail: config.LEGAL_PRIVACY_EMAIL ?? '',
     supervisoryAuthority: config.LEGAL_SUPERVISORY_AUTHORITY ?? '',
+    vatRegime: config.LEGAL_VAT_REGIME ?? 'ordinary',
   };
 }
 
 /**
  * The identity fields that are missing or still hold a placeholder.
  *
- * Used by the launch gate (npm run launch:check): a deployment that sells
- * subscriptions without a published identity is not launchable, and a
- * placeholder that slipped into the shipped pages is worse than no page at
- * all — it looks compliant without being so.
+ * Used by the launch gate (npm run launch:check) and by the boot check: a
+ * deployment that sells subscriptions without a published identity is not
+ * launchable, and a placeholder that slipped into the shipped pages is worse
+ * than no page at all - it looks compliant without being so.
  */
-export function missingIdentityFields(identity: LegalIdentity): string[] {
+export function missingIdentityFields(
+  identity: LegalIdentity,
+  options: { paidService?: boolean } = {},
+): string[] {
   const missing: string[] = [];
-  for (const field of REQUIRED_IDENTITY_FIELDS) {
-    const value = identity[field] ?? '';
+  for (const field of requiredIdentityFields(identity.entityKind, options)) {
+    if (field === 'entityKind') {
+      // A natural person cannot issue the invoice a paid subscription needs.
+      missing.push('entityKind');
+      continue;
+    }
+    const value = (identity[field as keyof LegalIdentity] ?? '') as string;
     if (value.trim() === '' || isPlaceholderValue(value)) missing.push(field);
   }
   return missing;

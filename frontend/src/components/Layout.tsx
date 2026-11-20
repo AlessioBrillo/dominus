@@ -32,6 +32,7 @@ import { useMe } from '@/hooks/useMe';
 import { useTheme } from '@/hooks/useTheme';
 import { LandingPage } from '@/pages/LandingPage';
 import { Button } from '@/components/ui/button';
+import { LegalFooter } from '@/components/LegalFooter';
 import { cn } from '@/lib/utils';
 import { inviteTokenFromPath, rememberInvite, takeInvite } from '@/lib/pending-invite';
 
@@ -199,6 +200,7 @@ export function Layout() {
 
       <main className="flex-1 overflow-y-auto p-6">
         <Outlet />
+        <LegalFooter />
       </main>
     </div>
   );

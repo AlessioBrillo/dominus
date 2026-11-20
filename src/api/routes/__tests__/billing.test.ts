@@ -11,6 +11,7 @@ import type { BillingService } from '../../../services/billing-service.js';
 const config = {
   PUBLIC_APP_URL: 'https://dominus.app',
   STRIPE_SECRET_KEY: 'sk_test_123',
+  CLOUD_PAID_ENABLED: true,
 } as Config;
 
 function buildApp(service: Partial<BillingService>): Application {

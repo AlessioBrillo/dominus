@@ -167,6 +167,44 @@ export function createIndexNowKeyHandler(options: PublicRouterOptions = {}): Req
   };
 }
 
+/**
+ * Serve `/.well-known/security.txt` (RFC 9116).
+ *
+ * The file is generated rather than committed because the contact and the
+ * canonical URL are deployment data: a self-hosted fork must publish its own
+ * contact, not the upstream one. An expired file is worse than no file, so
+ * the Expires field is one year after the response is generated.
+ *
+ * When no security contact is configured the handler returns 404: an empty
+ * Contact field is not a security policy.
+ */
+export function createSecurityTxtHandler(
+  options: PublicRouterOptions & {
+    securityContact?: string | undefined;
+    securityPolicyUrl?: string | undefined;
+  } = {},
+): RequestHandler {
+  return (req: Request, res: Response): void => {
+    const contact = options.securityContact?.trim();
+    if (!contact) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+    const siteUrl = siteUrlFor(req, options);
+    const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    const lines = [
+      `Contact: mailto:${contact}`,
+      `Expires: ${expires}`,
+      'Preferred-Languages: en',
+      `Canonical: ${siteUrl}/.well-known/security.txt`,
+      ...(options.securityPolicyUrl ? [`Policy: ${options.securityPolicyUrl}`] : []),
+    ];
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/plain');
+    res.send(`${lines.join('\n')}\n`);
+  };
+}
+
 /** Never let a malformed stored snapshot turn a public read into a 500. */
 function parseScoreSafely(json: string): unknown {
   try {

@@ -3,22 +3,23 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LoginForm } from '@/components/LoginForm';
-import { ShieldCheck, Gauge, Briefcase, ArrowRight } from 'lucide-react';
+import { useLegalContent } from '@/hooks/useLegalContent';
+import { ShieldCheck, Gauge, Briefcase, ArrowRight, ExternalLink, Clock } from 'lucide-react';
 
 /**
  * The public front door.
  *
- * Until now the root path of the application was the sign-in form: a
- * stranger who arrived from a search engine, a forum post or a
- * competitor's comparison page found a password box and nothing else.
- * There was no page that said what the product does, what it costs, or
- * why it is different - so there was nothing to convert and nothing to
- * share.
+ * The page answers three questions in order: what it does, whether the
+ * hosted edition can be bought today, and how to start. The hosted edition
+ * is not always on sale: when it is a waitlist, the page says so and does not
+ * publish a price, a checkout or a signup that would create a workspace the
+ * operator cannot serve.
  *
- * The page answers three questions in order: what it does, what it costs,
- * and how to start. The sign-in stays on the page: a customer who already
- * has a workspace must not have to hunt for the login.
+ * The sign-in stays on the page: a customer who already has a workspace must
+ * not have to hunt for it.
  */
+const REPOSITORY_URL = 'https://github.com/AlessioBrillo/dominus';
+
 const PIPELINE_STAGES = [
   {
     label: 'Candidate generation',
@@ -43,7 +44,7 @@ const FEATURES = [
   {
     icon: Gauge,
     title: 'One question per domain',
-    body: 'Buy or pass. The engine answers with an expected value, a confidence and the maximum you should pay - and it is deliberately more conservative than the commercial appraisal tools.',
+    body: 'Buy or pass. The engine answers with an expected value, a confidence and the maximum you should pay. It is designed to be conservative: when the data is missing it lowers the estimate or refuses to answer.',
   },
   {
     icon: ShieldCheck,
@@ -57,24 +58,26 @@ const FEATURES = [
   },
 ];
 
+/** Published list prices, in euro, excluding VAT. Keep in sync with ADR-0026. */
 const PLANS = [
   {
     id: 'free',
     name: 'Community',
-    price: 'Free',
+    net: 0,
     unit: 'forever',
     features: [
+      'Self-hosted, AGPL v3',
       'One workspace',
       '50 candidates scored per month',
       '25 domains tracked',
-      'All core features',
     ],
-    cta: 'Start free',
+    cta: 'Self-host for free',
+    href: REPOSITORY_URL,
   },
   {
     id: 'pro',
     name: 'Pro',
-    price: '€29',
+    net: 29,
     unit: 'per month',
     features: [
       '500 candidates scored per month',
@@ -83,12 +86,13 @@ const PLANS = [
       'Priority support',
     ],
     cta: 'Start with Pro',
+    href: '/signup',
     highlighted: true,
   },
   {
     id: 'team',
     name: 'Team',
-    price: '€79',
+    net: 79,
     unit: 'per month',
     features: [
       '2,500 candidates scored per month',
@@ -97,10 +101,23 @@ const PLANS = [
       'Shared workspaces',
     ],
     cta: 'Start with Team',
+    href: '/signup',
   },
 ];
 
+/** The consumer price, gross of Italian VAT at 22%, used for display only. */
+function grossPrice(net: number): string {
+  return `€${(net * 1.22).toFixed(2)}`;
+}
+
 export function LandingPage() {
+  const { data: legal } = useLegalContent();
+  const status = legal?.status;
+  const isPaid = status === 'cloud_paid';
+  const isWaitlist = status === 'cloud_waitlist';
+  const waitlistHref = legal?.waitlistUrl ?? REPOSITORY_URL;
+  const waitlistLabel = legal?.waitlistUrl ? 'Join the waitlist' : 'Follow the project';
+
   return (
     <div className="min-h-screen bg-bg-primary text-text-primary">
       <header className="border-b border-border">
@@ -112,18 +129,28 @@ export function LandingPage() {
             </span>
           </div>
           <nav aria-label="Main" className="flex items-center gap-4">
-            <a href="#pricing" className="text-sm text-text-secondary hover:text-text-primary">
-              Pricing
-            </a>
             <a href="#how" className="text-sm text-text-secondary hover:text-text-primary">
               How it works
             </a>
-            <Link
-              to="/signup"
-              className="rounded-lg bg-brand-700 px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+            {isPaid && (
+              <a href="#pricing" className="text-sm text-text-secondary hover:text-text-primary">
+                Pricing
+              </a>
+            )}
+            <a
+              href={REPOSITORY_URL}
+              rel="noreferrer"
+              className="hidden items-center gap-1 text-sm text-text-secondary hover:text-text-primary sm:inline-flex"
             >
-              Create a workspace
-            </Link>
+              <ExternalLink className="h-4 w-4" aria-hidden="true" />
+              GitHub
+            </a>
+            <a
+              href="#signin"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-text-secondary hover:text-text-primary"
+            >
+              Sign in
+            </a>
           </nav>
         </div>
       </header>
@@ -143,34 +170,57 @@ export function LandingPage() {
                 confirmation, valuation, trademark clearance - and answers one question per domain:
                 buy or pass. It never recommends a domain whose trademark could not be checked.
               </p>
+              <p className="mt-3 max-w-2xl text-sm text-text-muted">
+                The output is an estimate, not an appraisal and not investment advice. Verify before
+                you spend.
+              </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Link
-                  to="/signup"
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-                >
-                  Create a workspace
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
+                {isWaitlist ? (
+                  <a
+                    href={waitlistHref}
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    {waitlistLabel}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </a>
+                ) : (
+                  <Link
+                    to="/signup"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Create a workspace
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Link>
+                )}
                 <a
-                  href="#how"
+                  href={isWaitlist ? REPOSITORY_URL : '#how'}
+                  rel={isWaitlist ? 'noreferrer' : undefined}
                   className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary"
                 >
-                  See how it works
+                  {isWaitlist ? 'Self-host the community edition' : 'See how it works'}
                 </a>
               </div>
-              <p className="mt-4 text-xs text-text-muted">
-                Self-host the community edition for free - the same features, your own
-                infrastructure.
-              </p>
+              {isWaitlist && (
+                <p className="mt-4 flex items-start gap-2 text-xs text-text-muted">
+                  <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    The hosted edition is not on sale yet. No payment is collected and no workspace
+                    is created from this page. The community edition is available now.
+                  </span>
+                </p>
+              )}
             </div>
 
-            <Card>
+            <Card id="signin">
               <CardHeader>
                 <CardTitle>Sign In</CardTitle>
-                <CardDescription>Enter your API key to access the dashboard</CardDescription>
+                <CardDescription>
+                  Already have a workspace? Sign in with the API key you saved when it was created.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <LoginForm embedded />
+                <LoginForm embedded signupHref={isWaitlist ? null : '/signup'} />
               </CardContent>
             </Card>
           </div>
@@ -215,65 +265,130 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section id="pricing" className="border-t border-border bg-bg-secondary">
-          <div className="mx-auto max-w-6xl px-4 py-16">
-            <h2 className="text-2xl font-bold text-text-primary">Pricing</h2>
-            <p className="mt-2 max-w-2xl text-text-secondary">
-              Every plan runs the same engine. The limits are the work you ask the platform to do.
-            </p>
-            <div className="mt-8 grid gap-6 md:grid-cols-3">
-              {PLANS.map((plan) => (
-                <Card
-                  key={plan.id}
-                  className={
-                    plan.highlighted ? 'border-brand-500 bg-bg-elevated' : 'bg-bg-elevated'
-                  }
+        {isWaitlist ? (
+          <section className="border-t border-border bg-bg-secondary">
+            <div className="mx-auto max-w-3xl px-4 py-16">
+              <h2 className="text-2xl font-bold text-text-primary">
+                The hosted edition is not on sale yet
+              </h2>
+              <p className="mt-3 text-text-secondary">
+                DOMINUS Cloud needs a registered business identity, a confirmed VAT regime and a
+                checkout that meets the consumer rules before it can take money. Until then the
+                hosted edition is a waitlist, and the community edition is the product you can use
+                today: the same engine, your own infrastructure, AGPL v3.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <a
+                  href={waitlistHref}
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
                 >
-                  <CardContent className="pt-6">
-                    <h3 className="text-base font-semibold text-text-primary">{plan.name}</h3>
-                    <p className="mt-2 flex items-baseline gap-1">
-                      <span className="text-3xl font-bold text-text-primary">{plan.price}</span>
-                      <span className="text-sm text-text-muted">{plan.unit}</span>
-                    </p>
-                    <ul className="mt-4 space-y-2">
-                      {plan.features.map((item) => (
-                        <li
-                          key={item}
-                          className="flex items-start gap-2 text-sm text-text-secondary"
-                        >
-                          <span className="text-green-500" aria-hidden="true">
-                            &#10003;
-                          </span>
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                    <Link
-                      to="/signup"
-                      className={`mt-6 block rounded-lg px-3 py-2 text-center text-sm font-medium ${
-                        plan.highlighted
-                          ? 'bg-brand-700 text-white hover:opacity-90'
-                          : 'border border-border text-text-primary hover:bg-bg-hover'
-                      }`}
-                    >
-                      {plan.cta}
-                    </Link>
-                  </CardContent>
-                </Card>
-              ))}
+                  {waitlistLabel}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </a>
+                <a
+                  href={REPOSITORY_URL}
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary"
+                >
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                  Install the community edition
+                </a>
+              </div>
+              {!legal?.waitlistUrl && (
+                <p className="mt-4 text-xs text-text-muted">
+                  No waitlist form is active on this deployment. The repository is the announcement
+                  channel; no email address is collected here.
+                </p>
+              )}
             </div>
-            <p className="mt-6 text-xs text-text-muted">
-              Enterprise (dedicated infrastructure, custom SLA and SSO) is sold on contract. Prices
-              exclude VAT.
-            </p>
-          </div>
-        </section>
+          </section>
+        ) : (
+          isPaid && (
+            <section id="pricing" className="border-t border-border bg-bg-secondary">
+              <div className="mx-auto max-w-6xl px-4 py-16">
+                <h2 className="text-2xl font-bold text-text-primary">Pricing</h2>
+                <p className="mt-2 max-w-2xl text-text-secondary">
+                  Every plan runs the same engine. The limits are the work you ask the platform to
+                  do. Consumer prices include VAT; the rate of your country of residence is applied
+                  before payment (22% in Italy). Business customers see the price excluding VAT at
+                  checkout and need a valid VAT identification number for the reverse charge.
+                </p>
+                <div className="mt-8 grid gap-6 md:grid-cols-3">
+                  {PLANS.map((plan) => (
+                    <Card
+                      key={plan.id}
+                      className={
+                        plan.highlighted ? 'border-brand-500 bg-bg-elevated' : 'bg-bg-elevated'
+                      }
+                    >
+                      <CardContent className="pt-6">
+                        <h3 className="text-base font-semibold text-text-primary">{plan.name}</h3>
+                        <p className="mt-2 flex items-baseline gap-1">
+                          <span className="text-3xl font-bold text-text-primary">
+                            {plan.net === 0 ? 'Free' : grossPrice(plan.net)}
+                          </span>
+                          <span className="text-sm text-text-muted">{plan.unit}</span>
+                        </p>
+                        {plan.net > 0 && (
+                          <p className="mt-1 text-xs text-text-muted">
+                            VAT included · €{plan.net} + VAT for business
+                          </p>
+                        )}
+                        <ul className="mt-4 space-y-2">
+                          {plan.features.map((item) => (
+                            <li
+                              key={item}
+                              className="flex items-start gap-2 text-sm text-text-secondary"
+                            >
+                              <span className="text-green-500" aria-hidden="true">
+                                &#10003;
+                              </span>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                        {plan.href.startsWith('http') ? (
+                          <a
+                            href={plan.href}
+                            rel="noreferrer"
+                            className="mt-6 block rounded-lg border border-border px-3 py-2 text-center text-sm font-medium text-text-primary hover:bg-bg-hover"
+                          >
+                            {plan.cta}
+                          </a>
+                        ) : (
+                          <Link
+                            to={plan.href}
+                            className={`mt-6 block rounded-lg px-3 py-2 text-center text-sm font-medium ${
+                              plan.highlighted
+                                ? 'bg-brand-700 text-white hover:opacity-90'
+                                : 'border border-border text-text-primary hover:bg-bg-hover'
+                            }`}
+                          >
+                            {plan.cta}
+                          </Link>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+                <p className="mt-6 text-xs text-text-muted">
+                  Enterprise (dedicated infrastructure, custom SLA and SSO) is sold on contract. The
+                  total payable is shown before payment; the consumer may withdraw within 14 days
+                  and pays only for the service supplied.
+                </p>
+              </div>
+            </section>
+          )
+        )}
       </main>
 
       <footer className="border-t border-border">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-8 text-xs text-text-muted">
-          <span>DOMINUS - open-source domain investment decision support.</span>
-          <nav aria-label="Legal" className="flex gap-4">
+          <span>
+            DOMINUS - open-source domain investment decision support. Estimates, not appraisals.
+          </span>
+          <nav aria-label="Legal" className="flex flex-wrap gap-4">
             <Link to="/legal-notice" className="hover:text-text-primary">
               Legal notice
             </Link>
@@ -283,6 +398,12 @@ export function LandingPage() {
             <Link to="/privacy" className="hover:text-text-primary">
               Privacy
             </Link>
+            <a href="/.well-known/security.txt" className="hover:text-text-primary">
+              Security
+            </a>
+            <a href={REPOSITORY_URL} rel="noreferrer" className="hover:text-text-primary">
+              GitHub
+            </a>
           </nav>
         </div>
       </footer>

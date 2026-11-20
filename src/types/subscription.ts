@@ -85,4 +85,6 @@ export interface BillingPortalResponse {
 export interface SubscriptionResponse {
   subscription: Subscription;
   isStripeConfigured: boolean;
+  /** False while the deployment is a waitlist and checkout is closed. */
+  checkoutEnabled?: boolean;
 }

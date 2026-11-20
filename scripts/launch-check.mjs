@@ -142,28 +142,55 @@ async function check(group, name, fn) {
  * not an operator identity: the person who runs the installation is the
  * controller, and the software cannot know who that is. Demanding an
  * identity from a self-hoster would be a false requirement.
+ *
+ * A Cloud deployment that only runs the waitlist needs the project identity
+ * (name, address, contacts), not a VAT number. A paid Cloud needs a
+ * registered business: VAT ID, REA and PEC. `--paid` and
+ * CLOUD_PAID_ENABLED=true both select the stricter profile.
  * ------------------------------------------------------------------ */
-const IDENTITY_FIELDS = [
+const BASE_IDENTITY_FIELDS = [
   ['LEGAL_ENTITY_NAME', 'registered name'],
   ['LEGAL_REGISTERED_ADDRESS', 'registered address'],
-  ['LEGAL_VAT_ID', 'VAT identification number'],
   ['LEGAL_CONTACT_EMAIL', 'contact address'],
   ['LEGAL_PRIVACY_EMAIL', 'data protection contact'],
 ];
 
-const COMPANY_ONLY_FIELDS = [
+const BUSINESS_ONLY_FIELDS = [
+  ['LEGAL_VAT_ID', 'VAT identification number'],
+  ['LEGAL_REGISTRO_IMPRESE', 'business register office'],
   ['LEGAL_REA_NUMBER', 'REA number'],
   ['LEGAL_PEC', 'certified electronic address'],
 ];
 
-if (mode === 'cloud') {
-  const fields = [...IDENTITY_FIELDS];
-  if ((process.env.LEGAL_ENTITY_KIND ?? 'individual') === 'company') {
-    fields.push(...COMPANY_ONLY_FIELDS);
-  }
+const paidDeployment = requirePaid || process.env.CLOUD_PAID_ENABLED === 'true';
+const entityKind = process.env.LEGAL_ENTITY_KIND ?? 'individual';
+const businessEntity = entityKind === 'sole_trader' || entityKind === 'company';
+
+if (paidDeployment && mode !== 'cloud') {
+  record(
+    'identity',
+    'fail',
+    'paid mode',
+    'CLOUD_PAID_ENABLED=true needs a cloud deployment (PostgreSQL or a managed auth provider): a self-hosted installation is operated by whoever deployed it',
+  );
+} else if (mode === 'cloud') {
+  const fields = [...BASE_IDENTITY_FIELDS];
+  if (businessEntity) fields.push(...BUSINESS_ONLY_FIELDS);
   const missingIdentity = fields.filter(([name]) => isPlaceholder(process.env[name]));
-  if (missingIdentity.length === 0) {
-    record('identity', 'pass', 'legal identity', 'the operator identity is complete');
+  if (paidDeployment && !businessEntity) {
+    record(
+      'identity',
+      'fail',
+      'legal identity',
+      'LEGAL_ENTITY_KIND=individual cannot sell a paid subscription: a registered sole trader or company is required',
+    );
+  } else if (missingIdentity.length === 0) {
+    record(
+      'identity',
+      'pass',
+      'legal identity',
+      paidDeployment ? 'the registered business identity is complete' : 'the project identity is complete',
+    );
   } else {
     record(
       'identity',
@@ -179,6 +206,19 @@ if (mode === 'cloud') {
     'legal identity',
     'the community edition publishes the AGPL and the self-hosted data flow, not an operator identity',
   );
+}
+
+// A paid deployment must say so explicitly. Without this flag the server
+// serves the waitlist documents and refuses checkout, even with Stripe keys.
+if (paidDeployment && process.env.CLOUD_PAID_ENABLED !== 'true') {
+  record(
+    'identity',
+    'fail',
+    'paid mode',
+    'CLOUD_PAID_ENABLED is not true: the deployment publishes the waitlist documents and checkout stays closed',
+  );
+} else if (paidDeployment) {
+  record('identity', 'pass', 'paid mode', 'CLOUD_PAID_ENABLED=true');
 }
 
 /* ------------------------------------------------------------------ *
@@ -252,12 +292,12 @@ if (mode === 'cloud') {
     } else {
       record('billing', 'pass', 'billing webhooks', 'the webhook secret is set');
     }
-  } else if (requirePaid) {
+  } else if (paidDeployment) {
     record(
       'billing',
       'fail',
       'billing configuration',
-      'the paid tiers are enabled (--paid) but Stripe is not configured',
+      'CLOUD_PAID_ENABLED=true but Stripe is not configured',
     );
   } else {
     record(

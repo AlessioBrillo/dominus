@@ -31,17 +31,21 @@ const STRIPE_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 /**
  * The text Stripe shows next to the terms-of-service checkbox.
  *
- * Art. 59(1)(o) of the Italian Consumer Code: the 14-day right of withdrawal
- * is lost for a digital service supplied immediately when the consumer gives
- * prior express consent to the performance and acknowledges the loss of the
- * right. The checkbox is the consent and this text is the acknowledgement,
- * so the two must travel together: removing the text without removing the
- * consent (or the other way round) leaves the operator without the waiver.
+ * The old text asserted a waiver under art. 59(1)(o) of the Italian Consumer
+ * Code: that waiver does not apply to a service supplied over time, and the
+ * operator decided not to rely on it. The consumer keeps the 14-day right of
+ * withdrawal and, when performance starts immediately at the consumer's
+ * request, pays only the proportional part of the service supplied before the
+ * withdrawal (art. 57(3) of the Consumer Code).
+ *
+ * The checkbox is the contract acceptance and the request for immediate
+ * performance. A separate, unticked consent must be added at checkout before
+ * the paid service opens; the message alone is not a second consent.
  */
 export const CHECKOUT_TERMS_CONSENT_MESSAGE =
-  'By checking this box you accept the Terms of Service and consent to the immediate ' +
-  'performance of the service. You acknowledge that, once performance has begun, you lose ' +
-  'the right of withdrawal provided for in art. 59(1)(o) of the Italian Consumer Code.';
+  'By checking this box you accept the Terms of Service and ask us to start the service ' +
+  'immediately. You keep the 14-day right of withdrawal: if you withdraw, you pay only the ' +
+  'proportional part of the service supplied before the withdrawal, and we refund the rest.';
 
 type StripeSdk = {
   Stripe: new (
@@ -397,13 +401,10 @@ export class BillingService {
       ...(sub?.stripeCustomerId
         ? { customer_update: { address: 'auto' as const, name: 'auto' as const } }
         : {}),
-      // The consent is what makes the withdrawal waiver valid: art. 59(1)(o)
-      // of the Italian Consumer Code loses the 14-day right of withdrawal for
-      // a digital service supplied immediately only when the consumer gives
-      // prior express consent and acknowledges the loss. The checkbox is the
-      // consent; the custom text is the acknowledgement. The link in the
-      // checkbox points at the terms of service configured on the Stripe
-      // account, which must be the /terms page of this deployment.
+      // The checkbox accepts the terms and requests immediate performance.
+      // The consumer does not waive the 14-day withdrawal right: art. 57(3)
+      // of the Consumer Code makes a withdrawal after performance started
+      // cost only the proportional part of the service supplied.
       consent_collection: { terms_of_service: 'required' },
       custom_text: { terms_of_service_acceptance: { message: CHECKOUT_TERMS_CONSENT_MESSAGE } },
       // The subscription carries the tenant and the plan as metadata, so the
