@@ -37,6 +37,7 @@ export interface LegalContent {
   version: string;
   updatedAt: string;
   waitlistUrl?: string;
+  securityContactAvailable: boolean;
   identity: LegalIdentity;
   documents: LegalDocument[];
 }

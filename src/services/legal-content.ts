@@ -72,6 +72,8 @@ export interface LegalContent {
   updatedAt: string;
   /** The waitlist destination, when the operator configured one. */
   waitlistUrl?: string;
+  /** True when a security contact exists, so `/.well-known/security.txt` answers 200. */
+  securityContactAvailable: boolean;
   identity: LegalIdentity;
   documents: LegalDocument[];
 }
@@ -86,6 +88,8 @@ export interface LegalContentOptions {
   paidService?: boolean;
   /** Optional public waitlist destination. */
   waitlistUrl?: string;
+  /** True when a security contact is configured and security.txt is served. */
+  securityContactAvailable?: boolean;
   /** Overrides LEGAL_DOCUMENTS_UPDATED_AT; used by the launch gate. */
   updatedAt?: string;
 }
@@ -180,13 +184,16 @@ function legalNotice(
     }
     sections.push({
       heading: paidService ? '4. Availability' : '3. Nature of the tool',
-      paragraphs: [
-        'DOMINUS is a decision-support tool. Its output is an estimate, not an appraisal and not investment advice. It does not manage money, and it does not buy or sell domains on your behalf unless you explicitly configure the automation pipeline with your own provider accounts.',
-        'The estimates are heuristic. They are deliberately conservative and they can be wrong; the trademark gate reduces but does not eliminate legal risk. Verify before you act.',
-        paidService
-          ? 'A service level agreement is provided only to Enterprise customers by contract; for every other plan the service is provided without an uptime commitment.'
-          : 'No availability commitment applies to this website or to the waitlist.',
-      ],
+      paragraphs: paidService
+        ? [
+            'A service level agreement with committed availability applies only to Enterprise customers, by contract. For every other plan the service is provided without an uptime commitment.',
+            'Section 2 explains what the estimates mean and why they are not appraisals.',
+          ]
+        : [
+            'DOMINUS is a decision-support tool. Its output is an estimate, not an appraisal and not investment advice. It does not manage money, and it does not buy or sell domains on your behalf unless you explicitly configure the automation pipeline with your own provider accounts.',
+            'The estimates are heuristic. They are deliberately conservative and they can be wrong; the trademark gate reduces but does not eliminate legal risk. Verify before you act.',
+            'No availability commitment applies to this website or to the waitlist.',
+          ],
     });
     sections.push({
       heading: paidService
@@ -367,7 +374,7 @@ function termsOfService(
         vatParagraph(identity, paidService),
         'The price in force is the one shown at checkout before payment. We may change the price for a future renewal; we notify you at least thirty days before the change takes effect, and you may cancel before it applies.',
         'Subscriptions renew automatically at the end of each paid period until you cancel. Cancellation takes effect at the end of the period already paid for, and the service stays usable until then. The payment provider handles the card data; the operator never sees it.',
-        'An invoice is issued for every payment. Business customers in Italy receive an electronic invoice through the Italian exchange system (SdI); the checkout asks for the destination code or PEC. A Stripe receipt is not a substitute for the invoice.',
+        'A Stripe receipt is not a substitute for the invoice. The operator issues the invoices required by Italian law and collects the destination code or PEC that business customers in Italy need for electronic invoicing through SdI before enabling paid subscriptions.',
       ],
     });
     sections.push({
@@ -378,7 +385,7 @@ function termsOfService(
         'To withdraw, tell us at the contact address in the legal notice, or use the model form below. You may use this model form, but you are not required to:',
         'Model withdrawal form (Annex I, Part B, Italian Consumer Code). To the operator identified in the legal notice: I/We hereby give notice that I/We withdraw from my/our contract for the following service: [service]. Ordered on: [date]. Name of consumer(s): [name]. Address of consumer(s): [address]. Signature (only if this form is sent on paper): [signature]. Date: [date].',
         'We refund the amounts paid without undue delay and in any case within 14 days of the withdrawal, using the same means of payment you used, unless you expressly agree otherwise and provided that you incur no fee. We may withhold the refund until we have received the service back or you have supplied evidence of having sent it, where that is applicable.',
-        'We send the confirmation of the contract and these terms in a durable medium (email or PDF) after purchase, together with the withdrawal information. Statutory rights of consumers that cannot be excluded or limited remain unaffected.',
+        'The confirmation of the contract, these terms and the withdrawal information are supplied on a durable medium (email or PDF), as the law requires. Statutory rights of consumers that cannot be excluded or limited remain unaffected.',
       ],
     });
     sections.push({
@@ -418,7 +425,7 @@ function termsOfService(
     sections.push({
       heading: '15. Clauses requiring specific approval (art. 1341 c.c.)',
       paragraphs: [
-        'For business customers, the clauses on limitation of liability (section 13), indemnity (section 14), and governing law and jurisdiction (section 17) are specifically approved. The business checkout records that approval separately from the acceptance of these terms. A consumer is not asked to approve clauses that limit statutory rights, because those clauses do not apply to consumers.',
+        'For business customers, the clauses on limitation of liability (section 13), indemnity (section 14), and governing law and jurisdiction (section 17) are specifically approved under art. 1341 c.c. A consumer is not asked to approve clauses that limit statutory rights, because those clauses do not apply to consumers.',
       ],
     });
     sections.push({
@@ -717,6 +724,7 @@ export function buildLegalContent(options: LegalContentOptions): LegalContent {
     version: updatedAt === LEGAL_DOCUMENTS_UPDATED_AT ? LEGAL_DOCUMENTS_VERSION : updatedAt,
     updatedAt,
     ...(options.waitlistUrl ? { waitlistUrl: options.waitlistUrl } : {}),
+    securityContactAvailable: options.securityContactAvailable === true,
     identity,
     documents: [
       legalNotice(identity, cloudMode, paidService, options.waitlistUrl),

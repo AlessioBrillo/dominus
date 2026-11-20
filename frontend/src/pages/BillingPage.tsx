@@ -6,13 +6,14 @@ import {
   useChangeSubscription,
   useCancelSubscription,
 } from '@/hooks/useBilling';
+import { useState } from 'react';
+import { useLegalContent } from '@/hooks/useLegalContent';
 import type { BillingInterval, BillingPlan } from '@/api/billing';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CreditCard } from 'lucide-react';
-import { useState } from 'react';
 
 const PLAN_LABELS: Record<string, string> = {
   free: 'Community',
@@ -21,17 +22,46 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: 'Enterprise',
 };
 
-const PLAN_PRICES: Record<BillingPlan, { month: string; year: string }> = {
-  pro: { month: '€35.38/mo', year: '€353.80/yr' },
-  team: { month: '€96.38/mo', year: '€963.80/yr' },
-  enterprise: { month: 'Custom', year: 'Custom' },
+const PLAN_NET_EUR: Record<BillingPlan, { month: number; year: number }> = {
+  pro: { month: 29, year: 290 },
+  team: { month: 79, year: 790 },
+  enterprise: { month: 0, year: 0 },
 };
 
-const PLAN_NET_PRICES: Record<BillingPlan, { month: string; year: string }> = {
-  pro: { month: '€29/mo', year: '€290/yr' },
-  team: { month: '€79/mo', year: '€790/yr' },
-  enterprise: { month: 'Custom', year: 'Custom' },
-};
+type VatRegime = 'ordinary' | 'forfettario' | 'none';
+
+function planUnit(interval: BillingInterval): string {
+  return interval === 'month' ? 'mo' : 'yr';
+}
+
+/** The displayed price follows the operator's configured VAT regime. */
+function planPrice(plan: BillingPlan, interval: BillingInterval, regime: VatRegime): string {
+  if (plan === 'enterprise') return 'Custom';
+  const net = PLAN_NET_EUR[plan][interval];
+  return `€${regime === 'ordinary' ? (net * 1.22).toFixed(2) : net}/${planUnit(interval)}`;
+}
+
+function planNote(
+  plan: BillingPlan,
+  interval: BillingInterval,
+  regime: VatRegime,
+): string | undefined {
+  if (plan === 'enterprise') return undefined;
+  if (regime === 'ordinary') {
+    return `€${PLAN_NET_EUR[plan][interval]}/${planUnit(interval)} + VAT for business`;
+  }
+  return regime === 'forfettario' ? 'VAT not applicable (flat-rate regime)' : 'VAT not charged';
+}
+
+function vatExplainer(regime: VatRegime): string {
+  if (regime === 'ordinary') {
+    return 'Prices include VAT; the rate for your country of residence is applied before payment. Business customers need a valid VAT identification number for the reverse charge.';
+  }
+  if (regime === 'forfettario') {
+    return 'The operator applies the Italian flat-rate regime: prices are outside the scope of VAT.';
+  }
+  return 'The operator is not subject to VAT: prices are shown as the total payable.';
+}
 
 const PLAN_FEATURES: Record<BillingPlan, string[]> = {
   pro: [
@@ -59,6 +89,8 @@ const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'defaul
 
 export function BillingPage() {
   const { data, isLoading } = useSubscription();
+  const { data: legal } = useLegalContent();
+  const vatRegime: VatRegime = legal?.identity.vatRegime ?? 'ordinary';
   const checkoutMutation = useCreateCheckoutSession();
   const portalMutation = useCreatePortalSession();
   const changeMutation = useChangeSubscription();
@@ -227,12 +259,8 @@ export function BillingPage() {
                   <PlanCard
                     key={plan.id}
                     name={PLAN_LABELS[plan.id] ?? plan.id}
-                    price={PLAN_PRICES[plan.id][interval]}
-                    netPrice={
-                      plan.id === 'enterprise'
-                        ? undefined
-                        : `${PLAN_NET_PRICES[plan.id][interval]} + VAT for business`
-                    }
+                    price={planPrice(plan.id as BillingPlan, interval, vatRegime)}
+                    netPrice={planNote(plan.id as BillingPlan, interval, vatRegime)}
                     features={PLAN_FEATURES[plan.id]}
                     current={subscription?.plan === plan.id}
                     highlighted={plan.id === 'pro'}
@@ -249,10 +277,7 @@ export function BillingPage() {
                 ))}
             </div>
             <p className="mt-4 text-xs text-text-muted">
-              Prices include VAT; the rate for your country of residence is applied before payment.
-              Business customers see the price excluding VAT at checkout and need a valid VAT
-              identification number for the reverse charge. The total payable is shown before
-              payment.
+              {vatExplainer(vatRegime)} The total payable is shown before payment.
             </p>
           </CardContent>
         </Card>

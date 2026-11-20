@@ -11,7 +11,7 @@ const REPOSITORY_URL = 'https://github.com/AlessioBrillo/dominus';
 
 export function SignupPage() {
   const navigate = useNavigate();
-  const { data: legal } = useLegalContent();
+  const { data: legal, isLoading, isError } = useLegalContent();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
@@ -23,6 +23,22 @@ export function SignupPage() {
 
   const isWaitlist = legal?.status === 'cloud_waitlist';
   const waitlistHref = legal?.waitlistUrl ?? REPOSITORY_URL;
+
+  // A closed signup must not flicker into a workspace form while the legal
+  // status is in flight, or when the endpoint cannot be reached. The backend
+  // closes /register anyway; the UI must not invite the attempt.
+  if (isLoading || isError || !legal) {
+    return (
+      <div
+        role="status"
+        className="flex min-h-screen items-center justify-center bg-bg-primary p-4 text-sm text-text-muted"
+      >
+        {isError
+          ? 'The service status could not be checked. Please try again.'
+          : 'Checking service status…'}
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

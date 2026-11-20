@@ -2274,7 +2274,11 @@ const configSchema = z
      * its privacy notice) or a project page. When unset, the landing page
      * points at the repository instead.
      */
-    CLOUD_WAITLIST_URL: z.string().url().optional(),
+    CLOUD_WAITLIST_URL: z
+      .string()
+      .url()
+      .refine((value) => /^https?:\/\//i.test(value), 'must be an http(s) URL')
+      .optional(),
 
     /**
      * Stripe secret key for server-side API calls.

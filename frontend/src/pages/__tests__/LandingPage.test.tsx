@@ -33,6 +33,7 @@ beforeEach(() => {
     status: 'cloud_waitlist',
     version: '2026-11-20',
     updatedAt: '2026-11-20',
+    securityContactAvailable: false,
     identity: {
       entityName: 'Example Operator',
       entityKind: 'individual',
@@ -93,6 +94,7 @@ describe('LandingPage', () => {
       status: 'cloud_paid',
       version: '2026-11-20',
       updatedAt: '2026-11-20',
+      securityContactAvailable: false,
       identity: {
         entityName: 'Example Operator SRL',
         entityKind: 'company',

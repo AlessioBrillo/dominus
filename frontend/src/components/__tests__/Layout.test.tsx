@@ -24,6 +24,7 @@ vi.mock('@/api/legal', () => ({
     status: 'community',
     version: '2026-11-20',
     updatedAt: '2026-11-20',
+    securityContactAvailable: false,
     identity: {
       entityName: 'The operator of this deployment',
       entityKind: 'individual',

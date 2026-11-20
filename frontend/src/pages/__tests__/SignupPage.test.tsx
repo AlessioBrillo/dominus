@@ -21,6 +21,7 @@ const PAID_LEGAL = {
   status: 'cloud_paid' as const,
   version: '2026-11-20',
   updatedAt: '2026-11-20',
+  securityContactAvailable: false,
   identity: {
     entityName: 'Example Operator SRL',
     entityKind: 'company' as const,
@@ -53,8 +54,8 @@ describe('SignupPage', () => {
 
     render(<SignupPage />, { wrapper: createWrapper() });
 
-    await userEvent.type(screen.getByPlaceholderText('Name'), 'Alessio');
-    await userEvent.type(screen.getByPlaceholderText('Email'), 'a@example.com');
+    await userEvent.type(await screen.findByPlaceholderText('Name'), 'Alessio');
+    await userEvent.type(await screen.findByPlaceholderText('Email'), 'a@example.com');
     await userEvent.click(screen.getByRole('checkbox', { name: /I accept the Terms/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: /at least 18/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
@@ -72,8 +73,8 @@ describe('SignupPage', () => {
 
     render(<SignupPage />, { wrapper: createWrapper() });
 
-    await userEvent.type(screen.getByPlaceholderText('Name'), 'Alessio');
-    await userEvent.type(screen.getByPlaceholderText('Email'), 'a@example.com');
+    await userEvent.type(await screen.findByPlaceholderText('Name'), 'Alessio');
+    await userEvent.type(await screen.findByPlaceholderText('Email'), 'a@example.com');
     await userEvent.click(screen.getByRole('checkbox', { name: /I accept the Terms/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: /at least 18/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
@@ -84,7 +85,7 @@ describe('SignupPage', () => {
   it('requires the email address', async () => {
     render(<SignupPage />, { wrapper: createWrapper() });
 
-    await userEvent.type(screen.getByPlaceholderText('Name'), 'Alessio');
+    await userEvent.type(await screen.findByPlaceholderText('Name'), 'Alessio');
     await userEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
 
     await waitFor(() => expect(screen.getByText('Email is required')).toBeInTheDocument());
@@ -96,8 +97,8 @@ describe('SignupPage', () => {
 
     render(<SignupPage />, { wrapper: createWrapper() });
 
-    await userEvent.type(screen.getByPlaceholderText('Name'), 'Alessio');
-    await userEvent.type(screen.getByPlaceholderText('Email'), 'a@example.com');
+    await userEvent.type(await screen.findByPlaceholderText('Name'), 'Alessio');
+    await userEvent.type(await screen.findByPlaceholderText('Email'), 'a@example.com');
     await userEvent.click(screen.getByRole('checkbox', { name: /I accept the Terms/ }));
     await userEvent.click(screen.getByRole('checkbox', { name: /at least 18/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Create workspace' }));

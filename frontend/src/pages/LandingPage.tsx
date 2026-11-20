@@ -105,9 +105,27 @@ const PLANS = [
   },
 ];
 
-/** The consumer price, gross of Italian VAT at 22%, used for display only. */
-function grossPrice(net: number): string {
-  return `€${(net * 1.22).toFixed(2)}`;
+type VatRegime = 'ordinary' | 'forfettario' | 'none';
+
+/** The displayed price follows the operator's VAT regime, not a fixed guess. */
+function displayPrice(net: number, regime: VatRegime): string {
+  return `€${regime === 'ordinary' ? (net * 1.22).toFixed(2) : net}`;
+}
+
+function priceNote(net: number, regime: VatRegime): string {
+  if (regime === 'ordinary') return `VAT included · €${net} + VAT for business`;
+  if (regime === 'forfettario') return 'VAT not applicable (flat-rate regime)';
+  return 'VAT not charged';
+}
+
+function vatExplainer(regime: VatRegime): string {
+  if (regime === 'ordinary') {
+    return 'Consumer prices include Italian VAT at 22%; the final rate for your country of residence is applied before payment. Business customers see the price excluding VAT and need a valid VAT identification number for the reverse charge.';
+  }
+  if (regime === 'forfettario') {
+    return 'The operator applies the Italian flat-rate regime: prices are outside the scope of VAT. Cross-border consumer sales are not offered under this regime.';
+  }
+  return 'The operator is not subject to VAT: prices are shown as the total payable.';
 }
 
 export function LandingPage() {
@@ -117,6 +135,7 @@ export function LandingPage() {
   const isWaitlist = status === 'cloud_waitlist';
   const waitlistHref = legal?.waitlistUrl ?? REPOSITORY_URL;
   const waitlistLabel = legal?.waitlistUrl ? 'Join the waitlist' : 'Follow the project';
+  const vatRegime: VatRegime = legal?.identity.vatRegime ?? 'ordinary';
 
   return (
     <div className="min-h-screen bg-bg-primary text-text-primary">
@@ -175,7 +194,11 @@ export function LandingPage() {
                 you spend.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
-                {isWaitlist ? (
+                {!status ? (
+                  <span role="status" className="text-sm text-text-muted">
+                    Checking service status…
+                  </span>
+                ) : isWaitlist ? (
                   <a
                     href={waitlistHref}
                     rel="noreferrer"
@@ -310,9 +333,7 @@ export function LandingPage() {
                 <h2 className="text-2xl font-bold text-text-primary">Pricing</h2>
                 <p className="mt-2 max-w-2xl text-text-secondary">
                   Every plan runs the same engine. The limits are the work you ask the platform to
-                  do. Consumer prices include VAT; the rate of your country of residence is applied
-                  before payment (22% in Italy). Business customers see the price excluding VAT at
-                  checkout and need a valid VAT identification number for the reverse charge.
+                  do. {vatExplainer(vatRegime)}
                 </p>
                 <div className="mt-8 grid gap-6 md:grid-cols-3">
                   {PLANS.map((plan) => (
@@ -326,13 +347,13 @@ export function LandingPage() {
                         <h3 className="text-base font-semibold text-text-primary">{plan.name}</h3>
                         <p className="mt-2 flex items-baseline gap-1">
                           <span className="text-3xl font-bold text-text-primary">
-                            {plan.net === 0 ? 'Free' : grossPrice(plan.net)}
+                            {plan.net === 0 ? 'Free' : displayPrice(plan.net, vatRegime)}
                           </span>
                           <span className="text-sm text-text-muted">{plan.unit}</span>
                         </p>
                         {plan.net > 0 && (
                           <p className="mt-1 text-xs text-text-muted">
-                            VAT included · €{plan.net} + VAT for business
+                            {priceNote(plan.net, vatRegime)}
                           </p>
                         )}
                         <ul className="mt-4 space-y-2">
@@ -398,7 +419,11 @@ export function LandingPage() {
             <Link to="/privacy" className="hover:text-text-primary">
               Privacy
             </Link>
-            <a href="/.well-known/security.txt" className="hover:text-text-primary">
+            <a
+              href="/.well-known/security.txt"
+              className="hover:text-text-primary"
+              hidden={!legal?.securityContactAvailable}
+            >
               Security
             </a>
             <a href={REPOSITORY_URL} rel="noreferrer" className="hover:text-text-primary">

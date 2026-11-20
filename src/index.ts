@@ -114,10 +114,16 @@ async function main(): Promise<void> {
   // The legal surface: identity, terms of service, privacy notice. Built
   // once at boot from the configuration and served at /public/legal; the same
   // identity is injected into the footer of every server-rendered page.
+  const securityContact =
+    config.SECURITY_CONTACT_EMAIL ??
+    config.LEGAL_PRIVACY_EMAIL ??
+    config.LEGAL_CONTACT_EMAIL ??
+    undefined;
   const legalContent = buildLegalContent({
     identity: identityFromConfig(config),
     cloudMode: config.IS_CLOUD_MODE,
     paidService: config.CLOUD_PAID_ENABLED,
+    securityContactAvailable: securityContact !== undefined,
     ...(config.CLOUD_WAITLIST_URL ? { waitlistUrl: config.CLOUD_WAITLIST_URL } : {}),
   });
   setLegalFooterContext({
@@ -334,11 +340,7 @@ async function main(): Promise<void> {
     '/.well-known/security.txt',
     createSecurityTxtHandler({
       ...publicAppUrlOption(config),
-      securityContact:
-        config.SECURITY_CONTACT_EMAIL ??
-        config.LEGAL_PRIVACY_EMAIL ??
-        config.LEGAL_CONTACT_EMAIL ??
-        undefined,
+      securityContact,
     }),
   );
 

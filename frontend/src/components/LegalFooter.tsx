@@ -43,7 +43,11 @@ export function LegalFooter() {
         <Link to="/privacy" className="hover:text-text-primary">
           Privacy
         </Link>
-        <a href="/.well-known/security.txt" className="hover:text-text-primary">
+        <a
+          href="/.well-known/security.txt"
+          className="hover:text-text-primary"
+          hidden={!data?.securityContactAvailable}
+        >
           Security
         </a>
       </nav>

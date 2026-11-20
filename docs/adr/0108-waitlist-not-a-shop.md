@@ -1,13 +1,15 @@
 # ADR-0108: A waitlist, not a shop — the legal posture of the community soft launch
 
-- Status: Accepted
-- Date: 2026-11-20
-- Deciders: project maintainer
-- Related: [ADR-0090](0090-legal-surface-and-launch-gate.md),
-  [ADR-0100](0100-launch-gate-profiles-and-evidence.md),
-  [ADR-0103](0103-one-subscription-per-tenant.md),
-  [ADR-0106](0106-launch-posture-of-the-saas-surface.md),
-  [ADR-0107](0107-trust-boundary-of-a-paying-tenant.md)
+## Metadata
+
+| Field          | Value                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------- |
+| **Status**     | Accepted                                                                              |
+| **Date**       | 2026-11-20                                                                            |
+| **Authors**    | Alessio Brillo                                                                        |
+| **Deciders**   | Alessio Brillo                                                                        |
+| **Supersedes** | -                                                                                     |
+| **Relates to** | ADR-0090, ADR-0100, ADR-0103, ADR-0106, ADR-0107                                     |
 
 ## Context
 
@@ -110,6 +112,17 @@ Two further constraints shape the legal text:
   change what the paid documents can say about prices.
 - **Data processing agreement.** The art. 28 GDPR agreement is not published
   yet. No business customer can be onboarded on the paid service until it is.
+
+### Checkout controls still to build
+
+The paid terms no longer describe the following as live: they are paid-launch
+blockers, not part of this waitlist increment. Enabling paid mode without them
+would publish promises the checkout cannot keep.
+
+- a separate, initially unticked art. 1341 c.c. approval for business customers;
+- collection of the SdI destination code or PEC from Italian business customers;
+- delivery of the contract confirmation, the terms and the withdrawal
+  information on a durable medium after purchase.
 
 None of these risks is closed by this decision. They are the list of gates the
 paid release must pass, and `npm run launch:check --paid` fails on the parts

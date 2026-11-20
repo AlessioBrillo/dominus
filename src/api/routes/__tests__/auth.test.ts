@@ -53,12 +53,20 @@ function buildApp(
   verification?: EmailVerificationService,
   mode: SignupVerificationMode = 'required',
   recoveryEnabled = true,
+  signupEnabled = true,
 ): Application {
   const app = express();
   app.use(express.json());
   app.use(
     '/api/v1/auth',
-    createAuthRouter(makeAuthProvider(), provisioning, verification, mode, recoveryEnabled),
+    createAuthRouter(
+      makeAuthProvider(),
+      provisioning,
+      verification,
+      mode,
+      recoveryEnabled,
+      signupEnabled,
+    ),
   );
   app.use(errorHandler);
   return app;
@@ -138,6 +146,19 @@ describe('API: /api/v1/auth/register', () => {
     const res = await request(app).post('/api/v1/auth/register').send({ name: 'Alessio' });
 
     expect(res.status).toBe(404);
+  });
+
+  it('refuses new workspaces while the hosted edition is a waitlist', async () => {
+    const provisioning = makeProvisioningService();
+    const app = buildApp(provisioning, makeVerificationService(true), 'required', true, false);
+
+    const res = await request(app)
+      .post('/api/v1/auth/register')
+      .send({ name: 'Alessio', email: 'a@example.com' });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('SIGNUP_CLOSED');
+    expect(provisioning.provisionTenant).not.toHaveBeenCalled();
   });
 });
 
