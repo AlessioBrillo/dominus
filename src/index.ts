@@ -124,18 +124,24 @@ async function main(): Promise<void> {
     cloudMode: config.IS_CLOUD_MODE,
     paidService: config.CLOUD_PAID_ENABLED,
     securityContactAvailable: securityContact !== undefined,
+    sourceCodeUrl: config.SOURCE_CODE_URL,
     ...(config.CLOUD_WAITLIST_URL ? { waitlistUrl: config.CLOUD_WAITLIST_URL } : {}),
   });
   setLegalFooterContext({
     mode: legalContent.mode,
     entityName: legalContent.identity.entityName,
+    tradingName: legalContent.identity.tradingName,
     entityKind: legalContent.identity.entityKind,
+    legalForm: legalContent.identity.legalForm,
+    shareCapital: legalContent.identity.shareCapital,
     registeredAddress: legalContent.identity.registeredAddress,
     vatId: legalContent.identity.vatId,
     reaNumber: legalContent.identity.reaNumber,
     registroImprese: legalContent.identity.registroImprese,
     pec: legalContent.identity.pec,
     contactEmail: legalContent.identity.contactEmail,
+    sourceCodeUrl: legalContent.sourceCodeUrl,
+    identityPublished: legalContent.identityPublished,
   });
   if (config.CLOUD_PAID_ENABLED) {
     // Selling a managed service is the point at which the identity stops
@@ -155,7 +161,8 @@ async function main(): Promise<void> {
       logger.fatal(
         { missing },
         'FATAL: CLOUD_PAID_ENABLED=true but the operator identity is incomplete. Set the LEGAL_* ' +
-          'variables for a registered business (sole_trader or company, with VAT ID, register office, REA and PEC). ' +
+          'variables for a registered business (sole_trader or company, with legal form, VAT ID, ' +
+          'register office, REA and PEC; a company also needs its share capital). ' +
           'The server does not start a paid service without a published identity.',
       );
       process.exit(1);

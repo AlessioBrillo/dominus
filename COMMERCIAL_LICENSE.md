@@ -14,7 +14,7 @@ a **commercial license** is available. This license permits:
   service without publishing source code changes
 - **Warranty**: commercial licenses include standard warranty disclaimers
   and, where negotiated, indemnification terms
-- **Support**: priority technical support with defined SLAs (see the [draft SLA](docs/operations/sla.md))
+- **Support**: priority technical support with defined response times; the Enterprise SLA is a draft and applies only when countersigned in an order form (see [operations/sla.md](docs/operations/sla.md))
 
 ## Pricing
 

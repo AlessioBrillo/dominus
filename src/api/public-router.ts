@@ -4,6 +4,9 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
 import type { Store } from 'express-rate-limit';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   AnonScoringService,
   AnonTrademarkInfo,
@@ -26,12 +29,24 @@ import {
   renderForSalePage,
   renderComparePage,
   renderErrorPage,
+  dataSourcesPageHtml,
 } from './views/index.js';
 import type { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import type { ListingManager } from '../listing/listing-manager.js';
 import type { LegalContent } from '../services/legal-content.js';
 
 const logger = getLogger();
+
+/** Repository root, for the license and third-party notices shipped with the service. */
+const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+
+function shippedTextFile(name: string): string | null {
+  try {
+    return readFileSync(join(REPO_ROOT, name), 'utf-8');
+  } catch {
+    return null;
+  }
+}
 
 const PUBLIC_RATE_LIMIT_WINDOW_MS = 60_000;
 const PUBLIC_RATE_LIMIT_MAX = 30;
@@ -319,6 +334,48 @@ export function createPublicRouter(
     }
     res.set('Cache-Control', 'public, max-age=300');
     res.json(options.legalContent);
+  });
+
+  // The factual pages the legal notice points at. They are server-rendered,
+  // not SPA routes, so a crawler and a user with JavaScript disabled see the
+  // same attribution. The file is read from disk rather than copied into the
+  // view: there must be exactly one copy of the third-party notices.
+  router.get('/data-sources', (_req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('html').send(dataSourcesPageHtml(options.legalContent?.sourceCodeUrl));
+  });
+  router.get('/third-party-notices', (_req: Request, res: Response) => {
+    const notices = shippedTextFile('THIRD-PARTY-NOTICES.md');
+    if (notices === null) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Third-party notices are not available' },
+      });
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('text/markdown').send(notices);
+  });
+  router.get('/license', (_req: Request, res: Response) => {
+    const license = shippedTextFile('LICENSE');
+    if (license === null) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'The license text is not available' },
+      });
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('text/plain').send(license);
+  });
+  router.get('/dpa', (_req: Request, res: Response) => {
+    const dpa = shippedTextFile('docs/legal/data-processing-agreement.md');
+    if (dpa === null) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'The data processing agreement is not available' },
+      });
+      return;
+    }
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('text/markdown').send(dpa);
   });
 
   router.post(

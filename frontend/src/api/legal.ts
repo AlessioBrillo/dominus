@@ -19,7 +19,10 @@ export interface LegalDocument {
 
 export interface LegalIdentity {
   entityName: string;
+  tradingName: string;
   entityKind: 'individual' | 'sole_trader' | 'company';
+  legalForm: string;
+  shareCapital: string;
   registeredAddress: string;
   vatId: string;
   reaNumber: string;
@@ -38,6 +41,8 @@ export interface LegalContent {
   updatedAt: string;
   waitlistUrl?: string;
   securityContactAvailable: boolean;
+  sourceCodeUrl: string;
+  identityPublished: boolean;
   identity: LegalIdentity;
   documents: LegalDocument[];
 }

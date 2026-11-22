@@ -43,6 +43,10 @@ steps:
   # ------------------------------------------------------------------ static
   - name: static
     image: node:22-bookworm
+    environment:
+      # Woodpecker exposes the commit author here. ci-local and manual runs
+      # supply no author, so check-cla skips only the author check.
+      CLA_AUTHOR: ${CI_COMMIT_AUTHOR:-}
     volumes:
       - ci-npm:/root/.npm
     commands:
@@ -60,6 +64,7 @@ steps:
       - npm run check:release-consistency
       - npm run check:workflows
       - npm run check:legal-placeholders
+      - npm run check:cla
       - npm run check:image-pins
       # `release:verify -- --pack` lives in the pack step: it packs the
       # working tree and installs the tarball, so it needs the built

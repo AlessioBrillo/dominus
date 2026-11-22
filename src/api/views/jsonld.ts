@@ -16,64 +16,57 @@ function tag(json: Record<string, unknown>): string {
   return `<script type="application/ld+json">${JSON.stringify(json)}</script>`;
 }
 
-export function productJsonLd(score: JsonLdScoreData): string {
-  const product: Record<string, unknown> = {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: score.domain,
-    description: `Domain investment score and appraisal for ${score.domain}`,
-    ...(score.suggestedBuyMax !== undefined
-      ? {
-          offers: {
-            '@type': 'Offer',
-            price: score.suggestedBuyMax,
-            priceCurrency: 'EUR',
-            availability: 'https://schema.org/InStock',
-          },
-        }
-      : {}),
-    aggregateRating: {
-      '@type': 'AggregateRating',
-      ratingValue: Math.round(score.confidence * 100),
-      bestRating: 100,
-      worstRating: 0,
-      ratingCount: 1,
+/**
+ * Structured data for a score page.
+ *
+ * It describes a *dataset*, not a product. An earlier version emitted a
+ * `Product` with an `Offer` priced at the suggested buy ceiling and an
+ * `AggregateRating` built from the engine's own confidence. That was wrong
+ * twice: the buy ceiling is not a price anybody offered, and a confidence
+ * score is not a rating from a reviewer. Search engines and readers both
+ * treated an automated estimate as a market fact. The estimate is still
+ * published, with its date and its meaning.
+ */
+export function scoreDatasetJsonLd(score: JsonLdScoreData): string {
+  const measured: Array<Record<string, unknown>> = [
+    {
+      '@type': 'PropertyValue',
+      name: 'Expected value',
+      value: score.expectedValue,
+      unitText: 'EUR',
     },
-  };
-  return tag(product);
-}
+    {
+      '@type': 'PropertyValue',
+      name: 'Weighted score',
+      value: score.weightedScore,
+    },
+    {
+      '@type': 'PropertyValue',
+      name: 'Confidence',
+      value: Math.round(score.confidence * 100),
+      unitText: 'percent',
+    },
+  ];
+  if (score.suggestedBuyMax !== undefined) {
+    measured.push({
+      '@type': 'PropertyValue',
+      name: 'Suggested maximum purchase price',
+      value: score.suggestedBuyMax,
+      unitText: 'EUR',
+    });
+  }
 
-export function reviewJsonLd(score: JsonLdScoreData): string {
-  const review: Record<string, unknown> = {
+  const dataset: Record<string, unknown> = {
     '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: score.domain,
-    description: 'Domain investment score and analysis',
-    ...(score.suggestedBuyMax !== undefined
-      ? {
-          offers: {
-            '@type': 'Offer',
-            price: score.suggestedBuyMax,
-            priceCurrency: 'EUR',
-          },
-        }
-      : {}),
-    review: {
-      '@type': 'Review',
-      reviewRating: {
-        '@type': 'Rating',
-        ratingValue: Math.round(score.confidence * 100),
-        bestRating: 100,
-        worstRating: 0,
-      },
-      author: { '@type': 'Organization', name: SITE_NAME },
-      datePublished: score.scoredAt
-        ? score.scoredAt.split('T')[0]
-        : new Date().toISOString().split('T')[0],
-      reviewBody: `${score.domain} scored with ${(score.confidence * 100).toFixed(0)}% confidence. Expected value: €${score.expectedValue.toFixed(0)}.`,
-    },
+    '@type': 'Dataset',
+    name: `DOMINUS automated estimate for ${score.domain}`,
+    description: `Automated heuristic estimate for ${score.domain}, produced on ${score.scoredAt.split('T')[0]}. It is an estimate, not an appraisal, not an offer to sell the domain and not investment advice.`,
+    creator: { '@type': 'Organization', name: SITE_NAME },
+    datePublished: score.scoredAt,
+    isAccessibleForFree: true,
+    variableMeasured: measured,
   };
-  return tag(review);
+  return tag(dataset);
 }
 
 export function forSaleOfferJsonLd(site: {
@@ -81,6 +74,10 @@ export function forSaleOfferJsonLd(site: {
   headline: string;
   askingPriceEur: number | null;
 }): string {
+  // A for-sale page is the one place where a price is a real offer: the
+  // seller is asking it. The page is published only for a domain in the
+  // seller's portfolio, and the offer names the seller's asking price, not
+  // the engine's estimate.
   const product: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -125,45 +122,31 @@ export function compareItemListJsonLd(
   domain2: string,
   s2: JsonLdScoreData,
 ): string {
+  const item = (domain: string, s: JsonLdScoreData): Record<string, unknown> => ({
+    '@type': 'Dataset',
+    name: `DOMINUS automated estimate for ${domain}`,
+    description: `Automated heuristic estimate for ${domain}. Not an appraisal, not an offer and not investment advice.`,
+    datePublished: s.scoredAt,
+    variableMeasured: [
+      { '@type': 'PropertyValue', name: 'Expected value', value: s.expectedValue, unitText: 'EUR' },
+      {
+        '@type': 'PropertyValue',
+        name: 'Confidence',
+        value: Math.round(s.confidence * 100),
+        unitText: 'percent',
+      },
+    ],
+  });
+
   const itemList: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name: `Domain Comparison: ${domain1} vs ${domain2}`,
-    description: `Side-by-side domain investment score comparison between ${domain1} and ${domain2}.`,
+    description: `Side-by-side automated estimates for ${domain1} and ${domain2}.`,
     numberOfItems: 2,
     itemListElement: [
-      {
-        '@type': 'ListItem',
-        position: 1,
-        item: {
-          '@type': 'Product',
-          name: domain1,
-          offers: { '@type': 'Offer', price: s1.expectedValue, priceCurrency: 'EUR' },
-          aggregateRating: {
-            '@type': 'AggregateRating',
-            ratingValue: Math.round(s1.confidence * 100),
-            bestRating: 100,
-            worstRating: 0,
-            ratingCount: 1,
-          },
-        },
-      },
-      {
-        '@type': 'ListItem',
-        position: 2,
-        item: {
-          '@type': 'Product',
-          name: domain2,
-          offers: { '@type': 'Offer', price: s2.expectedValue, priceCurrency: 'EUR' },
-          aggregateRating: {
-            '@type': 'AggregateRating',
-            ratingValue: Math.round(s2.confidence * 100),
-            bestRating: 100,
-            worstRating: 0,
-            ratingCount: 1,
-          },
-        },
-      },
+      { '@type': 'ListItem', position: 1, item: item(domain1, s1) },
+      { '@type': 'ListItem', position: 2, item: item(domain2, s2) },
     ],
   };
   return tag(itemList);

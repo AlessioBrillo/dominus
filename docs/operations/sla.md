@@ -1,9 +1,8 @@
 # Service Level Agreement (DOMINUS Cloud, Enterprise)
 
-> **Status: v1.1 — effective with DOMINUS Cloud.** The commitments below are
-> what the service provides and what DOMINUS undertakes to answer. They are
-> deliberately conservative: the platform is a single-node deployment and
-> this document does not promise more than it can deliver.
+> **Status: draft v1.1 — not in force.** These figures become contractual only
+> when they are included in a countersigned Enterprise order form. Until then
+> they describe the intended commitment, not a service level anyone can claim.
 
 Applies to: DOMINUS Cloud Enterprise customers, as referenced from the order
 form (see [COMMERCIAL_LICENSE.md](../../COMMERCIAL_LICENSE.md)). The Community

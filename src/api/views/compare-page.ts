@@ -38,7 +38,7 @@ export function renderComparePage(
 ): string {
   const site = siteUrl ?? 'https://dominus.app';
   const title = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)} — Domain Scores | ${SITE_NAME}`;
-  const description = `Side-by-side comparison of ${escapeHtml(domain1)} (EV: €${score1.score.expectedValue.toFixed(0)}) and ${escapeHtml(domain2)} (EV: €${score2.score.expectedValue.toFixed(0)}). Free domain investment comparison tool.`;
+  const description = `Side-by-side comparison of ${escapeHtml(domain1)} (EV: €${score1.score.expectedValue.toFixed(0)}) and ${escapeHtml(domain2)} (EV: €${score2.score.expectedValue.toFixed(0)}). Automated estimates, not appraisals.`;
   const canon = `/public/compare/${escapeHtml(domain1)}/${escapeHtml(domain2)}`;
   const ogTitle = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)}`;
   const ogDescription = `${escapeHtml(domain1)}: €${score1.score.expectedValue.toFixed(0)} EV — ${escapeHtml(domain2)}: €${score2.score.expectedValue.toFixed(0)} EV`;
@@ -60,7 +60,6 @@ export function renderComparePage(
 
   const headExtras = [
     metaTags({ title, description, canonical: canon, siteUrl: site, ogTitle, ogDescription }),
-    `<meta name="twitter:site" content="@dominusapp">`,
     il,
     bc,
     org,
@@ -83,9 +82,9 @@ export function renderComparePage(
     col(domain1, score1),
     col(domain2, score2),
     '</div>',
-    '<p class="footer">Free domain comparison by <a href="' +
+    '<p class="footer">Automated comparison by <a href="' +
       escapeHtml(site) +
-      '">DOMINUS</a></p>',
+      '">DOMINUS</a>. Estimates, not appraisals.</p>',
   ].join('\n');
 
   return pageHtml(title, headExtras, COMPARE_CSS_HREF, bodyContent);

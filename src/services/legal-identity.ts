@@ -28,8 +28,21 @@ export type LegalVatRegime = 'ordinary' | 'forfettario' | 'none';
 export interface LegalIdentity {
   /** Registered name of the operator (individual or company). */
   entityName: string;
+  /** Commercial name the operator trades under, when it differs from the registered name. */
+  tradingName: string;
   /** Natural person, registered sole trader, or registered company. */
   entityKind: LegalEntityKind;
+  /**
+   * The exact legal form, as it appears in the business register: "SRL",
+   * "SRLS", "SPA", "SAS", "ditta individuale". Art. 7 of D.Lgs. 70/2003
+   * requires the form to be disclosed; "company" alone is not the form.
+   */
+  legalForm: string;
+  /**
+   * Share capital, for the entities that have one. Art. 2250 c.c. and art. 7
+   * of D.Lgs. 70/2003 require a company to publish it on its website.
+   */
+  shareCapital: string;
   /** Registered address, as it must appear on the legal notice. */
   registeredAddress: string;
   /** VAT identification number (Partita IVA). */
@@ -65,7 +78,16 @@ export const REQUIRED_IDENTITY_FIELDS = [
 ] as const;
 
 /** The additional fields a registered business must publish. */
-export const BUSINESS_IDENTITY_FIELDS = ['vatId', 'registroImprese', 'reaNumber', 'pec'] as const;
+export const BUSINESS_IDENTITY_FIELDS = [
+  'legalForm',
+  'vatId',
+  'registroImprese',
+  'reaNumber',
+  'pec',
+] as const;
+
+/** The additional field a company must publish (art. 2250 c.c.). */
+export const COMPANY_IDENTITY_FIELDS = ['shareCapital'] as const;
 
 /** True when the entity is a registered business that can sell a service. */
 export function isBusinessEntity(kind: LegalEntityKind): boolean {
@@ -88,8 +110,10 @@ export function requiredIdentityFields(
   if (options.paidService === true) {
     if (!isBusinessEntity(kind)) fields.push('entityKind');
     fields.push(...BUSINESS_IDENTITY_FIELDS);
+    if (kind === 'company') fields.push(...COMPANY_IDENTITY_FIELDS);
   } else if (isBusinessEntity(kind)) {
     fields.push(...BUSINESS_IDENTITY_FIELDS);
+    if (kind === 'company') fields.push(...COMPANY_IDENTITY_FIELDS);
   }
   return fields;
 }
@@ -102,7 +126,10 @@ export function requiredIdentityFields(
  */
 export function identityFromConfig(config: {
   LEGAL_ENTITY_NAME?: string | undefined;
+  LEGAL_TRADING_NAME?: string | undefined;
   LEGAL_ENTITY_KIND?: LegalEntityKind | undefined;
+  LEGAL_LEGAL_FORM?: string | undefined;
+  LEGAL_SHARE_CAPITAL?: string | undefined;
   LEGAL_REGISTERED_ADDRESS?: string | undefined;
   LEGAL_VAT_ID?: string | undefined;
   LEGAL_REA_NUMBER?: string | undefined;
@@ -115,7 +142,10 @@ export function identityFromConfig(config: {
 }): LegalIdentity {
   return {
     entityName: config.LEGAL_ENTITY_NAME ?? '',
+    tradingName: config.LEGAL_TRADING_NAME ?? '',
     entityKind: config.LEGAL_ENTITY_KIND ?? 'individual',
+    legalForm: config.LEGAL_LEGAL_FORM ?? '',
+    shareCapital: config.LEGAL_SHARE_CAPITAL ?? '',
     registeredAddress: config.LEGAL_REGISTERED_ADDRESS ?? '',
     vatId: config.LEGAL_VAT_ID ?? '',
     reaNumber: config.LEGAL_REA_NUMBER ?? '',
