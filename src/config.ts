@@ -2373,6 +2373,25 @@ const configSchema = z
      */
     LEGAL_ENTITY_NAME: z.string().optional(),
     /**
+     * Commercial name the operator trades under, when it differs from the
+     * registered name (for example "DOMINUS" for a company whose registered
+     * name is different). Optional: most operators do not need it.
+     */
+    LEGAL_TRADING_NAME: z.string().optional(),
+    /**
+     * The exact legal form, as it appears in the business register: "SRL",
+     * "SRLS", "SPA", "SAS", "ditta individuale". Required for a business:
+     * "company" is a category, not a legal form, and art. 7 of D.Lgs. 70/2003
+     * requires the form itself.
+     */
+    LEGAL_LEGAL_FORM: z.string().optional(),
+    /**
+     * Share capital, for the entities that have one. Required for a company
+     * (art. 2250 c.c. and art. 7 of D.Lgs. 70/2003). Example:
+     * "EUR 10,000.00 fully paid".
+     */
+    LEGAL_SHARE_CAPITAL: z.string().optional(),
+    /**
      * The legal form of the operator.
      *
      * - `individual`: a natural person running the project website and the
@@ -2411,6 +2430,20 @@ const configSchema = z
      * an honest 404.
      */
     SECURITY_CONTACT_EMAIL: z.string().email().optional(),
+
+    /**
+     * Where the corresponding source of the running version is published.
+     *
+     * Section 13 of the AGPL requires a network service to offer its users
+     * the source of the version they are using. The legal notice, the terms
+     * and every footer link this address. A fork or a Cloud build that
+     * carries private patches must point it at the source of that build.
+     */
+    SOURCE_CODE_URL: z
+      .string()
+      .url()
+      .refine((value) => /^https:\/\//i.test(value), 'must be an https URL')
+      .default('https://github.com/AlessioBrillo/dominus'),
   })
   .refine(
     (data) => {

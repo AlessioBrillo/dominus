@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
 import { pageHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
-import { reviewJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
+import { scoreDatasetJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
 interface ScoreData {
@@ -50,7 +50,7 @@ export function renderScorePage(data: ScoreData, siteUrl: string): string {
   const ogDescription = `Expected Value: €${score.expectedValue.toFixed(0)} | Confidence: ${(score.confidence * 100).toFixed(0)}% | Weighted Score: ${score.weightedScore.toFixed(2)}`;
   const ogImage = `${siteUrl}/public/s/${data.slug}/og.png`;
 
-  const jsld = reviewJsonLd(toJsonLd(score, domain));
+  const jsld = scoreDatasetJsonLd(toJsonLd(score, domain));
   const bc = breadcrumbJsonLd(
     [
       { position: 1, name: 'Home', path: '/' },
@@ -70,7 +70,6 @@ export function renderScorePage(data: ScoreData, siteUrl: string): string {
       ogDescription,
       ogImage,
     }),
-    `<meta name="twitter:site" content="@dominusapp">`,
     `<link rel="alternate" type="application/json" href="/public/s/${data.slug}">`,
     jsld,
     bc,

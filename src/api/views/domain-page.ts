@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
 import { pageHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
-import { productJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
+import { scoreDatasetJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
 interface DomainScore {
@@ -43,13 +43,13 @@ export function renderDomainPage(
           ? 'Unverified'
           : null;
 
-  const title = `${escapeHtml(domain)} — Domain Value & Score | ${SITE_NAME}`;
-  const description = `Get the investment score for ${escapeHtml(domain)}: expected value €${score.expectedValue.toFixed(0)}, confidence ${(score.confidence * 100).toFixed(0)}%, weighted score ${score.weightedScore.toFixed(2)}. Free domain appraisal tool.`;
+  const title = `${escapeHtml(domain)} — Domain Estimate & Score | ${SITE_NAME}`;
+  const description = `Automated estimate for ${escapeHtml(domain)}: expected value €${score.expectedValue.toFixed(0)}, confidence ${(score.confidence * 100).toFixed(0)}%, weighted score ${score.weightedScore.toFixed(2)}. An estimate, not an appraisal.`;
   const canon = `/public/domain/${escapeHtml(domain)}`;
   const ogTitle = `${escapeHtml(domain)} — Domain Investment Score`;
   const ogDescription = `Expected Value: €${score.expectedValue.toFixed(0)} | Confidence: ${(score.confidence * 100).toFixed(0)}% | Weighted Score: ${score.weightedScore.toFixed(2)}`;
 
-  const jsld = productJsonLd(toJsonLd(score, domain));
+  const jsld = scoreDatasetJsonLd(toJsonLd(score, domain));
   const bc = breadcrumbJsonLd(
     [
       { position: 1, name: 'Home', path: '/' },
@@ -61,7 +61,6 @@ export function renderDomainPage(
 
   const headExtras = [
     metaTags({ title, description, canonical: canon, siteUrl: site, ogTitle, ogDescription }),
-    `<meta name="twitter:site" content="@dominusapp">`,
     `<link rel="alternate" type="application/json" href="/public/domain/${escapeHtml(domain)}">`,
     jsld,
     bc,
@@ -92,7 +91,9 @@ export function renderDomainPage(
     buyMaxStat,
     `<div class="stat"><div class="stat-label">Suggested List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
     '</div>',
-    '<p class="footer">Free domain appraisal by <a href="' + escapeHtml(site) + '">DOMINUS</a></p>',
+    '<p class="footer">Automated heuristic estimate by <a href="' +
+      escapeHtml(site) +
+      '">DOMINUS</a>. It is not an appraisal, not an offer to sell the domain and not investment advice.</p>',
     '</div>',
   ].join('\n');
 

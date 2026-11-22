@@ -61,6 +61,10 @@ const PLACEHOLDERS = [
   { pattern: /\.example\b/, what: 'a reserved ".example" domain' },
   { pattern: /privacy@dominus/, what: 'the placeholder privacy address' },
   { pattern: /lorem ipsum/i, what: 'lorem ipsum' },
+  // A published "Not applicable" is a controller with no identity. It looks
+  // like a filled field and satisfies nobody: art. 7 D.Lgs. 70/2003 and
+  // art. 13 GDPR require a name and a contact, not a disclaimer.
+  { pattern: /Not applicable/i, what: 'a "Not applicable" controller field' },
 ];
 
 for (const { pattern, what } of PLACEHOLDERS) {
@@ -75,7 +79,10 @@ for (const { pattern, what } of PLACEHOLDERS) {
  * 2. The identity fields the law requires are rendered
  * ------------------------------------------------------------------ */
 const REQUIRED_IDENTITY_RENDERINGS = [
+  { field: 'tradingName', what: 'trading name of the operator' },
   { field: 'entityKind', what: 'legal form of the operator' },
+  { field: 'legalForm', what: 'exact legal form of the operator' },
+  { field: 'shareCapital', what: 'share capital of the operator' },
   { field: 'registeredAddress', what: 'registered address' },
   { field: 'vatId', what: 'VAT identification number' },
   { field: 'registroImprese', what: 'business register office' },
@@ -110,7 +117,27 @@ const REQUIRED_CLAUSES = [
   { pattern: /art\. 13 and 14 of the GDPR/i, what: 'the arts. 13-14 GDPR reference' },
   { pattern: /only binding version/i, what: 'the language-prevalence statement' },
   { pattern: /do not ask you to waive/i, what: 'the refusal of the art. 59(1)(o) waiver' },
+  { pattern: /source of the version/i, what: 'the AGPL §13 source offer' },
+  { pattern: /data-sources page/i, what: 'the data-source attribution reference' },
+  { pattern: /Offer enquiries/i, what: 'the offer-lead processing section' },
+  { pattern: /Public scores/i, what: 'the public-score processing section' },
+  { pattern: /24 months after the end of the billing period/i, what: 'the usage-record retention limit' },
+  { pattern: /AES-256-GCM/i, what: 'the credential-encryption mechanism' },
+  { pattern: /at least 18 years old/i, what: 'the age statement' },
 ];
+
+// Claims that were removed because the implementation does not support them.
+const FORBIDDEN_CLAIMS = [
+  { pattern: /withhold the refund until/i, what: 'the goods-style refund withholding' },
+  { pattern: /same feature set/i, what: 'the false parity of Community and Cloud' },
+  { pattern: /may agree a data processing agreement/i, what: 'the optional DPA' },
+  { pattern: /repair, replacement, price reduction/i, what: 'goods remedies for a digital service' },
+];
+for (const { pattern, what } of FORBIDDEN_CLAIMS) {
+  if (pattern.test(legalSource)) {
+    failures.push(`${LEGAL_SOURCE} still contains ${what}`);
+  }
+}
 
 for (const { pattern, what } of REQUIRED_CLAUSES) {
   if (!pattern.test(legalSource)) {
@@ -194,6 +221,18 @@ for (const route of ['/terms', '/privacy', '/legal-notice']) {
     failures.push(`${FOOTER} does not link to ${route}`);
   }
 }
+if (!footer.includes('sourceCodeUrl')) {
+  failures.push(`${FOOTER} does not link the AGPL §13 source offer`);
+}
+if (!footer.includes('identityPublished')) {
+  failures.push(`${FOOTER} publishes a generic operator in community mode`);
+}
+
+const SPA_FOOTER = 'frontend/src/components/LegalFooter.tsx';
+const spaFooter = read(SPA_FOOTER);
+if (!spaFooter.includes('sourceCodeUrl')) {
+  failures.push(`${SPA_FOOTER} does not link the AGPL §13 source offer`);
+}
 
 const MAIN_TSX = 'frontend/src/main.tsx';
 const mainTsx = read(MAIN_TSX);
@@ -223,7 +262,10 @@ const envExample = read(ENV_EXAMPLE);
 
 const IDENTITY_VARS = [
   'LEGAL_ENTITY_NAME',
+  'LEGAL_TRADING_NAME',
   'LEGAL_ENTITY_KIND',
+  'LEGAL_LEGAL_FORM',
+  'LEGAL_SHARE_CAPITAL',
   'LEGAL_REGISTERED_ADDRESS',
   'LEGAL_VAT_ID',
   'LEGAL_REA_NUMBER',
@@ -234,6 +276,7 @@ const IDENTITY_VARS = [
   'LEGAL_PRIVACY_EMAIL',
   'LEGAL_SUPERVISORY_AUTHORITY',
   'SECURITY_CONTACT_EMAIL',
+  'SOURCE_CODE_URL',
 ];
 
 for (const name of IDENTITY_VARS) {
@@ -252,6 +295,41 @@ for (const name of ['CLOUD_PAID_ENABLED', 'CLOUD_WAITLIST_URL']) {
   if (!envExample.includes(name)) {
     failures.push(`${ENV_EXAMPLE} does not document ${name}`);
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * 7. What the public pages say is what the engine does
+ * ------------------------------------------------------------------ */
+const PUBLIC_VIEWS = [
+  'src/api/views/domain-page.ts',
+  'src/api/views/score-page.ts',
+  'src/api/views/compare-page.ts',
+  'src/api/views/for-sale-page.ts',
+  'src/api/views/jsonld.ts',
+];
+for (const relPath of PUBLIC_VIEWS) {
+  const source = read(relPath);
+  for (const { pattern, what } of [
+    { pattern: /Free domain appraisal/i, what: 'the "free domain appraisal" claim' },
+    { pattern: /Appraised List Price/i, what: 'the "appraised list price" label' },
+    { pattern: /['"]@type['"]\s*:\s*['"]AggregateRating['"]/i, what: 'a fabricated aggregate rating' },
+    { pattern: /\bfunction\s+(?:reviewJsonLd|productJsonLd)\b/, what: 'a product offer built from an estimate' },
+  ]) {
+    if (pattern.test(source)) {
+      failures.push(`${relPath} contains ${what}`);
+    }
+  }
+}
+if (/trademark clearance/i.test(landingPage)) {
+  failures.push(`${LANDING_PAGE} claims trademark clearance - the gate performs a screening`);
+}
+const readme = read('README.md');
+for (const { pattern, what } of [
+  { pattern: /better domain purchase, portfolio, and pricing decisions than the market average/i, what: 'an unbacked comparison with the market average' },
+  { pattern: /more conservative than commercial appraisal tools/i, what: 'an unbacked comparison with commercial tools' },
+  { pattern: /single database dump/i, what: 'an undocumented Cloud-to-community migration path' },
+]) {
+  if (pattern.test(readme)) failures.push(`README.md contains ${what}`);
 }
 
 /* ------------------------------------------------------------------ *

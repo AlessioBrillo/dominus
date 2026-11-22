@@ -7,10 +7,10 @@ export { renderDomainPage } from './domain-page.js';
 export { renderForSalePage } from './for-sale-page.js';
 export { renderComparePage } from './compare-page.js';
 export { renderErrorPage } from './error-page.js';
+export { dataSourcesPageHtml } from './info-pages.js';
 export {
-  productJsonLd,
+  scoreDatasetJsonLd,
   forSaleOfferJsonLd,
-  reviewJsonLd,
   breadcrumbJsonLd,
   compareItemListJsonLd,
   organizationJsonLd,

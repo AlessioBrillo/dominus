@@ -186,7 +186,7 @@ export function LandingPage() {
               </h1>
               <p className="mt-4 max-w-2xl text-lg text-text-secondary">
                 DOMINUS runs the five checks a domain investment needs - availability, registry
-                confirmation, valuation, trademark clearance - and answers one question per domain:
+                confirmation, valuation, trademark screening - and answers one question per domain:
                 buy or pass. It never recommends a domain whose trademark could not be checked.
               </p>
               <p className="mt-3 max-w-2xl text-sm text-text-muted">

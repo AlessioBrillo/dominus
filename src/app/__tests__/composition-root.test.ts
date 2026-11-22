@@ -620,6 +620,7 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       CLOUD_WAITLIST_URL: undefined,
       LEGAL_VAT_REGIME: 'ordinary' as const,
       SECURITY_CONTACT_EMAIL: undefined,
+      SOURCE_CODE_URL: 'https://github.com/AlessioBrillo/dominus',
       AUTOMATION_ENABLED: false,
       AUTOMATION_DRY_RUN: true,
       AUTOMATION_AUDIT_RETENTION_DAYS: 90,

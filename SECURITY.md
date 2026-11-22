@@ -23,8 +23,25 @@ If you discover a security issue in either edition:
 
 1. **Do not open a public GitHub issue.**
 2. Send details through a private vulnerability report on GitHub
-   (the repository's **Security** tab).
-3. You should receive a response within 7 days.
+   (the repository's **Security** tab). When a security contact is configured,
+   you may instead email the address published in `/.well-known/security.txt`;
+   that endpoint is authoritative for a hosted deployment.
+3. You should receive an acknowledgement within 7 days.
+
+### Safe harbour
+
+DOMINUS considers good-faith security research to be authorised and will not
+pursue or support legal action against a researcher who:
+
+- avoids privacy violations, data destruction and disruption of the service;
+- makes a good-faith effort to avoid harming other users;
+- reports the finding privately through the channel above and gives the
+  operator a reasonable opportunity to fix it before any public disclosure;
+- does not obtain or retain personal data beyond what is strictly necessary to
+  demonstrate the vulnerability.
+
+This safe harbour does not cover acts that are illegal regardless of intent.
+It describes the operator's policy, not a binding promise by any third party.
 
 ## Security Design
 

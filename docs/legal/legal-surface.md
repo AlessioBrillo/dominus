@@ -14,7 +14,10 @@ The decision behind this design is [ADR-0090](../adr/0090-legal-surface-and-laun
 | Legal notice | `/legal-notice` | The operator's identity and the commercial information art. 7 of D.Lgs. 70/2003 requires: name and legal form, registered address, VAT ID, business register number and office, certified email, contacts. |
 | Terms of service | `/terms` | The contract: what the service is, acceptable use, the trademark gate, automated actions, payments and taxes, the right of withdrawal, liability, governing law. While the hosted edition is a waitlist, the paid clauses are explicitly dormant. |
 | Privacy notice | `/privacy` | The controller, the data and the legal bases, the sub-processors and the transfers, cookies and browser storage, the retention table, the data-subject rights, the security measures. |
-| The whole set, as data | `GET /public/legal` | The same content, structured, with `mode`, `status`, `version`, `updatedAt` and the identity. Unauthenticated, so it is readable by anyone and by the crawlers. |
+| The whole set, as data | `GET /public/legal` | The same content, structured, with `mode`, `status`, `version`, `updatedAt`, `sourceCodeUrl`, `identityPublished` and the identity. Unauthenticated, so it is readable by anyone and by the crawlers. |
+| Data sources | `/public/data-sources` | The sources the estimates are computed from, their terms and their attribution. The legal notice promises this page; it exists so the promise is not empty. |
+| Third-party notices | `/public/third-party-notices` | `THIRD-PARTY-NOTICES.md`, served from the shipped file. |
+| AGPL text | `/public/license` | `LICENSE`, served from the shipped file. |
 
 The server-rendered public pages (`/public/domain/:domain`,
 `/public/for-sale/:domain`, `/public/compare/...`) carry the operator
@@ -23,9 +26,16 @@ same links in the application footer. Immediate reachability from every page
 is the standard art. 7 applies; a link buried in a terms page is not that.
 
 A fourth document, the data processing agreement (art. 28 GDPR) for business
-customers, is **not published yet**. It is a precondition of the paid launch,
-not of the community edition: it must be complete with annexes and signature
-blocks before `CLOUD_PAID_ENABLED` is turned on.
+customers, is referenced by the paid terms but is **not published as a served
+page yet**. The paid terms link the versioned template in the public
+repository, which is a real, dated document. A signable copy with annexes and
+signature blocks is a precondition of the paid launch, not of the community
+edition: it must be complete before `CLOUD_PAID_ENABLED` is turned on.
+
+The AGPL section 13 offer is in every document and in both footers: the
+`SOURCE_CODE_URL` address points at the corresponding source of the running
+version. A Cloud build carrying private patches must point at the source of
+that build, not at the community repository.
 
 ## Three service states, not one
 
@@ -43,8 +53,10 @@ The deployment publishes **different documents** depending on what it is:
 - **The self-hosted community edition**: what applies to a deployment run by
   whoever installed it - the AGPL licence, the fact that the data never
   leaves the machine, and the fact that the Cloud commercial terms do not
-  apply. The operator identity is **not** published: the deployer is the
-  data controller, not the DOMINUS authors.
+  apply. When the deployer configures `LEGAL_*`, the deployment publishes
+  that identity as controller. When they do not, the documents say so and
+  list the variables to set; they never print a generic "not applicable"
+  that looks like a filled field.
 
 ## What the operator must configure
 
@@ -54,7 +66,10 @@ deployment (see `.env.example`):
 | Variable | Meaning |
 |---|---|
 | `LEGAL_ENTITY_NAME` | Registered name of the operator. |
+| `LEGAL_TRADING_NAME` | Commercial name when it differs from the registered name. |
 | `LEGAL_ENTITY_KIND` | `individual`, `sole_trader` or `company`. |
+| `LEGAL_LEGAL_FORM` | Exact form as registered (SRL, SRLS, SPA, ditta individuale). Required for a business. |
+| `LEGAL_SHARE_CAPITAL` | Share capital, required for a company (art. 2250 c.c.). |
 | `LEGAL_REGISTERED_ADDRESS` | The registered address, as it must appear. |
 | `LEGAL_VAT_ID` | VAT identification number (Partita IVA). Business entities only. |
 | `LEGAL_REGISTRO_IMPRESE` | Register office, e.g. "Registro Imprese di Roma". Business entities only. |
@@ -65,6 +80,7 @@ deployment (see `.env.example`):
 | `LEGAL_PRIVACY_EMAIL` | Address for data-subject requests. |
 | `LEGAL_SUPERVISORY_AUTHORITY` | Supervisory authority; defaults to the Italian Garante. |
 | `SECURITY_CONTACT_EMAIL` | Contact published in `/.well-known/security.txt`; falls back to the privacy and legal contacts. |
+| `SOURCE_CODE_URL` | The AGPL section 13 source offer, linked from every document and footer. |
 
 The profiles differ:
 
@@ -72,8 +88,9 @@ The profiles differ:
   the project website and the waitlist, and it can never enable the paid
   service;
 - a **sole trader** or a **company** also publishes VAT ID, register office,
-  REA number and PEC. A paid Cloud refuses to boot while any of them is
-  missing or still a placeholder.
+  REA number, PEC and the exact legal form; a company also publishes its share
+  capital. A paid Cloud refuses to boot while any of them is missing or still
+  a placeholder.
 
 A placeholder is treated as a missing value: a published notice with
 `privacy@dominus.example` looks compliant without being so, which is worse
@@ -86,10 +103,12 @@ than an absent one.
   the notice stops rendering an identity field, when a required clause
   (withdrawal and pro-rata, reverse charge, e-invoicing, sub-processors,
   transfer safeguards, supervisory authority, the art. 1341 specific
-  approval, the "not an appraisal" disclaimer) is removed, when the
-  art. 59(1)(o) waiver reappears, when the waitlist mode stops closing
-  checkout or signup, when the public pages stop carrying the footer, or
-  when an identity variable leaves the configuration or `.env.example`.
+   approval, the disclaimer, the AGPL source offer, the offer-lead and
+   public-score sections, the usage-record limit and the encryption mechanism)
+   is removed, when the art. 59(1)(o) waiver reappears, when the waitlist mode
+   stops closing checkout or signup, when the public pages stop carrying the
+   footer or the source link, or when an identity variable leaves the
+   configuration or `.env.example`.
 - **Deployment gate** - `npm run launch:check`, run against a live
   deployment. It applies the same rules to the real configured values, and
   `--paid` (or `CLOUD_PAID_ENABLED=true`) makes the paid identity
@@ -111,6 +130,15 @@ pages come from that constant, so a document and its date cannot drift apart.
 
 The texts are written without formal legal review, as ADR-0090 records. The
 open points are tracked in the ADR and must be closed before the paid launch:
-the operator's registration (Registro Imprese, REA, PEC, Partita IVA), the
-VAT regime confirmed by the accountant, the data processing agreement with
-its annexes, and the transfer impact assessments for the US sub-processors.
+the operator's registration (Registro Imprese, REA, PEC, Partita IVA, legal
+form and share capital), the VAT regime confirmed by the accountant, a
+signable data processing agreement with annexes, the transfer impact
+assessments for the US sub-processors, the name of the SMTP provider, and a
+dated backtest before any comparative performance claim is republished.
+
+Two gaps are not closed by this release: the waitlist is still an external
+destination configured with `CLOUD_WAITLIST_URL` rather than a first-party
+form with stored consent proof, and the for-sale pages still rely on the
+portfolio entry as a claim of ownership rather than a DNS verification. The
+legal text describes the intended consent and ownership controls; those
+controls must exist before the pages are promoted.

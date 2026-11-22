@@ -582,7 +582,7 @@ describe('Public Router — /public', () => {
   });
 
   describe('Structured Data (JSON-LD) in rendered views', () => {
-    it('renderScorePage includes Product + Review + AggregateRating + BreadcrumbList + Organization', () => {
+    it('renderScorePage describes a dataset, not a rated product', () => {
       const data = {
         slug: 'abcdef123456',
         domain: 'example.com',
@@ -602,15 +602,17 @@ describe('Public Router — /public', () => {
 
       const html = renderScorePage(data, 'https://dominus.app');
       expect(html).toContain('application/ld+json');
-      expect(html).toContain('"@type":"Product"');
-      expect(html).toContain('"@type":"Review"');
-      expect(html).toContain('"@type":"Rating"');
+      expect(html).toContain('"@type":"Dataset"');
+      expect(html).toContain('"name":"Confidence"');
       expect(html).toContain('"@type":"BreadcrumbList"');
       expect(html).toContain('"@type":"Organization"');
       expect(html).toContain('example.com');
+      expect(html).not.toContain('"@type":"AggregateRating"');
+      expect(html).not.toContain('"@type":"Offer"');
+      expect(html).not.toContain('"@type":"Review"');
     });
 
-    it('renderDomainPage includes Product + AggregateRating + Organization (not Review)', () => {
+    it('renderDomainPage includes Dataset + Organization and no fabricated rating', () => {
       const html = renderDomainPage(
         'example.com',
         {
@@ -627,13 +629,15 @@ describe('Public Router — /public', () => {
       );
 
       expect(html).toContain('application/ld+json');
-      expect(html).toContain('"@type":"Product"');
-      expect(html).toContain('"@type":"AggregateRating"');
+      expect(html).toContain('"@type":"Dataset"');
       expect(html).toContain('"@type":"Organization"');
+      expect(html).toContain('not an offer to sell the domain');
+      expect(html).not.toContain('"@type":"AggregateRating"');
+      expect(html).not.toContain('"@type":"Offer"');
       expect(html).not.toContain('"@type":"Review"');
     });
 
-    it('renderDomainPage aggregateRating uses confidence-based value (not weightedScore/10 bug)', () => {
+    it('renderDomainPage publishes confidence as a measured variable, not a rating', () => {
       const html = renderDomainPage(
         'example.com',
         {
@@ -648,11 +652,11 @@ describe('Public Router — /public', () => {
         undefined,
         'https://dominus.app',
       );
-      expect(html).toContain('"ratingValue":65');
-      expect(html).not.toContain('"ratingValue":0');
+      expect(html).toContain('"name":"Confidence","value":65,"unitText":"percent"');
+      expect(html).not.toContain('"ratingValue"');
     });
 
-    it('renderComparePage includes ItemList + Product + Organization + both domains', () => {
+    it('renderComparePage includes ItemList + Dataset + Organization + both domains', () => {
       const makeScore = (
         domain: string,
         ev: number,
@@ -691,8 +695,10 @@ describe('Public Router — /public', () => {
 
       expect(html).toContain('application/ld+json');
       expect(html).toContain('"@type":"ItemList"');
-      expect(html).toContain('"@type":"Product"');
+      expect(html).toContain('"@type":"Dataset"');
       expect(html).toContain('"@type":"Organization"');
+      expect(html).not.toContain('"@type":"AggregateRating"');
+      expect(html).not.toContain('"@type":"Offer"');
       expect(html).toContain('example.com');
       expect(html).toContain('testdomain.io');
     });
@@ -774,7 +780,8 @@ describe('Public Router — /public', () => {
       const res = await request(app).get('/public/domain/example.com').set('Accept', 'text/html');
 
       expect(res.text).toContain('twitter:card');
-      expect(res.text).toContain('twitter:site');
+      // No social handle is published until the operator owns it.
+      expect(res.text).not.toContain('twitter:site');
     });
 
     it('includes JSON-LD alternate link for content negotiation', async () => {
@@ -1161,6 +1168,40 @@ describe('Public Router — /public', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('attribution pages', () => {
+    const app = express();
+    app.use('/public', createPublicRouter(anonScoring));
+    app.use(errorHandler);
+
+    it('serves the data sources the legal notice promises', async () => {
+      const res = await request(app).get('/public/data-sources');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Data sources and attribution');
+      expect(res.text).toContain('USPTO');
+      expect(res.text).toContain('NameBio');
+      expect(res.text).toContain('not appraisals, offers or investment advice');
+    });
+
+    it('serves the third-party notices from the shipped file', async () => {
+      const res = await request(app).get('/public/third-party-notices');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Third-Party Notices');
+      expect(res.text).toContain('libvips');
+    });
+
+    it('serves the data processing agreement the paid terms link', async () => {
+      const res = await request(app).get('/public/dpa');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('Data processing agreement');
+    });
+
+    it('serves the AGPL text', async () => {
+      const res = await request(app).get('/public/license');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('GNU AFFERO GENERAL PUBLIC LICENSE');
     });
   });
 });

@@ -37,10 +37,20 @@
 import type { LegalIdentity } from './legal-identity.js';
 
 /** Version of the documents below. Bumped with every substantive edit. */
-export const LEGAL_DOCUMENTS_VERSION = '2026-11-20';
+export const LEGAL_DOCUMENTS_VERSION = '2026-11-22';
 
 /** Date of the last substantive edit of the documents below. */
-export const LEGAL_DOCUMENTS_UPDATED_AT = '2026-11-20';
+export const LEGAL_DOCUMENTS_UPDATED_AT = '2026-11-22';
+
+/**
+ * Where the corresponding source of the running version is published.
+ *
+ * Section 13 of the AGPL requires a network service to offer its users the
+ * source of the version they are interacting with. A repository URL is the
+ * offer; the footer links it on every page, because an offer a user cannot
+ * find is not an offer.
+ */
+export const DEFAULT_SOURCE_CODE_URL = 'https://github.com/AlessioBrillo/dominus';
 
 export type LegalDocumentSlug = 'legal-notice' | 'terms' | 'privacy';
 
@@ -74,6 +84,10 @@ export interface LegalContent {
   waitlistUrl?: string;
   /** True when a security contact exists, so `/.well-known/security.txt` answers 200. */
   securityContactAvailable: boolean;
+  /** Where the corresponding source of the running version is published (AGPL §13). */
+  sourceCodeUrl: string;
+  /** True when the deployment has published enough identity to name a controller. */
+  identityPublished: boolean;
   identity: LegalIdentity;
   documents: LegalDocument[];
 }
@@ -90,14 +104,28 @@ export interface LegalContentOptions {
   waitlistUrl?: string;
   /** True when a security contact is configured and security.txt is served. */
   securityContactAvailable?: boolean;
+  /** Overrides DEFAULT_SOURCE_CODE_URL; the Cloud may publish a build-specific URL. */
+  sourceCodeUrl?: string;
   /** Overrides LEGAL_DOCUMENTS_UPDATED_AT; used by the launch gate. */
   updatedAt?: string;
 }
 
+/**
+ * The identity a self-hosted deployment publishes when its operator has not
+ * configured one.
+ *
+ * It must not pretend to be an identity: "the operator of this deployment" is
+ * a description, not a controller. The documents say so explicitly and tell
+ * the deployer what to set, because art. 13 GDPR requires a name and a
+ * contact, and the software cannot invent them.
+ */
 const SELF_HOSTED_IDENTITY: LegalIdentity = {
   entityName: 'The operator of this deployment',
+  tradingName: '',
   entityKind: 'individual',
-  registeredAddress: 'Not applicable - this is a self-hosted deployment',
+  legalForm: '',
+  shareCapital: '',
+  registeredAddress: '',
   vatId: '',
   reaNumber: '',
   registroImprese: '',
@@ -108,16 +136,40 @@ const SELF_HOSTED_IDENTITY: LegalIdentity = {
   vatRegime: 'none',
 };
 
+/** The configuration variables a self-hosted operator must set. */
+export const SELF_HOSTED_REQUIRED_VARIABLES = [
+  'LEGAL_ENTITY_NAME',
+  'LEGAL_REGISTERED_ADDRESS',
+  'LEGAL_CONTACT_EMAIL',
+  'LEGAL_PRIVACY_EMAIL',
+] as const;
+
+/** True when a community deployment has published enough to name a controller. */
+export function hasPublishedIdentity(identity: LegalIdentity): boolean {
+  return [
+    identity.entityName,
+    identity.registeredAddress,
+    identity.contactEmail,
+    identity.privacyEmail,
+  ].every((value) => value.trim() !== '');
+}
+
 /** The identity lines rendered in the legal notice, skipping empty fields. */
 function identityLines(identity: LegalIdentity): string[] {
   const lines: string[] = [identity.entityName];
-  if (identity.entityKind !== 'individual') {
+  if (identity.tradingName && identity.tradingName !== identity.entityName) {
+    lines.push(`Trading as: ${identity.tradingName}`);
+  }
+  if (identity.legalForm) {
+    lines.push(`Legal form: ${identity.legalForm}`);
+  } else if (identity.entityKind !== 'individual') {
     lines.push(
       identity.entityKind === 'sole_trader'
         ? 'Legal form: sole trader (ditta individuale)'
         : 'Legal form: company',
     );
   }
+  if (identity.shareCapital) lines.push(`Share capital: ${identity.shareCapital}`);
   if (identity.registeredAddress) lines.push(identity.registeredAddress);
   if (identity.vatId) lines.push(`VAT ID: ${identity.vatId}`);
   if (identity.registroImprese) lines.push(`Business register: ${identity.registroImprese}`);
@@ -147,6 +199,7 @@ function legalNotice(
   cloudMode: boolean,
   paidService: boolean,
   waitlistUrl: string | undefined,
+  sourceCodeUrl: string,
 ): LegalDocument {
   const sections: LegalSection[] = [];
 
@@ -200,8 +253,10 @@ function legalNotice(
         ? '5. Intellectual property and third-party data'
         : '4. Intellectual property and third-party data',
       paragraphs: [
-        'The DOMINUS source code is licensed under the GNU Affero General Public License v3; the license text and the source are published with the software. Commercial licenses are available for organisations that need proprietary embedding.',
-        'Valuations use public sources such as RDAP registries, the USPTO and EUIPO trademark databases, and archived web data. Those sources remain the property of their owners, and you are responsible for how you use the data you obtain from them.',
+        'The DOMINUS source code is licensed under the GNU Affero General Public License v3. Section 13 of that licence applies to this service: the complete corresponding source of the version you are using is available at ' +
+          sourceCodeUrl +
+          ', and you may obtain it from that address. Commercial licences are available for organisations that need proprietary embedding.',
+        'Valuations use public sources: RDAP registry responses, the USPTO and EUIPO trademark databases, archived web data from the Internet Archive, domain-sale comparables from NameBio when the operator has configured them, and keyword suggestions from Google Suggest or a keyword file the operator provides. Each source remains the property of its owner and is governed by its own terms. The operator does not republish the source data, only the estimates computed from it; the sources, their terms and their attribution are described on the data-sources page.',
       ],
     });
     sections.push({
@@ -216,6 +271,9 @@ function legalNotice(
       paragraphs: [
         'This is a self-hosted installation of DOMINUS, the open-source domain investment decision-support tool. The software is distributed under the GNU Affero General Public License v3; the source code is public and you may use, study, share and modify it under that license.',
         'The person or organisation that deployed this instance is the operator of the installation and the data controller of the data stored in it. The commercial terms of the managed DOMINUS Cloud service do not apply to this deployment, and no DOMINUS Cloud subscription is active here.',
+        hasPublishedIdentity(identity)
+          ? `The operator of this deployment is ${identity.entityName}, ${identity.registeredAddress}, reachable at ${identity.contactEmail}${identity.privacyEmail ? ` (data protection: ${identity.privacyEmail})` : ''}.`
+          : 'This deployment has not published the identity of its operator. If you operate this deployment, set LEGAL_ENTITY_NAME, LEGAL_REGISTERED_ADDRESS, LEGAL_CONTACT_EMAIL and LEGAL_PRIVACY_EMAIL so that this page and the Privacy Notice can name the controller and a contact, as art. 7 of D.Lgs. 70/2003 and art. 13 GDPR require.',
       ],
     });
     sections.push({
@@ -235,7 +293,7 @@ function legalNotice(
     sections.push({
       heading: '4. License',
       paragraphs: [
-        'DOMINUS is free software under the AGPL v3. Section 13 of that license applies if you run a modified version as a network service: you must offer the corresponding source of your modifications to the users of the service. Commercial licensing is available if that obligation does not fit your deployment.',
+        `DOMINUS is free software under the AGPL v3. Section 13 of that license applies if you run a modified version as a network service: you must offer the corresponding source of your modifications to the users of the service. The source of the version this deployment is running, when it is unmodified, is published at ${sourceCodeUrl}. Commercial licensing is available if that obligation does not fit your deployment.`,
       ],
     });
   }
@@ -254,6 +312,7 @@ function termsOfService(
   identity: LegalIdentity,
   cloudMode: boolean,
   paidService: boolean,
+  sourceCodeUrl: string,
 ): LegalDocument {
   const sections: LegalSection[] = [];
 
@@ -292,20 +351,40 @@ function termsOfService(
       ],
     });
     sections.push({
-      heading: '6. Personal data',
+      heading: '6. Personal data and the waitlist',
       paragraphs: [
         'The processing of personal data is described in the Privacy Notice. If a waitlist form is hosted by a third party, that form names the provider and links its privacy notice before you submit your address.',
+        'When the waitlist is operated on this website, the address you submit is used only to tell you when the hosted edition opens, on the basis of your consent. You can withdraw that consent at any time from the link in every waitlist email or by writing to the data protection contact; the address is then removed. Registering does not create a contract and does not reserve a seat, a price or a launch date.',
       ],
     });
     sections.push({
-      heading: '7. Liability',
+      heading: '7. Source code',
+      paragraphs: [
+        `The software that runs this website is licensed under the GNU Affero General Public License v3. The complete corresponding source of the version you are using is available at ${sourceCodeUrl}.`,
+      ],
+    });
+    sections.push({
+      heading: '8. Age',
+      paragraphs: [
+        'The website and the waitlist are intended for adults who can enter into a contract. You must be at least 18 years old to use them.',
+      ],
+    });
+    sections.push({
+      heading: '9. Liability',
       paragraphs: [
         'Nothing in these terms excludes or limits liability that cannot be excluded or limited by law, including liability for death or personal injury caused by negligence, fraud, or gross negligence.',
         'Subject to that, the website and the waitlist are provided free of charge and without a warranty of uninterrupted availability. The operator is not liable for indirect or consequential loss arising from the use of the website.',
       ],
     });
     sections.push({
-      heading: '8. Changes and contact',
+      heading: '10. Governing law and jurisdiction',
+      paragraphs: [
+        'These terms are governed by Italian law. If you are a consumer, the court of the place where you reside or are domiciled has jurisdiction where the law provides for it, and nothing in these terms deprives you of the mandatory protections of the country where you reside.',
+        'If you are a consumer and a dispute arises, you may use an alternative dispute resolution (ADR) entity competent for the dispute. The European Consumer Centre Italy can provide guidance on your rights and on the available ADR entities.',
+      ],
+    });
+    sections.push({
+      heading: '11. Changes and contact',
       paragraphs: [
         'The operator may update these terms. The version in force is the one published on this page, with its version and effective date.',
         `Questions about these terms go to ${identity.contactEmail || 'the contact address shown in the legal notice'}.`,
@@ -325,14 +404,14 @@ function termsOfService(
     sections.push({
       heading: '1. Acceptance and pre-contract information',
       paragraphs: [
-        'By creating an account or buying a subscription you accept these terms. If you do not accept them, do not use the service. If you use the service on behalf of an organisation, you confirm that you are authorised to bind that organisation.',
-        'Before you pay, the checkout shows the service, the total price including taxes, the duration of the contract, the right of withdrawal and how to exercise it. You accept these terms and the Privacy Notice separately; a pre-ticked box is not consent.',
+        'By creating an account or buying a subscription you accept these terms and acknowledge the Privacy Notice. If you do not accept them, do not use the service. If you use the service on behalf of an organisation, you confirm that you are authorised to bind that organisation, and you confirm that you are at least 18 years old.',
+        'Before you pay, the checkout shows the service, the total price including taxes, the billing interval and the duration of the contract, the right of withdrawal and how to exercise it. A pre-ticked box is not consent, and accepting these terms is a separate step from acknowledging the Privacy Notice.',
       ],
     });
     sections.push({
       heading: '2. The service',
       paragraphs: [
-        'DOMINUS provides domain valuation, portfolio tracking, renewal verdicts and, when explicitly enabled, a post-acquisition automation pipeline. The managed service (DOMINUS Cloud) and the self-hosted community edition have the same feature set: monetisation is on hosting, never on features.',
+        'DOMINUS provides domain valuation, portfolio tracking, renewal verdicts and, when explicitly enabled, a post-acquisition automation pipeline. The managed service and the self-hosted community edition share the same scoring engine and the same core pipeline: monetisation is on hosting, never on the valuation itself. The managed edition adds multi-tenancy, team seats, single sign-on and managed backups, which the self-hosted edition does not provide.',
       ],
     });
     sections.push({
@@ -373,8 +452,8 @@ function termsOfService(
       paragraphs: [
         vatParagraph(identity, paidService),
         'The price in force is the one shown at checkout before payment. We may change the price for a future renewal; we notify you at least thirty days before the change takes effect, and you may cancel before it applies.',
-        'Subscriptions renew automatically at the end of each paid period until you cancel. Cancellation takes effect at the end of the period already paid for, and the service stays usable until then. The payment provider handles the card data; the operator never sees it.',
-        'A Stripe receipt is not a substitute for the invoice. The operator issues the invoices required by Italian law and collects the destination code or PEC that business customers in Italy need for electronic invoicing through SdI before enabling paid subscriptions.',
+        'Subscriptions renew automatically at the end of each paid period until you cancel. You cancel from the billing page of the application; the cancellation takes effect at the end of the period already paid for, and the service stays usable until then. The payment provider handles the card data; the operator never sees it.',
+        'A Stripe receipt is not a substitute for the invoice. The operator issues the invoices required by Italian law. An Italian business customer must provide the destination code (codice destinatario) or PEC required for electronic invoicing through SdI before the first invoice is issued.',
       ],
     });
     sections.push({
@@ -384,14 +463,14 @@ function termsOfService(
         'If you ask us to start the service immediately, you pay only the proportional part of the price for the service supplied before you withdraw; we refund the rest (art. 57(3) of the Consumer Code). We do not ask you to waive the right of withdrawal under art. 59(1)(o), and no such waiver applies.',
         'To withdraw, tell us at the contact address in the legal notice, or use the model form below. You may use this model form, but you are not required to:',
         'Model withdrawal form (Annex I, Part B, Italian Consumer Code). To the operator identified in the legal notice: I/We hereby give notice that I/We withdraw from my/our contract for the following service: [service]. Ordered on: [date]. Name of consumer(s): [name]. Address of consumer(s): [address]. Signature (only if this form is sent on paper): [signature]. Date: [date].',
-        'We refund the amounts paid without undue delay and in any case within 14 days of the withdrawal, using the same means of payment you used, unless you expressly agree otherwise and provided that you incur no fee. We may withhold the refund until we have received the service back or you have supplied evidence of having sent it, where that is applicable.',
-        'The confirmation of the contract, these terms and the withdrawal information are supplied on a durable medium (email or PDF), as the law requires. Statutory rights of consumers that cannot be excluded or limited remain unaffected.',
+        'We refund the amounts paid without undue delay and in any case within 14 days of the withdrawal, using the same means of payment you used, unless you expressly agree otherwise and provided that you incur no fee. The refund covers the price of the service; there is nothing to return, because the service is supplied online.',
+        'Before the paid service opens, the operator sends the confirmation of the contract, these terms and the withdrawal information on a durable medium (email or PDF), as the law requires. Statutory rights of consumers that cannot be excluded or limited remain unaffected.',
       ],
     });
     sections.push({
       heading: '10. Legal guarantee (consumers)',
       paragraphs: [
-        'If you are a consumer, the service must conform to the contract. The legal guarantee under arts. 128-135 of the Italian Consumer Code applies, together with the remedies those articles provide (repair, replacement, price reduction or termination, according to the case).',
+        'If you are a consumer, the service must conform to the contract. The legal guarantee under arts. 128-135 of the Italian Consumer Code applies, together with the remedies those articles provide: restoration of conformity, a proportionate price reduction, or termination of the contract, according to the case. Repair and replacement are not remedies for a service supplied online.',
         'Nothing in these terms reduces the legal guarantee or the statutory rights you have as a consumer.',
       ],
     });
@@ -413,31 +492,32 @@ function termsOfService(
       paragraphs: [
         'Nothing in these terms excludes or limits liability for death or personal injury caused by negligence, for fraud or fraudulent misrepresentation, for gross negligence, or for any other liability that cannot be excluded or limited by law. The statutory rights of consumers, including the legal guarantee in section 10, remain unaffected.',
         'For business customers only, and to the extent permitted by law: the service is provided without implied warranties of merchantability, fitness for a particular purpose or non-infringement, and the operator is not liable for indirect, incidental or consequential loss, or for lost profits. Where liability cannot be excluded, it is limited to the total amount the business customer paid in the twelve months before the event giving rise to it.',
-        'The operator is not liable for an investment decision you took with the help of the service. The estimates are inputs to your decision, not a promise of value.',
+        'The estimates are decision support, not a guarantee of value and not investment advice. They can be wrong, and you remain responsible for the decisions you take with them. Nothing in this section excludes liability for a defect in the service itself.',
       ],
     });
     sections.push({
-      heading: '14. Indemnity (business customers)',
+      heading: '14. Responsibility and indemnity (business customers)',
       paragraphs: [
-        'A business customer keeps the responsibility for the domains it buys, for the way it uses the service, and for compliance with the laws that apply to it. The operator does not indemnify a business customer against claims arising from an investment decision taken with the help of the service.',
+        'A business customer is responsible for the domains it buys, for the way it uses the service, and for compliance with the laws that apply to it. To the extent permitted by law, a business customer indemnifies the operator against third-party claims arising from its unlawful use of the service or from the domains it registered.',
+        'The operator indemnifies a business customer against third-party claims that the service, as provided by the operator, infringes an intellectual-property right, provided the customer notifies the claim promptly and allows the operator to conduct the defence. Neither party indemnifies the other for an investment decision.',
       ],
     });
     sections.push({
       heading: '15. Clauses requiring specific approval (art. 1341 c.c.)',
       paragraphs: [
-        'For business customers, the clauses on limitation of liability (section 13), indemnity (section 14), and governing law and jurisdiction (section 17) are specifically approved under art. 1341 c.c. A consumer is not asked to approve clauses that limit statutory rights, because those clauses do not apply to consumers.',
+        'For business customers, the clauses on limitation of liability (section 13), indemnity (section 14), and governing law and jurisdiction (section 17) are specifically approved under art. 1341 c.c. The checkout collects that approval separately for a business customer, and the acceptance is recorded with the version of these terms. A consumer is not asked to approve clauses that limit statutory rights, because those clauses do not apply to consumers.',
       ],
     });
     sections.push({
       heading: '16. Personal data',
       paragraphs: [
-        'The processing of personal data is described in the Privacy Notice. The operator and a business customer may agree a data processing agreement under art. 28 GDPR; where they do, it prevails over this section.',
+        `The processing of personal data is described in the Privacy Notice. Where you process personal data through the service as a controller, the data processing agreement under art. 28 GDPR applies and is incorporated into these terms. The current version is published at /public/dpa and at ${sourceCodeUrl}/blob/master/docs/legal/data-processing-agreement.md; a signable copy is available at the data protection contact.`,
       ],
     });
     sections.push({
       heading: '17. Governing law, dispute resolution and jurisdiction',
       paragraphs: [
-        'These terms are governed by Italian law. For consumers, the court of the place where the consumer resides or is domiciled has jurisdiction, where the law provides for it. For business customers, the courts of Italy have jurisdiction, without prejudice to any mandatory provision.',
+        'These terms are governed by Italian law. For consumers, the court of the place where the consumer resides or is domiciled has jurisdiction, where the law provides for it, and nothing in these terms deprives you of the mandatory protections of the country where you reside. For business customers, the courts of Italy have jurisdiction, without prejudice to any mandatory provision.',
         'If you are a consumer and a dispute arises, you may use an alternative dispute resolution (ADR) entity competent for the dispute. The European Commission’s Online Dispute Resolution platform ceased operations on 20 July 2025, so these terms do not link to it. The European Consumer Centre Italy can provide guidance on your rights and on the available ADR entities.',
       ],
     });
@@ -448,7 +528,13 @@ function termsOfService(
       ],
     });
     sections.push({
-      heading: '19. Contact',
+      heading: '19. Source code',
+      paragraphs: [
+        `The software that runs DOMINUS Cloud is licensed under the GNU Affero General Public License v3. The complete corresponding source of the version you are using is available at ${sourceCodeUrl}, as section 13 of that licence requires.`,
+      ],
+    });
+    sections.push({
+      heading: '20. Contact',
       paragraphs: [
         `The operator of DOMINUS Cloud can be reached at ${identity.contactEmail || 'the contact address shown in the legal notice'}.`,
       ],
@@ -497,17 +583,23 @@ function termsOfService(
   sections.push({
     heading: '6. Licence and warranty',
     paragraphs: [
-      'DOMINUS is free software provided under the GNU Affero General Public License v3, without warranty of any kind, to the extent permitted by that license. If you run a modified version as a network service, section 13 of the AGPL requires you to offer the corresponding source of your modifications to the users of that service.',
+      `DOMINUS is free software provided under the GNU Affero General Public License v3, without warranty of any kind, to the extent permitted by that license. The source of the version this deployment is running is published at ${sourceCodeUrl}. If you run a modified version as a network service, section 13 of the AGPL requires you to offer the corresponding source of your modifications to the users of that service.`,
     ],
   });
   sections.push({
-    heading: '7. Liability',
+    heading: '7. Age',
+    paragraphs: [
+      'The deployment is intended for adults who can enter into a contract. You must be at least 18 years old to use it.',
+    ],
+  });
+  sections.push({
+    heading: '8. Liability',
     paragraphs: [
       'To the extent permitted by law, the authors of DOMINUS are not liable for any damage arising from the use of the software, including investment decisions made with its help. The valuation output is heuristic and can be wrong.',
     ],
   });
   sections.push({
-    heading: '8. Contact',
+    heading: '9. Contact',
     paragraphs: [
       'This deployment is operated by the party that installed it. Questions about the software itself are answered in the project repository and its issue tracker; questions about this installation go to whoever deployed it.',
     ],
@@ -527,16 +619,24 @@ function privacyPolicy(
   cloudMode: boolean,
   paidService: boolean,
   waitlistUrl: string | undefined,
+  sourceCodeUrl: string,
 ): LegalDocument {
   const sections: LegalSection[] = [];
 
   if (cloudMode) {
+    const controllerPublished =
+      identity.entityName.trim() !== '' &&
+      identity.registeredAddress.trim() !== '' &&
+      (identity.privacyEmail.trim() !== '' || identity.contactEmail.trim() !== '');
     sections.push({
       heading: '1. Who is responsible for your data',
       paragraphs: [
-        `The controller of the personal data processed through this website${paidService ? ' and DOMINUS Cloud' : ''} is ${identity.entityName}${identity.vatId ? ` (VAT ID ${identity.vatId})` : ''}, ${identity.registeredAddress || 'at the address shown in the legal notice'}, reachable at ${identity.privacyEmail || identity.contactEmail || 'the contact address shown in the legal notice'}.`,
+        controllerPublished
+          ? `The controller of the personal data processed through this website${paidService ? ' and DOMINUS Cloud' : ''} is ${identity.entityName}${identity.vatId ? ` (VAT ID ${identity.vatId})` : ''}, ${identity.registeredAddress}, reachable at ${identity.privacyEmail || identity.contactEmail}.`
+          : 'The controller is the operator of this website. This deployment has not yet published the name, address and data-protection contact of that operator. If you need to exercise a right before they are published, use the contact address in the legal notice. An operator that exposes this deployment to the public must configure LEGAL_ENTITY_NAME, LEGAL_REGISTERED_ADDRESS, LEGAL_CONTACT_EMAIL and LEGAL_PRIVACY_EMAIL, because art. 13 GDPR requires the controller to be identified.',
         'This notice describes the processing carried out by the operator of this website. If you use the self-hosted community edition, your data never reaches us: that deployment is controlled by whoever installed it.',
         'The operator has not appointed a Data Protection Officer. Data protection questions and requests go to the contact above.',
+        'We do not sell personal data, and we do not share it for cross-context behavioural advertising.',
       ],
     });
     sections.push({
@@ -550,6 +650,8 @@ function privacyPolicy(
             'Usage data: number of pipeline runs and API calls per tenant, used to enforce the plan limits you subscribed to (art. 6(1)(b) GDPR).',
             'Billing data: customer identifier, invoice details, tax identification number and transaction records, used to invoice you and to meet the accounting and tax obligations (art. 6(1)(c) GDPR).',
             'Service data: the domains, candidates, scores, portfolio entries, listings and automation journals you create. It is processed to provide the service and, in the case of the automation audit trail, to answer disputes about automated actions (art. 6(1)(b) and (f) GDPR).',
+            'Offer enquiries: when a for-sale page accepts an enquiry, the name, email address and message you submit, together with the domain concerned, are used to pass the enquiry to the seller and to answer it (art. 6(1)(b) and (f) GDPR). The form says who receives the enquiry before you submit it, and the enquiry is kept for 12 months.',
+            'Public scores: when an account owner publishes a score page, the domain, the estimate and the publication date are public. The page does not publish the owner’s identity unless the owner chooses to (art. 6(1)(a) GDPR for the publication, art. 6(1)(f) for the estimate computed from public data).',
             'Provider credentials: the credentials you store in the credential vault are encrypted at rest and are used only to call the providers you connected (art. 6(1)(b) GDPR).',
             'Server logs: IP address, request identifiers, user agent and error traces, used to operate, secure and debug the service. They are kept for a short period and are not used for profiling (art. 6(1)(f) GDPR).',
           ]
@@ -559,6 +661,8 @@ function privacyPolicy(
               ? `The waitlist is hosted at ${waitlistUrl}. The form names the provider that operates it and links its privacy notice before you submit your address.`
               : 'No waitlist form is active on this deployment, so no waitlist address is collected here.',
             'Server logs: IP address, request identifiers, user agent and error traces, used to operate, secure and debug the website. They are kept for a short period and are not used for profiling (art. 6(1)(f) GDPR).',
+            'Offer enquiries: when a for-sale page accepts an enquiry, the name, email address and message you submit, together with the domain concerned, are used to pass the enquiry to the seller and to answer it (art. 6(1)(b) and (f) GDPR). The form says who receives the enquiry before you submit it, and the enquiry is kept for 12 months.',
+            'Public scores: when an account owner publishes a score page, the domain, the estimate and the publication date are public. The page does not publish the owner’s identity unless the owner chooses to (art. 6(1)(a) GDPR for the publication, art. 6(1)(f) for the estimate computed from public data).',
             'Existing accounts: if this deployment already has workspaces, it processes the account, authentication, service and billing data described in the paid version of this notice, on the same legal bases. Signup for new workspaces is closed while the paid service is not on sale.',
           ],
     });
@@ -566,16 +670,15 @@ function privacyPolicy(
       heading: '3. Sub-processors and transfers',
       paragraphs: [
         'We use a small number of sub-processors, each bound by a data processing agreement. The current list is:',
-        'Where a sub-processor is outside the European Economic Area, the transfer relies on the European Commission’s standard contractual clauses and on supplementary measures where the law requires them. A copy of the safeguards can be requested at the data protection contact.',
       ],
       bullets: [
-        'Hetzner Online GmbH (Germany) - hosting of the application and the database.',
-        'Backblaze Inc. (United States) - off-host backup storage, when off-host backups are enabled.',
-        'Stripe Payments Europe Ltd. (Ireland) - subscription billing and tax calculation.',
-        'Okta, Inc. / Auth0 (United States) - single sign-on, for tenants that use it.',
-        'The SMTP provider configured by the operator - delivery of signup verification, key recovery and team invitation emails. The operator names the provider in the deployment documentation and does not use it for marketing.',
+        'Hetzner Online GmbH (Germany) - hosting of the application and the database. No transfer outside the EEA.',
+        'Backblaze Inc. (United States) - off-host backup storage, when off-host backups are enabled. Transfer mechanism: the EU-US Data Privacy Framework where the provider is certified, otherwise the standard contractual clauses with supplementary measures.',
+        'Stripe Payments Europe Ltd. (Ireland) - subscription billing and tax calculation. No transfer outside the EEA for the payment account; support access from the United States is covered by the standard contractual clauses.',
+        'Okta, Inc. / Auth0 (United States) - single sign-on, for tenants that use it. Transfer mechanism: the EU-US Data Privacy Framework where the provider is certified, otherwise the standard contractual clauses with supplementary measures.',
+        'The SMTP server the operator configures for signup verification, key recovery and team invitations. When that server is a third-party service, it is a sub-processor and the operator names it here before the deployment is exposed to the public; when the operator runs its own SMTP server, no third-party processor receives the address. The address is never used for marketing.',
         paidService
-          ? 'No other sub-processor receives personal data. A business customer may ask for the transfer safeguards and the data processing agreement at the contact above.'
+          ? 'No other sub-processor receives personal data. The transfer register records, for each recipient, the country, the mechanism and the date of the transfer impact assessment; a business customer may request it together with the data processing agreement.'
           : 'No other sub-processor receives personal data while the paid service is not on sale.',
       ],
     });
@@ -600,18 +703,21 @@ function privacyPolicy(
             'Sessions and API tokens: until they expire or you revoke them.',
             'Account and service data: until you delete the workspace, plus 30 days for the deletion to propagate through backups.',
             'Automation audit trail: 90 days.',
-            'Published public scores: 90 days.',
-            'Usage records: as long as the subscription is active, plus the period required by tax and accounting law for invoices.',
+            'Published public scores: 90 days after the owner unpublishes them, or after 12 months without a visit, whichever comes first.',
+            'Offer enquiries: 12 months after the last reply.',
+            'Usage records: 24 months after the end of the billing period, unless they are needed to answer a dispute or to meet a legal obligation.',
             'Invoices and accounting records: 10 years, as Italian law requires.',
             'Server logs: 30 days.',
-            'Backups: a rolling window of about thirty days, after which the older copies are deleted.',
+            'Backups: the configured rolling window, thirty days by default, after which the older copies are deleted.',
           ]
         : [
             'Waitlist data: until you withdraw consent or after 24 months without contact, whichever comes first.',
             'Existing account and service data: until the workspace is deleted, plus 30 days for the deletion to propagate through backups.',
+            'Offer enquiries: 12 months after the last reply.',
+            'Published public scores: 90 days after the owner unpublishes them, or after 12 months without a visit, whichever comes first.',
             'Invoices and accounting records of existing subscriptions: 10 years, as Italian law requires.',
             'Server logs: 30 days.',
-            'Backups: a rolling window of about thirty days, after which the older copies are deleted.',
+            'Backups: the configured rolling window, thirty days by default, after which the older copies are deleted.',
           ],
     });
     sections.push({
@@ -633,7 +739,7 @@ function privacyPolicy(
     sections.push({
       heading: '8. Security',
       paragraphs: [
-        'Data in transit is protected with TLS. Provider credentials are encrypted at rest. Tenant isolation is enforced in the application and, in the PostgreSQL deployment, additionally by row-level security policies in the database. Backups are encrypted and, in the managed topology, copied off the application host. Access to the production systems is restricted to the people who operate them.',
+        'Data in transit is protected with TLS. Provider credentials are encrypted with AES-256-GCM under a master key held by the operator outside the database. Tenant isolation is enforced in the application and, in the PostgreSQL deployment, additionally by row-level security policies in the database. Backups are encrypted at rest by the backup target and, in the managed topology, copied off the application host. Access to the production systems is restricted to the people who operate them.',
         'No system is perfectly secure. If a personal data breach is likely to result in a risk to your rights and freedoms, we notify the supervisory authority within 72 hours and, where the law requires it, you without undue delay.',
       ],
     });
@@ -649,11 +755,19 @@ function privacyPolicy(
         'We update this notice when the processing changes. The version in force is the one published on this page, with its version and effective date. Material changes affecting the processing of your data are notified by email.',
       ],
     });
+    sections.push({
+      heading: '11. Source code',
+      paragraphs: [
+        `The software that runs this service is free software under the GNU Affero General Public License v3. The complete corresponding source of the version you are using is available at ${sourceCodeUrl}.`,
+      ],
+    });
   } else {
     sections.push({
       heading: '1. Who is responsible for your data',
       paragraphs: [
-        'This is a self-hosted installation. The party that deployed it is the data controller: your data is stored in the database you configured and never reaches the DOMINUS authors.',
+        hasPublishedIdentity(identity)
+          ? `This is a self-hosted installation. The controller is ${identity.entityName}, ${identity.registeredAddress}, reachable at ${identity.privacyEmail || identity.contactEmail}. Your data is stored in the database this operator configured and never reaches the DOMINUS authors.`
+          : 'This is a self-hosted installation. The party that deployed it is the data controller: your data is stored in the database this operator configured and never reaches the DOMINUS authors. This deployment has not published the name, address and contact of that controller; if you operate it, configure LEGAL_ENTITY_NAME, LEGAL_REGISTERED_ADDRESS, LEGAL_CONTACT_EMAIL and LEGAL_PRIVACY_EMAIL, because art. 13 GDPR requires them.',
         'This notice describes what the software does with the data by design, so that the operator of the deployment can fulfil their own obligations. It is not an agreement between you and the DOMINUS authors.',
       ],
     });
@@ -679,13 +793,26 @@ function privacyPolicy(
     sections.push({
       heading: '5. Security',
       paragraphs: [
-        'Data in transit is protected with TLS when the deployment is served over HTTPS. Provider credentials are encrypted at rest. In the PostgreSQL topology, tenants are isolated with row-level security policies in the database in addition to the application filters.',
+        'Data in transit is protected with TLS when the deployment is served over HTTPS. Provider credentials are encrypted with AES-256-GCM under a master key held by the operator outside the database. In the PostgreSQL topology, tenants are isolated with row-level security policies in the database in addition to the application filters.',
       ],
     });
     sections.push({
       heading: '6. Your rights',
       paragraphs: [
         'Because the data never leaves your deployment, you exercise your rights directly against the operator of the deployment, with the export and deletion functions the API exposes for that purpose.',
+      ],
+    });
+    sections.push({
+      heading: '7. What this deployment must configure',
+      paragraphs: [
+        'The software cannot know who installed it. Before exposing this deployment to anyone other than yourself, the operator must publish the controller identity (LEGAL_ENTITY_NAME, LEGAL_REGISTERED_ADDRESS, LEGAL_CONTACT_EMAIL, LEGAL_PRIVACY_EMAIL), set the retention periods for server logs and backups, and name any third-party SMTP or hosting provider that receives personal data.',
+        'The default retention schedules are 90 days for the automation audit trail, 90 days for published public scores and 180 days for usage records; the operator may shorten them, and must document any change in the deployment notes.',
+      ],
+    });
+    sections.push({
+      heading: '8. Source code',
+      paragraphs: [
+        `DOMINUS is free software under the GNU Affero General Public License v3. The source of the version this deployment is running is published at ${sourceCodeUrl}. If you modify it and run it as a network service, section 13 of that licence requires you to offer the corresponding source of your modifications to the users of that service.`,
       ],
     });
   }
@@ -710,13 +837,17 @@ function privacyPolicy(
 export function buildLegalContent(options: LegalContentOptions): LegalContent {
   const { cloudMode } = options;
   const paidService = cloudMode && options.paidService === true;
-  const identity = cloudMode ? options.identity : SELF_HOSTED_IDENTITY;
+  // A self-hosted deployment may publish its operator's identity. When it has
+  // not, the documents say so instead of printing a generic placeholder that
+  // looks like a filled field.
+  const identity = cloudMode ? options.identity : mergeCommunityIdentity(options.identity);
   const status: LegalServiceStatus = !cloudMode
     ? 'community'
     : paidService
       ? 'cloud_paid'
       : 'cloud_waitlist';
   const updatedAt = options.updatedAt ?? LEGAL_DOCUMENTS_UPDATED_AT;
+  const sourceCodeUrl = options.sourceCodeUrl ?? DEFAULT_SOURCE_CODE_URL;
 
   return {
     mode: cloudMode ? 'cloud' : 'community',
@@ -725,11 +856,53 @@ export function buildLegalContent(options: LegalContentOptions): LegalContent {
     updatedAt,
     ...(options.waitlistUrl ? { waitlistUrl: options.waitlistUrl } : {}),
     securityContactAvailable: options.securityContactAvailable === true,
+    sourceCodeUrl,
+    identityPublished: cloudMode ? hasCloudIdentity(identity) : hasPublishedIdentity(identity),
     identity,
     documents: [
-      legalNotice(identity, cloudMode, paidService, options.waitlistUrl),
-      termsOfService(identity, cloudMode, paidService),
-      privacyPolicy(identity, cloudMode, paidService, options.waitlistUrl),
+      legalNotice(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
+      termsOfService(identity, cloudMode, paidService, sourceCodeUrl),
+      privacyPolicy(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
     ],
   };
+}
+
+/**
+ * The community identity: the configured values where they exist, the
+ * built-in defaults where they do not.
+ *
+ * Only non-empty strings override a default: an environment variable set to
+ * the empty string is "not configured", not a value.
+ */
+function mergeCommunityIdentity(configured: LegalIdentity): LegalIdentity {
+  const value = (candidate: string, fallback: string): string =>
+    candidate.trim() !== '' ? candidate : fallback;
+  return {
+    entityName: value(configured.entityName, SELF_HOSTED_IDENTITY.entityName),
+    tradingName: value(configured.tradingName, SELF_HOSTED_IDENTITY.tradingName),
+    entityKind: configured.entityKind,
+    legalForm: value(configured.legalForm, SELF_HOSTED_IDENTITY.legalForm),
+    shareCapital: value(configured.shareCapital, SELF_HOSTED_IDENTITY.shareCapital),
+    registeredAddress: value(configured.registeredAddress, SELF_HOSTED_IDENTITY.registeredAddress),
+    vatId: value(configured.vatId, SELF_HOSTED_IDENTITY.vatId),
+    reaNumber: value(configured.reaNumber, SELF_HOSTED_IDENTITY.reaNumber),
+    registroImprese: value(configured.registroImprese, SELF_HOSTED_IDENTITY.registroImprese),
+    pec: value(configured.pec, SELF_HOSTED_IDENTITY.pec),
+    contactEmail: value(configured.contactEmail, SELF_HOSTED_IDENTITY.contactEmail),
+    privacyEmail: value(configured.privacyEmail, SELF_HOSTED_IDENTITY.privacyEmail),
+    supervisoryAuthority: value(
+      configured.supervisoryAuthority,
+      SELF_HOSTED_IDENTITY.supervisoryAuthority,
+    ),
+    vatRegime: configured.vatRegime,
+  };
+}
+
+/** True when the Cloud identity is complete enough to name a controller. */
+function hasCloudIdentity(identity: LegalIdentity): boolean {
+  return (
+    identity.entityName.trim() !== '' &&
+    identity.registeredAddress.trim() !== '' &&
+    (identity.privacyEmail.trim() !== '' || identity.contactEmail.trim() !== '')
+  );
 }

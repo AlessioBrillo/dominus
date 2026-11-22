@@ -40,14 +40,16 @@ export function renderForSalePage(sitePage: DomainSite, siteUrl?: string): strin
         '<div class="grid">',
         `<div class="stat"><div class="stat-label">Expected Value</div><div class="stat-value">€${score.expectedValue.toFixed(0)}</div></div>`,
         `<div class="stat"><div class="stat-label">Confidence</div><div class="stat-value">${(score.confidence * 100).toFixed(0)}%</div></div>`,
-        `<div class="stat"><div class="stat-label">Appraised List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
+        `<div class="stat"><div class="stat-label">Suggested List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
         '</div>',
+        '<p class="disclaimer">Automated estimate, not an appraisal and not a valuation by a professional.</p>',
       ].join('\n')
     : '';
 
   const contactHtml = sitePage.contact
-    ? `<p><a class="cta" href="mailto:${escapeHtml(sitePage.contact)}?subject=${encodeURIComponent(`Offer for ${sitePage.domain}`)}">Make an offer</a></p>`
-    : `<p><a href="${escapeHtml(origin)}/public/domain/${escapeHtml(sitePage.domain)}">View the appraisal for ${escapeHtml(sitePage.domain)}</a></p>`;
+    ? `<p><a class="cta" href="mailto:${escapeHtml(sitePage.contact)}?subject=${encodeURIComponent(`Offer for ${sitePage.domain}`)}">Make an offer</a></p>` +
+      '<p class="disclaimer">Your name, email address and message are used only to answer this offer and are kept for 12 months. The seller receives them. See the <a href="/privacy">Privacy Notice</a>.</p>'
+    : `<p><a href="${escapeHtml(origin)}/public/domain/${escapeHtml(sitePage.domain)}">View the automated estimate for ${escapeHtml(sitePage.domain)}</a></p>`;
 
   const bodyContent = [
     '<div class="card">',

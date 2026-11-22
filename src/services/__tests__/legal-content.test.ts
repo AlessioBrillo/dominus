@@ -9,7 +9,10 @@ import {
 
 const IDENTITY = {
   entityName: 'Example Operator SRL',
+  tradingName: 'DOMINUS',
   entityKind: 'company' as const,
+  legalForm: 'SRL',
+  shareCapital: 'EUR 10,000.00 fully paid',
   registeredAddress: 'Via Roma 1, 00100 Roma (RM), Italy',
   vatId: 'IT12345678901',
   reaNumber: 'RM-123456',
@@ -106,16 +109,63 @@ describe('buildLegalContent', () => {
     expect(text).toContain('names the provider');
   });
 
-  it('does not publish the operator identity in the community edition', () => {
+  it('publishes the operator identity in a self-hosted deployment configured with one', () => {
     const content = buildLegalContent({ identity: IDENTITY, cloudMode: false });
     expect(content.mode).toBe('community');
     expect(content.status).toBe('community');
-    const text = JSON.stringify(content);
-    expect(text).not.toContain(IDENTITY.vatId);
-    expect(text).not.toContain(IDENTITY.reaNumber);
-    // The Cloud commercial terms do not apply to a self-hosted deployment.
+    expect(content.identity.entityName).toBe(IDENTITY.entityName);
+    const text = JSON.stringify(content.documents);
+    // The deployer is the controller: the documents name them, not the DOMINUS
+    // authors. No Cloud commercial term leaks into a self-hosted deployment.
+    expect(text).toContain(IDENTITY.entityName);
+    expect(text).not.toContain('Not applicable');
     expect(text).not.toContain('reverse charge');
     expect(text).not.toContain('right of withdrawal');
+  });
+
+  it('says so instead of inventing a controller when community identity is unset', () => {
+    const content = buildLegalContent({
+      identity: identityFromConfig({}),
+      cloudMode: false,
+    });
+    expect(content.identityPublished).toBe(false);
+    const text = JSON.stringify(content.documents);
+    expect(text).not.toContain('Not applicable');
+    expect(text).toContain('LEGAL_ENTITY_NAME');
+    expect(text).toContain('has not published the identity');
+  });
+
+  it('offers the AGPL source on every document', () => {
+    const content = buildLegalContent({
+      identity: IDENTITY,
+      cloudMode: true,
+      sourceCodeUrl: 'https://example.org/source',
+    });
+    expect(content.sourceCodeUrl).toBe('https://example.org/source');
+    for (const doc of content.documents) {
+      expect(JSON.stringify(doc)).toContain('https://example.org/source');
+    }
+  });
+
+  it('does not promise a refund withheld until the service is returned', () => {
+    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true, paidService: true });
+    const text = JSON.stringify(content.documents);
+    expect(text).not.toContain('withhold the refund');
+    expect(text).toContain('there is nothing to return');
+  });
+
+  it('makes the DPA mandatory for a business customer', () => {
+    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true, paidService: true });
+    const text = JSON.stringify(content.documents);
+    expect(text).not.toContain('may agree a data processing agreement');
+    expect(text).toContain('art. 28 GDPR applies and is incorporated into these terms');
+  });
+
+  it('does not claim the Community and Cloud have the same feature set', () => {
+    const content = buildLegalContent({ identity: IDENTITY, cloudMode: true, paidService: true });
+    const text = JSON.stringify(content.documents);
+    expect(text).not.toContain('same feature set');
+    expect(text).toContain('managed edition adds multi-tenancy, team seats, single sign-on');
   });
 
   it('stamps every document with the same update date', () => {
@@ -163,6 +213,8 @@ describe('missingIdentityFields', () => {
     const identity = identityFromConfig({
       LEGAL_ENTITY_NAME: IDENTITY.entityName,
       LEGAL_ENTITY_KIND: IDENTITY.entityKind,
+      LEGAL_LEGAL_FORM: IDENTITY.legalForm,
+      LEGAL_SHARE_CAPITAL: IDENTITY.shareCapital,
       LEGAL_REGISTERED_ADDRESS: IDENTITY.registeredAddress,
       LEGAL_VAT_ID: IDENTITY.vatId,
       LEGAL_REA_NUMBER: IDENTITY.reaNumber,
@@ -189,6 +241,8 @@ describe('missingIdentityFields', () => {
     const identity = identityFromConfig({
       LEGAL_ENTITY_NAME: IDENTITY.entityName,
       LEGAL_ENTITY_KIND: IDENTITY.entityKind,
+      LEGAL_LEGAL_FORM: IDENTITY.legalForm,
+      LEGAL_SHARE_CAPITAL: IDENTITY.shareCapital,
       LEGAL_REGISTERED_ADDRESS: IDENTITY.registeredAddress,
       LEGAL_VAT_ID: 'IT00000000000',
       LEGAL_CONTACT_EMAIL: IDENTITY.contactEmail,
