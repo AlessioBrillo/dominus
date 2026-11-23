@@ -40,7 +40,7 @@ flowchart LR
         DBI["db/provider/<br/>DatabaseProvider interface"]
         SQLITE["db/provider/sqlite-adapter.ts"]
         PG["db/provider/postgres-adapter.ts"]
-        REPO["db/repositories/<br/>37 repositories"]
+        REPO["db/repositories/<br/>39 repositories"]
         MIG["db/migrations/<br/>versioned DDL"]
     end
 

@@ -9,6 +9,7 @@ function createTestDb(): SqliteProvider {
   const provider = new SqliteProvider(new Database(':memory:'));
   provider.rawDb.exec(`
     CREATE TABLE IF NOT EXISTS domain_sites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       domain TEXT NOT NULL,
       headline TEXT NOT NULL,
       summary TEXT NOT NULL,
@@ -18,6 +19,8 @@ function createTestDb(): SqliteProvider {
       tenant_id TEXT NOT NULL DEFAULT 'default',
       published_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ownership_verified_at TEXT,
+      ownership_token TEXT,
       UNIQUE(domain, tenant_id)
     );
     CREATE INDEX IF NOT EXISTS idx_domain_sites_published_at ON domain_sites(published_at);
@@ -95,5 +98,47 @@ describe('DomainSiteRepository', () => {
 
     // The public surface still exposes exactly one page per domain name.
     expect(await repo.listForSitemap()).toHaveLength(1);
+  });
+
+  it('marks ownership verified only for the matching DNS token', async () => {
+    await runWithTenant('tenant-a', () =>
+      repo.upsert({
+        domain: 'vintagecoffee.com',
+        headline: 'For sale',
+        summary: 'A domain',
+        askingPriceEur: 1000,
+        scoreJson: '{}',
+        contact: null,
+      }),
+    );
+    await repo.setOwnershipToken('vintagecoffee.com', 'expected-hash');
+    expect(await repo.ownershipTokenHash('vintagecoffee.com')).toBe('expected-hash');
+    expect(await repo.confirmOwnership('vintagecoffee.com', 'wrong-hash')).toBe(false);
+    expect(await repo.confirmOwnership('vintagecoffee.com', 'expected-hash')).toBe(true);
+    expect(
+      (await repo.findByDomainPublic('vintagecoffee.com'))?.ownershipVerifiedAt,
+    ).not.toBeNull();
+    expect(await repo.ownershipTokenHash('vintagecoffee.com')).toBeNull();
+  });
+
+  it("does not let a token request downgrade another tenant's verified page", async () => {
+    for (const tenant of ['tenant-a', 'tenant-b']) {
+      await runWithTenant(tenant, () =>
+        repo.upsert({
+          domain: 'shared.com',
+          headline: 'For sale',
+          summary: 'A domain',
+          askingPriceEur: 1000,
+          scoreJson: '{}',
+          contact: null,
+        }),
+      );
+    }
+    await repo.setOwnershipToken('shared.com', 'hash-a');
+    expect(await repo.confirmOwnership('shared.com', 'hash-a')).toBe(true);
+
+    await repo.setOwnershipToken('shared.com', 'hash-b');
+    expect(await repo.ownershipTokenHash('shared.com')).toBeNull();
+    expect((await repo.findByDomainPublic('shared.com'))?.ownershipVerifiedAt).not.toBeNull();
   });
 });

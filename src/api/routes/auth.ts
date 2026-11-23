@@ -10,6 +10,7 @@ import {
 } from '../../services/email-verification-service.js';
 import type { EmailVerificationService } from '../../services/email-verification-service.js';
 import { getLogger } from '../../logger.js';
+import { getContractService } from '../../services/contract-service.js';
 
 const logger = getLogger();
 
@@ -30,6 +31,17 @@ const registerSchema = z.object({
   // workspace whose owner cannot be reached cannot be verified, recovered
   // or claimed through single sign-on.
   email: z.string().email().max(254),
+  // The acceptance is recorded server-side by this route: a separate public
+  // "I accept" endpoint would let a caller choose whose acceptance it was.
+  contractAcceptance: z
+    .object({
+      documentVersion: z.string().min(1).max(64),
+      documentHashes: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
+      termsAccepted: z.boolean(),
+      privacyAccepted: z.boolean(),
+      ageConfirmed: z.boolean(),
+    })
+    .optional(),
 });
 
 const tokenSchema = z.object({
@@ -131,6 +143,48 @@ export function createAuthRouter(
 
         const email = parsed.data.email.trim().toLowerCase();
 
+        // The checkbox in the SPA is not evidence. When the ledger is
+        // configured (Cloud deployments and the local gate), signup without
+        // a matching acceptance of the current text is refused.
+        const contractService = getContractService();
+        const acceptance = parsed.data.contractAcceptance;
+        if (
+          contractService &&
+          (!acceptance ||
+            !acceptance.termsAccepted ||
+            !acceptance.privacyAccepted ||
+            !acceptance.ageConfirmed)
+        ) {
+          res.status(428).json({
+            error: {
+              code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+              message: 'Accept the Terms of Service and the Privacy Notice before continuing',
+            },
+          });
+          return;
+        }
+        // Validate the document reference BEFORE provisioning: a stale hash
+        // must not leave an orphan workspace behind when we return 428.
+        if (contractService && acceptance) {
+          try {
+            contractService.validateReference(
+              {
+                version: acceptance.documentVersion,
+                documentHashes: acceptance.documentHashes,
+              },
+              ['terms', 'privacy'],
+            );
+          } catch {
+            res.status(428).json({
+              error: {
+                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+                message: 'Accept the current version of the Terms of Service before continuing',
+              },
+            });
+            return;
+          }
+        }
+
         // Fail closed BEFORE anything is written: a workspace whose
         // verification link can never be delivered is a workspace nobody can
         // use, and the rows would sit there forever.
@@ -149,6 +203,30 @@ export function createAuthRouter(
           name: parsed.data.name,
           email,
         });
+
+        if (contractService && acceptance) {
+          try {
+            await contractService.recordSignup({
+              subject: email,
+              tenantId,
+              ref: {
+                version: acceptance.documentVersion,
+                documentHashes: acceptance.documentHashes,
+              },
+              termsAccepted: acceptance.termsAccepted,
+              privacyAccepted: acceptance.privacyAccepted,
+              ageConfirmed: acceptance.ageConfirmed,
+            });
+          } catch {
+            res.status(428).json({
+              error: {
+                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+                message: 'Accept the current version of the Terms of Service before continuing',
+              },
+            });
+            return;
+          }
+        }
 
         if (signupVerificationMode === 'optional') {
           // The key is issued right away, but the seat is NOT verified: it

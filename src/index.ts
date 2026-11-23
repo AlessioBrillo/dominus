@@ -16,7 +16,16 @@ import { buildIdentityRateLimitKey } from './api/middleware/rate-limit-identity.
 import { sessionRoleFor } from './services/identity-tenant-resolver.js';
 import { isStripeSignatureError } from './services/billing-service.js';
 import { buildLegalContent } from './services/legal-content.js';
-import { identityFromConfig, missingIdentityFields } from './services/legal-identity.js';
+import {
+  identityFromConfig,
+  missingIdentityFields,
+  validateIdentity,
+} from './services/legal-identity.js';
+import { ContractService, setContractService } from './services/contract-service.js';
+import { ContractAcceptanceRepository } from './db/repositories/contract-acceptance-repository.js';
+import { WaitlistService } from './services/waitlist-service.js';
+import { WaitlistSignupRepository } from './db/repositories/waitlist-signup-repository.js';
+import { createMailer } from './providers/email/index.js';
 import { TenantDataService } from './services/tenant-data-service.js';
 import { setLegalFooterContext } from './api/views/legal-footer.js';
 import { createTenantStatusMiddleware } from './api/middleware/tenant-status.js';
@@ -126,7 +135,15 @@ async function main(): Promise<void> {
     securityContactAvailable: securityContact !== undefined,
     sourceCodeUrl: config.SOURCE_CODE_URL,
     ...(config.CLOUD_WAITLIST_URL ? { waitlistUrl: config.CLOUD_WAITLIST_URL } : {}),
+    waitlistAvailable: deps.verificationService.canDeliver,
   });
+  setContractService(
+    new ContractService(new ContractAcceptanceRepository(deps.writeProvider), {
+      version: legalContent.version,
+      documentHashes: legalContent.documentHashes,
+    }),
+  );
+
   setLegalFooterContext({
     mode: legalContent.mode,
     entityName: legalContent.identity.entityName,
@@ -143,6 +160,14 @@ async function main(): Promise<void> {
     sourceCodeUrl: legalContent.sourceCodeUrl,
     identityPublished: legalContent.identityPublished,
   });
+  const identityErrors = validateIdentity(identityFromConfig(config));
+  if (identityErrors.length > 0) {
+    logger.fatal(
+      { identityErrors },
+      'FATAL: the configured operator identity is legally impossible. Fix the LEGAL_* variables.',
+    );
+    process.exit(1);
+  }
   if (config.CLOUD_PAID_ENABLED) {
     // Selling a managed service is the point at which the identity stops
     // being a documentation detail. A missing VAT number, REA or PEC means
@@ -329,8 +354,13 @@ async function main(): Promise<void> {
     createPublicRouter(deps.anonScoringService, deps.redisClient, {
       ...publicAppUrlOption(config),
       domainSiteRepo: deps.domainSiteRepo,
-      listingManager: deps.listingManager,
       legalContent,
+      waitlistService: new WaitlistService(
+        new WaitlistSignupRepository(deps.writeProvider),
+        createMailer(config),
+        config.PUBLIC_APP_URL,
+        legalContent.identity.privacyEmail,
+      ),
       ...(config.INDEXNOW_KEY !== undefined ? { indexNowKey: config.INDEXNOW_KEY } : {}),
     }),
   );

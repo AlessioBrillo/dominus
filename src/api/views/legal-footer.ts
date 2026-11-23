@@ -130,7 +130,8 @@ export function legalFooterHtml(): string {
     '<a href="/public/data-sources">Data sources</a> &middot; ',
     '<a href="/public/third-party-notices">Third-party notices</a> &middot; ',
     '<a href="/public/dpa">Data processing agreement</a> &middot; ',
-    '<a href="/public/license">License</a>',
+    '<a href="/public/license">License</a> &middot; ',
+    '<a href="/accessibility">Accessibility</a>',
     '</p>',
     '</footer>',
   ].join('');

@@ -9,6 +9,7 @@ import {
   cancelSubscription,
   type BillingInterval,
   type BillingPlan,
+  type ContractAcceptanceRef,
 } from '@/api/billing';
 import { queryKeys } from './query-keys';
 
@@ -27,8 +28,22 @@ export function useCreateCheckoutSession() {
       interval: BillingInterval;
       successUrl: string;
       cancelUrl: string;
-    }) => createCheckoutSession(params.plan, params.interval, params.successUrl, params.cancelUrl),
-    onError: () => toast.error('Failed to create checkout session'),
+      contract?: ContractAcceptanceRef;
+    }) =>
+      createCheckoutSession(
+        params.plan,
+        params.interval,
+        params.successUrl,
+        params.cancelUrl,
+        ...(params.contract ? [params.contract] : []),
+      ),
+    onError: (err: unknown) => {
+      toast.error(
+        err instanceof Error && err.message.includes('CONTRACT_ACCEPTANCE_REQUIRED')
+          ? 'Accept the terms before continuing'
+          : 'Failed to create checkout session',
+      );
+    },
   });
 }
 
@@ -47,8 +62,16 @@ export function useCreatePortalSession() {
 export function useChangeSubscription() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (params: { plan: BillingPlan; interval: BillingInterval }) =>
-      changeSubscription(params.plan, params.interval),
+    mutationFn: (params: {
+      plan: BillingPlan;
+      interval: BillingInterval;
+      contract?: ContractAcceptanceRef;
+    }) =>
+      changeSubscription(
+        params.plan,
+        params.interval,
+        ...(params.contract ? [params.contract] : []),
+      ),
     onSuccess: () => {
       toast.success('The plan was changed. The new limits apply as soon as it is confirmed.');
       void queryClient.invalidateQueries({ queryKey: queryKeys.billing.subscription() });

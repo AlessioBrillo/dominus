@@ -38,9 +38,11 @@ const STRIPE_IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
  * request, pays only the proportional part of the service supplied before the
  * withdrawal (art. 57(3) of the Consumer Code).
  *
- * The checkbox is the contract acceptance and the request for immediate
- * performance. A separate, unticked consent must be added at checkout before
- * the paid service opens; the message alone is not a second consent.
+ * The first-party contract step in the app records the acceptance, the
+ * immediate-performance request and (for a business) the art. 1341 c.c.
+ * approval in `contract_acceptances` before Stripe Checkout is opened. This
+ * message is the matching disclosure Stripe shows next to its own checkbox;
+ * the ledger is the authoritative evidence, not this text.
  */
 export const CHECKOUT_TERMS_CONSENT_MESSAGE =
   'By checking this box you accept the Terms of Service and ask us to start the service ' +

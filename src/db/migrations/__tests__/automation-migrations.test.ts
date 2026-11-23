@@ -16,11 +16,16 @@ describe('Automation migrations (0061 + 0062)', () => {
   it('create the automation tables and support the repository contracts', async () => {
     const db = new Database(':memory:');
     const migrations = getMigrations().filter((m) =>
-      ['0061_create_automation_tables', '0062_create_domain_sites'].includes(m.name),
+      [
+        '0061_create_automation_tables',
+        '0062_create_domain_sites',
+        '0073_add_site_ownership_verification',
+      ].includes(m.name),
     );
     expect(migrations.map((m) => m.name)).toEqual([
       '0061_create_automation_tables',
       '0062_create_domain_sites',
+      '0073_add_site_ownership_verification',
     ]);
 
     for (const migration of migrations) {

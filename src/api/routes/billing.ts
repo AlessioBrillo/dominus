@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { BillingInterval, BillingService } from '../../services/billing-service.js';
+import { ContractAcceptanceError, getContractService } from '../../services/contract-service.js';
 import type { Config } from '../../config.js';
 import type { SubscriptionPlan } from '../../types/subscription.js';
 import { isAllowedAppUrl } from '../route-utils.js';
@@ -14,6 +15,18 @@ const checkoutSchema = z.object({
   cancelUrl: z.string().url(),
   // Optional: custom price ID for enterprise custom pricing (admin use)
   customPriceId: z.string().optional(),
+  // The acceptance of a specific version of the terms, recorded first-party.
+  contract: z
+    .object({
+      documentVersion: z.string().min(1).max(64),
+      documentHashes: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
+      immediatePerformance: z.boolean(),
+      businessCustomer: z.boolean().default(false),
+      art1341Approved: z.boolean().default(false),
+      dpaAccepted: z.boolean().default(false),
+      billingCode: z.string().max(64).optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -29,6 +42,17 @@ const subscriptionSchema = z.discriminatedUnion('action', [
     action: z.literal('change'),
     plan: z.enum(['pro', 'team', 'enterprise']),
     interval: z.enum(['month', 'year']),
+    contract: z
+      .object({
+        documentVersion: z.string().min(1).max(64),
+        documentHashes: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
+        immediatePerformance: z.boolean(),
+        businessCustomer: z.boolean().default(false),
+        art1341Approved: z.boolean().default(false),
+        dpaAccepted: z.boolean().default(false),
+        billingCode: z.string().max(64).optional(),
+      })
+      .optional(),
   }),
   z.object({
     action: z.literal('cancel'),
@@ -113,6 +137,57 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       }
 
       const tenantId = req.tenantId ?? 'default';
+
+      // The contract is formed here, not in Stripe. The authenticated tenant
+      // is the accepting subject; the client cannot choose whose acceptance
+      // this is, and the document version/hash must match what we published.
+      const acceptance = parsed.data.contract;
+      const contractService = getContractService();
+      // index.ts always configures the ledger; unit tests mounting the router
+      // alone have no ledger and skip the check (asserted by the guardrail).
+      if (config.CLOUD_PAID_ENABLED && contractService) {
+        if (!acceptance) {
+          res.status(428).json({
+            error: {
+              code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+              message: 'Accept the terms and request immediate performance before checkout',
+            },
+          });
+          return;
+        }
+        const ref = {
+          version: acceptance.documentVersion,
+          documentHashes: acceptance.documentHashes,
+        };
+        try {
+          await contractService.recordCheckout({
+            subject: req.auth?.userId ?? tenantId,
+            tenantId,
+            ref,
+            immediatePerformance: acceptance.immediatePerformance,
+            businessCustomer: acceptance.businessCustomer,
+            art1341Approved: acceptance.art1341Approved,
+            dpaAccepted: acceptance.dpaAccepted,
+            ...(acceptance.billingCode ? { billingCode: acceptance.billingCode } : {}),
+          });
+          await contractService.requireCheckout({
+            tenantId,
+            ref,
+            needsArt1341: acceptance.businessCustomer,
+          });
+        } catch (err) {
+          if (err instanceof ContractAcceptanceError) {
+            res.status(428).json({
+              error: {
+                code: err.code,
+                message: err.message,
+              },
+            });
+            return;
+          }
+          throw err;
+        }
+      }
 
       // When PUBLIC_APP_URL is configured, redirect the payer back to our own
       // origin - never to an attacker-controlled URL. The comparison is on
@@ -239,6 +314,48 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       }
 
       if (parsed.data.action === 'change') {
+        // A plan change is a new contract act: the terms currently in force
+        // must have been accepted before the subscription is mutated.
+        const contractService = getContractService();
+        if (config.CLOUD_PAID_ENABLED && contractService && !parsed.data.contract) {
+          res.status(428).json({
+            error: {
+              code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+              message: 'Accept the current terms before changing the plan',
+            },
+          });
+          return;
+        }
+        if (config.CLOUD_PAID_ENABLED && contractService && parsed.data.contract) {
+          try {
+            const ref = {
+              version: parsed.data.contract.documentVersion,
+              documentHashes: parsed.data.contract.documentHashes,
+            };
+            const c = parsed.data.contract;
+            await contractService.recordCheckout({
+              subject: req.auth?.userId ?? tenantId,
+              tenantId,
+              ref,
+              immediatePerformance: c.immediatePerformance,
+              businessCustomer: c.businessCustomer,
+              art1341Approved: c.art1341Approved,
+              dpaAccepted: c.dpaAccepted,
+              ...(c.billingCode ? { billingCode: c.billingCode } : {}),
+            });
+            await contractService.requireCheckout({
+              tenantId,
+              ref,
+              needsArt1341: c.businessCustomer,
+            });
+          } catch (err) {
+            if (err instanceof ContractAcceptanceError) {
+              res.status(428).json({ error: { code: err.code, message: err.message } });
+              return;
+            }
+            throw err;
+          }
+        }
         const changed = await billingService.changeSubscription(
           tenantId,
           parsed.data.plan as SubscriptionPlan,

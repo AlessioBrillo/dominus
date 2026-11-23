@@ -12,7 +12,7 @@ The decision behind this design is [ADR-0090](../adr/0090-legal-surface-and-laun
 | Document | Route | Content |
 |---|---|---|
 | Legal notice | `/legal-notice` | The operator's identity and the commercial information art. 7 of D.Lgs. 70/2003 requires: name and legal form, registered address, VAT ID, business register number and office, certified email, contacts. |
-| Terms of service | `/terms` | The contract: what the service is, acceptable use, the trademark gate, automated actions, payments and taxes, the right of withdrawal, liability, governing law. While the hosted edition is a waitlist, the paid clauses are explicitly dormant. |
+| Terms of service | `/terms` | The contract that applies when paid mode is enabled: what the service is, acceptable use, the trademark gate, automated actions, payments and taxes, the right of withdrawal (14 days, pro-rata under art. 57(3), no art. 59(1)(o) waiver), liability, governing law. While the hosted edition is a waitlist, the paid clauses are explicitly dormant and no paid terms are in force. |
 | Privacy notice | `/privacy` | The controller, the data and the legal bases, the sub-processors and the transfers, cookies and browser storage, the retention table, the data-subject rights, the security measures. |
 | The whole set, as data | `GET /public/legal` | The same content, structured, with `mode`, `status`, `version`, `updatedAt`, `sourceCodeUrl`, `identityPublished` and the identity. Unauthenticated, so it is readable by anyone and by the crawlers. |
 | Data sources | `/public/data-sources` | The sources the estimates are computed from, their terms and their attribution. The legal notice promises this page; it exists so the promise is not empty. |
@@ -26,11 +26,20 @@ same links in the application footer. Immediate reachability from every page
 is the standard art. 7 applies; a link buried in a terms page is not that.
 
 A fourth document, the data processing agreement (art. 28 GDPR) for business
-customers, is referenced by the paid terms but is **not published as a served
-page yet**. The paid terms link the versioned template in the public
-repository, which is a real, dated document. A signable copy with annexes and
-signature blocks is a precondition of the paid launch, not of the community
-edition: it must be complete before `CLOUD_PAID_ENABLED` is turned on.
+customers, is incorporated into the paid terms. It is generated at runtime by
+`src/services/dpa-content.ts` from the configured operator identity and the
+published sub-processor list, and served as HTML at `/public/dpa`. The route
+returns 404 when the identity is incomplete: a template with blank fields is
+never published as an agreement. The signed DPA and its annexes remain a
+precondition of the paid launch, not of the community edition: a lawyer must
+review the generated text before `CLOUD_PAID_ENABLED` is turned on.
+
+Contract acceptance is recorded first-party in `contract_acceptances`: the
+terms and privacy notice at signup, the terms and the request for immediate
+performance at checkout, and the specific art. 1341 c.c. approval for a
+business customer. Each record stores the document version and a SHA-256 of
+the published text. Stripe Checkout's own checkbox is only the matching
+disclosure; the ledger is the evidence.
 
 The AGPL section 13 offer is in every document and in both footers: the
 `SOURCE_CODE_URL` address points at the corresponding source of the running
@@ -75,7 +84,7 @@ deployment (see `.env.example`):
 | `LEGAL_REGISTRO_IMPRESE` | Register office, e.g. "Registro Imprese di Roma". Business entities only. |
 | `LEGAL_REA_NUMBER` | Business register number. Business entities only. |
 | `LEGAL_PEC` | Certified electronic address. Business entities only. |
-| `LEGAL_VAT_REGIME` | `ordinary`, `forfettario` or `none`; changes how prices are described. |
+| `LEGAL_VAT_REGIME` | `ordinary`, `forfettario` or `none`; changes how prices are described. An Italian S.r.l. uses `ordinary` (it cannot use `forfettario`). |
 | `LEGAL_CONTACT_EMAIL` | General contact address. |
 | `LEGAL_PRIVACY_EMAIL` | Address for data-subject requests. |
 | `LEGAL_SUPERVISORY_AUTHORITY` | Supervisory authority; defaults to the Italian Garante. |
@@ -136,9 +145,21 @@ signable data processing agreement with annexes, the transfer impact
 assessments for the US sub-processors, the name of the SMTP provider, and a
 dated backtest before any comparative performance claim is republished.
 
-Two gaps are not closed by this release: the waitlist is still an external
-destination configured with `CLOUD_WAITLIST_URL` rather than a first-party
-form with stored consent proof, and the for-sale pages still rely on the
-portfolio entry as a claim of ownership rather than a DNS verification. The
-legal text describes the intended consent and ownership controls; those
-controls must exist before the pages are promoted.
+Both previously open presentation gaps are closed. When `CLOUD_WAITLIST_URL`
+is not configured and a mailer exists, the landing page runs a first-party
+waitlist: the address, the consent version, the acceptance time and the
+double-opt-in confirmation are stored in `waitlist_signups`. When an external
+URL is configured, that form remains in use and the notice says so. For-sale
+pages now require DNS TXT proof of control: a token is issued by
+`POST /public/for-sale/:domain/ownership/start`, the seller publishes
+`_dominus.<domain>` with the value `dominus-verify=<token>`, and
+`POST .../verify` checks the record. A structured `Offer` is emitted only
+after that verification; until then the page states that ownership has not
+been verified.
+
+An Italian courtesy version of the legal notice and the privacy notice is a
+recommended open item, not implemented: art. 7 D.Lgs. 70/2003 asks for clear
+information for Italian consumers and art. 12 GDPR for clear and plain
+language. The binding text is English only; while that stays the case, a court
+may require an Italian version of the consumer disclosures. A lawyer must
+confirm before the paid launch (ADR-0090, ADR-0108).

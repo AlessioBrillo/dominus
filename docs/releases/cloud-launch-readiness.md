@@ -159,10 +159,11 @@ rule is art. 7 of D.Lgs. 70/2003, not the German Impressum.
 
 | Document                             | State                                                                                                                                                                    |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; **the operator identity is still a placeholder**                                                                                           |
+| Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; the operator identity is configuration, never a placeholder, and paid mode refuses to boot while it is incomplete                        |
 | Terms of Service                     | published at `/terms`; withdrawal (art. 52/59 Consumer Code) and reverse charge included                                                                                 |
 | Privacy Notice                       | published at `/privacy`; sub-processors, transfers and retention included                                                                                                |
-| DPA / AVV (GDPR art. 28)             | **template published, not executed** — `docs/legal/data-processing-agreement.md`; the operator's fields and the review with the accountant and the lawyer are still open |
+| DPA / AVV (GDPR art. 28)             | generated at `/public/dpa` from the configured S.r.l. identity and the published sub-processor list; 404 while the identity is incomplete; lawyer review still open      |
+| Contract acceptance ledger           | `contract_acceptances` stores signup, checkout and art. 1341 c.c. acceptances with document version and content hash                                                      |
 | Cookie/consent notice                | folded into the privacy notice: no third-party analytics, no tracking cookies, so no consent is required                                                                 |
 
 The documents are server-owned structured data (`src/services/legal-content.ts`),
@@ -175,16 +176,29 @@ stop carrying the footer.
 **What is still missing:** the operator identity (`LEGAL_ENTITY_NAME`,
 `LEGAL_REGISTERED_ADDRESS`, `LEGAL_VAT_ID`, `LEGAL_CONTACT_EMAIL`,
 `LEGAL_PRIVACY_EMAIL`, and for a company `LEGAL_REA_NUMBER` and `LEGAL_PEC`).
-Until those are set, the notice publishes a placeholder — which is why
-`npm run launch:check` refuses to declare a deployment launchable while they
-are missing.
+Until those are set, the notice publishes a description of the deployment and
+names the variables to set instead of printing a fictitious identity.
+`npm run launch:check --paid` refuses to declare a deployment launchable while
+they are missing, and paid mode refuses to boot (ADR-0108).
+
+**Launch assumption:** the operator will be an Italian S.r.l.
+(`LEGAL_ENTITY_KIND=company`, `LEGAL_LEGAL_FORM` set to the registered form).
+Its VAT regime is therefore `ordinary`: an S.r.l. cannot use the Italian
+forfettario regime. Cross-border B2C sales within the EU are possible with OSS
+and B2B EU sales use reverse charge. These are the assumptions used to draft
+the text, not a confirmed fiscal position; the accountant must sign them off.
 
 The documents were drafted **without a formal legal review**, and that is a
-recorded decision (ADR-0090), not an omission. A review remains open work.
+recorded decision (ADR-0090), not an omission. A review remains open work, as
+does the question whether an Italian courtesy version of the legal notice and
+the privacy notice is needed for Italian consumers (ADR-0108).
 
 `src/services/billing-service.ts` enables Stripe Tax (`automatic_tax`) and
-collects the billing address, the VAT ID and the art. 59(1)(o) withdrawal
-consent (ADR-0090, v1.3.0). The plan granted on a completed checkout is
+collects the billing address and the VAT ID. The paid terms keep the 14-day
+withdrawal right (art. 52 Consumer Code) and charge only the proportional part
+of the price for service supplied before withdrawal when performance starts at
+the consumer's request (art. 57(3)); no art. 59(1)(o) waiver is requested at
+checkout (ADR-0108). The plan granted on a completed checkout is
 derived from the **Stripe price id**, not from the session metadata
 (ADR-0093): the price id is read from the event payload or from the session
 retrieved with the line items expanded, and a price id that maps to no plan
@@ -334,9 +348,12 @@ it is `npm run launch:check`.
    notice, the terms of service and the privacy notice are server-owned
    data, published and linked from every public page, guarded by
    `npm run check:legal-placeholders`; Stripe Tax collects the address and
-   the VAT ID and takes the withdrawal consent. **Left for a human**: the
-   operator identity (`LEGAL_*`), the fiscal position, the review of the
-   texts, and the three Stripe verification scenarios.
+   the VAT ID, and the paid terms state the 14-day withdrawal right with
+   pro-rata charging under art. 57(3), without an art. 59(1)(o) waiver.
+   **Left for a human**: the operator identity (`LEGAL_*`, assumed to be an
+   Italian S.r.l. with `ordinary` VAT), the fiscal position (accountant's
+   sign-off on OSS and reverse charge), the review of the texts, and the
+   three Stripe verification scenarios.
 3. **Provision the infrastructure for real** — the step-by-step runbook is
    [first-apply.md](../deployment/first-apply.md): `terraform apply` with
    the remote state, DNS, TLS, a real Alertmanager webhook, the external
@@ -414,7 +431,7 @@ boundary and no payment surface, and it is the first soft launch
 | Was                                                                                          | Now                                                                                                                    |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Legal pages were React components with a German Impressum and a placeholder email            | Server-owned structured data, published for the right jurisdiction, linked from every public page, guarded by the gate |
-| No VAT ID could be collected, no address was required, the withdrawal right was never waived | Stripe Tax collects what it needs and the art. 59(1)(o) consent is taken at checkout                                   |
+| No VAT ID could be collected, no address was required, the consumer withdrawal terms were missing | Stripe Tax collects the address and VAT ID; the paid terms state the 14-day right and pro-rata charge (art. 57(3)), with no art. 59(1)(o) waiver at checkout |
 | No way to export or erase a tenant's data                                                    | `GET /api/v1/tenant/export`, `DELETE /api/v1/tenant` and the `dominus tenant` commands                                 |
 | The launch state was a document                                                              | `npm run launch:check` answers with exit 0 or exit 1                                                                   |
 | The E2E suite was not in the local gate, and master was red                                  | The smoke gate is in `npm run gate`; master is green                                                                   |

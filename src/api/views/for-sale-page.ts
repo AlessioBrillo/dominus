@@ -19,7 +19,7 @@ export function renderForSalePage(sitePage: DomainSite, siteUrl?: string): strin
 
   const headExtras = [
     metaTags({ title, description, canonical: canon, siteUrl: origin, ogTitle, ogDescription }),
-    forSaleOfferJsonLd(sitePage),
+    forSaleOfferJsonLd(sitePage, typeof sitePage.ownershipVerifiedAt === 'string'),
     breadcrumbJsonLd(
       [
         { position: 1, name: 'Home', path: '/' },
@@ -47,15 +47,18 @@ export function renderForSalePage(sitePage: DomainSite, siteUrl?: string): strin
     : '';
 
   const contactHtml = sitePage.contact
-    ? `<p><a class="cta" href="mailto:${escapeHtml(sitePage.contact)}?subject=${encodeURIComponent(`Offer for ${sitePage.domain}`)}">Make an offer</a></p>` +
+    ? `<p><a class="cta" href="mailto:${escapeHtml(encodeURIComponent(sitePage.contact))}?subject=${encodeURIComponent(`Offer for ${sitePage.domain}`)}">Make an offer</a></p>` +
       '<p class="disclaimer">Your name, email address and message are used only to answer this offer and are kept for 12 months. The seller receives them. See the <a href="/privacy">Privacy Notice</a>.</p>'
     : `<p><a href="${escapeHtml(origin)}/public/domain/${escapeHtml(sitePage.domain)}">View the automated estimate for ${escapeHtml(sitePage.domain)}</a></p>`;
 
   const bodyContent = [
     '<div class="card">',
     `<h1>${escapeHtml(sitePage.domain)}</h1>`,
-    '<p class="subtitle">This domain is for sale</p>',
+    '<p class="subtitle">This domain is listed for sale through this deployment</p>',
     `<p>${escapeHtml(sitePage.summary)}</p>`,
+    typeof sitePage.ownershipVerifiedAt === 'string'
+      ? '<p class="disclaimer">Control of this domain was verified through a DNS TXT record. DOMINUS does not act as a broker or escrow agent.</p>'
+      : '<p class="disclaimer">The listing was published by the seller through this deployment. Ownership of the domain has not been verified; DOMINUS does not act as a broker or escrow agent.</p>',
     '<div class="grid">',
     priceHtml,
     '</div>',

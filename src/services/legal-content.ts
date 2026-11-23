@@ -34,13 +34,14 @@
  * operator subject to Italian law. The texts are drafted without formal
  * legal review - ADR-0090 records that decision and its consequences.
  */
+import { createHash } from 'node:crypto';
 import type { LegalIdentity } from './legal-identity.js';
 
 /** Version of the documents below. Bumped with every substantive edit. */
-export const LEGAL_DOCUMENTS_VERSION = '2026-11-22';
+export const LEGAL_DOCUMENTS_VERSION = '2026-11-24';
 
 /** Date of the last substantive edit of the documents below. */
-export const LEGAL_DOCUMENTS_UPDATED_AT = '2026-11-22';
+export const LEGAL_DOCUMENTS_UPDATED_AT = '2026-11-24';
 
 /**
  * Where the corresponding source of the running version is published.
@@ -78,10 +79,19 @@ export interface LegalContent {
   status: LegalServiceStatus;
   /** The version of the published documents. */
   version: string;
+  /**
+   * SHA-256 of the published document bundle. Kept for compatibility and for
+   * the launch evidence; acceptance validation uses `documentHashes`.
+   */
+  contentHash: string;
+  /** SHA-256 of each named document, used to validate acceptance records. */
+  documentHashes: Record<string, string>;
   /** The date of the last substantive edit (ISO 8601). */
   updatedAt: string;
   /** The waitlist destination, when the operator configured one. */
   waitlistUrl?: string;
+  /** True when this deployment can run the first-party waitlist (mail configured). */
+  waitlistAvailable: boolean;
   /** True when a security contact exists, so `/.well-known/security.txt` answers 200. */
   securityContactAvailable: boolean;
   /** Where the corresponding source of the running version is published (AGPL §13). */
@@ -102,6 +112,8 @@ export interface LegalContentOptions {
   paidService?: boolean;
   /** Optional public waitlist destination. */
   waitlistUrl?: string;
+  /** True when the deployment has a mailer able to send confirmations. */
+  waitlistAvailable?: boolean;
   /** True when a security contact is configured and security.txt is served. */
   securityContactAvailable?: boolean;
   /** Overrides DEFAULT_SOURCE_CODE_URL; the Cloud may publish a build-specific URL. */
@@ -222,7 +234,7 @@ function legalNotice(
             'DOMINUS Cloud, the managed edition, is not open for paid subscriptions yet. This website publishes information about the project and, when a destination is configured, a waitlist. No subscription can be bought here, no payment is collected, and no workspace is created through this website.',
             waitlistUrl
               ? `The waitlist is available at ${waitlistUrl}. The form names the provider that hosts it and links its privacy notice before you submit your address.`
-              : 'A waitlist form is not active on this deployment. Follow the project repository for the announcement that the hosted edition is open.',
+              : 'The waitlist on this website records the address you submit, the version of this notice you accepted and the time of acceptance, and sends a confirmation link. The address is used only after you open that link. Follow the project repository for the announcement that the hosted edition is open.',
             'The self-hosted community edition is available now under the GNU Affero General Public License v3. It runs on infrastructure you control and is governed by its own licence, not by the paid Cloud terms.',
           ],
     });
@@ -511,7 +523,7 @@ function termsOfService(
     sections.push({
       heading: '16. Personal data',
       paragraphs: [
-        `The processing of personal data is described in the Privacy Notice. Where you process personal data through the service as a controller, the data processing agreement under art. 28 GDPR applies and is incorporated into these terms. The current version is published at /public/dpa and at ${sourceCodeUrl}/blob/master/docs/legal/data-processing-agreement.md; a signable copy is available at the data protection contact.`,
+        `The processing of personal data is described in the Privacy Notice. Where you process personal data through the service as a controller, the data processing agreement under art. 28 GDPR applies and is incorporated into these terms. The agreement is generated from the operator identity published in the legal notice and is published at /public/dpa when that identity is complete; a business customer accepts it at checkout, and the acceptance is recorded with the version of these terms. The template and its history are at ${sourceCodeUrl}/blob/master/docs/legal/data-processing-agreement.md; a copy for signature is available at the data protection contact.`,
       ],
     });
     sections.push({
@@ -650,7 +662,7 @@ function privacyPolicy(
             'Usage data: number of pipeline runs and API calls per tenant, used to enforce the plan limits you subscribed to (art. 6(1)(b) GDPR).',
             'Billing data: customer identifier, invoice details, tax identification number and transaction records, used to invoice you and to meet the accounting and tax obligations (art. 6(1)(c) GDPR).',
             'Service data: the domains, candidates, scores, portfolio entries, listings and automation journals you create. It is processed to provide the service and, in the case of the automation audit trail, to answer disputes about automated actions (art. 6(1)(b) and (f) GDPR).',
-            'Offer enquiries: when a for-sale page accepts an enquiry, the name, email address and message you submit, together with the domain concerned, are used to pass the enquiry to the seller and to answer it (art. 6(1)(b) and (f) GDPR). The form says who receives the enquiry before you submit it, and the enquiry is kept for 12 months.',
+            'Offer enquiries: a for-sale page opens your email client with a prepared message to the address published by the seller. The name, email address and message you choose to send, together with the domain concerned, are used to answer the enquiry (art. 6(1)(b) and (f) GDPR). The page names the recipient before you send and links this notice; DOMINUS does not host the enquiry and does not receive a copy of it unless its operator is also the seller. Enquiries stored by the seller are kept for 12 months after the last reply.',
             'Public scores: when an account owner publishes a score page, the domain, the estimate and the publication date are public. The page does not publish the owner’s identity unless the owner chooses to (art. 6(1)(a) GDPR for the publication, art. 6(1)(f) for the estimate computed from public data).',
             'Provider credentials: the credentials you store in the credential vault are encrypted at rest and are used only to call the providers you connected (art. 6(1)(b) GDPR).',
             'Server logs: IP address, request identifiers, user agent and error traces, used to operate, secure and debug the service. They are kept for a short period and are not used for profiling (art. 6(1)(f) GDPR).',
@@ -659,9 +671,9 @@ function privacyPolicy(
             'Waitlist data: the email address you submit, the date and version of the consent you gave, and the confirmation that you opened the double opt-in link. It is used only to tell you when the hosted edition opens (art. 6(1)(a) GDPR). You can withdraw the consent at any time, and the address is then removed.',
             waitlistUrl
               ? `The waitlist is hosted at ${waitlistUrl}. The form names the provider that operates it and links its privacy notice before you submit your address.`
-              : 'No waitlist form is active on this deployment, so no waitlist address is collected here.',
+              : 'The waitlist on this website stores the address you submit, the version of the Privacy Notice you accepted, the time of acceptance and the confirmation of the double opt-in link. It is used only to tell you when the hosted edition opens.',
             'Server logs: IP address, request identifiers, user agent and error traces, used to operate, secure and debug the website. They are kept for a short period and are not used for profiling (art. 6(1)(f) GDPR).',
-            'Offer enquiries: when a for-sale page accepts an enquiry, the name, email address and message you submit, together with the domain concerned, are used to pass the enquiry to the seller and to answer it (art. 6(1)(b) and (f) GDPR). The form says who receives the enquiry before you submit it, and the enquiry is kept for 12 months.',
+            'Offer enquiries: a for-sale page opens your email client with a prepared message to the address published by the seller. The name, email address and message you choose to send, together with the domain concerned, are used to answer the enquiry (art. 6(1)(b) and (f) GDPR). The page names the recipient before you send and links this notice; DOMINUS does not host the enquiry and does not receive a copy of it unless its operator is also the seller. Enquiries stored by the seller are kept for 12 months after the last reply.',
             'Public scores: when an account owner publishes a score page, the domain, the estimate and the publication date are public. The page does not publish the owner’s identity unless the owner chooses to (art. 6(1)(a) GDPR for the publication, art. 6(1)(f) for the estimate computed from public data).',
             'Existing accounts: if this deployment already has workspaces, it processes the account, authentication, service and billing data described in the paid version of this notice, on the same legal bases. Signup for new workspaces is closed while the paid service is not on sale.',
           ],
@@ -848,22 +860,30 @@ export function buildLegalContent(options: LegalContentOptions): LegalContent {
       : 'cloud_waitlist';
   const updatedAt = options.updatedAt ?? LEGAL_DOCUMENTS_UPDATED_AT;
   const sourceCodeUrl = options.sourceCodeUrl ?? DEFAULT_SOURCE_CODE_URL;
+  const documents = [
+    legalNotice(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
+    termsOfService(identity, cloudMode, paidService, sourceCodeUrl),
+    privacyPolicy(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
+  ];
+  const contentHash = createHash('sha256').update(JSON.stringify(documents)).digest('hex');
+  const documentHashes = Object.fromEntries(
+    documents.map((d) => [d.slug, createHash('sha256').update(JSON.stringify(d)).digest('hex')]),
+  );
 
   return {
     mode: cloudMode ? 'cloud' : 'community',
     status,
     version: updatedAt === LEGAL_DOCUMENTS_UPDATED_AT ? LEGAL_DOCUMENTS_VERSION : updatedAt,
+    contentHash,
+    documentHashes,
     updatedAt,
     ...(options.waitlistUrl ? { waitlistUrl: options.waitlistUrl } : {}),
+    waitlistAvailable: options.waitlistAvailable === true,
     securityContactAvailable: options.securityContactAvailable === true,
     sourceCodeUrl,
     identityPublished: cloudMode ? hasCloudIdentity(identity) : hasPublishedIdentity(identity),
     identity,
-    documents: [
-      legalNotice(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
-      termsOfService(identity, cloudMode, paidService, sourceCodeUrl),
-      privacyPolicy(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
-    ],
+    documents,
   };
 }
 

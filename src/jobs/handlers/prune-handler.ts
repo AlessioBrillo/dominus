@@ -14,6 +14,13 @@ import { sqlTimestamp } from '../../db/sql-timestamp.js';
 
 const logger = getLogger();
 
+/**
+ * Offer enquiries are kept for 12 months after the last reply, as the
+ * privacy notice promises. The ledger has no separate retention job, so the
+ * single scheduled prune is the place that makes the promise true.
+ */
+export const OFFER_RETENTION_DAYS = 365;
+
 export interface PruneHandlerDeps {
   candidateRepo: CandidateRepository;
   scoringRepo: ScoringRepository;
@@ -38,6 +45,8 @@ export interface PruneHandlerDeps {
   automationAuditRetentionDays?: number;
   /** Days a workspace may stay unverified before it is removed (default: 7). */
   unverifiedTenantRetentionDays?: number;
+  /** Override for the 12-month offer-enquiry retention. */
+  offerRetentionDays?: number;
 }
 
 export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
@@ -102,8 +111,19 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
       ? await this.deps.signupVerificationRepo.deleteUnverifiedWorkspaces(unverifiedCutoff)
       : 0;
 
+    const offersCutoff = new Date(
+      Date.now() - (this.deps.offerRetentionDays ?? OFFER_RETENTION_DAYS) * 86400000,
+    ).toISOString();
+    const deletedOffers = (
+      await this.deps.provider.exec(
+        'DELETE FROM listing_offers WHERE COALESCE(responded_at, created_at) < ?',
+        [offersCutoff],
+      )
+    ).changes;
+
     logger.info(
       {
+        deletedOffers,
         deletedCandidates,
         deletedScoringRuns,
         deletedPipelineRuns,
@@ -120,6 +140,7 @@ export class PruneHandler implements JobHandler<PrunePayload, PruneResult> {
     );
 
     return {
+      deletedOffers,
       deletedCandidates,
       deletedScoringRuns,
       deletedPipelineRuns,

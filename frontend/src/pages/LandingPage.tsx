@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { LoginForm } from '@/components/LoginForm';
+import { WaitlistForm } from '@/components/WaitlistForm';
 import { useLegalContent } from '@/hooks/useLegalContent';
 import { ShieldCheck, Gauge, Briefcase, ArrowRight, ExternalLink, Clock } from 'lucide-react';
 
@@ -68,8 +69,8 @@ const PLANS = [
     features: [
       'Self-hosted, AGPL v3',
       'One workspace',
-      '50 candidates scored per month',
-      '25 domains tracked',
+      'No usage limits imposed by the project',
+      'The full scoring engine and pipeline',
     ],
     cta: 'Self-host for free',
     href: REPOSITORY_URL,
@@ -113,14 +114,14 @@ function displayPrice(net: number, regime: VatRegime): string {
 }
 
 function priceNote(net: number, regime: VatRegime): string {
-  if (regime === 'ordinary') return `VAT included · €${net} + VAT for business`;
+  if (regime === 'ordinary') return `Italian VAT 22% included · €${net} + VAT for business`;
   if (regime === 'forfettario') return 'VAT not applicable (flat-rate regime)';
   return 'VAT not charged';
 }
 
 function vatExplainer(regime: VatRegime): string {
   if (regime === 'ordinary') {
-    return 'Consumer prices include Italian VAT at 22%; the final rate for your country of residence is applied before payment. Business customers see the price excluding VAT and need a valid VAT identification number for the reverse charge.';
+    return 'The figures shown are Italian consumer prices with 22% VAT; the rate for your country of residence is applied before payment. Business customers see the price excluding VAT and need a valid VAT identification number for the reverse charge.';
   }
   if (regime === 'forfettario') {
     return 'The operator applies the Italian flat-rate regime: prices are outside the scope of VAT. Cross-border consumer sales are not offered under this regime.';
@@ -135,6 +136,7 @@ export function LandingPage() {
   const isWaitlist = status === 'cloud_waitlist';
   const waitlistHref = legal?.waitlistUrl ?? REPOSITORY_URL;
   const waitlistLabel = legal?.waitlistUrl ? 'Join the waitlist' : 'Follow the project';
+  const firstPartyWaitlist = isWaitlist && !legal?.waitlistUrl && legal?.waitlistAvailable === true;
   const vatRegime: VatRegime = legal?.identity.vatRegime ?? 'ordinary';
 
   return (
@@ -198,6 +200,8 @@ export function LandingPage() {
                   <span role="status" className="text-sm text-text-muted">
                     Checking service status…
                   </span>
+                ) : isWaitlist && firstPartyWaitlist ? (
+                  <WaitlistForm />
                 ) : isWaitlist ? (
                   <a
                     href={waitlistHref}
@@ -300,25 +304,29 @@ export function LandingPage() {
                 hosted edition is a waitlist, and the community edition is the product you can use
                 today: the same engine, your own infrastructure, AGPL v3.
               </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <a
-                  href={waitlistHref}
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
-                >
-                  {waitlistLabel}
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </a>
-                <a
-                  href={REPOSITORY_URL}
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary"
-                >
-                  <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                  Install the community edition
-                </a>
-              </div>
-              {!legal?.waitlistUrl && (
+              {firstPartyWaitlist ? (
+                <WaitlistForm />
+              ) : (
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <a
+                    href={waitlistHref}
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    {waitlistLabel}
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </a>
+                  <a
+                    href={REPOSITORY_URL}
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary"
+                  >
+                    <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                    Install the community edition
+                  </a>
+                </div>
+              )}
+              {!legal?.waitlistUrl && !firstPartyWaitlist && (
                 <p className="mt-4 text-xs text-text-muted">
                   No waitlist form is active on this deployment. The repository is the announcement
                   channel; no email address is collected here.
@@ -418,6 +426,9 @@ export function LandingPage() {
             </Link>
             <Link to="/privacy" className="hover:text-text-primary">
               Privacy
+            </Link>
+            <Link to="/accessibility" className="hover:text-text-primary">
+              Accessibility
             </Link>
             <a
               href="/.well-known/security.txt"

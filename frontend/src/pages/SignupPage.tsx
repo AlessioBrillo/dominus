@@ -63,9 +63,22 @@ export function SignupPage() {
     setLoading(true);
     setError('');
     try {
+      // The authenticated backend records the acceptance together with the
+      // workspace it creates; the client only names the text it saw.
       const result = await registerTenant({
         name: name.trim(),
         email: email.trim(),
+        ...(legal.version && legal.documentHashes
+          ? {
+              contractAcceptance: {
+                documentVersion: legal.version,
+                documentHashes: legal.documentHashes,
+                termsAccepted: acceptedTerms,
+                privacyAccepted: acceptedTerms,
+                ageConfirmed: isAdult,
+              },
+            }
+          : {}),
       });
       if (result.key) {
         setApiKey(result.key);

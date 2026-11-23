@@ -98,6 +98,10 @@ export const TENANT_SCOPED_TABLES: readonly TenantTable[] = [
   { table: 'team_invitations', isolation: 'control-plane' },
   { table: 'team_seats', isolation: 'control-plane' },
   { table: 'signup_verifications', isolation: 'control-plane' },
+  // Contract acceptances are evidence about a person, keyed by email before
+  // a tenant exists and by tenant afterwards. Erasure removes them with the
+  // rest of the tenant data.
+  { table: 'contract_acceptances', isolation: 'control-plane' },
   { table: 'tenant_admin_flags', isolation: 'control-plane' },
   { table: 'tenant_automation_settings', isolation: 'control-plane' },
   { table: 'tenant_credentials', isolation: 'control-plane' },

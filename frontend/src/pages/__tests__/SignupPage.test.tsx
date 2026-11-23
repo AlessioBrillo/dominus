@@ -20,6 +20,9 @@ const PAID_LEGAL = {
   mode: 'cloud' as const,
   status: 'cloud_paid' as const,
   version: '2026-11-20',
+  contentHash: 'a'.repeat(64),
+  documentHashes: { terms: 'a'.repeat(64), privacy: 'a'.repeat(64) },
+  waitlistAvailable: false,
   updatedAt: '2026-11-20',
   securityContactAvailable: false,
   sourceCodeUrl: 'https://github.com/AlessioBrillo/dominus',
@@ -66,7 +69,17 @@ describe('SignupPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
 
     await waitFor(() => expect(screen.getByText('deadbeef')).toBeInTheDocument());
-    expect(registerTenant).toHaveBeenCalledWith({ name: 'Alessio', email: 'a@example.com' });
+    expect(registerTenant).toHaveBeenCalledWith({
+      name: 'Alessio',
+      email: 'a@example.com',
+      contractAcceptance: {
+        documentVersion: PAID_LEGAL.version,
+        documentHashes: PAID_LEGAL.documentHashes,
+        termsAccepted: true,
+        privacyAccepted: true,
+        ageConfirmed: true,
+      },
+    });
   }, 10000);
 
   it('asks for the email verification when the deployment requires it', async () => {

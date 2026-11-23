@@ -57,7 +57,9 @@ const PLACEHOLDERS = [
   { pattern: /\bTBD\b/, what: 'an unresolved "TBD"' },
   { pattern: /\bTODO\b/, what: 'an unresolved "TODO"' },
   { pattern: /CHANGE_ME/, what: 'a "CHANGE_ME" placeholder' },
-  { pattern: /\[●\]/, what: 'an unfilled "[●]" clause' },
+  // The "[●]" clause marker is the one rule that does not apply to the two
+  // intentionally templated legal documents listed in TEMPLATE_EXEMPT_FILES.
+  { pattern: /\[●\]/, what: 'an unfilled "[●]" clause', templateExempt: true },
   { pattern: /\.example\b/, what: 'a reserved ".example" domain' },
   { pattern: /privacy@dominus/, what: 'the placeholder privacy address' },
   { pattern: /lorem ipsum/i, what: 'lorem ipsum' },
@@ -67,11 +69,91 @@ const PLACEHOLDERS = [
   { pattern: /Not applicable/i, what: 'a "Not applicable" controller field' },
 ];
 
-for (const { pattern, what } of PLACEHOLDERS) {
-  const match = legalSource.match(pattern);
-  if (match) {
-    const line = legalSource.slice(0, match.index).split('\n').length;
-    failures.push(`${LEGAL_SOURCE}:${line} contains ${what} - it would be published as-is`);
+// A placeholder in a public page, a deployment file or a launch document is
+// published exactly as written, just like one in the legal text. Scan the
+// whole public surface, not only the document source.
+const PLACEHOLDER_SCAN_FILES = [
+  LEGAL_SOURCE,
+  '.env.example',
+  'frontend/index.html',
+  'README.md',
+  'frontend/src/pages/LandingPage.tsx',
+  'src/api/views/for-sale-page.ts',
+  'src/api/views/legal-footer.ts',
+  'docs/releases/cloud-launch-readiness.md',
+  'docs/adr/0090-legal-surface-and-launch-gate.md',
+  'docs/legal/legal-surface.md',
+  // These two are templates by design: "[date]", "[SMTP provider]" and
+  // "[●]" are fields for the operator to fill in. They are still scanned
+  // for every other placeholder (see TEMPLATE_EXEMPT_FILES below).
+  'docs/legal/data-processing-agreement.md',
+  'docs/legal/transfer-register.md',
+  'docs/legal/compliance-matrix.md',
+  'docs/adr/0109-srl-english-only-and-contract-evidence.md',
+  'frontend/src/pages/AccessibilityPage.tsx',
+  'frontend/src/pages/BillingPage.tsx',
+  'frontend/src/components/WaitlistForm.tsx',
+  'src/api/public-router.ts',
+  'src/services/dpa-content.ts',
+];
+
+const TEMPLATE_EXEMPT_FILES = new Set([
+  'docs/legal/data-processing-agreement.md',
+  'docs/legal/transfer-register.md',
+]);
+
+// Some public files intentionally *describe* placeholder-shaped strings: the
+// .env.example template documents the CHANGE_ME convention and example URLs,
+// the ADR and the legal-surface document explain the old placeholder
+// identity, and the pricing code says "VAT not applicable". Those exact,
+// documented strings are prose about placeholders, not placeholders published
+// to a reader. Mask them before scanning so every other placeholder in the
+// same file is still found. The masks have the same length and no newlines,
+// so line numbers in the report stay accurate.
+const DOCUMENTED_REFERENCES = [
+  {
+    file: '.env.example',
+    strings: ['CHANGE_ME', 'hooks.example.com', 'dominus.example', 'smtp.example.com'],
+  },
+  { file: 'README.md', strings: ['.env.example'] },
+  {
+    file: 'docs/adr/0090-legal-surface-and-launch-gate.md',
+    strings: ['privacy@dominus.example', '.env.example'],
+  },
+  {
+    file: 'docs/legal/legal-surface.md',
+    strings: ['privacy@dominus.example', '.env.example', '[●]', '"not applicable"'],
+  },
+  // These files explain WHY a blank DPA is forbidden; the literal is a
+  // quoted example in a comment, not published text.
+  {
+    file: 'docs/adr/0109-srl-english-only-and-contract-evidence.md',
+    strings: ['[●]'],
+  },
+  { file: 'src/api/public-router.ts', strings: ['[●]'] },
+  { file: 'src/services/dpa-content.ts', strings: ['[●]'] },
+  // A pricing label for the forfettario regime, not a controller field.
+  { file: 'frontend/src/pages/BillingPage.tsx', strings: ['VAT not applicable'] },
+  { file: 'frontend/src/pages/LandingPage.tsx', strings: ['VAT not applicable'] },
+];
+
+function maskDocumentedReferences(relPath, source) {
+  const strings = DOCUMENTED_REFERENCES.find((entry) => entry.file === relPath)?.strings ?? [];
+  let masked = source;
+  for (const text of strings) masked = masked.split(text).join('#'.repeat(text.length));
+  return masked;
+}
+
+for (const relPath of PLACEHOLDER_SCAN_FILES) {
+  const rawSource = relPath === LEGAL_SOURCE ? legalSource : read(relPath);
+  const source = maskDocumentedReferences(relPath, rawSource);
+  for (const { pattern, what, templateExempt } of PLACEHOLDERS) {
+    if (templateExempt && TEMPLATE_EXEMPT_FILES.has(relPath)) continue;
+    const match = source.match(pattern);
+    if (match) {
+      const line = source.slice(0, match.index).split('\n').length;
+      failures.push(`${relPath}:${line} contains ${what} - it would be published as-is`);
+    }
   }
 }
 
@@ -167,6 +249,39 @@ if (!billingService.includes('proportional part')) {
   failures.push(`${BILLING_SERVICE} does not state the pro-rata refund at checkout`);
 }
 
+// The launch document must not describe the art. 59(1)(o) waiver as a
+// checkout step. The operator keeps the 14-day withdrawal right and charges
+// only for the service already supplied (art. 57(3)).
+const LAUNCH_READINESS = 'docs/releases/cloud-launch-readiness.md';
+const launchReadiness = read(LAUNCH_READINESS);
+for (const { pattern, what } of [
+  {
+    pattern: /art\.\s*59\(1\)\(o\)\s+withdrawal\s+consent/i,
+    what: 'a claim that art. 59(1)(o) withdrawal consent is collected',
+  },
+  {
+    pattern: /art\.\s*59\(1\)\(o\)\s+consent\s+is\s+taken\s+at\s+checkout/i,
+    what: 'a claim that art. 59(1)(o) consent is taken at checkout',
+  },
+]) {
+  if (pattern.test(launchReadiness)) {
+    failures.push(
+      `${LAUNCH_READINESS} contains ${what} - the operator does not rely on the art. 59(1)(o) withdrawal waiver`,
+    );
+  }
+}
+
+// An Italian S.r.l. is a company and cannot use the forfettario VAT regime.
+// The identity configuration must validate that cross-field rule; a check
+// that only looks at each field in isolation lets the impossible pair boot.
+const LEGAL_IDENTITY = 'src/services/legal-identity.ts';
+const legalIdentity = read(LEGAL_IDENTITY);
+if (!legalIdentity.includes('forfettario') || !legalIdentity.includes('company')) {
+  failures.push(
+    `${LEGAL_IDENTITY} does not validate that a company (S.r.l.) cannot use the forfettario VAT regime`,
+  );
+}
+
 /* ------------------------------------------------------------------ *
  * 4. A waitlist is not a shop
  * ------------------------------------------------------------------ */
@@ -192,6 +307,29 @@ if (!billingRoute.includes('CHECKOUT_DISABLED')) {
 }
 if (!authRoute.includes('SIGNUP_CLOSED')) {
   failures.push(`${AUTH_ROUTE} does not close self-serve signup while the deployment is not on sale`);
+}
+
+// A first-party contract ledger is the evidence behind the consumer clauses.
+// Its absence would turn the terms into promises without proof.
+if (!indexSource.includes('setContractService')) {
+  failures.push(`${INDEX} does not configure the contract acceptance ledger at boot`);
+}
+if (!billingRoute.includes('requireCheckout')) {
+  failures.push(`${BILLING_ROUTE} does not require contract acceptance before checkout`);
+}
+if (!billingRoute.includes('recordCheckout')) {
+  failures.push(`${BILLING_ROUTE} does not record the contract acts it claims to record`);
+}
+if (!indexSource.includes('validateIdentity(')) {
+  failures.push(`${INDEX} does not apply the cross-field identity validation at boot`);
+}
+const CONTRACT_SERVICE = 'src/services/contract-service.ts';
+if (!read(CONTRACT_SERVICE).includes('ContractAcceptanceError')) {
+  failures.push(`${CONTRACT_SERVICE} does not fail closed when acceptance is missing`);
+}
+const AUTH_ROUTE_SOURCE = read(AUTH_ROUTE);
+if (!AUTH_ROUTE_SOURCE.includes('recordSignup')) {
+  failures.push(`${AUTH_ROUTE} does not record the signup acceptances the terms promise`);
 }
 
 // A price is a statement about a contract. The landing page may only publish
@@ -346,6 +484,7 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `check-legal-placeholders: OK - ${PLACEHOLDERS.length} placeholder patterns, ` +
-    `${REQUIRED_CLAUSES.length} required clauses, ${IDENTITY_VARS.length} identity variables`,
+  `check-legal-placeholders: OK - ${PLACEHOLDERS.length} placeholder patterns across ` +
+    `${PLACEHOLDER_SCAN_FILES.length} files, ${REQUIRED_CLAUSES.length} required clauses, ` +
+    `${IDENTITY_VARS.length} identity variables`,
 );
