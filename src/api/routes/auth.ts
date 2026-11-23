@@ -10,6 +10,7 @@ import {
 } from '../../services/email-verification-service.js';
 import type { EmailVerificationService } from '../../services/email-verification-service.js';
 import { getLogger } from '../../logger.js';
+import { getContractService } from '../../services/contract-service.js';
 
 const logger = getLogger();
 
@@ -30,6 +31,14 @@ const registerSchema = z.object({
   // workspace whose owner cannot be reached cannot be verified, recovered
   // or claimed through single sign-on.
   email: z.string().email().max(254),
+  // The existence of the acceptance is proved by the ledger, not by a React
+  // checkbox. These two fields identify which text the customer accepted.
+  contractAcceptance: z
+    .object({
+      documentVersion: z.string().min(1).max(64),
+      contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+    })
+    .optional(),
 });
 
 const tokenSchema = z.object({
@@ -130,6 +139,37 @@ export function createAuthRouter(
         }
 
         const email = parsed.data.email.trim().toLowerCase();
+
+        // The checkbox in the SPA is not evidence. When the ledger is
+        // configured (Cloud deployments and the local gate), signup without
+        // a matching acceptance of the current text is refused.
+        const contractService = getContractService();
+        if (contractService) {
+          if (!parsed.data.contractAcceptance) {
+            res.status(428).json({
+              error: {
+                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+                message: 'Accept the Terms of Service and the Privacy Notice before continuing',
+              },
+            });
+            return;
+          }
+          try {
+            await contractService.requireSignup({
+              email,
+              version: parsed.data.contractAcceptance.documentVersion,
+              contentHash: parsed.data.contractAcceptance.contentHash,
+            });
+          } catch {
+            res.status(428).json({
+              error: {
+                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+                message: 'Accept the current version of the Terms of Service before continuing',
+              },
+            });
+            return;
+          }
+        }
 
         // Fail closed BEFORE anything is written: a workspace whose
         // verification link can never be delivered is a workspace nobody can

@@ -204,6 +204,31 @@ const PLACEHOLDER_WORDS = [
   'xxx',
 ];
 
+/**
+ * Cross-field rules that no amount of configuration can make valid.
+ *
+ * The Italian forfettario regime is reserved to natural persons (art. 1,
+ * commi 54-89, L. 190/2014). An S.r.l. or any other company CANNOT be
+ * forfettario: accepting that combination would publish a legal notice that
+ * describes an impossible taxpayer and would price the service as VAT-free
+ * when an invoice with VAT is mandatory. Refuse the combination at boot.
+ */
+export function validateIdentity(identity: LegalIdentity): string[] {
+  const errors: string[] = [];
+  if (identity.entityKind === 'company' && identity.vatRegime === 'forfettario') {
+    errors.push(
+      'A company (for example an S.r.l.) cannot use the Italian forfettario VAT regime; ' +
+        'set LEGAL_VAT_REGIME=ordinary for a company',
+    );
+  }
+  if (identity.entityKind === 'company' && identity.vatRegime === 'none') {
+    errors.push(
+      'A company cannot be a non-VAT subject for a paid service; set LEGAL_VAT_REGIME=ordinary',
+    );
+  }
+  return errors;
+}
+
 /** True when a value is one of the placeholders that must never be published. */
 export function isPlaceholderValue(value: string): boolean {
   const normalized = value.trim().toLowerCase();

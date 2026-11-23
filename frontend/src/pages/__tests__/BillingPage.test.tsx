@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { createWrapper } from '@/hooks/__tests__/test-utils';
 
 vi.mock('@/hooks/useBilling', () => ({
@@ -13,6 +14,10 @@ vi.mock('@/hooks/useBilling', () => ({
 
 vi.mock('@/api/legal', () => ({
   getLegalContent: vi.fn(),
+}));
+
+vi.mock('@/api/contracts', () => ({
+  recordAcceptance: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { BillingPage } from '../BillingPage';
@@ -34,6 +39,8 @@ const plans = [
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getLegalContent).mockResolvedValue({
+    version: '2026-11-23',
+    contentHash: 'a'.repeat(64),
     identity: { vatRegime: 'ordinary' },
   } as never);
   vi.mocked(useCreateCheckoutSession).mockReturnValue({
@@ -157,11 +164,19 @@ describe('BillingPage', () => {
 
     render(<BillingPage />, { wrapper: createWrapper() });
 
+    const user = userEvent.setup();
     const switchButtons = await screen.findAllByRole('button', { name: 'Switch plan' });
     expect(switchButtons.length).toBeGreaterThan(0);
-    switchButtons[0]!.click();
+    await user.click(switchButtons[0]!);
 
-    expect(mutate).toHaveBeenCalledTimes(1);
+    // The contract is formed in the app before the subscription is mutated.
+    await user.type(await screen.findByLabelText('Billing email'), 'buyer@example.com');
+    const checkboxes = screen.getAllByRole('checkbox');
+    await user.click(checkboxes[0]!); // accept the terms
+    await user.click(checkboxes[1]!); // request immediate performance
+    await user.click(screen.getByRole('button', { name: 'Continue to payment' }));
+
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
     expect(mutate.mock.calls[0]?.[0]).toMatchObject({ interval: 'month' });
   });
 });

@@ -9,9 +9,9 @@
 
 <!-- The gate is the Woodpecker pipeline (.woodpecker/ci.yml), run locally with `ci-local` (needs Docker) or on a Woodpecker server. GitHub Actions is a billing-blocked mirror, so its badges are not shown. -->
 
-DOMINUS is an **open-source domain investment tool** for domain purchase, portfolio, and pricing decisions. It combines **domain valuation** (heuristic estimate of market value, buy ceiling, and list price), **expired domain analysis** (age, backlinks, Wayback history), and **domain portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It is **free to use**, **free to fork**, **zero-cost on APIs**, and designed to run at **€0 infrastructure cost** in its community edition.
+DOMINUS is an **open-source domain investment tool** for domain purchase, portfolio, and pricing decisions. It combines **domain valuation** (heuristic estimate of market value, buy ceiling, and list price), **expired domain analysis** (age, backlinks, Wayback history), and **domain portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It is **free software under AGPL v3**, free to fork, and needs **no paid API** in the community edition. The project charges no hosting fee; you pay for the infrastructure you run it on.
 
-**DOMINUS Community** (AGPL v3) — self-hosted, the full scoring engine and pipeline, unlimited use, forever free.
+**DOMINUS Community** (AGPL v3) — self-hosted, the full scoring engine and pipeline, with unlimited use in your own deployment and no paid tier required.
 
 **DOMINUS Cloud** — the managed edition: multi-tenant workspaces, PostgreSQL, automated backups, team seats and SSO. It is **not on sale yet**: the hosted edition is a waitlist while the operator identity and the fiscal position are completed. The self-hosted community edition is available now and has the same engine.
 
@@ -264,31 +264,35 @@ npm run selfhost:up
 
 | Layer              | Technology                                      | Why                                                        |
 | ------------------ | ----------------------------------------------- | ---------------------------------------------------------- |
-| **Backend**        | Node.js 22+, Express 5                          | Zero-cost, universally forkable, massive ecosystem         |
+| **Backend**        | Node.js 22+, Express 5                          | No licence fee, forkable, large ecosystem                 |
 | **Database**       | SQLite (community) / PostgreSQL (cloud)         | Abstraction layer supports both — choose your deployment   |
-| **CLI**            | Commander (23 commands)                         | Full functionality without a browser                       |
-| **API**            | Express REST (35 route modules)                 | Dashboard-ready, swappable frontend                        |
+| **CLI**            | Commander                                       | Full functionality without a browser                       |
+| **API**            | Express REST                                    | Dashboard-ready, swappable frontend                        |
 | **Frontend**       | React 19 + Vite 8 + Tailwind 4                  | Professional SaaS dashboard with Recharts + TanStack Table |
-| **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | Zero-cost compliance                                       |
+| **Trademark**      | USPTO public API (no key) + EUIPO OAuth2 (free) | public TIAs, no trademark fee                              |
 | **Infrastructure** | Docker, Docker Compose, Woodpecker CI       | Deploy anywhere, one pipeline as the gate                  |
 
 ## Editions
 
 | Feature               | DOMINUS Community                     | DOMINUS Cloud                     |
 | --------------------- | ------------------------------------- | --------------------------------- |
-| **License**           | AGPL v3 — free forever                | AGPL v3 + managed hosting         |
+| **License**           | AGPL v3 — free software               | AGPL v3 + managed hosting         |
 | **Scoring engine**    | ✓ Full                                | ✓ Full                            |
 | **5-stage pipeline**  | ✓ Full                                | ✓ Full                            |
 | **Trademark gate**    | ✓ Full                                | ✓ Full                            |
 | **Portfolio tracker** | ✓ Full                                | ✓ Full                            |
-| **CLI (23 commands)** | ✓ Full                                | ✓ Full                            |
+| **CLI**               | ✓ Full                                | ✓ Full                            |
 | **REST API**          | ✓ Full                                | ✓ Full                            |
 | **Database**          | SQLite (single-file)                  | PostgreSQL (managed)              |
 | **Auth**              | Static API key (`.env`)               | SSO (OIDC), team seats + invites  |
 | **Multi-tenancy**     | —                                     | ✓ Managed                         |
 | **Backups**           | Manual (`dominus maintenance backup`) | Automated daily backups           |
 | **Support**           | GitHub Issues                         | Email/Slack — Enterprise: 4 business hours, see [SLA](docs/operations/sla.md) |
-| **Cost**              | €0                                    | Waitlist — not on sale yet        |
+| **Cost**              | no license fee                        | Waitlist — not on sale yet        |
+
+The scoring engine, pipeline, trademark gate and portfolio tracker are at
+parity in both editions. DOMINUS Cloud adds managed hosting, multi-tenancy and
+support; it does not add engine capability.
 
 ## What It Is Not
 
@@ -481,7 +485,7 @@ and the [CHANGELOG](CHANGELOG.md) for the release history.
 DOMINUS uses a transparent heuristic estimate engine with four signal groups: intrinsic quality (length, pronounceability, hyphens/numbers, TLD bonus), commercial demand (keyword search volume × CPC), market comparables (NameBio sales data), and expiry signals for expired/closeout domains (age, backlinks, Wayback snapshots). Every weight is visible and tunable — no black box. The engine is deliberately **conservative**: when data is missing or a provider cannot be verified, it lowers the estimate or refuses to answer rather than guessing.
 
 **Is DOMINUS really free?**
-Yes. The community edition is AGPL v3, self-hosted, and runs on free data sources (public RDAP, USPTO, EUIPO). No paid API is required and there is no feature gating — DOMINUS Cloud monetises hosting only.
+Yes. The community edition is AGPL v3, self-hosted, and runs on free data sources (public RDAP, USPTO, EUIPO). For the community edition, no paid API is required and there is no feature gating — DOMINUS Cloud monetises hosting only.
 
 **What is the trademark gate?**
 Before recommending any buy, DOMINUS checks the candidate against USPTO and EUIPO trademark records. Any match blocks the candidate. This check is mandatory and cannot be bypassed — see [ADR-0006](docs/adr/0006-trademark-gate-mandate.md).
@@ -498,7 +502,7 @@ stage degrades and never reports a domain as available, and a disagreement
 downgrades the verdict to "unknown" rather than trusting a single source.
 
 **How is DOMINUS different from Estibot, GoDaddy Appraisal, or Sedo?**
-Those are closed services whose methods you cannot audit. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow.
+Those are closed services whose methods you cannot audit. DOMINUS is open source (you can audit every weight), conservative by design, and decision-first: the output is a clear _buy/pass_ verdict with a purchase ceiling, not a marketing number. It also manages the portfolio after purchase (renewal clock, keep/drop/reprice) and integrates the trademark gate into the workflow. _As of 2026-11; based on publicly described methods, not a benchmark._
 
 **Can I self-host DOMINUS?**
 Yes — from a single Raspberry Pi (SQLite) to Docker Compose with PostgreSQL, Redis, Prometheus and Grafana, to a Terraform-provisioned node. See the [Deployment Guide](docs/deployment/README.md).
@@ -553,3 +557,7 @@ to use the DOMINUS name or logo to promote your fork or a competing
 service. Forks and derived services must use a different name and must not
 imply affiliation with or endorsement by the DOMINUS project. Proceed with
 your own fork and your own brand.
+
+No EUIPO registration has been filed. A formal EUIPO/TMview search is pending;
+the exploratory finding and the plan are recorded in
+[docs/legal/trademark-search.md](docs/legal/trademark-search.md).

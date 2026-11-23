@@ -5,7 +5,7 @@ import { domainSiteFromRow } from '../../types/domain-site.js';
 import { resolveTenantId } from '../../utils/tenant-context.js';
 
 const COLUMNS =
-  'domain, headline, summary, asking_price_eur, score_json, contact, published_at, updated_at';
+  'domain, headline, summary, asking_price_eur, score_json, contact, published_at, updated_at, ownership_verified_at';
 
 /**
  * Repository of published for-sale pages (ADR-0083, M2).
@@ -66,6 +66,33 @@ export class DomainSiteRepository {
       unique.push(site);
     }
     return unique;
+  }
+
+  /** Store the hash of a single-use DNS verification token for a public page. */
+  async setOwnershipToken(domain: string, tokenHash: string): Promise<void> {
+    await this.db.exec(
+      'UPDATE domain_sites SET ownership_token = ?, ownership_verified_at = NULL WHERE domain = ?',
+      [tokenHash, domain],
+    );
+  }
+
+  /** Mark the page verified only when the presented hash matches the stored one. */
+  async confirmOwnership(domain: string, tokenHash: string): Promise<boolean> {
+    const result = await this.db.exec(
+      'UPDATE domain_sites SET ownership_verified_at = CURRENT_TIMESTAMP, ownership_token = NULL ' +
+        'WHERE domain = ? AND ownership_token = ? AND ownership_verified_at IS NULL',
+      [domain, tokenHash],
+    );
+    return result.changes > 0;
+  }
+
+  /** The stored token hash, when a verification is pending. */
+  async ownershipTokenHash(domain: string): Promise<string | null> {
+    const row = await this.db.queryOne<{ ownership_token: string | null }>(
+      'SELECT ownership_token FROM domain_sites WHERE domain = ? ORDER BY updated_at DESC LIMIT 1',
+      [domain],
+    );
+    return row?.ownership_token ?? null;
   }
 
   async delete(domain: string): Promise<void> {

@@ -19,6 +19,8 @@ export interface DomainSite {
   contact: string | null;
   publishedAt: string;
   updatedAt: string;
+  /** Set only after DNS TXT control of the domain is proven. */
+  ownershipVerifiedAt: string | null;
 }
 
 export interface NewDomainSite {
@@ -39,6 +41,7 @@ export interface DomainSiteRow {
   contact: string | null;
   published_at: string;
   updated_at: string;
+  ownership_verified_at: string | null;
 }
 
 export function domainSiteFromRow(row: DomainSiteRow): DomainSite {
@@ -51,6 +54,7 @@ export function domainSiteFromRow(row: DomainSiteRow): DomainSite {
     contact: row.contact,
     publishedAt: row.published_at,
     updatedAt: row.updated_at,
+    ownershipVerifiedAt: row.ownership_verified_at ?? null,
   };
 }
 

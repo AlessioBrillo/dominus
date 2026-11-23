@@ -9,7 +9,7 @@
 | **Authors**    | Alessio Brillo                                            |
 | **Deciders**   | Alessio Brillo                                            |
 | **Supersedes** | —                                                         |
-| **Relates to** | ADR-0025, ADR-0026, ADR-0027, ADR-0028, ADR-0030, ADR-0054, ADR-0083 |
+| **Relates to** | ADR-0025, ADR-0026, ADR-0027, ADR-0028, ADR-0030, ADR-0054, ADR-0083, ADR-0108 |
 | **Project**    | DOMINUS                                                   |
 
 ## Context
@@ -130,9 +130,10 @@ of a site the deployer never sees.
 
 No formal legal review has been performed on the three documents. They were
 drafted against the applicable rules (art. 7 D.Lgs. 70/2003; the Consumer
-Code for withdrawal, art. 52 and 59; art. 13/14/28 GDPR; the VAT rules for
-reverse charge and OSS) and they are published in English, with the Italian
-version stated as prevailing.
+Code for withdrawal, art. 52, 57(3) and 59; art. 13/14/28 GDPR; the VAT rules
+for reverse charge and OSS) and they are published in English only. Every
+document states that the English text is the only binding version; no Italian
+version exists or is claimed to prevail (ADR-0108).
 
 The consequences are accepted for this release and are not hidden:
 
@@ -144,7 +145,13 @@ The consequences are accepted for this release and are not hidden:
   operator has a fiscal position — enabling collection without one would be
   a business decision, not an engineering one;
 - a formal review remains open work, tracked next to the third-party
-  security audit.
+  security audit;
+- an Italian courtesy version of the legal notice and the privacy notice is a
+  recommended open item, not implemented: art. 7 D.Lgs. 70/2003 asks for clear
+  information for Italian consumers and art. 12 GDPR for clear and plain
+  language. Keeping the text EN-only leaves the residual risk that a court
+  requires an Italian version of the consumer disclosures; a lawyer must
+  confirm before the paid launch (ADR-0108).
 
 ## Consequences
 
@@ -168,8 +175,10 @@ The consequences are accepted for this release and are not hidden:
   transparency; once the text is validated by a lawyer, the operator may
   prefer to move it out of the repository. That is a deliberate later
   decision, not an oversight.
-- English only. German and Italian versions are deferred to the i18n
-  increment, with the English text prevailing in the meantime.
+- English only. The English text is the only binding version; neither an
+  Italian nor a German version is published. The recommended Italian courtesy
+  version above is not implemented, so the language risk stays open while the
+  text is EN-only (ADR-0108).
 
 ## Links
 

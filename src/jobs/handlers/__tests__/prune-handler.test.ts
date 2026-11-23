@@ -31,7 +31,8 @@ describe('PruneHandler', () => {
     expect(deps.pipelineRunsRepo.pruneBefore).toHaveBeenCalled();
     expect(deps.providerCacheRepo.pruneExpired).toHaveBeenCalled();
     expect(deps.jobQueueRepo.deleteCompleted).toHaveBeenCalled();
-    expect(deps.provider.exec).toHaveBeenCalledTimes(2);
+    // public_scores, events and the 12-month offer-enquiry retention.
+    expect(deps.provider.exec).toHaveBeenCalledTimes(3);
     expect(deps.automationAuditRepo.pruneOlderThan).toHaveBeenCalled();
     expect(result.deletedCandidates).toBe(10);
     expect(result.deletedScoringRuns).toBe(5);

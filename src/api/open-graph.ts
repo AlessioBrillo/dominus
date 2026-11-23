@@ -110,3 +110,30 @@ export async function generateOgPng(domain: string, score: OgScoreData): Promise
 export function invalidateOgCache(domain: string): void {
   pngCache.delete(getCacheKey(domain));
 }
+
+const BRAND_SVG = `<svg width="${OG_WIDTH}" height="${OG_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#0a0a0f"/><stop offset="100%" stop-color="#18181b"/>
+  </linearGradient></defs>
+  <rect width="${OG_WIDTH}" height="${OG_HEIGHT}" fill="url(#bg)" rx="16"/>
+  <rect x="0" y="0" width="8" height="${OG_HEIGHT}" fill="#60a5fa"/>
+  <text x="64" y="210" font-family="system-ui, -apple-system, sans-serif" font-size="96" fill="#e4e4e7" font-weight="700">DOMINUS</text>
+  <text x="64" y="280" font-family="system-ui, -apple-system, sans-serif" font-size="34" fill="#a1a1aa">Domain investment decision support</text>
+  <text x="64" y="370" font-family="system-ui, -apple-system, sans-serif" font-size="30" fill="#60a5fa">Buy or pass, with evidence.</text>
+  <text x="64" y="440" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#71717a">Availability · RDAP · valuation · trademark screening</text>
+  <text x="64" y="490" font-family="system-ui, -apple-system, sans-serif" font-size="24" fill="#71717a">Estimates, not appraisals.</text>
+</svg>`;
+
+let brandPng: Buffer | undefined;
+
+/** The site-wide social preview. No domain name or fabricated score in it. */
+export async function generateBrandOgPng(): Promise<Buffer> {
+  if (brandPng) return brandPng;
+  try {
+    const sharp = (await import('sharp')).default;
+    brandPng = await sharp(Buffer.from(BRAND_SVG)).png().toBuffer();
+  } catch {
+    brandPng = Buffer.from(BRAND_SVG);
+  }
+  return brandPng;
+}

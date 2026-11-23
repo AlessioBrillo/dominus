@@ -1024,7 +1024,7 @@ describe('Public Router — /public', () => {
       updatedAt: '2026-10-13 10:00:00',
     };
 
-    it('renders the for-sale HTML page with Schema.org Offer', async () => {
+    it('renders the for-sale HTML page without claiming verified ownership', async () => {
       const app = express();
       app.use(
         '/public',
@@ -1040,9 +1040,10 @@ describe('Public Router — /public', () => {
 
       expect(res.status).toBe(200);
       expect(res.text).toContain('vintagecoffee.com');
-      expect(res.text).toContain('This domain is for sale');
+      expect(res.text).toContain('listed for sale by the operator of this deployment');
       expect(res.text).toContain('€1200');
-      expect(res.text).toContain('"@type":"Offer"');
+      // No structured Offer: the deployment cannot prove title to the domain.
+      expect(res.text).not.toContain('"@type":"Offer"');
       expect(res.text).toContain('mailto:owner@example.com');
     });
 
@@ -1192,10 +1193,36 @@ describe('Public Router — /public', () => {
       expect(res.text).toContain('libvips');
     });
 
-    it('serves the data processing agreement the paid terms link', async () => {
-      const res = await request(app).get('/public/dpa');
+    it('serves the generated DPA when the operator identity is complete', async () => {
+      const generatedApp = express();
+      generatedApp.use(
+        '/public',
+        createPublicRouter(anonScoring, undefined, {
+          legalContent: buildLegalContent({
+            identity: identityFromConfig({
+              LEGAL_ENTITY_NAME: 'Example Operator SRL',
+              LEGAL_ENTITY_KIND: 'company',
+              LEGAL_REGISTERED_ADDRESS: 'Via Roma 1, 00100 Roma (RM), Italy',
+              LEGAL_VAT_ID: 'IT12345678901',
+              LEGAL_CONTACT_EMAIL: 'hello@example.it',
+              LEGAL_PRIVACY_EMAIL: 'privacy@example.it',
+            }),
+            cloudMode: true,
+            paidService: true,
+          }),
+        }),
+      );
+      generatedApp.use(errorHandler);
+      const res = await request(generatedApp).get('/public/dpa');
       expect(res.status).toBe(200);
       expect(res.text).toContain('Data processing agreement');
+      expect(res.text).toContain('Example Operator SRL');
+      expect(res.text).not.toContain('[●]');
+    });
+
+    it('does not publish an unfilled DPA template', async () => {
+      const res = await request(app).get('/public/dpa');
+      expect(res.status).toBe(404);
     });
 
     it('serves the AGPL text', async () => {

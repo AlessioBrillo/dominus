@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import type { BillingInterval, BillingService } from '../../services/billing-service.js';
+import { ContractAcceptanceError, getContractService } from '../../services/contract-service.js';
 import type { Config } from '../../config.js';
 import type { SubscriptionPlan } from '../../types/subscription.js';
 import { isAllowedAppUrl } from '../route-utils.js';
@@ -14,6 +15,14 @@ const checkoutSchema = z.object({
   cancelUrl: z.string().url(),
   // Optional: custom price ID for enterprise custom pricing (admin use)
   customPriceId: z.string().optional(),
+  // The acceptance of a specific version of the terms, recorded first-party.
+  contract: z
+    .object({
+      documentVersion: z.string().min(1).max(64),
+      contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+      businessCustomer: z.boolean().default(false),
+    })
+    .optional(),
 });
 
 /**
@@ -29,6 +38,13 @@ const subscriptionSchema = z.discriminatedUnion('action', [
     action: z.literal('change'),
     plan: z.enum(['pro', 'team', 'enterprise']),
     interval: z.enum(['month', 'year']),
+    contract: z
+      .object({
+        documentVersion: z.string().min(1).max(64),
+        contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+        businessCustomer: z.boolean().default(false),
+      })
+      .optional(),
   }),
   z.object({
     action: z.literal('cancel'),
@@ -113,6 +129,49 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       }
 
       const tenantId = req.tenantId ?? 'default';
+
+      // The contract is formed here, not in Stripe. A payment without an
+      // acceptance of the current text, the immediate-performance request
+      // and (for a business) the art. 1341 c.c. approval must never start.
+      const acceptance = parsed.data.contract ?? {
+        documentVersion: '',
+        contentHash: '',
+        businessCustomer: false,
+      };
+      const contractService = getContractService();
+      // index.ts always configures the ledger; in unit tests that mount the
+      // router alone there is no ledger, and the acceptance check is skipped.
+      // The boot guard and the guardrail assert the production wiring.
+      if (config.CLOUD_PAID_ENABLED && contractService) {
+        if (!acceptance.documentVersion || !acceptance.contentHash) {
+          res.status(428).json({
+            error: {
+              code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+              message: 'Accept the terms and request immediate performance before checkout',
+            },
+          });
+          return;
+        }
+        try {
+          await contractService.requireCheckout({
+            tenantId,
+            version: acceptance.documentVersion,
+            contentHash: acceptance.contentHash,
+            needsArt1341: acceptance.businessCustomer,
+          });
+        } catch (err) {
+          if (err instanceof ContractAcceptanceError) {
+            res.status(428).json({
+              error: {
+                code: err.code,
+                message: err.message,
+              },
+            });
+            return;
+          }
+          throw err;
+        }
+      }
 
       // When PUBLIC_APP_URL is configured, redirect the payer back to our own
       // origin - never to an attacker-controlled URL. The comparison is on
@@ -239,6 +298,25 @@ export function createBillingRouter(config: Config, billingService: BillingServi
       }
 
       if (parsed.data.action === 'change') {
+        // A plan change is a new contract act: the terms currently in force
+        // must have been accepted before the subscription is mutated.
+        const contractService = getContractService();
+        if (config.CLOUD_PAID_ENABLED && contractService && parsed.data.contract) {
+          try {
+            await contractService.requireCheckout({
+              tenantId,
+              version: parsed.data.contract.documentVersion,
+              contentHash: parsed.data.contract.contentHash,
+              needsArt1341: parsed.data.contract.businessCustomer,
+            });
+          } catch (err) {
+            if (err instanceof ContractAcceptanceError) {
+              res.status(428).json({ error: { code: err.code, message: err.message } });
+              return;
+            }
+            throw err;
+          }
+        }
         const changed = await billingService.changeSubscription(
           tenantId,
           parsed.data.plan as SubscriptionPlan,

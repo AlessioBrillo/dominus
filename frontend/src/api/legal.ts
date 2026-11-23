@@ -38,8 +38,12 @@ export interface LegalContent {
   mode: 'cloud' | 'community';
   status: LegalServiceStatus;
   version: string;
+  /** SHA-256 of the published document bodies, stored with acceptance records. */
+  contentHash: string;
   updatedAt: string;
   waitlistUrl?: string;
+  /** True when the first-party waitlist can send confirmation emails. */
+  waitlistAvailable: boolean;
   securityContactAvailable: boolean;
   sourceCodeUrl: string;
   identityPublished: boolean;

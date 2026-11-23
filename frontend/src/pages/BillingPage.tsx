@@ -13,10 +13,12 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
 import { CreditCard } from 'lucide-react';
+import { recordAcceptance } from '@/api/contracts';
 
 const PLAN_LABELS: Record<string, string> = {
-  free: 'Community',
+  free: 'Cloud Free',
   pro: 'Pro',
   team: 'Team',
   enterprise: 'Enterprise',
@@ -97,6 +99,18 @@ export function BillingPage() {
   const cancelMutation = useCancelSubscription();
   const [interval, setInterval] = useState<BillingInterval>('month');
 
+  // The contract is formed in the app, before Stripe. A checkout is never
+  // opened until the customer has accepted a specific version of the terms,
+  // asked for immediate performance and, when business, approved art. 1341.
+  const [pendingPlan, setPendingPlan] = useState<BillingPlan | null>(null);
+  const [contractEmail, setContractEmail] = useState('');
+  const [businessCustomer, setBusinessCustomer] = useState(false);
+  const [billingCode, setBillingCode] = useState('');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [immediatePerformance, setImmediatePerformance] = useState(false);
+  const [approved1341, setApproved1341] = useState(false);
+  const [contractError, setContractError] = useState('');
+
   const subscription = data?.subscription;
   const checkoutEnabled = data?.checkoutEnabled ?? data?.isStripeConfigured ?? false;
   const isStripeConfigured = checkoutEnabled && (data?.isStripeConfigured ?? false);
@@ -108,17 +122,72 @@ export function BillingPage() {
   const hasSubscription = Boolean(subscription?.stripeSubscriptionId);
 
   const handleUpgrade = (plan: BillingPlan) => {
-    if (hasSubscription) {
-      changeMutation.mutate({ plan, interval });
+    setPendingPlan(plan);
+    setContractError('');
+  };
+
+  const confirmContract = async () => {
+    if (!pendingPlan) return;
+    if (!contractEmail.trim() || !contractEmail.includes('@')) {
+      setContractError('Enter the billing email address');
       return;
     }
-    const baseUrl = `${window.location.protocol}//${window.location.host}`;
-    checkoutMutation.mutate({
-      plan,
-      interval,
-      successUrl: `${baseUrl}/billing`,
-      cancelUrl: `${baseUrl}/billing`,
-    });
+    if (!acceptedTerms || !immediatePerformance) {
+      setContractError('Accept the terms and request immediate performance');
+      return;
+    }
+    if (businessCustomer && (!approved1341 || !billingCode.trim())) {
+      setContractError(
+        'A business customer must approve sections 13, 14 and 17 and provide the SDI code or PEC',
+      );
+      return;
+    }
+    if (!legal?.version || !legal.contentHash) {
+      setContractError('The current terms could not be loaded. Reload the page.');
+      return;
+    }
+    setContractError('');
+    const contract = {
+      documentVersion: legal.version,
+      contentHash: legal.contentHash,
+      businessCustomer,
+    };
+    try {
+      await recordAcceptance({
+        email: contractEmail.trim(),
+        tenantId: subscription?.tenantId,
+        purpose: 'checkout',
+        documentSlug: 'terms',
+        documentVersion: contract.documentVersion,
+        contentHash: contract.contentHash,
+        billingCode: businessCustomer ? billingCode.trim() : undefined,
+      });
+      if (businessCustomer) {
+        await recordAcceptance({
+          email: contractEmail.trim(),
+          tenantId: subscription?.tenantId,
+          purpose: 'art1341',
+          documentSlug: 'terms',
+          documentVersion: contract.documentVersion,
+          contentHash: contract.contentHash,
+        });
+      }
+      if (hasSubscription) {
+        changeMutation.mutate({ plan: pendingPlan, interval, contract });
+      } else {
+        const baseUrl = `${window.location.protocol}//${window.location.host}`;
+        checkoutMutation.mutate({
+          plan: pendingPlan,
+          interval,
+          successUrl: `${baseUrl}/billing`,
+          cancelUrl: `${baseUrl}/billing`,
+          contract,
+        });
+      }
+      setPendingPlan(null);
+    } catch (err: unknown) {
+      setContractError(err instanceof Error ? err.message : 'The acceptance could not be recorded');
+    }
   };
 
   const handleManageBilling = () => {
@@ -128,6 +197,105 @@ export function BillingPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <h2 className="text-2xl font-bold text-text-primary">Billing</h2>
+
+      {pendingPlan && (
+        <Card data-testid="contract-step">
+          <CardHeader>
+            <CardTitle>Confirm the contract</CardTitle>
+            <CardDescription>
+              Before payment, accept the current terms and request that the service starts
+              immediately. You keep the 14-day right of withdrawal and pay only for the part of the
+              service supplied (art. 57(3) of the Italian Consumer Code).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <label htmlFor="contract-email" className="block text-sm">
+              Billing email
+              <Input
+                id="contract-email"
+                type="email"
+                value={contractEmail}
+                onChange={(e) => setContractEmail(e.target.value)}
+                placeholder="you@example.com"
+              />
+            </label>
+            <label className="flex items-start gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+              />
+              <span>
+                I accept the{' '}
+                <a href="/terms" className="underline">
+                  Terms of Service
+                </a>{' '}
+                and the{' '}
+                <a href="/privacy" className="underline">
+                  Privacy Notice
+                </a>
+                .
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={immediatePerformance}
+                onChange={(e) => setImmediatePerformance(e.target.checked)}
+              />
+              <span>I ask the operator to start the service immediately.</span>
+            </label>
+            <label className="flex items-start gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={businessCustomer}
+                onChange={(e) => setBusinessCustomer(e.target.checked)}
+              />
+              <span>I am buying as a business, not as a consumer.</span>
+            </label>
+            {businessCustomer && (
+              <>
+                <label className="flex items-start gap-2 text-sm text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={approved1341}
+                    onChange={(e) => setApproved1341(e.target.checked)}
+                  />
+                  <span>
+                    I specifically approve sections 13 (liability), 14 (indemnity) and 17 (law and
+                    jurisdiction) under art. 1341 c.c.
+                  </span>
+                </label>
+                <label htmlFor="billing-code" className="block text-sm">
+                  SDI destination code or PEC for the electronic invoice
+                  <Input
+                    id="billing-code"
+                    value={billingCode}
+                    onChange={(e) => setBillingCode(e.target.value)}
+                    placeholder="ABCDEFG or name@pec.it"
+                  />
+                </label>
+              </>
+            )}
+            {contractError && (
+              <p role="alert" className="text-sm text-red-500">
+                {contractError}
+              </p>
+            )}
+            <div className="flex gap-3 pt-2">
+              <Button
+                onClick={confirmContract}
+                disabled={checkoutMutation.isPending || changeMutation.isPending}
+              >
+                Continue to payment
+              </Button>
+              <Button variant="outline" onClick={() => setPendingPlan(null)}>
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {!isLoading && !checkoutEnabled && (
         <Card>
@@ -243,7 +411,7 @@ export function BillingPage() {
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <PlanCard
-                name="Community"
+                name="Cloud Free"
                 price="Free"
                 features={[
                   'Single user',

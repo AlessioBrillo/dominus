@@ -88,6 +88,9 @@ const RecoverPage = lazy(() =>
 const LegalDocumentPage = lazy(() =>
   import('@/pages/LegalDocumentPage').then((m) => ({ default: m.LegalDocumentPage })),
 );
+const AccessibilityPage = lazy(() =>
+  import('@/pages/AccessibilityPage').then((m) => ({ default: m.AccessibilityPage })),
+);
 const NotFoundPage = lazy(() =>
   import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
 );
@@ -178,6 +181,7 @@ createRoot(document.getElementById('root')!).render(
                         operator is an EU entity, so the notice is the Italian
                         legal notice. The old URL keeps working. */}
                     <Route path="impressum" element={<Navigate to="/legal-notice" replace />} />
+                    <Route path="accessibility" element={<AccessibilityPage />} />
                   </Routes>
                 </Suspense>
               </ErrorBoundary>

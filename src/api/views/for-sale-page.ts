@@ -19,7 +19,7 @@ export function renderForSalePage(sitePage: DomainSite, siteUrl?: string): strin
 
   const headExtras = [
     metaTags({ title, description, canonical: canon, siteUrl: origin, ogTitle, ogDescription }),
-    forSaleOfferJsonLd(sitePage),
+    forSaleOfferJsonLd(sitePage, typeof sitePage.ownershipVerifiedAt === 'string'),
     breadcrumbJsonLd(
       [
         { position: 1, name: 'Home', path: '/' },
@@ -54,8 +54,11 @@ export function renderForSalePage(sitePage: DomainSite, siteUrl?: string): strin
   const bodyContent = [
     '<div class="card">',
     `<h1>${escapeHtml(sitePage.domain)}</h1>`,
-    '<p class="subtitle">This domain is for sale</p>',
+    '<p class="subtitle">This domain is listed for sale by the operator of this deployment</p>',
     `<p>${escapeHtml(sitePage.summary)}</p>`,
+    typeof sitePage.ownershipVerifiedAt === 'string'
+      ? '<p class="disclaimer">Control of this domain was verified through a DNS TXT record. DOMINUS does not act as a broker or escrow agent.</p>'
+      : '<p class="disclaimer">The listing is provided by the operator of this site. Ownership of the domain has not been verified; DOMINUS does not act as a broker or escrow agent.</p>',
     '<div class="grid">',
     priceHtml,
     '</div>',

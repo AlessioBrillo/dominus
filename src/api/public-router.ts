@@ -3,7 +3,8 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import rateLimit from 'express-rate-limit';
 import type { Store } from 'express-rate-limit';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { resolveTxt } from 'node:dns/promises';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +20,7 @@ import { runWithTenant } from '../utils/tenant-context.js';
 import type { ListingOffer } from '../types/listing.js';
 import { getLogger } from '../logger.js';
 import type { RedisClient } from '../providers/redis/redis-client.js';
-import { generateOgPng } from './open-graph.js';
+import { generateBrandOgPng, generateOgPng } from './open-graph.js';
 import { createDomainRateLimiter } from './rate-limits/domain-rate-limiter.js';
 import { RedisRateLimitStore } from './middleware/redis-rate-limit-store.js';
 import {
@@ -34,8 +35,38 @@ import {
 import type { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import type { ListingManager } from '../listing/listing-manager.js';
 import type { LegalContent } from '../services/legal-content.js';
+import type { WaitlistService } from '../services/waitlist-service.js';
+import { dpaIsGeneratable, renderDpaHtml } from '../services/dpa-content.js';
 
 const logger = getLogger();
+
+/** The sub-processors published in the privacy notice and in the DPA. */
+const DPA_SUBPROCESSORS = [
+  {
+    name: 'Hetzner Online GmbH',
+    purpose: 'application and database hosting',
+    country: 'Germany',
+    mechanism: 'no transfer outside the EEA',
+  },
+  {
+    name: 'Stripe Payments Europe Ltd.',
+    purpose: 'subscription billing and tax calculation',
+    country: 'Ireland / United States',
+    mechanism: 'no transfer for the payment account; SCCs for US support access',
+  },
+  {
+    name: 'Backblaze Inc.',
+    purpose: 'off-host backup storage when enabled',
+    country: 'United States',
+    mechanism: 'EU-US Data Privacy Framework where certified, otherwise SCCs',
+  },
+  {
+    name: 'Okta, Inc. (Auth0)',
+    purpose: 'single sign-on when used',
+    country: 'United States',
+    mechanism: 'EU-US Data Privacy Framework where certified, otherwise SCCs',
+  },
+] as const;
 
 /** Repository root, for the license and third-party notices shipped with the service. */
 const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -114,6 +145,11 @@ export interface PublicRouterOptions {
    * at the site root (`/<key>.txt`) so search engines can verify ownership.
    */
   indexNowKey?: string | undefined;
+  /**
+   * First-party waitlist with stored consent proof and double opt-in.
+   * When absent, the landing page falls back to `CLOUD_WAITLIST_URL`.
+   */
+  waitlistService?: WaitlistService | undefined;
   /**
    * The legal surface (legal notice, terms of service, privacy notice).
    * Served unauthenticated at `/public/legal` because the documents must be
@@ -322,6 +358,169 @@ export function createPublicRouter(
 
   router.get('/robots.txt', createRobotsTxtHandler(options));
 
+  // The site-wide social preview, generated from a fixed SVG (no fabricated
+  // domain or score in it).
+  /**
+   * DNS TXT proof of control for a published for-sale page.
+   *
+   * Anyone can request a token; only the person who can publish the record
+   * `_dominus.<domain>` can complete the verification. The token is stored
+   * hashed and removed on success.
+   */
+  router.post(
+    '/for-sale/:domain/ownership/start',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const repo = options.domainSiteRepo;
+        const domain = String(req.params.domain ?? '').toLowerCase();
+        if (!repo || !isValidDomain(domain)) {
+          res
+            .status(404)
+            .json({ error: { code: 'NOT_FOUND', message: 'No for-sale page for this domain' } });
+          return;
+        }
+        const site = await repo.findByDomainPublic(domain);
+        if (!site) {
+          res
+            .status(404)
+            .json({ error: { code: 'NOT_FOUND', message: 'No for-sale page for this domain' } });
+          return;
+        }
+        const token = randomBytes(24).toString('hex');
+        await repo.setOwnershipToken(domain, createHash('sha256').update(token).digest('hex'));
+        res.json({
+          record: `_dominus.${domain}`,
+          type: 'TXT',
+          value: `dominus-verify=${token}`,
+        });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.post(
+    '/for-sale/:domain/ownership/verify',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const repo = options.domainSiteRepo;
+        const domain = String(req.params.domain ?? '').toLowerCase();
+        if (!repo || !isValidDomain(domain)) {
+          res
+            .status(404)
+            .json({ error: { code: 'NOT_FOUND', message: 'No for-sale page for this domain' } });
+          return;
+        }
+        const expected = await repo.ownershipTokenHash(domain);
+        if (!expected) {
+          res.status(409).json({
+            error: { code: 'NO_PENDING_VERIFICATION', message: 'Request a token before verifying' },
+          });
+          return;
+        }
+        let records: string[][] = [];
+        try {
+          records = await resolveTxt(`_dominus.${domain}`);
+        } catch {
+          res.status(422).json({
+            error: {
+              code: 'TXT_RECORD_NOT_FOUND',
+              message:
+                'The DNS TXT record is not visible yet. DNS propagation can take a few minutes.',
+            },
+          });
+          return;
+        }
+        const presented = records.flat().join('');
+        const match = /dominus-verify=([0-9a-f]{48})/.exec(presented);
+        if (!match || createHash('sha256').update(match[1]!).digest('hex') !== expected) {
+          res.status(422).json({
+            error: {
+              code: 'TXT_RECORD_MISMATCH',
+              message: 'The DNS TXT value does not match the token issued for this page',
+            },
+          });
+          return;
+        }
+        await repo.confirmOwnership(domain, expected);
+        res.json({ verified: true, domain });
+      } catch (err) {
+        next(err);
+      }
+    },
+  );
+
+  router.post('/waitlist', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const service = options.waitlistService;
+      if (!service || !service.canAccept) {
+        res.status(503).json({
+          error: {
+            code: 'WAITLIST_UNAVAILABLE',
+            message: 'The waitlist is not accepting addresses on this deployment',
+          },
+        });
+        return;
+      }
+      const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+      const consentVersion =
+        typeof req.body?.consentVersion === 'string' ? req.body.consentVersion.trim() : '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !consentVersion) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'A valid email address and a consent version are required',
+          },
+        });
+        return;
+      }
+      await service.subscribe(email, consentVersion);
+      res.status(202).json({ message: 'Check your inbox to confirm your registration' });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/waitlist/confirm', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const token = typeof req.query.token === 'string' ? req.query.token : '';
+      const service = options.waitlistService;
+      if (!service || token.length < 16) {
+        res
+          .status(400)
+          .type('html')
+          .send(
+            '<!doctype html><title>Invalid link</title><p>This confirmation link is not valid.</p>',
+          );
+        return;
+      }
+      const confirmed = await service.confirm(token);
+      res
+        .type('html')
+        .send(
+          `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Waitlist confirmation</title></head>` +
+            `<body><h1>${confirmed ? 'Registration confirmed' : 'Already confirmed or unknown link'}</h1>` +
+            `<p>${
+              confirmed
+                ? 'Thank you. We will contact this address when DOMINUS Cloud opens.'
+                : 'This link was already used or does not match a registration.'
+            }</p><p><a href="/">Back to DOMINUS</a></p></body></html>`,
+        );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/og-image.png', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const png = await generateBrandOgPng();
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.type('png').send(png);
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // The legal surface. Public and cacheable: the legal notice, the terms of
   // service and the privacy notice must be readable without an account, by
   // anyone, including the crawlers that index the public namespace.
@@ -367,15 +566,23 @@ export function createPublicRouter(
     res.type('text/plain').send(license);
   });
   router.get('/dpa', (_req: Request, res: Response) => {
-    const dpa = shippedTextFile('docs/legal/data-processing-agreement.md');
-    if (dpa === null) {
+    // A template with `[●]` fields is not a contract. Serve the agreement
+    // generated from the deployment's operator identity, or nothing at all.
+    const legal = options.legalContent;
+    if (!legal || !dpaIsGeneratable(legal.identity)) {
       res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'The data processing agreement is not available' },
       });
       return;
     }
     res.set('Cache-Control', 'public, max-age=300');
-    res.type('text/markdown').send(dpa);
+    res.type('html').send(
+      renderDpaHtml({
+        identity: legal.identity,
+        sourceCodeUrl: legal.sourceCodeUrl,
+        subProcessors: DPA_SUBPROCESSORS,
+      }),
+    );
   });
 
   router.post(

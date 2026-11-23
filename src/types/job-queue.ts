@@ -133,6 +133,8 @@ export interface PrunePayload {
 }
 
 export interface PruneResult {
+  /** Offer enquiries older than the 12-month privacy-notice retention. */
+  deletedOffers: number;
   deletedCandidates: number;
   deletedScoringRuns: number;
   deletedPipelineRuns: number;

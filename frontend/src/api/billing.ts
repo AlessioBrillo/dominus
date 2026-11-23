@@ -48,13 +48,26 @@ export function fetchSubscription(): Promise<BillingResponse> {
   return api.get<BillingResponse>('/billing');
 }
 
+export interface ContractAcceptanceRef {
+  documentVersion: string;
+  contentHash: string;
+  businessCustomer: boolean;
+}
+
 export function createCheckoutSession(
   plan: BillingPlan,
   interval: BillingInterval,
   successUrl: string,
   cancelUrl: string,
+  contract?: ContractAcceptanceRef,
 ): Promise<CheckoutResponse> {
-  return api.post<CheckoutResponse>('/billing/checkout', { plan, interval, successUrl, cancelUrl });
+  return api.post<CheckoutResponse>('/billing/checkout', {
+    plan,
+    interval,
+    successUrl,
+    cancelUrl,
+    ...(contract ? { contract } : {}),
+  });
 }
 
 export function createPortalSession(returnUrl: string): Promise<PortalResponse> {
@@ -71,11 +84,13 @@ export function createPortalSession(returnUrl: string): Promise<PortalResponse> 
 export function changeSubscription(
   plan: BillingPlan,
   interval: BillingInterval,
+  contract?: ContractAcceptanceRef,
 ): Promise<SubscriptionChangeResponse> {
   return api.post<SubscriptionChangeResponse>('/billing/subscription', {
     action: 'change',
     plan,
     interval,
+    ...(contract ? { contract } : {}),
   });
 }
 

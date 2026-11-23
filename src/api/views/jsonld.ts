@@ -69,22 +69,20 @@ export function scoreDatasetJsonLd(score: JsonLdScoreData): string {
   return tag(dataset);
 }
 
-export function forSaleOfferJsonLd(site: {
-  domain: string;
-  headline: string;
-  askingPriceEur: number | null;
-}): string {
-  // A for-sale page is the one place where a price is a real offer: the
-  // seller is asking it. The page is published only for a domain in the
-  // seller's portfolio, and the offer names the seller's asking price, not
-  // the engine's estimate.
+export function forSaleOfferJsonLd(
+  site: { domain: string; headline: string; askingPriceEur: number | null },
+  ownershipVerified: boolean,
+): string {
+  // A structured Offer is a machine-readable claim that the seller can
+  // complete a sale. It is emitted only after DNS TXT control of the domain
+  // has been proven. The asking price is displayed as text in both cases.
   const product: Record<string, unknown> = {
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: site.domain,
     description: site.headline,
     category: 'Domain name',
-    ...(site.askingPriceEur !== null
+    ...(ownershipVerified && site.askingPriceEur !== null
       ? {
           offers: {
             '@type': 'Offer',

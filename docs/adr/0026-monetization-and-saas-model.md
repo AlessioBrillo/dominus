@@ -155,7 +155,15 @@ The rationale:
 
 5. **Proven precedent**: Supabase, Gitpod, and countless others have validated that developers will pay for managed hosting of software they could self-host, as long as the value proposition (backups, uptime, convenience) is clear.
 
-### Pricing Model
+### Pricing Model (HISTORICAL)
+
+> **HISTORICAL — not the current prices.** The table below records the
+> original 2026-06 proposal and is kept for the record only; it does not
+> describe the current plans or limits. The current source of truth is the
+> plan limits in [`src/types/team.ts`](../../src/types/team.ts) and the prices
+> shown by the landing page and the billing page
+> (`frontend/src/pages/LandingPage.tsx`, `frontend/src/pages/BillingPage.tsx`).
+> No new prices are asserted here.
 
 Suggested structure (to be validated with early users):
 
