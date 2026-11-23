@@ -88,6 +88,13 @@ const PLACEHOLDER_SCAN_FILES = [
   // for every other placeholder (see TEMPLATE_EXEMPT_FILES below).
   'docs/legal/data-processing-agreement.md',
   'docs/legal/transfer-register.md',
+  'docs/legal/compliance-matrix.md',
+  'docs/adr/0109-srl-english-only-and-contract-evidence.md',
+  'frontend/src/pages/AccessibilityPage.tsx',
+  'frontend/src/pages/BillingPage.tsx',
+  'frontend/src/components/WaitlistForm.tsx',
+  'src/api/public-router.ts',
+  'src/services/dpa-content.ts',
 ];
 
 const TEMPLATE_EXEMPT_FILES = new Set([
@@ -117,6 +124,16 @@ const DOCUMENTED_REFERENCES = [
     file: 'docs/legal/legal-surface.md',
     strings: ['privacy@dominus.example', '.env.example', '[●]', '"not applicable"'],
   },
+  // These files explain WHY a blank DPA is forbidden; the literal is a
+  // quoted example in a comment, not published text.
+  {
+    file: 'docs/adr/0109-srl-english-only-and-contract-evidence.md',
+    strings: ['[●]'],
+  },
+  { file: 'src/api/public-router.ts', strings: ['[●]'] },
+  { file: 'src/services/dpa-content.ts', strings: ['[●]'] },
+  // A pricing label for the forfettario regime, not a controller field.
+  { file: 'frontend/src/pages/BillingPage.tsx', strings: ['VAT not applicable'] },
   { file: 'frontend/src/pages/LandingPage.tsx', strings: ['VAT not applicable'] },
 ];
 
@@ -300,9 +317,19 @@ if (!indexSource.includes('setContractService')) {
 if (!billingRoute.includes('requireCheckout')) {
   failures.push(`${BILLING_ROUTE} does not require contract acceptance before checkout`);
 }
+if (!billingRoute.includes('recordCheckout')) {
+  failures.push(`${BILLING_ROUTE} does not record the contract acts it claims to record`);
+}
+if (!indexSource.includes('validateIdentity(')) {
+  failures.push(`${INDEX} does not apply the cross-field identity validation at boot`);
+}
 const CONTRACT_SERVICE = 'src/services/contract-service.ts';
 if (!read(CONTRACT_SERVICE).includes('ContractAcceptanceError')) {
   failures.push(`${CONTRACT_SERVICE} does not fail closed when acceptance is missing`);
+}
+const AUTH_ROUTE_SOURCE = read(AUTH_ROUTE);
+if (!AUTH_ROUTE_SOURCE.includes('recordSignup')) {
+  failures.push(`${AUTH_ROUTE} does not record the signup acceptances the terms promise`);
 }
 
 // A price is a statement about a contract. The landing page may only publish

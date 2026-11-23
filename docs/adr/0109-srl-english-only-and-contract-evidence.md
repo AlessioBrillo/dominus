@@ -74,11 +74,11 @@ never served as an agreement.
 
 The landing page describes the self-hosted edition without Cloud limits; the
 paid tier is named "Cloud Free" in the application. The product performs a
-**trademark screening**, never a "clearance". For-sale pages no longer emit a
-schema.org `Offer`, because the deployment cannot prove title to a domain;
-DNS TXT verification of control is an open human item. An accessibility
-statement is published voluntarily; the microenterprise exemption under
-article 4(5) of Directive (EU) 2019/882 is documented, not assumed.
+**trademark screening**, never a "clearance". For-sale pages emit a schema.org
+`Offer` only after DNS TXT proof of control; without it they state that
+ownership is unverified. An accessibility statement is published voluntarily;
+whether the microenterprise exemption under article 4(5) of Directive (EU)
+2019/882 applies depends on the operator and is not asserted by the page.
 
 ## Consequences
 

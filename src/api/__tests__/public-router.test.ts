@@ -1040,11 +1040,11 @@ describe('Public Router — /public', () => {
 
       expect(res.status).toBe(200);
       expect(res.text).toContain('vintagecoffee.com');
-      expect(res.text).toContain('listed for sale by the operator of this deployment');
+      expect(res.text).toContain('listed for sale through this deployment');
       expect(res.text).toContain('€1200');
       // No structured Offer: the deployment cannot prove title to the domain.
       expect(res.text).not.toContain('"@type":"Offer"');
-      expect(res.text).toContain('mailto:owner@example.com');
+      expect(res.text).toContain('mailto:owner%40example.com');
     });
 
     it('returns JSON when JSON is accepted', async () => {

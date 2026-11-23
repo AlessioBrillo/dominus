@@ -31,12 +31,15 @@ const registerSchema = z.object({
   // workspace whose owner cannot be reached cannot be verified, recovered
   // or claimed through single sign-on.
   email: z.string().email().max(254),
-  // The existence of the acceptance is proved by the ledger, not by a React
-  // checkbox. These two fields identify which text the customer accepted.
+  // The acceptance is recorded server-side by this route: a separate public
+  // "I accept" endpoint would let a caller choose whose acceptance it was.
   contractAcceptance: z
     .object({
       documentVersion: z.string().min(1).max(64),
-      contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+      documentHashes: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
+      termsAccepted: z.boolean(),
+      privacyAccepted: z.boolean(),
+      ageConfirmed: z.boolean(),
     })
     .optional(),
 });
@@ -144,31 +147,15 @@ export function createAuthRouter(
         // configured (Cloud deployments and the local gate), signup without
         // a matching acceptance of the current text is refused.
         const contractService = getContractService();
-        if (contractService) {
-          if (!parsed.data.contractAcceptance) {
-            res.status(428).json({
-              error: {
-                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
-                message: 'Accept the Terms of Service and the Privacy Notice before continuing',
-              },
-            });
-            return;
-          }
-          try {
-            await contractService.requireSignup({
-              email,
-              version: parsed.data.contractAcceptance.documentVersion,
-              contentHash: parsed.data.contractAcceptance.contentHash,
-            });
-          } catch {
-            res.status(428).json({
-              error: {
-                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
-                message: 'Accept the current version of the Terms of Service before continuing',
-              },
-            });
-            return;
-          }
+        const acceptance = parsed.data.contractAcceptance;
+        if (contractService && !acceptance) {
+          res.status(428).json({
+            error: {
+              code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+              message: 'Accept the Terms of Service and the Privacy Notice before continuing',
+            },
+          });
+          return;
         }
 
         // Fail closed BEFORE anything is written: a workspace whose
@@ -189,6 +176,30 @@ export function createAuthRouter(
           name: parsed.data.name,
           email,
         });
+
+        if (contractService && acceptance) {
+          try {
+            await contractService.recordSignup({
+              subject: email,
+              tenantId,
+              ref: {
+                version: acceptance.documentVersion,
+                documentHashes: acceptance.documentHashes,
+              },
+              termsAccepted: acceptance.termsAccepted,
+              privacyAccepted: acceptance.privacyAccepted,
+              ageConfirmed: acceptance.ageConfirmed,
+            });
+          } catch {
+            res.status(428).json({
+              error: {
+                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+                message: 'Accept the current version of the Terms of Service before continuing',
+              },
+            });
+            return;
+          }
+        }
 
         if (signupVerificationMode === 'optional') {
           // The key is issued right away, but the seat is NOT verified: it

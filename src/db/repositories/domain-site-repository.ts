@@ -70,8 +70,12 @@ export class DomainSiteRepository {
 
   /** Store the hash of a single-use DNS verification token for a public page. */
   async setOwnershipToken(domain: string, tokenHash: string): Promise<void> {
+    // Only the row the public page actually serves may receive a token, and
+    // an already verified page is never downgraded by a new request.
     await this.db.exec(
-      'UPDATE domain_sites SET ownership_token = ?, ownership_verified_at = NULL WHERE domain = ?',
+      'UPDATE domain_sites SET ownership_token = ?, updated_at = CURRENT_TIMESTAMP ' +
+        'WHERE id = (SELECT id FROM domain_sites WHERE domain = ? ORDER BY updated_at DESC LIMIT 1) ' +
+        'AND ownership_verified_at IS NULL',
       [tokenHash, domain],
     );
   }

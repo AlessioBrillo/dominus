@@ -48,6 +48,14 @@ describe('first-party waitlist', () => {
     expect(await repo.countConfirmed()).toBe(0);
   });
 
+  it('is idempotent when the same address is submitted twice', async () => {
+    const service = new WaitlistService(repo, mailer, undefined, undefined);
+    await service.subscribe('buyer@example.com', '2026-11-24');
+    await service.subscribe('buyer@example.com', '2026-11-24');
+    expect(sent).toHaveLength(1);
+    expect(await repo.countConfirmed()).toBe(0);
+  });
+
   it('confirms only a matching, single-use token', async () => {
     const service = new WaitlistService(repo, mailer, 'https://dominus.app', undefined);
     await service.subscribe('buyer@example.com', '2026-11-24');

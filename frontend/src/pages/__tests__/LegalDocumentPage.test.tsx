@@ -26,6 +26,7 @@ beforeEach(() => {
     status: 'cloud_paid',
     version: '2026-11-20',
     contentHash: 'a'.repeat(64),
+    documentHashes: { terms: 'a'.repeat(64), privacy: 'a'.repeat(64) },
     waitlistAvailable: false,
     updatedAt: '2026-11-20',
     securityContactAvailable: false,

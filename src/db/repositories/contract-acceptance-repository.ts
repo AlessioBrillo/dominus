@@ -108,15 +108,16 @@ export class ContractAcceptanceRepository {
     purpose: ContractAcceptancePurpose,
     documentSlug: string,
     documentVersion: string,
+    contentHash: string,
     maxAgeMs: number,
   ): Promise<boolean> {
     const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
     const row = await this.#db.queryOne<{ id: number }>(
       `SELECT id FROM contract_acceptances
         WHERE tenant_id = ? AND purpose = ? AND document_slug = ? AND document_version = ?
-          AND accepted_at >= ?
+          AND content_hash = ? AND accepted_at >= ?
         ORDER BY accepted_at DESC LIMIT 1`,
-      [tenantId, purpose, documentSlug, documentVersion, cutoff],
+      [tenantId, purpose, documentSlug, documentVersion, contentHash, cutoff],
     );
     return row !== null;
   }

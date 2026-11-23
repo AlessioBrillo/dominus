@@ -12,10 +12,6 @@ vi.mock('@/api/legal', () => ({
   getLegalContent: vi.fn(),
 }));
 
-vi.mock('@/api/contracts', () => ({
-  recordAcceptance: vi.fn().mockResolvedValue(undefined),
-}));
-
 import { SignupPage } from '../SignupPage';
 import { registerTenant } from '@/api/auth';
 import { getLegalContent } from '@/api/legal';
@@ -25,6 +21,7 @@ const PAID_LEGAL = {
   status: 'cloud_paid' as const,
   version: '2026-11-20',
   contentHash: 'a'.repeat(64),
+  documentHashes: { terms: 'a'.repeat(64), privacy: 'a'.repeat(64) },
   waitlistAvailable: false,
   updatedAt: '2026-11-20',
   securityContactAvailable: false,
@@ -77,7 +74,10 @@ describe('SignupPage', () => {
       email: 'a@example.com',
       contractAcceptance: {
         documentVersion: PAID_LEGAL.version,
-        contentHash: PAID_LEGAL.contentHash,
+        documentHashes: PAID_LEGAL.documentHashes,
+        termsAccepted: true,
+        privacyAccepted: true,
+        ageConfirmed: true,
       },
     });
   }, 10000);

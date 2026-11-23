@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { registerTenant } from '@/api/auth';
-import { recordAcceptance } from '@/api/contracts';
 import { useLegalContent } from '@/hooks/useLegalContent';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,33 +63,19 @@ export function SignupPage() {
     setLoading(true);
     setError('');
     try {
-      // Record the acceptance before creating the workspace: the backend
-      // refuses a registration it cannot tie to a specific version of the
-      // terms and privacy notice.
-      if (legal.version && legal.contentHash) {
-        await recordAcceptance({
-          email: email.trim(),
-          purpose: 'signup',
-          documentSlug: 'terms',
-          documentVersion: legal.version,
-          contentHash: legal.contentHash,
-        });
-        await recordAcceptance({
-          email: email.trim(),
-          purpose: 'signup',
-          documentSlug: 'privacy',
-          documentVersion: legal.version,
-          contentHash: legal.contentHash,
-        });
-      }
+      // The authenticated backend records the acceptance together with the
+      // workspace it creates; the client only names the text it saw.
       const result = await registerTenant({
         name: name.trim(),
         email: email.trim(),
-        ...(legal.version && legal.contentHash
+        ...(legal.version && legal.documentHashes
           ? {
               contractAcceptance: {
                 documentVersion: legal.version,
-                contentHash: legal.contentHash,
+                documentHashes: legal.documentHashes,
+                termsAccepted: acceptedTerms,
+                privacyAccepted: acceptedTerms,
+                ageConfirmed: isAdult,
               },
             }
           : {}),

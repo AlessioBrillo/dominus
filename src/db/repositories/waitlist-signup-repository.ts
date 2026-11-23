@@ -51,6 +51,14 @@ export class WaitlistSignupRepository {
     return signupFromRow(row);
   }
 
+  async findByEmail(email: string): Promise<WaitlistSignup | null> {
+    const row = await this.db.queryOne<WaitlistSignupRow>(
+      'SELECT * FROM waitlist_signups WHERE email = ?',
+      [email],
+    );
+    return row ? signupFromRow(row) : null;
+  }
+
   async findByTokenHash(tokenHash: string): Promise<WaitlistSignup | null> {
     const row = await this.db.queryOne<WaitlistSignupRow>(
       'SELECT * FROM waitlist_signups WHERE token_hash = ?',
@@ -78,5 +86,12 @@ export class WaitlistSignupRepository {
   async deleteForEmail(email: string): Promise<number> {
     const result = await this.db.exec('DELETE FROM waitlist_signups WHERE email = ?', [email]);
     return result.changes;
+  }
+
+  async deleteByTokenHash(tokenHash: string): Promise<boolean> {
+    const result = await this.db.exec('DELETE FROM waitlist_signups WHERE token_hash = ?', [
+      tokenHash,
+    ]);
+    return result.changes > 0;
   }
 }

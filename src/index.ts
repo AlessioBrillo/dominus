@@ -40,7 +40,6 @@ import { serverTimeoutConfig } from './utils/server-timeouts.js';
 import {
   createUsageRouter,
   createBillingRouter,
-  createContractsRouter,
   createAdminRouter,
   createTeamRouter,
   createMeRouter,
@@ -138,7 +137,12 @@ async function main(): Promise<void> {
     ...(config.CLOUD_WAITLIST_URL ? { waitlistUrl: config.CLOUD_WAITLIST_URL } : {}),
     waitlistAvailable: deps.verificationService.canDeliver,
   });
-  setContractService(new ContractService(new ContractAcceptanceRepository(deps.writeProvider)));
+  setContractService(
+    new ContractService(new ContractAcceptanceRepository(deps.writeProvider), {
+      version: legalContent.version,
+      documentHashes: legalContent.documentHashes,
+    }),
+  );
 
   setLegalFooterContext({
     mode: legalContent.mode,
@@ -350,7 +354,6 @@ async function main(): Promise<void> {
     createPublicRouter(deps.anonScoringService, deps.redisClient, {
       ...publicAppUrlOption(config),
       domainSiteRepo: deps.domainSiteRepo,
-      listingManager: deps.listingManager,
       legalContent,
       waitlistService: new WaitlistService(
         new WaitlistSignupRepository(deps.writeProvider),
@@ -627,10 +630,6 @@ async function main(): Promise<void> {
       createWorkerRouter(deps.worker, deps.jobQueueService, requireRole('operator')),
     );
   }
-  // Public because signup happens before a workspace exists. Mounted before
-  // the protected router so the API-key middleware never sees this path.
-  app.use('/api/v1/contracts', createContractsRouter());
-
   app.use('/api/v1', protectedRouter);
 
   // ── SPA catch-all with base path isolation ─────────────────────────

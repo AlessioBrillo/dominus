@@ -8,21 +8,16 @@ import { ContractService, ContractAcceptanceError } from '../contract-service.js
 import { buildLegalContent } from '../legal-content.js';
 import { identityFromConfig, validateIdentity } from '../legal-identity.js';
 
-const VERSION = '2026-11-24';
-
 describe('contract acceptance ledger', () => {
   let provider: SqliteProvider;
   let service: ContractService;
+  let ref: { version: string; documentHashes: Record<string, string> };
 
   beforeEach(() => {
     const db = new Database(':memory:');
     provider = new SqliteProvider(db);
     runMigrations(db);
-    service = new ContractService(new ContractAcceptanceRepository(provider));
-  });
-
-  const legal = (): ReturnType<typeof buildLegalContent> =>
-    buildLegalContent({
+    const legal = buildLegalContent({
       identity: identityFromConfig({
         LEGAL_ENTITY_NAME: 'Example Operator SRL',
         LEGAL_ENTITY_KIND: 'company',
@@ -38,6 +33,9 @@ describe('contract acceptance ledger', () => {
       cloudMode: true,
       paidService: true,
     });
+    ref = { version: legal.version, documentHashes: legal.documentHashes };
+    service = new ContractService(new ContractAcceptanceRepository(provider), ref);
+  });
 
   it('rejects an S.r.l. configured with the forfettario regime', () => {
     expect(
@@ -47,91 +45,133 @@ describe('contract acceptance ledger', () => {
     ).toContainEqual(expect.stringContaining('cannot use the Italian forfettario'));
   });
 
-  it('hashes the published documents so an accepted version can be proved', async () => {
-    const html = legal();
-    expect(html.contentHash).toMatch(/^[0-9a-f]{64}$/);
-    expect(html.version).toBe(VERSION);
+  it('hashes each named document so an accepted text can be proved', () => {
+    expect(ref.version).toBe('2026-11-24');
+    expect(ref.documentHashes.terms).toMatch(/^[0-9a-f]{64}$/);
+    expect(ref.documentHashes.privacy).toMatch(/^[0-9a-f]{64}$/);
+    expect(ref.documentHashes.terms).not.toBe(ref.documentHashes.privacy);
   });
 
-  it('records a signup acceptance and finds it again', async () => {
-    const { version, contentHash } = legal();
-    await service.record({
-      email: 'BUYER@Example.com',
-      purpose: 'signup',
-      documentSlug: 'terms',
-      documentVersion: version,
-      contentHash,
-      ip: '127.0.0.1',
-      userAgent: 'vitest',
+  it('records terms, privacy and age at signup, from the authenticated route', async () => {
+    await service.recordSignup({
+      subject: 'buyer@example.com',
+      tenantId: 'tenant-1',
+      ref,
+      termsAccepted: true,
+      privacyAccepted: true,
+      ageConfirmed: true,
     });
-    await expect(
-      service.requireSignup({ email: 'buyer@example.com', version, contentHash }),
-    ).resolves.toBeUndefined();
     const rows = await service.listForTenant('tenant-1');
-    expect(rows).toEqual([]);
+    expect(rows.map((r) => `${r.purpose}:${r.documentSlug}`).sort()).toEqual([
+      'signup:age',
+      'signup:privacy',
+      'signup:terms',
+    ]);
   });
 
-  it('refuses checkout without a matching acceptance', async () => {
-    const { version, contentHash } = legal();
+  it('refuses signup when the privacy notice was not accepted', async () => {
     await expect(
-      service.requireCheckout({
+      service.recordSignup({
+        subject: 'buyer@example.com',
         tenantId: 'tenant-1',
-        version,
-        contentHash,
-        needsArt1341: false,
+        ref,
+        termsAccepted: true,
+        privacyAccepted: false,
+        ageConfirmed: true,
       }),
     ).rejects.toBeInstanceOf(ContractAcceptanceError);
   });
 
-  it('refuses a business checkout without the art. 1341 approval', async () => {
-    const { version, contentHash } = legal();
-    await service.record({
-      email: 'biz@example.com',
-      tenantId: 'tenant-1',
-      purpose: 'checkout',
-      documentSlug: 'terms',
-      documentVersion: version,
-      contentHash,
-    });
+  it('refuses a document version or hash the operator never published', async () => {
     await expect(
-      service.requireCheckout({
+      service.recordSignup({
+        subject: 'buyer@example.com',
         tenantId: 'tenant-1',
-        version,
-        contentHash,
-        needsArt1341: true,
+        ref: { version: '1999-01-01', documentHashes: ref.documentHashes },
+        termsAccepted: true,
+        privacyAccepted: true,
+        ageConfirmed: true,
       }),
-    ).rejects.toThrow(/art\. 1341/);
+    ).rejects.toThrow(/published version/);
+    await expect(
+      service.recordCheckout({
+        subject: 'tenant-1',
+        tenantId: 'tenant-1',
+        ref: {
+          version: ref.version,
+          documentHashes: { ...ref.documentHashes, terms: 'f'.repeat(64) },
+        },
+        immediatePerformance: true,
+        businessCustomer: false,
+      }),
+    ).rejects.toThrow(/published version/);
   });
 
-  it('accepts a business checkout only after both acts are recorded', async () => {
-    const { version, contentHash } = legal();
-    await service.record({
-      email: 'biz@example.com',
+  it('refuses checkout without the immediate-performance request', async () => {
+    await expect(
+      service.recordCheckout({
+        subject: 'tenant-1',
+        tenantId: 'tenant-1',
+        ref,
+        immediatePerformance: false,
+        businessCustomer: false,
+      }),
+    ).rejects.toThrow(/express request/);
+  });
+
+  it('refuses a stale hash and accepts a matching checkout', async () => {
+    await expect(
+      service.requireCheckout({ tenantId: 'tenant-1', ref, needsArt1341: false }),
+    ).rejects.toBeInstanceOf(ContractAcceptanceError);
+
+    await service.recordCheckout({
+      subject: 'tenant-1',
       tenantId: 'tenant-1',
-      purpose: 'checkout',
-      documentSlug: 'terms',
-      documentVersion: version,
-      contentHash,
-      billingCode: 'ABCDEFG',
-    });
-    await service.record({
-      email: 'biz@example.com',
-      tenantId: 'tenant-1',
-      purpose: 'art1341',
-      documentSlug: 'terms',
-      documentVersion: version,
-      contentHash,
+      ref,
+      immediatePerformance: true,
+      businessCustomer: false,
     });
     await expect(
-      service.requireCheckout({
+      service.requireCheckout({ tenantId: 'tenant-1', ref, needsArt1341: false }),
+    ).resolves.toBeUndefined();
+
+    const stale = {
+      version: ref.version,
+      documentHashes: { ...ref.documentHashes, terms: '0'.repeat(64) },
+    };
+    await expect(
+      service.requireCheckout({ tenantId: 'tenant-1', ref: stale, needsArt1341: false }),
+    ).rejects.toThrow(/published version/);
+  });
+
+  it('requires the art. 1341 approval and the DPA for a business checkout', async () => {
+    await expect(
+      service.recordCheckout({
+        subject: 'tenant-1',
         tenantId: 'tenant-1',
-        version,
-        contentHash,
-        needsArt1341: true,
+        ref,
+        immediatePerformance: true,
+        businessCustomer: true,
       }),
+    ).rejects.toThrow(/art\. 1341/);
+
+    await service.recordCheckout({
+      subject: 'tenant-1',
+      tenantId: 'tenant-1',
+      ref,
+      immediatePerformance: true,
+      businessCustomer: true,
+      art1341Approved: true,
+      dpaAccepted: true,
+      billingCode: 'ABCDEFG',
+    });
+    await expect(
+      service.requireCheckout({ tenantId: 'tenant-1', ref, needsArt1341: true }),
     ).resolves.toBeUndefined();
     const rows = await service.listForTenant('tenant-1');
-    expect(rows.map((r) => r.purpose)).toEqual(['art1341', 'checkout']);
-    expect(rows.find((r) => r.purpose === 'checkout')?.billingCode).toBe('ABCDEFG');
+    expect(rows.map((r) => r.purpose)).toContain('dpa');
+    expect(
+      rows.find((r) => r.purpose === 'checkout' && r.documentSlug === 'terms')?.billingCode,
+    ).toBe('ABCDEFG');
   });
 });

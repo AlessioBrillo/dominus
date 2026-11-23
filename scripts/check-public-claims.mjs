@@ -33,6 +33,11 @@ const COMPARE_PAGE = 'src/api/views/compare-page.ts';
 const LEGAL_CONTENT = 'src/services/legal-content.ts';
 const LEGAL_SURFACE = 'docs/legal/legal-surface.md';
 const LAUNCH_READINESS = 'docs/releases/cloud-launch-readiness.md';
+const ACCESSIBILITY_PAGE = 'frontend/src/pages/AccessibilityPage.tsx';
+const WAITLIST_FORM = 'frontend/src/components/WaitlistForm.tsx';
+const SIGNUP_PAGE = 'frontend/src/pages/SignupPage.tsx';
+const PUBLIC_ROUTER = 'src/api/public-router.ts';
+const DPA_CONTENT = 'src/services/dpa-content.ts';
 
 /** Every file whose words a reader can take as a statement about the product. */
 const FILES = [
@@ -47,6 +52,11 @@ const FILES = [
   LEGAL_CONTENT,
   LEGAL_SURFACE,
   LAUNCH_READINESS,
+  ACCESSIBILITY_PAGE,
+  WAITLIST_FORM,
+  SIGNUP_PAGE,
+  PUBLIC_ROUTER,
+  DPA_CONTENT,
 ];
 
 /** Documentation files are the only place the withdrawal-waiver rule applies. */
@@ -95,6 +105,26 @@ const FORBIDDEN_PATTERNS = [
     pattern: /\[●\]/,
     files: [LEGAL_CONTENT],
     message: 'unfilled DPA clause in published legal text',
+  },
+  {
+    pattern: /listed for sale by the operator/i,
+    files: [FOR_SALE_PAGE],
+    message: 'a tenant-published page cannot name the operator as the seller',
+  },
+  {
+    pattern: /SQLite database/i,
+    files: [BILLING_PAGE],
+    message: 'Cloud Free runs on managed PostgreSQL; SQLite is the self-hosted edition',
+  },
+  {
+    pattern: /The operator is a microenterprise/i,
+    files: [ACCESSIBILITY_PAGE],
+    message: 'the EAA exemption depends on the operator of the deployment; do not assert it',
+  },
+  {
+    pattern: /responds within seven working days/i,
+    files: [ACCESSIBILITY_PAGE],
+    message: 'do not promise a response time the deployment cannot guarantee',
   },
 ];
 

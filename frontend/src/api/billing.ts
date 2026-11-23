@@ -50,8 +50,12 @@ export function fetchSubscription(): Promise<BillingResponse> {
 
 export interface ContractAcceptanceRef {
   documentVersion: string;
-  contentHash: string;
+  documentHashes: Record<string, string>;
+  immediatePerformance: boolean;
   businessCustomer: boolean;
+  art1341Approved?: boolean;
+  dpaAccepted?: boolean;
+  billingCode?: string;
 }
 
 export function createCheckoutSession(

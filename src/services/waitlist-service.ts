@@ -28,21 +28,39 @@ export class WaitlistService {
       throw new Error('WAITLIST_UNAVAILABLE');
     }
     const address = email.trim().toLowerCase();
+    // A second submit is not an error: the first confirmation email is
+    // already on its way and the consent record already exists.
+    if (await this.repo.findByEmail(address)) return;
     const token = randomBytes(32).toString('hex');
     const tokenHash = createHash('sha256').update(token).digest('hex');
     await this.repo.create({ email: address, consentVersion, tokenHash });
     const origin = this.siteUrl?.replace(/\/$/, '') ?? '';
+    const withdrawLink = `${origin}/public/waitlist/withdraw?token=${encodeURIComponent(token)}`;
     const link = `${origin}/public/waitlist/confirm?token=${encodeURIComponent(token)}`;
-    await this.mailer.send({
-      to: address,
-      subject: 'Confirm your DOMINUS Cloud waitlist registration',
-      text:
-        `You asked to be told when DOMINUS Cloud opens. Confirm this address by opening:\n\n` +
-        `${link}\n\n` +
-        `The consent you gave has version ${consentVersion}. You can withdraw it at any time by ` +
-        `writing to ${this.privacyEmail ?? 'the data protection contact in the privacy notice'}.\n\n` +
-        `Registering does not create a contract and does not reserve a seat, a price or a launch date.\n`,
-    });
+    try {
+      await this.mailer.send({
+        to: address,
+        subject: 'Confirm your DOMINUS Cloud waitlist registration',
+        text:
+          `You asked to be told when DOMINUS Cloud opens. Confirm this address by opening:\n\n` +
+          `${link}\n\n` +
+          `The consent you gave has version ${consentVersion}. You can withdraw it at any time ` +
+          `with this link: ${withdrawLink} or by writing to ` +
+          `${this.privacyEmail ?? 'the data protection contact in the privacy notice'}.\n\n` +
+          `Registering does not create a contract and does not reserve a seat, a price or a launch date.\n`,
+      });
+    } catch (err) {
+      // Do not leave an address we could never confirm: a retry must be able
+      // to start again from a clean state.
+      await this.repo.deleteForEmail(address);
+      throw err;
+    }
+  }
+
+  /** Withdrawal uses the same single-use token that was emailed to the person. */
+  async withdraw(token: string): Promise<boolean> {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    return this.repo.deleteByTokenHash(tokenHash);
   }
 
   async confirm(token: string): Promise<boolean> {

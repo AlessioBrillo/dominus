@@ -19,8 +19,12 @@ const checkoutSchema = z.object({
   contract: z
     .object({
       documentVersion: z.string().min(1).max(64),
-      contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+      documentHashes: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
+      immediatePerformance: z.boolean(),
       businessCustomer: z.boolean().default(false),
+      art1341Approved: z.boolean().default(false),
+      dpaAccepted: z.boolean().default(false),
+      billingCode: z.string().max(64).optional(),
     })
     .optional(),
 });
@@ -41,8 +45,12 @@ const subscriptionSchema = z.discriminatedUnion('action', [
     contract: z
       .object({
         documentVersion: z.string().min(1).max(64),
-        contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+        documentHashes: z.record(z.string(), z.string().regex(/^[0-9a-f]{64}$/)),
+        immediatePerformance: z.boolean(),
         businessCustomer: z.boolean().default(false),
+        art1341Approved: z.boolean().default(false),
+        dpaAccepted: z.boolean().default(false),
+        billingCode: z.string().max(64).optional(),
       })
       .optional(),
   }),
@@ -130,20 +138,15 @@ export function createBillingRouter(config: Config, billingService: BillingServi
 
       const tenantId = req.tenantId ?? 'default';
 
-      // The contract is formed here, not in Stripe. A payment without an
-      // acceptance of the current text, the immediate-performance request
-      // and (for a business) the art. 1341 c.c. approval must never start.
-      const acceptance = parsed.data.contract ?? {
-        documentVersion: '',
-        contentHash: '',
-        businessCustomer: false,
-      };
+      // The contract is formed here, not in Stripe. The authenticated tenant
+      // is the accepting subject; the client cannot choose whose acceptance
+      // this is, and the document version/hash must match what we published.
+      const acceptance = parsed.data.contract;
       const contractService = getContractService();
-      // index.ts always configures the ledger; in unit tests that mount the
-      // router alone there is no ledger, and the acceptance check is skipped.
-      // The boot guard and the guardrail assert the production wiring.
+      // index.ts always configures the ledger; unit tests mounting the router
+      // alone have no ledger and skip the check (asserted by the guardrail).
       if (config.CLOUD_PAID_ENABLED && contractService) {
-        if (!acceptance.documentVersion || !acceptance.contentHash) {
+        if (!acceptance) {
           res.status(428).json({
             error: {
               code: 'CONTRACT_ACCEPTANCE_REQUIRED',
@@ -152,11 +155,24 @@ export function createBillingRouter(config: Config, billingService: BillingServi
           });
           return;
         }
+        const ref = {
+          version: acceptance.documentVersion,
+          documentHashes: acceptance.documentHashes,
+        };
         try {
+          await contractService.recordCheckout({
+            subject: req.auth?.userId ?? tenantId,
+            tenantId,
+            ref,
+            immediatePerformance: acceptance.immediatePerformance,
+            businessCustomer: acceptance.businessCustomer,
+            art1341Approved: acceptance.art1341Approved,
+            dpaAccepted: acceptance.dpaAccepted,
+            ...(acceptance.billingCode ? { billingCode: acceptance.billingCode } : {}),
+          });
           await contractService.requireCheckout({
             tenantId,
-            version: acceptance.documentVersion,
-            contentHash: acceptance.contentHash,
+            ref,
             needsArt1341: acceptance.businessCustomer,
           });
         } catch (err) {
@@ -303,11 +319,25 @@ export function createBillingRouter(config: Config, billingService: BillingServi
         const contractService = getContractService();
         if (config.CLOUD_PAID_ENABLED && contractService && parsed.data.contract) {
           try {
+            const ref = {
+              version: parsed.data.contract.documentVersion,
+              documentHashes: parsed.data.contract.documentHashes,
+            };
+            const c = parsed.data.contract;
+            await contractService.recordCheckout({
+              subject: req.auth?.userId ?? tenantId,
+              tenantId,
+              ref,
+              immediatePerformance: c.immediatePerformance,
+              businessCustomer: c.businessCustomer,
+              art1341Approved: c.art1341Approved,
+              dpaAccepted: c.dpaAccepted,
+              ...(c.billingCode ? { billingCode: c.billingCode } : {}),
+            });
             await contractService.requireCheckout({
               tenantId,
-              version: parsed.data.contract.documentVersion,
-              contentHash: parsed.data.contract.contentHash,
-              needsArt1341: parsed.data.contract.businessCustomer,
+              ref,
+              needsArt1341: c.businessCustomer,
             });
           } catch (err) {
             if (err instanceof ContractAcceptanceError) {

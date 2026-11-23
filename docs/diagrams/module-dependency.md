@@ -31,7 +31,7 @@ flowchart LR
 
     subgraph API[REST API]
         API["api/index.ts<br/>Express Router"]
-        ROUTES["api/routes/<br/>36 route modules"]
+        ROUTES["api/routes/<br/>35 route modules"]
         PUB["api/public-router.ts<br/>Public scoring pages<br/>SSR + OG tags"]
         VIEWS["api/views/<br/>SSR HTML templates"]
     end

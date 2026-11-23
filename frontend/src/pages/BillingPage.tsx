@@ -15,7 +15,6 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { CreditCard } from 'lucide-react';
-import { recordAcceptance } from '@/api/contracts';
 
 const PLAN_LABELS: Record<string, string> = {
   free: 'Cloud Free',
@@ -109,6 +108,7 @@ export function BillingPage() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [immediatePerformance, setImmediatePerformance] = useState(false);
   const [approved1341, setApproved1341] = useState(false);
+  const [dpaAccepted, setDpaAccepted] = useState(false);
   const [contractError, setContractError] = useState('');
 
   const subscription = data?.subscription;
@@ -136,42 +136,27 @@ export function BillingPage() {
       setContractError('Accept the terms and request immediate performance');
       return;
     }
-    if (businessCustomer && (!approved1341 || !billingCode.trim())) {
+    if (businessCustomer && (!approved1341 || !dpaAccepted || !billingCode.trim())) {
       setContractError(
-        'A business customer must approve sections 13, 14 and 17 and provide the SDI code or PEC',
+        'A business customer must approve art. 1341, accept the DPA and provide the SDI code or PEC',
       );
       return;
     }
-    if (!legal?.version || !legal.contentHash) {
+    if (!legal?.version || !legal.documentHashes) {
       setContractError('The current terms could not be loaded. Reload the page.');
       return;
     }
     setContractError('');
     const contract = {
       documentVersion: legal.version,
-      contentHash: legal.contentHash,
+      documentHashes: legal.documentHashes,
+      immediatePerformance,
       businessCustomer,
+      art1341Approved: approved1341,
+      dpaAccepted,
+      billingCode: businessCustomer ? billingCode.trim() : undefined,
     };
     try {
-      await recordAcceptance({
-        email: contractEmail.trim(),
-        tenantId: subscription?.tenantId,
-        purpose: 'checkout',
-        documentSlug: 'terms',
-        documentVersion: contract.documentVersion,
-        contentHash: contract.contentHash,
-        billingCode: businessCustomer ? billingCode.trim() : undefined,
-      });
-      if (businessCustomer) {
-        await recordAcceptance({
-          email: contractEmail.trim(),
-          tenantId: subscription?.tenantId,
-          purpose: 'art1341',
-          documentSlug: 'terms',
-          documentVersion: contract.documentVersion,
-          contentHash: contract.contentHash,
-        });
-      }
       if (hasSubscription) {
         changeMutation.mutate({ plan: pendingPlan, interval, contract });
       } else {
@@ -264,6 +249,20 @@ export function BillingPage() {
                   <span>
                     I specifically approve sections 13 (liability), 14 (indemnity) and 17 (law and
                     jurisdiction) under art. 1341 c.c.
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm text-text-secondary">
+                  <input
+                    type="checkbox"
+                    checked={dpaAccepted}
+                    onChange={(e) => setDpaAccepted(e.target.checked)}
+                  />
+                  <span>
+                    I accept the data processing agreement published at{' '}
+                    <a href="/public/dpa" className="underline">
+                      /public/dpa
+                    </a>
+                    .
                   </span>
                 </label>
                 <label htmlFor="billing-code" className="block text-sm">
@@ -414,10 +413,11 @@ export function BillingPage() {
                 name="Cloud Free"
                 price="Free"
                 features={[
-                  'Single user',
-                  'SQLite database',
-                  'All core features',
-                  'Community support',
+                  // Cloud Free limits from src/types/team.ts (TEAM_PLAN_LIMITS.free).
+                  '1 seat, 1 machine key',
+                  '50 candidates scored per month',
+                  '25 domains tracked',
+                  'Managed hosting',
                 ]}
                 current={subscription?.plan === 'free'}
               />

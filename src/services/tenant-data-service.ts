@@ -201,7 +201,21 @@ export class TenantDataService {
       }
     }
 
+    // Signup acceptances and waitlist rows are recorded BEFORE a tenant
+    // exists, so they have no tenant_id and the registry walk cannot see
+    // them. The owner's email is the identifier used at that point.
+    const owner = await this.#provider.queryOne<{ user_id: string }>(
+      'SELECT user_id FROM team_seats WHERE tenant_id = ? ORDER BY invited_at ASC LIMIT 1',
+      [tenantId],
+    );
+
     await this.#provider.transaction(async (db) => {
+      if (owner?.user_id) {
+        await db.exec('DELETE FROM contract_acceptances WHERE tenant_id IS NULL AND email = ?', [
+          owner.user_id,
+        ]);
+        await db.exec('DELETE FROM waitlist_signups WHERE email = ?', [owner.user_id]);
+      }
       for (const spec of TENANT_SCOPED_TABLES) {
         const table = spec.table;
         if (spec.retained) {

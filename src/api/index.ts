@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 export { createUsageRouter } from './routes/usage.js';
 export { createBillingRouter } from './routes/billing.js';
-export { createContractsRouter } from './routes/contracts.js';
 export { createAdminRouter } from './routes/admin.js';
 export { createTeamRouter } from './routes/team.js';
 export { createMeRouter } from './routes/me.js';

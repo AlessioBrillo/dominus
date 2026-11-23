@@ -11,7 +11,7 @@ import { joinWaitlist } from '@/api/waitlist';
  * Confirmation is by double opt-in; the address is not stored as confirmed
  * until the link in the email is opened.
  */
-export function WaitlistForm({ consentVersion }: { consentVersion: string }) {
+export function WaitlistForm() {
   const [email, setEmail] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [message, setMessage] = useState('');
@@ -25,7 +25,7 @@ export function WaitlistForm({ consentVersion }: { consentVersion: string }) {
     }
     setState('sending');
     try {
-      await joinWaitlist(email.trim(), consentVersion);
+      await joinWaitlist(email.trim());
       setState('sent');
     } catch (err: unknown) {
       setState('error');

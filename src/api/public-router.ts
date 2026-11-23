@@ -17,7 +17,6 @@ import type {
 } from '../services/anon-scoring-service.js';
 import { isValidDomain } from '../utils/domain.js';
 import { runWithTenant } from '../utils/tenant-context.js';
-import type { ListingOffer } from '../types/listing.js';
 import { getLogger } from '../logger.js';
 import type { RedisClient } from '../providers/redis/redis-client.js';
 import { generateBrandOgPng, generateOgPng } from './open-graph.js';
@@ -33,12 +32,28 @@ import {
   dataSourcesPageHtml,
 } from './views/index.js';
 import type { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
-import type { ListingManager } from '../listing/listing-manager.js';
 import type { LegalContent } from '../services/legal-content.js';
 import type { WaitlistService } from '../services/waitlist-service.js';
 import { dpaIsGeneratable, renderDpaHtml } from '../services/dpa-content.js';
 
 const logger = getLogger();
+
+/**
+ * Linear-time email shape check. A single `/^[^@]+@[^@]+\.[^@]+$/` regex has
+ * overlapping quantifiers and backtracks polynomially on hostile input.
+ * Splitting on the one '@' and checking the domain's last dot is O(n).
+ */
+function isValidEmailAddress(value: string): boolean {
+  if (value.length === 0 || value.length > 254) return false;
+  const at = value.indexOf('@');
+  if (at <= 0 || at !== value.lastIndexOf('@')) return false;
+  const local = value.slice(0, at);
+  const domain = value.slice(at + 1);
+  if (/[\s@]/.test(local)) return false;
+  const dot = domain.lastIndexOf('.');
+  if (dot <= 0 || dot >= domain.length - 1) return false;
+  return !/[\s@]/.test(domain);
+}
 
 /** The sub-processors published in the privacy notice and in the DPA. */
 const DPA_SUBPROCESSORS = [
@@ -133,13 +148,6 @@ export interface PublicRouterOptions {
    * serves `/for-sale/:domain` and includes those pages in the sitemap.
    */
   domainSiteRepo?: DomainSiteRepository | undefined;
-  /**
-   * Listing manager for the public buyer offer intake
-   * (`POST /public/for-sale/:domain/offer`, ADR-0089). When provided,
-   * visitors can submit an offer on a published for-sale page; the offer is
-   * written to the listing's own tenant.
-   */
-  listingManager?: ListingManager | undefined;
   /**
    * IndexNow verification key. When set, the router serves the key file
    * at the site root (`/<key>.txt`) so search engines can verify ownership.
@@ -463,9 +471,10 @@ export function createPublicRouter(
         return;
       }
       const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
-      const consentVersion =
-        typeof req.body?.consentVersion === 'string' ? req.body.consentVersion.trim() : '';
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !consentVersion) {
+      // The version comes from the published documents, never from the form:
+      // a client cannot claim to have accepted a text we did not publish.
+      const consentVersion = options.legalContent?.version ?? '';
+      if (!isValidEmailAddress(email) || !consentVersion) {
         res.status(400).json({
           error: {
             code: 'VALIDATION_ERROR',
@@ -505,6 +514,33 @@ export function createPublicRouter(
                 ? 'Thank you. We will contact this address when DOMINUS Cloud opens.'
                 : 'This link was already used or does not match a registration.'
             }</p><p><a href="/">Back to DOMINUS</a></p></body></html>`,
+        );
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/waitlist/withdraw', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const token = typeof req.query.token === 'string' ? req.query.token : '';
+      const service = options.waitlistService;
+      if (!service || token.length < 16) {
+        res
+          .status(400)
+          .type('html')
+          .send(
+            '<!doctype html><title>Invalid link</title><p>This withdrawal link is not valid.</p>',
+          );
+        return;
+      }
+      const removed = await service.withdraw(token);
+      res
+        .type('html')
+        .send(
+          `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Waitlist withdrawal</title></head>` +
+            `<body><h1>${removed ? 'Registration withdrawn' : 'No registration found'}</h1>` +
+            `<p>The address and its consent record have been removed.</p>` +
+            `<p><a href="/">Back to DOMINUS</a></p></body></html>`,
         );
     } catch (err) {
       next(err);
@@ -711,88 +747,6 @@ export function createPublicRouter(
             publishedAt: site.publishedAt,
           });
         }
-      } catch (err: unknown) {
-        next(err);
-      }
-    },
-  );
-
-  /**
-   * Public buyer offer intake (ADR-0089). Unauthenticated, per-domain
-   * rate-limited. The offer is recorded on the listing found by domain,
-   * executed under the listing's own tenant so the owner sees it in the
-   * authenticated API and can accept/counter/decline it.
-   */
-  router.post(
-    '/for-sale/:domain/offer',
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-      try {
-        const domain = req.params.domain as string | undefined;
-        if (!domain || !isValidDomain(domain)) {
-          res.status(400).json({
-            error: { code: 'INVALID_DOMAIN', message: `'${domain ?? ''}' is not a valid domain` },
-          });
-          return;
-        }
-        if (!options.listingManager) {
-          res.status(501).json({
-            error: {
-              code: 'OFFER_INTAKE_UNAVAILABLE',
-              message: 'Public offer intake is not configured on this deployment',
-            },
-          });
-          return;
-        }
-
-        const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-        if (!(await domainRateLimiter.check(ip, domain))) {
-          res.status(429).json({
-            error: { code: 'RATE_LIMITED', message: 'Too many requests for this domain' },
-          });
-          return;
-        }
-
-        const { amount, buyer, notes } = req.body as {
-          amount?: number;
-          buyer?: string;
-          notes?: string | null;
-        };
-        if (typeof amount !== 'number' || amount <= 0) {
-          res.status(400).json({
-            error: { code: 'VALIDATION_ERROR', message: 'A valid amount is required' },
-          });
-          return;
-        }
-        if (!buyer || typeof buyer !== 'string') {
-          res.status(400).json({
-            error: { code: 'VALIDATION_ERROR', message: 'buyer is required' },
-          });
-          return;
-        }
-
-        const tenantId = await options.listingManager.getTenantForDomain(domain);
-        if (!tenantId) {
-          res.status(404).json({
-            error: { code: 'NOT_FOUND', message: `No listing found for ${domain}` },
-          });
-          return;
-        }
-
-        let offer: ListingOffer;
-        if (tenantId === 'public') {
-          offer = await options.listingManager.recordPublicOffer(
-            domain,
-            amount,
-            buyer,
-            notes ?? null,
-          );
-        } else {
-          offer = await runWithTenant(tenantId, () =>
-            options.listingManager!.recordPublicOffer(domain, amount, buyer, notes ?? null),
-          );
-        }
-
-        res.status(201).json({ offer });
       } catch (err: unknown) {
         next(err);
       }

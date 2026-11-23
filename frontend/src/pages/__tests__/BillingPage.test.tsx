@@ -16,10 +16,6 @@ vi.mock('@/api/legal', () => ({
   getLegalContent: vi.fn(),
 }));
 
-vi.mock('@/api/contracts', () => ({
-  recordAcceptance: vi.fn().mockResolvedValue(undefined),
-}));
-
 import { BillingPage } from '../BillingPage';
 import { getLegalContent } from '@/api/legal';
 import {
@@ -41,6 +37,7 @@ beforeEach(() => {
   vi.mocked(getLegalContent).mockResolvedValue({
     version: '2026-11-23',
     contentHash: 'a'.repeat(64),
+    documentHashes: { terms: 'a'.repeat(64), privacy: 'a'.repeat(64) },
     identity: { vatRegime: 'ordinary' },
   } as never);
   vi.mocked(useCreateCheckoutSession).mockReturnValue({

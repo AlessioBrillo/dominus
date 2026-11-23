@@ -201,7 +201,7 @@ export function LandingPage() {
                     Checking service status…
                   </span>
                 ) : isWaitlist && firstPartyWaitlist ? (
-                  <WaitlistForm consentVersion={legal!.version} />
+                  <WaitlistForm />
                 ) : isWaitlist ? (
                   <a
                     href={waitlistHref}
@@ -305,7 +305,7 @@ export function LandingPage() {
                 today: the same engine, your own infrastructure, AGPL v3.
               </p>
               {firstPartyWaitlist ? (
-                <WaitlistForm consentVersion={legal!.version} />
+                <WaitlistForm />
               ) : (
                 <div className="mt-6 flex flex-wrap gap-3">
                   <a

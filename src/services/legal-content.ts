@@ -80,10 +80,12 @@ export interface LegalContent {
   /** The version of the published documents. */
   version: string;
   /**
-   * SHA-256 of the published document bodies. Acceptance records store this
-   * hash so the exact text a customer accepted can be proven later.
+   * SHA-256 of the published document bundle. Kept for compatibility and for
+   * the launch evidence; acceptance validation uses `documentHashes`.
    */
   contentHash: string;
+  /** SHA-256 of each named document, used to validate acceptance records. */
+  documentHashes: Record<string, string>;
   /** The date of the last substantive edit (ISO 8601). */
   updatedAt: string;
   /** The waitlist destination, when the operator configured one. */
@@ -521,7 +523,7 @@ function termsOfService(
     sections.push({
       heading: '16. Personal data',
       paragraphs: [
-        `The processing of personal data is described in the Privacy Notice. Where you process personal data through the service as a controller, the data processing agreement under art. 28 GDPR applies and is incorporated into these terms. The agreement is generated from the operator identity published in the legal notice, is published at /public/dpa when that identity is complete, and is accepted and recorded before a business workspace is provisioned. The template and its history are at ${sourceCodeUrl}/blob/master/docs/legal/data-processing-agreement.md; a copy for signature is available at the data protection contact.`,
+        `The processing of personal data is described in the Privacy Notice. Where you process personal data through the service as a controller, the data processing agreement under art. 28 GDPR applies and is incorporated into these terms. The agreement is generated from the operator identity published in the legal notice and is published at /public/dpa when that identity is complete; a business customer accepts it at checkout, and the acceptance is recorded with the version of these terms. The template and its history are at ${sourceCodeUrl}/blob/master/docs/legal/data-processing-agreement.md; a copy for signature is available at the data protection contact.`,
       ],
     });
     sections.push({
@@ -864,12 +866,16 @@ export function buildLegalContent(options: LegalContentOptions): LegalContent {
     privacyPolicy(identity, cloudMode, paidService, options.waitlistUrl, sourceCodeUrl),
   ];
   const contentHash = createHash('sha256').update(JSON.stringify(documents)).digest('hex');
+  const documentHashes = Object.fromEntries(
+    documents.map((d) => [d.slug, createHash('sha256').update(JSON.stringify(d)).digest('hex')]),
+  );
 
   return {
     mode: cloudMode ? 'cloud' : 'community',
     status,
     version: updatedAt === LEGAL_DOCUMENTS_UPDATED_AT ? LEGAL_DOCUMENTS_VERSION : updatedAt,
     contentHash,
+    documentHashes,
     updatedAt,
     ...(options.waitlistUrl ? { waitlistUrl: options.waitlistUrl } : {}),
     waitlistAvailable: options.waitlistAvailable === true,

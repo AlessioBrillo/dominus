@@ -40,6 +40,8 @@ export interface LegalContent {
   version: string;
   /** SHA-256 of the published document bodies, stored with acceptance records. */
   contentHash: string;
+  /** SHA-256 of each named document, used in contract acceptance records. */
+  documentHashes: Record<string, string>;
   updatedAt: string;
   waitlistUrl?: string;
   /** True when the first-party waitlist can send confirmation emails. */

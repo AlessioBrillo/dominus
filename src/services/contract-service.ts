@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import type {
   ContractAcceptance,
+  ContractAcceptancePurpose,
   ContractAcceptanceRepository,
   NewContractAcceptance,
 } from '../db/repositories/contract-acceptance-repository.js';
@@ -18,101 +19,202 @@ export class ContractAcceptanceError extends Error {
   }
 }
 
-export interface RecordAcceptanceInput extends NewContractAcceptance {
-  ip?: string | null;
-  userAgent?: string | null;
+/** The documents as published by this deployment, captured once at boot. */
+export interface PublishedContractDocuments {
+  version: string;
+  documentHashes: Record<string, string>;
+}
+
+export interface DocumentRef {
+  version: string;
+  documentHashes: Record<string, string>;
 }
 
 /**
  * The contract-acceptance ledger.
  *
- * Stripe's `consent_collection` gives one checkbox and no durable record we
- * control. The payment is made in Stripe, but the CONTRACT is made here: the
- * customer accepts a specific version and hash of the terms, asks for
- * immediate performance (art. 57(3) Consumer Code), and — when it is a
- * business — specifically approves the clauses that limit its rights
- * (art. 1341 c.c.). All three acts are recorded in one append-only ledger.
+ * The acts are recorded by the AUTHENTICATED routes (signup and checkout),
+ * not by a public "I accept" endpoint: a client that can choose whose email
+ * and tenant it is accepting for would turn the evidence into a forgery.
+ * The version and the per-document hash come from the text built at boot, so
+ * a client cannot name a document version the operator never published.
  */
 export class ContractService {
   readonly #repo: ContractAcceptanceRepository;
+  readonly #published: PublishedContractDocuments;
 
-  constructor(repo: ContractAcceptanceRepository) {
+  constructor(repo: ContractAcceptanceRepository, published: PublishedContractDocuments) {
     this.#repo = repo;
+    this.#published = published;
   }
 
-  async record(input: RecordAcceptanceInput): Promise<ContractAcceptance> {
+  get published(): PublishedContractDocuments {
+    return this.#published;
+  }
+
+  async #record(
+    input: NewContractAcceptance & { ip?: string | null; userAgent?: string | null },
+  ): Promise<ContractAcceptance> {
     if (!input.email || input.email.trim() === '') {
-      throw new ContractAcceptanceError('An email address is required to record an acceptance');
-    }
-    if (!input.documentVersion || !input.contentHash) {
-      throw new ContractAcceptanceError('The document version and hash are required');
+      throw new ContractAcceptanceError('An accepting subject is required');
     }
     return this.#repo.create({
       ...input,
-      email: input.email.trim().toLowerCase(),
       ipHash: input.ip ? hashIdentifier(input.ip) : null,
       userAgentHash: input.userAgent ? hashIdentifier(input.userAgent) : null,
     });
   }
 
-  /**
-   * Fail-closed check used before a checkout session is created.
-   *
-   * The version and hash must match the documents the customer actually saw;
-   * an acceptance of an older version does not carry over silently.
-   */
-  async requireCheckout(input: {
-    tenantId: string;
-    version: string;
-    contentHash: string;
-    needsArt1341: boolean;
-  }): Promise<void> {
-    const terms = await this.#repo.hasForTenant(
-      input.tenantId,
-      'checkout',
-      'terms',
-      input.version,
-      ACCEPTANCE_MAX_AGE_MS,
-    );
-    if (!terms) {
+  #validate(slug: string, ref: DocumentRef): void {
+    const expected = this.#published.documentHashes[slug];
+    if (
+      ref.version !== this.#published.version ||
+      !expected ||
+      ref.documentHashes?.[slug] !== expected
+    ) {
       throw new ContractAcceptanceError(
-        'The terms and the request for immediate performance must be accepted before checkout',
+        `The acceptance does not match the published version of the ${slug}`,
       );
     }
-    if (input.needsArt1341) {
-      const art1341 = await this.#repo.hasForTenant(
-        input.tenantId,
-        'art1341',
-        'terms',
-        input.version,
-        ACCEPTANCE_MAX_AGE_MS,
+  }
+
+  /** Called by the authenticated signup route after the workspace exists. */
+  async recordSignup(input: {
+    subject: string;
+    tenantId: string;
+    ref: DocumentRef;
+    termsAccepted: boolean;
+    privacyAccepted: boolean;
+    ageConfirmed: boolean;
+  }): Promise<void> {
+    if (!input.termsAccepted || !input.privacyAccepted || !input.ageConfirmed) {
+      throw new ContractAcceptanceError(
+        'The terms, the privacy notice and the age declaration must all be accepted',
       );
-      if (!art1341) {
+    }
+    this.#validate('terms', input.ref);
+    this.#validate('privacy', input.ref);
+    for (const slug of ['terms', 'privacy', 'age']) {
+      await this.#record({
+        email: input.subject,
+        tenantId: input.tenantId,
+        purpose: 'signup',
+        documentSlug: slug,
+        documentVersion: this.#published.version,
+        contentHash: this.#published.documentHashes[slug] ?? this.#published.documentHashes.terms!,
+      });
+    }
+  }
+
+  /** Called by the authenticated checkout route before Stripe is opened. */
+  async recordCheckout(input: {
+    subject: string;
+    tenantId: string;
+    ref: DocumentRef;
+    immediatePerformance: boolean;
+    businessCustomer: boolean;
+    art1341Approved?: boolean;
+    dpaAccepted?: boolean;
+    billingCode?: string;
+  }): Promise<void> {
+    this.#validate('terms', input.ref);
+    if (!input.immediatePerformance) {
+      throw new ContractAcceptanceError(
+        'The express request to start the service immediately is required',
+      );
+    }
+    // Validate the whole act before writing any of it: a failed business
+    // checkout must not leave a partial set of acceptances behind.
+    if (
+      input.businessCustomer &&
+      (!input.art1341Approved || !input.dpaAccepted || !input.billingCode?.trim())
+    ) {
+      throw new ContractAcceptanceError(
+        'A business customer must approve art. 1341 c.c., accept the DPA and provide the SDI code or PEC',
+      );
+    }
+    const version = this.#published.version;
+    const termsHash = this.#published.documentHashes.terms!;
+    await this.#record({
+      email: input.subject,
+      tenantId: input.tenantId,
+      purpose: 'checkout',
+      documentSlug: 'terms',
+      documentVersion: version,
+      contentHash: termsHash,
+      billingCode: input.billingCode ?? null,
+    });
+    await this.#record({
+      email: input.subject,
+      tenantId: input.tenantId,
+      purpose: 'checkout',
+      documentSlug: 'withdrawal',
+      documentVersion: version,
+      contentHash: termsHash,
+    });
+    if (input.businessCustomer) {
+      await this.#record({
+        email: input.subject,
+        tenantId: input.tenantId,
+        purpose: 'art1341',
+        documentSlug: 'terms',
+        documentVersion: version,
+        contentHash: termsHash,
+      });
+      await this.#record({
+        email: input.subject,
+        tenantId: input.tenantId,
+        purpose: 'dpa',
+        documentSlug: 'dpa',
+        documentVersion: version,
+        contentHash: termsHash,
+      });
+    }
+  }
+
+  /** Fail-closed re-check used by the billing router. */
+  async requireCheckout(input: {
+    tenantId: string;
+    ref: DocumentRef;
+    needsArt1341: boolean;
+  }): Promise<void> {
+    this.#validate('terms', input.ref);
+    const version = this.#published.version;
+    const termsHash = this.#published.documentHashes.terms!;
+    for (const [purpose, slug] of [
+      ['checkout', 'terms'],
+      ['checkout', 'withdrawal'],
+    ] as const) {
+      const found = await this.#has(input.tenantId, purpose, slug, version, termsHash);
+      if (!found) {
         throw new ContractAcceptanceError(
-          'Business customers must specifically approve sections 13, 14 and 17 under art. 1341 c.c. before checkout',
+          `A current ${slug} acceptance is required before checkout`,
         );
+      }
+    }
+    if (input.needsArt1341) {
+      for (const [purpose, slug] of [
+        ['art1341', 'terms'],
+        ['dpa', 'dpa'],
+      ] as const) {
+        const found = await this.#has(input.tenantId, purpose, slug, version, termsHash);
+        if (!found) {
+          throw new ContractAcceptanceError(
+            `A current ${purpose} acceptance is required before checkout`,
+          );
+        }
       }
     }
   }
 
-  async requireSignup(input: {
-    email: string;
-    version: string;
-    contentHash: string;
-  }): Promise<void> {
-    const accepted = await this.#repo.listForEmail(input.email.trim().toLowerCase());
-    const match = accepted.some(
-      (a) =>
-        a.purpose === 'signup' &&
-        a.documentSlug === 'terms' &&
-        a.documentVersion === input.version &&
-        a.contentHash === input.contentHash,
-    );
-    if (!match) {
-      throw new ContractAcceptanceError(
-        'The terms and privacy notice must be accepted before a workspace is created',
-      );
-    }
+  async #has(
+    tenantId: string,
+    purpose: ContractAcceptancePurpose,
+    slug: string,
+    version: string,
+    hash: string,
+  ): Promise<boolean> {
+    return this.#repo.hasForTenant(tenantId, purpose, slug, version, hash, ACCEPTANCE_MAX_AGE_MS);
   }
 
   async listForTenant(tenantId: string): Promise<ContractAcceptance[]> {
@@ -125,10 +227,9 @@ function hashIdentifier(value: string): string {
 }
 
 /**
- * The service is created once at boot (after the migrations have run) and
- * read by the routers. The setter exists so the routers keep their existing
- * signatures: adding a sixth argument to createAuthRouter would break every
- * caller and every test for a dependency that only production has.
+ * Created once at boot (after migrations) and read by the routers. The
+ * setter keeps the existing router signatures; the guardrail asserts that
+ * production wires it.
  */
 let instance: ContractService | undefined;
 
@@ -136,7 +237,7 @@ export function setContractService(service: ContractService): void {
   instance = service;
 }
 
-/** The configured service, or undefined in tests and community deployments. */
+/** Undefined only in unit tests that mount a router on its own. */
 export function getContractService(): ContractService | undefined {
   return instance;
 }
