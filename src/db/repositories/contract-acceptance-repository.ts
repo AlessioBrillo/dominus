@@ -6,6 +6,7 @@ export type ContractAcceptancePurpose = 'signup' | 'checkout' | 'dpa' | 'art1341
 export interface ContractAcceptance {
   id: number;
   tenantId: string | null;
+  /** Identifier of the accepting subject: email at signup, session subject at checkout. */
   email: string;
   purpose: ContractAcceptancePurpose;
   documentSlug: string;

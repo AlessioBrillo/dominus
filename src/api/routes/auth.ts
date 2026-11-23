@@ -148,7 +148,13 @@ export function createAuthRouter(
         // a matching acceptance of the current text is refused.
         const contractService = getContractService();
         const acceptance = parsed.data.contractAcceptance;
-        if (contractService && !acceptance) {
+        if (
+          contractService &&
+          (!acceptance ||
+            !acceptance.termsAccepted ||
+            !acceptance.privacyAccepted ||
+            !acceptance.ageConfirmed)
+        ) {
           res.status(428).json({
             error: {
               code: 'CONTRACT_ACCEPTANCE_REQUIRED',
@@ -156,6 +162,27 @@ export function createAuthRouter(
             },
           });
           return;
+        }
+        // Validate the document reference BEFORE provisioning: a stale hash
+        // must not leave an orphan workspace behind when we return 428.
+        if (contractService && acceptance) {
+          try {
+            contractService.validateReference(
+              {
+                version: acceptance.documentVersion,
+                documentHashes: acceptance.documentHashes,
+              },
+              ['terms', 'privacy'],
+            );
+          } catch {
+            res.status(428).json({
+              error: {
+                code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+                message: 'Accept the current version of the Terms of Service before continuing',
+              },
+            });
+            return;
+          }
         }
 
         // Fail closed BEFORE anything is written: a workspace whose

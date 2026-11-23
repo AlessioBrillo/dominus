@@ -15,7 +15,9 @@ export const backwardCompatible = true;
  * and the art. 28 GDPR DPA all need that proof.
  *
  * The table is control-plane on purpose: a signup records an acceptance
- * BEFORE a tenant exists, exactly like signup_verifications (0067).
+ * BEFORE a tenant exists, exactly like signup_verifications (0067). The
+ * `email` column is the identifier of the accepting subject: the registered
+ * email at signup, the session subject at checkout.
  */
 const SQLITE_DDL = `
 CREATE TABLE IF NOT EXISTS contract_acceptances (

@@ -52,6 +52,11 @@ export class ContractService {
     return this.#published;
   }
 
+  /** Validate a client-supplied reference before any write happens. */
+  validateReference(ref: DocumentRef, slugs: readonly string[] = ['terms']): void {
+    for (const slug of slugs) this.#validate(slug, ref);
+  }
+
   async #record(
     input: NewContractAcceptance & { ip?: string | null; userAgent?: string | null },
   ): Promise<ContractAcceptance> {

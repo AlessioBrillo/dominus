@@ -317,6 +317,15 @@ export function createBillingRouter(config: Config, billingService: BillingServi
         // A plan change is a new contract act: the terms currently in force
         // must have been accepted before the subscription is mutated.
         const contractService = getContractService();
+        if (config.CLOUD_PAID_ENABLED && contractService && !parsed.data.contract) {
+          res.status(428).json({
+            error: {
+              code: 'CONTRACT_ACCEPTANCE_REQUIRED',
+              message: 'Accept the current terms before changing the plan',
+            },
+          });
+          return;
+        }
         if (config.CLOUD_PAID_ENABLED && contractService && parsed.data.contract) {
           try {
             const ref = {
