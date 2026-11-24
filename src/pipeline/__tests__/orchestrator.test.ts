@@ -182,7 +182,7 @@ describe('PipelineOrchestrator', () => {
 
     // Assert â€” cannot confirm clearance â†’ not recommended
     expect(result.recommended).toHaveLength(0);
-    expect(result.scored[0]?.status).toBe('unscored');
+    expect(result.scored[0]?.status).toBe('trademark_pending');
   });
 
   it('Principle 6: unexpected gate.check() error keeps the candidate out of recommended', async () => {
@@ -203,7 +203,7 @@ describe('PipelineOrchestrator', () => {
 
     // Assert â€” cannot confirm clearance â†’ not recommended
     expect(result.recommended).toHaveLength(0);
-    expect(result.scored[0]?.status).toBe('unscored');
+    expect(result.scored[0]?.status).toBe('trademark_pending');
   });
 
   it('result.scored includes all candidates that went through the scoring engine', async () => {

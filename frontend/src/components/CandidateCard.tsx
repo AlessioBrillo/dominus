@@ -31,7 +31,7 @@ export function CandidateCard({ candidate, onBuy, onDismiss }: CandidateCardProp
   const statusVariant =
     candidate.status === 'recommended'
       ? 'success'
-      : candidate.status === 'scored'
+      : candidate.status === 'scored' || candidate.status === 'trademark_pending'
         ? 'warning'
         : 'default';
 

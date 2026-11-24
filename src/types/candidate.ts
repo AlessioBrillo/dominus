@@ -14,6 +14,13 @@ export enum CandidateStatus {
   RdapFiltered = 'rdap_filtered',
   Scored = 'scored',
   TrademarkBlocked = 'trademark_blocked',
+  /**
+   * The gate could not reach a verdict (provider timeout, incomplete
+   * enumeration, strict-TLD source failure). ADR-0006 keeps the candidate
+   * out of `recommended`; ADR-0098 requires it to stay retryable instead of
+   * being confused with a domain that was scored and rejected.
+   */
+  TrademarkPending = 'trademark_pending',
   Recommended = 'recommended',
   Unscored = 'unscored',
 }

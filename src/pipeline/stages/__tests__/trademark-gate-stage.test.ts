@@ -68,7 +68,7 @@ describe('TrademarkGateStage', () => {
     expect(result.filtered[0]?.status).toBe(CandidateStatus.TrademarkBlocked);
   });
 
-  it('filters an unverified domain with Unscored status', async () => {
+  it('holds an unverified domain as trademark_pending', async () => {
     const gate = makeMockGate({
       domain: 'unverified.com',
       verdict: GateVerdict.Unverified,
@@ -78,10 +78,23 @@ describe('TrademarkGateStage', () => {
     const result = await stage.process([makeCandidate('unverified.com')]);
     expect(result.passed).toHaveLength(0);
     expect(result.filtered).toHaveLength(1);
-    expect(result.filtered[0]?.status).toBe(CandidateStatus.Unscored);
+    expect(result.filtered[0]?.status).toBe(CandidateStatus.TrademarkPending);
   });
 
-  it('filters an unverified domain with strict-TLD failure as Unscored', async () => {
+  it('reports a run-level degradation when a candidate has no verdict', async () => {
+    const gate = makeMockGate({
+      domain: 'held.com',
+      verdict: GateVerdict.Unverified,
+      verifiedSources: [],
+    });
+    const stage = new TrademarkGateStage(gate);
+    const result = await stage.process([makeCandidate('held.com')]);
+    expect(result.degradations).toHaveLength(1);
+    expect(result.degradations![0]!.reason).toBe('trademark-source-unavailable');
+    expect(result.degradations![0]!.message).toContain('1 candidate');
+  });
+
+  it('holds a strict-TLD source failure as trademark_pending', async () => {
     const gate = makeMockGate({
       domain: 'strict.com',
       verdict: GateVerdict.Unverified,
@@ -92,10 +105,10 @@ describe('TrademarkGateStage', () => {
     const result = await stage.process([makeCandidate('strict.com')]);
     expect(result.passed).toHaveLength(0);
     expect(result.filtered).toHaveLength(1);
-    expect(result.filtered[0]?.status).toBe(CandidateStatus.Unscored);
+    expect(result.filtered[0]?.status).toBe(CandidateStatus.TrademarkPending);
   });
 
-  it('filters domain when gate.check throws', async () => {
+  it('holds the domain as pending when gate.check throws', async () => {
     const gate = {
       check: vi.fn().mockRejectedValue(new Error('TM API unreachable')),
     } as unknown as TrademarkGate;
@@ -103,7 +116,7 @@ describe('TrademarkGateStage', () => {
     const result = await stage.process([makeCandidate('error.com')]);
     expect(result.passed).toHaveLength(0);
     expect(result.filtered).toHaveLength(1);
-    expect(result.filtered[0]?.status).toBe(CandidateStatus.Unscored);
+    expect(result.filtered[0]?.status).toBe(CandidateStatus.TrademarkPending);
   });
 
   it('handles mixed domains with different verdicts', async () => {

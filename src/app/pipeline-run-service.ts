@@ -567,9 +567,11 @@ function buildResultsSummary(
     statusByDomain.set(c.domain, c.status);
   }
   let trademarkBlocked = 0;
+  let trademarkPending = 0;
   let unscored = 0;
   for (const status of statusByDomain.values()) {
     if (status === 'trademark_blocked') trademarkBlocked++;
+    else if (status === 'trademark_pending') trademarkPending++;
     else if (status === 'dns_filtered' || status === 'rdap_filtered' || status === 'unscored')
       unscored++;
   }
@@ -577,6 +579,7 @@ function buildResultsSummary(
     candidatesEvaluated: persistence.candidatesPersisted,
     recommended: result.recommended.length,
     trademarkBlocked,
+    trademarkPending,
     unscored,
     errors: result.stageErrors.length,
     degraded: result.degraded,
@@ -585,7 +588,14 @@ function buildResultsSummary(
 }
 
 function emptyResults(): PipelineRunResults {
-  return { candidatesEvaluated: 0, recommended: 0, trademarkBlocked: 0, unscored: 0, errors: 0 };
+  return {
+    candidatesEvaluated: 0,
+    recommended: 0,
+    trademarkBlocked: 0,
+    trademarkPending: 0,
+    unscored: 0,
+    errors: 0,
+  };
 }
 
 function computeRetainedUntil(startedAt: string, days: number): string {
