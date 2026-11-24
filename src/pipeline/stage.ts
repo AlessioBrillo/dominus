@@ -4,7 +4,9 @@ export type StageDegradationReason =
   | 'error'
   | 'dns-unvalidated'
   | 'rdap-consensus-unverified'
-  | 'commercial-signal-unavailable';
+  | 'commercial-signal-unavailable'
+  /** A candidate was held because no trademark source produced a verdict. */
+  | 'trademark-source-unavailable';
 
 export interface StageDegradation {
   stageName: string;

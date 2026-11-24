@@ -214,6 +214,40 @@ describe('pipeline_runs — end-to-end (ADR-0011)', () => {
     expect(row?.resultsSummary.candidatesEvaluated).toBe(3);
   });
 
+  it('results_summary counts trademark_pending separately from unscored', async () => {
+    // Arrange: one candidate held by the trademark gate without a verdict.
+    const pending = {
+      ...makeScoredCandidate('pending.com', false),
+      status: CandidateStatus.TrademarkPending,
+    };
+    const service = new PipelineRunService(
+      deps.provider,
+      makeMockOrchestrator({
+        runId: 'pending-run',
+        allCandidates: [pending],
+        recommended: [],
+        scored: [pending],
+        stageErrors: [],
+        degraded: false,
+        degradedReasons: [],
+        stageSummary: {},
+        totalDurationMs: 1,
+      } as PipelineResult),
+      deps.candidateRepo,
+      deps.scoringRepo,
+      deps.runsRepo,
+    );
+
+    // Act
+    const result = await service.runSync({});
+
+    // Assert
+    const row = await deps.runsRepo.findById(result.runRowId);
+    expect(row?.resultsSummary.trademarkPending).toBe(1);
+    expect(row?.resultsSummary.unscored).toBe(0);
+    expect(row?.resultsSummary.recommended).toBe(0);
+  });
+
   it('a second run() creates a second row, leaving the first intact', async () => {
     // Act
     const r1 = await deps.service.runSync({});

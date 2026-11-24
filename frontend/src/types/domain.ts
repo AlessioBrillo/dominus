@@ -62,7 +62,7 @@ export interface Outcome {
 
 export interface PipelineRunDegradation {
   stageName: string;
-  reason: 'timeout' | 'error';
+  reason: 'timeout' | 'error' | 'trademark-source-unavailable';
   processedCount: number;
   expectedCount: number;
   message?: string;
@@ -72,6 +72,7 @@ export interface PipelineRunResultsSummary {
   candidatesEvaluated: number;
   recommended: number;
   trademarkBlocked: number;
+  trademarkPending?: number;
   unscored: number;
   errors: number;
   degraded?: boolean;

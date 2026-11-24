@@ -36,6 +36,8 @@ export interface PipelineRunResults {
   candidatesEvaluated: number;
   recommended: number;
   trademarkBlocked: number;
+  /** Candidates held because the trademark source gave no verdict (ADR-0006). */
+  trademarkPending?: number;
   unscored: number;
   errors: number;
   /** True when the run completed but one or more stages degraded (ADR-0037). */
