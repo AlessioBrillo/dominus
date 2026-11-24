@@ -123,6 +123,7 @@ import { TeamInvitationsRepository } from '../db/repositories/team-invitations-r
 import { SignupVerificationRepository } from '../db/repositories/signup-verification-repository.js';
 import { MagicLinkTokenRepository } from '../db/repositories/magic-link-token-repository.js';
 import { MagicLinkService, type MagicLinkSessionClaims } from '../services/magic-link-service.js';
+import { LifecycleMailer } from '../services/lifecycle-mailer.js';
 import { TenantNotificationSettingsRepository } from '../db/repositories/tenant-notification-settings-repository.js';
 import { EmailVerificationService } from '../services/email-verification-service.js';
 import { TenantNotificationService } from '../services/tenant-notification-service.js';
@@ -841,11 +842,25 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     config.OIDC_AUTO_PROVISION_TENANTS,
   );
 
+  const mailer = createMailer(config);
+  // Billing state changes are invisible to the customer unless someone tells
+  // them: a past_due row is a silent loss of paid capacity (ADR-0053).
+  const lifecycleMailer = new LifecycleMailer({
+    mailer,
+    ownerEmail: async (tenantId: string): Promise<string | undefined> => {
+      const seats = await repos.teamSeatsRepo.findByTenantId(tenantId);
+      const byEmail = (seat: { userId: string }): boolean => seat.userId.includes('@');
+      const owner =
+        seats.find((seat) => byEmail(seat) && seat.role === 'admin') ?? seats.find(byEmail);
+      return owner?.userId;
+    },
+  });
   const billingService = new BillingService(
     config,
     repos.subscriptionRepo,
     repos.webhookEventsRepo,
     repos.customPriceRepo,
+    lifecycleMailer,
   );
   const usageService = new UsageMeterService(repos.usageRepo, repos.subscriptionRepo, {
     // Auto-provision a free plan on first request for managed (Cloud) setups:
@@ -864,7 +879,6 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const adminService = new AdminService(repos.adminRepo, repos.usageRepo, repos.customPriceRepo);
   // Same plan-override source as UsageMeterService above: an operator grant
   // must raise seat limits exactly like usage limits (ADR-0057).
-  const mailer = createMailer(config);
   const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo, {
     invitations: { repo: repos.teamInvitationsRepo, mailer, appUrl: config.PUBLIC_APP_URL },
     planOverrideProvider: (tenantId: string): Promise<SubscriptionPlan | null> =>
