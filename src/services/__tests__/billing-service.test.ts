@@ -457,6 +457,58 @@ describe('BillingService webhook handling', () => {
     expect(sub?.plan).toBe('pro');
   });
 
+  it('emails the owner when a payment fails', async () => {
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'active',
+      stripeCustomerId: 'cus_9',
+    });
+    stubWebhookEvent({
+      id: 'evt_lifecycle_1',
+      type: 'invoice.payment_failed',
+      object: { customer: 'cus_9' },
+    });
+    const lifecycle = { send: vi.fn().mockResolvedValue(undefined) };
+    const service = new BillingService(
+      baseConfig,
+      subRepo,
+      webhookRepo,
+      undefined,
+      lifecycle as never,
+    );
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    expect(lifecycle.send).toHaveBeenCalledWith('payment_failed', 'tenant-1');
+  });
+
+  it('emails the owner before the trial ends', async () => {
+    await subRepo.upsert({
+      tenantId: 'tenant-1',
+      plan: 'pro',
+      status: 'trialing',
+      stripeCustomerId: 'cus_trial',
+    });
+    stubWebhookEvent({
+      id: 'evt_lifecycle_2',
+      type: 'customer.subscription.trial_will_end',
+      object: { customer: 'cus_trial', metadata: { tenantId: 'tenant-1' } },
+    });
+    const lifecycle = { send: vi.fn().mockResolvedValue(undefined) };
+    const service = new BillingService(
+      baseConfig,
+      subRepo,
+      webhookRepo,
+      undefined,
+      lifecycle as never,
+    );
+
+    await service.handleWebhookEvent(RAW, 'sig');
+
+    expect(lifecycle.send).toHaveBeenCalledWith('trial_ending', 'tenant-1');
+  });
+
   it('ignores invoice.payment_failed for unknown customers', async () => {
     stubWebhookEvent({
       id: 'evt_10',

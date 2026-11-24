@@ -10,6 +10,7 @@ import type {
   SubscriptionStatus,
 } from '../types/subscription.js';
 import { getLogger } from '../logger.js';
+import type { LifecycleMailer } from './lifecycle-mailer.js';
 
 const logger = getLogger();
 
@@ -197,6 +198,7 @@ export class BillingService {
   readonly #subRepo: SubscriptionRepository;
   readonly #webhookRepo: WebhookEventsRepository | null;
   readonly #customPriceRepo: CustomPriceRepository | null;
+  readonly #lifecycle: LifecycleMailer | undefined;
   #stripe: StripeSdk['Stripe']['prototype'] | null = null;
   /** In-memory fast path for webhook dedup (bounded LRU-style set). */
   readonly #processedEventIds = new Map<string, number>();
@@ -206,11 +208,13 @@ export class BillingService {
     subRepo: SubscriptionRepository,
     webhookRepo?: WebhookEventsRepository,
     customPriceRepo?: CustomPriceRepository,
+    lifecycle?: LifecycleMailer,
   ) {
     this.#config = config;
     this.#subRepo = subRepo;
     this.#webhookRepo = webhookRepo ?? null;
     this.#customPriceRepo = customPriceRepo ?? null;
+    this.#lifecycle = lifecycle;
   }
 
   get isConfigured(): boolean {
@@ -751,6 +755,7 @@ export class BillingService {
           stripeSubscriptionId: session.subscription ?? null,
           currentPeriodStart: new Date().toISOString(),
         });
+        await this.#lifecycle?.send('welcome', tenantId, plan);
         break;
       }
 
@@ -859,6 +864,29 @@ export class BillingService {
         break;
       }
 
+      case 'customer.subscription.trial_will_end': {
+        const trialSub = event.data.object as {
+          customer?: string;
+          metadata?: Record<string, string>;
+        };
+        const trialTenant =
+          trialSub.metadata?.tenantId ??
+          (await this.#subRepo.findByStripeCustomerId(trialSub.customer ?? ''))?.tenantId;
+        if (trialTenant) await this.#lifecycle?.send('trial_ending', trialTenant);
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const paid = event.data.object as { customer?: string; amount_paid?: number };
+        const paidTenant = (await this.#subRepo.findByStripeCustomerId(paid.customer ?? ''))
+          ?.tenantId;
+        if (paidTenant) {
+          const amount = ((paid.amount_paid ?? 0) / 100).toFixed(2);
+          await this.#lifecycle?.send('receipt', paidTenant, `€${amount}`);
+        }
+        break;
+      }
+
       case 'invoice.payment_failed': {
         // Dunning signal: mark the subscription past_due immediately so
         // usage enforcement fails closed to free-plan limits (ADR-0053).
@@ -870,6 +898,7 @@ export class BillingService {
         if (failTenant) {
           await this.#subRepo.updateStatus(failTenant, 'past_due');
           logger.warn({ tenantId: failTenant, eventId: event.id }, 'Invoice payment failed');
+          await this.#lifecycle?.send('payment_failed', failTenant);
         }
         break;
       }
@@ -884,6 +913,7 @@ export class BillingService {
           (await this.#subRepo.findByStripeCustomerId(deletedSub.customer ?? ''))?.tenantId;
         if (delTenantId) {
           await this.#subRepo.cancel(delTenantId, new Date().toISOString());
+          await this.#lifecycle?.send('cancelled', delTenantId);
         }
         break;
       }
