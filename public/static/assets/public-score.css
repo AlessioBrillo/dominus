@@ -23,3 +23,9 @@ thead th{color:#a1a1aa;text-transform:uppercase;letter-spacing:.04em;font-size:.
 tbody th{font-weight:600;color:#e4e4e7;white-space:nowrap}
 tbody td{color:#a1a1aa;word-break:break-word}
 tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
+h2{font-size:1rem;margin:1.25rem 0 .5rem;color:#e4e4e7}
+ul{margin:.5rem 0 .5rem 1.25rem;color:#a1a1aa;font-size:.875rem}
+ul li{margin:.35rem 0}
+.cta-row{margin-top:1.5rem;text-align:center}
+.cta{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:.7rem 1.1rem;border-radius:8px;font-weight:600;font-size:.875rem}
+.cta:hover{background:#4338ca}

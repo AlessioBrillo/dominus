@@ -11,3 +11,6 @@ h2{font-size:1.1rem;font-weight:600;margin-bottom:.25rem;word-break:break-all}
 .stat-value.negative{color:#ef4444}
 .footer{margin-top:1.5rem;text-align:center;font-size:.75rem;color:#52525b}
 .footer a{color:#818cf8;text-decoration:none}
+.cta-row{margin-top:1.5rem;text-align:center}
+.cta{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:.7rem 1.1rem;border-radius:8px;font-weight:600;font-size:.875rem}
+.cta:hover{background:#4338ca}

@@ -8,6 +8,7 @@ export { renderForSalePage } from './for-sale-page.js';
 export { renderComparePage } from './compare-page.js';
 export { renderErrorPage } from './error-page.js';
 export { dataSourcesPageHtml } from './info-pages.js';
+export { renderMethodologyPage } from './methodology-page.js';
 export {
   scoreDatasetJsonLd,
   forSaleOfferJsonLd,

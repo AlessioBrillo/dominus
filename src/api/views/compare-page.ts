@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
-import { pageHtml, COMPARE_CSS_HREF, SITE_NAME } from './page-template.js';
+import { pageHtml, trackCtaHtml, COMPARE_CSS_HREF, SITE_NAME } from './page-template.js';
 import { compareItemListJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
@@ -82,6 +82,7 @@ export function renderComparePage(
     col(domain1, score1),
     col(domain2, score2),
     '</div>',
+    trackCtaHtml(site),
     '<p class="footer">Automated comparison by <a href="' +
       escapeHtml(site) +
       '">DOMINUS</a>. Estimates, not appraisals.</p>',

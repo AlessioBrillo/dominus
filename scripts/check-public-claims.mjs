@@ -30,6 +30,7 @@ const FOR_SALE_PAGE = 'src/api/views/for-sale-page.ts';
 const DOMAIN_PAGE = 'src/api/views/domain-page.ts';
 const SCORE_PAGE = 'src/api/views/score-page.ts';
 const COMPARE_PAGE = 'src/api/views/compare-page.ts';
+const METHODOLOGY_PAGE = 'src/api/views/methodology-page.ts';
 const LEGAL_CONTENT = 'src/services/legal-content.ts';
 const LEGAL_SURFACE = 'docs/legal/legal-surface.md';
 const LAUNCH_READINESS = 'docs/releases/cloud-launch-readiness.md';
@@ -49,6 +50,7 @@ const FILES = [
   DOMAIN_PAGE,
   SCORE_PAGE,
   COMPARE_PAGE,
+  METHODOLOGY_PAGE,
   LEGAL_CONTENT,
   LEGAL_SURFACE,
   LAUNCH_READINESS,

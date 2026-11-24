@@ -443,6 +443,7 @@ const PUBLIC_VIEWS = [
   'src/api/views/score-page.ts',
   'src/api/views/compare-page.ts',
   'src/api/views/for-sale-page.ts',
+  'src/api/views/methodology-page.ts',
   'src/api/views/jsonld.ts',
 ];
 for (const relPath of PUBLIC_VIEWS) {
