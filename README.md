@@ -133,6 +133,14 @@ npm install -g ./dominus-oss.tgz
 dominus score vintagecoffee.com
 ```
 
+> **The bundled `examples/*.json` and `examples/*.csv` files are synthetic
+> fixtures, not market data.** The command above exists to show the shape of a
+> decision with zero infrastructure; the numbers it prints are not a valuation
+> of `vintagecoffee.com` and must not be used to buy or sell a domain. See
+> [examples/README.md](examples/README.md) for the provenance of every fixture
+> and [the data sources page](docs/data-sources.md) for what the engine uses in
+> a real run.
+
 Or run from source:
 
 ```bash
