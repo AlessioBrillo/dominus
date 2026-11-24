@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.7.0](https://github.com/AlessioBrillo/dominus/compare/v1.5.3...v1.7.0) (2026-11-24)
+
+### Features
+
+* **auth:** passwordless browser sign-in by email (ADR-0110). A single-use,
+  hashed link sent to a verified mailbox mints the same httpOnly session JWT
+  as SSO. No password and no browser API key. Fails closed without SMTP and
+  a session secret; API keys remain the CLI credential.
+* **pipeline:** a trademark source that cannot answer now yields
+  `trademark_pending` instead of `unscored`. The candidate still never reaches
+  `recommended`, but the run reports the missing verdict on its degradation
+  channel and `results_summary` counts it separately.
+* **providers:** `KEYWORD_PROVIDER=composite` reads a curated keyword file
+  first and falls back to Google Suggest only for terms explicitly marked as
+  uncovered. The score now reports commercial coverage (measured, estimated
+  or missing) instead of redistributing a weight in silence.
+* **public:** a server-rendered `/public/methodology` page states the four
+  signals, the provenance of the data and the limits of the engine. Public
+  score pages link to signup with the domain prefilled.
+* **billing:** transactional mail for welcome, trial ending, receipt, failed
+  payment and cancellation, emitted from the webhook's existing dedup path.
+* **pricing (ADR-0111):** one hosted self-service plan at EUR 29 total
+  payable; Pro tracks 500 domains; Team and Enterprise are arranged by
+  agreement. The free hosted tier is an evaluation of 25 appraisals and 5
+  tracked domains, with the upgrade shown as a fact about the user's list.
+* **privacy:** data export (art. 15) and erasure with a typed confirmation
+  (art. 17) are available in Settings, not only through the API and CLI.
+* **docs:** the Stripe tax runbook and the example-data labels are honest;
+  bundled fixtures are named as synthetic in the quickstart and in
+  `examples/README.md`.
+
+### [1.6.0](https://github.com/AlessioBrillo/dominus/compare/v1.5.3...v1.6.0) (2026-11-20)
+
+### Features
+
+* **contract:** the paid path became a contract rather than a description -
+  one Stripe subscription per tenant, plan granted only from the price id,
+  subscription events identifying the tenant, erasure cancelling the invoice.
+* **trust boundary:** the owner's email is proven before the workspace carries
+  a key; a seat that is not verified can never be claimed through SSO.
+* **legal:** first-party contract acceptances, a generated DPA and the public
+  legal surface. Paid mode stays off until the operator identity exists.
+
 ### [1.5.3](https://github.com/AlessioBrillo/dominus/compare/v1.5.2...v1.5.3) (2026-11-09)
 
 ### Features
