@@ -135,6 +135,9 @@ export class ScoringEngine {
         name: 'commercial',
         available: hasCommercialData,
         ...(commercial.providerError ? { error: commercial.providerError } : {}),
+        ...(typeof commercial.details.coverage === 'number'
+          ? { coverage: commercial.details.coverage }
+          : {}),
       },
       {
         name: 'market',

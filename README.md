@@ -343,7 +343,7 @@ Every external dependency is behind a TypeScript interface. Swap any provider in
 | `DnsProvider`       | Node DNS (std lib)   | Any DNS API                        |
 | `RdapProvider`      | rdap.org (free)      | Custom RDAP bootstrap              |
 | `TrademarkProvider` | USPTO + EUIPO (free) | Commercial TM API                  |
-| `KeywordProvider`   | Local JSON file      | Google Ads API, Ahrefs             |
+| `KeywordProvider`   | Google Suggest       | Local JSON, composite, Google Ads  |
 | `CompsProvider`     | Local CSV file       | NameBio API, Estibot               |
 | `WhoisProvider`     | Port-43 (free)       | WhoisXML API                       |
 | `RegistrarProvider` | Manual (no-op)       | Namecheap, GoDaddy, Cloudflare API |

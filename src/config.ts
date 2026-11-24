@@ -91,7 +91,9 @@ const configSchema = z
      *   2. Adding the type to the union below
      *   3. Adding the factory case in src/providers/keyword/index.ts
      */
-    KEYWORD_PROVIDER: z.enum(['manual', 'google-ads', 'google-suggest']).default('google-suggest'),
+    KEYWORD_PROVIDER: z
+      .enum(['manual', 'google-ads', 'google-suggest', 'composite'])
+      .default('google-suggest'),
     /**
      * Google Ads OAuth2 client ID for the Keyword Planner API.
      * Required when KEYWORD_PROVIDER=google-ads.

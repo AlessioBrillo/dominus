@@ -18,7 +18,16 @@ export class ManualKeywordProvider implements KeywordProvider {
   getMetrics(term: string): Promise<KeywordMetrics> {
     const key = term.toLowerCase();
     const found = this.data.get(key);
-    if (found !== undefined) return Promise.resolve(found);
-    return Promise.resolve({ term, monthlySearchVolume: 0, cpc: 0, competition: 0 });
+    if (found !== undefined) {
+      return Promise.resolve({ ...found, covered: true, source: 'manual' });
+    }
+    return Promise.resolve({
+      term,
+      monthlySearchVolume: 0,
+      cpc: 0,
+      competition: 0,
+      covered: false,
+      source: 'manual',
+    });
   }
 }

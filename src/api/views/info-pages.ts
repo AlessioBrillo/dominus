@@ -45,7 +45,8 @@ const DATA_SOURCES: SourceRow[] = [
   },
   {
     data: 'Keyword demand (optional)',
-    source: 'Google Suggest, or a local file you provide with KEYWORD_DATA_PATH',
+    source:
+      'Google Suggest, a local file you provide with KEYWORD_DATA_PATH, or both through KEYWORD_PROVIDER=composite (which reports which leg answered)',
     terms:
       'Google Keyword Planner data is subject to the Google Ads Terms of Service and is not redistributed. DOMINUS ships synthetic sample data only.',
   },

@@ -42,6 +42,63 @@ describe('CommercialSignal', () => {
     expect(result.score).toBeGreaterThan(0);
   });
 
+  it('reports full coverage for curated measurements', async () => {
+    const provider: KeywordProvider = {
+      getMetrics: vi.fn().mockResolvedValue({
+        term: 'saas',
+        monthlySearchVolume: 10000,
+        cpc: 5,
+        competition: 0.3,
+        covered: true,
+        source: 'manual',
+      }),
+    };
+    const result = await computeCommercialScore(
+      { domain: 'saas.com', tld: '.com', sld: 'saas', isCloseout: false },
+      provider,
+      1,
+    );
+    expect(result.details.coverage).toBe(1);
+    expect(result.details.source).toBe('manual');
+  });
+
+  it('reports partial coverage for an estimated fallback', async () => {
+    const provider: KeywordProvider = {
+      getMetrics: vi.fn().mockResolvedValue({
+        term: 'unknown',
+        monthlySearchVolume: 120,
+        cpc: 1,
+        competition: 0.2,
+        source: 'fallback',
+      }),
+    };
+    const result = await computeCommercialScore(
+      { domain: 'unknown.com', tld: '.com', sld: 'unknown', isCloseout: false },
+      provider,
+      1,
+    );
+    expect(result.details.coverage).toBe(0.5);
+    expect(result.details.source).toBe('fallback');
+  });
+
+  it('reports zero coverage when the provider has no data', async () => {
+    const provider: KeywordProvider = {
+      getMetrics: vi.fn().mockResolvedValue({
+        term: 'none',
+        monthlySearchVolume: 0,
+        cpc: 0,
+        competition: 0,
+        covered: false,
+      }),
+    };
+    const result = await computeCommercialScore(
+      { domain: 'none.com', tld: '.com', sld: 'none', isCloseout: false },
+      provider,
+      1,
+    );
+    expect(result.details.coverage).toBe(0);
+  });
+
   it('score is clamped between 0 and 1', async () => {
     const result = await computeCommercialScore(
       { domain: 'example.com', tld: '.com', sld: 'example', isCloseout: false },

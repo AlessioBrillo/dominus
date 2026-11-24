@@ -102,7 +102,9 @@ export class GoogleSuggestKeywordProvider implements KeywordProvider {
 
     const competition = this.#estimateCompetition(count, cpc);
 
-    return { term, monthlySearchVolume, cpc, competition };
+    // These values are heuristics derived from suggestion counts, not
+    // measurements. Tag the source so the score can report partial coverage.
+    return { term, monthlySearchVolume, cpc, competition, source: 'google-suggest' };
   }
 
   #estimateVolume(suggestionCount: number): number {
