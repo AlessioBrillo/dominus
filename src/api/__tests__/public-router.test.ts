@@ -290,6 +290,18 @@ describe('Public Router — /public', () => {
       expect(res.headers['content-type']).toContain('text/html');
     });
 
+    it('offers a signup CTA carrying the domain in HTML', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/domain/example.com').set('Accept', 'text/html');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('class="cta"');
+      expect(res.text).toContain('/signup?domain=example.com');
+    });
+
     it('hides the buy-max stat in HTML when trademark is not verified', async () => {
       anonScoring = makeStubAnonScoring();
       const score = makeScoreResult();
@@ -526,6 +538,23 @@ describe('Public Router — /public', () => {
     });
   });
 
+  describe('GET /public/methodology', () => {
+    it('renders the limits of the engine without implying an appraisal', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/methodology');
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('text/html');
+      expect(res.text).toContain('not an appraisal');
+      expect(res.text).toContain('screening');
+      expect(res.text).toContain('/public/data-sources');
+      expect(res.text).toContain('<link rel="canonical" href="/public/methodology">');
+    });
+  });
+
   describe('GET /public/sitemap.xml', () => {
     it('returns 200 with valid XML', async () => {
       const app = express();
@@ -701,6 +730,17 @@ describe('Public Router — /public', () => {
       expect(html).not.toContain('"@type":"Offer"');
       expect(html).toContain('example.com');
       expect(html).toContain('testdomain.io');
+    });
+
+    it('sitemap includes the static methodology and data-sources pages', async () => {
+      const app = express();
+      app.use('/public', createPublicRouter(anonScoring));
+      app.use(errorHandler);
+
+      const res = await request(app).get('/public/sitemap.xml');
+
+      expect(res.text).toContain('/public/methodology');
+      expect(res.text).toContain('/public/data-sources');
     });
 
     it('sitemap includes image namespace declaration', async () => {

@@ -30,6 +30,7 @@ import {
   renderComparePage,
   renderErrorPage,
   dataSourcesPageHtml,
+  renderMethodologyPage,
 } from './views/index.js';
 import type { DomainSiteRepository } from '../db/repositories/domain-site-repository.js';
 import type { LegalContent } from '../services/legal-content.js';
@@ -579,6 +580,12 @@ export function createPublicRouter(
     res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(dataSourcesPageHtml(options.legalContent?.sourceCodeUrl));
   });
+  // How the engine reasons and where it stops. Server-rendered so a reader
+  // without JavaScript - and a crawler - see the same honest description.
+  router.get('/methodology', (req: Request, res: Response) => {
+    res.set('Cache-Control', 'public, max-age=300');
+    res.type('html').send(renderMethodologyPage(siteUrlForReq(req)));
+  });
   router.get('/third-party-notices', (_req: Request, res: Response) => {
     const notices = shippedTextFile('THIRD-PARTY-NOTICES.md');
     if (notices === null) {
@@ -841,14 +848,27 @@ export function createPublicRouter(
           return;
         }
 
+        const staticUrls = ['/public/methodology', '/public/data-sources']
+          .map(
+            (path) => `
+  <url>
+    <loc>${escapeHtml(origin)}${path}</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>`,
+          )
+          .join('');
+
         const rows = await anonScoring.listRecentScores(90, 50000);
-        const urls = rows
-          .map((r) => {
-            const lastmod = r.created_at
-              ? new Date(r.created_at).toISOString().split('T')[0]
-              : new Date().toISOString().split('T')[0];
-            const encodedSlug = escapeHtml(r.slug);
-            return `
+        const urls =
+          staticUrls +
+          rows
+            .map((r) => {
+              const lastmod = r.created_at
+                ? new Date(r.created_at).toISOString().split('T')[0]
+                : new Date().toISOString().split('T')[0];
+              const encodedSlug = escapeHtml(r.slug);
+              return `
   <url>
     <loc>${escapeHtml(origin)}/public/s/${encodedSlug}</loc>
     <lastmod>${lastmod}</lastmod>
@@ -859,8 +879,8 @@ export function createPublicRouter(
       <image:title>${escapeHtml(r.domain)} — DOMINUS Score</image:title>
     </image:image>
   </url>`;
-          })
-          .join('');
+            })
+            .join('');
 
         // Published for-sale pages (ADR-0083, M2) — buyer discoverability.
         const forSaleUrls = options.domainSiteRepo

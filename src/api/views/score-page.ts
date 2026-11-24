@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
-import { pageHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
+import { pageHtml, trackCtaHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
 import { scoreDatasetJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
@@ -98,6 +98,7 @@ export function renderScorePage(data: ScoreData, siteUrl: string): string {
     buyMaxStat,
     `<div class="stat"><div class="stat-label">Suggested List Price</div><div class="stat-value">€${score.suggestedListPrice.toFixed(0)}</div></div>`,
     '</div>',
+    trackCtaHtml(siteUrl, domain),
     '<p class="footer">Scored with <a href="' + escapeHtml(siteUrl) + '">DOMINUS</a></p>',
     '</div>',
   ].join('\n');
