@@ -12,6 +12,7 @@ import {
 import { parseCookies } from '../../utils/cookies.js';
 import { getLogger } from '../../logger.js';
 import { isTrustedRequestOrigin } from '../middleware/csrf.js';
+import { sessionCookieOptions } from '../session-cookie.js';
 import { resolveRole } from '../middleware/auth.js';
 import {
   InvitationEmailMismatchError,
@@ -24,15 +25,7 @@ const logger = getLogger();
 const OIDC_COOKIE = 'dominus_oidc';
 const OIDC_COOKIE_TTL_MS = 10 * 60 * 1000;
 
-function cookieOptions(maxAgeMs: number): Record<string, unknown> {
-  return {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: true,
-    path: '/',
-    maxAge: maxAgeMs,
-  };
-}
+const cookieOptions = sessionCookieOptions;
 
 export interface OidcRouterDeps {
   provider: OidcProvider;

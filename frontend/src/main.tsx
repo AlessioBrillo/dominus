@@ -85,6 +85,9 @@ const VerifyEmailPage = lazy(() =>
 const RecoverPage = lazy(() =>
   import('@/pages/RecoverPage').then((m) => ({ default: m.RecoverPage })),
 );
+const MagicLinkPage = lazy(() =>
+  import('@/pages/MagicLinkPage').then((m) => ({ default: m.MagicLinkPage })),
+);
 const LegalDocumentPage = lazy(() =>
   import('@/pages/LegalDocumentPage').then((m) => ({ default: m.LegalDocumentPage })),
 );
@@ -169,6 +172,7 @@ createRoot(document.getElementById('root')!).render(
                         authenticated shell. */}
                     <Route path="verify-email" element={<VerifyEmailPage />} />
                     <Route path="recover" element={<RecoverPage />} />
+                    <Route path="magic-link" element={<MagicLinkPage />} />
                     {/* Legal documents: served from the backend, outside the
                         authenticated shell so anyone can read them. */}
                     <Route path="terms" element={<LegalDocumentPage slug="terms" />} />

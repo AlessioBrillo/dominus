@@ -15,6 +15,7 @@ export { createOutcomesRouter } from './routes/outcomes.js';
 export { errorHandler } from './middleware/error-handler.js';
 export { createRequestLogger } from './middleware/request-logger.js';
 export { createAuthRouter } from './routes/auth.js';
+export { createMagicLinkRouter } from './routes/magic-link.js';
 export { createOidcRouter } from './routes/oidc.js';
 export { createKeyManagementRouter } from './routes/api-keys.js';
 export { createAlertsRouter } from './routes/alerts.js';

@@ -52,6 +52,7 @@ import {
   createProvidersRouter,
   createOutcomesRouter,
   createAuthRouter,
+  createMagicLinkRouter,
   createOidcRouter,
   createKeyManagementRouter,
   createAlertsRouter,
@@ -168,6 +169,24 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
+  if (config.MAGIC_LINK_ENABLED) {
+    // A session JWT signed with an empty secret is forgeable by anyone, and
+    // a sign-in link nobody can receive is worse than no sign-in option.
+    // Fail closed at boot instead of serving a broken passwordless flow.
+    if (config.SESSION_SECRET === undefined || config.SESSION_SECRET.length < 32) {
+      logger.fatal(
+        'FATAL: MAGIC_LINK_ENABLED=true requires SESSION_SECRET of at least 32 characters.',
+      );
+      process.exit(1);
+    }
+    if (deps.magicLinkService === undefined || !deps.magicLinkService.enabled) {
+      logger.fatal(
+        'FATAL: MAGIC_LINK_ENABLED=true requires SMTP_URL (a sign-in link must be deliverable).',
+      );
+      process.exit(1);
+    }
+  }
+
   if (config.CLOUD_PAID_ENABLED) {
     // Selling a managed service is the point at which the identity stops
     // being a documentation detail. A missing VAT number, REA or PEC means
@@ -248,9 +267,9 @@ async function main(): Promise<void> {
     // A session outlives seat changes (8h): re-check the seat on every request so a
     // removed or demoted member loses access immediately, not at JWT expiry.
     validateSession: (claims) => deps.identityResolver.validateSession(claims),
-    // Browser sessions via the SSO cookie (ADR-0062): only consulted when
-    // the interactive login flow is configured (auth0 + client credentials).
-    ...(deps.oidcDeps ? { sessionVerifier: deps.sessionJwt } : {}),
+    // Browser sessions via the SSO or magic-link cookie. Both mint the same
+    // JWT (ADR-0062); the verifier is wired whenever either flow is enabled.
+    ...(deps.oidcDeps || config.MAGIC_LINK_ENABLED ? { sessionVerifier: deps.sessionJwt } : {}),
   });
 
   if (
@@ -432,6 +451,19 @@ async function main(): Promise<void> {
       !config.IS_CLOUD_MODE || config.CLOUD_PAID_ENABLED,
     ),
   );
+
+  // Passwordless browser sign-in. Not mounted unless explicitly enabled and
+  // fully configured: the routes 404 instead of offering a broken flow.
+  if (deps.magicLinkService !== undefined && deps.magicLinkService.enabled) {
+    app.use(
+      '/api/v1/auth/magic-link',
+      createMagicLinkRouter({
+        service: deps.magicLinkService,
+        sessionTtlMs: config.AUTH0_SESSION_TTL_HOURS * 60 * 60 * 1000,
+        sessionVerifier: deps.sessionJwt,
+      }),
+    );
+  }
 
   // Interactive SSO login flow (OIDC Authorization Code + PKCE, ADR-0062).
   // Mounted only when fully configured — otherwise the /oidc endpoints 404

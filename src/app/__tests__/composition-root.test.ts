@@ -636,6 +636,8 @@ describe('Dependency Injection ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compositio
       SIGNUP_EMAIL_VERIFICATION: 'required' as const,
       SIGNUP_VERIFICATION_TTL_HOURS: 24,
       AUTH_RECOVERY_ENABLED: true,
+      MAGIC_LINK_ENABLED: false,
+      MAGIC_LINK_TTL_MINUTES: 15,
       JOB_QUEUE_MAX_DEPTH_PER_TENANT: 100,
       WORKER_MAX_RUNNING_PER_TENANT: 4,
     } as const;

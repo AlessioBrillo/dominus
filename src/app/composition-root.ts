@@ -121,6 +121,8 @@ import { TenantProvisioningService } from '../services/tenant-provisioning-servi
 import { IdentityTenantResolver } from '../services/identity-tenant-resolver.js';
 import { TeamInvitationsRepository } from '../db/repositories/team-invitations-repository.js';
 import { SignupVerificationRepository } from '../db/repositories/signup-verification-repository.js';
+import { MagicLinkTokenRepository } from '../db/repositories/magic-link-token-repository.js';
+import { MagicLinkService, type MagicLinkSessionClaims } from '../services/magic-link-service.js';
 import { TenantNotificationSettingsRepository } from '../db/repositories/tenant-notification-settings-repository.js';
 import { EmailVerificationService } from '../services/email-verification-service.js';
 import { TenantNotificationService } from '../services/tenant-notification-service.js';
@@ -282,6 +284,10 @@ export interface DominusDependencies {
   /** Undefined in the community edition (env API keys): self-serve signup
    *  exists only where tenants are managed (ADR-0032). */
   provisioningService: TenantProvisioningService | undefined;
+  /** Passwordless browser sign-in. Undefined unless MAGIC_LINK_ENABLED and a
+   *  mail transport are configured; the /auth/magic-link routes are then not
+   *  mounted (fail-closed). */
+  magicLinkService: MagicLinkService | undefined;
   /** Interactive SSO login flow (OIDC PKCE, ADR-0062). Undefined when
    *  AUTH_PROVIDER=auth0 is not fully configured — the /oidc endpoints are
    *  not mounted in that case (fail-closed). */
@@ -316,6 +322,7 @@ interface BuiltRepositories {
   domainSiteRepo: DomainSiteRepository;
   tenantCredentialRepo: TenantCredentialRepository;
   signupVerificationRepo: SignupVerificationRepository;
+  magicLinkTokenRepo: MagicLinkTokenRepository;
   tenantNotificationSettingsRepo: TenantNotificationSettingsRepository;
   apiKeyRepo: ApiKeyRepository;
   subscriptionRepo: SubscriptionRepository;
@@ -398,6 +405,7 @@ function buildMainRepositories(
   | 'domainSiteRepo'
   | 'tenantCredentialRepo'
   | 'signupVerificationRepo'
+  | 'magicLinkTokenRepo'
   | 'tenantNotificationSettingsRepo'
 > {
   return {
@@ -412,6 +420,7 @@ function buildMainRepositories(
     domainSiteRepo: new DomainSiteRepository(provider),
     tenantCredentialRepo: new TenantCredentialRepository(provider),
     signupVerificationRepo: new SignupVerificationRepository(provider),
+    magicLinkTokenRepo: new MagicLinkTokenRepository(provider),
     tenantNotificationSettingsRepo: new TenantNotificationSettingsRepository(provider),
   };
 }
@@ -895,6 +904,21 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     appUrl: config.PUBLIC_APP_URL,
     signupTtlHours: config.SIGNUP_VERIFICATION_TTL_HOURS,
   });
+
+  // Passwordless browser sign-in: the same session JWT as SSO, but the
+  // identity is proven by a link sent to a verified seat's mailbox.
+  const magicLinkService = config.MAGIC_LINK_ENABLED
+    ? new MagicLinkService({
+        tokens: repos.magicLinkTokenRepo,
+        seats: repos.teamSeatsRepo,
+        resolver: identityResolver,
+        mailer,
+        appUrl: config.PUBLIC_APP_URL ?? '',
+        ttlMinutes: config.MAGIC_LINK_TTL_MINUTES,
+        mintSession: async (claims: MagicLinkSessionClaims): Promise<string> =>
+          sessionJwt.mint(claims),
+      })
+    : undefined;
 
   // Single write provider (ADR-0080): orchestrator busy-timeout policy and
   // run-service persistence share writeProvider. The legacy bulkWriteProvider
@@ -1749,6 +1773,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     provisioningService,
     tenantNotificationService,
     verificationService,
+    magicLinkService,
     oidcDeps,
     sessionJwt,
     anonScoringService,
