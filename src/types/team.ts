@@ -69,7 +69,10 @@ export interface TeamPlanLimits {
 }
 
 export const TEAM_PLAN_LIMITS: Record<SubscriptionPlan, TeamPlanLimits> = {
-  free: { seats: 1, apiKeys: 1, candidatesScored: 50, apiCalls: 1000, domainsTracked: 25 },
+  // The hosted free tier is an evaluation, not a workspace: enough to see
+  // the renewal clock on a handful of real domains (ADR-0111). The
+  // self-hosted community edition is unaffected by these limits.
+  free: { seats: 1, apiKeys: 1, candidatesScored: 25, apiCalls: 1000, domainsTracked: 5 },
   pro: { seats: 3, apiKeys: 5, candidatesScored: 500, apiCalls: 10000, domainsTracked: 500 },
   team: {
     seats: 10,

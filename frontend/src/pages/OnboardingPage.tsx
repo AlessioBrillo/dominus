@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Sparkles,
   Upload,
@@ -22,6 +23,7 @@ import {
   type PortfolioImportResponse,
   type PortfolioImportDomain,
 } from '@/api/onboarding';
+import { fetchUsageHistory } from '@/api/usage';
 import { SavingsCallout } from '@/components/SavingsCallout';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { Button } from '@/components/ui/button';
@@ -55,6 +57,20 @@ export function OnboardingPage() {
   const [importResult, setImportResult] = useState<PortfolioImportResponse | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+
+  // The paywall is shown as a fact about the user's own list, not as a
+  // generic upgrade banner: "N of your M domains are outside this plan".
+  const { data: usageHistory } = useQuery({
+    queryKey: ['usage', 'history', 1],
+    queryFn: () => fetchUsageHistory(1),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const domainsLimit = usageHistory?.[0]?.usage?.domains_tracked?.limitValue ?? null;
+  const outsidePlan =
+    importResult !== null && domainsLimit !== null
+      ? Math.max(0, importResult.imported - domainsLimit)
+      : 0;
 
   useEffect(() => {
     getOnboardingState()
@@ -420,6 +436,25 @@ greenharvest.io`}
                 <h2 className="text-xl font-semibold text-text-primary">Your Portfolio Analysis</h2>
                 <p className="text-sm text-text-muted">{importResult.imported} domains analyzed</p>
               </div>
+
+              {outsidePlan > 0 && (
+                <div className="rounded-lg border border-brand-500/40 bg-bg-elevated p-4 text-sm">
+                  <p className="font-medium text-text-primary">
+                    {outsidePlan} of your {importResult.imported} domains are outside the free
+                    workspace.
+                  </p>
+                  <p className="mt-1 text-text-muted">
+                    The verdicts above are real. Pro keeps the whole renewal clock, the import and
+                    the history in one place.
+                  </p>
+                  <Link
+                    to="/billing"
+                    className="mt-3 inline-flex items-center gap-1 text-brand-400 hover:underline"
+                  >
+                    See plans <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Link>
+                </div>
+              )}
 
               <SavingsCallout
                 annualSavingsEur={importResult.summary.annualSavingsEur}
