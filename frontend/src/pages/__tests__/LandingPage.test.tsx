@@ -128,8 +128,12 @@ describe('LandingPage', () => {
     });
     renderLanding();
     expect(await screen.findByRole('heading', { name: 'Pricing' })).toBeInTheDocument();
-    expect(screen.getByText(/35\.38/)).toBeInTheDocument();
-    expect(screen.getByText(/96\.38/)).toBeInTheDocument();
+    // One self-service price, shown as the total payable: no ×1.22 display
+    // multiplication and no second hosted tier at launch.
+    expect(screen.getByText(/€29/)).toBeInTheDocument();
+    expect(screen.queryByText(/35\.38/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/96\.38/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Team')).not.toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: /Create a workspace/ }).length).toBeGreaterThan(0);
   });
 

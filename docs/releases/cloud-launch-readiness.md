@@ -305,8 +305,8 @@ independent second source, and are optional.
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Write path for M3 (ADR-0083) | Same fail-closed consensus gate as the read path (ADR-0002), not write-then-compensate                |
 | Entità legale                | EU (Italy); the legal notice follows art. 7 D.Lgs. 70/2003, not the German Impressum (ADR-0090)       |
-| VAT                          | Stripe Tax (`automatic_tax`), prices exclusive, VAT ID collected for the EU reverse charge (ADR-0090) |
-| Tiers at launch              | Free + Pro + Team; Enterprise on contract                                                             |
+| VAT                          | Stripe Tax (`automatic_tax`), one price inclusive of VAT (`tax_behavior: inclusive`), VAT ID collected for the EU reverse charge (ADR-0111) |
+| Tiers at launch              | Community (self-hosted) + one hosted self-service plan (Pro); dedicated infrastructure on contract (ADR-0111) |
 | Third-party security audit   | Before the launch, not after                                                                          |
 | Legal texts                  | Drafted without a formal review; recorded as an accepted risk in ADR-0090                             |
 | Protected rate limiter       | Single replica at launch; the shared store comes with the multi-replica topology (ADR-0094)           |

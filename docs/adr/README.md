@@ -116,6 +116,7 @@ re-running the original arguments.
 | [0108](0108-waitlist-not-a-shop.md)                                            | A waitlist, not a shop — the legal posture of the community soft launch                              | 2026-11-20 | Accepted                            |
 | [0109](0109-srl-english-only-and-contract-evidence.md)                         | S.r.l. operator, English-only binding text, and first-party contract evidence                        | 2026-11-23 | Accepted                            |
 | [0110](0110-passwordless-browser-sign-in.md)                                   | Passwordless browser sign-in via a verified mailbox                                                  | 2026-11-24 | Accepted                            |
+| [0111](0111-one-inclusive-price.md)                                            | One inclusive price for the hosted plan                                                              | 2026-11-24 | Accepted                            |
 
 ## Conventions
 
