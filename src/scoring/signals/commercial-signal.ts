@@ -20,21 +20,39 @@ export async function computeCommercialScore(
   // Engine always sets sld before calling signal functions;
   // non-null assertion is safe here (see ScoringEngine.score()).
   const sld = input.sld!;
-  let metricsData: { monthlySearchVolume: number; cpc: number };
+  let metricsData: {
+    monthlySearchVolume: number;
+    cpc: number;
+    covered?: boolean | undefined;
+    source?: string | undefined;
+  };
   let providerError: string | undefined;
 
   try {
     metricsData = await provider.getMetrics(sld, signal);
   } catch (err) {
     providerError = err instanceof Error ? err.message : String(err);
-    metricsData = { monthlySearchVolume: 0, cpc: 0 };
+    metricsData = { monthlySearchVolume: 0, cpc: 0, covered: false };
   }
 
-  // Warn once per process if the commercial signal provider returns no
-  // volume/CPC data (e.g. GoogleSuggestKeywordProvider). The commercial
-  // signal weight will be redistributed to intrinsic, biasing scores.
-  // In community edition, set KEYWORD_PROVIDER=manual with a data file
-  // (KEYWORD_DATA_PATH) or configure Google Ads credentials for real data.
+  // Coverage is about provenance, not magnitude: curated measurements are
+  // full coverage, keyword-suggest estimates are partial, a missing answer
+  // is none. It is carried into signalStatus so a redistributed weight is
+  // visible to the reader instead of being inferred from a zero score.
+  const estimatedSource =
+    metricsData.source === 'fallback' || metricsData.source === 'google-suggest';
+  const coverage =
+    metricsData.covered === false || providerError !== undefined
+      ? 0
+      : estimatedSource
+        ? 0.5
+        : metricsData.monthlySearchVolume > 0 || metricsData.cpc > 0
+          ? 1
+          : 0;
+
+  // Warn once per process when the commercial signal has no measured data.
+  // The weight is redistributed to intrinsic, so both the log and the
+  // score's signalStatus now say that the number is weakly supported.
   if (
     !commercialSignalProviderWarned &&
     metricsData.monthlySearchVolume === 0 &&
@@ -45,9 +63,10 @@ export async function computeCommercialScore(
       {
         provider: provider.constructor.name,
         keywordProvider: process.env.KEYWORD_PROVIDER ?? 'google-suggest',
+        coverage,
       },
-      'Commercial signal: provider returned zero volume/CPC — commercial weight will be redistributed to intrinsic. ' +
-        'Configure KEYWORD_PROVIDER=manual with KEYWORD_DATA_PATH or Google Ads credentials for real commercial data.',
+      'Commercial signal: provider returned zero volume/CPC - commercial weight will be redistributed to intrinsic. ' +
+        'Configure KEYWORD_PROVIDER=composite (with KEYWORD_DATA_PATH) or Google Ads credentials for real commercial data.',
     );
   }
 
@@ -74,6 +93,8 @@ export async function computeCommercialScore(
       term: sld,
       monthlySearchVolume: metricsData.monthlySearchVolume,
       cpc: metricsData.cpc,
+      coverage,
+      ...(metricsData.source ? { source: metricsData.source } : {}),
       volumeScore,
       cpcScore,
     },

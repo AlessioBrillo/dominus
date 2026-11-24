@@ -5,7 +5,13 @@ import type { KeywordMetrics, KeywordProvider } from './keyword-provider.js';
 import { ManualKeywordProvider } from './manual-keyword-provider.js';
 import { GoogleAdsProvider } from './google-ads-provider.js';
 import { GoogleSuggestKeywordProvider } from './google-suggest-keyword-provider.js';
-export { ManualKeywordProvider, GoogleAdsProvider, GoogleSuggestKeywordProvider };
+import { CompositeKeywordProvider } from './composite-keyword-provider.js';
+export {
+  ManualKeywordProvider,
+  GoogleAdsProvider,
+  GoogleSuggestKeywordProvider,
+  CompositeKeywordProvider,
+};
 export type { KeywordMetrics, KeywordProvider };
 
 export interface KeywordProviderConfig {
@@ -36,9 +42,17 @@ export function createKeywordProvider(
       });
     case 'google-suggest':
       return new GoogleSuggestKeywordProvider();
+    case 'composite':
+      // Curated data wins when present; Google Suggest answers only for terms
+      // the dataset does not cover. A Google Ads-backed primary can be added
+      // later without changing the scoring engine (ADR-0004).
+      return new CompositeKeywordProvider(
+        new ManualKeywordProvider(config.dataFilePath),
+        new GoogleSuggestKeywordProvider(),
+      );
     default:
       throw new ProviderError(
-        `Unknown keyword provider type: '${type}'. Valid types: manual, google-ads, google-suggest`,
+        `Unknown keyword provider type: '${type}'. Valid types: manual, google-ads, google-suggest, composite`,
         'keyword',
       );
   }

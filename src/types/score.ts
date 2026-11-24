@@ -16,6 +16,13 @@ export interface SignalStatusItem {
   error?: string | undefined;
   /** 0-1 measure of signal data density (market only). */
   dataDensity?: number | undefined;
+  /**
+   * 0-1 measure of commercial data coverage: 1 for curated measurements,
+   * 0.5 for an estimated fallback, 0 when nothing answered. Present only on
+   * the commercial signal, so the redistribution of its weight is explicit
+   * rather than silent.
+   */
+  coverage?: number | undefined;
 }
 
 export interface SignalOutput {

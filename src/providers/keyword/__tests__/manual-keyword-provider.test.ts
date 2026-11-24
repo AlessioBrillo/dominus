@@ -12,6 +12,7 @@ describe('ManualKeywordProvider', () => {
     expect(metrics.monthlySearchVolume).toBe(0);
     expect(metrics.cpc).toBe(0);
     expect(metrics.term).toBe('unknownterm');
+    expect(metrics.covered).toBe(false);
   });
 
   it('is case-insensitive for lookups', async () => {
@@ -41,6 +42,8 @@ describe('ManualKeywordProvider', () => {
       expect(metrics.monthlySearchVolume).toBe(10000);
       expect(metrics.cpc).toBe(5.5);
       expect(metrics.competition).toBe(0.3);
+      expect(metrics.covered).toBe(true);
+      expect(metrics.source).toBe('manual');
     });
 
     it('handles non-existent data file gracefully', async () => {

@@ -218,6 +218,26 @@ describe('ScoringEngine', () => {
     expect(result.signalStatus.find((s) => s.name === 'market')?.dataDensity).toBeLessThan(0.2);
   });
 
+  it('exposes commercial coverage in signalStatus', async () => {
+    const { keyword, comps } = makeProviders(10000, 5);
+    const provider = keyword as { getMetrics: ReturnType<typeof vi.fn> };
+    provider.getMetrics.mockResolvedValue({
+      term: 'test',
+      monthlySearchVolume: 10000,
+      cpc: 5,
+      competition: 0.2,
+      source: 'fallback',
+    });
+    const engine = new ScoringEngine(keyword, comps);
+    const result = await engine.score({
+      domain: 'covered.com',
+      tld: '.com',
+      sld: 'covered',
+      isCloseout: false,
+    });
+    expect(result.signalStatus.find((s) => s.name === 'commercial')?.coverage).toBe(0.5);
+  });
+
   it('applies full market anchor with dense recent sales (ADR-0055)', async () => {
     // 50 recent sales → dataDensity ≈ 1.0 → full anchor
     const recent = new Date();
