@@ -115,4 +115,11 @@ export const api = {
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined, signal }),
   delete: <T>(path: string, signal?: AbortSignal): Promise<T> =>
     request<T>(path, { method: 'DELETE', signal }),
+  /** DELETE with a JSON body, required by the typed erasure confirmation. */
+  deleteWithBody: <T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> =>
+    request<T>(path, {
+      method: 'DELETE',
+      body: body ? JSON.stringify(body) : undefined,
+      signal,
+    }),
 };

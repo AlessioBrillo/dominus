@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiKeysCard } from '@/components/ApiKeysCard';
+import { DataRightsCard } from '@/components/DataRightsCard';
 import { NotificationChannelsCard } from '@/components/NotificationChannelsCard';
 
 export function SettingsPage() {
@@ -32,6 +33,8 @@ export function SettingsPage() {
       </Card>
 
       <ApiKeysCard />
+
+      <DataRightsCard />
 
       <NotificationChannelsCard />
 
