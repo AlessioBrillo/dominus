@@ -92,10 +92,12 @@ export function buildOidcDeps(config: Config):
   };
 }
 
-/** Session cookie JWT minter + verifier for the SSO flow (ADR-0062). Keys are
- *  HKDF-derived from AUTH0_CLIENT_SECRET — no separate secret to manage. */
+/** Session cookie JWT minter + verifier for the SSO and magic-link flows.
+ *  Keys are HKDF-derived: Auth0 deployments keep using the client secret,
+ *  while a passwordless-only deployment uses its own SESSION_SECRET. */
 export function buildSessionJwt(config: Config): ReturnType<typeof createSessionJwtMinter> {
-  return createSessionJwtMinter(config.AUTH0_CLIENT_SECRET ?? '', config.AUTH0_SESSION_TTL_HOURS);
+  const secret = config.SESSION_SECRET ?? config.AUTH0_CLIENT_SECRET ?? '';
+  return createSessionJwtMinter(secret, config.AUTH0_SESSION_TTL_HOURS);
 }
 
 /**

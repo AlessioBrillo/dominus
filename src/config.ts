@@ -1911,6 +1911,29 @@ const configSchema = z
       .default(true),
 
     /**
+     * Passwordless browser sign-in. A single-use link sent to a VERIFIED
+     * email mints the same httpOnly session cookie as the SSO flow. API keys
+     * remain the way to authenticate the CLI and automation.
+     *
+     * Enabling it requires SESSION_SECRET and an SMTP transport: a session
+     * signed with an empty secret is forgeable, and a link the mailer cannot
+     * deliver is worse than no link. The server refuses to boot otherwise.
+     */
+    MAGIC_LINK_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v === 'true' : Boolean(v)), z.boolean())
+      .default(false),
+
+    /** Lifetime of a magic-link token, in minutes (default 15). */
+    MAGIC_LINK_TTL_MINUTES: z.coerce.number().int().min(1).max(60).default(15),
+
+    /**
+     * HMAC secret for browser session JWTs when magic links are enabled
+     * without Auth0. At least 32 characters; use a different value from
+     * AUTH0_CLIENT_SECRET so the two login flows cannot sign for each other.
+     */
+    SESSION_SECRET: z.string().min(32).optional(),
+
+    /**
      * Auth0 domain (e.g., 'dominus.eu.auth0.com').
      * Required when AUTH_PROVIDER=auth0.
      */

@@ -98,6 +98,9 @@ export const TENANT_SCOPED_TABLES: readonly TenantTable[] = [
   { table: 'team_invitations', isolation: 'control-plane' },
   { table: 'team_seats', isolation: 'control-plane' },
   { table: 'signup_verifications', isolation: 'control-plane' },
+  // Short-lived, hashed, but still tied to a person's mailbox until it is
+  // consumed: included in export and erasure like the other auth tokens.
+  { table: 'magic_link_tokens', isolation: 'control-plane' },
   // Contract acceptances are evidence about a person, keyed by email before
   // a tenant exists and by tenant afterwards. Erasure removes them with the
   // rest of the tenant data.

@@ -10,12 +10,22 @@ vi.mock('../../hooks/useAuth.js', () => ({
 vi.mock('../../api/auth.js', () => ({
   verifyAndStoreKey: vi.fn().mockResolvedValue({ success: true }),
   getSsoStatus: mockGetSsoStatus,
+  getMagicLinkStatus: mockGetMagicLinkStatus,
+  requestMagicLink: mockRequestMagicLink,
   startSsoLogin: mockStartSsoLogin,
 }));
 
-const { mockLogin, mockGetSsoStatus, mockStartSsoLogin } = vi.hoisted(() => ({
+const {
+  mockLogin,
+  mockGetSsoStatus,
+  mockGetMagicLinkStatus,
+  mockRequestMagicLink,
+  mockStartSsoLogin,
+} = vi.hoisted(() => ({
   mockLogin: vi.fn(),
   mockGetSsoStatus: vi.fn(),
+  mockGetMagicLinkStatus: vi.fn(),
+  mockRequestMagicLink: vi.fn(),
   mockStartSsoLogin: vi.fn(),
 }));
 
@@ -31,6 +41,8 @@ function deferred() {
 
 beforeEach(() => {
   mockGetSsoStatus.mockResolvedValue({ available: false, session: null });
+  mockGetMagicLinkStatus.mockResolvedValue({ enabled: false });
+  mockRequestMagicLink.mockResolvedValue(undefined);
   vi.restoreAllMocks();
 });
 
@@ -64,6 +76,18 @@ describe('LoginForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /authenticate/i }));
 
     await waitFor(() => expect(mockLogin).toHaveBeenCalledWith('sk-123'));
+  });
+
+  it('offers a passwordless link when the flow is enabled', async () => {
+    mockGetMagicLinkStatus.mockResolvedValueOnce({ enabled: true });
+    render(<LoginForm />);
+
+    const input = await screen.findByPlaceholderText('you@example.com');
+    fireEvent.change(input, { target: { value: 'owner@example.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /email me a sign-in link/i }));
+
+    await waitFor(() => expect(mockRequestMagicLink).toHaveBeenCalledWith('owner@example.com'));
+    expect(await screen.findByRole('status')).toHaveTextContent(/link is on its way/i);
   });
 
   it('shows the login error message on failure', async () => {

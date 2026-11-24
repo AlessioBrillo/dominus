@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { getSsoStatus, startSsoLogin } from '@/api/auth';
+import { getSsoStatus, getMagicLinkStatus, requestMagicLink, startSsoLogin } from '@/api/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +20,9 @@ export function LoginForm({
   const [loading, setLoading] = useState(false);
   const [ssoAvailable, setSsoAvailable] = useState(false);
   const [ssoChecking, setSsoChecking] = useState(true);
+  const [magicAvailable, setMagicAvailable] = useState(false);
+  const [email, setEmail] = useState('');
+  const [magicSent, setMagicSent] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,6 +32,13 @@ export function LoginForm({
       })
       .finally(() => {
         if (!cancelled) setSsoChecking(false);
+      });
+    getMagicLinkStatus()
+      .then(({ enabled }) => {
+        if (!cancelled) setMagicAvailable(enabled);
+      })
+      .catch(() => {
+        /* community edition: no passwordless flow */
       });
     const params = new URLSearchParams(window.location.search);
     if (params.get('sso_error')) {
@@ -102,6 +112,42 @@ export function LoginForm({
               >
                 Sign in with SSO
               </Button>
+            )}
+            {magicAvailable && (
+              <div className="space-y-2 border-t border-border pt-4">
+                <p className="text-xs text-text-muted">
+                  Or sign in with the email of your workspace.
+                </p>
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  aria-label="Email address"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  disabled={!email.trim() || magicSent}
+                  onClick={async () => {
+                    setError('');
+                    try {
+                      await requestMagicLink(email.trim());
+                      setMagicSent(true);
+                    } catch (err: unknown) {
+                      setError(err instanceof Error ? err.message : 'Could not send the link');
+                    }
+                  }}
+                >
+                  {magicSent ? 'Link sent' : 'Email me a sign-in link'}
+                </Button>
+                {magicSent && (
+                  <p role="status" className="text-xs text-text-muted">
+                    If that address has a workspace, a sign-in link is on its way.
+                  </p>
+                )}
+              </div>
             )}
             {signupHref && (
               <a

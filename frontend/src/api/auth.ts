@@ -91,6 +91,48 @@ export async function getSsoStatus(): Promise<{ available: boolean; session: Sso
   }
 }
 
+export interface MagicLinkSession {
+  authenticated: boolean;
+  tenantId?: string | null;
+  email?: string | null;
+  role?: string | null;
+}
+
+/** Whether passwordless browser sign-in is mounted on this deployment. */
+export async function getMagicLinkStatus(): Promise<{ enabled: boolean }> {
+  try {
+    return await api.get<{ enabled: boolean }>('/auth/magic-link/status');
+  } catch {
+    return { enabled: false };
+  }
+}
+
+/** Always resolves: the endpoint never reveals whether the address has a seat. */
+export async function requestMagicLink(email: string): Promise<void> {
+  await api.post('/auth/magic-link/request', { email });
+}
+
+/** Redeem a sign-in link. The session lives in an httpOnly cookie. */
+export async function consumeMagicLink(token: string): Promise<MagicLinkSession> {
+  return api.post<MagicLinkSession>('/auth/magic-link/consume', { token });
+}
+
+export async function getMagicLinkSession(): Promise<MagicLinkSession | null> {
+  try {
+    return await api.get<MagicLinkSession>('/auth/magic-link/me');
+  } catch {
+    return null;
+  }
+}
+
+export async function magicLinkLogout(): Promise<void> {
+  try {
+    await api.post('/auth/magic-link/logout');
+  } catch {
+    /* non-fatal - the local UI state is cleared regardless */
+  }
+}
+
 export function startSsoLogin(): void {
   window.location.assign('/api/v1/auth/oidc/start');
 }

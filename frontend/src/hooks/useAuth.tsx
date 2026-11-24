@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { getStoredApiKey, clearApiKey, setOnUnauthorized } from '@/api/client';
-import { verifyAndStoreKey, getSsoStatus, ssoLogout } from '@/api/auth';
+import {
+  verifyAndStoreKey,
+  getSsoStatus,
+  ssoLogout,
+  getMagicLinkSession,
+  magicLinkLogout,
+} from '@/api/auth';
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (key: string) => Promise<void>;
+  /** Accept a cookie session established by a magic link (no API key). */
+  loginWithSession: () => void;
   logout: () => void;
 }
 
@@ -31,9 +39,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // SSO session restore (ADR-0062): the browser may hold a valid
     // dominus_session cookie without a stored API key (enterprise login).
     let cancelled = false;
-    getSsoStatus()
-      .then(({ session }) => {
-        if (!cancelled && session?.authenticated) setIsAuthenticated(true);
+    // Two browser session flows mint the same cookie: enterprise SSO and
+    // the passwordless magic link. Neither leaves an API key in the SPA.
+    Promise.all([getSsoStatus(), getMagicLinkSession()])
+      .then(([{ session }, magicSession]) => {
+        if (!cancelled && (session?.authenticated || magicSession?.authenticated)) {
+          setIsAuthenticated(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -51,14 +63,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(true);
   }, []);
 
+  const loginWithSession = useCallback(() => {
+    setIsAuthenticated(true);
+  }, []);
+
   const logout = useCallback(() => {
     clearApiKey();
     void ssoLogout();
+    void magicLinkLogout();
     setIsAuthenticated(false);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, isLoading, login, loginWithSession, logout }}>
       {children}
     </AuthContext.Provider>
   );
