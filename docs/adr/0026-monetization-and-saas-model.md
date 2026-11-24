@@ -176,6 +176,11 @@ Suggested structure (to be validated with early users):
 
 The community edition (self-hosted) has no limits — unlimited runs, unlimited domains, all features. The tiers apply only to DOMINUS Cloud hosted accounts.
 
+The figures below are historical list prices in EUR. The published hosted
+price is the total payable: one self-service plan at launch, with VAT already
+included where applicable (ADR-0111 supersedes the earlier exclusive-VAT
+presentation and the two-tier launch scope).
+
 Pricing rationale: Pro at €29/mo matches Estibot (the dominant competitor in the domain appraisal space) on price while offering more value (trademark gate, portfolio verdicts, open-source transparency). Team at €79/mo reflects the added value of multi-seat collaboration and priority support — approximately 2.7× the Pro price for >3× the seats. All prices are in EUR; a separate USD listing ($29/$79) is considered for the US market where price tolerance is 2-3× higher.
 
 ## Consequences

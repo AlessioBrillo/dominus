@@ -59,7 +59,11 @@ const FEATURES = [
   },
 ];
 
-/** Published list prices, in euro, excluding VAT. Keep in sync with ADR-0026. */
+/**
+ * Published list prices, in euro, as the TOTAL payable at checkout.
+ * One hosted plan is self-service at launch; dedicated infrastructure is
+ * arranged by agreement. Keep in sync with ADR-0026 and the Stripe prices.
+ */
 const PLANS = [
   {
     id: 'free',
@@ -82,7 +86,7 @@ const PLANS = [
     unit: 'per month',
     features: [
       '500 candidates scored per month',
-      '250 domains tracked',
+      '500 domains tracked',
       '3 people, 5 machine keys',
       'Priority support',
     ],
@@ -90,43 +94,27 @@ const PLANS = [
     href: '/signup',
     highlighted: true,
   },
-  {
-    id: 'team',
-    name: 'Team',
-    net: 79,
-    unit: 'per month',
-    features: [
-      '2,500 candidates scored per month',
-      '1,000 domains tracked',
-      '10 people, 20 machine keys',
-      'Shared workspaces',
-    ],
-    cta: 'Start with Team',
-    href: '/signup',
-  },
 ];
 
 type VatRegime = 'ordinary' | 'forfettario' | 'none';
 
-/** The displayed price follows the operator's VAT regime, not a fixed guess. */
-function displayPrice(net: number, regime: VatRegime): string {
-  return `€${regime === 'ordinary' ? (net * 1.22).toFixed(2) : net}`;
+/** The published figure is what the customer pays, whatever the VAT regime. */
+function displayPrice(totalEur: number): string {
+  return `€${totalEur}`;
 }
 
-function priceNote(net: number, regime: VatRegime): string {
-  if (regime === 'ordinary') return `Italian VAT 22% included · €${net} + VAT for business`;
-  if (regime === 'forfettario') return 'VAT not applicable (flat-rate regime)';
-  return 'VAT not charged';
+function priceNote(): string {
+  return 'Total payable — VAT included where applicable';
 }
 
 function vatExplainer(regime: VatRegime): string {
   if (regime === 'ordinary') {
-    return 'The figures shown are Italian consumer prices with 22% VAT; the rate for your country of residence is applied before payment. Business customers see the price excluding VAT and need a valid VAT identification number for the reverse charge.';
+    return 'The price shown is the total payable: for Italian consumers it already includes 22% VAT. A business customer with a validated VAT ID is invoiced under the reverse charge mechanism and pays the same amount.';
   }
   if (regime === 'forfettario') {
-    return 'The operator applies the Italian flat-rate regime: prices are outside the scope of VAT. Cross-border consumer sales are not offered under this regime.';
+    return 'The operator applies the Italian flat-rate regime: the price shown is the total payable and no VAT is added at checkout.';
   }
-  return 'The operator is not subject to VAT: prices are shown as the total payable.';
+  return 'The operator is not subject to VAT: the price shown is the total payable.';
 }
 
 export function LandingPage() {
@@ -343,7 +331,7 @@ export function LandingPage() {
                   Every plan runs the same engine. The limits are the work you ask the platform to
                   do. {vatExplainer(vatRegime)}
                 </p>
-                <div className="mt-8 grid gap-6 md:grid-cols-3">
+                <div className="mt-8 grid gap-6 md:grid-cols-2">
                   {PLANS.map((plan) => (
                     <Card
                       key={plan.id}
@@ -355,14 +343,12 @@ export function LandingPage() {
                         <h3 className="text-base font-semibold text-text-primary">{plan.name}</h3>
                         <p className="mt-2 flex items-baseline gap-1">
                           <span className="text-3xl font-bold text-text-primary">
-                            {plan.net === 0 ? 'Free' : displayPrice(plan.net, vatRegime)}
+                            {plan.net === 0 ? 'Free' : displayPrice(plan.net)}
                           </span>
                           <span className="text-sm text-text-muted">{plan.unit}</span>
                         </p>
                         {plan.net > 0 && (
-                          <p className="mt-1 text-xs text-text-muted">
-                            {priceNote(plan.net, vatRegime)}
-                          </p>
+                          <p className="mt-1 text-xs text-text-muted">{priceNote()}</p>
                         )}
                         <ul className="mt-4 space-y-2">
                           {plan.features.map((item) => (
@@ -402,8 +388,8 @@ export function LandingPage() {
                   ))}
                 </div>
                 <p className="mt-6 text-xs text-text-muted">
-                  Enterprise (dedicated infrastructure, custom SLA and SSO) is sold on contract. The
-                  total payable is shown before payment; the consumer may withdraw within 14 days
+                  Dedicated infrastructure with a custom SLA and SSO is arranged by agreement; no
+                  self-service price is published for it. The consumer may withdraw within 14 days
                   and pays only for the service supplied.
                 </p>
               </div>

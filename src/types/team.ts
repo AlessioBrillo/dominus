@@ -70,7 +70,7 @@ export interface TeamPlanLimits {
 
 export const TEAM_PLAN_LIMITS: Record<SubscriptionPlan, TeamPlanLimits> = {
   free: { seats: 1, apiKeys: 1, candidatesScored: 50, apiCalls: 1000, domainsTracked: 25 },
-  pro: { seats: 3, apiKeys: 5, candidatesScored: 500, apiCalls: 10000, domainsTracked: 250 },
+  pro: { seats: 3, apiKeys: 5, candidatesScored: 500, apiCalls: 10000, domainsTracked: 500 },
   team: {
     seats: 10,
     apiKeys: 20,
