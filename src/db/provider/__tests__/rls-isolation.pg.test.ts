@@ -70,7 +70,17 @@ describe.runIf(PG_URL)('RLS tenant isolation', () => {
       );
       expect(asB.map((r) => r.val)).toEqual(['b']);
 
-      // stray context (no tenant) sees nothing — fail-closed
+      // A connection that has just served the 'default' tenant must not
+      // hand that tenant to the next query made without a context. The
+      // adapter RESETs the GUC; a `set_config(..., 'default')` reset would
+      // leak this row here.
+      await runWithTenant('default', () =>
+        adapter.exec(`INSERT INTO ${table} (tenant_id, val) VALUES ($1, $2)`, ['default', 'd']),
+      );
+      const afterDefault = await adapter.query<{ val: string }>(`SELECT val FROM ${table}`);
+      expect(afterDefault).toHaveLength(0);
+
+      // stray context (no tenant) sees nothing - fail-closed
       const anon = await adapter.query<{ val: string }>(`SELECT val FROM ${table}`);
       expect(anon).toHaveLength(0);
     } finally {
