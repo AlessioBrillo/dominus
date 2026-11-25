@@ -94,6 +94,14 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     private readonly freshRdapProvider?: RdapProvider,
     private readonly consensusConfig?: RdapConsensusConfig,
     private readonly whoisRescueProvider?: WhoisProvider,
+    /**
+     * Cloud-mode verdict policy (ADR-0112): without an independent second
+     * leg, a single RDAP answer may still say "registered" (the safe,
+     * conservative verdict) but never "available". The pipeline stays up
+     * when the consensus probe fails open; the verdict is downgraded to
+     * Unknown instead of being trusted on one source.
+     */
+    private readonly requireIndependentConfirmation = false,
   ) {}
 
   async process(
@@ -201,6 +209,53 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
         ...(rdapConsensusStats ? { rdapConsensusStats } : {}),
       };
       if (degradations.length > 0) result.degradations = degradations;
+      return result;
+    }
+
+    if (this.requireIndependentConfirmation) {
+      const degraded: StageDegradation[] = [];
+      const confirmed: DomainCandidate[] = [];
+      let downgraded = 0;
+      for (const candidate of passed) {
+        if (candidate.rdapStatus === DomainStatus.Available) {
+          downgraded++;
+          filtered.push({
+            ...candidate,
+            rdapStatus: DomainStatus.Unknown,
+            status: CandidateStatus.RdapFiltered,
+            verdictProvenance: {
+              ...candidate.verdictProvenance,
+              rdap: {
+                ...candidate.verdictProvenance?.rdap,
+                primaryServer: candidate.verdictProvenance?.rdap?.primaryServer ?? 'unknown',
+                durationMs: candidate.verdictProvenance?.rdap?.durationMs ?? 0,
+                independentConfirmation: false,
+              },
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } else {
+          confirmed.push(candidate);
+        }
+      }
+      if (downgraded > 0) {
+        degraded.push({
+          stageName: this.name,
+          reason: 'rdap-independent-confirmation-unavailable',
+          processedCount: confirmed.length,
+          expectedCount: confirmed.length + downgraded,
+          message:
+            `${downgraded} single-source Available verdicts were downgraded to Unknown ` +
+            'because RDAP consensus is disabled (ADR-0112)',
+        });
+      }
+      const result: StageResult<DomainCandidate> = {
+        passed: confirmed,
+        filtered,
+        stageName: this.name,
+        durationMs: Date.now() - start,
+      };
+      if (degraded.length > 0) result.degradations = degraded;
       return result;
     }
 

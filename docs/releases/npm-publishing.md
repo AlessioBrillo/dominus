@@ -1,5 +1,11 @@
 # Publishing `dominus-oss` to npm
 
+> **Deprecated (ADR-0102, v1.8.0).** `dominus-oss` is not published to npm.
+> The GitHub Release tarball is the sole distribution channel. This document
+> is kept only as the historical record of the abandoned npm channel; do not
+> follow it. `npm pack` is still used internally to build the release asset,
+> but no `npm publish` step exists in the release workflow.
+
 The tarball is built once by the local-first release engine
 (`scripts/release-cut.mjs`, ADR-0101) and used for every channel: the
 GitHub Release asset (primary), the alias tarball `dominus-oss.tgz`, the

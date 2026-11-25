@@ -11,6 +11,7 @@ import type {
 } from '../types/subscription.js';
 import { getLogger } from '../logger.js';
 import type { LifecycleMailer } from './lifecycle-mailer.js';
+import type Stripe from 'stripe';
 
 const logger = getLogger();
 
@@ -50,67 +51,14 @@ export const CHECKOUT_TERMS_CONSENT_MESSAGE =
   'immediately. You keep the 14-day right of withdrawal: if you withdraw, you pay only the ' +
   'proportional part of the service supplied before the withdrawal, and we refund the rest.';
 
-type StripeSdk = {
-  Stripe: new (
-    secretKey: string,
-    options?: { apiVersion?: string },
-  ) => {
-    customers: {
-      create: (params: {
-        email?: string;
-        metadata?: Record<string, string>;
-      }) => Promise<{ id: string }>;
-      createPortalSession: (params: {
-        customer: string;
-        return_url: string;
-      }) => Promise<{ url: string }>;
-    };
-    checkout: {
-      sessions: {
-        create: (params: {
-          mode: string;
-          customer?: string;
-          customer_email?: string;
-          line_items: { price: string; quantity: number }[];
-          success_url: string;
-          cancel_url: string;
-          metadata?: Record<string, string>;
-          subscription_data?: {
-            trial_period_days?: number;
-            metadata?: Record<string, string>;
-          };
-          idempotency_key?: string;
-          automatic_tax?: { enabled: boolean };
-          billing_address_collection?: 'auto' | 'required';
-          tax_id_collection?: { enabled: boolean };
-          customer_update?: { address?: 'auto'; name?: 'auto' };
-          consent_collection?: { terms_of_service: 'required' };
-          custom_text?: { terms_of_service_acceptance?: { message: string } };
-        }) => Promise<{ id: string; url: string | null }>;
-        retrieve: (
-          id: string,
-          params?: { expand?: string[] },
-        ) => Promise<{
-          id: string;
-          line_items?: { data?: { price?: { id?: string } }[] };
-        }>;
-      };
-    };
-    subscriptions: {
-      retrieve: (id: string) => Promise<StripeSubscription>;
-      update: (id: string, params: StripeSubscriptionUpdate) => Promise<StripeSubscription>;
-      cancel: (id: string) => Promise<{ id: string; status?: string }>;
-    };
-    webhooks: {
-      constructEvent: (
-        payload: Buffer | string,
-        sig: string,
-        secret: string,
-      ) => { id: string; type: string; data: { object: Record<string, unknown> } };
-    };
-  };
-};
-
+/**
+ * The SDK boundary is typed against the real `stripe` SDK, not a hand-rolled
+ * look-alike. A look-alike compiles while the vendor changes a parameter
+ * name, and the failure then appears in production as a Checkout session
+ * Stripe never accepted (ADR-0112). The service still converts SDK objects
+ * into the narrow internal types below, so business logic never imports the
+ * vendor SDK.
+ */
 /** The parts of a Stripe subscription this service reads or writes. */
 export interface StripeSubscription {
   id: string;
@@ -199,7 +147,7 @@ export class BillingService {
   readonly #webhookRepo: WebhookEventsRepository | null;
   readonly #customPriceRepo: CustomPriceRepository | null;
   readonly #lifecycle: LifecycleMailer | undefined;
-  #stripe: StripeSdk['Stripe']['prototype'] | null = null;
+  #stripe: Stripe | null = null;
   /** In-memory fast path for webhook dedup (bounded LRU-style set). */
   readonly #processedEventIds = new Map<string, number>();
 
@@ -221,15 +169,15 @@ export class BillingService {
     return !!this.#config.STRIPE_SECRET_KEY;
   }
 
-  async #getStripe(): Promise<StripeSdk['Stripe']['prototype'] | null> {
+  async #getStripe(): Promise<Stripe | null> {
     if (this.#stripe) return this.#stripe;
     if (!this.#config.STRIPE_SECRET_KEY) return null;
 
     try {
       const { Stripe } = await import('stripe');
       this.#stripe = new Stripe(this.#config.STRIPE_SECRET_KEY, {
-        apiVersion: '2026-09-30.endive',
-      }) as unknown as StripeSdk['Stripe']['prototype'];
+        apiVersion: '2026-09-30.endive' as Stripe.LatestApiVersion,
+      });
       return this.#stripe;
     } catch {
       logger.warn('Stripe SDK not available — billing features disabled');
@@ -380,50 +328,55 @@ export class BillingService {
     const bucket = Math.floor(Date.now() / STRIPE_IDEMPOTENCY_WINDOW_MS);
     const idempotencyKey = `checkout:${tenantId}:${plan}:${interval}:${bucket}`;
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: sub?.stripeCustomerId ?? undefined,
-      customer_email: sub?.stripeCustomerId ? undefined : customerEmail,
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      metadata: { tenantId, plan },
-      // EU tax compliance (ADR-0090):
-      //
-      // - automatic_tax asks Stripe Tax to determine the rate from the
-      //   customer's location;
-      // - billing_address_collection is what makes that determination
-      //   possible, and it is required for the tax calculation to be
-      //   reliable;
-      // - tax_id_collection lets an EU business enter its VAT ID, which
-      //   Stripe validates against VIES: with a valid ID the invoice is
-      //   issued under the reverse charge mechanism, without Italian VAT;
-      // - customer_update lets Checkout write the address it collected back
-      //   to an existing customer, which Stripe requires when automatic tax
-      //   is used with a customer that already has one.
-      automatic_tax: { enabled: true },
-      billing_address_collection: 'required',
-      tax_id_collection: { enabled: true },
-      ...(sub?.stripeCustomerId
-        ? { customer_update: { address: 'auto' as const, name: 'auto' as const } }
-        : {}),
-      // The checkbox accepts the terms and requests immediate performance.
-      // The consumer does not waive the 14-day withdrawal right: art. 57(3)
-      // of the Consumer Code makes a withdrawal after performance started
-      // cost only the proportional part of the service supplied.
-      consent_collection: { terms_of_service: 'required' },
-      custom_text: { terms_of_service_acceptance: { message: CHECKOUT_TERMS_CONSENT_MESSAGE } },
-      // The subscription carries the tenant and the plan as metadata, so the
-      // `customer.subscription.*` events identify the tenant without having
-      // to wait for the checkout event to be processed first. Stripe delivers
-      // the subscription event BEFORE `checkout.session.completed` often
-      // enough that relying on the customer lookup alone lost the event.
-      subscription_data: {
-        ...(firstCheckout ? { trial_period_days: 14 } : {}),
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: 'subscription',
+        ...(sub?.stripeCustomerId
+          ? { customer: sub.stripeCustomerId }
+          : customerEmail
+            ? { customer_email: customerEmail }
+            : {}),
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
         metadata: { tenantId, plan },
+        // EU tax compliance (ADR-0090):
+        //
+        // - automatic_tax asks Stripe Tax to determine the rate from the
+        //   customer's location;
+        // - billing_address_collection is what makes that determination
+        //   possible, and it is required for the tax calculation to be
+        //   reliable;
+        // - tax_id_collection lets an EU business enter its VAT ID, which
+        //   Stripe validates against VIES: with a valid ID the invoice is
+        //   issued under the reverse charge mechanism, without Italian VAT;
+        // - customer_update lets Checkout write the address it collected back
+        //   to an existing customer, which Stripe requires when automatic tax
+        //   is used with a customer that already has one.
+        automatic_tax: { enabled: true },
+        billing_address_collection: 'required',
+        tax_id_collection: { enabled: true },
+        ...(sub?.stripeCustomerId
+          ? { customer_update: { address: 'auto' as const, name: 'auto' as const } }
+          : {}),
+        // The checkbox accepts the terms and requests immediate performance.
+        // The consumer does not waive the 14-day withdrawal right: art. 57(3)
+        // of the Consumer Code makes a withdrawal after performance started
+        // cost only the proportional part of the service supplied.
+        consent_collection: { terms_of_service: 'required' },
+        custom_text: { terms_of_service_acceptance: { message: CHECKOUT_TERMS_CONSENT_MESSAGE } },
+        // The subscription carries the tenant and the plan as metadata, so the
+        // `customer.subscription.*` events identify the tenant without having
+        // to wait for the checkout event to be processed first. Stripe delivers
+        // the subscription event BEFORE `checkout.session.completed` often
+        // enough that relying on the customer lookup alone lost the event.
+        subscription_data: {
+          ...(firstCheckout ? { trial_period_days: 14 } : {}),
+          metadata: { tenantId, plan },
+        },
       },
-      idempotency_key: idempotencyKey,
-    });
+      { idempotencyKey },
+    );
 
     return session.url ? { url: session.url, plan } : null;
   }
@@ -539,7 +492,12 @@ export class BillingService {
     const sub = await this.#subRepo.findByTenantId(tenantId);
     if (!sub?.stripeCustomerId) return null;
 
-    const session = await stripe.customers.createPortalSession({
+    // The portal is Stripe's Billing Portal resource, not a customer
+    // method. The hand-rolled SDK look-alike had invented
+    // `customers.createPortalSession`, which does not exist in stripe-node:
+    // this call failed at runtime for every customer who asked for the
+    // portal. Typing the boundary against the real SDK caught it.
+    const session = await stripe.billingPortal.sessions.create({
       customer: sub.stripeCustomerId,
       return_url: returnUrl,
     });

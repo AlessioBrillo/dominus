@@ -2,8 +2,11 @@ name: Release
 
 # Publishes the community-edition artifacts on a version tag:
 #   - GitHub Release with notes extracted from the CHANGELOG section
-#   - npm package `dominus-oss`, built from the same commit
 #   - a verification of the PUBLISHED artifact (install, boot, version)
+#
+# GitHub Release is the sole distribution channel (ADR-0102). npm is NOT
+# published: `npm pack` is used only to build the tarball that becomes the
+# release asset.
 #
 # Deliberately separate from deploy.yml: the Cloud rollout (Terraform, SSH,
 # migrate-before-roll) and the public artifact publication have different
@@ -12,10 +15,6 @@ name: Release
 # section was missing — `--generate-notes` produced a release with no notes
 # at all, which is how an empty public release notes page happens.
 #
-# npm is published with OIDC trusted publishing: the workflow requests a
-# short-lived token bound to this repository, environment and commit (OIDC
-# token → npm). No long-lived NPM_TOKEN secret exists to leak, and the token
-# is bound to the exact version being published.
 
 on:
   push:
@@ -62,27 +61,17 @@ jobs:
         run: npm run check:trademarks
 
   release:
-    name: Publish GitHub Release and npm package
+    name: Publish GitHub Release
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: trademark-canary
     permissions:
       contents: write # release notes + release asset
-      # Required for OIDC trusted publishing: `npm publish` requests a
-      # short-lived token from GitHub's OIDC provider. Without this the
-      # publish step fails with a token exchange error that reads like an
-      # npm-side problem, which is the wrong place to look.
-      id-token: write
     outputs:
       # The verified job needs the version it must install: a step output
       # is not visible across jobs.
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      # npm is best-effort until the trusted publisher exists (ADR-0099).
-      # The GitHub Release is the primary channel; a failed npm publish must
-      # not turn a successful release red, and must not skip the verification
-      # of the channel users actually download.
-      npm_available: ${{ steps.npm-state.outputs.available }}
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
 
@@ -96,7 +85,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-          registry-url: 'https://registry.npmjs.org'
 
       # ------------------------------------------------------------------
       # Version resolution
@@ -108,8 +96,8 @@ jobs:
       # with `${GITHUB_REF#refs/tags/}`. On a branch that expansion does
       # not match, so the version became the literal string
       # `refs/heads/master` and the CHANGELOG lookup below could never
-      # succeed: the dry run that `docs/releases/npm-publishing.md` tells
-      # the operator to run before the first publish was guaranteed to
+      # succeed: the dry run the release runbook tells the operator to run
+      # before the first publish was guaranteed to
       # fail. The version is now resolved explicitly, and a tag that
       # disagrees with package.json is refused before anything is built.
       - name: Resolve the version
@@ -248,11 +236,9 @@ jobs:
         run: |
           set -euo pipefail
           tag="${TAG}"
-          # Idempotent on re-run. The npm step below this one can fail after the
-          # release already exists (for example when the trusted publisher has
-          # not been configured yet), and re-running the workflow must not then
-          # fail on a release that is already there. Create on first pass,
-          # update the notes if it exists.
+          # Idempotent on re-run: create the release on the first pass and
+          # update its notes if it already exists. GitHub Release is the
+          # only channel, so a re-run must never fail on an existing release.
           if gh release view "${tag}" >/dev/null 2>&1; then
             echo "Release ${tag} already exists — updating its notes."
             gh release edit "${tag}" --notes-file /tmp/release-notes.md
@@ -260,13 +246,9 @@ jobs:
             gh release create "${tag}" --notes-file /tmp/release-notes.md
           fi
 
-      # The tarball is a distribution channel in its own right, and since
-      # v1.3.4 it is the PRIMARY one (ADR-0099). The npm trusted publisher
-      # has failed three times (E404: the publisher is not configured on the
-      # npm account), and a channel that depends on an account setting
-      # nobody can automate is one click away from being no channel at all.
-      # The asset is the tarball this workflow built and verified, with its
-      # checksum beside it.
+      # The tarball attached to the GitHub Release is the sole distribution
+      # channel (ADR-0102). It is the tarball this workflow built and
+      # verified, with its checksum beside it.
       - name: Attach the tarball, its alias, checksums and installers to the release
         if: env.DRY_RUN != 'true'
         env:
@@ -288,134 +270,13 @@ jobs:
           # One-command installers for Linux/macOS and Windows.
           gh release upload "${TAG}" "${INSTALLER_SHELL}" "${INSTALLER_POWERSHELL}" --clobber
 
-      # ------------------------------------------------------------------
-      # npm package
-      # ------------------------------------------------------------------
-      # OIDC trusted publishing: `npm publish` detects the OIDC environment
-      # and exchanges it for a token, so nothing is stored in secrets.
-      # `--provenance` publishes the build's cryptographic provenance,
-      # letting anyone verify the tarball was built from this repository,
-      # this commit, by this workflow.
-      - name: Publish to npm (dry run)
-        if: env.DRY_RUN == 'true'
-        env:
-          TARBALL: ${{ steps.tarball.outputs.path }}
-        run: npm publish "${TARBALL}" --dry-run --provenance
 
-      # The publish is idempotent. npm refuses to overwrite a version that
-      # is already on the registry (E403), and the only way to claim the
-      # package name before the trusted publisher can be configured is a
-      # manual publish — so a re-run of this workflow for a version that is
-      # already published used to fail here, and because `verify` depends
-      # on this job, the verification of the PUBLISHED artifact was skipped
-      # with it. The artifact stayed unverified for the exact reason it was
-      # supposed to be checked. Detect the existing version and skip.
-      - name: Check whether the version is already published
-        id: npm-version-state
-        if: env.DRY_RUN != 'true'
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          PACKAGE_NAME: dominus-oss
-        run: |
-          set -euo pipefail
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "${PACKAGE_NAME}@${VERSION} is already on the registry — skipping the publish."
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            echo "${PACKAGE_NAME}@${VERSION} is not published yet."
-          fi
-
-      - name: Publish to npm
-        id: npm-publish
-        if: env.DRY_RUN != 'true' && steps.npm-version-state.outputs.published != 'true'
-        # Best-effort by policy (ADR-0099): the GitHub Release is primary.
-        # A missing trusted publisher must leave a warning, not a red release.
-        continue-on-error: true
-        env:
-          TARBALL: ${{ steps.tarball.outputs.path }}
-        run: npm publish "${TARBALL}" --provenance --access public
-
-      - name: Record whether npm has the version
-        id: npm-state
-        if: always() && env.DRY_RUN != 'true'
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          PACKAGE_NAME: dominus-oss
-          ALREADY_PUBLISHED: ${{ steps.npm-version-state.outputs.published }}
-          PUBLISH_OUTCOME: ${{ steps.npm-publish.outcome }}
-        run: |
-          set -euo pipefail
-          if [ "${ALREADY_PUBLISHED}" = "true" ] || [ "${PUBLISH_OUTCOME}" = "success" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "::notice title=npm::${PACKAGE_NAME}@${VERSION} is on the registry; the verify job will check it."
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=npm is best-effort::${PACKAGE_NAME}@${VERSION} was not published. The GitHub Release is published and verified; configure the trusted publisher (docs/releases/npm-publishing.md) and re-run."
-          fi
-
-  # --------------------------------------------------------------------
-  # The published artifact, verified
-  # --------------------------------------------------------------------
-  # `check-pack` inspects the tarball this workflow built. It cannot see
-  # the artifact a consumer receives: the v1.2.0 release published
-  # nothing (the npm trusted publisher was not configured, so the publish
-  # failed with E404) and the failure was discovered days later, by
-  # reading the documentation. This job installs the published package
-  # and runs it, so a broken artifact is a red workflow instead of a
-  # support ticket.
+  # The GitHub Release is the only channel a stranger uses, so it is the
+  # channel the workflow verifies end to end: install from the public URL,
+  # boot the installed artifact and assert its version (ADR-0099).
   #
-  # A failure here cannot un-publish the package: the response is to fix
-  # the artifact and publish a patch version (`npm deprecate` the broken
-  # one in the meantime).
-  #
-  # The job depends on `release` for the resolved version, not for the
-  # publish: the publish step above is idempotent, so a version that is
-  # already on the registry no longer fails the release job and no longer
-  # takes this verification down with it. A published artifact is always
-  # verified, however it got there.
-  verify:
-    name: Verify the published artifact
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: release
-    # `env` is not available in a job-level `if`; the dispatch input is.
-    # The npm verification runs only when npm actually has the version: a
-    # best-effort publish that did not happen must not fail the release, and
-    # `verify-github-release` below still checks the primary channel.
-    if: github.ref_type == 'tag' && inputs.dry_run != true && needs.release.outputs.npm_available == 'true'
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install and run the published package
-        env:
-          VERSION: ${{ needs.release.outputs.version }}
-          PACKAGE_NAME: dominus-oss
-        run: |
-          set -euo pipefail
-          # The registry is eventually consistent: a package published a
-          # minute ago may not be visible yet, so the verification retries.
-          node scripts/verify-release.mjs \
-            --package "${PACKAGE_NAME}@${VERSION}" \
-            --expect-version "${VERSION}" \
-            --retries 12 \
-            --retry-delay 15000
-
-  # The GitHub Release is the channel that works without an account setting,
-  # so it is the channel a stranger uses. Until v1.3.4 it was the only
-  # published channel and the only one no workflow verified: `verify` above
-  # installs from npm, which had never been published at all.
-  #
-  # `always()` is deliberate: a failed npm publish must not skip the
-  # verification of the channel users actually download. If the release job
-  # died before attaching the assets, this job fails too - on the asset list.
+  # `always()` is deliberate: if the release job died before attaching the
+  # assets, this job fails too - on the asset list.
   verify-github-release:
     name: Verify the GitHub Release channel
     runs-on: ubuntu-latest

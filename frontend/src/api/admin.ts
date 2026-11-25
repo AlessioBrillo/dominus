@@ -13,6 +13,13 @@ export interface AdminOverview {
   paidPlans: number;
   candidatesScoredTotal: number;
   apiCallsTotal: number;
+  funnel?: {
+    signup: number;
+    verified: number;
+    firstScore: number;
+    portfolioImport: number;
+    checkoutCompleted: number;
+  };
 }
 
 export interface AdminTenantUsage {

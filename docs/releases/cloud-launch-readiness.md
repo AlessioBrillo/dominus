@@ -5,16 +5,49 @@ roadmap entry. It records what was verified, what is missing, and who
 decides what. It is written to be read by someone joining the effort, so it
 states facts with file paths rather than intentions.
 
-Everything below was checked against the repository on 2026-11-12, at
-v1.5.3 (the trust-boundary work of ADR-0107 landed on top of the v1.5.3
-tree).
+Everything below was checked against the repository on 2026-11-25, at
+v1.7.0 (the trust-boundary work of ADR-0107 shipped with v1.7.0).
+
+## What v1.8.0 changed in the code
+
+The launch scope is now "the first real customer" (ADR-0112): the
+real-service defects are fixed before the first staging apply.
+
+- The PostgreSQL adapter RESETs `app.tenant_id` instead of leaving the string
+  `'default'` on a recycled pooled connection. Migration 0070 denies only a
+  NULL setting, so the old reset was a cross-tenant read path.
+- `past_due` subscriptions keep paid limits for seven days from a stable
+  `past_due_since` transition timestamp before failing closed, so one failed
+  card does not demote a 500-domain workspace to the free tier the same day
+  and Stripe retries do not restart the grace.
+- The Stripe boundary is typed against the real SDK. It caught a call to
+  `customers.createPortalSession` that does not exist in `stripe-node` — the
+  customer portal failed at runtime for every user who asked for it — and an
+  `idempotency_key` body field that belongs in the request options.
+- In cloud mode a single-source `available` is downgraded to `Unknown` when
+  the RDAP consensus gate is disabled; a single-source `registered` still
+  passes because it is the conservative answer (ADR-0077 stays fail-open at
+  startup).
+- The GitHub Release workflow no longer publishes to npm, aligning the code
+  with ADR-0102. `check:version-consistency` now guards version and record
+  drift in the gate.
+- First-party signup events use the existing `events` table; the operator
+  overview shows the funnel signup → verified → first score → portfolio →
+  checkout.
+
+**Deferred, not forgotten:** RLS on the 14 control-plane tables is not
+enabled yet. Those tables are read before a tenant context exists (signup,
+magic links, API-key authentication, the worker). Enabling a default-deny
+policy before moving those reads to a separate service-role connection would
+stop the product from booting. The role and the migration belong to a
+follow-up ADR; the repository boundary remains the current enforcement point.
 
 ## What is solid
 
 - The backend and frontend suites are green; 19 CI jobs including a
   PostgreSQL matrix, Docker smoke, OpenAPI contract coverage and a WCAG 2.1
   AA a11y gate.
-- 102 ADRs. The architecture record is genuinely current —
+- 108 ADR records at v1.7.0. The architecture record is genuinely current -
   `check-doc-drift` derives route/repository/handler/CLI counts from the
   source tree, so the documents cannot silently rot.
 - Fail-closed posture on the parts that matter: DNS consensus (ADR-0039,

@@ -111,6 +111,7 @@ import { AcquisitionService } from '../services/acquisition-service.js';
 import { BillingService } from '../services/billing-service.js';
 import { AdminService } from '../services/admin-service.js';
 import { AdminRepository } from '../db/repositories/admin-repository.js';
+import { EventRepository } from '../db/repositories/event-repository.js';
 import { TeamSeatsRepository } from '../db/repositories/team-seats-repository.js';
 import { TeamService } from '../services/team-service.js';
 import { WebhookEventsRepository } from '../db/repositories/webhook-events-repository.js';
@@ -218,6 +219,8 @@ export interface DominusDependencies {
   usageEnforcer: PipelineUsageEnforcer;
   adminService: AdminService;
   adminRepo: AdminRepository;
+  /** First-party product events for the operator funnel (ADR-0112). */
+  eventRepo: EventRepository;
   teamService: TeamService;
   /** Maps an OIDC sign-in to a tenant/role via team seats (F4). */
   identityResolver: IdentityTenantResolver;
@@ -876,7 +879,13 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   // Platform admin read model + tenant lifecycle (ADR-0057): cross-tenant
   // subscriptions, API key counts, metered usage and operator
   // suspend/unsuspend/plan-override for the operator panel (Cloud).
-  const adminService = new AdminService(repos.adminRepo, repos.usageRepo, repos.customPriceRepo);
+  const eventRepo = new EventRepository(repos.provider);
+  const adminService = new AdminService(
+    repos.adminRepo,
+    repos.usageRepo,
+    repos.customPriceRepo,
+    eventRepo,
+  );
   // Same plan-override source as UsageMeterService above: an operator grant
   // must raise seat limits exactly like usage limits (ADR-0057).
   const teamService = new TeamService(repos.teamSeatsRepo, repos.subscriptionRepo, {
@@ -1304,6 +1313,10 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       freshRdapProvider,
       rdapConsensusConfig,
       whoisRescueProvider,
+      // Cloud never reports "available" on a single source. A fail-open
+      // consensus probe keeps the service up, but the verdict is downgraded
+      // to Unknown (ADR-0112).
+      isCloudMode,
     ),
     new ScoringStage(engine, config.SCORING_BATCH_CONCURRENCY, waybackProvider),
     new TrademarkGateStage(trademarkGate, config.TRADEMARK_BATCH_CONCURRENCY),
@@ -1796,6 +1809,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
     usageService,
     usageEnforcer,
     adminService,
+    eventRepo,
     teamService,
     identityResolver,
   };

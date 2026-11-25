@@ -362,12 +362,16 @@ export class PostgresAdapter implements DatabaseProvider {
 
   /**
    * Acquire a dedicated client from the pool, set the tenant config at
-   * session level (is_local=false), run the work, reset config to 'default',
-   * and release the client. This safely scopes the tenant to a single
-   * connection lease without multi-statement protocol limitations.
+   * session level (is_local=false), run the work, RESET it, and release
+   * the client. This safely scopes the tenant to a single connection
+   * lease without multi-statement protocol limitations.
    *
-   * The reset step prevents tenant context from leaking to the next
-   * consumer of the same pooled connection.
+   * The reset is a real RESET, not `set_config(..., 'default')`: the RLS
+   * policies of migration 0070 deny only when `current_setting` is NULL.
+   * Leaving the string 'default' behind would give the next consumer of
+   * this connection a visible tenant instead of no tenant at all, and a
+   * query made without a tenant context could read or write that tenant's
+   * rows. A failed reset destroys the connection rather than recycling it.
    */
   async #withConnection<T>(fn: (executor: PgExecutor) => Promise<T>): Promise<T> {
     const client = await this.#pool.connect();
@@ -389,7 +393,7 @@ export class PostgresAdapter implements DatabaseProvider {
     } finally {
       if (tenantMayBeSet) {
         try {
-          await client.query('SELECT set_config($1, $2, false)', ['app.tenant_id', 'default']);
+          await client.query('RESET app.tenant_id');
           tenantMayBeSet = false;
         } catch {
           // keep tenantMayBeSet: the connection is destroyed below
@@ -708,13 +712,17 @@ class PostgresTransactionAdapter implements DatabaseProvider {
   }
 
   /**
-   * Set the tenant config for the current transaction when a tenant
-   * context is active. Uses is_local=true so the setting is scoped to
-   * this transaction and cannot leak to other consumers.
+   * Set the tenant config for the current transaction. Uses is_local=true
+   * so the setting is scoped to this transaction and cannot leak to other
+   * consumers.
+   *
+   * When there is no tenant context the GUC is explicitly cleared at
+   * transaction level. Without this, a transaction that borrows a client
+   * whose session still carries a tenant from an earlier lease would see
+   * that tenant's rows even though no tenant context is active.
    */
   async #ensureTenantConfig(): Promise<void> {
     const tenantId = getTenantId();
-    if (!tenantId) return;
-    await this.#client.query('SELECT set_config($1, $2, true)', ['app.tenant_id', tenantId]);
+    await this.#client.query('SELECT set_config($1, $2, true)', ['app.tenant_id', tenantId ?? '']);
   }
 }

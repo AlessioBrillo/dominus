@@ -8,6 +8,7 @@ import { errorHandler } from '../../middleware/error-handler.js';
 import type { AuthProvider } from '../../../providers/auth/auth-provider.js';
 import type { TenantProvisioningService } from '../../../services/tenant-provisioning-service.js';
 import type { EmailVerificationService } from '../../../services/email-verification-service.js';
+import type { EventRepository } from '../../../db/repositories/event-repository.js';
 
 function makeAuthProvider(): AuthProvider {
   return {
@@ -54,6 +55,7 @@ function buildApp(
   mode: SignupVerificationMode = 'required',
   recoveryEnabled = true,
   signupEnabled = true,
+  eventRepo?: EventRepository,
 ): Application {
   const app = express();
   app.use(express.json());
@@ -66,6 +68,7 @@ function buildApp(
       mode,
       recoveryEnabled,
       signupEnabled,
+      eventRepo,
     ),
   );
   app.use(errorHandler);
@@ -176,6 +179,30 @@ describe('API: /api/v1/auth/verify-email', () => {
     expect(verification.verifySignup).toHaveBeenCalledWith(
       'a-verification-token-with-enough-entropy',
     );
+  });
+
+  it('still returns the key when the funnel event store is down', async () => {
+    const verification = makeVerificationService(true);
+    const eventRepo = {
+      record: vi.fn().mockRejectedValue(new Error('events table down')),
+      funnelCounts: vi.fn(),
+    } as unknown as EventRepository;
+    const app = buildApp(
+      makeProvisioningService(),
+      verification,
+      'required',
+      true,
+      true,
+      eventRepo,
+    );
+
+    const res = await request(app)
+      .post('/api/v1/auth/verify-email')
+      .send({ token: 'a-verification-token-with-enough-entropy' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.key).toBe('deadbeef');
+    expect(eventRepo.record).toHaveBeenCalled();
   });
 
   it('rejects an invalid token with 400', async () => {

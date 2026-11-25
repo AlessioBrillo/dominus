@@ -125,6 +125,12 @@ runcmd:
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_app') THEN
         CREATE ROLE dominus_app LOGIN PASSWORD '${db_app_password}';
       END IF;
+      -- Prepared for control-plane RLS (ADR-0112). NOLOGIN keeps the role
+      -- unassumable until the service connection is implemented; no
+      -- BYPASSRLS and no app-role membership.
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_service') THEN
+        CREATE ROLE dominus_service NOLOGIN;
+      END IF;
     END \$\$;
     SELECT 'CREATE DATABASE dominus OWNER dominus'
     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'dominus')\gexec
@@ -146,6 +152,14 @@ runcmd:
     -- pg_current_wal_lsn() is restricted to the pg_monitor role: the app's
     -- pitr-health job reads WAL lag (ADR-0054), so the app role needs it.
     GRANT pg_monitor TO dominus_app;
+    GRANT CONNECT ON DATABASE dominus TO dominus_service;
+    GRANT USAGE ON SCHEMA public TO dominus_service;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dominus_service;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dominus_service;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dominus_service;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public
+      GRANT USAGE, SELECT ON SEQUENCES TO dominus_service;
     EOSQL
   - |
     if ! grep -q "10.0.0.0/16" /etc/postgresql/17/main/pg_hba.conf; then
@@ -153,6 +167,7 @@ runcmd:
     # DOMINUS app node (private network) — TLS required (hostssl only)
     hostssl all dominus 10.0.0.0/16 scram-sha-256
     hostssl all dominus_app 10.0.0.0/16 scram-sha-256
+    hostssl all dominus_service 10.0.0.0/16 scram-sha-256
     hostssl all backup 10.0.0.0/16 scram-sha-256
     EOF
     fi

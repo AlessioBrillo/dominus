@@ -44,8 +44,8 @@ export class SubscriptionRepository {
     trialEnd?: string | null;
   }): Promise<void> {
     await this.#db.exec(
-      `INSERT INTO tenant_subscriptions (tenant_id, plan, status, stripe_customer_id, stripe_subscription_id, current_period_start, current_period_end, trial_end)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO tenant_subscriptions (tenant_id, plan, status, stripe_customer_id, stripe_subscription_id, current_period_start, current_period_end, trial_end, past_due_since)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'past_due' THEN CURRENT_TIMESTAMP ELSE NULL END)
        ON CONFLICT(tenant_id) DO UPDATE SET
          plan = excluded.plan,
          status = excluded.status,
@@ -54,6 +54,10 @@ export class SubscriptionRepository {
          current_period_start = excluded.current_period_start,
          current_period_end = excluded.current_period_end,
          trial_end = excluded.trial_end,
+         past_due_since = CASE
+           WHEN excluded.status = 'past_due' AND tenant_subscriptions.status <> 'past_due' THEN CURRENT_TIMESTAMP
+           WHEN excluded.status = 'past_due' THEN tenant_subscriptions.past_due_since
+           ELSE NULL END,
          updated_at = CURRENT_TIMESTAMP`,
       [
         sub.tenantId,
@@ -64,14 +68,20 @@ export class SubscriptionRepository {
         sub.currentPeriodStart ?? null,
         sub.currentPeriodEnd ?? null,
         sub.trialEnd ?? null,
+        sub.status,
       ],
     );
   }
 
   async updateStatus(tenantId: string, status: SubscriptionStatus): Promise<void> {
     await this.#db.exec(
-      'UPDATE tenant_subscriptions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?',
-      [status, tenantId],
+      `UPDATE tenant_subscriptions SET status = ?, updated_at = CURRENT_TIMESTAMP,
+        past_due_since = CASE
+          WHEN ? = 'past_due' AND status <> 'past_due' THEN CURRENT_TIMESTAMP
+          WHEN ? = 'past_due' THEN past_due_since
+          ELSE NULL END
+       WHERE tenant_id = ?`,
+      [status, status, status, tenantId],
     );
   }
 
@@ -86,15 +96,28 @@ export class SubscriptionRepository {
     await this.#db.exec(
       `UPDATE tenant_subscriptions
        SET stripe_subscription_id = ?, status = ?, current_period_start = ?, current_period_end = ?,
-           plan = COALESCE(?, plan), updated_at = CURRENT_TIMESTAMP
+           plan = COALESCE(?, plan), updated_at = CURRENT_TIMESTAMP,
+           past_due_since = CASE
+             WHEN ? = 'past_due' AND status <> 'past_due' THEN CURRENT_TIMESTAMP
+             WHEN ? = 'past_due' THEN past_due_since
+             ELSE NULL END
        WHERE tenant_id = ?`,
-      [stripeSubscriptionId, status, periodStart, periodEnd, plan ?? null, tenantId],
+      [
+        stripeSubscriptionId,
+        status,
+        periodStart,
+        periodEnd,
+        plan ?? null,
+        status,
+        status,
+        tenantId,
+      ],
     );
   }
 
   async cancel(tenantId: string, canceledAt: string): Promise<void> {
     await this.#db.exec(
-      "UPDATE tenant_subscriptions SET status = 'canceled', canceled_at = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?",
+      "UPDATE tenant_subscriptions SET status = 'canceled', canceled_at = ?, past_due_since = NULL, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ?",
       [canceledAt, tenantId],
     );
   }

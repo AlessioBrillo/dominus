@@ -44,9 +44,10 @@ describe.runIf(PG_URL)('PostgresAdapter', () => {
       const rows = await adapter.query<{ tenant: string | null }>(
         "SELECT current_setting('app.tenant_id', true) AS tenant",
       );
-      expect(
-        rows[0]?.tenant === null || rows[0]?.tenant === '' || rows[0]?.tenant === 'default',
-      ).toBe(true);
+      // 'default' is not an acceptable reset value: migration 0070 denies
+      // only when the setting is NULL or empty. Leaving a tenant behind is
+      // a cross-tenant read path on the next lease.
+      expect(rows[0]?.tenant === null || rows[0]?.tenant === '').toBe(true);
     });
 
     it('inserts into tables that have no id column (no implicit RETURNING id)', async () => {

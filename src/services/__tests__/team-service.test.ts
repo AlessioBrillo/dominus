@@ -33,6 +33,16 @@ describe('TeamService', () => {
     await db.close();
   });
 
+  // The dunning grace of v1.8.0 keeps paid limits for seven days after a
+  // failed payment. These ADR-0053 assertions are about a LAPSED billing
+  // state, so they age the row past the grace window explicitly.
+  async function agePastDue(tenantId: string): Promise<void> {
+    await db.exec(
+      "UPDATE tenant_subscriptions SET updated_at = '2026-01-01 00:00:00', past_due_since = '2026-01-01 00:00:00' WHERE tenant_id = ?",
+      [tenantId],
+    );
+  }
+
   describe('getTeamSummary', () => {
     it('returns free plan defaults for tenant without subscription', async () => {
       const summary = await service.getTeamSummary('tenant-1');
@@ -164,6 +174,7 @@ describe('TeamService', () => {
   describe('status-aware plan resolution (ADR-0053)', () => {
     it('downgrades past_due subscriptions to free seat limits', async () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });
+      await agePastDue('tenant-1');
       const summary = await service.getTeamSummary('tenant-1');
       expect(summary.plan).toBe('free');
       expect(summary.seatLimit).toBe(1);
@@ -178,6 +189,7 @@ describe('TeamService', () => {
 
     it('blocks invites at the free seat cap when billing lapsed', async () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });
+      await agePastDue('tenant-1');
       await service.inviteMember('tenant-1', 'user-1', 'member', 'owner-1');
       await service.acceptInvite('tenant-1', 'user-1');
       await expect(service.inviteMember('tenant-1', 'user-2', 'member', 'owner-1')).rejects.toThrow(
@@ -213,6 +225,7 @@ describe('TeamService', () => {
 
     it('survives a lapsed subscription (deliberate manual grant)', async () => {
       await subRepo.upsert({ tenantId: 'tenant-1', plan: 'team', status: 'past_due' });
+      await agePastDue('tenant-1');
       const overridden = new TeamService(seatsRepo, subRepo, {
         planOverrideProvider: async (tenantId: string): Promise<SubscriptionPlan | null> =>
           tenantId === 'tenant-1' ? 'team' : null,

@@ -42,4 +42,25 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   -- pg_current_wal_lsn() is restricted to the pg_monitor role: the app's
   -- pitr-health job reads WAL lag (ADR-0054), so the app role needs it.
   GRANT pg_monitor TO dominus_app;
+
+  -- Prepared for the control-plane RLS follow-up (ADR-0112). NOLOGIN means
+  -- no credential exists yet: the app role cannot authenticate as the
+  -- higher-privilege service role. No BYPASSRLS, and the app role is NOT a
+  -- member, so it cannot SET ROLE into it either.
+  DO \$\$
+  BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_service') THEN
+      CREATE ROLE dominus_service NOLOGIN;
+    END IF;
+  END
+  \$\$;
+
+  GRANT CONNECT ON DATABASE "$POSTGRES_DB" TO dominus_service;
+  GRANT USAGE ON SCHEMA public TO dominus_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dominus_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dominus_service;
+  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dominus_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO dominus_service;
 EOSQL

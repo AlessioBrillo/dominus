@@ -2,6 +2,7 @@
 import type { AdminRepository } from '../db/repositories/admin-repository.js';
 import type { UsageRepository } from '../db/repositories/usage-repository.js';
 import type { CustomPriceRepository } from '../db/repositories/custom-price-repository.js';
+import type { EventRepository } from '../db/repositories/event-repository.js';
 import type {
   AdminOverview,
   AdminTenantSummary,
@@ -42,15 +43,18 @@ export class AdminService {
   readonly #adminRepo: AdminRepository;
   readonly #usageRepo: UsageRepository;
   readonly #customPriceRepo: CustomPriceRepository;
+  readonly #eventRepo: EventRepository | undefined;
 
   constructor(
     adminRepo: AdminRepository,
     usageRepo: UsageRepository,
     customPriceRepo: CustomPriceRepository,
+    eventRepo?: EventRepository,
   ) {
     this.#adminRepo = adminRepo;
     this.#usageRepo = usageRepo;
     this.#customPriceRepo = customPriceRepo;
+    this.#eventRepo = eventRepo;
   }
 
   async overview(periodStart: string): Promise<AdminOverview> {
@@ -78,6 +82,7 @@ export class AdminService {
       paidPlans,
       candidatesScoredTotal,
       apiCallsTotal,
+      ...(this.#eventRepo ? { funnel: await this.#eventRepo.funnelCounts() } : {}),
     };
   }
 

@@ -110,7 +110,7 @@ for the backtest-driven tuning loop.
 
 ## Project status
 
-DOMINUS v1.5.3 — the artifact tells the truth: `dominus doctor` reports its own version,
+DOMINUS v1.7.0 — the artifact tells the truth: `dominus doctor` reports its own version,
 database state, backup age and disk space on any installation, fresh or existing.
 `npm run launch:check` judges a community deployment and a Cloud deployment
 with the same implementation (profiles, auto-detection, `--paid`), writes

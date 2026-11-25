@@ -3,15 +3,35 @@ import type { Subscription, SubscriptionStatus, SubscriptionPlan } from '../type
 
 /**
  * Subscription statuses that still grant the paid plan's limits. Anything
- * else (past_due, canceled, incomplete, ...) fails closed to the free plan:
- * a tenant whose billing lapses must not keep paid capacity. The webhook
- * writes the Stripe status into tenant_subscriptions, so enforcement tracks
- * reality without waiting for subscription.deleted (ADR-0053).
+ * else fails closed to the free plan: a tenant whose billing lapses must
+ * not keep paid capacity. The webhook writes the Stripe status into
+ * tenant_subscriptions, so enforcement tracks reality without waiting for
+ * subscription.deleted (ADR-0053).
  */
 export const ACTIVE_PLAN_STATUSES: ReadonlySet<SubscriptionStatus> = new Set([
   'active',
   'trialing',
 ]);
+
+/**
+ * A failed card must not turn a 500-domain workspace into a 5-domain
+ * workspace the same day. Stripe usually retries successfully within days,
+ * so `past_due` keeps the paid limits for a short, explicit grace window
+ * counted from the webhook's last status update. After the window the
+ * fail-closed path applies.
+ */
+export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** True while a `past_due` subscription is inside its dunning grace window. */
+export function isWithinDunningGrace(sub: Subscription, now = Date.now()): boolean {
+  if (sub.status !== 'past_due') return false;
+  // `updatedAt` is refreshed by every Stripe retry, so it is only a fallback
+  // for rows written before `past_due_since` existed. Counting from it would
+  // restart the grace on each retry and never expire (P1 review, PR #564).
+  const started = Date.parse(sub.pastDueSince ?? sub.updatedAt);
+  if (!Number.isFinite(started)) return false;
+  return now - started >= 0 && now - started < PAST_DUE_GRACE_MS;
+}
 
 /**
  * Effective plan for enforcement, derived from the subscription row.
@@ -31,12 +51,15 @@ export const ACTIVE_PLAN_STATUSES: ReadonlySet<SubscriptionStatus> = new Set([
 export function effectivePlanFor(
   sub: Subscription | null | undefined,
   planOverride?: SubscriptionPlan | null,
+  now = Date.now(),
 ): SubscriptionPlan {
   if (planOverride) {
     return planOverride;
   }
-  if (sub !== null && sub !== undefined && ACTIVE_PLAN_STATUSES.has(sub.status)) {
-    return sub.plan;
+  if (sub !== null && sub !== undefined) {
+    if (ACTIVE_PLAN_STATUSES.has(sub.status) || isWithinDunningGrace(sub, now)) {
+      return sub.plan;
+    }
   }
   return 'free';
 }

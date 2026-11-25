@@ -71,12 +71,54 @@ describe('RdapConfirmationStage (RDAP-only)', () => {
     vi.clearAllMocks();
   });
 
-  it('passes an available non-premium domain', async () => {
+  it('passes an available non-premium domain in community mode', async () => {
     const rdap = makeMockRdap('x.com');
     const stage = new RdapConfirmationStage(rdap);
     const result = await stage.process([makeCandidate('example.com')]);
     expect(result.passed).toHaveLength(1);
     expect(result.filtered).toHaveLength(0);
+  });
+
+  it('downgrades a single-source Available verdict to Unknown in cloud mode', async () => {
+    // The consensus probe failed open: the stage has no second leg. It must
+    // stay conservative and downgrade, not trust the primary's "available".
+    const rdap = makeMockRdap('x.com');
+    const stage = new RdapConfirmationStage(
+      rdap,
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    const result = await stage.process([makeCandidate('example.com')]);
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
+    expect(result.filtered[0]?.rdapStatus).toBe(DomainStatus.Unknown);
+    expect(result.filtered[0]?.verdictProvenance?.rdap?.independentConfirmation).toBe(false);
+    expect(result.degradations?.[0]?.reason).toBe('rdap-independent-confirmation-unavailable');
+    expect(result.degradations?.[0]).toMatchObject({ processedCount: 0, expectedCount: 1 });
+  });
+
+  it('keeps a single-source Registered verdict when confirmation is required', async () => {
+    const rdap = makeMockRdap('x.com', DomainStatus.Registered);
+    const stage = new RdapConfirmationStage(
+      rdap,
+      undefined,
+      10,
+      10_000,
+      1_000,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    const result = await stage.process([makeCandidate('taken.com')]);
+    expect(result.passed).toHaveLength(0);
+    expect(result.filtered).toHaveLength(1);
   });
 
   it('filters a registered domain', async () => {

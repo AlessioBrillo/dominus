@@ -52,6 +52,8 @@ export interface VerdictProvenance {
       /** Whether WHOIS rescue leg confirmed the verdict. */
       whoisRescued: boolean;
     };
+    /** False when the cloud verdict was downgraded because no independent second leg was available. */
+    independentConfirmation?: boolean;
     /** Total RDAP verification duration in milliseconds (primary + consensus). */
     durationMs: number;
   };

@@ -55,6 +55,8 @@ export function createSqliteProvider(config: Config): SqliteProvider {
     busyTimeout: config.DATABASE_BUSY_TIMEOUT,
   });
 }
+export { EventRepository } from './repositories/event-repository.js';
+export type { ProductEvent, FunnelCounts } from './repositories/event-repository.js';
 export { CandidateRepository } from './repositories/candidate-repository.js';
 export { ScoringRepository } from './repositories/scoring-repository.js';
 export { PortfolioRepository } from './repositories/portfolio-repository.js';

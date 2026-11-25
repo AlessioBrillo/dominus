@@ -41,6 +41,8 @@ export interface Subscription {
   currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
   trialEnd: string | null;
+  /** Stable start of the dunning grace; null unless the sub is past_due. */
+  pastDueSince: string | null;
   canceledAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +58,7 @@ export interface SubscriptionRow {
   current_period_start: string | null;
   current_period_end: string | null;
   trial_end: string | null;
+  past_due_since: string | null;
   canceled_at: string | null;
   created_at: string;
   updated_at: string;
@@ -72,6 +75,7 @@ export function subscriptionFromRow(row: SubscriptionRow): Subscription {
     currentPeriodStart: row.current_period_start,
     currentPeriodEnd: row.current_period_end,
     trialEnd: row.trial_end,
+    pastDueSince: row.past_due_since,
     canceledAt: row.canceled_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
