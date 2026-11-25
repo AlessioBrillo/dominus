@@ -128,13 +128,18 @@ describe('LandingPage', () => {
     });
     renderLanding();
     expect(await screen.findByRole('heading', { name: 'Pricing' })).toBeInTheDocument();
-    // One self-service price, shown as the total payable: no ×1.22 display
-    // multiplication and no second hosted tier at launch.
-    expect(screen.getByText(/€29/)).toBeInTheDocument();
+    // One self-service paid price, shown as the total payable: no ×1.22
+    // display multiplication. The hosted free tier is an evaluation, and
+    // annual billing is the same plan paid for ten months.
+    expect(screen.getByText('€29')).toBeInTheDocument();
+    expect(screen.getByText(/€290/)).toBeInTheDocument();
+    expect(screen.getByText('Hosted free')).toBeInTheDocument();
     expect(screen.queryByText(/35\.38/)).not.toBeInTheDocument();
     expect(screen.queryByText(/96\.38/)).not.toBeInTheDocument();
     expect(screen.queryByText('Team')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /Create a workspace/ }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole('link', { name: /Start free|Start Pro trial/ }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('links the legal documents', () => {

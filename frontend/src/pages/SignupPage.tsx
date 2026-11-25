@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { registerTenant } from '@/api/auth';
 import { useLegalContent } from '@/hooks/useLegalContent';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,12 @@ const REPOSITORY_URL = 'https://github.com/AlessioBrillo/dominus';
 
 export function SignupPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // "Start Pro trial" carries the chosen plan through signup. Without this
+  // the CTA landed on the free signup and the intent was lost: the visitor
+  // who clicked a paid plan was never shown the checkout step.
+  const wantsPro = searchParams.get('plan') === 'pro';
+  const afterSignup = wantsPro ? '/billing' : '/';
   const { data: legal, isLoading, isError } = useLegalContent();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -106,7 +112,9 @@ export function SignupPage() {
           <CardDescription>
             {isWaitlist
               ? 'Join the waitlist and we will tell you when DOMINUS Cloud opens.'
-              : 'Start with the free tier - upgrade anytime'}
+              : wantsPro
+                ? 'Verify your mailbox to continue to the 14-day Pro trial'
+                : 'Start with the free tier - upgrade anytime'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -148,8 +156,8 @@ export function SignupPage() {
                 <code className="block break-all font-mono text-sm text-brand-300">{apiKey}</code>
               </div>
               <p className="text-xs text-text-muted">Save it now. It will not be shown again.</p>
-              <Button type="button" className="w-full" onClick={() => navigate('/')}>
-                Go to sign in
+              <Button type="button" className="w-full" onClick={() => navigate(afterSignup)}>
+                {wantsPro ? 'Continue to billing' : 'Go to sign in'}
               </Button>
             </div>
           ) : verificationSent ? (
@@ -161,8 +169,8 @@ export function SignupPage() {
                 The workspace is activated by that link. It is the only proof that the address
                 belongs to you, so nobody else can claim it.
               </p>
-              <Button type="button" className="w-full" onClick={() => navigate('/')}>
-                Go to sign in
+              <Button type="button" className="w-full" onClick={() => navigate(afterSignup)}>
+                {wantsPro ? 'Continue to billing' : 'Go to sign in'}
               </Button>
             </div>
           ) : (

@@ -62,7 +62,7 @@ const FEATURES = [
 /**
  * Published list prices, in euro, as the TOTAL payable at checkout.
  * One hosted plan is self-service at launch; dedicated infrastructure is
- * arranged by agreement. Keep in sync with ADR-0026 and the Stripe prices.
+ * arranged by agreement. Keep in sync with ADR-0111 and the Stripe prices.
  */
 const PLANS = [
   {
@@ -80,6 +80,20 @@ const PLANS = [
     href: REPOSITORY_URL,
   },
   {
+    id: 'hosted-free',
+    name: 'Hosted free',
+    net: 0,
+    unit: 'to evaluate',
+    features: [
+      '25 appraisals per month',
+      '5 domains tracked, with the renewal clock',
+      '1 seat and 1 machine key',
+      'Upgrade when your real list outgrows it',
+    ],
+    cta: 'Start free',
+    href: '/signup',
+  },
+  {
     id: 'pro',
     name: 'Pro',
     net: 29,
@@ -88,10 +102,11 @@ const PLANS = [
       '500 candidates scored per month',
       '500 domains tracked',
       '3 people, 5 machine keys',
-      'Priority support',
+      '14-day trial with a card, then €29/month',
+      'Email support answered within one business day',
     ],
-    cta: 'Start with Pro',
-    href: '/signup',
+    cta: 'Start Pro trial',
+    href: '/signup?plan=pro',
     highlighted: true,
   },
 ];
@@ -331,7 +346,7 @@ export function LandingPage() {
                   Every plan runs the same engine. The limits are the work you ask the platform to
                   do. {vatExplainer(vatRegime)}
                 </p>
-                <div className="mt-8 grid gap-6 md:grid-cols-2">
+                <div className="mt-8 grid gap-6 md:grid-cols-3">
                   {PLANS.map((plan) => (
                     <Card
                       key={plan.id}
@@ -388,9 +403,15 @@ export function LandingPage() {
                   ))}
                 </div>
                 <p className="mt-6 text-xs text-text-muted">
-                  Dedicated infrastructure with a custom SLA and SSO is arranged by agreement; no
-                  self-service price is published for it. The consumer may withdraw within 14 days
-                  and pays only for the service supplied.
+                  Annual billing is €290 (ten monthly payments). Dedicated infrastructure with a
+                  custom SLA and SSO is arranged by agreement —{' '}
+                  <a
+                    className="underline"
+                    href="mailto:hello@dominus.app?subject=Dedicated%20infrastructure%20enquiry"
+                  >
+                    contact us
+                  </a>
+                  . The consumer may withdraw within 14 days and pays only for the service supplied.
                 </p>
               </div>
             </section>
