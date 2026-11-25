@@ -31,8 +31,10 @@ increment:
    to the next query made without a context. The reset is now a real `RESET`.
 2. `effectivePlanFor` granted paid capacity only for `active` and `trialing`.
    A failed card demoted a 500-domain workspace to the 5-domain free tier on
-   the same day. A seven-day dunning grace, counted from the webhook's status
-   update, now preserves paid limits while Stripe retries.
+   the same day. A seven-day dunning grace, counted from a stable
+   `past_due_since` column set only on the active → past_due transition, now
+   preserves paid limits while Stripe retries without restarting on every
+   retry.
 3. `billing-service.ts` declared its own `StripeSdk` look-alike. It accepted
    `customers.createPortalSession` and an `idempotency_key` body field,
    neither of which exists in `stripe-node`. Typing the SDK boundary against

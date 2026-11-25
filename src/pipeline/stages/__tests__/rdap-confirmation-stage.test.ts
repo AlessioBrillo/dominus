@@ -98,7 +98,9 @@ describe('RdapConfirmationStage (RDAP-only)', () => {
     expect(result.passed).toHaveLength(0);
     expect(result.filtered).toHaveLength(1);
     expect(result.filtered[0]?.rdapStatus).toBe(DomainStatus.Unknown);
+    expect(result.filtered[0]?.verdictProvenance?.rdap?.independentConfirmation).toBe(false);
     expect(result.degradations?.[0]?.reason).toBe('rdap-independent-confirmation-unavailable');
+    expect(result.degradations?.[0]).toMatchObject({ processedCount: 0, expectedCount: 1 });
   });
 
   it('keeps a single-source Registered verdict when confirmation is required', async () => {

@@ -215,26 +215,38 @@ export class RdapConfirmationStage implements Stage<DomainCandidate> {
     if (this.requireIndependentConfirmation) {
       const degraded: StageDegradation[] = [];
       const confirmed: DomainCandidate[] = [];
+      let downgraded = 0;
       for (const candidate of passed) {
         if (candidate.rdapStatus === DomainStatus.Available) {
+          downgraded++;
           filtered.push({
             ...candidate,
             rdapStatus: DomainStatus.Unknown,
             status: CandidateStatus.RdapFiltered,
+            verdictProvenance: {
+              ...candidate.verdictProvenance,
+              rdap: {
+                ...candidate.verdictProvenance?.rdap,
+                primaryServer: candidate.verdictProvenance?.rdap?.primaryServer ?? 'unknown',
+                durationMs: candidate.verdictProvenance?.rdap?.durationMs ?? 0,
+                independentConfirmation: false,
+              },
+              timestamp: new Date().toISOString(),
+            },
           });
         } else {
           confirmed.push(candidate);
         }
       }
-      if (filtered.length > 0) {
+      if (downgraded > 0) {
         degraded.push({
           stageName: this.name,
           reason: 'rdap-independent-confirmation-unavailable',
           processedCount: confirmed.length,
-          expectedCount: passed.length,
+          expectedCount: confirmed.length + downgraded,
           message:
-            'RDAP consensus is disabled: single-source Available verdicts were downgraded to ' +
-            'Unknown instead of being trusted (ADR-0112)',
+            `${downgraded} single-source Available verdicts were downgraded to Unknown ` +
+            'because RDAP consensus is disabled (ADR-0112)',
         });
       }
       const result: StageResult<DomainCandidate> = {

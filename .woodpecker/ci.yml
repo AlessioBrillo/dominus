@@ -61,6 +61,7 @@ steps:
       - npm run notices:check
       - npm run adr:index:check
       - npm run check:doc-drift
+      - npm run check:version-consistency
       - npm run check:release-consistency
       - npm run check:workflows
       - npm run check:legal-placeholders

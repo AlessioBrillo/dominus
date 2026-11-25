@@ -32,7 +32,7 @@ describe('UsageMeterService', () => {
   // subscription, so they age the row past the grace window.
   async function agePastDue(): Promise<void> {
     await db.exec(
-      "UPDATE tenant_subscriptions SET updated_at = '2026-01-01 00:00:00' WHERE tenant_id = ?",
+      "UPDATE tenant_subscriptions SET updated_at = '2026-01-01 00:00:00', past_due_since = '2026-01-01 00:00:00' WHERE tenant_id = ?",
       [TENANT],
     );
   }

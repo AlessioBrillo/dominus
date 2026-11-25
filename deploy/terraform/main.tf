@@ -161,16 +161,6 @@ variable "db_app_password" {
   description = "Password for the dominus_app role — the RLS-scoped app connection (ADR-0038/0047)."
 }
 
-# Optional distinct password for the prepared dominus_service role. Empty
-# falls back to db_app_password until the control-plane RLS follow-up lands
-# (ADR-0112). Keep it empty at the first apply.
-variable "db_service_password" {
-  type        = string
-  sensitive   = true
-  default     = ""
-  description = "Password for the prepared control-plane service role; empty reuses db_app_password."
-}
-
 variable "b2_backup" {
   type = object({
     enabled         = bool
@@ -314,18 +304,17 @@ resource "hcloud_firewall" "db_ssh" {
 module "db_node" {
   source = "./modules/db-node"
 
-  project             = var.project
-  location            = var.location
-  server_type         = var.db_server_type
-  ssh_key_id          = hcloud_ssh_key.operator.id
-  network_id          = hcloud_network.private.id
-  firewall_id         = hcloud_firewall.db_ssh.id
-  image_tag           = var.image_tag
-  db_password         = var.db_password
-  db_backup_password  = var.db_backup_password
-  db_app_password     = var.db_app_password
-  db_service_password = var.db_service_password
-  b2_backup           = var.b2_backup
+  project            = var.project
+  location           = var.location
+  server_type        = var.db_server_type
+  ssh_key_id         = hcloud_ssh_key.operator.id
+  network_id         = hcloud_network.private.id
+  firewall_id        = hcloud_firewall.db_ssh.id
+  image_tag          = var.image_tag
+  db_password        = var.db_password
+  db_backup_password = var.db_backup_password
+  db_app_password    = var.db_app_password
+  b2_backup          = var.b2_backup
 }
 
 module "app_node" {

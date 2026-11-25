@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { DatabaseProvider } from '../provider/interface.js';
+import { runWithTenant } from '../../utils/tenant-context.js';
 
 /**
  * First-party product events. The `events` table already exists (migration
@@ -43,9 +44,14 @@ export class EventRepository {
 
   /** Counts by event type. Used by the operator funnel, not by billing. */
   async funnelCounts(): Promise<FunnelCounts> {
-    const rows = await this.db.query<{ type: string; count: number }>(
-      `SELECT type, COUNT(*) AS count FROM events WHERE type IN (?, ?, ?, ?, ?) GROUP BY type`,
-      [...FUNNEL_TYPES],
+    // Funnel events are written under the `public` tenant so the operator can
+    // read them across workspaces. RLS on `events` denies a read without that
+    // context, so the aggregate must run inside it (P1 review, PR #564).
+    const rows = await runWithTenant('public', () =>
+      this.db.query<{ type: string; count: number }>(
+        `SELECT type, COUNT(*) AS count FROM events WHERE type IN (?, ?, ?, ?, ?) GROUP BY type`,
+        [...FUNNEL_TYPES],
+      ),
     );
     const byType = new Map(rows.map((row) => [row.type, Number(row.count)]));
     return {

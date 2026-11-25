@@ -14,6 +14,7 @@ function sub(status: Subscription['status']): Subscription {
     currentPeriodStart: null,
     currentPeriodEnd: null,
     trialEnd: null,
+    pastDueSince: null,
     canceledAt: null,
     createdAt: '2026-07-01T00:00:00.000Z',
     updatedAt: '2026-07-01T00:00:00.000Z',
@@ -40,12 +41,21 @@ describe('effectivePlanFor', () => {
     const now = Date.parse('2026-11-25T12:00:00.000Z');
 
     it('keeps the paid plan for a recent past_due subscription', () => {
-      const failed = { ...sub('past_due'), updatedAt: '2026-11-25T10:00:00.000Z' };
+      const failed = { ...sub('past_due'), pastDueSince: '2026-11-25T10:00:00.000Z' };
       expect(effectivePlanFor(failed, null, now)).toBe('pro');
     });
 
+    it('does not restart the grace when Stripe retries and refreshes updatedAt', () => {
+      const failed = {
+        ...sub('past_due'),
+        pastDueSince: '2026-11-17T10:00:00.000Z',
+        updatedAt: '2026-11-25T11:59:00.000Z',
+      };
+      expect(effectivePlanFor(failed, null, now)).toBe('free');
+    });
+
     it('drops to free once the seven-day grace has elapsed', () => {
-      const failed = { ...sub('past_due'), updatedAt: '2026-11-17T10:00:00.000Z' };
+      const failed = { ...sub('past_due'), pastDueSince: '2026-11-17T10:00:00.000Z' };
       expect(effectivePlanFor(failed, null, now)).toBe('free');
     });
 

@@ -125,11 +125,11 @@ runcmd:
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_app') THEN
         CREATE ROLE dominus_app LOGIN PASSWORD '${db_app_password}';
       END IF;
-      -- Prepared for control-plane RLS (ADR-0112). No policy depends on this
-      -- role yet; it deliberately has no BYPASSRLS and the app role is not a
-      -- member, so it cannot be assumed by a tenant-scoped request.
+      -- Prepared for control-plane RLS (ADR-0112). NOLOGIN keeps the role
+      -- unassumable until the service connection is implemented; no
+      -- BYPASSRLS and no app-role membership.
       IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_service') THEN
-        CREATE ROLE dominus_service LOGIN PASSWORD '${db_service_password}';
+        CREATE ROLE dominus_service NOLOGIN;
       END IF;
     END \$\$;
     SELECT 'CREATE DATABASE dominus OWNER dominus'

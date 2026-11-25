@@ -11,10 +11,24 @@ import {
 import type { EmailVerificationService } from '../../services/email-verification-service.js';
 import { getLogger } from '../../logger.js';
 import { getContractService } from '../../services/contract-service.js';
-import type { EventRepository } from '../../db/repositories/event-repository.js';
+import type { EventRepository, ProductEvent } from '../../db/repositories/event-repository.js';
 import { runWithTenant } from '../../utils/tenant-context.js';
 
 const logger = getLogger();
+
+/**
+ * Product telemetry is best-effort. A failed INSERT must never turn a
+ * successful signup or a consumed verification token into a 500: the token
+ * is single-use, so a retry would find it already burned and the customer
+ * would never see their key (P1 review, PR #564).
+ */
+async function recordFunnelEvent(repo: EventRepository, event: ProductEvent): Promise<void> {
+  try {
+    await repo.record(event);
+  } catch (err) {
+    logger.warn({ err, type: event.type }, 'Funnel event could not be recorded');
+  }
+}
 
 export interface LoginRequest {
   apiKey: string;
@@ -247,7 +261,7 @@ export function createAuthRouter(
           });
           if (eventRepo) {
             await runWithTenant('public', () =>
-              eventRepo.record({
+              recordFunnelEvent(eventRepo, {
                 tenantId: 'public',
                 anonId: tenantId,
                 type: 'signup',
@@ -273,7 +287,7 @@ export function createAuthRouter(
 
         if (eventRepo) {
           await runWithTenant('public', () =>
-            eventRepo.record({
+            recordFunnelEvent(eventRepo, {
               tenantId: 'public',
               anonId: tenantId,
               type: 'signup',
@@ -313,8 +327,14 @@ export function createAuthRouter(
         }
         const verified = await verificationService.verifySignup(parsed.data.token);
         if (eventRepo) {
-          await runWithTenant(verified.tenantId, () =>
-            eventRepo.record({ tenantId: verified.tenantId, type: 'verified' }),
+          // One context for the whole funnel: cloud RLS would otherwise hide
+          // each tenant's row from the operator's aggregate query.
+          await runWithTenant('public', () =>
+            recordFunnelEvent(eventRepo, {
+              tenantId: 'public',
+              anonId: verified.tenantId,
+              type: 'verified',
+            }),
           );
         }
         res.json({

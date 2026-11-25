@@ -16,9 +16,10 @@ real-service defects are fixed before the first staging apply.
 - The PostgreSQL adapter RESETs `app.tenant_id` instead of leaving the string
   `'default'` on a recycled pooled connection. Migration 0070 denies only a
   NULL setting, so the old reset was a cross-tenant read path.
-- `past_due` subscriptions keep paid limits for seven days from the webhook's
-  status update before failing closed, so one failed card does not demote a
-  500-domain workspace to the free tier the same day.
+- `past_due` subscriptions keep paid limits for seven days from a stable
+  `past_due_since` transition timestamp before failing closed, so one failed
+  card does not demote a 500-domain workspace to the free tier the same day
+  and Stripe retries do not restart the grace.
 - The Stripe boundary is typed against the real SDK. It caught a call to
   `customers.createPortalSession` that does not exist in `stripe-node` — the
   customer portal failed at runtime for every user who asked for it — and an

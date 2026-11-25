@@ -25,9 +25,12 @@ export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 /** True while a `past_due` subscription is inside its dunning grace window. */
 export function isWithinDunningGrace(sub: Subscription, now = Date.now()): boolean {
   if (sub.status !== 'past_due') return false;
-  const updated = Date.parse(sub.updatedAt);
-  if (!Number.isFinite(updated)) return false;
-  return now - updated >= 0 && now - updated < PAST_DUE_GRACE_MS;
+  // `updatedAt` is refreshed by every Stripe retry, so it is only a fallback
+  // for rows written before `past_due_since` existed. Counting from it would
+  // restart the grace on each retry and never expire (P1 review, PR #564).
+  const started = Date.parse(sub.pastDueSince ?? sub.updatedAt);
+  if (!Number.isFinite(started)) return false;
+  return now - started >= 0 && now - started < PAST_DUE_GRACE_MS;
 }
 
 /**
