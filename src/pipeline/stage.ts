@@ -4,6 +4,8 @@ export type StageDegradationReason =
   | 'error'
   | 'dns-unvalidated'
   | 'rdap-consensus-unverified'
+  /** The second RDAP leg is disabled: a single-source Available is not trusted. */
+  | 'rdap-independent-confirmation-unavailable'
   | 'commercial-signal-unavailable'
   /** A candidate was held because no trademark source produced a verdict. */
   | 'trademark-source-unavailable';
