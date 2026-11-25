@@ -36,7 +36,7 @@ v1.6.0 (merged in #542, not tagged on its own: released together with
   seat quota and the machine-key quota are separate (ADR-0104); the usage
   meter counts the work and not the reads (ADR-0105); the public front
   door (landing, pricing, signup) replaces the bare login form.
-v1.7.0 (PR #543, unreleased until the tag) - The Trust Boundary of a Paying
+v1.7.0 (PR #543, released 2026-11-24) - The Trust Boundary of a Paying
   Tenant: the email of the owner is
   PROVEN before the workspace carries a key, the proof revokes the keys
   issued before it, and an unverified seat can never be claimed through
