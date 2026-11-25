@@ -116,8 +116,8 @@ Edit `backend.hcl`:
 ```hcl
 bucket = "dominus-tfstate"
 key    = "dominus-staging/terraform.tfstate"
-region = "us-east-005"                          # the B2 region of the bucket
-endpoint = "https://s3.us-east-005.backblazeb2.com"
+region = "eu-central-003"                       # EU region: keep state next to the data
+endpoint = "https://s3.eu-central-003.backblazeb2.com"
 
 skip_credentials_validation = true
 skip_region_validation      = true

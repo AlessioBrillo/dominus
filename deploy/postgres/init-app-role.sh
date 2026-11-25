@@ -42,4 +42,25 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   -- pg_current_wal_lsn() is restricted to the pg_monitor role: the app's
   -- pitr-health job reads WAL lag (ADR-0054), so the app role needs it.
   GRANT pg_monitor TO dominus_app;
+
+  -- Prepared for the control-plane RLS follow-up (ADR-0112). No policies
+  -- depend on this role yet, and it deliberately does NOT have BYPASSRLS:
+  -- a superuser-like escape hatch would defeat FORCE ROW LEVEL SECURITY.
+  -- The app role is NOT a member, so it cannot SET ROLE into it.
+  DO \$\$
+  BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dominus_service') THEN
+      CREATE ROLE dominus_service LOGIN PASSWORD '${DOMINUS_SERVICE_PASSWORD:-${DOMINUS_APP_PASSWORD}}';
+    END IF;
+  END
+  \$\$;
+
+  GRANT CONNECT ON DATABASE "$POSTGRES_DB" TO dominus_service;
+  GRANT USAGE ON SCHEMA public TO dominus_service;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO dominus_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dominus_service;
+  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO dominus_service;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO dominus_service;
 EOSQL

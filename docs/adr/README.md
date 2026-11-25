@@ -117,6 +117,8 @@ re-running the original arguments.
 | [0109](0109-srl-english-only-and-contract-evidence.md)                         | S.r.l. operator, English-only binding text, and first-party contract evidence                        | 2026-11-23 | Accepted                            |
 | [0110](0110-passwordless-browser-sign-in.md)                                   | Passwordless browser sign-in via a verified mailbox                                                  | 2026-11-24 | Accepted                            |
 | [0111](0111-one-inclusive-price.md)                                            | One inclusive price for the hosted plan                                                              | 2026-11-24 | Accepted                            |
+| [0112](0112-the-first-real-customer.md)                                        | The first real customer is the release gate of v1.8.0                                                | 2026-11-25 | Accepted                            |
+| [0113](0113-operator-identity-and-tax-posture.md)                              | Registered sole trader, ordinary VAT, at first launch                                                | 2026-11-25 | Accepted                            |
 
 ## Conventions
 

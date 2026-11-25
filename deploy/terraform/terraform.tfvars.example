@@ -35,13 +35,16 @@ image_tag         = "v1.7.0"   # must name a RELEASED tag; bump per deploy
 # runner is required before the app node can be restricted. The db node
 # can be restricted freely.
 
-db_password       = "REPLACE_WITH_STRONG_DB_PASSWORD"
+db_password         = "REPLACE_WITH_STRONG_DB_PASSWORD"
 # Dedicated password for the backup role (REPLICATION only, used by the
 # daily PITR cron via /opt/dominus/backup.env on the db node — never the
 # owner password, so a single file leak can't escalate).
-db_backup_password = "REPLACE_WITH_STRONG_BACKUP_PASSWORD"
+db_backup_password  = "REPLACE_WITH_STRONG_BACKUP_PASSWORD"
 # App connection role password (RLS-scoped dominus_app, ADR-0038/0047).
-db_app_password   = "REPLACE_WITH_STRONG_APP_PASSWORD"
+db_app_password     = "REPLACE_WITH_STRONG_APP_PASSWORD"
+# Optional distinct password for the prepared dominus_service role. Leave
+# empty at the first apply: no policy uses that role yet (ADR-0112).
+db_service_password = ""
 
 # Alertmanager webhook URL. Replaces the example.com placeholder in the
 # alertmanager.yml rendered onto the app node. SET THIS: example.com resolves
