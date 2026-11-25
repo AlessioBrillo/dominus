@@ -264,6 +264,23 @@ export function AdminPage() {
         subtitle={`Platform overview — period ${data.periodStart} to ${data.periodEnd}`}
       />
 
+      {data.funnel && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Signup funnel</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm font-mono">
+              {data.funnel.signup} → {data.funnel.verified} → {data.funnel.firstScore} →{' '}
+              {data.funnel.portfolioImport} → {data.funnel.checkoutCompleted}
+            </div>
+            <p className="mt-1 text-xs text-text-muted">
+              signup → verified → first score → portfolio → checkout
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader>

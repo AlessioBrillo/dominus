@@ -11,6 +11,8 @@ import {
 import type { EmailVerificationService } from '../../services/email-verification-service.js';
 import { getLogger } from '../../logger.js';
 import { getContractService } from '../../services/contract-service.js';
+import type { EventRepository } from '../../db/repositories/event-repository.js';
+import { runWithTenant } from '../../utils/tenant-context.js';
 
 const logger = getLogger();
 
@@ -80,6 +82,7 @@ export function createAuthRouter(
   signupVerificationMode: SignupVerificationMode = 'required',
   recoveryEnabled = true,
   signupEnabled = true,
+  eventRepo?: EventRepository,
 ): Router {
   const router = Router();
 
@@ -242,6 +245,16 @@ export function createAuthRouter(
             email,
             name: parsed.data.name,
           });
+          if (eventRepo) {
+            await runWithTenant('public', () =>
+              eventRepo.record({
+                tenantId: 'public',
+                anonId: tenantId,
+                type: 'signup',
+                props: { verificationRequired: false },
+              }),
+            );
+          }
           res.status(201).json({
             tenantId,
             key: apiKey.fullKey,
@@ -258,6 +271,16 @@ export function createAuthRouter(
           name: parsed.data.name,
         });
 
+        if (eventRepo) {
+          await runWithTenant('public', () =>
+            eventRepo.record({
+              tenantId: 'public',
+              anonId: tenantId,
+              type: 'signup',
+              props: { verificationRequired: true },
+            }),
+          );
+        }
         res.status(201).json({
           tenantId,
           verificationRequired: true,
@@ -289,6 +312,11 @@ export function createAuthRouter(
           return;
         }
         const verified = await verificationService.verifySignup(parsed.data.token);
+        if (eventRepo) {
+          await runWithTenant(verified.tenantId, () =>
+            eventRepo.record({ tenantId: verified.tenantId, type: 'verified' }),
+          );
+        }
         res.json({
           tenantId: verified.tenantId,
           key: verified.key.fullKey,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { SubscriptionPlan, SubscriptionStatus } from './subscription.js';
 import type { UsageFeature } from './usage.js';
+import type { FunnelCounts } from '../db/repositories/event-repository.js';
 
 export interface AdminOverview {
   periodStart: string;
@@ -11,6 +12,8 @@ export interface AdminOverview {
   paidPlans: number;
   candidatesScoredTotal: number;
   apiCallsTotal: number;
+  /** First-party signup funnel; absent when no event store is configured. */
+  funnel?: FunnelCounts;
 }
 
 export interface AdminTenantUsage {

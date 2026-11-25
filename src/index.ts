@@ -449,6 +449,7 @@ async function main(): Promise<void> {
       config.SIGNUP_EMAIL_VERIFICATION,
       config.AUTH_RECOVERY_ENABLED,
       !config.IS_CLOUD_MODE || config.CLOUD_PAID_ENABLED,
+      deps.eventRepo,
     ),
   );
 
