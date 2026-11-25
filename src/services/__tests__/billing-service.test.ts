@@ -20,7 +20,10 @@ const mockStripeApi = {
 vi.mock('stripe', () => ({
   Stripe: class {
     webhooks = { constructEvent: mockStripeApi.constructEvent };
-    customers = { createPortalSession: mockStripeApi.createPortal };
+    // The real SDK puts the portal under billingPortal.sessions; the old
+    // hand-rolled look-alike had invented customers.createPortalSession.
+    customers = {};
+    billingPortal = { sessions: { create: mockStripeApi.createPortal } };
     checkout = {
       sessions: {
         create: mockStripeApi.createSession,
@@ -144,12 +147,15 @@ describe('BillingService.checkout', () => {
 
     expect(result).toEqual({ url: 'https://checkout.stripe.com/c/pay_1', plan: 'pro' });
     expect(mockStripeApi.createSession).toHaveBeenCalledTimes(1);
-    const call = mockStripeApi.createSession.mock.calls[0]?.[0] as Record<string, unknown>;
+    const args = mockStripeApi.createSession.mock.calls[0] ?? [];
+    const call = args[0] as Record<string, unknown>;
+    const options = args[1] as { idempotencyKey?: string };
     expect(call.line_items).toEqual([{ price: 'price_pro_monthly', quantity: 1 }]);
     expect(call.mode).toBe('subscription');
     expect(call.metadata).toMatchObject({ tenantId: 'tenant-1', plan: 'pro' });
-    expect(typeof call.idempotency_key).toBe('string');
-    expect((call.idempotency_key as string).startsWith('checkout:tenant-1:pro:month:')).toBe(true);
+    // stripe-node takes idempotency as a request option, not a body field.
+    expect(typeof options.idempotencyKey).toBe('string');
+    expect(options.idempotencyKey?.startsWith('checkout:tenant-1:pro:month:')).toBe(true);
   });
 
   it('collects the tax inputs the EU VAT rules need', async () => {

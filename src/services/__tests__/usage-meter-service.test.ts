@@ -27,6 +27,16 @@ describe('UsageMeterService', () => {
   const PERIOD = '2026-07-01';
   const TENANT = 'tenant-1';
 
+  // A recent past_due subscription is inside the v1.8.0 dunning grace and
+  // keeps paid limits. These "fails closed" assertions describe a lapsed
+  // subscription, so they age the row past the grace window.
+  async function agePastDue(): Promise<void> {
+    await db.exec(
+      "UPDATE tenant_subscriptions SET updated_at = '2026-01-01 00:00:00' WHERE tenant_id = ?",
+      [TENANT],
+    );
+  }
+
   describe('record', () => {
     it('records usage within limits', async () => {
       await subRepo.ensureDefault(TENANT);
@@ -81,6 +91,7 @@ describe('UsageMeterService', () => {
 
     it('enforces free limits when the subscription is past_due', async () => {
       await subRepo.upsert({ tenantId: TENANT, plan: 'pro', status: 'past_due' });
+      await agePastDue();
       await service.record(TENANT, 'candidates_scored', 50, PERIOD);
       await expect(service.record(TENANT, 'candidates_scored', 1, PERIOD)).rejects.toThrow(
         /Usage limit exceeded/i,
@@ -234,6 +245,7 @@ describe('UsageMeterService', () => {
 
     it('resolves limits from the effective plan (past_due fails closed)', async () => {
       await subRepo.upsert({ tenantId: TENANT, plan: 'pro', status: 'past_due' });
+      await agePastDue();
       const history = await service.getUsageHistory(TENANT, 1);
 
       expect(history[0]!.plan).toBe('free');
