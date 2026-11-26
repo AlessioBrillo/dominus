@@ -119,6 +119,7 @@ re-running the original arguments.
 | [0111](0111-one-inclusive-price.md)                                            | One inclusive price for the hosted plan                                                              | 2026-11-24 | Accepted                            |
 | [0112](0112-the-first-real-customer.md)                                        | The first real customer is the release gate of v1.8.0                                                | 2026-11-25 | Accepted                            |
 | [0113](0113-operator-identity-and-tax-posture.md)                              | Registered sole trader, ordinary VAT, at first launch                                                | 2026-11-25 | Accepted                            |
+| [0114](0114-mobile-first-pwa-and-capacitor-shell.md)                           | Mobile-first PWA first, Capacitor shell for the stores                                               | 2026-11-26 | Accepted                            |
 
 ## Conventions
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -336,7 +336,65 @@ export function PortfolioPage() {
         </Card>
       ) : (
         <>
-          <div className="rounded-xl border border-border overflow-hidden">
+          {/* Decision-first cards for phones; the sortable table stays on desktop. */}
+          <div className="space-y-3 lg:hidden" data-testid="portfolio-cards">
+            {table.getRowModel().rows.map((row) => {
+              const entry = row.original;
+              const days = entry.renewalDate ? daysUntilRenewal(entry.renewalDate) : null;
+              return (
+                <Card key={entry.domain}>
+                  <CardContent className="py-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-text-primary break-all">
+                          {entry.domain}
+                        </p>
+                        <p className="mt-1 text-xs text-text-muted">
+                          Score{' '}
+                          {entry.currentScore != null ? (entry.currentScore * 100).toFixed(0) : '—'}{' '}
+                          · List{' '}
+                          {entry.suggestedListPrice != null
+                            ? `€${entry.suggestedListPrice.toFixed(0)}`
+                            : '—'}
+                        </p>
+                      </div>
+                      <Badge variant={verdictVariant(entry.verdict)}>{entry.verdict}</Badge>
+                    </div>
+                    {days != null && (
+                      <p className={days <= 60 ? 'text-xs text-danger' : 'text-xs text-text-muted'}>
+                        {days <= 0
+                          ? `Renewal overdue by ${Math.abs(days)} days`
+                          : `Renews in ${days} days`}
+                      </p>
+                    )}
+                    {entry.verdictReason && (
+                      <p className="text-xs text-text-muted">{entry.verdictReason}</p>
+                    )}
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['keep', 'reprice', 'drop'] as const).map((verdict) => (
+                        <Button
+                          key={verdict}
+                          size="sm"
+                          variant="outline"
+                          disabled={updateVerdict.isPending}
+                          onClick={() =>
+                            updateVerdict.mutate({
+                              domain: entry.domain,
+                              input: { verdict },
+                            })
+                          }
+                        >
+                          {verdict.charAt(0).toUpperCase() + verdict.slice(1)}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          <div className="hidden lg:block rounded-xl border border-border overflow-hidden">
             <table className="w-full" data-testid="portfolio-table">
               <thead>
                 {table.getHeaderGroups().map((hg) => (
@@ -358,7 +416,7 @@ export function PortfolioPage() {
               </thead>
               <tbody className="bg-bg-elevated">
                 {table.getRowModel().rows.map((row) => (
-                  <>
+                  <Fragment key={row.id}>
                     <tr
                       key={row.id}
                       className="border-b border-border hover:bg-bg-hover transition-colors"
@@ -416,7 +474,7 @@ export function PortfolioPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
               </tbody>
             </table>

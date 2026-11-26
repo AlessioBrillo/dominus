@@ -57,6 +57,7 @@ function renderLayout(initialPath = '/') {
           <Route path="/" element={<Layout />}>
             <Route index element={<div>Home content</div>} />
             <Route path="invite/:token" element={<div>Invite content</div>} />
+            <Route path="*" element={<div>Other content</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -194,5 +195,30 @@ describe('Layout', () => {
     renderLayout();
     fireEvent.click(screen.getByText('Logout'));
     expect(authState.logout).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the five mobile destinations with distinct labels', () => {
+    renderLayout();
+    const mobileNav = screen.getByRole('navigation', { name: 'Mobile' });
+    for (const label of ['Today', 'Appraise', 'Holdings', 'Alerts', 'More']) {
+      expect(within(mobileNav).getByRole('button', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('opens the all-sections sheet from the mobile header', () => {
+    renderLayout();
+    fireEvent.click(screen.getByRole('button', { name: 'Open all sections' }));
+    const dialog = screen.getByRole('dialog', { name: 'All sections' });
+    expect(within(dialog).getByRole('link', { name: 'Settings' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Sign out')).toBeInTheDocument();
+  });
+
+  it('marks the current mobile destination as active', () => {
+    renderLayout('/portfolio');
+    const mobileNav = screen.getByRole('navigation', { name: 'Mobile' });
+    expect(within(mobileNav).getByRole('button', { name: 'Holdings' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 });

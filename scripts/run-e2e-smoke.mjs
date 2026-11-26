@@ -38,7 +38,14 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
  *   - 04-portfolio: the portfolio table (strict-mode drift, ADR-0083 M5);
  *   - 09-a11y: the WCAG 2.1 AA gate over the main screens.
  */
-const SMOKE_SPECS = ['e2e/01-auth.spec.ts', 'e2e/04-portfolio.spec.ts', 'e2e/09-a11y.spec.ts'];
+const SMOKE_SPECS = [
+  'e2e/01-auth.spec.ts',
+  'e2e/04-portfolio.spec.ts',
+  'e2e/09-a11y.spec.ts',
+  // The mobile shell is now part of the shipped product (ADR-0114); a green
+  // gate must mean it still works on a phone viewport.
+  'e2e/11-mobile.spec.ts',
+];
 
 function fail(message) {
   console.error(`e2e-smoke: FAILED — ${message}`);
@@ -61,9 +68,7 @@ if (!existsSync(join(root, 'dist', 'index.js'))) {
 
 /* 2. Frontend build must exist and must be staged into dist/web. */
 if (!existsSync(join(root, 'frontend', 'dist'))) {
-  fail(
-    'frontend/dist is missing. Run `npm run build:frontend` before the E2E smoke gate.',
-  );
+  fail('frontend/dist is missing. Run `npm run build:frontend` before the E2E smoke gate.');
 }
 try {
   execFileSync(process.execPath, [join(root, 'scripts', 'finalize-dist.mjs')], {

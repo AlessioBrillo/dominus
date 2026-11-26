@@ -33,6 +33,9 @@ const OnboardingPage = lazy(() =>
 const CandidatesPage = lazy(() =>
   import('@/pages/CandidatesPage').then((m) => ({ default: m.CandidatesPage })),
 );
+const AlertsPage = lazy(() =>
+  import('@/pages/AlertsPage').then((m) => ({ default: m.AlertsPage })),
+);
 const RunsPage = lazy(() => import('@/pages/RunsPage').then((m) => ({ default: m.RunsPage })));
 const ScorePage = lazy(() => import('@/pages/ScorePage').then((m) => ({ default: m.ScorePage })));
 const AnalyticsPage = lazy(() =>
@@ -149,6 +152,7 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="buy" element={<BuyPage />} />
                       <Route path="bids" element={<BidsPage />} />
                       <Route path="portfolio" element={<PortfolioPage />} />
+                      <Route path="alerts" element={<AlertsPage />} />
                       <Route path="outcomes" element={<OutcomesPage />} />
                       <Route path="watchlist" element={<WatchlistPage />} />
                       <Route path="backtest" element={<BacktestPage />} />
@@ -207,3 +211,14 @@ createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+// The installable app shell (ADR-0114). Navigation is network-first, so a
+// deployed build is never hidden behind a stale cached page; the cache is a
+// fallback for offline use only. A failed registration must never break the SPA.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => {
+      // Offline support is optional; the app works without it.
+    });
+  });
+}
