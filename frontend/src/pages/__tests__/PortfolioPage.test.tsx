@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 
 vi.mock('@/api/portfolio', () => ({
   fetchPortfolio: vi.fn(),
@@ -56,13 +56,29 @@ describe('PortfolioPage', () => {
     vi.mocked(fetchPortfolio).mockResolvedValueOnce({ portfolio: mockPortfolio });
     render(<PortfolioPage />, { wrapper: createWrapper() });
 
+    // Both the desktop table and the mobile cards render the same domains;
+    // this test is about the table, so scope the assertions to it.
     await waitFor(() => {
-      expect(screen.getByText('keep-domain.com')).toBeInTheDocument();
+      expect(screen.getByTestId('portfolio-table')).toBeInTheDocument();
     });
+    const table = within(screen.getByTestId('portfolio-table'));
 
-    expect(screen.getByText('drop-domain.net')).toBeInTheDocument();
-    expect(screen.getByText('keep')).toBeInTheDocument();
-    expect(screen.getByText('drop')).toBeInTheDocument();
+    expect(table.getByText('keep-domain.com')).toBeInTheDocument();
+    expect(table.getByText('drop-domain.net')).toBeInTheDocument();
+    expect(table.getByText('keep')).toBeInTheDocument();
+    expect(table.getByText('drop')).toBeInTheDocument();
+  });
+
+  it('renders one-decision cards for phones', async () => {
+    vi.mocked(fetchPortfolio).mockResolvedValueOnce({ portfolio: mockPortfolio });
+    render(<PortfolioPage />, { wrapper: createWrapper() });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-cards')).toBeInTheDocument();
+    });
+    const cards = within(screen.getByTestId('portfolio-cards'));
+    expect(cards.getByText('keep-domain.com')).toBeInTheDocument();
+    expect(cards.getAllByRole('button', { name: 'Drop' })).toHaveLength(2);
   });
 
   it('shows empty state', async () => {
