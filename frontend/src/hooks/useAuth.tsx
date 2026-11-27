@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { getStoredApiKey, clearApiKey, setOnUnauthorized } from '@/api/client';
+import { getStoredApiKey, clearApiKey, clearDeviceToken, setOnUnauthorized } from '@/api/client';
 import {
   verifyAndStoreKey,
   getSsoStatus,
@@ -69,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearApiKey();
+    clearDeviceToken();
     void ssoLogout();
     void magicLinkLogout();
     setIsAuthenticated(false);

@@ -19,6 +19,7 @@ export { createMagicLinkRouter } from './routes/magic-link.js';
 export { createOidcRouter } from './routes/oidc.js';
 export { createKeyManagementRouter } from './routes/api-keys.js';
 export { createAlertsRouter } from './routes/alerts.js';
+export { createMobileRouter } from './routes/mobile.js';
 export { createSchedulerRouter } from './routes/scheduler.js';
 export { createWatchlistRouter } from './routes/watchlist.js';
 export { createPurchaseRouter } from './routes/purchase.js';

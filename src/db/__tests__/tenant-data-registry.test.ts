@@ -7,6 +7,7 @@ import {
   RLS_PROTECTED_TABLES,
 } from '../tenant-data-registry.js';
 import { RLS_STRICT_TABLES } from '../migrations/0070_close_the_rls_default.js';
+import { RLS_MOBILE_TABLES } from '../migrations/0077_rls_mobile_tables.js';
 
 /**
  * The registry must describe the real schema.
@@ -102,6 +103,8 @@ describe('tenant data registry', () => {
     // RLS-protected without a policy is a table with no backstop, and a
     // table with a policy but classified as control-plane hides the fact
     // that the database (and not the repository) is the boundary.
-    expect([...RLS_PROTECTED_TABLES].sort()).toEqual([...RLS_STRICT_TABLES].sort());
+    expect([...RLS_PROTECTED_TABLES].sort()).toEqual(
+      [...RLS_STRICT_TABLES, ...RLS_MOBILE_TABLES].sort(),
+    );
   });
 });

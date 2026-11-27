@@ -29,6 +29,8 @@ export interface TenantNotificationServiceDeps {
   mailer?: Mailer | undefined;
   /** The operator's Telegram bot. The tenant only chooses the chat. */
   telegramBotToken?: string | undefined;
+  /** Browser push, when VAPID keys are configured (ADR-0116). */
+  pushNotifier?: Notifier | undefined;
 }
 
 export class TenantNotificationSettingsError extends Error {
@@ -149,9 +151,12 @@ export class TenantNotificationService {
    */
   async sendToTenant(tenantId: string, alert: Notification): Promise<NotifierChannel[]> {
     const settings = await this.#deps.repo.findByTenant(tenantId);
-    if (!settings || !settings.enabled) return [];
+    // Push is opt-in through its own subscription rows. Missing settings must
+    // not silently disable it: a tenant that only subscribed to push still
+    // gets its alerts. An explicit `enabled=false` keeps that meaning.
+    if (settings && !settings.enabled) return [];
 
-    const notifiers = this.#buildNotifiers(settings);
+    const notifiers = this.#buildNotifiers(settings ?? null);
     const used: NotifierChannel[] = [];
     for (const notifier of notifiers) {
       try {
@@ -167,25 +172,32 @@ export class TenantNotificationService {
     return used;
   }
 
-  #buildNotifiers(settings: {
-    email: string | null;
-    webhookUrlEncrypted: string | null;
-    telegramChatId: string | null;
-  }): Notifier[] {
+  #buildNotifiers(
+    settings: {
+      email: string | null;
+      webhookUrlEncrypted: string | null;
+      telegramChatId: string | null;
+    } | null,
+  ): Notifier[] {
     const notifiers: Notifier[] = [];
+    const current = settings ?? { email: null, webhookUrlEncrypted: null, telegramChatId: null };
 
-    if (settings.email && this.#deps.mailer?.configured) {
-      notifiers.push(new EmailNotifier({ mailer: this.#deps.mailer, to: [settings.email] }));
+    // Push subscriptions are the tenant's own opt-ins; there is no extra
+    // setting to turn on. The notifier resolves subscriptions per tenant.
+    if (this.#deps.pushNotifier) notifiers.push(this.#deps.pushNotifier);
+
+    if (current.email && this.#deps.mailer?.configured) {
+      notifiers.push(new EmailNotifier({ mailer: this.#deps.mailer, to: [current.email] }));
     }
 
-    if (settings.webhookUrlEncrypted) {
+    if (current.webhookUrlEncrypted) {
       if (!this.#deps.secretBox) {
         logger.warn(
           'TenantNotificationService: the vault is not configured — the webhook channel is skipped',
         );
       } else {
         try {
-          const url = this.#deps.secretBox.decrypt(settings.webhookUrlEncrypted);
+          const url = this.#deps.secretBox.decrypt(current.webhookUrlEncrypted);
           // No redirects: a public URL that answers 302 to an internal one
           // would bypass the check made when the URL was stored.
           notifiers.push(new WebhookNotifier({ url, followRedirects: false }));
@@ -198,11 +210,11 @@ export class TenantNotificationService {
       }
     }
 
-    if (settings.telegramChatId && this.#deps.telegramBotToken) {
+    if (current.telegramChatId && this.#deps.telegramBotToken) {
       notifiers.push(
         new TelegramNotifier({
           botToken: this.#deps.telegramBotToken,
-          chatId: settings.telegramChatId,
+          chatId: current.telegramChatId,
         }),
       );
     }

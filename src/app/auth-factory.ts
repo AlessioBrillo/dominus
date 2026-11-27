@@ -8,6 +8,8 @@ import { DbApiKeyProvider } from '../providers/auth/db-api-key-provider.js';
 import { Auth0Provider } from '../providers/auth/auth0-provider.js';
 import { Auth0OidcProvider } from '../providers/auth/oidc-provider.js';
 import { CompositeAuthProvider } from '../providers/auth/composite-auth-provider.js';
+import { DeviceTokenProvider } from '../providers/auth/device-token-provider.js';
+import type { MobileDeviceRepository } from '../db/repositories/mobile-device-repository.js';
 import { createSessionJwtMinter } from '../providers/auth/session-jwt.js';
 
 /**
@@ -17,10 +19,24 @@ import { createSessionJwtMinter } from '../providers/auth/session-jwt.js';
  * - 'auth0': browser JWT (Auth0) with API key fallback for the CLI (DOMINUS Cloud)
  * See ADR-0032.
  */
-export function buildAuthProvider(config: Config, apiKeyRepo: ApiKeyRepository): AuthProvider {
+export function buildAuthProvider(
+  config: Config,
+  apiKeyRepo: ApiKeyRepository,
+  deviceRepo?: MobileDeviceRepository,
+): AuthProvider {
+  /**
+   * Device tokens are tried before the configured credential providers
+   * (ADR-0116). They are a distinct, prefixed token space, so the extra
+   * lookup never changes how an API key or a browser JWT is validated.
+   */
+  const withDevices = (base: AuthProvider): AuthProvider =>
+    deviceRepo
+      ? new CompositeAuthProvider([new DeviceTokenProvider(deviceRepo, base.isActive), base])
+      : base;
+
   switch (config.AUTH_PROVIDER) {
     case 'db':
-      return new DbApiKeyProvider(apiKeyRepo);
+      return withDevices(new DbApiKeyProvider(apiKeyRepo));
 
     case 'auth0': {
       if (!config.AUTH0_DOMAIN || !config.AUTH0_AUDIENCE) {
@@ -33,12 +49,14 @@ export function buildAuthProvider(config: Config, apiKeyRepo: ApiKeyRepository):
         audience: config.AUTH0_AUDIENCE,
         ...(config.AUTH0_JWKS_URI ? { jwksUri: config.AUTH0_JWKS_URI } : {}),
       });
-      return new CompositeAuthProvider([auth0Provider, new DbApiKeyProvider(apiKeyRepo)]);
+      return withDevices(
+        new CompositeAuthProvider([auth0Provider, new DbApiKeyProvider(apiKeyRepo)]),
+      );
     }
 
     case 'env':
     default:
-      return new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS);
+      return withDevices(new EnvApiKeyProvider(config.API_KEYS, config.FILE_API_KEYS));
   }
 }
 

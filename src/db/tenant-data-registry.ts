@@ -65,6 +65,12 @@ export const TENANT_SCOPED_TABLES: readonly TenantTable[] = [
   { table: 'trademark_results', isolation: 'rls' },
   { table: 'outcome_scores', isolation: 'rls' },
   { table: 'renewal_alerts', isolation: 'rls' },
+  // The device session is the parent of a push subscription; delete the
+  // subscription first even though the link is not a database foreign key.
+  { table: 'push_subscriptions', isolation: 'rls' },
+  // A device token is read before a tenant context exists (the token is what
+  // establishes the tenant), so the boundary is the repository, like api_keys.
+  { table: 'mobile_device_sessions', isolation: 'control-plane' },
   { table: 'listing_offers', isolation: 'rls' },
   { table: 'auto_listings', isolation: 'rls' },
   { table: 'pipeline_metrics', isolation: 'rls' },

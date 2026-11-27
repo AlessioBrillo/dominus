@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   Bot,
   Bell,
+  User,
   X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -80,6 +81,7 @@ const mobileNavItems = [
   { to: '/score', label: 'Appraise', icon: Search },
   { to: '/portfolio', label: 'Holdings', icon: Briefcase },
   { to: '/alerts', label: 'Alerts', icon: Bell },
+  { to: '/account', label: 'Account', icon: User },
 ] as const;
 
 export function Layout() {
@@ -259,15 +261,6 @@ export function Layout() {
                 </button>
               );
             })}
-            <button
-              type="button"
-              onClick={() => setMoreOpen(true)}
-              aria-label="More"
-              className="flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-lg text-[10px] text-text-muted transition-colors hover:text-text-primary hover:bg-bg-hover"
-            >
-              <Menu className="h-5 w-5 shrink-0" />
-              <span>More</span>
-            </button>
           </div>
         </nav>
       </div>

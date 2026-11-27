@@ -74,6 +74,11 @@ export interface AuthMiddlewareOptions {
     sub: string;
     tenantId?: string | undefined;
   }) => Promise<{ role?: string | undefined } | null>;
+  /** Live seat check for device credentials (ADR-0107, ADR-0116). */
+  validateCredential?: (claims: {
+    sub: string;
+    tenantId?: string | undefined;
+  }) => Promise<{ role?: string | undefined } | null>;
 }
 
 export function parseOperatorSubjects(raw: string | undefined): ReadonlySet<string> {
@@ -252,6 +257,24 @@ export function createAuthMiddleware(
       return;
     }
 
+    // A device token outlives the session that minted it. Re-check the live
+    // team seat exactly like a cookie session: a removed or demoted member
+    // loses access on the next request (ADR-0107, ADR-0116).
+    let effectiveRole = result.role;
+    if (result.authMethod === 'device' && options.validateCredential && result.userId) {
+      const live = await options.validateCredential({
+        sub: result.userId,
+        tenantId: result.tenantId,
+      });
+      if (live === null) {
+        res.status(401).json({
+          error: { code: 'UNAUTHORIZED', message: 'Device seat is no longer valid' },
+        });
+        return;
+      }
+      effectiveRole = live.role ?? effectiveRole;
+    }
+
     // Reset failure count on successful auth
     await resetAuthRateLimit(db, clientIp);
 
@@ -259,7 +282,7 @@ export function createAuthMiddleware(
     req.auth = {
       userId: result.userId,
       tenantId: result.tenantId,
-      role: resolveRole(result.role, result, options.operatorSubjects),
+      role: resolveRole(effectiveRole, result, options.operatorSubjects),
       keyName: result.keyName,
       keyId: result.keyId,
     };

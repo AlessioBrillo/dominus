@@ -56,6 +56,7 @@ import {
   createOidcRouter,
   createKeyManagementRouter,
   createAlertsRouter,
+  createMobileRouter,
   createSchedulerRouter,
   createWatchlistRouter,
   createPurchaseRouter,
@@ -267,6 +268,7 @@ async function main(): Promise<void> {
     // A session outlives seat changes (8h): re-check the seat on every request so a
     // removed or demoted member loses access immediately, not at JWT expiry.
     validateSession: (claims) => deps.identityResolver.validateSession(claims),
+    validateCredential: (claims) => deps.identityResolver.validateSession(claims),
     // Browser sessions via the SSO or magic-link cookie. Both mint the same
     // JWT (ADR-0062); the verifier is wired whenever either flow is enabled.
     ...(deps.oidcDeps || config.MAGIC_LINK_ENABLED ? { sessionVerifier: deps.sessionJwt } : {}),
@@ -613,6 +615,23 @@ async function main(): Promise<void> {
   protectedRouter.use(
     '/alerts',
     createAlertsRouter({ alertRepo: deps.alertRepo, alertEngine: deps.alertEngine }),
+  );
+  // Mobile decision inbox, per-device credentials and push opt-ins (ADR-0116).
+  protectedRouter.use(
+    '/mobile',
+    createMobileRouter({
+      deviceRepo: deps.mobileDeviceRepo,
+      pushRepo: deps.pushSubscriptionRepo,
+      alertRepo: deps.alertRepo,
+      portfolioRepo: deps.portfolioRepo,
+      watchlistRepo: deps.watchlistRepo,
+      // The bundled sample CSV is synthetic: it is not market evidence.
+      marketDataAvailable:
+        (config.COMPS_PROVIDER === 'namebio' && config.NAMEBIO_API_KEY !== undefined) ||
+        (config.COMPS_PROVIDER === 'manual' &&
+          resolve(config.COMPS_DATA_PATH) !== resolve('./examples/comps-sample.csv')),
+      ...(config.VAPID_PUBLIC_KEY ? { vapidPublicKey: config.VAPID_PUBLIC_KEY } : {}),
+    }),
   );
   if (deps.scheduler) {
     // The scheduler drives the work of every tenant: it is an operator

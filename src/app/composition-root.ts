@@ -23,6 +23,8 @@ import {
   MetricsRepository,
   JobQueueRepository,
   PublicScoreRepository,
+  MobileDeviceRepository,
+  PushSubscriptionRepository,
 } from '../db/index.js';
 import type { KeywordProvider } from '../providers/keyword/index.js';
 import type { CompsProvider } from '../providers/comps/index.js';
@@ -48,7 +50,7 @@ import {
   PnlService,
 } from '../portfolio/index.js';
 import { PortfolioRescoreService } from '../portfolio/portfolio-rescore-service.js';
-import { buildNotifiers } from '../notifiers/index.js';
+import { buildNotifiers, WebPushNotifier } from '../notifiers/index.js';
 import type { Notifier } from '../notifiers/notifier.js';
 import { SchedulerService, BackupService, PitrHealthService } from '../scheduler/index.js';
 import { WatchlistService } from '../watchlist/watchlist-service.js';
@@ -206,6 +208,10 @@ export interface DominusDependencies {
   outcomeRepo: OutcomeRepository;
   portfolioRepo: PortfolioRepository;
   alertRepo: RenewalAlertRepository;
+  /** Control-plane device credentials (ADR-0116). */
+  mobileDeviceRepo: MobileDeviceRepository;
+  /** Tenant-scoped push subscriptions (ADR-0116). */
+  pushSubscriptionRepo: PushSubscriptionRepository;
   pipelineRunsRepo: PipelineRunsRepository;
   providerCacheRepo: ProviderCacheRepository;
   jobQueueRepo: JobQueueRepository;
@@ -218,6 +224,7 @@ export interface DominusDependencies {
   usageService: UsageMeterService;
   usageEnforcer: PipelineUsageEnforcer;
   adminService: AdminService;
+  watchlistRepo: WatchlistRepository;
   adminRepo: AdminRepository;
   /** First-party product events for the operator funnel (ADR-0112). */
   eventRepo: EventRepository;
@@ -312,6 +319,10 @@ interface BuiltRepositories {
   outcomeRepo: OutcomeRepository;
   portfolioRepo: PortfolioRepository;
   alertRepo: RenewalAlertRepository;
+  /** Control-plane device credentials (ADR-0116). */
+  mobileDeviceRepo: MobileDeviceRepository;
+  /** Tenant-scoped push subscriptions (ADR-0116). */
+  pushSubscriptionRepo: PushSubscriptionRepository;
   pipelineRunsRepo: PipelineRunsRepository;
   metricsRepo: MetricsRepository;
   jobQueueRepo: JobQueueRepository;
@@ -799,11 +810,19 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const readRepos = buildReadRepositories(readProvider);
   const writeRepos = buildWriteRepositories(writeProvider);
   const mainRepos = buildMainRepositories(provider);
+  // Mobile credentials and push subscriptions (ADR-0116). The device repo is
+  // control-plane because it authenticates before a tenant context exists;
+  // the push repo is tenant-scoped and RLS-protected on PostgreSQL.
+  const mobileDeviceRepo = new MobileDeviceRepository(provider);
+  const pushSubscriptionRepo = new PushSubscriptionRepository(provider);
+
   const repos: BuiltRepositories = {
     provider,
     ...readRepos,
     ...writeRepos,
     ...mainRepos,
+    mobileDeviceRepo,
+    pushSubscriptionRepo,
   };
 
   // --- Credential Vault (ADR-0085) ---
@@ -817,7 +836,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // --- Auth Provider ---
   // Selected via AUTH_PROVIDER (env/db/auth0) — see ADR-0032.
-  const authProvider = buildAuthProvider(config, repos.apiKeyRepo);
+  const authProvider = buildAuthProvider(config, repos.apiKeyRepo, repos.mobileDeviceRepo);
 
   // Interactive SSO login flow (OIDC PKCE, ADR-0062). Undefined unless auth0
   // mode is fully configured with client credentials — the /oidc endpoints
@@ -908,6 +927,17 @@ export async function createDependencies(config: Config): Promise<DominusDepende
 
   // The per-tenant services are built here so that the routes, the worker
   // and the scheduler all share the same instances (and the same tables).
+  // Web push is opt-in by configuration: both VAPID keys must be present.
+  // Without them the push channel is absent, not a broken subscription API.
+  const pushNotifier =
+    config.VAPID_PUBLIC_KEY && config.VAPID_PRIVATE_KEY
+      ? new WebPushNotifier(repos.pushSubscriptionRepo, {
+          publicKey: config.VAPID_PUBLIC_KEY,
+          privateKey: config.VAPID_PRIVATE_KEY,
+          subject: config.VAPID_SUBJECT,
+        })
+      : undefined;
+
   const tenantNotificationService = new TenantNotificationService({
     repo: repos.tenantNotificationSettingsRepo,
     secretBox: config.VAULT_ENCRYPTION_KEY
@@ -915,6 +945,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
       : undefined,
     mailer,
     telegramBotToken: config.NOTIFIER_TELEGRAM_BOT_TOKEN,
+    pushNotifier,
   });
 
   // Email verification of the self-serve signup (ADR-0107): no API key is
@@ -1585,6 +1616,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const notifiers = buildNotifiers(
     config,
     isMultiTenantAuth(config) ? tenantNotificationService : undefined,
+    pushNotifier,
   );
   const alertEngine = new RenewalAlertEngine(
     repos.portfolioRepo,

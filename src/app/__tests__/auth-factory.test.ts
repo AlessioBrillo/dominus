@@ -13,6 +13,7 @@ import { CompositeAuthProvider } from '../../providers/auth/composite-auth-provi
 import { Auth0OidcProvider } from '../../providers/auth/oidc-provider.js';
 import type { Config } from '../../config.js';
 import type { ApiKeyRepository } from '../../db/repositories/api-key-repository.js';
+import type { MobileDeviceRepository } from '../../db/repositories/mobile-device-repository.js';
 
 function baseConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -32,6 +33,23 @@ describe('buildAuthProvider', () => {
   it('defaults to EnvApiKeyProvider', () => {
     const provider = buildAuthProvider(baseConfig(), stubRepo);
     expect(provider).toBeInstanceOf(EnvApiKeyProvider);
+  });
+
+  it('keeps open mode open when device tokens are available but no key is configured', () => {
+    // DeviceTokenProvider must mirror the base provider: otherwise the
+    // exposed-server boot guard never fires and a fresh install locks out.
+    const provider = buildAuthProvider(baseConfig(), stubRepo, {} as MobileDeviceRepository);
+    expect(provider.isActive).toBe(false);
+  });
+
+  it('activates device tokens when the base provider is active', () => {
+    const provider = buildAuthProvider(
+      baseConfig({ API_KEYS: 'admin=test-key-000000000000000000000000000000' }),
+      stubRepo,
+      {} as MobileDeviceRepository,
+    );
+    expect(provider).toBeInstanceOf(CompositeAuthProvider);
+    expect(provider.isActive).toBe(true);
   });
 
   it('builds DbApiKeyProvider for AUTH_PROVIDER=db', () => {

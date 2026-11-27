@@ -9,6 +9,8 @@ export interface AuthResult {
   email?: string | undefined;
   tenantId?: string | undefined;
   role?: string | undefined;
+  /** Which credential proved the identity; device tokens get a live seat check. */
+  authMethod?: 'device' | 'key' | 'session';
 }
 
 export interface AuthProvider {

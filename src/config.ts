@@ -1355,6 +1355,17 @@ const configSchema = z
     NOTIFIER_EMAIL_TO: z.string().optional(),
 
     /**
+     * VAPID keys for Web Push (ADR-0116). Both are required to enable the
+     * browser push channel; when either is absent the subscription routes
+     * 404 and no push is attempted. Generate a pair with
+     * `npx web-push generate-vapid-keys` and keep the private key secret.
+     */
+    VAPID_PUBLIC_KEY: z.string().optional(),
+    VAPID_PRIVATE_KEY: z.string().optional(),
+    /** The `mailto:` subject presented to push services. */
+    VAPID_SUBJECT: z.string().default('mailto:hello@dominus.app'),
+
+    /**
      * Create a tenant (free plan, user as admin) the first time an OIDC user
      * with no team seat signs in. Opt-in: anyone who can authenticate with the
      * identity provider would otherwise get their own tenant, which a private

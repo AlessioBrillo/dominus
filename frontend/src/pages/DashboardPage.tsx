@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, RefreshCw } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Play, RefreshCw, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
+import { fetchToday } from '@/api/mobile';
 import { useDashboardStats } from '@/hooks/useDashboard';
 import { useRunPipeline } from '@/hooks/useCandidates';
 import { useAcknowledgeAlert, useAcknowledgeAllAlerts } from '@/hooks/useAlerts';
@@ -21,6 +23,10 @@ export function DashboardPage() {
   const ackAll = useAcknowledgeAllAlerts();
   const [runId, setRunId] = useState<string | null>(null);
   const [_onboardingCheckDone, setOnboardingCheckDone] = useState(false);
+  const today = useQuery({
+    queryKey: ['mobile', 'today'],
+    queryFn: ({ signal }) => fetchToday(signal),
+  });
 
   useEffect(() => {
     getOnboardingState()
@@ -126,6 +132,49 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* ADR-0114/0115: the phone's first screen is a decision inbox, not a
+          system dashboard. The evidence note keeps the estimate honest. */}
+      <Card data-testid="today-inbox">
+        <CardHeader className="flex flex-row items-center justify-between gap-2">
+          <CardTitle>Today</CardTitle>
+          <span className="text-[11px] uppercase tracking-wide text-text-muted">
+            {today.data?.summary.activeAlerts ?? 0} need a decision
+          </span>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {today.isLoading && <Skeleton className="h-12 w-full" />}
+          {today.error && (
+            <p className="text-sm text-text-muted" role="status">
+              Your decisions could not be loaded. Retry in a moment.
+            </p>
+          )}
+          {today.data?.decisions.length === 0 && (
+            <p className="text-sm text-text-muted">
+              Nothing needs a decision right now. Appraise a domain to get started.
+            </p>
+          )}
+          {today.data?.decisions.slice(0, 5).map((decision) => (
+            <button
+              key={decision.id}
+              type="button"
+              onClick={() => navigate(decision.href)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm transition-colors hover:bg-bg-hover"
+            >
+              <span className="min-w-0">
+                <span className="block font-medium text-text-primary">{decision.domain}</span>
+                <span className="block truncate text-xs text-text-muted">{decision.title}</span>
+              </span>
+              <ArrowRight className="h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
+            </button>
+          ))}
+          {today.data && (
+            <p className="pt-1 text-[11px] text-text-muted" role="note">
+              {today.data.evidence.note}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-text-primary">Dashboard</h2>

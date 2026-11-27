@@ -9,6 +9,7 @@ license terms (in particular Apache-2.0 section 4(d) and LGPL-3.0).
 
 | Package | License | Note |
 |---------|---------|------|
+| @block65/webcrypto-web-push | MIT |  |
 | better-sqlite3 | MIT |  |
 | commander | MIT |  |
 | cors | MIT |  |

@@ -6,6 +6,7 @@ import { LoginForm } from '@/components/LoginForm';
 import { WaitlistForm } from '@/components/WaitlistForm';
 import { useLegalContent } from '@/hooks/useLegalContent';
 import { ShieldCheck, Gauge, Briefcase, ArrowRight, ExternalLink, Clock } from 'lucide-react';
+import { IS_STORE_BUILD } from '@/api/client';
 
 /**
  * The public front door.
@@ -135,7 +136,8 @@ function vatExplainer(regime: VatRegime): string {
 export function LandingPage() {
   const { data: legal } = useLegalContent();
   const status = legal?.status;
-  const isPaid = status === 'cloud_paid';
+  // A store build never shows a price or a purchase path (ADR-0114).
+  const isPaid = status === 'cloud_paid' && !IS_STORE_BUILD;
   const isWaitlist = status === 'cloud_waitlist';
   const waitlistHref = legal?.waitlistUrl ?? REPOSITORY_URL;
   const waitlistLabel = legal?.waitlistUrl ? 'Join the waitlist' : 'Follow the project';
@@ -205,6 +207,15 @@ export function LandingPage() {
                   </span>
                 ) : isWaitlist && firstPartyWaitlist ? (
                   <WaitlistForm />
+                ) : IS_STORE_BUILD ? (
+                  <a
+                    href={REPOSITORY_URL}
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Self-host the community edition
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </a>
                 ) : isWaitlist ? (
                   <a
                     href={waitlistHref}
@@ -250,7 +261,7 @@ export function LandingPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <LoginForm embedded signupHref={isWaitlist ? null : '/signup'} />
+                <LoginForm embedded signupHref={IS_STORE_BUILD || isWaitlist ? null : '/signup'} />
               </CardContent>
             </Card>
           </div>

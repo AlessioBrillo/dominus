@@ -111,6 +111,10 @@ export const SECRET_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   api_keys: ['key_hash'],
   team_invitations: ['token_hash'],
   tenant_credentials: ['encrypted_credential'],
+  // A data-subject copy must not hand back a usable device credential or
+  // the encryption material of a push subscription (ADR-0116).
+  mobile_device_sessions: ['token_hash'],
+  push_subscriptions: ['p256dh', 'auth'],
 };
 
 export class TenantDataService {

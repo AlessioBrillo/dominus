@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { IS_STORE_BUILD } from '@/api/client';
 import { ThemeProvider } from '@/hooks/useTheme';
 import { AuthProvider } from '@/hooks/useAuth';
 import { Layout } from '@/components/Layout';
@@ -35,6 +36,9 @@ const CandidatesPage = lazy(() =>
 );
 const AlertsPage = lazy(() =>
   import('@/pages/AlertsPage').then((m) => ({ default: m.AlertsPage })),
+);
+const AccountPage = lazy(() =>
+  import('@/pages/AccountPage').then((m) => ({ default: m.AccountPage })),
 );
 const RunsPage = lazy(() => import('@/pages/RunsPage').then((m) => ({ default: m.RunsPage })));
 const ScorePage = lazy(() => import('@/pages/ScorePage').then((m) => ({ default: m.ScorePage })));
@@ -153,6 +157,7 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="bids" element={<BidsPage />} />
                       <Route path="portfolio" element={<PortfolioPage />} />
                       <Route path="alerts" element={<AlertsPage />} />
+                      <Route path="account" element={<AccountPage />} />
                       <Route path="outcomes" element={<OutcomesPage />} />
                       <Route path="watchlist" element={<WatchlistPage />} />
                       <Route path="backtest" element={<BacktestPage />} />
@@ -162,7 +167,12 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="credentials" element={<TenantCredentialsPage />} />
                       <Route path="registrar" element={<RegistrarCatalogPage />} />
                       <Route path="providers" element={<ProvidersPage />} />
-                      <Route path="billing" element={<BillingPage />} />
+                      <Route
+                        path="billing"
+                        element={
+                          IS_STORE_BUILD ? <Navigate to="/account" replace /> : <BillingPage />
+                        }
+                      />
                       <Route path="team" element={<TeamPage />} />
                       <Route path="invite/:token" element={<InvitePage />} />
                       <Route path="usage" element={<UsagePage />} />
@@ -170,7 +180,10 @@ createRoot(document.getElementById('root')!).render(
                       <Route path="settings" element={<SettingsPage />} />
                       <Route path="*" element={<NotFoundPage />} />
                     </Route>
-                    <Route path="signup" element={<SignupPage />} />
+                    <Route
+                      path="signup"
+                      element={IS_STORE_BUILD ? <Navigate to="/" replace /> : <SignupPage />}
+                    />
                     {/* The signup verification and the key recovery: the
                         links of the emails land here, outside the
                         authenticated shell. */}
