@@ -91,8 +91,23 @@ export function setOnUnauthorized(handler: () => void): void {
  * server root as `/public/*`, not under the authenticated `/api/v1` prefix.
  */
 export function resolveUrl(path: string): string {
-  if (path.startsWith('/public/')) return path;
+  const absolute = /^https?:\/\//.test(BASE_URL);
+  if (path.startsWith('/public/')) {
+    // In a bundled Capacitor app the webview origin is not the API origin.
+    // Legal documents and share links live under /public/*, so they need the
+    // same absolute base as authenticated calls (ADR-0030, ADR-0114).
+    return absolute ? `${BASE_URL}${path}` : path;
+  }
   return path.startsWith('/') ? `${BASE_URL}${path}` : `${BASE_URL}/${path}`;
+}
+
+/** Only the session-scoped API key is safe to put in an EventSource URL. */
+export function getStoredSessionApiKey(): string | null {
+  try {
+    return sessionStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -114,6 +129,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (res.status === 401) {
     clearApiKey();
+    // A revoked device token must not leave the UI "signed in" with every
+    // request failing (ADR-0116).
+    clearDeviceToken();
     onUnauthorized?.();
     throw new ApiError(res.status, 'UNAUTHORIZED', 'Authentication required');
   }

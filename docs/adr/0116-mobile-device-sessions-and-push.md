@@ -30,20 +30,27 @@ can be revoked per device, and does not leak into logs.
    server stores only a SHA-256 hash of a high-entropy token and returns the
    token once. The token is a Bearer credential accepted by the same auth
    middleware as an API key; it is tenant-scoped and revocable per device.
-2. The mobile client stores the token in a platform secure store when one is
-   available (Capacitor secure storage / Keychain / Keystore) and falls back
-   to `localStorage` in the plain PWA, with an explicit "this browser" label.
+2. The mobile client stores the token in a platform secure store when a
+   verified plugin is installed and falls back to `localStorage`. The
+   adapter detects the plugin at runtime; no unverified plugin is pinned.
    `sessionStorage` stays the storage for API keys in the desktop SPA.
-3. Push subscriptions are tenant-scoped rows keyed by the device session. A
-   subscription carries a platform (`web` or `android`/`ios`), an endpoint,
-   the VAPID/FCM/APNs token and per-topic preferences (renewal, watchlist,
-   verdict). Invalid subscriptions are deleted on delivery failure.
+3. Push subscriptions are tenant-scoped rows keyed by the device session.
+   **This increment implements browser push only** (`platform='web'`,
+   VAPID). Native FCM/APNs delivery is a follow-up: it needs vendor
+   credentials and a project on the operator's account, neither of which
+   exists yet. A subscription carries the endpoint, its encryption keys,
+   the owning device session and per-topic preferences (renewal, watchlist,
+   verdict). Endpoints that fail are put in a one-hour cooldown, not silenced
+   forever; endpoints rejected as gone (404/410) are deleted.
 4. The service worker handles `push` and `notificationclick`; a notification
    opens the exact decision (`/alerts`, `/portfolio`, `/score/...`) instead of
    the app root.
-5. Device tokens and push subscriptions are tenant data: they are covered by
-   RLS, included in the export registry, deleted on erasure, and never used
-   by the operator to reach a customer (ADR-0107).
+5. Device tokens and push subscriptions are tenant data: they are included in
+   the export registry, deleted on erasure, and never used by the operator to
+   reach a customer (ADR-0107). `push_subscriptions` is RLS-protected;
+   `mobile_device_sessions` is control-plane like `api_keys` because it is
+   read before a tenant context exists. Both hide their secret columns in
+   the data-subject export.
 
 ## Considered alternatives
 

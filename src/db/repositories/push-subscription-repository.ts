@@ -79,9 +79,10 @@ export class PushSubscriptionRepository {
     return rows.map(toView);
   }
 
+  /** All live subscriptions; delivery cooldown is decided by the notifier. */
   async findForTenant(tenantId: string): Promise<PushSubscriptionRow[]> {
     return this.db.query<PushSubscriptionRow>(
-      'SELECT * FROM push_subscriptions WHERE tenant_id = ? AND last_failure_at IS NULL',
+      'SELECT * FROM push_subscriptions WHERE tenant_id = ?',
       [tenantId],
     );
   }
@@ -98,6 +99,13 @@ export class PushSubscriptionRepository {
     await this.db.exec(
       'UPDATE push_subscriptions SET last_failure_at = ? WHERE id = ? AND tenant_id = ?',
       [new Date().toISOString(), id, tenantId],
+    );
+  }
+
+  async markSuccess(id: number, tenantId: string): Promise<void> {
+    await this.db.exec(
+      'UPDATE push_subscriptions SET last_failure_at = NULL WHERE id = ? AND tenant_id = ?',
+      [id, tenantId],
     );
   }
 

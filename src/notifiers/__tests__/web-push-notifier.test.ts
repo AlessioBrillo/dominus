@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('web-push', () => ({
-  default: { sendNotification: vi.fn().mockResolvedValue(undefined) },
+vi.mock('@block65/webcrypto-web-push', () => ({
+  buildPushPayload: vi.fn().mockResolvedValue({
+    method: 'POST',
+    headers: {},
+    body: new Uint8Array(),
+  }),
 }));
 
-import webpush from 'web-push';
+import { buildPushPayload } from '@block65/webcrypto-web-push';
 import { WebPushNotifier } from '../web-push-notifier.js';
 import type { PushSubscriptionRepository } from '../../db/repositories/push-subscription-repository.js';
 import type { PushSubscriptionRow } from '../../db/repositories/push-subscription-repository.js';
@@ -33,16 +37,24 @@ describe('WebPushNotifier', () => {
   const findForTenant = vi.fn();
   const remove = vi.fn();
   const markFailure = vi.fn();
-  const repo = { findForTenant, remove, markFailure } as unknown as PushSubscriptionRepository;
+  const markSuccess = vi.fn();
+  const repo = {
+    findForTenant,
+    remove,
+    markFailure,
+    markSuccess,
+  } as unknown as PushSubscriptionRepository;
   const notifier = new WebPushNotifier(repo, {
     publicKey: 'public',
     privateKey: 'private',
     subject: 'mailto:ops@example.com',
   });
+  const fetchMock = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(webpush.sendNotification).mockResolvedValue({ statusCode: 201 } as never);
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue({ ok: true, status: 201 });
   });
 
   const alert: Notification = {
@@ -60,15 +72,14 @@ describe('WebPushNotifier', () => {
 
     await runWithTenant('tenant-a', () => notifier.send(alert));
 
-    expect(webpush.sendNotification).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(webpush.sendNotification).mock.calls[0]?.[0]).toMatchObject({
-      endpoint: 'https://push.example.net/1',
-    });
+    expect(buildPushPayload).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://push.example.net/1');
   });
 
   it('removes a subscription the push service says is gone', async () => {
     findForTenant.mockResolvedValue([row(3, { renewal: true, watchlist: true, verdict: true })]);
-    vi.mocked(webpush.sendNotification).mockRejectedValue({ statusCode: 410 });
+    fetchMock.mockResolvedValue({ ok: false, status: 410 });
 
     await runWithTenant('tenant-a', () => notifier.send(alert));
 

@@ -12,6 +12,7 @@ import {
   DEVICE_TOKEN_PREFIX,
   hashDeviceToken,
 } from '../../providers/auth/device-token-provider.js';
+import { isPubliclyRoutableHost } from '../../utils/public-host.js';
 import { getRouteParam } from '../route-utils.js';
 import { validate } from '../middleware/validate.js';
 
@@ -20,8 +21,12 @@ const deviceSchema = z.object({
 });
 
 const subscriptionSchema = z.object({
-  platform: z.enum(['web', 'android', 'ios']),
+  // Browser push only in this increment. Native FCM/APNs delivery needs
+  // vendor credentials and is a follow-up (ADR-0116, mobile-release.md).
+  platform: z.literal('web'),
   endpoint: z.string().url().max(2000),
+  /** Optional raw device token, used to bind the subscription for revocation. */
+  deviceToken: z.string().min(1).max(200).optional(),
   p256dh: z.string().max(512).optional(),
   auth: z.string().max(512).optional(),
   // A literal `datetime()` here would trip the SQL portability scanner.
@@ -151,6 +156,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
           tenantId,
           label: (req.body as z.infer<typeof deviceSchema>).label,
           tokenHash: hashDeviceToken(token),
+          ...(req.auth?.userId ? { userId: req.auth.userId } : {}),
         });
         res.status(201).json({ device, token });
       } catch (err) {
@@ -215,7 +221,7 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
           return;
         }
         const body = req.body as z.infer<typeof subscriptionSchema>;
-        if (body.platform === 'web' && (!body.p256dh || !body.auth)) {
+        if (!body.p256dh || !body.auth) {
           res.status(400).json({
             error: {
               code: 'INVALID_SUBSCRIPTION',
@@ -224,9 +230,46 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
           });
           return;
         }
+
+        // The server POSTs to this endpoint on every matching alert. A
+        // tenant-controlled URL must not be able to reach loopback, private
+        // or link-local services (SSRF); the webhook channel applies the
+        // same rule (ADR-0107).
+        const endpoint = new URL(body.endpoint);
+        if (
+          endpoint.protocol !== 'https:' ||
+          endpoint.username !== '' ||
+          endpoint.password !== '' ||
+          !isPubliclyRoutableHost(endpoint.hostname)
+        ) {
+          res.status(400).json({
+            error: {
+              code: 'INVALID_ENDPOINT',
+              message: 'The push endpoint must be an https URL on a public host',
+            },
+          });
+          return;
+        }
+
+        const tenantId = req.tenantId ?? 'default';
+        let deviceSessionId: number | undefined;
+        if (body.deviceToken) {
+          const device = await deps.deviceRepo.findActiveByTokenHash(
+            hashDeviceToken(body.deviceToken),
+          );
+          if (!device || device.tenant_id !== tenantId) {
+            res.status(403).json({
+              error: { code: 'FORBIDDEN', message: 'The device does not belong to this workspace' },
+            });
+            return;
+          }
+          deviceSessionId = device.id;
+        }
+
         const subscription = await deps.pushRepo.upsert({
           platform: body.platform,
           endpoint: body.endpoint,
+          ...(deviceSessionId !== undefined ? { deviceSessionId } : {}),
           ...(body.p256dh ? { p256dh: body.p256dh } : {}),
           ...(body.auth ? { auth: body.auth } : {}),
           ...(body.expiresAt ? { expiresAt: body.expiresAt } : {}),

@@ -1616,6 +1616,7 @@ export async function createDependencies(config: Config): Promise<DominusDepende
   const notifiers = buildNotifiers(
     config,
     isMultiTenantAuth(config) ? tenantNotificationService : undefined,
+    pushNotifier,
   );
   const alertEngine = new RenewalAlertEngine(
     repos.portfolioRepo,

@@ -22,10 +22,14 @@ export class DeviceTokenProvider implements AuthProvider {
   readonly name = 'DeviceTokenProvider';
   readonly supportsKeyManagement = false;
 
-  constructor(private readonly repo: MobileDeviceRepository) {}
+  constructor(
+    private readonly repo: MobileDeviceRepository,
+    /** Mirrors the configured provider: open mode must stay open (ADR-0032). */
+    private readonly active: boolean = true,
+  ) {}
 
   get isActive(): boolean {
-    return true;
+    return this.active;
   }
 
   asKeyManager(): KeyManager | undefined {
@@ -48,6 +52,8 @@ export class DeviceTokenProvider implements AuthProvider {
       // admin one: it can appraise, track and acknowledge its own tenant's
       // data, but it cannot manage keys, seats or other tenants.
       role: 'member',
+      userId: row.user_id ?? undefined,
+      authMethod: 'device',
     };
   }
 }

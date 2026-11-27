@@ -125,6 +125,9 @@ describe('mobile router', () => {
     expect(await provider.validate(`${DEVICE_TOKEN_PREFIX}wrong`)).toEqual({
       authenticated: false,
     });
+    const revoked = await request(app).delete(`/api/v1/mobile/devices/${created.body.device.id}`);
+    expect(revoked.status).toBe(200);
+    expect(await provider.validate(created.body.token)).toEqual({ authenticated: false });
   });
 
   it('refuses a push subscription without VAPID keys', async () => {
@@ -163,5 +166,41 @@ describe('mobile router', () => {
     expect(current.body.enabled).toBe(true);
     expect(current.body.vapidPublicKey).toBe('test-vapid-public-key');
     expect(current.body.subscriptions).toHaveLength(1);
+  });
+
+  it('refuses a push endpoint on a private host (SSRF)', async () => {
+    const { app } = await createApp();
+    const res = await request(app)
+      .put('/api/v1/mobile/push')
+      .send({
+        platform: 'web',
+        endpoint: 'http://127.0.0.1:8080/secret',
+        p256dh: 'p',
+        auth: 'a',
+        topics: { renewal: true, watchlist: true, verdict: true },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_ENDPOINT');
+  });
+
+  it('binds a subscription to its device so revocation can remove it', async () => {
+    const { app, pushRepo } = await createApp();
+    const device = await request(app).post('/api/v1/mobile/devices').send({ label: 'Phone' });
+    const stored = await request(app)
+      .put('/api/v1/mobile/push')
+      .send({
+        platform: 'web',
+        endpoint: 'https://push.example.net/s/3',
+        p256dh: 'p',
+        auth: 'a',
+        deviceToken: device.body.token,
+        topics: { renewal: true, watchlist: true, verdict: true },
+      });
+    expect(stored.status).toBe(200);
+    const rows = await pushRepo.findForTenant('default');
+    expect(rows[0]?.device_session_id).toBe(device.body.device.id);
+
+    await request(app).delete(`/api/v1/mobile/devices/${device.body.device.id}`);
+    expect(await pushRepo.findForTenant('default')).toHaveLength(0);
   });
 });

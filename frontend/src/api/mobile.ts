@@ -36,7 +36,7 @@ export interface DeviceView {
 
 export interface PushSubscriptionView {
   id: number;
-  platform: 'web' | 'android' | 'ios' | string;
+  platform: 'web';
   topics: { renewal: boolean; watchlist: boolean; verdict: boolean };
   createdAt: string;
 }
@@ -62,10 +62,11 @@ export const revokeDevice = (id: number): Promise<{ revoked: boolean }> =>
 export const fetchPushStatus = (): Promise<PushStatus> => api.get<PushStatus>('/mobile/push');
 
 export const subscribePush = (input: {
-  platform: 'web' | 'android' | 'ios';
+  platform: 'web';
   endpoint: string;
   p256dh?: string;
   auth?: string;
+  deviceToken?: string;
   topics: { renewal: boolean; watchlist: boolean; verdict: boolean };
 }): Promise<{ subscription: PushSubscriptionView }> =>
   api.put<{ subscription: PushSubscriptionView }>('/mobile/push', input);

@@ -268,6 +268,7 @@ async function main(): Promise<void> {
     // A session outlives seat changes (8h): re-check the seat on every request so a
     // removed or demoted member loses access immediately, not at JWT expiry.
     validateSession: (claims) => deps.identityResolver.validateSession(claims),
+    validateCredential: (claims) => deps.identityResolver.validateSession(claims),
     // Browser sessions via the SSO or magic-link cookie. Both mint the same
     // JWT (ADR-0062); the verifier is wired whenever either flow is enabled.
     ...(deps.oidcDeps || config.MAGIC_LINK_ENABLED ? { sessionVerifier: deps.sessionJwt } : {}),
@@ -628,7 +629,7 @@ async function main(): Promise<void> {
       marketDataAvailable:
         (config.COMPS_PROVIDER === 'namebio' && config.NAMEBIO_API_KEY !== undefined) ||
         (config.COMPS_PROVIDER === 'manual' &&
-          config.COMPS_DATA_PATH !== './examples/comps-sample.csv'),
+          resolve(config.COMPS_DATA_PATH) !== resolve('./examples/comps-sample.csv')),
       ...(config.VAPID_PUBLIC_KEY ? { vapidPublicKey: config.VAPID_PUBLIC_KEY } : {}),
     }),
   );

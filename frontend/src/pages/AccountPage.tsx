@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, Link2, LogOut, Smartphone } from 'lucide-react';
+import { Bell, Link2, LogOut, Smartphone, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createDevice,
@@ -10,8 +10,9 @@ import {
   listDevices,
   revokeDevice,
   subscribePush,
+  unsubscribePush,
 } from '@/api/mobile';
-import { IS_STORE_BUILD, storeDeviceToken } from '@/api/client';
+import { IS_STORE_BUILD, getStoredDeviceToken, storeDeviceToken } from '@/api/client';
 import { useAuth } from '@/hooks/useAuth';
 import { DataRightsCard } from '@/components/DataRightsCard';
 import { PageHeader } from '@/components/PageHeader';
@@ -35,6 +36,7 @@ export function AccountPage() {
   const { logout } = useAuth();
   const queryClient = useQueryClient();
   const [created, setCreated] = useState(false);
+  const [topics, setTopics] = useState({ renewal: true, watchlist: true, verdict: true });
 
   const devices = useQuery({ queryKey: ['mobile', 'devices'], queryFn: listDevices });
   const push = useQuery({ queryKey: ['mobile', 'push'], queryFn: fetchPushStatus });
@@ -80,7 +82,8 @@ export function AccountPage() {
         endpoint: json.endpoint,
         p256dh: json.keys.p256dh,
         auth: json.keys.auth,
-        topics: { renewal: true, watchlist: true, verdict: true },
+        ...(getStoredDeviceToken() ? { deviceToken: getStoredDeviceToken()! } : {}),
+        topics,
       });
     },
     onSuccess: () => {
@@ -88,6 +91,14 @@ export function AccountPage() {
       toast.success('Renewal alerts will reach this device');
     },
     onError: (err: Error) => toast.error(err.message),
+  });
+
+  const unsubscribe = useMutation({
+    mutationFn: (id: number) => unsubscribePush(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['mobile', 'push'] });
+      toast.success('Notifications turned off');
+    },
   });
 
   return (
@@ -158,15 +169,48 @@ export function AccountPage() {
             </p>
           )}
           {push.data?.enabled === true && push.data.subscriptions.length === 0 && (
-            <Button onClick={() => enablePush.mutate()} disabled={enablePush.isPending}>
-              Enable notifications
-            </Button>
+            <>
+              <fieldset className="flex flex-wrap gap-4 text-sm">
+                <legend className="sr-only">Alert topics</legend>
+                {(['renewal', 'watchlist', 'verdict'] as const).map((topic) => (
+                  <label key={topic} className="flex items-center gap-2 capitalize">
+                    <input
+                      type="checkbox"
+                      checked={topics[topic]}
+                      onChange={(event) =>
+                        setTopics((current) => ({ ...current, [topic]: event.target.checked }))
+                      }
+                    />
+                    {topic}
+                  </label>
+                ))}
+              </fieldset>
+              <Button onClick={() => enablePush.mutate()} disabled={enablePush.isPending}>
+                Enable notifications
+              </Button>
+            </>
           )}
-          {push.data?.subscriptions.length ? (
-            <p className="text-sm text-success" role="status">
-              Notifications are on for this browser.
-            </p>
-          ) : null}
+          {push.data?.subscriptions.map((subscription) => (
+            <div
+              key={subscription.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm"
+            >
+              <span className="text-success" role="status">
+                On ·{' '}
+                {Object.keys(subscription.topics)
+                  .filter((k) => subscription.topics[k as keyof typeof subscription.topics])
+                  .join(', ') || 'no topics'}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => unsubscribe.mutate(subscription.id)}
+                disabled={unsubscribe.isPending}
+              >
+                <Trash2 className="h-3.5 w-3.5 mr-1" /> Turn off
+              </Button>
+            </div>
+          ))}
         </CardContent>
       </Card>
 

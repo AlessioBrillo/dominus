@@ -6,6 +6,8 @@ export interface MobileDeviceRow {
   tenant_id: string;
   label: string;
   token_hash: string;
+  /** The user who minted the token, when the caller had one (seat check). */
+  user_id: string | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -32,11 +34,12 @@ export class MobileDeviceRepository {
     tenantId: string;
     label: string;
     tokenHash: string;
+    userId?: string;
   }): Promise<MobileDeviceView> {
     const row = await this.db.queryOne<MobileDeviceRow>(
-      `INSERT INTO mobile_device_sessions (tenant_id, label, token_hash)
-       VALUES (?, ?, ?) RETURNING *`,
-      [input.tenantId, input.label, input.tokenHash],
+      `INSERT INTO mobile_device_sessions (tenant_id, label, token_hash, user_id)
+       VALUES (?, ?, ?, ?) RETURNING *`,
+      [input.tenantId, input.label, input.tokenHash, input.userId ?? null],
     );
     return toView(row!);
   }

@@ -207,6 +207,15 @@ export function LandingPage() {
                   </span>
                 ) : isWaitlist && firstPartyWaitlist ? (
                   <WaitlistForm />
+                ) : IS_STORE_BUILD ? (
+                  <a
+                    href={REPOSITORY_URL}
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Self-host the community edition
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </a>
                 ) : isWaitlist ? (
                   <a
                     href={waitlistHref}
@@ -252,7 +261,7 @@ export function LandingPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <LoginForm embedded signupHref={isWaitlist ? null : '/signup'} />
+                <LoginForm embedded signupHref={IS_STORE_BUILD || isWaitlist ? null : '/signup'} />
               </CardContent>
             </Card>
           </div>

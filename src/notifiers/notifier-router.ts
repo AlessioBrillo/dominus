@@ -123,9 +123,13 @@ export class TenantScopedNotifier implements MultiChannelNotifier {
 export function buildNotifiers(
   config: Config,
   tenantService?: TenantNotificationService,
+  pushNotifier?: Notifier,
 ): Notifier[] {
   const consoleNotifier = new ConsoleNotifier();
   const operatorChannels = buildOperatorChannels(config);
+  // The community edition has no tenant service. Its single workspace still
+  // deserves push alerts when VAPID keys are configured.
+  if (pushNotifier) operatorChannels.push(pushNotifier);
 
   if (!tenantService) {
     return [consoleNotifier, ...operatorChannels];

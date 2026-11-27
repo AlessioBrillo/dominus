@@ -30,7 +30,9 @@ export function buildAuthProvider(
    * lookup never changes how an API key or a browser JWT is validated.
    */
   const withDevices = (base: AuthProvider): AuthProvider =>
-    deviceRepo ? new CompositeAuthProvider([new DeviceTokenProvider(deviceRepo), base]) : base;
+    deviceRepo
+      ? new CompositeAuthProvider([new DeviceTokenProvider(deviceRepo, base.isActive), base])
+      : base;
 
   switch (config.AUTH_PROVIDER) {
     case 'db':

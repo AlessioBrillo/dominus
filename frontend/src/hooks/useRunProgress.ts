@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useState, useRef } from 'react';
-import { getStoredApiKey } from '@/api/client';
+import { getStoredSessionApiKey } from '@/api/client';
 
 export interface StageInfo {
   name: string;
@@ -38,7 +38,7 @@ export function useRunProgress(runId: string | null): RunProgressState {
     // EventSource cannot set custom headers, so we pass the API key via
     // the `token` query parameter. The auth middleware reads this as a
     // fallback when no Authorization header is present.
-    const apiKey = getStoredApiKey();
+    const apiKey = getStoredSessionApiKey();
     const tokenParam = apiKey ? `?token=${encodeURIComponent(apiKey)}` : '';
     const es = new EventSource(`/api/v1/runs/${runId}/stream${tokenParam}`);
     eventSourceRef.current = es;
