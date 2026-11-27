@@ -119,7 +119,7 @@ The OpenAPI document is served by the running application and is the
 canonical reference:
 
 ```bash
-curl http://localhost:3000/api/v1/docs.json | jq .
+curl http://localhost:3000/api/v1/docs/docs.json | jq .
 ```
 
 or open `http://localhost:3000/api/v1/docs` for Swagger UI. The contract is

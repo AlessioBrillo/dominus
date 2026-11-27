@@ -1362,8 +1362,12 @@ const configSchema = z
      */
     VAPID_PUBLIC_KEY: z.string().optional(),
     VAPID_PRIVATE_KEY: z.string().optional(),
-    /** The `mailto:` subject presented to push services. */
-    VAPID_SUBJECT: z.string().default('mailto:hello@dominus.app'),
+    /**
+     * The `mailto:` subject presented to push services. Deployments MUST set
+     * this to a `mailto:` address on the operator's real domain; the default
+     * is deliberately non-public and is for local development only.
+     */
+    VAPID_SUBJECT: z.string().default('mailto:hello@localhost'),
 
     /**
      * Create a tenant (free plan, user as admin) the first time an OIDC user
