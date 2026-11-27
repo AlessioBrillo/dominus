@@ -10,6 +10,7 @@ import type { DatabaseProvider } from '../../../db/provider/interface.js';
 import type { ScoringEngine } from '../../../scoring/scoring-engine.js';
 import type { PortfolioManager } from '../../../portfolio/portfolio-manager.js';
 import type { TrademarkGate } from '../../../trademark/trademark-gate.js';
+import type { EventRepository } from '../../../db/repositories/event-repository.js';
 
 function makeScoreResult(
   overrides: Partial<Record<string, unknown>> = {},
@@ -76,6 +77,7 @@ function buildApp(
     engine?: ScoringEngine;
     trademarkGate?: TrademarkGate | undefined;
     portfolioManager?: PortfolioManager;
+    eventRepo?: { recordOnce: ReturnType<typeof vi.fn> };
   } = {},
 ): Application {
   const app = express();
@@ -87,6 +89,7 @@ function buildApp(
       overrides.engine ?? makeEngine(),
       overrides.trademarkGate === undefined ? undefined : overrides.trademarkGate,
       overrides.portfolioManager ?? makePortfolioManager(),
+      overrides.eventRepo as unknown as EventRepository | undefined,
     ),
   );
   app.use(errorHandler);
@@ -132,6 +135,22 @@ describe('API: /api/v1/onboarding', () => {
       ]);
     });
 
+    it('records the first_score activation milestone', async () => {
+      const eventRepo = { recordOnce: vi.fn().mockResolvedValue(true) };
+      await request(buildApp({ eventRepo })).post('/api/v1/onboarding/sample-run');
+      expect(eventRepo.recordOnce).toHaveBeenCalledWith({
+        tenantId: 'default',
+        type: 'first_score',
+        props: { source: 'sample' },
+      });
+    });
+
+    it('does not fail the step when funnel telemetry is unavailable', async () => {
+      const eventRepo = { recordOnce: vi.fn().mockRejectedValue(new Error('events down')) };
+      const res = await request(buildApp({ eventRepo })).post('/api/v1/onboarding/sample-run');
+      expect(res.status).toBe(200);
+    });
+
     it('propagates scoring failures to the error handler', async () => {
       const engine = makeEngine();
       (engine.score as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('engine exploded'));
@@ -165,6 +184,18 @@ describe('API: /api/v1/onboarding', () => {
       expect(res.body.summary.drop).toBe(0);
       expect(res.body.verdicts[0].trademarkClear).toBe(true);
       expect(res.body.verdicts[0].suggestedBuyMax).toBe(350);
+    });
+
+    it('records the portfolio_import activation milestone', async () => {
+      const eventRepo = { recordOnce: vi.fn().mockResolvedValue(true) };
+      await request(buildApp({ eventRepo }))
+        .post('/api/v1/onboarding/portfolio/import')
+        .send(validPayload);
+      expect(eventRepo.recordOnce).toHaveBeenCalledWith({
+        tenantId: 'default',
+        type: 'portfolio_import',
+        props: { imported: 1 },
+      });
     });
 
     it('returns 400 for an invalid payload', async () => {

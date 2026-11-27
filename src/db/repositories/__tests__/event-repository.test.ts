@@ -26,6 +26,21 @@ describe('EventRepository', () => {
     expect(rows[0]).toMatchObject({ type: 'signup', anon_id: 'anon-1' });
   });
 
+  it('records a milestone once per tenant', async () => {
+    expect(
+      await repo.recordOnce({ tenantId: 't1', type: 'first_score', props: { domain: 'a.com' } }),
+    ).toBe(true);
+    expect(
+      await repo.recordOnce({ tenantId: 't1', type: 'first_score', props: { domain: 'b.com' } }),
+    ).toBe(false);
+    expect(
+      await repo.recordOnce({ tenantId: 't2', type: 'first_score', props: { domain: 'c.com' } }),
+    ).toBe(true);
+
+    const counts = await repo.funnelCounts();
+    expect(counts.firstScore).toBe(2);
+  });
+
   it('counts the funnel without counting unrelated events', async () => {
     await repo.record({ tenantId: 't1', type: 'signup' });
     await repo.record({ tenantId: 't1', type: 'verified' });

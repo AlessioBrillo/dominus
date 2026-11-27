@@ -8,8 +8,28 @@ import { GateVerdict, type TrademarkGate } from '../../trademark/trademark-gate.
 import type { PortfolioManager } from '../../portfolio/portfolio-manager.js';
 import { parseDomain, isValidDomain } from '../../utils/domain.js';
 import { getLogger } from '../../logger.js';
+import type { EventRepository } from '../../db/repositories/event-repository.js';
 
 const logger = getLogger();
+
+/**
+ * Activation milestones feed the operator funnel (ADR-0117). Telemetry is
+ * best-effort: a failed INSERT must never turn a successful wizard step into
+ * a 500 for the customer.
+ */
+async function recordMilestone(
+  repo: EventRepository | undefined,
+  tenantId: string,
+  type: 'first_score' | 'portfolio_import',
+  props: Record<string, unknown>,
+): Promise<void> {
+  if (!repo) return;
+  try {
+    await repo.recordOnce({ tenantId, type, props });
+  } catch (err) {
+    logger.warn({ err, type }, 'Funnel milestone could not be recorded');
+  }
+}
 
 const SAMPLE_DOMAINS = [
   {
@@ -58,6 +78,7 @@ export function createOnboardingRouter(
   engine: ScoringEngine,
   trademarkGate: TrademarkGate | undefined,
   portfolioManager: PortfolioManager,
+  eventRepo?: EventRepository,
 ): Router {
   const router = Router();
 
@@ -100,6 +121,7 @@ export function createOnboardingRouter(
           'sample_run_viewed',
           JSON.stringify({ sampleCount: SAMPLE_DOMAINS.length }),
         ]);
+        await recordMilestone(eventRepo, tid, 'first_score', { source: 'sample' });
 
         res.json({ results, sampleCount: SAMPLE_DOMAINS.length });
       } catch (err: unknown) {
@@ -215,6 +237,9 @@ export function createOnboardingRouter(
           'portfolio_imported',
           JSON.stringify({ imported: domains.length, errors: errors.length }),
         ]);
+        await recordMilestone(eventRepo, req.tenantId ?? 'default', 'portfolio_import', {
+          imported: domains.length,
+        });
 
         res.status(201).json({
           imported: verdicts.length,
