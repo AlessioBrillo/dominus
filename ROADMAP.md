@@ -55,6 +55,14 @@ v1.8.0 (planned) - The Contract With The Real World: the defects that only
   a WAL archive that archives); the breach procedure.
 Next: v1.8.0, then the first staging apply, the third-party audit, the
 fiscal position, and only then the paid Cloud tiers.
+In the tree after v1.8.0 (not tagged yet): the **mobile Phase A activation
+increment** — a mandatory three-step onboarding wizard (score → import →
+alerts), the ADR-0115 evidence contract on every phone decision surface,
+first-score/import funnel milestones that the operator overview can actually
+count, a dedicated mobile Playwright project with WCAG scans, and the
+zero-precondition [PWA operations runbook](docs/releases/pwa-launch-operations.md).
+It prepares the activation gate of ADR-0117; it does not open the stores or the
+paid tiers.
 This roadmap outlines the planned releases and their scope. Timelines are
 estimates and subject to change.
 

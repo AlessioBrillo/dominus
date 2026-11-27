@@ -38,3 +38,36 @@ test.describe('README screenshots', () => {
     });
   }
 });
+
+test.describe('README mobile screenshots', () => {
+  test.skip(!process.env.CAPTURE_SCREENSHOTS, 'set CAPTURE_SCREENSHOTS=1 to regenerate');
+
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test.beforeEach(async ({ page, request }) => {
+    await page.addInitScript(() => localStorage.setItem('dominus_theme', 'dark'));
+    await login(page);
+    await request.patch('/api/v1/onboarding/state', {
+      headers: { Authorization: `Bearer ${E2E_API_KEY}` },
+      data: { currentStep: 'complete' },
+    });
+  });
+
+  test('mobile-today', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('today-inbox').waitFor();
+    await page.waitForLoadState('networkidle');
+    await page.screenshot({ path: `${OUT}/mobile-today.png` });
+  });
+
+  test('mobile-portfolio', async ({ page }) => {
+    await page.goto('/portfolio');
+    await page.getByTestId('portfolio-cards').waitFor();
+    await page.waitForLoadState('networkidle');
+    await page.screenshot({ path: `${OUT}/mobile-portfolio.png` });
+  });
+});

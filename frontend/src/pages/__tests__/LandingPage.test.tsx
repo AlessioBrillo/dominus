@@ -62,9 +62,7 @@ beforeEach(() => {
 describe('LandingPage', () => {
   it('says what the product does', () => {
     renderLanding();
-    expect(
-      screen.getByText(/A domain is worth what the evidence says it is worth/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Buy or pass with evidence, not a guessed price/)).toBeInTheDocument();
   });
 
   it('names the five checks of the pipeline', () => {
