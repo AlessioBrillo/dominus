@@ -352,7 +352,7 @@ export function PortfolioPage() {
                         <p className="mt-1 text-xs text-text-muted">
                           Score{' '}
                           {entry.currentScore != null ? (entry.currentScore * 100).toFixed(0) : '—'}{' '}
-                          · List{' '}
+                          · List (estimate){' '}
                           {entry.suggestedListPrice != null
                             ? `€${entry.suggestedListPrice.toFixed(0)}`
                             : '—'}
@@ -370,6 +370,9 @@ export function PortfolioPage() {
                     {entry.verdictReason && (
                       <p className="text-xs text-text-muted">{entry.verdictReason}</p>
                     )}
+                    <p className="text-[11px] text-text-muted" role="note">
+                      Estimates, not appraisals. Verify before you spend.
+                    </p>
                     <div className="grid grid-cols-3 gap-2">
                       {(['keep', 'reprice', 'drop'] as const).map((verdict) => (
                         <Button
