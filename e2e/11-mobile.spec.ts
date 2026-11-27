@@ -14,7 +14,7 @@ test.describe('mobile shell', () => {
     await login(page);
     const nav = page.getByRole('navigation', { name: 'Mobile' });
     await expect(nav).toBeVisible();
-    for (const name of ['Today', 'Appraise', 'Holdings', 'Alerts', 'More']) {
+    for (const name of ['Today', 'Appraise', 'Holdings', 'Alerts', 'Account']) {
       await expect(nav.getByRole('button', { name })).toBeVisible();
     }
   });

@@ -12,7 +12,11 @@
     "lint": "eslint src/ --ext .ts,.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "mobile:build": "node scripts/mobile-build.mjs",
+    "mobile:sync": "npx cap sync",
+    "mobile:android": "npx cap open android",
+    "mobile:ios": "npx cap open ios"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.2.1",
@@ -30,13 +34,21 @@
     "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "react-is": "^19.3.1",
     "react-router-dom": "^7.18.3",
     "recharts": "^3.10.1",
-    "react-is": "^19.3.1",
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.6.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.3",
+    "@capacitor/core": "^8.6.3",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.6.3",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/share": "^8.0.3",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/dom": "^10.4.2",

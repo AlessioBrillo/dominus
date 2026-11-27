@@ -78,6 +78,14 @@ export { PostAcquisitionRepository } from './repositories/post-acquisition-repos
 export { AutomationAuditRepository } from './repositories/automation-audit-repository.js';
 export { TenantAutomationSettingsRepository } from './repositories/tenant-automation-settings-repository.js';
 export { MonetizationRevenueRepository } from './repositories/monetization-revenue-repository.js';
+export { MobileDeviceRepository } from './repositories/mobile-device-repository.js';
+export type { MobileDeviceView, MobileDeviceRow } from './repositories/mobile-device-repository.js';
+export { PushSubscriptionRepository } from './repositories/push-subscription-repository.js';
+export type {
+  PushSubscriptionView,
+  PushSubscriptionRow,
+  UpsertPushSubscriptionInput,
+} from './repositories/push-subscription-repository.js';
 export { TenantListingSettingsRepository } from './repositories/tenant-listing-settings-repository.js';
 export { DomainSiteRepository } from './repositories/domain-site-repository.js';
 export { SubscriptionRepository } from './repositories/subscription-repository.js';

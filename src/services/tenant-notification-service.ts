@@ -29,6 +29,8 @@ export interface TenantNotificationServiceDeps {
   mailer?: Mailer | undefined;
   /** The operator's Telegram bot. The tenant only chooses the chat. */
   telegramBotToken?: string | undefined;
+  /** Browser push, when VAPID keys are configured (ADR-0116). */
+  pushNotifier?: Notifier | undefined;
 }
 
 export class TenantNotificationSettingsError extends Error {
@@ -173,6 +175,10 @@ export class TenantNotificationService {
     telegramChatId: string | null;
   }): Notifier[] {
     const notifiers: Notifier[] = [];
+
+    // Push subscriptions are the tenant's own opt-ins; there is no extra
+    // setting to turn on. The notifier resolves subscriptions per tenant.
+    if (this.#deps.pushNotifier) notifiers.push(this.#deps.pushNotifier);
 
     if (settings.email && this.#deps.mailer?.configured) {
       notifiers.push(new EmailNotifier({ mailer: this.#deps.mailer, to: [settings.email] }));

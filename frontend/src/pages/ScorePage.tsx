@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useState } from 'react';
-import { Search, AlertTriangle } from 'lucide-react';
+import { Search, AlertTriangle, Share2 } from 'lucide-react';
 import { scoreDomain } from '@/api/score';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { PageHeader } from '@/components/PageHeader';
@@ -93,7 +93,7 @@ export function ScorePage() {
             <div className="lg:col-span-2 grid grid-cols-2 gap-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Expected Value</CardTitle>
+                  <CardTitle>Expected Value (estimate)</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold font-mono text-accent">
@@ -136,6 +136,48 @@ export function ScorePage() {
               </Card>
             </div>
           </div>
+
+          <Card data-testid="evidence-card">
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle>Evidence for this estimate</CardTitle>
+              {typeof navigator !== 'undefined' && 'share' in navigator && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigator
+                      .share({
+                        title: `DOMINUS — ${result.domain}`,
+                        text: `Buy max €${result.score.suggestedBuyMax.toFixed(0)} · trademark ${result.trademark?.verdict ?? 'unverified'}. Estimate, not an appraisal.`,
+                        url: `${window.location.origin}/public/domain/${encodeURIComponent(result.domain)}`,
+                      })
+                      .catch(() => undefined);
+                  }}
+                >
+                  <Share2 className="h-3.5 w-3.5 mr-1" /> Share
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-sm text-text-muted" role="note">
+                Estimate, not an appraisal or investment advice. Verify before you spend.
+              </p>
+              <ul className="flex flex-wrap gap-2">
+                {(result.score.signalStatus ?? []).map((signal) => (
+                  <li
+                    key={signal.name}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      signal.available
+                        ? 'border-success/40 text-success'
+                        : 'border-border text-text-muted'
+                    }`}
+                  >
+                    {signal.name}: {signal.available ? 'available' : 'not available'}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

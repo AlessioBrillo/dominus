@@ -30,6 +30,45 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/*
+ * Web push (ADR-0116). The payload is sent by WebPushNotifier and always
+ * carries a decision route: a tap opens that screen, never the app root.
+ */
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+  const title = payload.title || 'DOMINUS — a decision needs you';
+  const url = typeof payload.url === 'string' && payload.url.startsWith('/') ? payload.url : '/alerts';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || 'Open DOMINUS to review it.',
+      icon: '/icon-192.png',
+      badge: '/icon-192.png',
+      tag: `dominus-${payload.domain || 'alert'}`,
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/alerts';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ('focus' in client) {
+          return client.focus().then(() => client.navigate(url));
+        }
+      }
+      return self.clients.openWindow(url);
+    }),
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;

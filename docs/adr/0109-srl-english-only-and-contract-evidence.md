@@ -1,10 +1,14 @@
 # ADR-0109: S.r.l. operator, English-only binding text, and first-party contract evidence
 
+> **Note (2026-11-27):** the operator form decided here is superseded by
+> ADR-0118 (registered sole trader). The English-only language decision and
+> the first-party contract-evidence decision remain in force.
+
 ## Metadata
 
 | Field          | Value                                                                   |
 | -------------- | ----------------------------------------------------------------------- |
-| **Status**     | Accepted                                                                |
+| **Status**     | Partially superseded by ADR-0118 (operator form only)                   |
 | **Date**       | 2026-11-23                                                              |
 | **Authors**    | Alessio Brillo                                                          |
 | **Deciders**   | Alessio Brillo                                                          |

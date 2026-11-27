@@ -27,6 +27,7 @@ license terms (in particular Apache-2.0 section 4(d) and LGPL-3.0).
 | sharp | Apache-2.0 | Optional: image processing. **Bundles libvips (LGPL-3.0-or-later) as a native binary.** The LGPL component is dynamically linked and may be replaced by rebuilding sharp; full license text: https://www.gnu.org/licenses/lgpl-3.0.html |
 | stripe | MIT |  |
 | undici | MIT |  |
+| web-push | MPL-2.0 |  |
 | zod | MIT |  |
 
 ## Runtime dependencies (frontend)

@@ -200,7 +200,7 @@ describe('Layout', () => {
   it('renders the five mobile destinations with distinct labels', () => {
     renderLayout();
     const mobileNav = screen.getByRole('navigation', { name: 'Mobile' });
-    for (const label of ['Today', 'Appraise', 'Holdings', 'Alerts', 'More']) {
+    for (const label of ['Today', 'Appraise', 'Holdings', 'Alerts', 'Account']) {
       expect(within(mobileNav).getByRole('button', { name: label })).toBeInTheDocument();
     }
   });

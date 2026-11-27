@@ -13,6 +13,7 @@ import {
   assertSchemaCompatible,
   readAppliedMigrations,
 } from '../migration-manifest.js';
+import { getMigrations } from '../migrations/registry.js';
 
 function openFreshDb(): SqliteProvider {
   return new SqliteProvider(new Database(':memory:'));
@@ -87,7 +88,15 @@ describe('Migration Rollback', () => {
   it('prevents rollback of non-last migration (must rollback in reverse order)', async () => {
     runMigrations(provider.rawDb);
     const manifest = getMigrationManifest();
-    const middleMigration = manifest[Math.floor(manifest.length / 2)]!;
+    // Pick any non-last migration that actually has a down() function: the
+    // assertion is about rollback order, not about a migration that is
+    // explicitly backwardCompatible (which has a different failure message).
+    const reversible = new Set(
+      getMigrations()
+        .filter((migration) => typeof migration.down === 'function')
+        .map((migration) => migration.name),
+    );
+    const middleMigration = manifest.slice(0, -1).find((name) => reversible.has(name))!;
 
     // Attempting to rollback a non-last migration should fail
     await expect(rollbackMigration(provider, middleMigration)).rejects.toThrow(

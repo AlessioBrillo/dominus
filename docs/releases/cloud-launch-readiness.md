@@ -195,7 +195,7 @@ rule is art. 7 of D.Lgs. 70/2003, not the German Impressum.
 | Legal notice (art. 7 D.Lgs. 70/2003) | published at `/legal-notice`; the operator identity is configuration, never a placeholder, and paid mode refuses to boot while it is incomplete                        |
 | Terms of Service                     | published at `/terms`; withdrawal (art. 52/59 Consumer Code) and reverse charge included                                                                                 |
 | Privacy Notice                       | published at `/privacy`; sub-processors, transfers and retention included                                                                                                |
-| DPA / AVV (GDPR art. 28)             | generated at `/public/dpa` from the configured S.r.l. identity and the published sub-processor list; 404 while the identity is incomplete; lawyer review still open      |
+| DPA / AVV (GDPR art. 28)             | generated at `/public/dpa` from the configured operator identity and the published sub-processor list; 404 while the identity is incomplete; lawyer review still open       |
 | Contract acceptance ledger           | `contract_acceptances` stores signup, checkout and art. 1341 c.c. acceptances with document version and content hash                                                      |
 | Cookie/consent notice                | folded into the privacy notice: no third-party analytics, no tracking cookies, so no consent is required                                                                 |
 
@@ -214,12 +214,12 @@ names the variables to set instead of printing a fictitious identity.
 `npm run launch:check --paid` refuses to declare a deployment launchable while
 they are missing, and paid mode refuses to boot (ADR-0108).
 
-**Launch assumption:** the operator will be an Italian S.r.l.
-(`LEGAL_ENTITY_KIND=company`, `LEGAL_LEGAL_FORM` set to the registered form).
-Its VAT regime is therefore `ordinary`: an S.r.l. cannot use the Italian
-forfettario regime. Cross-border B2C sales within the EU are possible with OSS
-and B2B EU sales use reverse charge. These are the assumptions used to draft
-the text, not a confirmed fiscal position; the accountant must sign them off.
+**Launch assumption:** the operator is an Italian registered sole trader
+(`LEGAL_ENTITY_KIND=sole_trader`), as decided in ADR-0113 and confirmed in
+ADR-0118, under the `ordinary` VAT regime. Cross-border B2C sales within the
+EU are possible with OSS and B2B EU sales use reverse charge. These are the
+assumptions used to draft the text, not a confirmed fiscal position; the
+accountant must sign them off before `--paid` is enabled.
 
 The documents were drafted **without a formal legal review**, and that is a
 recorded decision (ADR-0090), not an omission. A review remains open work, as
@@ -337,7 +337,7 @@ independent second source, and are optional.
 | Topic                        | Decision                                                                                              |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Write path for M3 (ADR-0083) | Same fail-closed consensus gate as the read path (ADR-0002), not write-then-compensate                |
-| Entità legale                | EU (Italy); the legal notice follows art. 7 D.Lgs. 70/2003, not the German Impressum (ADR-0090)       |
+| Entità legale                | Italian registered sole trader, ordinary VAT (ADR-0113, ADR-0118); the notice follows art. 7 D.Lgs. 70/2003, not the German Impressum (ADR-0090) |
 | VAT                          | Stripe Tax (`automatic_tax`), one price inclusive of VAT (`tax_behavior: inclusive`), VAT ID collected for the EU reverse charge (ADR-0111) |
 | Tiers at launch              | Community (self-hosted) + one hosted self-service plan (Pro); dedicated infrastructure on contract (ADR-0111) |
 | Third-party security audit   | Before the launch, not after                                                                          |

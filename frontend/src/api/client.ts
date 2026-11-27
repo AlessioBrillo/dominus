@@ -1,13 +1,56 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { readSecure, removeSecure, writeSecure } from '../lib/secure-storage.js';
+
 const STORAGE_KEY = 'dominus_api_key';
-const BASE_URL = '/api/v1';
+const DEVICE_KEY = 'dominus_device_token';
+/**
+ * A bundled Capacitor app does not share the web origin: `/api/v1` would
+ * resolve against `capacitor://localhost`. The build sets an absolute API
+ * origin; the web build keeps the relative, same-origin default.
+ */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '') || '/api/v1';
+/** Store builds hide every price and purchase path (ADR-0114, ADR-0117). */
+export const IS_STORE_BUILD = import.meta.env.VITE_APP_VARIANT === 'store';
 
 export function getStoredApiKey(): string | null {
   try {
-    return sessionStorage.getItem(STORAGE_KEY);
+    return sessionStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(DEVICE_KEY);
   } catch {
     return null;
   }
+}
+
+/** A long-lived device credential (ADR-0116), distinct from a session API key. */
+export function storeDeviceToken(token: string): void {
+  try {
+    localStorage.setItem(DEVICE_KEY, token);
+  } catch {
+    /* non-fatal */
+  }
+  void writeSecure(DEVICE_KEY, token);
+}
+
+export function clearDeviceToken(): void {
+  try {
+    localStorage.removeItem(DEVICE_KEY);
+  } catch {
+    /* non-fatal */
+  }
+  void removeSecure(DEVICE_KEY);
+}
+
+export function getStoredDeviceToken(): string | null {
+  try {
+    return localStorage.getItem(DEVICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Native secure storage wins when a Capacitor plugin is installed. */
+export async function getStoredCredential(): Promise<string | null> {
+  const secure = await readSecure(DEVICE_KEY);
+  return secure ?? getStoredApiKey();
 }
 
 export function storeApiKey(key: string): void {
@@ -53,7 +96,7 @@ export function resolveUrl(path: string): string {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const apiKey = getStoredApiKey();
+  const apiKey = await getStoredCredential();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),

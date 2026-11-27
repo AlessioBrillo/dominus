@@ -186,6 +186,48 @@ const ROWS: readonly Row[] = [
   ['post', '/alerts/run', { tag: 'Portfolio', summary: 'Run the renewal check now' }],
   ['post', '/alerts/{id}/acknowledge', { tag: 'Portfolio', summary: 'Acknowledge one alert' }],
 
+  // Mobile shell (ADR-0114, ADR-0116)
+  [
+    'get',
+    '/mobile/today',
+    {
+      tag: 'Mobile',
+      summary: 'The decision inbox: alerts, renewals and watchlist changes in one response',
+      description: 'ADR-0115: states which evidence is available instead of implying an appraisal.',
+    },
+  ],
+  [
+    'post',
+    '/mobile/devices',
+    {
+      tag: 'Mobile',
+      summary: 'Mint a revocable per-device token (returned once, stored hashed)',
+      body: true,
+      success: '201',
+    },
+  ],
+  ['get', '/mobile/devices', { tag: 'Mobile', summary: 'List the caller tenant devices' }],
+  [
+    'delete',
+    '/mobile/devices/{id}',
+    { tag: 'Mobile', summary: 'Revoke a device and its push subscriptions' },
+  ],
+  [
+    'get',
+    '/mobile/push',
+    { tag: 'Mobile', summary: 'VAPID public key and the tenant push subscriptions' },
+  ],
+  [
+    'put',
+    '/mobile/push',
+    {
+      tag: 'Mobile',
+      summary: 'Subscribe a browser or device to the tenant alert topics',
+      body: true,
+    },
+  ],
+  ['delete', '/mobile/push/{id}', { tag: 'Mobile', summary: 'Remove a push subscription' }],
+
   // Analytics and reports
   ['get', '/analytics/accuracy', { tag: 'Analytics', summary: 'Prediction accuracy report' }],
   ['get', '/analytics/pnl', { tag: 'Analytics', summary: 'Portfolio profit and loss' }],

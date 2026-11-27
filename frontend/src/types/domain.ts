@@ -12,6 +12,14 @@ export interface ScoreResult {
   weightedScore: number;
   recommended: boolean;
   scoredAt: string;
+  /** ADR-0115: which signals actually had data for this estimate. */
+  signalStatus?: Array<{
+    name: string;
+    available: boolean;
+    coverage?: number;
+    dataDensity?: number;
+    error?: string;
+  }>;
   breakdown: {
     intrinsic: { score: number; weight: number };
     commercial: { score: number; weight: number };
