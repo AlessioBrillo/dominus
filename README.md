@@ -1,6 +1,6 @@
-# DOMINUS — Open-Source Domain Valuation & Domain Portfolio Management Software
+# DOMINUS — Open-Source Domain Decision Support & Portfolio Management Software
 
-> Open-source decision-support engine for domain valuation, buying, reselling, and managing DNS domain portfolios — available as a self-hosted community edition or managed cloud service.
+> Open-source decision-support engine for buying, passing, reselling and managing DNS domain portfolios — available as a self-hosted community edition, an installable mobile PWA, or a managed cloud service. It does not appraise domains: it shows the maximum to pay, the trademark verdict and the renewal verdict, together with the evidence behind each one.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
@@ -9,7 +9,7 @@
 
 <!-- The gate is the Woodpecker pipeline (.woodpecker/ci.yml), run locally with `ci-local` (needs Docker) or on a Woodpecker server. GitHub Actions is a billing-blocked mirror, so its badges are not shown. -->
 
-DOMINUS is an **open-source domain investment tool** for domain purchase, portfolio, and pricing decisions. It combines **domain valuation** (heuristic estimate of market value, buy ceiling, and list price), **expired domain analysis** (age, backlinks, Wayback history), and **domain portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It is **free software under AGPL v3**, free to fork, and needs **no paid API** in the community edition. The project charges no hosting fee; you pay for the infrastructure you run it on.
+DOMINUS is an **open-source domain investment tool** for purchase, portfolio and pricing decisions. It combines a conservative **heuristic estimate** (with an explicit buy ceiling, list price and evidence state), **expired domain analysis** (age, backlinks, Wayback history) and **portfolio management** (renewal clock, keep/drop/reprice verdicts) with a mandatory **trademark check** before any buy recommendation. It sells a decision method, not an appraisal: every estimate says which signals were available and which were not. It is **free software under AGPL v3**, free to fork, and needs **no paid API** in the community edition. The project charges no hosting fee; you pay for the infrastructure you run it on.
 
 **DOMINUS Community** (AGPL v3) — self-hosted, the full scoring engine and pipeline, with unlimited use in your own deployment and no paid tier required.
 
@@ -51,6 +51,24 @@ flowchart LR
 | --------------------------------------- | ----------------------------------------- |
 | ![Dashboard](docs/assets/dashboard.png) | ![Candidates](docs/assets/candidates.png) |
 | ![Portfolio](docs/assets/portfolio.png) |                                           |
+
+### Mobile PWA
+
+The same React application ships a **mobile-first shell** and an installable PWA
+(manifest, maskable icons, app-shell service worker and web push where the
+platform supports it). Five decision destinations — Today, Appraise, Holdings,
+Alerts and Account — replace the wide desktop tables on a phone; the desktop
+dashboard is unchanged.
+
+|                                          |                                           |
+| ---------------------------------------- | ----------------------------------------- |
+| ![Mobile Today](docs/assets/mobile-today.png) | ![Mobile Holdings](docs/assets/mobile-portfolio.png) |
+
+The PWA is free and contains no prices, checkout or upgrade button. Web push
+needs VAPID keys in the deployment environment; native FCM/APNs delivery and
+store builds are follow-up work. See the
+[mobile release runbook](docs/releases/mobile-release.md) and
+[operations checklist](docs/releases/pwa-launch-operations.md).
 
 ## Why Open-Source?
 

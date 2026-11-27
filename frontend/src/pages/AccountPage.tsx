@@ -13,22 +13,13 @@ import {
   unsubscribePush,
 } from '@/api/mobile';
 import { IS_STORE_BUILD, getStoredDeviceToken, storeDeviceToken } from '@/api/client';
+import { toApplicationServerKey } from '@/lib/web-push';
 import { useAuth } from '@/hooks/useAuth';
 import { DataRightsCard } from '@/components/DataRightsCard';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-
-/** VAPID keys are base64url; PushManager expects a Uint8Array. */
-function toApplicationServerKey(base64url: string): ArrayBuffer {
-  const padding = '='.repeat((4 - (base64url.length % 4)) % 4);
-  const base64 = (base64url + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(base64);
-  const bytes = new Uint8Array(new ArrayBuffer(raw.length));
-  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
-  return bytes.buffer;
-}
 
 /** Account is the fifth mobile destination (ADR-0114) and holds the
  *  store-compliant controls: durable credential, push opt-in and erasure. */

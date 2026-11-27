@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { test, expect } from '@playwright/test';
-import { login } from './utils';
+import { E2E_API_KEY, login } from './utils';
+
+// The wizard is tenant state, not browser state. Reset it before every test
+// so the shell specs are order-independent when the mobile project runs after
+// the onboarding specs.
+test.beforeEach(async ({ request }) => {
+  await request.patch('/api/v1/onboarding/state', {
+    headers: { Authorization: `Bearer ${E2E_API_KEY}` },
+    data: { currentStep: 'complete' },
+  });
+});
 
 /**
  * Mobile shell guardrail (ADR-0114). Runs in the desktop Chromium project but

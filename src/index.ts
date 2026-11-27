@@ -643,10 +643,16 @@ async function main(): Promise<void> {
     );
   }
   protectedRouter.use('/watchlist', createWatchlistRouter(deps.watchlistService));
-  protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate));
+  protectedRouter.use('/score', createScoreRouter(deps.engine, deps.trademarkGate, deps.eventRepo));
   protectedRouter.use(
     '/onboarding',
-    createOnboardingRouter(deps.provider, deps.engine, deps.trademarkGate, deps.portfolioManager),
+    createOnboardingRouter(
+      deps.provider,
+      deps.engine,
+      deps.trademarkGate,
+      deps.portfolioManager,
+      deps.eventRepo,
+    ),
   );
   protectedRouter.use('/purchase', createPurchaseRouter(deps.purchaseService));
   protectedRouter.use('/automation', createAutomationRouter(deps.postAcquisitionService));

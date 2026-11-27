@@ -189,12 +189,14 @@ export function LandingPage() {
                 Buy or pass, with evidence
               </Badge>
               <h1 className="text-4xl font-bold leading-tight text-text-primary sm:text-5xl">
-                A domain is worth what the evidence says it is worth.
+                Buy or pass with evidence, not a guessed price.
               </h1>
               <p className="mt-4 max-w-2xl text-lg text-text-secondary">
-                DOMINUS runs the five checks a domain investment needs - availability, registry
-                confirmation, valuation, trademark screening - and answers one question per domain:
-                buy or pass. It never recommends a domain whose trademark could not be checked.
+                DOMINUS runs five checks - availability, registry confirmation, scoring, trademark
+                screening and a renewal clock - and gives you a maximum to pay, a trademark verdict
+                and a keep/drop decision. It shows which evidence is missing instead of filling the
+                gap with a number. It never recommends a domain whose trademark could not be
+                checked.
               </p>
               <p className="mt-3 max-w-2xl text-sm text-text-muted">
                 The output is an estimate, not an appraisal and not investment advice. Verify before

@@ -42,6 +42,21 @@ export class EventRepository {
     ]);
   }
 
+  /**
+   * Record an event at most once per tenant. The funnel counts first-time
+   * milestones (`first_score`, `portfolio_import`); without this guard a
+   * second score or a second import would inflate activation (ADR-0117).
+   */
+  async recordOnce(event: ProductEvent): Promise<boolean> {
+    const row = await this.db.queryOne<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM events WHERE tenant_id = ? AND type = ?',
+      [event.tenantId, event.type],
+    );
+    if (Number(row?.count ?? 0) > 0) return false;
+    await this.record(event);
+    return true;
+  }
+
   /** Counts by event type. Used by the operator funnel, not by billing. */
   async funnelCounts(): Promise<FunnelCounts> {
     // Funnel events are written under the `public` tenant so the operator can

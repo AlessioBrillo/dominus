@@ -168,9 +168,21 @@ export function DashboardPage() {
             </button>
           ))}
           {today.data && (
-            <p className="pt-1 text-[11px] text-text-muted" role="note">
-              {today.data.evidence.note}
-            </p>
+            <div className="space-y-1 pt-1" data-testid="today-evidence">
+              <p className="text-[11px] text-text-muted">
+                Market data:{' '}
+                <span
+                  className={
+                    today.data.evidence.marketDataAvailable ? 'text-success' : 'text-text-muted'
+                  }
+                >
+                  {today.data.evidence.marketDataAvailable ? 'available' : 'not available'}
+                </span>
+              </p>
+              <p className="text-[11px] text-text-muted" role="note">
+                {today.data.evidence.note}
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -5,8 +5,30 @@ import type { ScoringEngine } from '../../scoring/scoring-engine.js';
 import type { TrademarkGate } from '../../trademark/trademark-gate.js';
 import { isValidDomain, parseDomain } from '../../utils/domain.js';
 import { getRouteParam } from '../route-utils.js';
+import { getLogger } from '../../logger.js';
+import type { EventRepository } from '../../db/repositories/event-repository.js';
 
-export function createScoreRouter(engine: ScoringEngine, gate?: TrademarkGate): Router {
+const logger = getLogger();
+
+/** Funnel telemetry is best-effort: it must never fail a successful score. */
+async function recordFunnelMilestone(
+  repo: EventRepository | undefined,
+  tenantId: string,
+  domain: string,
+): Promise<void> {
+  if (!repo) return;
+  try {
+    await repo.recordOnce({ tenantId, type: 'first_score', props: { domain } });
+  } catch (err) {
+    logger.warn({ err, type: 'first_score' }, 'Funnel event could not be recorded');
+  }
+}
+
+export function createScoreRouter(
+  engine: ScoringEngine,
+  gate?: TrademarkGate,
+  eventRepo?: EventRepository,
+): Router {
   const router = Router();
 
   router.get('/:domain', (req: Request, res: Response, next: NextFunction): void => {
@@ -66,6 +88,7 @@ export function createScoreRouter(engine: ScoringEngine, gate?: TrademarkGate): 
           trademarkBuyBlocked = true;
         }
 
+        await recordFunnelMilestone(eventRepo, req.tenantId ?? 'default', domain);
         res.json({
           domain,
           score: { ...scoreResult, recommended: scoreResult.recommended && !trademarkBuyBlocked },

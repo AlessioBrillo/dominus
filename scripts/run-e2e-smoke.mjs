@@ -10,9 +10,9 @@
  * to everything the local gate ran.
  *
  * This script runs the subset that covers the regressions that actually
- * happen in practice — the authentication path, the portfolio table (the
- * strict-mode drift) and the accessibility gate — so the local gate cannot
- * be green while the shipped SPA is broken.
+ * happen in practice — authentication, the portfolio table (the strict-mode
+ * drift), the activation funnel, the phone shell and WCAG 2.1 AA — so the
+ * local gate cannot be green while the shipped SPA is broken.
  *
  * It is deliberately fail-closed:
  *
@@ -42,9 +42,13 @@ const SMOKE_SPECS = [
   'e2e/01-auth.spec.ts',
   'e2e/04-portfolio.spec.ts',
   'e2e/09-a11y.spec.ts',
-  // The mobile shell is now part of the shipped product (ADR-0114); a green
-  // gate must mean it still works on a phone viewport.
+  // The activation wizard and the mobile shell are part of the shipped
+  // product (ADR-0114, ADR-0117): a green gate must mean the first-score →
+  // import → alerts path and the phone viewport still work.
+  'e2e/03-onboarding.spec.ts',
   'e2e/11-mobile.spec.ts',
+  'e2e/12-mobile-a11y.spec.ts',
+  'e2e/13-mobile-push.spec.ts',
 ];
 
 function fail(message) {
@@ -102,7 +106,8 @@ const result = spawnSync(
     join(root, 'node_modules', '@playwright', 'test', 'cli.js'),
     'test',
     ...SMOKE_SPECS,
-    '--project=chromium',
+    // Both projects run: the mobile project matches only the phone specs and
+    // the Chromium project explicitly ignores them, so each test runs once.
     ...process.argv.slice(2),
   ],
   { cwd: root, stdio: 'inherit', env: { ...process.env, CI: process.env.CI ?? '1' } },

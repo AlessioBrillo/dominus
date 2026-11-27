@@ -19,6 +19,19 @@ submission is a sequence of external actions, not a feature flag.
 - Push opt-ins: `GET/PUT/DELETE /api/v1/mobile/push`, VAPID keys from the
   environment, and `WebPushNotifier` wired into the tenant notification
   chain with per-topic filtering.
+- A **three-step mandatory activation wizard** (`/onboarding`): score a domain
+  (or use the sample fallback with its evidence state), import a real portfolio,
+  then make an explicit alert decision. There is no skip button: the funnel
+  targets of [founding-cohort.md](founding-cohort.md) only mean something if
+  every workspace walks the same path (ADR-0117). The server records the
+  `first_score` and `portfolio_import` milestones at most once per tenant.
+- The evidence contract of ADR-0115 is now repeated on every mobile decision
+  surface: the Today inbox shows market-data availability, portfolio cards
+  label the list price as an estimate, and Alerts state that they are not an
+  appraisal.
+- A dedicated `mobile` Playwright project (Pixel 5) with axe scans of the phone
+  shell. The end-to-end smoke gate runs both projects, so a green gate covers
+  activation and the phone viewport, not just the desktop dashboard.
 - A store build variant (`VITE_APP_VARIANT=store`) that compiles prices,
   checkout and signup out of the bundle.
 - Capacitor configuration and build scripts. The native projects are
@@ -39,6 +52,10 @@ Operator tasks, in order:
    and the stranger test of ADR-0112.
 6. Keep `CLOUD_PAID_ENABLED=false` until the identity and fiscal position
    are complete (ADR-0108, ADR-0118).
+
+The complete zero-precondition checklist — domain, SMTP, VAPID, CORS, gates
+and the evidence to record — is
+[pwa-launch-operations.md](pwa-launch-operations.md).
 
 Exit gate: the funnel targets of
 [founding-cohort.md](founding-cohort.md) are met — at least 20 design

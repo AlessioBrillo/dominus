@@ -17,20 +17,28 @@ test.describe('onboarding', () => {
     }
   });
 
-  test('a fresh install redirects to the onboarding wizard', async ({ page }) => {
+  test('a fresh install redirects to the three-step activation wizard', async ({ page }) => {
     await expect(page).toHaveURL(/\/onboarding/);
     await expect(page.getByRole('heading', { name: 'Get Started' })).toBeVisible();
-    await expect(
-      page.getByText('Set up DOMINUS for your domain portfolio in 3 steps'),
-    ).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Welcome to DOMINUS' })).toBeVisible();
+    await expect(page.getByText('Score, import and set alerts in 3 steps')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Score a domain' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /skip setup/i })).toHaveCount(0);
   });
 
-  test('step navigation moves between wizard steps', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Welcome to DOMINUS' })).toBeVisible();
+  test('the sample fallback unlocks the import step', async ({ page }) => {
+    await expect(page.getByRole('heading', { name: 'Score a domain' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Get Started' }).click();
-    await expect(page.getByRole('heading', { name: 'See it in action' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Run Sample' })).toBeVisible();
+    await page.getByRole('button', { name: /use sample data instead/i }).click();
+    await expect(page.getByRole('button', { name: /next: import portfolio/i })).toBeEnabled();
+    await page.getByRole('button', { name: /next: import portfolio/i }).click();
+    await expect(page.getByRole('heading', { name: 'Import your portfolio' })).toBeVisible();
+
+    // The final step is reached only after a real import, never by skipping.
+    await expect(page.getByRole('button', { name: /next: turn on alerts/i })).toHaveCount(0);
+    await page.getByLabel(/domains \(one per line\)/i).fill('vintagecoffee.com');
+    await page.getByRole('button', { name: /analyze portfolio/i }).click();
+    await expect(page.getByRole('button', { name: /next: turn on alerts/i })).toBeVisible();
+    await page.getByRole('button', { name: /next: turn on alerts/i }).click();
+    await expect(page.getByRole('heading', { name: 'Turn on alerts' })).toBeVisible();
   });
 });

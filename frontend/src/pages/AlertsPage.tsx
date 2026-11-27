@@ -45,6 +45,11 @@ export function AlertsPage() {
         }
       />
 
+      <p className="text-[11px] text-text-muted" role="note">
+        Alerts come from your renewal clock and verdicts, not from an appraisal. Verify before you
+        spend.
+      </p>
+
       {isLoading && (
         <div className="space-y-3" aria-busy="true">
           <Skeleton className="h-20 w-full" />

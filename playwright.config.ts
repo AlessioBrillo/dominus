@@ -35,7 +35,23 @@ export default defineConfig({
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // The mobile shell has its own device project (ADR-0114) instead of a
+  // per-file viewport override: the desktop specs keep their 1280 px contract.
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: ['**/11-mobile.spec.ts', '**/12-mobile-a11y.spec.ts', '**/13-mobile-push.spec.ts'],
+    },
+    {
+      name: 'mobile',
+      // Pixel 5 keeps the mobile project on Chromium: WebKit needs a second
+      // browser download and the shell is verified on the same engine as the
+      // rest of the suite. iOS layout is a Phase C store concern.
+      use: { ...devices['Pixel 5'] },
+      testMatch: ['**/11-mobile.spec.ts', '**/12-mobile-a11y.spec.ts', '**/13-mobile-push.spec.ts'],
+    },
+  ],
   webServer: {
     command: 'node scripts/e2e-wipe.mjs && node dist/index.js',
     url: `${BASE_URL}/api/health`,
