@@ -48,6 +48,19 @@ Task-oriented, each one start to finish:
 - [Terraform (Hetzner)](../deploy/terraform/README.md) — two-node Cloud
   infrastructure: app node, PITR database node, Caddy with TLS
 
+## Launch
+
+- [Community soft launch](releases/soft-launch-community.md) — the verified
+  release channel and the announcement, without a paid claim
+- [Public PWA launch operations](releases/pwa-launch-operations.md) — the
+  zero-precondition checklist for the installable mobile app
+- [Mobile release runbook](releases/mobile-release.md) — what shipped in the
+  repository and what an operator still has to do
+- [Founding cohort](releases/founding-cohort.md) — interviews, design partners
+  and the activation targets
+- [Design partner outreach and interviews](releases/design-partner-outreach.md)
+  — twenty contact messages and the fifteen willingness-to-pay questions
+
 ## Operations
 
 - [RTO / RPO](operations/rto-rpo.md) — recovery targets and the recovery

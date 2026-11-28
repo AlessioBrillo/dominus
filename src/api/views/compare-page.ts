@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
-import { pageHtml, trackCtaHtml, COMPARE_CSS_HREF, SITE_NAME } from './page-template.js';
+import {
+  pageHtml,
+  trackCtaHtml,
+  COMPARE_CSS_HREF,
+  SITE_NAME,
+  DEFAULT_SITE_URL,
+} from './page-template.js';
 import { compareItemListJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
@@ -36,7 +42,7 @@ export function renderComparePage(
   score2: CompareScore,
   siteUrl?: string,
 ): string {
-  const site = siteUrl ?? 'https://dominus.app';
+  const site = siteUrl ?? DEFAULT_SITE_URL;
   const title = `Compare ${escapeHtml(domain1)} vs ${escapeHtml(domain2)} — Domain Scores | ${SITE_NAME}`;
   const description = `Side-by-side comparison of ${escapeHtml(domain1)} (EV: €${score1.score.expectedValue.toFixed(0)}) and ${escapeHtml(domain2)} (EV: €${score2.score.expectedValue.toFixed(0)}). Automated estimates, not appraisals.`;
   const canon = `/public/compare/${escapeHtml(domain1)}/${escapeHtml(domain2)}`;

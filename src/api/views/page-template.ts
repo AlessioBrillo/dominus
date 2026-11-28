@@ -19,6 +19,15 @@ export const COMPARE_CSS_HREF = '/public/static/assets/public-compare.css';
 export const ERROR_CSS_HREF = '/public/static/assets/public-error.css';
 export const SITE_NAME = 'DOMINUS';
 
+/**
+ * Last-resort origin for isolated render calls that carry no request context
+ * (unit tests, offline previews). Production always passes the configured
+ * PUBLIC_APP_URL in through siteUrlForReq, so this value never reaches a
+ * public page. It is deliberately unresolvable: a parked or borrowed domain
+ * would silently publish the wrong canonical/JSON-LD origin.
+ */
+export const DEFAULT_SITE_URL = 'https://example.invalid';
+
 export function pageHtml(
   title: string,
   headExtras: string,

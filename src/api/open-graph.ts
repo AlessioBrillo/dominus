@@ -66,7 +66,7 @@ function renderOgSvg(data: OgScoreData): string {
   <rect x="190" y="400" width="160" height="40" rx="20" fill="${tmColor}" opacity="0.15"/>
   <text x="270" y="426" font-family="system-ui, -apple-system, sans-serif" font-size="16" fill="${tmColor}" font-weight="600" text-anchor="middle">TM: ${data.trademark.toUpperCase()}</text>
 
-  <text x="48" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#52525b">dominus.app — Free Domain Investment Intelligence</text>
+  <text x="48" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#52525b">Buy or pass, with evidence. Estimates, not appraisals.</text>
 </svg>`;
 }
 
