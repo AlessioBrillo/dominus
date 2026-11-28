@@ -287,7 +287,7 @@ const configSchema = z
      *  open to 'unverified' (must stay well below the provider deadline). */
     ANON_TRADEMARK_ACQUIRE_TIMEOUT_MS: z.coerce.number().int().min(100).max(15000).default(1000),
     /**
-     * Absolute base URL of the public site (e.g. 'https://dominus.app').
+     * Absolute base URL of the public site (e.g. 'https://app.dominus.example').
      * Used as the origin for canonical URLs, Open Graph metadata, JSON-LD,
      * the robots.txt Sitemap directive, and the sitemap URLs on the
      * server-rendered public pages. When unset, the request origin

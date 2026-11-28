@@ -146,4 +146,53 @@ describe('LandingPage', () => {
     expect(screen.getByRole('link', { name: 'Terms' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Privacy' })).toBeInTheDocument();
   });
+
+  it('describes the installable mobile app without a purchase path', () => {
+    renderLanding();
+    expect(
+      screen.getByRole('heading', { name: 'The same method, in five decision screens' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/The app is free and has no prices, checkout or upgrade button/),
+    ).toBeInTheDocument();
+  });
+
+  it('uses the configured operator contact address, never a parked domain', async () => {
+    vi.mocked(getLegalContent).mockResolvedValue({
+      mode: 'cloud',
+      status: 'cloud_paid',
+      version: '2026-11-20',
+      contentHash: 'a'.repeat(64),
+      documentHashes: { terms: 'a'.repeat(64), privacy: 'a'.repeat(64) },
+      waitlistAvailable: false,
+      updatedAt: '2026-11-20',
+      securityContactAvailable: false,
+      sourceCodeUrl: 'https://github.com/AlessioBrillo/dominus',
+      identityPublished: true,
+      identity: {
+        entityName: 'Example Operator',
+        tradingName: 'DOMINUS',
+        entityKind: 'individual',
+        legalForm: '',
+        shareCapital: '',
+        registeredAddress: 'Via Roma 1',
+        vatId: '',
+        reaNumber: '',
+        registroImprese: '',
+        pec: '',
+        contactEmail: 'operator@example.it',
+        privacyEmail: 'privacy@example.it',
+        supervisoryAuthority: 'Garante per la protezione dei dati personali (Italy)',
+        vatRegime: 'none',
+      },
+      documents: [],
+    });
+    renderLanding();
+    const contact = await screen.findByRole('link', { name: 'contact us' });
+    expect(contact).toHaveAttribute(
+      'href',
+      'mailto:operator@example.it?subject=Dedicated%20infrastructure%20enquiry',
+    );
+    expect(document.body.textContent).not.toContain('dominus.app');
+  });
 });

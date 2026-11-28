@@ -5,7 +5,16 @@ import { Badge } from '@/components/ui/badge';
 import { LoginForm } from '@/components/LoginForm';
 import { WaitlistForm } from '@/components/WaitlistForm';
 import { useLegalContent } from '@/hooks/useLegalContent';
-import { ShieldCheck, Gauge, Briefcase, ArrowRight, ExternalLink, Clock } from 'lucide-react';
+import {
+  ShieldCheck,
+  Gauge,
+  Briefcase,
+  ArrowRight,
+  ExternalLink,
+  Clock,
+  Smartphone,
+  Bell,
+} from 'lucide-react';
 import { IS_STORE_BUILD } from '@/api/client';
 
 /**
@@ -34,7 +43,7 @@ const PIPELINE_STAGES = [
   { label: 'RDAP confirmation', detail: 'The registry is asked, and premium names are rejected.' },
   {
     label: 'Scoring',
-    detail: 'Expected value, confidence, suggested buy maximum, suggested list price.',
+    detail: 'Maximum to pay, estimate and confidence — with the signals behind each one.',
   },
   {
     label: 'Trademark gate',
@@ -46,7 +55,7 @@ const FEATURES = [
   {
     icon: Gauge,
     title: 'One question per domain',
-    body: 'Buy or pass. The engine answers with an expected value, a confidence and the maximum you should pay. It is designed to be conservative: when the data is missing it lowers the estimate or refuses to answer.',
+    body: 'Buy or pass. The engine answers with the maximum you should pay, an estimate and a confidence — and shows which signals actually had data. It is designed to be conservative: when data is missing it lowers the estimate or refuses to answer.',
   },
   {
     icon: ShieldCheck,
@@ -86,7 +95,7 @@ const PLANS = [
     net: 0,
     unit: 'to evaluate',
     features: [
-      '25 appraisals per month',
+      '25 estimates per month',
       '5 domains tracked, with the renewal clock',
       '1 seat and 1 machine key',
       'Upgrade when your real list outgrows it',
@@ -143,6 +152,16 @@ export function LandingPage() {
   const waitlistLabel = legal?.waitlistUrl ? 'Join the waitlist' : 'Follow the project';
   const firstPartyWaitlist = isWaitlist && !legal?.waitlistUrl && legal?.waitlistAvailable === true;
   const vatRegime: VatRegime = legal?.identity.vatRegime ?? 'ordinary';
+  // The operator identity is configuration, never a hard-coded address. A
+  // parked domain in the bundle would outlive the deployment it described.
+  // Only a plain address is safe to interpolate into a mailto URI. Anything
+  // else (query fragments, whitespace, control characters) falls back to the
+  // repository instead of producing a broken or injected link.
+  const contactEmail =
+    legal?.identity.contactEmail?.trim().match(/^[^\s@?&#]+@[^\s@?&#]+$/)?.[0] ?? '';
+  const dedicatedHref = contactEmail
+    ? `mailto:${contactEmail}?subject=Dedicated%20infrastructure%20enquiry`
+    : REPOSITORY_URL;
 
   return (
     <div className="min-h-screen bg-bg-primary text-text-primary">
@@ -157,6 +176,9 @@ export function LandingPage() {
           <nav aria-label="Main" className="flex items-center gap-4">
             <a href="#how" className="text-sm text-text-secondary hover:text-text-primary">
               How it works
+            </a>
+            <a href="#mobile" className="text-sm text-text-secondary hover:text-text-primary">
+              Mobile
             </a>
             {isPaid && (
               <a href="#pricing" className="text-sm text-text-secondary hover:text-text-primary">
@@ -308,6 +330,60 @@ export function LandingPage() {
           </div>
         </section>
 
+        <section id="mobile" className="border-t border-border bg-bg-secondary">
+          <div className="mx-auto max-w-6xl px-4 py-16">
+            <div className="grid gap-8 lg:grid-cols-[3fr_2fr] lg:items-start">
+              <div>
+                <Badge variant="outline" className="mb-4">
+                  Installable on your phone
+                </Badge>
+                <h2 className="text-2xl font-bold text-text-primary">
+                  The same method, in five decision screens
+                </h2>
+                <p className="mt-3 max-w-2xl text-text-secondary">
+                  The mobile app is the installable web app, not a second product. Today gives you
+                  the decisions that need you; Appraise answers buy or pass; Holdings keeps the
+                  renewal clock; Alerts carries the verdicts; Account holds your devices and data
+                  rights. Every screen shows which evidence was available instead of hiding a gap
+                  behind a number.
+                </p>
+                <p className="mt-3 max-w-2xl text-sm text-text-muted">
+                  The app is free and has no prices, checkout or upgrade button. It shows your plan
+                  as a fact; account management stays on the web. Browser push works where the
+                  platform supports it.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                {[
+                  {
+                    icon: Smartphone,
+                    title: 'Today, not a dashboard',
+                    body: 'One inbox for renewals, watchlist changes and verdicts waiting on you.',
+                  },
+                  {
+                    icon: ShieldCheck,
+                    title: 'Evidence on every screen',
+                    body: 'An estimate is labelled as an estimate, and missing signals are named.',
+                  },
+                  {
+                    icon: Bell,
+                    title: 'Alerts that open the decision',
+                    body: 'A notification takes you to the domain, not to the app root.',
+                  },
+                ].map((item) => (
+                  <Card key={item.title}>
+                    <CardContent className="pt-4">
+                      <item.icon className="h-5 w-5 text-brand-400" aria-hidden="true" />
+                      <h3 className="mt-2 text-sm font-semibold text-text-primary">{item.title}</h3>
+                      <p className="mt-1 text-xs text-text-muted">{item.body}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
         {isWaitlist ? (
           <section className="border-t border-border bg-bg-secondary">
             <div className="mx-auto max-w-3xl px-4 py-16">
@@ -418,10 +494,7 @@ export function LandingPage() {
                 <p className="mt-6 text-xs text-text-muted">
                   Annual billing is €290 (ten monthly payments). Dedicated infrastructure with a
                   custom SLA and SSO is arranged by agreement —{' '}
-                  <a
-                    className="underline"
-                    href="mailto:hello@dominus.app?subject=Dedicated%20infrastructure%20enquiry"
-                  >
+                  <a className="underline" href={dedicatedHref}>
                     contact us
                   </a>
                   . The consumer may withdraw within 14 days and pays only for the service supplied.

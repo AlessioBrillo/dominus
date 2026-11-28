@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { escapeHtml } from './escape.js';
-import { pageHtml, trackCtaHtml, BASE_CSS_HREF, SITE_NAME } from './page-template.js';
+import {
+  pageHtml,
+  trackCtaHtml,
+  BASE_CSS_HREF,
+  SITE_NAME,
+  DEFAULT_SITE_URL,
+} from './page-template.js';
 import { scoreDatasetJsonLd, breadcrumbJsonLd, organizationJsonLd, metaTags } from './jsonld.js';
 import type { JsonLdScoreData } from './jsonld.js';
 
@@ -32,7 +38,7 @@ export function renderDomainPage(
   trademark?: { verdict: string; verifiedSources: string[]; matchedMark?: string | null } | null,
   siteUrl?: string,
 ): string {
-  const site = siteUrl ?? 'https://dominus.app';
+  const site = siteUrl ?? DEFAULT_SITE_URL;
   const verdict = score.recommended ? 'Recommended' : 'Not Recommended';
   const tmStatus =
     trademark?.verdict === 'clear'
